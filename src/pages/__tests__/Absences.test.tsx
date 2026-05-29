@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Absences from "../Absences";
@@ -120,6 +120,34 @@ describe("Absence inbox", () => {
     expect(await screen.findByText("All caught up! No absences match these filters.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view all/i })).toHaveAttribute("href", "/absences");
     expect(screen.getByRole("link", { name: /view dashboard/i })).toHaveAttribute("href", "/absences/dashboard");
+  });
+
+  it("shows Actioned button for reviewed absences but not for pending", async () => {
+    const reviewedPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], status: "reviewed" }],
+      total_count: 1,
+    };
+    const pendingPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], id: "abs-2", wcode: "W999999", status: "pending" }],
+      total_count: 1,
+    };
+
+    // First render: reviewed item — Actioned button should appear
+    mockApiJson.mockResolvedValueOnce(reviewedPage);
+    renderPage("/absences?status=reviewed");
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /actioned/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /mark reviewed/i })).not.toBeInTheDocument();
+
+    // Unmount and re-render: pending item — Actioned button should NOT appear
+    cleanup();
+    mockApiJson.mockResolvedValueOnce(pendingPage);
+    renderPage("/absences?status=pending");
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /actioned/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mark reviewed/i })).toBeInTheDocument();
   });
 
   it("bulk cancels selected absences with a recorded reason", async () => {

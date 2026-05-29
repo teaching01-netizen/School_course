@@ -421,6 +421,7 @@ export default function Absences() {
                   <div className="flex justify-end gap-1">
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
+                    {absence.status === "reviewed" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Actioned</Button> : null}
                     {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
                   </div>
                 </td>
