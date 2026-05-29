@@ -831,7 +831,10 @@ export default function Schedule() {
           }
         >
           {editSeriesLoading || !editSeriesForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div className="py-6 text-center text-sm text-gray-400">
+              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              Loading…
+            </div>
           ) : (
             <div className="space-y-6">
               <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
@@ -890,7 +893,10 @@ export default function Schedule() {
           }
         >
           {editSeriesEntireLoading || !editSeriesEntireForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div className="py-6 text-center text-sm text-gray-400">
+              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              Loading…
+            </div>
           ) : (
             <div className="space-y-6">
               <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
@@ -954,7 +960,10 @@ export default function Schedule() {
           }
         >
           {cancelSeriesLoading && !cancelSeriesForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div className="py-6 text-center text-sm text-gray-400">
+              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              Loading…
+            </div>
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

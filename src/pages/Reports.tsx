@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ApiRequestError, apiJson } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import { endOfLocalDay, minutesBetweenRFC3339, startOfLocalDay } from '../utils/time';
+import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 
@@ -12,7 +14,7 @@ type Room = { id: string; name: string; capacity: number | null };
 type Teacher = { id: string; username: string; role: 'Admin' | 'Teacher' };
 
 export default function Reports() {
-  const [activeReport, setActiveReport] = useState<'daily' | 'teachers' | 'classrooms' | 'courses'>('daily');
+  const [activeReport, setActiveReport] = useState<'daily' | 'teachers' | 'classrooms' | 'courses' | 'absences'>('daily');
   const { addToast } = useToast();
 
   const today = useMemo(() => new Date(), []);
@@ -120,7 +122,7 @@ export default function Reports() {
         <span className="text-sm text-gray-500">to</span>
         <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-2 py-1 text-sm border border-gray-300 rounded-sm" />
         <Button variant="primary" size="md" onClick={() => void load()}>Reload</Button>
-        {loading ? <span className="text-sm text-gray-500">Loading…</span> : null}
+        {loading ? <LoadingSkeleton type="table" lines={3} /> : null}
       </div>
 
       <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
@@ -129,6 +131,7 @@ export default function Reports() {
           { key: 'teachers' as const, label: 'Teacher Load' },
           { key: 'classrooms' as const, label: 'Classroom Utilization' },
           { key: 'courses' as const, label: 'Course Completion' },
+          { key: 'absences' as const, label: 'Absences' },
         ].map((r) => (
           <button
             key={r.key}
@@ -255,6 +258,17 @@ export default function Reports() {
             ))}
           </tbody>
         </table></div>
+      )}
+
+      {activeReport === 'absences' && (
+        <div>
+          <div className="bg-gray-50 border border-gray-200 p-4 rounded-sm">
+            <p className="text-sm text-gray-600">View absence analytics and trends in the dedicated Absence Dashboard.</p>
+            <Link to="/absences/dashboard" className="mt-2 inline-flex items-center text-sm font-medium text-[var(--color-wi-primary)] hover:underline">
+              Go to Absence Dashboard →
+            </Link>
+          </div>
+        </div>
       )}
     </div>
   );

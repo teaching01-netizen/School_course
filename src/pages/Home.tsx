@@ -5,6 +5,7 @@ import { ApiRequestError, apiJson } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import WILogo from '../components/WILogo';
 import { localDayRangeRFC3339 } from '../utils/time';
+import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
 
@@ -123,7 +124,7 @@ export default function Home() {
       {/* Room Sections */}
       <div className="space-y-6">
         {loading ? (
-          <div className="text-sm text-gray-500">Loading…</div>
+          <LoadingSkeleton type="table" lines={3} />
         ) : sessions.length === 0 ? (
           <EmptyState message={`No sessions found for ${dateStr}.`} />
         ) : (
