@@ -1,0 +1,16 @@
+{
+  "run_id": "20260521-173100-sev-3-add-explicit-policy-fo-6f0fbd16",
+  "task": "SEV-3: Add explicit policy for future async/caching/background jobs (idempotency strategy)",
+  "mode": "root",
+  "status": "initialized",
+  "created_at": "2026-05-21T17:31:00+00:00",
+  "updated_at": "2026-05-21T17:31:00+00:00",
+  "classification": {},
+  "phases": [],
+  "agents": {},
+  "events": [],
+  "files_claimed": {},
+  "verification": [],
+  "budget": {},
+  "risks": []
+}

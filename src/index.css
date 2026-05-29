@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+@theme {
+  --color-wi-dark: #0F172A;
+  --color-wi-nav: #0F172A;
+  --color-wi-primary: #2563EB;
+  --color-wi-primary-dark: #1D4ED8;
+  --color-wi-green: #059669;
+  --color-wi-green-dark: #047857;
+  --color-wi-blue: #2563EB;
+  --color-wi-blue-dark: #1D4ED8;
+  --color-wi-red: #DC2626;
+  --color-wi-red-dark: #991B1B;
+  --color-wi-yellow: #F59E0B;
+  --color-wi-gray: #64748B;
+  --color-wi-border: #CBD5E1;
+  --color-wi-bg: #F8FAFC;
+  --color-wi-row-alt: #F1F5F9;
+  --color-wi-text: #0F172A;
+  --color-wi-text-light: #64748B;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --color-wi-danger-bg: #FEF2F2;
+  --color-wi-amber: #D97706;
+  --color-wi-amber-bg: #FFFBEB;
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --transition-fast: 150ms ease;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-wi-bg);
+  color: var(--color-wi-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Baseline trust cues: predictable focus, readable links */
+.link {
+  color: var(--color-wi-primary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.link:hover {
+  color: var(--color-wi-primary-dark);
+  text-decoration: underline;
+}
+
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-wi-primary);
+  outline-offset: 2px;
+}
+
+/* Table styles matching the screenshot */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th, td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-wi-border);
+}
+
+th {
+  font-weight: 600;
+  color: var(--color-wi-text);
+  border-bottom: 2px solid var(--color-wi-border);
+}
+
+tr:hover {
+  background-color: var(--color-wi-row-alt);
+}
+
+/* Form controls */
+input, select {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 14px;
+  background-color: white;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--color-wi-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+/* Animations */
+@keyframes modal-enter {
+  from { opacity: 0; transform: scale(0.95) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes modal-overlay-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes dropdown-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes toast-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-modal-enter {
+  animation: modal-enter 200ms ease-out;
+}
+
+.animate-modal-overlay-enter {
+  animation: modal-overlay-enter 200ms ease-out;
+}
+
+.animate-dropdown-enter {
+  animation: dropdown-enter 150ms ease-out;
+}
+
+.animate-toast-enter {
+  animation: toast-slide-in 300ms ease-out;
+}
+
+.animate-toast-exit {
+  animation: toast-slide-out 200ms ease-in forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 250ms ease-out;
+}
+
+/* Print styles */
+@media print {
+  .no-print { display: none !important; }
+}

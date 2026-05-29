@@ -1,0 +1,64 @@
+{
+  "task": "Document and enforce idempotency strategy now to prevent duplicates when future async/caching/background jobs (cron/queues/webhooks) are added.",
+  "size": "M",
+  "risk": "medium",
+  "ambiguity": "medium",
+  "surfaces": [
+    "docs",
+    "backend",
+    "database"
+  ],
+  "phase_count": 3,
+  "phases": [
+    {
+      "id": "P1",
+      "kind": "audit",
+      "agent": "code_mapper_medium",
+      "reasoning": "medium",
+      "depends_on": [],
+      "objective": "Map relevant code paths, owners, tests, and likely blast radius without editing files.",
+      "acceptance": [
+        "Output satisfies the specific objective",
+        "No unrelated scope expansion"
+      ],
+      "validation": [
+        "Provide concise evidence or blocker"
+      ]
+    },
+    {
+      "id": "P2",
+      "kind": "implementation",
+      "agent": "batch_implementer_medium",
+      "reasoning": "medium",
+      "depends_on": [
+        "P1"
+      ],
+      "objective": "Implement the smallest complete scoped change bundle across related files; include targeted validation.",
+      "acceptance": [
+        "Output satisfies the specific objective",
+        "No unrelated scope expansion"
+      ],
+      "validation": [
+        "Provide concise evidence or blocker"
+      ]
+    },
+    {
+      "id": "P3",
+      "kind": "verification",
+      "agent": "verification_engine_medium",
+      "reasoning": "medium",
+      "depends_on": [
+        "P2"
+      ],
+      "objective": "Run verification commands matched to touched surfaces; collect concise evidence and failures.",
+      "acceptance": [
+        "Output satisfies the specific objective",
+        "No unrelated scope expansion"
+      ],
+      "validation": [
+        "Provide concise evidence or blocker"
+      ]
+    }
+  ],
+  "dispatch_policy": "Root compiles short Dispatch Packets per phase. Workers are leaf workers and must not invoke skills or spawn agents."
+}

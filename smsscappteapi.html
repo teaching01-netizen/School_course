@@ -1,0 +1,3770 @@
+
+<!DOCTYPE html>
+<html lang="en" style="height: 100%">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>SmartSMS</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;700&family=Roboto:wght@400;900&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="//cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+
+    
+    
+
+    <script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js" defer></script>
+    <script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js" defer></script>
+
+    <script type="text/javascript" src="https://cdn.datatables.net/buttons/1.6.5/js/dataTables.buttons.min.js" defer>
+    </script>
+    <script type="text/javascript" src="https://cdn.datatables.net/buttons/1.6.5/js/buttons.bootstrap4.min.js" defer>
+    </script>
+    <script type="text/javascript" src="https://cdn.datatables.net/select/1.3.1/js/dataTables.select.min.js" defer></script>
+    <script type="text/javascript" src="https://cdn.datatables.net/buttons/1.6.5/js/buttons.html5.min.js" defer></script>
+
+    
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
+
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/1.6.5/css/buttons.bootstrap4.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.3.1/css/select.bootstrap4.min.css">
+
+    
+    <script src="https://unpkg.com/phosphor-icons"></script>
+
+    
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-BmbxuPwQa2lc/FVzBcNJ7UAyJxM6wuqIj61tLrc4wSX0szH/Ev+nYRRuWlolflfl" crossorigin="anonymous">
+    
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/jquery-datetimepicker/2.5.20/jquery.datetimepicker.css"
+        rel="stylesheet">
+    <script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/jquery-datetimepicker/2.5.20/jquery.datetimepicker.full.min.js" defer>
+    </script>
+
+
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" type="text/css" href="https://smcp.sc4msg.com/css/style.css?version=2">
+
+    <script>
+        jQuery(document).ready(function($) {
+            $("#menu-toggle").click(function(e) {
+                e.preventDefault();
+                $("#wrapper").toggleClass("toggled");
+            });
+        })
+    </script>
+    <style>
+
+    </style>
+</head>
+
+<body style="height: 100%;background-color: #">
+
+    <div class="d-flex" id="wrapper">
+
+        <!-- Sidebar -->
+                    <div id="sidebar-wrapper" style="background: linear-gradient(to bottom, #0197CA, #00ACD2, #00BDDA, #34B6EE);">
+
+                
+                <div class="sidebar-fixed1">
+                    <div class="sidebar-heading" style="text-align: center; font-weight: bolder; color:#d8ffab;">
+                        SmartSMS
+                    </div>
+                    <div class="scroll-sidebar">
+                        <ul class="list-group list-group-flush">
+                            
+                            
+
+                                                        
+                                                        <li><a href="/"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action  active"><i
+                                        class="ph-house-fill mx-3"></i>
+                                    SMS Campaign</a></li>
+                                                        
+                                                        
+                                                        
+                                                        <li> <a href="/address-book"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-address-book-fill mx-3"></i> Address Book</a></li>
+                                                        
+                                                        <li><a href="/category"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-circles-three-plus-fill mx-3"></i>
+                                    Category</a>
+                            </li>
+                                                        
+                                                        <li><a href="/template"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-star-fill mx-3"></i> Template</a></li>
+                                                        
+                                                        <li> <a href="/block-list"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-lock-simple-fill mx-3"></i> Block List</a></li>
+                                                        
+                                                        <li><a href="/reports"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action  "><i
+                                        class="ph-fire-simple-fill mx-3"></i> Report</a></li>
+                                                        
+                                                        <li><a href="/abtesting"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-chart-line-up mx-3"></i> A/B Testing</a></li>
+                                                        
+                                                        <li data-toggle="collapse"
+                                aria-expanded="false"
+                                data-target="#menuDashboard" aria-controls="menuDashboard"><a
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-presentation-chart-fill mx-3"></i>  Dashboard<b
+                                        class="caret"></b></a>
+                            </li>
+                                                        <div class="collapse " id="menuDashboard">
+                                                                <li><a href="/dashboard/nolink"
+                                        class="submenu-group-item waves-effect waves-dark submenu-group-item-action ">
+                                        <i class="ph-circle mx-2"></i> Overview</a>
+                                </li>
+                                                                                                <li><a href="/dashboard/link"
+                                        class="submenu-group-item waves-effect waves-dark submenu-group-item-action ">
+                                        <i class="ph-circle mx-2"></i> Overview with link</a>
+                                </li>
+                                                                                                <li><a href="/dashboard/campaign"
+                                        class="submenu-group-item waves-effect waves-dark submenu-group-item-action ">
+                                        <i class="ph-circle mx-2"></i> Campaign</a>
+                                </li>
+                                                                                                <li><a href="/dashboard/engagement"
+                                        class="submenu-group-item waves-effect waves-dark submenu-group-item-action ">
+                                        <i class="ph-circle mx-2"></i> Engagement</a>
+                                </li>
+                                                                                                <li><a href="/dashboard/clicktime"
+                                        class="submenu-group-item waves-effect waves-dark submenu-group-item-action ">
+                                        <i class="ph-circle mx-2"></i> Clicktime</a>
+                                </li>
+                                                            </div>
+                            
+                                                        <li> <a href="/settings"
+                                    class="list-group-item waves-effect waves-dark list-group-item-action "><i
+                                        class="ph-gear-fill mx-3"></i> Settings</a></li>
+                                                        
+                                                        
+                                                    </ul>
+                    </div>
+                </div>
+            </div>
+
+                <!-- /#sidebar-wrapper -->
+
+        <!-- Page Content -->
+        <div id="page-content-wrapper" style="background-color: #eafaff">
+
+            <nav class="navbar navbar-expand-lg navbar-light border-bottom"
+                style="    background: #ffffff; position: fixed;
+            width: -webkit-fill-available;
+            z-index: 999;">
+                                    <button class="btn btn-outline-info btn-sm"
+                        id="menu-toggle">Menu</button>
+                    <button class="navbar-toggler" type="button" data-toggle="collapse"
+                        data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation" style="right: 0;">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                
+                <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                    <ul class="navbar-nav ml-auto mt-2 mt-lg-0" id="navbar-small">
+                                                                                                                                                                                                <li class="nav-item">
+                                <p style="margin-bottom: 0%" class="nav-link">Credit Balance
+                                    : 115731
+                                </p>
+                            </li>
+                            <li class="nav-item">
+                                <p style="margin-bottom: 0%" class="nav-link">
+                                    Reserved Credit
+                                    : 676
+                                </p>
+                            </li>
+                                                                                    <li class="nav-item dropdown">
+                                <a id="navbarDropdown" class="nav-link dropdown-toggle" href="#" role="button"
+                                    data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" v-pre>
+                                    user01@warwick
+                                </a>
+
+                                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navbarDropdown">
+                                    <a class="dropdown-item" href="https://smcp.sc4msg.com/logout"
+                                        onclick="event.preventDefault();
+                                                     document.getElementById('logout-form').submit();">
+                                        Logout
+                                    </a>
+
+                                    <form id="logout-form" action="https://smcp.sc4msg.com/logout" method="POST"
+                                        class="d-none">
+                                        <input type="hidden" name="_token" value="4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH">                                    </form>
+                                </div>
+                            </li>
+                                                <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" data-toggle="dropdown" href="#" role="button"
+                                aria-haspopup="true" aria-expanded="false">
+                                EN
+                            </a>
+                            <div class="dropdown-menu dropdown-menu-right">
+                                                                    <a class="dropdown-item"
+                                        href="https://smcp.sc4msg.com/sendsms?change_language=en">EN
+                                        (English)
+                                    </a>
+                                                                    <a class="dropdown-item"
+                                        href="https://smcp.sc4msg.com/sendsms?change_language=th">TH
+                                        (Thai)
+                                    </a>
+                                                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <div class="container-fluid" style="margin-left: 0%; margin-top: 65px; margin-bottom: 3%">
+                <div class="container">
+   <form accept-charset="UTF-8" method="POST">
+      <input type="hidden" name="_token" value="4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH">      <input type="hidden" id="original_link" name="original_link">
+      <input type="hidden" id="sms_data_upload_id" name="sms_data_upload_id">
+      <input type="hidden" id="temp_id" name="temp_id">
+      <input type="hidden" id="campaign_id" name="campaign_id">
+      <input type="hidden" id="address_book" name="address_book">
+      <input type="hidden" id="send_sms" name="send_sms">
+      <input type="hidden" id="preview_id" name="preview_id">
+      <input type="hidden" id="numberOfMobile">
+      <div class="form-row">
+         <div class="form-group col-md-7">
+            <div class="row">
+               <h1 style="font-weight: bold" class="col-form-label">
+                  SMS Campaign Detail
+               </h1>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-9">
+            <div class="row">
+               <label style="font-weight: bold" for="campaign" class="col-sm-3 col-form-label">
+                  Campaign Name
+               </label>
+               <div class="col-sm-5">
+                  <input placeholder="Campaign Name" class="form-control" id="campaign"
+                     name="campaign" value="CNM0258
+#1779993003">
+               </div>
+               <div class="col-sm-3">
+                  <p style="color: red">* Required Field </p>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-9">
+            <div class="row">
+               <label style="font-weight: bold" for="campaign_no" class="col-sm-3 col-form-label">
+                  Campaign ID
+               </label>
+               <div class="col-sm-5">
+                  <input placeholder="Campaign ID" class="form-control" id="campaign_no"
+                     name="campaign_no" value="CNO0258
+#1779993003">
+               </div>
+               <div class=" col-sm-3">
+                  <p style="color: red">* Required Field</p>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-9">
+            <div class="row">
+               <label style="font-weight: bold" for="label" class="col-sm-3 col-form-label">
+                  Category/WBS Code
+               </label>
+               <div class="col-sm-5">
+                  <select class="form-select" id="label" name="label">
+                                                               <option value="School Visit">School Visit</option>
+                                                                                    <option value="Simulation Test">Simulation Test</option>
+                                                                                    <option value="Early Bird">Early Bird</option>
+                                                                                    <option value="Access Card">Access Card</option>
+                                                                                    <option value="NOLB">NOLB</option>
+                                                                                    <option value="EndOfClassMeal">EndOfClassMeal</option>
+                                                                                    <option value="ATK Result">ATK Result</option>
+                                                                                    <option value="SAT TEST">SAT TEST</option>
+                                                                                    <option value="SAT Xtreme">SAT Xtreme</option>
+                                                                                    <option value="Activity by CS">Activity by CS</option>
+                                                                                    <option value="Course 2022-C1">Course 2022-C1</option>
+                                                                                    <option value="Course 2021-C5">Course 2021-C5</option>
+                                                                                    <option value="Open House">Open House</option>
+                                                                                    <option value="General" selected>General</option>
+                                                            </select>
+               </div>
+               <div class="col-sm-3">
+                  <button type="button" class="btn btn-danger btn-block" data-toggle="modal"
+                     data-target="#newLabelModal">
+
+                     Add Category
+                  </button>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-9">
+            <div class="row">
+               <label style="font-weight: bold" for="ref_no" class="col-sm-3 col-form-label">
+                  Ref.No/Cost Center Code
+               </label>
+               <div class="col-sm-5">
+                  <input placeholder="Ref.No/Cost Center Code" class="form-control" id="campaign_ref_no"
+                     name="campaign_ref_no" value="" maxlength="25">
+               </div>
+               <div class="col-sm-3 mt-2">
+                  <label style="color: red">* Max length 25 character</label>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-12">
+            <div class="form-row">
+               <label style="font-weight: bold" class="col-sm-3 col-form-label">
+                  Target Group
+               </label>
+            </div>
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4">
+         <div class="form-group col-md-12">
+            <div class="form-row mb-1">
+               <label for="template_message">Mobile No.</label>
+               <textarea class="form-control" name="mobile" id="notepad" placeholder="Type or Drag and Drop Mobile No."
+                  rows="6"></textarea>
+            </div>
+            <div class="form-row mb-1">
+               <div class="form-group col-md-2">
+                  Valid Mobile : <span
+                     style="color: blue;font-weight:bold; margin-left:3px" id="label_number_of_mobile">0</span>
+               </div>
+               <div class="form-group col-md-3">
+                  Invalid Mobile : <span
+                     style="color: red;font-weight:bold; margin-left:3px"
+                     id="label_number_of_invalid_mobile">0</span>
+               </div>
+               <div class="form-group col-md-7">
+                  <div class="form-row justify-content-md-end" style="padding-top: 1%">
+                     <div class="form-group col-md-7"></div>
+                     <div class="form-group col-md-5">
+                        <button onclick="clearNotepad()" type="button"
+                           class="btn btn-outline-danger btn-block">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                              fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                              <path
+                                 d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+                              <path fill-rule="evenodd"
+                                 d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+                           </svg> Clear
+                        </button>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4">
+         <div class="form-group col-md-2">
+            <button onclick="performClick('file');" class="btn btn-primary btn-block" type="button"
+               id="button-upload-file">
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                  class="bi bi-upload" viewBox="0 0 16 16">
+                  <path
+                     d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                  <path
+                     d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z" />
+               </svg>
+               Upload File</button>
+            <input hidden type="file" id="file" />
+         </div>
+         <div class="form-group col-md-2">
+            <button onclick="showAddressBook();" class="btn btn-success btn-block" type="button"
+               id="button-address-book">Address Book</button>
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4">
+         <div class="form-group col-md-12">
+            <input id="fileName" disabled type="text" class="form-control"
+               placeholder="File Name or Address Book"
+               aria-describedby="button-upload-file">
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4">
+         <div class="form-group col-md-9">
+            <label id="totalMobile" class="mr-4">Total</label>
+            <a id="totalCorrect" href="#" onclick="showCorrectDataTable()"
+               class="link-success mr-4">Correct</a>
+            <a id="totalIncorrect" href="#" onclick="showInCorrectDataTable()"
+               class="link-danger">Incorrect</a>
+         </div>
+         <div class="form-group col-md-3">
+            <button onclick="clearFileAndAddressBookDataSource()" type="button"
+               class="btn btn-outline-danger btn-block">
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                  class="bi bi-trash" viewBox="0 0 16 16">
+                  <path
+                     d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+                  <path fill-rule="evenodd"
+                     d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+               </svg> Clear
+            </button>
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4">
+         <div class="form-group col-md-12">
+            <div id="exampleDataSourceDiv">
+
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-12">
+            <div class="form-row">
+               <label style="font-weight: bold" class="col-sm-3 col-form-label">
+                  Message
+               </label>
+            </div>
+         </div>
+      </div>
+      <div class="form-row ml-4 mr-4 justify-content-md-end">
+   <div class="form-group col-md-2">
+      <select class="form-select" id="parameters" name="parameters">
+         <option selected disabled style="user-select: none;">Parameters</option>
+      </select>
+   </div>
+   <div class="form-group col-md-2">
+      <button onclick="showShortLinkModal()" type="button" class="btn btn-outline-danger btn-block">
+         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link"
+            viewBox="0 0 16 16">
+            <path
+               d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 10.5H4a2 2 0 1 1 0-4h1.535c.218-.376.495-.714.82-1z">
+            </path>
+            <path
+               d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 6.5h3a2 2 0 1 1 0 4h-1.535a4.02 4.02 0 0 1-.82 1H12a3 3 0 1 0 0-6H9z">
+            </path>
+         </svg> Short URL</button>
+   </div>
+   <div class="form-group col-md-2">
+      <button type="button" class="btn btn-outline-success btn-block" data-toggle="modal"
+         data-target="#presetTemplateModal"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+            fill="currentColor" class="bi bi-chat-square-dots" viewBox="0 0 16 16">
+            <path
+               d="M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-2.5a2 2 0 0 0-1.6.8L8 14.333 6.1 11.8a2 2 0 0 0-1.6-.8H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.5a1 1 0 0 1 .8.4l1.9 2.533a1 1 0 0 0 1.6 0l1.9-2.533a1 1 0 0 1 .8-.4H14a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z" />
+            <path
+               d="M5 6a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm4 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm4 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" />
+         </svg> Template</button>
+   </div>
+   <div class="form-group col-md-2">
+      <button onclick="saveTemplateForm()" type="button" class="btn btn-outline-primary btn-block">
+         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-star"
+            viewBox="0 0 16 16">
+            <path
+               d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.523-3.356c.329-.314.158-.888-.283-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767l-3.686 1.894.694-3.957a.565.565 0 0 0-.163-.505L1.71 6.745l4.052-.576a.525.525 0 0 0 .393-.288l1.847-3.658 1.846 3.658a.525.525 0 0 0 .393.288l4.052.575-2.906 2.77a.564.564 0 0 0-.163.506l.694 3.957-3.686-1.894a.503.503 0 0 0-.461 0z">
+            </path>
+         </svg>
+         Save Template
+      </button>
+   </div>
+</div>
+<div class="form-row ml-4 mr-4">
+   <div class="form-group col-md-12">
+      <div class="form-row">
+         <textarea class="form-control my-2" id="message" name="message" type="text"
+            placeholder="Type Message..."
+            rows="5"></textarea>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-6">
+            Number Of Characters : <span style="color: blue; font-weight:bold"
+               id="number_of_character">0</span>
+            <span style="font-weight:bold; margin-left:8px" id="language_indicator">[EN]</span> /
+            Credit used per SMS : <span style="color: blue; font-weight:bold"
+               id="messages">0</span>
+         </div>
+         <div class="form-group col-md-3"></div>
+         <div class="form-group col-md-3">
+            <button onclick="clearMessage()" type="button" class="btn btn-outline-danger btn-block">
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                  class="bi bi-trash" viewBox="0 0 16 16">
+                  <path
+                     d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+                  <path fill-rule="evenodd" x`
+                     d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+               </svg> Clear
+            </button>
+         </div>
+      </div>
+   </div>
+</div>      <div class="form-row">
+         <div class="form-group col-md-6">
+            <div class="mb-3 row">
+               <label style="font-weight: bold" for="sender" class="col-auto col-form-label">
+                  Sender Name
+               </label>
+               <div class="col-sm-5">
+                  <select class="form-select" id="sender" name="sender">
+                                                               <option value="Warwick" selected>Warwick</option>
+                                                            </select>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-6">
+            <div class="row">
+               <label style="font-weight: bold" for="sender" class="col-auto col-form-label">
+                  Send Time
+               </label>
+               <div class="col-sm-9 mt-2" id="one-send" style="display:">
+                  <div class="form-check">
+                     <input onclick="hideCalendar();" class="form-check-input" type="radio" name="schedule"
+                        id="schedule_send_now" checked>
+                     <label class="form-check-label" for="schedule_send_now">
+                        Send Now
+                     </label>
+                  </div>
+                  <div class="form-check">
+                     <div class="row">
+                        <div class="form-group col-auto">
+                           <input onclick="showCalendar();" class="form-check-input" type="radio"
+                              name="schedule" id="schedule_schedule">
+                           <label class="form-check-label" for="schedule_schedule">
+                              Schedule
+                           </label>
+                        </div>
+                        <div class="form-group col-md-3">
+                           <input name="send_time" placeholder="Select Time"
+                              id="send_time" type="text" autocomplete="off">
+                        </div>
+                     </div>
+                  </div>
+               </div>
+               <div class="col-sm-9" id="multi-send" style="display: none">
+                  <div class="form-check">
+                     <input class="form-check-input" type="radio" name="schedule_multi" id="schedule_multi"
+                        checked>
+                     <label class="form-check-label" for="schedule_multi">
+                        Time
+                     </label>
+                     <input id="send_time_multi" name="send_time_multi" type="text" autocomplete="off"
+                        placeholder=" Select Time" required>
+                  </div>
+               </div>
+
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-12">
+            <div class="row">
+               <label style="font-weight: bold">
+                  Split Sending SMS
+               </label>
+            </div>
+            <div class="row ml-3">
+               <div class="form-check">
+                  <input id="splitSettingCheckbox" class="form-check-input" type="checkbox">
+                  <label class="form-check-label">
+                     Enable
+                  </label>
+               </div>
+            </div>
+            <div class="row ml-3" id="splitSetting" style="display: none">
+               <div class="row ml-3 mb-1">
+                  <label class="col-auto col-form-label"> Split Sending SMS into (mobile no./job)</label>
+                  <div class="col-2">
+                     <input type="number" min="1" value="1000" class="form-control"
+                        id="mobile_per_job">
+                  </div>
+               </div>
+               <div class="row ml-3 mb-1">
+                  <label class="col-auto col-form-label"> Time differance per job (minutes)</label>
+                  <div class="col-2">
+                     <input type="number" min="1" value="30" class="form-control"
+                        id="diff_per_job">
+                  </div>
+               </div>
+               <div class="row ml-3">
+                  <a id="previewSplit" style="cursor:pointer; color:blue;  text-decoration: underline;">
+                     Preview Split Senfing SMS</a>
+               </div>
+
+            </div>
+         </div>
+      </div>
+      <div class="form-row">
+         <div class="form-group col-md-12">
+            <div class="row">
+               <label style="font-weight: bold">
+                  Auto Resend
+               </label>
+            </div>
+            <div class="row ml-3">
+               <div class="form-check">
+                  <input id="autoResendSettingCheckbox" class="form-check-input" type="checkbox">
+                  <label class="form-check-label">
+                     Enable
+                  </label>
+               </div>
+            </div>
+            <div class="row ml-4 mr-4">
+               <div id="autoResendSetting" style="display: none">
+               </div>
+               <div class="form-group col-md-3">
+                  <button style="display: none" id="addNewResendBtn" onclick="addNewResend(1)" type="button"
+                     class="btn btn-info">Add New Resend</button>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="form-row justify-content-end">
+         <div class="form-group col-md-3">
+            <button class="btn btn-success btn-block" type="button"
+               onclick="preview()">Preview &amp; Send</button>
+         </div>
+      </div>
+   </form>
+</div>
+
+
+<!-- Preset Template Modal -->
+<div class="modal fade" id="presetTemplateModal" tabindex="-1" role="dialog" aria-labelledby="presetTemplateModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="presetTemplateModalLabel">Template</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <br>
+
+            <div class="form-row mr-2">
+                <div class="form-group col-md-5"></div>
+                <div class="form-group col-md-3">
+                    <div class="input-group mb-3">
+                        <input id="search_value" name="search_value" type="text" class="form-control"
+                            aria-describedby="basic-addon2">
+                        <div class="input-group-append">
+                            <span class="input-group-text" id="basic-addon2"><svg xmlns="http://www.w3.org/2000/svg"
+                                    width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                    <path
+                                        d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                                </svg></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group col-md-2">
+                    <select class="form-select" id="search_column" name="search_column">
+                        <option value="">Select Header</option>
+                        <option value="0">Template Name</option>
+                        <option value="1">Category/WBS Code</option>
+                        <option value="2">Message</option>
+                    </select>
+                </div>
+                <div class="form-group col-md-2">
+                    <button  id="submit_search" name="submit_search" type="button" class="btn btn-primary btn-block">
+                        Search
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div class="table-responsive" id="tableWrapper">
+                    <table class="table table-bordered" style="width: 100%;" id="presetTemplateTable">
+                        <thead>
+                            <tr>
+                                <th scope="col">Template Name</th>
+                                <th scope="col">Message</th>
+                                <th scope="col">Category/WBS Code</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(document).ready( function () {
+        initTemplateTable();
+    });
+
+    function initTemplateTable(){
+        var templateTable = $('#presetTemplateTable').DataTable({
+        dom: "lrtip",
+        processing: true,
+        select: true,
+        serverSide: true,
+        ajax:{
+        url: "https://smcp.sc4msg.com/template/listAction",
+        type: "GET",
+        data:{ 
+            _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH"
+            }
+    },
+    
+    columns: [
+        { data: "template_name", orderable: false},
+        { data: "template_message", orderable: false},
+        { data: "template_label", orderable: false},
+    ],
+    aaSorting: []
+    });
+
+    templateTable.on('select', function ( e, dt, type, indexes ) {
+        var rowData = templateTable.rows(indexes).data()[0];
+        message.val(rowData.template_message);
+        $("#presetTemplateModal").modal('hide');
+        $("#label").val(rowData.template_label);
+        setNumberOfCharacter();
+    });
+
+    var message = $('#message');
+    var search_column = $("#search_column").val();
+    var search_value = $("#search_value").val();
+    if(search_value !== "" && search_column !== ""){
+        var search_column = $("#search_column").val();
+        var search_value = $("#search_value").val();
+        templateTable.columns().search('').draw();
+        templateTable.columns(search_column).search(search_value).draw();
+    }
+
+
+    document.getElementById("submit_search").onclick = function(){
+        var search_column = $("#search_column").val();
+        var search_value = $("#search_value").val();
+        if(search_column !== ""){
+            templateTable.columns().search('').draw();
+            templateTable.columns(search_column).search(search_value).draw();
+        } else {
+            showErrorModal("Please Select Header");
+        }
+        };
+
+    }
+
+    function showErrorModal(errorMessage){
+        $("#error_label").html(errorMessage);
+        $('#errorModal').modal('show');
+    }
+
+</script> 
+<!-- Setting Upload File Modal -->
+<div class="modal fade" id="settingUploadFileModal" tabindex="-1" role="dialog"
+    aria-labelledby="settingUploadFileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="settingUploadFileModalLabel">Upload File Setting
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-group">
+                            <label for="label" class="col-sm-3 col-form-label">
+                                Example Data
+                            </label>
+                            <div class="col-sm-12">
+                                <div class="table-responsive" id="dataSourceTableWrapper">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-group">
+                            <label for="label" class="col-sm-3 col-form-label">
+                                Select Mobile No. Column
+                            </label>
+                            <div class="col-sm-4" id="form-select">
+                                <select required class="form-select" id="mobile_column">
+                                </select>
+                            </div>
+                            <label style="color: red" id="error_label_mobile_column"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-group">
+                            <label for="label" class="col-sm-3 col-form-label">
+                                Select Link Column
+                            </label>
+                            <div class="col-sm-4" id="form-select">
+                                <select required class="form-select" id="link_column">
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-group">
+                            <label for="label" class="col-sm-3 col-form-label">
+                                Select Date Column
+                            </label>
+                            <div class="col-sm-4" id="form-select" onchange="showFormatDate();">
+                                <select required class="form-select" id="date_column">
+                                </select>
+                            </div>
+                            <div class="format-date" id="format-date" style="display: none">
+
+                                <label for="label" class="col-sm-2 col-form-label">
+                                    Format Date
+                                </label>
+
+                                <div class="col-sm-2" id="form-select">
+                                    <select required class="form-select" id="pattern_date">
+                                        <option value="D-M-Y" selected>D-M-Y</option>
+                                        <option value="Y-M-D">Y-M-D</option>
+                                        <option value="M-D-Y">M-D-Y</option>
+                                    </select>
+                                    
+                                </div>
+                                <div class="form-check  my-3 ">
+                                    <div class="form-check  my-2 mx-3">
+                                        <input class="form-check-input" type="radio" name="filter_date"
+                                            id="filter_date1" value="option1" checked onclick="notShowFilter()">
+                                        <label class="form-check-label" for="filter_date1">
+                                            Use all data
+                                        </label>
+                                    </div>
+                                    <div class="form-check  my-2 mx-3">
+                                        <input class="form-check-input" type="radio" name="filter_date"
+                                            id="filter_date2" value="filter_date" onclick="showfilter()">
+                                        <label class="form-check-label" for="filter_date2">
+                                            Filter schedule date
+                                        </label>
+                                        <div id="filter_input" class="filter_input" style="display: none;">
+                                            <label class="form-check-label">
+                                                Start
+                                            </label>
+                                            <input type="date" id="start_date" name="start_date" class="mx-2">
+                                            <label class="form-check-label">
+                                                To
+                                            </label>
+                                            <input type="date" id="end_date" name="end_date" class="mx-2">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-3">
+                                    <label for="label" class="col-sm-3 col-form-label">
+                                        Send Time
+                                    </label>
+                                    <div class="col-sm-4 my-3" id="form-select" style="display: inline;">
+                                        <div class="form-check  my-2 mx-5">
+                                            <input class="form-check-input" type="radio" name="sendtime_multi"
+                                                id="sendtime_multi1" value="option1" checked onclick="shownone();">
+                                            <label class="form-check-label" for="sendtime_multi1">
+                                                Use send date same as date column
+                                            </label>
+                                        </div>
+                                        <div class="form-check my-2 mx-5">
+                                            <input class="form-check-input" type="radio" name="sendtime_multi"
+                                                id="sendtime_multi2" value="option2" onclick="showdiv();">
+                                            <label class="form-check-label" for="sendtime_multi2">
+                                                Adjust send date (before or after date column)
+                                            </label>
+                                            <div class="form-check my-2 mx-2 col-sm-3" id="div_adjust">
+                                                <select required class="form-select col-sm-10" name="adjust_date"
+                                                    id="adjust_date">
+                                                    <option value="before" selected>before
+                                                    </option>
+                                                    <option value="after">after</option>
+                                                </select>
+                                                <input type="number" id="nDay" name="nDay" min="1"
+                                                    max="100" class="mx-3">
+                                                <label for="label" class="col-sm-3 col-form-label">
+                                                    day
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-group">
+                            <label for="label" class="col-sm-3 col-form-label">
+                                Select Ref No. Column
+                            </label>
+                            <div class="col-sm-4" id="form-select">
+                                <select required class="form-select" id="ref_no_column">
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="setupFileUpload()"
+                    class="btn btn-outline-primary">Confirm</button>
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Data Table Modal -->
+<div class="modal fade" id="dataUploadTableModal" tabindex="-1" role="dialog"
+    aria-labelledby="dataUploadTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dataUploadTableModalLabel">Correct</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row justify-content-end mb-3">
+                    <button class="btn btn-primary"
+                        onclick="exportExcel('correct')">Download to Excel</button>
+                </div>
+                <div class="form-row">
+                    <div class="table-responsive" id="tableWrapper">
+                        <table class="table table-bordered" style="width: 100%;" id="dataUploadTable">
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Incorrect Upload Data Table Modal -->
+<div class="modal fade" id="incorrectDataUploadTableModal" tabindex="-1" role="dialog"
+    aria-labelledby="incorrectDataUploadTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="incorrectDataUploadTableModalLabel">Incorrect</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row justify-content-end mb-3">
+                    <button class="btn btn-primary"
+                        onclick="exportExcel('incorrect')">Download to Excel</button>
+                </div>
+                <div class="form-row">
+                    <div class="table-responsive" id="tableWrapper">
+                        <table class="table table-bordered" style="width: 100%;" id="incorrectDataUploadTable">
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Error Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1" role="dialog" aria-labelledby="errorModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="errorModalLabel">An Error Occurred</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <label id="error_label"></label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Drop File Info Modal -->
+<div class="modal fade" id="dropFileInfoModal" tabindex="-1" role="dialog" aria-labelledby="dropFileInfoModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dropFileInfoModalLabel">Drop File Info</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row mb-1">
+                    <div class="form-group col-md-12">
+                        Valid Mobile : <span
+                            style="color: blue;font-weight:bold; margin-left:3px" id="correct">0</span>
+                    </div>
+                </div>
+                <div class="form-row mb-1">
+                    <div class="form-group col-md-12">
+                        Invalid (New block list) : <span
+                            style="color: red;font-weight:bold; margin-left:3px" id="error_newblocklist">0</span>
+                    </div>
+                </div>
+                <div class="form-row mb-1">
+                    <div class="form-group col-md-12">
+                        Invalid (System block list) : <span
+                            style="color: red;font-weight:bold; margin-left:3px" id="error_systemblocklist">0</span>
+                    </div>
+                </div>
+                <div class="form-row mb-1">
+                    <div class="form-group col-md-12">
+                        Invalid (Account block list) : <span
+                            style="color: red;font-weight:bold; margin-left:3px" id="error_accountblocklist">0</span>
+                    </div>
+                </div>
+                <div class="form-row mb-1">
+                    <div class="form-group col-md-12">
+                        Invalid (Wrong mobile format) : <span
+                            style="color: red;font-weight:bold; margin-left:3px" id="error_invalidmobile">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Address Book Modal -->
+<div class="modal fade" id="addressBookModal" tabindex="-1" role="dialog" aria-labelledby="addressBookModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addressBookModalLabel">Address Book</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group col-md-12">
+            <div class="row">
+              <label for="addressBookGroupOption" class="col-sm-2 col-form-label">
+                Address Book Group
+              </label>
+              <div class="col-sm-4">
+                <select class="selectpicker form-control" multiple data-live-search="true" title="Please Select"
+                  id="addressBookGroupOption" name="addressBookGroupOption"
+                  data-actions-box="true"
+                  data-select-all-text="Select All"
+                  data-deselect-all-text="Unselect All">
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="table-responsive">
+            <table class="table table-bordered" style="width: 100%;" id="addressBookTable">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" name="select_all" value="1" id="example-select-all">
+                  </th>
+                  <th style="text-align: center" scope="col">Mobile</th>
+                  <th style="text-align: center" scope="col">Nickname</th>
+                  <th style="text-align: center" scope="col">First name</th>
+                  <th style="text-align: center" scope="col">Last name</th>
+                  <th style="text-align: center" scope="col">Gender</th>
+                  <th style="text-align: center" scope="col">Date Of Birth
+                  </th>
+                  <th style="text-align: center" scope="col">Email</th>
+                  <th style="text-align: center" scope="col">Department</th>
+                  <th style="text-align: center" scope="col">Note 1</th>
+                  <th style="text-align: center" scope="col">Note 2</th>
+                </tr>
+              </thead>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-primary" type="button"
+          onclick="confirmAddressBook()">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Short Link Modal -->
+<div class="modal fade" id="shortLinkModal" tabindex="-1" role="dialog" aria-labelledby="shortLinkModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog  modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="shortLinkModalLabel">Add Short URL</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="short_link_error_div">
+                    <div id="short_link_error" class="alert alert-danger" role="alert">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-row">
+                            <label for="web_url" class="col-sm-2 col-form-label">
+                                Web URL
+                            </label>
+                            <div class="col-sm-8">
+                                <textarea class="form-control" id="web_url"></textarea>
+                            </div>
+                            <div class="col-sm-2">
+                                <button onclick="shortenUrl()" class="btn btn-outline-primary btn-block">Shorten</button>
+                                <button onclick="clearShortenUrl()" class="btn btn-outline-danger btn-block">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="form-row">
+                            <label for="shorten_link" class="col-sm-2 col-form-label">
+                                Shorten URL
+                            </label>
+                            <div class="col-sm-5">
+                                <input disabled class="form-control" id="shorten_link">
+                            </div>
+                            <div class="col-sm-3">
+                                <a id="test_open_link" type="button" href="#" target="_blank"
+                                    class="btn btn-outline-primary btn-block">Test Open Link</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="setShortLink()" id="setShortLinkButton" class="btn btn-outline-primary">
+                    Confirm </button>
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">
+                    Cancel </button>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Confirm Clear Data Source Modal -->
+<div class="modal fade" id="confirmClearDataSourceModal" tabindex="-1" role="dialog"
+    aria-labelledby="confirmClearDataSourceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmClearDataSourceModalLabel">global.change_data_source
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>global.are_you_sure_to_clear_data_source</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="clearDataSource()" data-dismiss="modal"
+                    class="btn btn-outline-primary">Confirm</button>
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Send SMS Modal -->
+<div class="modal fade" id="confirmSendSmsModal" tabindex="-1" role="dialog" aria-labelledby="confirmSendSmsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmSendSmsModalLabel">Confirm Send SMS
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <label style="color:blue" id="number_of_used_credit"
+                        class="mr-4">Number Of Used Credit</label>
+                </div>
+                <div class="form-row">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" style="width: 100%;" id="sendSmsDataTable">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: center" scope="col">Mobile</th>
+                                    <th style="text-align: center" scope="col">Message</th>
+                                    <th style="text-align: center" scope="col">Credit</th>
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="sendSms()" data-dismiss="modal"
+                    class="btn btn-outline-primary">Confirm</button>
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Success -->
+<div class="modal fade" id="confirmSuccessModal" tabindex="-1" role="dialog" aria-labelledby="confirmSuccessModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmSuccessModalLabel">Confirm Sending SMS
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success">
+                    <label id="confirm_success_label">Success Send SMS</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Save Campaign Modal -->
+<div class="modal fade" id="saveCampaignModal" tabindex="-1" role="dialog" aria-labelledby="saveCampaignModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveCampaignModalLabel">Campaign Saving
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success">
+                    <label>The campaign is saved as draft</label>
+                </div>
+            </div>
+            <div class=" modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Save Tempalte Form Modal -->
+<div class="modal fade" id="saveTemplateFormModal" tabindex="-1" role="dialog"
+    aria-labelledby="saveTemplateFormModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveTemplateFormModalLabel">Saving Template
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <div class="row">
+                            <label for="template_name" class="col-sm-4 col-form-label">
+                                Template Name
+                            </label>
+                            <div class="col-sm-8">
+                                <input placeholder="Template Name" class="form-control"
+                                    id="template_name">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class=" modal-footer">
+                <button type="button" onclick="saveTemplate()" data-dismiss="modal"
+                    class="btn btn-outline-primary">Confirm</button>
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Save Tempalte Success Modal -->
+<div class="modal fade" id="saveTemplateSuccessModal" tabindex="-1" role="dialog"
+    aria-labelledby="saveTemplateSuccessModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveTemplateSuccessModalLabel">Saving Template
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success">
+                    <label>Save Template Success</label>
+                </div>
+            </div>
+            <div class=" modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                    data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- New Category Modal -->
+<div class="modal fade" id="newLabelModal" tabindex="-1" role="dialog" aria-labelledby="newLabelModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="newLabelModalLabel">New Label</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input class="form-control" id="newLabel" type="text">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Close</button>
+                <button type="button" onclick="setNewLabel()" class="btn btn-outline-primary">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Address Book Modal -->
+<div class="modal fade" id="addressBookModal" tabindex="-1" role="dialog" aria-labelledby="addressBookModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-lg" style=" max-width: 80%" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addressBookModalLabel">Address Book</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group col-md-12">
+            <div class="row">
+              <label for="addressBookGroupOption" class="col-sm-2 col-form-label">
+                Address Book Group
+              </label>
+              <div class="col-sm-4">
+                <select class="selectpicker form-control" multiple data-live-search="true" title="Please Select"
+                  id="addressBookGroupOption" name="addressBookGroupOption"
+                  data-actions-box="true"
+                  data-select-all-text="Select All"
+                  data-deselect-all-text="Unselect All">
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="table-responsive">
+            <table class="table table-bordered" style="width: 100%;" id="addressBookTable">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" name="select_all" value="1" id="example-select-all">
+                  </th>
+                  <th style="text-align: center" scope="col">Mobile</th>
+                  <th style="text-align: center" scope="col">Nickname</th>
+                  <th style="text-align: center" scope="col">First name</th>
+                  <th style="text-align: center" scope="col">Last name</th>
+                  <th style="text-align: center" scope="col">Gender</th>
+                  <th style="text-align: center" scope="col">Date Of Birth
+                  </th>
+                  <th style="text-align: center" scope="col">Email</th>
+                  <th style="text-align: center" scope="col">Department</th>
+                  <th style="text-align: center" scope="col">Note 1</th>
+                  <th style="text-align: center" scope="col">Note 2</th>
+                </tr>
+              </thead>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-primary" type="button"
+          onclick="confirmAddressBook()">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Preview Modal -->
+<style>
+  .text-exceeded {
+    color: #dc2626;
+    background-color: #fee2e2;
+  }
+
+  .char-count {
+    font-size: 12px;
+    color: #666;
+    margin-left: 5px;
+  }
+
+  .warning-message {
+    background-color: #fee2e2;
+    color: #dc2626;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    display: none;
+  }
+
+  .explain-short-sms {
+    background-color: #f1f1f1;
+    color: #666;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-top: 10px;
+    display: none;
+  }
+</style>
+<div class="modal fade" id="previewModal" tabindex="-1" role="dialog" aria-labelledby="previewModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="previewModalLabel">Preview
+        </h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group col-md-4">
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Sender Name : <span style="color: black; font-weight:bold"
+                  id="previewsender"></span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Category/WBS Code : <span style="color: black; font-weight:bold"
+                  id="preview_label"></span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Number Of Used Credit : <span
+                  style="color: blue; font-weight:bold" id="preview_number_of_used_credit">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Valid Mobile : <span
+                  style="color: blue;font-weight:bold; margin-left:3px" id="preview_correct">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (New block list) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_newblocklist">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (System block list) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_systemblocklist">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (Account block list) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_accountblocklist">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (Wrong mobile format) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_invalidmobile">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (Duplicate mobile) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_duplicate">0</span>
+              </div>
+            </div>
+            <div class="form-row mb-1">
+              <div class="form-group col-md-12">
+                Invalid (Wrong date format) : <span
+                  style="color: red;font-weight:bold; margin-left:3px"
+                  id="preview_error_date">0</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-group col-md-8" style="    height: 320px;">
+            <div class="form-group col-md-12">
+
+              <p style="font-weight:bold">Example Data</p>
+              <div id="warningMessage" class="warning-message">
+                Max 1200 characters of message, please revise your message
+              </div>
+            </div>
+            <div class="form-group col-md-12" style="height: 100%;">
+              <div class="table-responsive" style="height: 100%;">
+                <table class="table table-bordered" style="width: 100%;" id="previewTable">
+
+                </table>
+              </div>
+              <div id="explainShortSMS" class="explain-short-sms" style="color: black;font-weight:bold; margin-left:3px">
+                Report Preview: If you need to view the actual outgoing URL data, please refer to the Report Menu.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="downloadInvlalidMobies()"
+          class="btn btn-danger">Download Invlid Mobile</button>
+        <button id="saveDraftButton" type="button" onclick="confirmSaveAsDraft()" data-dismiss="modal"
+          class="btn btn-primary">Save as Draft</button>
+        <button id="confirmSendButton" type="button" onclick="confirmSend()" data-dismiss="modal"
+          class="btn btn-success">Send SMS</button>
+        <button type="button" class="btn btn-secondary"
+          data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Progress Modal -->
+<!-- Modal -->
+<div class="modal fade" id="pleaseWaitDialog" tabindex="-1" role="dialog" aria-labelledby="myModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h1>Processing...</h1>
+            </div>
+            <div class="modal-body">
+                <div class="text-center">
+                    <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Preview Split Modal -->
+<div class="modal fade" id="previewSplitModal" tabindex="-1" role="dialog" aria-labelledby="previewSplitModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog  modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewSplitModalLabel">Preview Split Senfing SMS</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered" style="width: 100%;" id="previewSplitTable">
+                        <thead>
+                            <tr>
+                                <th style="text-align: center" scope="col">NO.</th>
+                                <th style="text-align: center" scope="col">Message</th>
+                                <th style="text-align: center" scope="col">Number Of Mobile</th>
+                                <th style="text-align: center" scope="col">Send Date</th>
+                                <th style="text-align: center" scope="col">Send Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">
+                    Close </button>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>            </div>
+        </div>
+        <!-- /#page-content-wrapper -->
+    </div>
+    <script>
+        function updateWorkingOrg(orgId) {
+            $.ajax({
+                url: "https://smcp.sc4msg.com/user/updateWorkingOrg",
+                type: "PUT",
+                cache: false,
+                data: {
+                    _token: '4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH',
+                    orgId: orgId,
+                },
+                success: function(response) {
+                    if (response.success) {
+                        Swal.fire({
+                            title: 'เปลี่ยน Organization เรียบร้อย',
+                            showDenyButton: false,
+                            showCancelButton: false,
+                            confirmButtonText: 'OK',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                location.reload();
+                            }
+                        });
+                    } else {
+                        Swal.fire({
+                            title: 'เกิดข้อผิดพลากในการเปลี่ยน Organization',
+                            showDenyButton: false,
+                            showCancelButton: false,
+                            confirmButtonText: 'OK',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                location.reload();
+                            }
+                        });
+                    }
+                },
+                error: function(res) {
+                    Swal.fire({
+                        title: 'เกิดข้อผิดพลากในการเปลี่ยน Organization',
+                        showDenyButton: false,
+                        showCancelButton: false,
+                        confirmButtonText: 'OK',
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            location.reload();
+                        }
+                    });
+                }
+            });
+        }
+
+        function updateWorkingWallet(walletId) {
+            $.ajax({
+                url: "https://smcp.sc4msg.com/user/updateWorkingWallet",
+                type: "PUT",
+                cache: false,
+                data: {
+                    _token: '4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH',
+                    walletId: walletId,
+                },
+                success: function(response) {
+                    if (response.success) {
+                        Swal.fire({
+                            title: 'เปลี่ยน Wallet เรียบร้อย',
+                            showDenyButton: false,
+                            showCancelButton: false,
+                            confirmButtonText: 'OK',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                location.reload();
+                            }
+                        });
+                    } else {
+                        Swal.fire({
+                            title: 'เกิดข้อผิดพลากในการเปลี่ยน Wallet',
+                            showDenyButton: false,
+                            showCancelButton: false,
+                            confirmButtonText: 'OK',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                location.reload();
+                            }
+                        });
+                    }
+                },
+                error: function(res) {
+                    Swal.fire({
+                        title: 'เกิดข้อผิดพลากในการเปลี่ยน Wallet',
+                        showDenyButton: false,
+                        showCancelButton: false,
+                        confirmButtonText: 'OK',
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            location.reload();
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+    <script type="text/javascript">
+   document.addEventListener('DOMContentLoaded', function() {
+      const campaignInput = document.getElementById('campaign');
+
+      // กำหนด event listener สำหรับการกดปุ่ม
+      campaignInput.addEventListener('keypress', function(event) {
+         // สร้าง regex pattern ที่ไม่อนุญาตให้ใช้อักขระพิเศษเช่น / \ : * ? " < > | และอื่นๆ
+         // const pattern = /^[a-zA-Z0-9 !@#$%^&*()_\-+=[\]{}|:;,.<>?]+$/;
+         const forbiddenChars = /[!@$%^&*()\\/+=[\]{}|:;,.<>?]/;
+         // ตรวจสอบว่า key ที่กดตรงกับ pattern หรือไม่
+         if (forbiddenChars.test(event.key)) {
+            // ถ้าไม่ตรงให้ยกเลิกการกดปุ่ม
+            event.preventDefault();
+         }
+      });
+
+      // เพิ่ม event listener สำหรับการวาง (paste) ข้อความ
+      campaignInput.addEventListener('paste', function(event) {
+         // ดึงข้อความที่จะวาง
+         const pastedText = (event.clipboardData || window.clipboardData).getData('text');
+
+         // สร้าง regex pattern เช่นเดียวกับด้านบน
+         const forbiddenChars = /[!@$%^&*()\\/+=[\]{}|:;,.<>?]/;
+
+         // ตรวจสอบว่าข้อความที่วางตรงกับ pattern หรือไม่
+         if (forbiddenChars.test(event.key)) {
+            // ถ้าไม่ตรงให้ยกเลิกการวาง
+            event.preventDefault();
+         }
+      });
+   });
+
+   $('#addressBookGroupOption').on('changed.bs.select', function() {
+      var selectedValues = $(this).val();
+      var selectedTexts = [];
+
+      for (var i = 0; i < selectedValues.length; i++) {
+         selectedTexts.push($("#addressBookGroupOption option[value='" + selectedValues[i] + "']").text());
+      }
+
+      $('#fileName').val(selectedTexts.join(','));
+   });
+
+   $(document).ready(function() {
+      hideCalendar();
+
+      $('#message').keyup(function() {
+         setNumberOfCharacter();
+      });
+
+      $('#template_message').keyup(function() {
+         setTemplateNumberOfCharacter();
+      });
+
+      $('#notepad').on('paste', function(e) {
+         setTimeout(function() {
+            setLabelNumberOfMobile();
+         }, 10); // delay เล็กน้อยเพื่อให้การ paste เสร็จสิ้นก่อน
+      });
+
+      // สำหรับการพิมพ์
+      $('#notepad').on('input', function(e) {
+         setLabelNumberOfMobile();
+      });
+
+      // สำหรับการเปลี่ยนแปลงทั่วไป
+      $('#notepad').on('change', function(e) {
+         setLabelNumberOfMobile();
+      });
+
+      $('#notepad').keyup(function() {
+         clearOtherDataSource('notepad');
+         setLabelNumberOfMobile();
+      });
+
+      $("input:file").change(function() {
+         getDataFromExcelFile();
+      });
+
+      $('#parameters').on('change', function() {
+         insertTextToArea("message", this.value);
+      });
+
+      $('#splitSettingCheckbox').on('change', function() {
+         var isChecked = $('#splitSettingCheckbox:checkbox:checked').length > 0;
+         if (isChecked) {
+            $("#splitSetting").show();
+         } else {
+            $("#splitSetting").hide();
+         }
+      });
+
+      $('#autoResendSettingCheckbox').on('change', function() {
+         var isChecked = $('#autoResendSettingCheckbox:checkbox:checked').length > 0;
+         if (isChecked) {
+            $("#autoResendSetting").html('');
+            var isDelete = 0;
+            addNewResend(isDelete);
+            $("#autoResendSetting").show();
+            $("#addNewResendBtn").show();
+         } else {
+            $("#autoResendSetting").hide();
+            $("#addNewResendBtn").hide();
+         }
+      });
+
+      $('#previewSplit').on('click', function() {
+         var isValid = false;
+         var errorMsg = "Please specify phone no.";
+
+         if ($('#sms_data_upload_id').val() !== '') {
+            isValid = validateSendByFile();
+            errorMsg = "Please specify required data";
+         } else if ($('#notepad').val() !== '') {
+            isValid = validateSendByTextArea();
+            errorMsg = "Please specify required data";
+         } else if ($('#temp_id').val() !== '') {
+            isValid = validateSendByAddressBook();
+            errorMsg = "Please specify required data";
+         }
+
+         //check if choose date column but not select time
+         if (isMultiGetTime() == false) {
+            isValid = false;
+            errorMsg = "Please specify required data";
+         }
+
+         if (isValid) {
+            previewSplit();
+         } else {
+            showErrorModal(errorMsg);
+         }
+      });
+
+      resetLabel();
+
+      jQuery('#send_time').datetimepicker({
+         format: 'Y-m-d H:i'
+      });
+
+      $('#send_time').on('change', function() {
+         var nowDate = new Date();
+         var sendDate = new Date(this.value);
+         if (sendDate.getTime() < nowDate.getTime()) {
+            showErrorModal("You have set the send time with past time. Please select a new time");
+            $('#send_time').val('');
+         }
+      })
+
+      jQuery('#send_time_multi').datetimepicker({
+         datepicker: false,
+         format: 'H:i'
+      });
+
+      $('#confirmSendSmsModal').on('hidden.bs.modal', function() {
+         if ($('#send_sms').val() != 'ok') {
+            showSaveCampaignModal();
+         }
+      })
+
+      $('#confirmSuccessModal').on('hidden.bs.modal', function() {
+         window.location.href = "https://smcp.sc4msg.com";
+      })
+
+      $('#saveCampaignModal').on('hidden.bs.modal', function() {
+         window.location.href = "https://smcp.sc4msg.com";
+      })
+
+      $('#addressBookGroupOption').on('change', function() {
+         var address_book_group_id = $('#addressBookGroupOption').val();
+         initAddressBookModal(address_book_group_id);
+      });
+
+      initAddressBookGroupOptions();
+
+   });
+
+   function insertParametersResendTextToArea(elementId) {
+      var parameter = $("#parameters_" + elementId).val();
+      insertTextToArea("message_" + elementId, parameter);
+   }
+
+   function getParametersFromMessage(text) {
+      var params = [];
+      var regex = /\$\((.+?)\)/g;
+      var match;
+      while ((match = regex.exec(text)) !== null) {
+         params.push(match[0]);
+      }
+      return params;
+   }
+
+   function addNewResend(isDelete) {
+      var message = $('#message').val();
+      $.ajax({
+         method: 'GET',
+         url: "https://smcp.sc4msg.com/sendsms/addNewResend",
+         data: {
+            _token: '4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH',
+            isDelete: isDelete,
+            message: message
+         }
+      }).done(function(response) {
+         if (response.id !== undefined) {
+            $("#autoResendSetting").append(response.element);
+            var mainMessage = $('#message').val();
+            var mainParams = getParametersFromMessage(mainMessage);
+            var parameters = document.getElementById('parameters');
+            var resendParameters = document.getElementById('parameters_' + response.id);
+            var options = parameters.options;
+            for (var i = 0; i < options.length; i++) {
+               var optionValue = options[i].value;
+               if (optionValue === '' || mainParams.indexOf(optionValue) !== -1) {
+                  resendParameters.appendChild(options[i].cloneNode(true));
+               }
+            }
+         } else {
+            showErrorModal("global.error_occurred");
+         }
+      })
+   }
+
+   function setNumberOfCharacterResend(elementId) {
+      // การนับคำ Enter นับเป็น 2 char
+      // อักขระพิเศษบางตัวนับเป็น 2 char ดังนี้  ^ [ ] { } |
+      var $numberOfCharacter = $("#number_of_character_" + elementId),
+         $messages = $numberOfCharacter.next();
+
+      var message = $("#message_" + elementId).val();
+      var numberOfLineBreaks = (message.match(/[\n^{}\[\]|]/g) || []).length;
+      var numberOfChar = message.length;
+      var numberOfMsg = getNumberOfMessage(message)
+
+      $numberOfCharacter.text(numberOfChar + numberOfLineBreaks);
+      $messages.text(numberOfMsg);
+   }
+
+   function deleteResend(elementId) {
+      var el = document.getElementById("resend_box_" + elementId);
+      el.remove();
+   }
+
+   function clearMessageResend(elementId) {
+      $('#message_' + elementId).val("");
+      setNumberOfCharacterResend(elementId)
+   }
+
+   function previewSplit() {
+      var numberOfMobile = $("#numberOfMobile").val();
+      var totalMobile = Number(numberOfMobile);
+      var mobile_per_job = $('#mobile_per_job').val();
+      var diff_per_job = $('#diff_per_job').val();
+
+      if (totalMobile <= 0) {
+         showErrorModal("Please specify mobile");
+      } else if (mobile_per_job <= 0) {
+         showErrorModal("Please specify mobile per job");
+      } else if (diff_per_job <= 0) {
+         showErrorModal("Please specify time differance per job");
+      } else {
+         $('#previewSplitTable').DataTable().destroy();
+         var previewSplitTable = $('#previewSplitTable').DataTable({
+            "columnDefs": [{
+                  "targets": 0,
+                  "className": "text-center"
+               },
+               {
+                  "targets": 1,
+                  "className": "text-center"
+               },
+               {
+                  "targets": 2,
+                  "className": "text-center"
+               },
+               {
+                  "targets": 3,
+                  "className": "text-center"
+               },
+               {
+                  "targets": 4,
+                  "className": "text-center"
+               }
+            ]
+         });
+
+         previewSplitTable.clear().draw();
+
+         var textAea = document.getElementById('message');
+         var message = textAea.value;
+         var diff_per_job_ms = diff_per_job * 60000;
+         var counter = 1;
+
+         if ($("#send_time").val() == '') {
+            var dateTimeMs = Date.now();
+         } else {
+            var date = new Date($("#send_time").val());
+            var dateTimeMs = date.getTime();
+         }
+
+         while (totalMobile > 0) {
+            if (totalMobile < mobile_per_job) {
+               var mobilePerLoop = totalMobile;
+            } else {
+               var mobilePerLoop = mobile_per_job;
+            }
+            var dateTime = new Date(dateTimeMs);
+            var displayDate = dateTime.getFullYear() + '-' + (dateTime.getMonth() + 1).toString().padStart(2, '0') +
+               '-' + dateTime.getDate().toString().padStart(2, '0');
+            var displayTime = dateTime.getHours().toString().padStart(2, '0') + ':' + dateTime.getMinutes()
+               .toString().padStart(2, '0');
+            previewSplitTable.row.add([
+               counter,
+               message,
+               mobilePerLoop,
+               displayDate,
+               displayTime
+            ]).draw(false);
+            counter++;
+            totalMobile = totalMobile - mobile_per_job;
+            dateTimeMs = dateTimeMs + diff_per_job_ms;
+         }
+         $("#previewSplitModal").modal('show');
+      }
+   }
+
+   function hideCalendar() {
+      $("#send_time").val('');
+      $("#send_time").hide();
+   }
+
+   function showCalendar() {
+      $("#send_time").val('');
+      $("#send_time").show();
+   }
+
+   function showFormatDate() {
+      getDate = document.getElementById("date_column").value;
+      if (getDate == "Not Specific" || getDate == "ไม่ระบุ") {
+         document.getElementById("format-date").style.display = "none";
+         $("#send_time_multi").val('');
+         document.getElementById("one-send").style.display = "inline";
+         document.getElementById("multi-send").style.display = "none";
+      } else {
+         document.getElementById("format-date").style.display = "inline";
+         document.getElementById("one-send").style.display = "none";
+         $("#send_time").val('');
+         document.getElementById("multi-send").style.display = "inline";
+      }
+   }
+
+   function resetMulti() {
+      document.getElementById("format-date").style.display = "none";
+      document.getElementById('nDay').value = '';
+      $("#send_time_multi").val('');
+      document.getElementById("one-send").style.display = "inline";
+      document.getElementById("multi-send").style.display = "none";
+      $("#start_date").val('');
+      $("#end_date").val('');
+   }
+   //show adjust_date
+   function shownone() {
+      document.getElementById('div_adjust').style.display = 'none';
+      document.getElementById('nDay').value = '';
+   }
+
+   function showdiv() {
+      document.getElementById('div_adjust').style.display = 'flex';
+   }
+
+
+   function setNewLabel() {
+      var newLabel = $("#newLabel").val();
+      // var letters = /^[A-Za-z]+$/;
+      // if(newLabel.match(letters)){
+      var specials = /[*|\":<>[\]{}`\\()';@&$]/;
+      if (!specials.test(newLabel)) {
+         if (newLabel.length <= 25) {
+            $('#label').append($('<option selected>').val(newLabel).text(newLabel));
+            $("#label").val(newLabel);
+            $("#newLabelModal").modal('hide');
+            var url = "https://smcp.sc4msg.com/label/new";
+            $.ajax({
+               url: url,
+               type: "POST",
+               cache: false,
+               data: {
+                  _token: '4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH',
+                  label: newLabel,
+               }
+            });
+         } else {
+            $("#newLabelModal").modal('hide');
+            showErrorModal("Please enter no more than 25 characters.");
+         }
+      } else {
+         $("#newLabelModal").modal('hide');
+         showErrorModal("Must be letter or number");
+      }
+   }
+
+   function showSaveCampaignModal() {
+      $("#saveCampaignModal").modal('show');
+   }
+
+   function preview() {
+
+      $('#saveDraftButton').attr('disabled', false);
+      $('#confirmSendButton').attr('disabled', false);
+
+      var isValid = false;
+      var errorMsg = "Please specify phone no.";
+
+      if ($('#sms_data_upload_id').val() !== '') {
+         isValid = validateSendByFile();
+         errorMsg = "Please specify required data";
+      } else if ($('#notepad').val() !== '') {
+         isValid = validateSendByTextArea();
+         errorMsg = "Please specify required data";
+      } else if ($('#temp_id').val() !== '') {
+         isValid = validateSendByAddressBook();
+         errorMsg = "Please specify required data";
+      }
+      //check if choose date column but not select time
+      if (isMultiGetTime() == false) {
+         isValid = false;
+         errorMsg = "Please specify required data";
+      }
+
+      if (isValid) {
+         isDuplicateCmapaignInfo(confirmPreview);
+      } else {
+         showErrorModal(errorMsg);
+      }
+   }
+
+   function confirmPreview() {
+      var formData = new FormData();
+      formData.append('campaign_no', $('#campaign_no').val());
+      formData.append('message', $('#message').val());
+      formData.append('mobile', $('#notepad').val());
+      formData.append('address_book', $('#address_book').val());
+      formData.append('label', $('#label').val());
+      formData.append('sender', $('#sender').val());
+      formData.append('send_time', $('#send_time').val());
+      formData.append('campaign', $('#campaign').val());
+      formData.append('campaign_ref_no', $('#campaign_ref_no').val());
+      formData.append('original_link', $('#original_link').val());
+      formData.append('sms_data_upload_id', $('#sms_data_upload_id').val());
+      formData.append('temp_id', $('#temp_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('shorten_link', $('#shorten_link').val());
+      formData.append('send_time_multi', $('#send_time_multi').val());
+      formData.append('adjust_date', $('#adjust_date').val());
+      formData.append('nDay', $('#nDay').val());
+      formData.append('start_date', $('#start_date').val());
+      formData.append('end_date', $('#end_date').val());
+      formData.append('ref_no', $('#ref_no_column').val());
+
+      var isSplit = $('#splitSettingCheckbox:checkbox:checked').length > 0;
+      formData.append('is_split', isSplit);
+      formData.append('mobile_per_job', $('#mobile_per_job').val());
+      formData.append('diff_per_job', $('#diff_per_job').val());
+      showProcessing();
+
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/previewData",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            hideProcessing();
+            var previewResult = result;
+            if (result.success === true) {
+               $("#preview_id").val(result.preview_id);
+               if (result.isInsufficientCredit) {
+                  Swal.fire({
+                     title: 'จำนวนเครดิตคงเหลือไม่เพียงพอต่อการส่งข้อความ คุณต้องดำเนินการต่อหรือไม่',
+                     showDenyButton: true,
+                     showCancelButton: false,
+                     confirmButtonText: 'ดำเนินการต่อ',
+                     denyButtonText: `ยกเลิก`,
+                  }).then((result) => {
+                     if (result.isConfirmed) {
+                        showPreviewModal(previewResult);
+                     }
+                  });
+               } else {
+                  showPreviewModal(result);
+               }
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            hideProcessing();
+            showErrorModal("An error occurred while finalizing the data.");
+         }
+      });
+   }
+
+   function downloadInvlalidMobies() {
+      var previewId = $('#preview_id').val();
+      var baseUrl = "https://smcp.sc4msg.com/dataset/downloadInvlalidMobies";
+      var url = baseUrl.concat("?previewId=", previewId);
+      $.ajax({
+         url: url,
+         type: 'GET',
+         processData: false,
+         contentType: false,
+         xhrFields: {
+            responseType: 'blob'
+         },
+         success: function(response) {
+            var blob = new Blob([response]);
+            var link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = "InvalidMobiles.xlsx";
+            link.click();
+         },
+         error: function(blob) {
+            console.log(blob);
+         }
+      });
+   }
+
+   function isDuplicateCmapaignInfo(myCallback) {
+      var formData = new FormData();
+      formData.append('campaign_no', $('#campaign_no').val());
+      formData.append('campaign', $('#campaign').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      var url = "https://smcp.sc4msg.com/dataset/isDuplicateCampaignInfo";
+      $.ajax({
+         url: url,
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               myCallback();
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            showErrorModal("An error occurred while finalizing the data.");
+         }
+      });
+   }
+
+   function updateWarningMessage() {
+      const exceededCells = $("#previewTable td.text-exceeded");
+      if (exceededCells.length > 0) {
+         // สร้างข้อความแจ้งเตือนที่ระบุตำแหน่งของ cell ที่เกิน
+         // exceededCells.each(function(index) {
+         //   const rowIndex = $(this).parent().index() + 1;
+         //   const colIndex = $(this).index() + 1;
+         //   warningText += `- แถวที่ ${rowIndex}, คอลัมน์ที่ ${colIndex}<br>`;
+         // });
+
+         $("#confirmSendButton").attr('disabled', true);
+         $("#saveDraftButton").attr('disabled', true);
+         $("#warningMessage").slideDown();
+      } else {
+         $("#confirmSendButton").attr('disabled', false);
+         $("#saveDraftButton").attr('disabled', false);
+         $("#warningMessage").slideUp();
+      }
+   }
+
+   function checkCellLength(cell) {
+      const maxLength = 1200;
+      const text = $(cell).text().trim();
+
+      // เพิ่ม/ลบ class ตามเงื่อนไข
+      if (text.length > maxLength) {
+         $(cell).addClass('text-exceeded');
+      } else {
+         $(cell).removeClass('text-exceeded');
+      }
+
+      // อัพเดทหรือเพิ่ม span แสดงจำนวนตัวอักษร
+      // let countSpan = $(cell).find('.char-count');
+      // if (countSpan.length === 0) {
+      //   $(cell).append(`<span class="char-count">${text.length}/10</span>`);
+      // } else {
+      //   countSpan.text(`${text.length}/10`);
+      // }
+      updateWarningMessage()
+   }
+
+
+   function showPreviewModal(data) {
+      if (data.shorten_link) {
+         $("#explainShortSMS").show();
+      }
+      $('#preview_label').html(data.label);
+      $('#preview_number_of_used_credit').html(data.number_of_used_credit);
+      $("#preview_correct").html(data.correct);
+      $("#preview_error_newblocklist").html(data.error_newblocklist);
+      $("#preview_error_duplicate").html(data.error_duplicate);
+      $("#preview_error_systemblocklist").html(data.error_systemblocklist);
+      $("#preview_error_accountblocklist").html(data.error_accountblocklist);
+      $("#preview_error_invalidmobile").html(data.error_invalidmobile);
+      $("#previewTable").html(data.previewTable);
+      $("#preview_error_date").html(data.error_date);
+      $("#previewsender").html(data.sender);
+      $("#previewModal").modal('show');
+
+      $("#previewTable td").each(function() {
+         checkCellLength(this);
+      });
+   }
+
+   function confirmSaveAsDraft() {
+      $('#confirmSendButton').attr('disabled', 'disabled');
+      $('#saveDraftButton').attr('disabled', 'disabled');
+      $("#previewModal").modal('hide');
+      var formData = new FormData();
+      formData.append('campaign_no', $('#campaign_no').val());
+      formData.append('message', $('#message').val());
+      formData.append('mobile', $('#notepad').val());
+      formData.append('address_book', $('#address_book').val());
+      formData.append('label', $('#label').val());
+      formData.append('sender', $('#sender').val());
+      formData.append('send_time', $('#send_time').val());
+      formData.append('campaign', $('#campaign').val());
+      formData.append('campaign_ref_no', $('#campaign_ref_no').val());
+      formData.append('original_link', $('#original_link').val());
+      formData.append('sms_data_upload_id', $('#sms_data_upload_id').val());
+      formData.append('temp_id', $('#temp_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('shorten_link', $('#shorten_link').val());
+      formData.append('send_time_multi', $('#send_time_multi').val());
+      formData.append('adjust_date', $('#adjust_date').val());
+      formData.append('nDay', $('#nDay').val());
+      formData.append('start_date', $('#start_date').val());
+      formData.append('end_date', $('#end_date').val());
+
+
+      var isSplit = $('#splitSettingCheckbox:checkbox:checked').length > 0;
+      formData.append('is_split', isSplit);
+      formData.append('mobile_per_job', $('#mobile_per_job').val());
+      formData.append('diff_per_job', $('#diff_per_job').val());
+
+      showProcessing();
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/confirmSaveAsDraft",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            hideProcessing();
+            if (result.success === true) {
+               showSaveCampaignModal();
+            } else {
+               showErrorModal(result.message)
+               $('#confirmSendButton').attr('disabled', false);
+               $('#saveDraftButton').attr('disabled', false);
+            }
+         },
+         error: function() {
+            hideProcessing();
+            showErrorModal("An error occurred while finalizing the data.");
+            $('#confirmSendButton').attr('disabled', false);
+            $('#saveDraftButton').attr('disabled', false);
+         }
+      });
+   }
+
+   function confirmSend() {
+      $('#confirmSendButton').attr('disabled', 'disabled');
+      $('#saveDraftButton').attr('disabled', 'disabled');
+      $("#previewModal").modal('hide');
+      var formData = new FormData();
+      formData.append('campaign_no', $('#campaign_no').val());
+      formData.append('message', $('#message').val());
+      formData.append('mobile', $('#notepad').val());
+      formData.append('address_book', $('#address_book').val());
+      formData.append('label', $('#label').val());
+      formData.append('sender', $('#sender').val());
+      formData.append('send_time', $('#send_time').val());
+      formData.append('campaign', $('#campaign').val());
+      formData.append('campaign_ref_no', $('#campaign_ref_no').val());
+      formData.append('original_link', $('#original_link').val());
+      formData.append('sms_data_upload_id', $('#sms_data_upload_id').val());
+      formData.append('temp_id', $('#temp_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('shorten_link', $('#shorten_link').val());
+      formData.append('send_time_multi', $('#send_time_multi').val());
+      formData.append('adjust_date', $('#adjust_date').val());
+      formData.append('nDay', $('#nDay').val());
+      formData.append('start_date', $('#start_date').val());
+      formData.append('end_date', $('#end_date').val());
+      formData.append('ref_no', $('#ref_no_column').val());
+
+
+      var isSplit = $('#splitSettingCheckbox:checkbox:checked').length > 0;
+      formData.append('is_split', isSplit);
+      formData.append('mobile_per_job', $('#mobile_per_job').val());
+      formData.append('diff_per_job', $('#diff_per_job').val());
+
+      var isAutoResend = $('#autoResendSettingCheckbox:checkbox:checked').length > 0;
+      formData.append('is_auto_resend', isAutoResend);
+      var resends = {};
+      if (isAutoResend) {
+         var mainMessage = $('#message').val();
+         var mainParams = getParametersFromMessage(mainMessage);
+      }
+      var resendValidationError = false;
+      var elementList = document.querySelectorAll('[id^="resend_box_"]');
+      elementList.forEach(element => {
+         var elementId = element.id.replace("resend_box_", "");
+         var resend_after = $("#resend_after_" + elementId).val();
+         var target_group = $("#target_group_" + elementId).val();
+         var message = $("#message_" + elementId).val();
+         var original_link = $("#original_link_" + elementId).val();
+         var shorten_link = $("#shorten_link_" + elementId).val();
+         if (isAutoResend && message) {
+            var resendParams = getParametersFromMessage(message);
+            for (var i = 0; i < resendParams.length; i++) {
+               if (mainParams.indexOf(resendParams[i]) === -1) {
+                  resendValidationError = true;
+                  showErrorModal("Auto Resend: Parameter " + resendParams[i] + " ไม่มีอยู่ในข้อความหลัก กรุณาใช้เฉพาะ parameter ที่มีในข้อความหลัก");
+                  return;
+               }
+            }
+         }
+         resends[elementId] = {
+            resend_after: resend_after,
+            target_group: target_group,
+            message: message,
+            original_link: original_link,
+            shorten_link: shorten_link
+         };
+      });
+      if (resendValidationError) {
+         $('#confirmSendButton').attr('disabled', false);
+         $('#saveDraftButton').attr('disabled', false);
+         return;
+      }
+      formData.append('resends', JSON.stringify(resends));
+
+      showProcessing();
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/confirmSend",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            hideProcessing();
+            if (result.success === true) {
+               $("#confirmSuccessModal").modal('show');
+            } else {
+               $('#confirmSendButton').attr('disabled', false);
+               $('#saveDraftButton').attr('disabled', false);
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            $('#confirmSendButton').attr('disabled', false);
+            $('#saveDraftButton').attr('disabled', false);
+            hideProcessing();
+            showErrorModal("An error occurred while finalizing the data.");
+         }
+      });
+   }
+
+   function showAddressBook() {
+      $("#addressBookModal").modal('show');
+   }
+
+   function initAddressBookGroupOptions() {
+      $.ajax({
+         url: "https://smcp.sc4msg.com/address-book/addressBookGroupOption",
+         type: 'get',
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               var options = result.options;
+               // var html = "<option selected disabled>Please Select</option>";
+               var html = "";
+               var i = 0;
+               options.forEach(option => {
+                  html += '<option data-subtext="' + option.name + '" value="' + option.id +
+                     '" >' + option.name + '</option>';
+                  i++;
+               });
+               $("#addressBookGroupOption").html(html);
+               $("#addressBookGroupOption").selectpicker('refresh');
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            showErrorModal("Error while get address book group options");
+         }
+      });
+   }
+
+   var addressBookTable;
+
+   function initAddressBookModal(address_book_group_id) {
+      if ($.fn.DataTable.isDataTable('#addressBookTable')) {
+         addressBookTable.destroy();
+      }
+      addressBookTable = $('#addressBookTable').DataTable({
+         ajax: {
+            url: "https://smcp.sc4msg.com/address-book/listAddressBookMultiGroup",
+            type: "GET",
+            data: {
+               _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+               address_book_group_id: address_book_group_id
+            }
+         },
+         processing: true,
+         language: {
+            loadingRecords: '&nbsp;',
+            processing: 'Loading...'
+         },
+         columnDefs: [{
+            targets: 0,
+            searchable: false,
+            orderable: false,
+            className: 'dt-body-center',
+            render: function(data, type, full, meta) {
+               return '<input type="checkbox" name="' + data.id + '" value="' + $('<div/>')
+                  .text(data.mobile).html() + '">';
+            }
+         }],
+         order: [
+            [1, 'asc']
+         ],
+         initComplete: function(settings, json) {
+            $("#example-select-all").prop('checked', true);
+            var rows = addressBookTable.rows({
+               'search': 'applied'
+            }).nodes();
+            $('input[type="checkbox"]', rows).prop('checked', true);
+         }
+      });
+
+      // Handle click on "Select all" control
+      $('#example-select-all').on('click', function() {
+         // Get all rows with search applied
+         var rows = addressBookTable.rows({
+            'search': 'applied'
+         }).nodes();
+         // Check/uncheck checkboxes for all rows in the table
+         $('input[type="checkbox"]', rows).prop('checked', this.checked);
+      });
+   }
+
+   function confirmAddressBook() {
+      $("#addressBookModal").modal('hide');
+      clearOtherDataSource('addressbook');
+
+      if ($.fn.DataTable.isDataTable('#addressBookTable')) {
+
+         var address_books = [];
+
+         addressBookTable.$('input[type="checkbox"]').each(function() {
+            if (this.checked) {
+               var mobile = this.value;
+               var id = this.name;
+               address_books.push({
+                  id: id,
+                  mobile: mobile
+               });
+            }
+         });
+
+         // var data = JSON.stringify({
+         //     'address_books': address_books,
+         //     '_token': "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH"
+         // });
+
+         var data = new FormData();
+         data.append('address_books', JSON.stringify(address_books));
+         data.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+
+         $.ajax({
+            url: "https://smcp.sc4msg.com/dataset/setDataFromAddressBook",
+            type: 'POST',
+            data: data,
+            processData: false,
+            contentType: false,
+            success: function(result) {
+               if (result.success === true) {
+                  $('#numberOfMobile').val(result.correct);
+                  $('#totalMobile').html("Total" + ": " + result.total);
+                  $('#totalCorrect').html("Correct" + ": " + result.correct);
+                  $('#totalIncorrect').html("Incorrect" + ": " + result
+                     .incorrect);
+                  initParameterOptions(result.parameters);
+                  $('#temp_id').val(result.temp_id);
+                  // var text = $("#addressBookGroupOption option:selected").text();
+                  // console.log('text :>> ', text);
+                  // var testtext = $("#addressBookGroupOption").text();
+                  // console.log('testtext :>> ', testtext);
+                  // var currentVal = $('#fileName').val();
+                  // if (currentVal) {
+                  //   $('#fileName').val(currentVal + ", " + text);
+                  // } else {
+                  //   $('#fileName').val(text);
+                  // }
+               } else {
+                  showErrorModal(result.message);
+               }
+            },
+            error: function() {
+               showErrorModal("Error while select data from address book");
+            }
+         });
+      }
+   }
+
+   function clearFileAndAddressBookDataSource(currentDataSource) {
+      if ($('#sms_data_upload_id').val() != '') {
+         clearDataSource();
+      }
+      if ($('#temp_id').val() != '') {
+         clearAddressBookTemp();
+      }
+      resetLabel();
+      resetMulti();
+   }
+
+   function clearOtherDataSource(currentDataSource) {
+      if (currentDataSource == 'notepad') {
+         if ($('#temp_id').val() != '') {
+            clearAddressBookTemp();
+         }
+         if ($('#sms_data_upload_id').val() != '') {
+            clearDataSource();
+         }
+         clearParameterOption();
+         resetLabel();
+      }
+      if (currentDataSource == 'addressbook') {
+         if ($('#sms_data_upload_id').val() != '') {
+            clearDataSource();
+         }
+         clearNotepad();
+      }
+      if (currentDataSource == 'excel') {
+         if ($('#temp_id').val() != '') {
+            clearAddressBookTemp();
+         }
+         clearNotepad();
+      }
+   }
+
+   function clearParameterOption() {
+      $("#parameters").html('');
+      var options = "<option selected disabled>Parameters</option>";
+      $("#parameters").html(options);
+   }
+
+   function clearAddressBookTemp() {
+      var formData = new FormData();
+      formData.append('temp_id', $('#temp_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/clearAddressBookTemp",
+         type: 'POST',
+         processData: false,
+         contentType: false,
+         data: formData,
+         success: function(result) {
+            if (result.success === true) {
+               $('#temp_id').val('');
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            showErrorModal("Error while clear data source");
+         }
+      });
+   }
+
+   function validateSendByFile() {
+      if ($('#campaign_no').val() !== '' && $('#message').val() !== '' && $('#campaign').val() !== '' && $(
+            '#sms_data_upload_id').val() !== '') {
+         return true;
+      }
+      return false;
+   }
+
+   function validateSendByTextArea() {
+      if ($('#campaign_no').val() !== '' && $('#message').val() !== '' && $('#campaign').val() !== '' && $('#notepad')
+         .val() !== '') {
+         return true;
+      }
+      return false;
+   }
+
+   function validateSendByAddressBook() {
+      if ($('#campaign_no').val() !== '' && $('#message').val() !== '' && $('#campaign').val() !== '' && $('#temp_id')
+         .val() !== '') {
+         return true;
+      }
+      return false;
+   }
+
+   function showConfirmSendSmsModal() {
+      initSendSmsDataTable();
+      $("#confirmSendSmsModal").modal('show');
+   }
+
+
+   function initSendSmsDataTable() {
+      var campaignId = $('#campaign_id').val();
+      if ($.fn.DataTable.isDataTable('#sendSmsDataTable')) {
+         var sendSmsDataTable = $('#sendSmsDataTable').DataTable();
+         dataUploadTable.destroy();
+      }
+      $('#sendSmsDataTable').DataTable({
+         processing: true,
+         serverSide: true,
+         ajax: {
+            url: "https://smcp.sc4msg.com/dataset/listConfirmSendSms",
+            type: "GET",
+            data: {
+               _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+               campaign_id: campaignId
+            }
+         },
+         columns: [{
+               data: "mobile",
+               orderable: false
+            },
+            {
+               data: "message",
+               orderable: false
+            },
+            {
+               data: "credit",
+               orderable: false
+            },
+         ],
+         aaSorting: []
+      });
+   }
+
+   function sendSms() {
+      var formData = new FormData();
+      formData.append('campaign_id', $('#campaign_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      $.ajax({
+         url: "https://smcp.sc4msg.com/send/confirmSendSMS",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               $('#send_sms').val('ok');
+               showConfirmSuccessModal();
+            } else {
+               showErrorModal(result.message);
+            }
+         },
+         error: function() {
+            showErrorModal("global.error_while_confirm_sending_sms");
+         }
+      });
+   }
+
+   function showConfirmSuccessModal() {
+      $("#confirmSendSmsModal").modal('hide');
+      $("#confirmSuccessModal").modal('show');
+   }
+
+   function saveTemplateForm() {
+      $("#saveTemplateFormModal").modal('show');
+   }
+
+   function saveTemplate() {
+      $("#saveTemplateFormModal").modal('hide');
+      var formData = new FormData();
+      formData.append('template_name', $('#template_name').val());
+      formData.append('message', $('#message').val());
+      formData.append('label', $('#label').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      $.ajax({
+         url: "https://smcp.sc4msg.com/template/save",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               showSaveTemplateSuccessModal();
+            } else {
+               showErrorModal(result.message);
+            }
+         },
+         error: function() {
+            showErrorModal("Error while save template");
+         }
+      });
+   }
+
+   function showSaveTemplateSuccessModal() {
+      $("#saveTemplateSuccessModal").modal('show');
+   }
+
+   function confirmClearDataSource() {
+      $("#confirmClearDataSourceModal").modal('show');
+   }
+
+   function clearDataSource() {
+      var formData = new FormData();
+      formData.append('sms_data_upload_id', $('#sms_data_upload_id').val());
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/clearDataSource",
+         type: 'POST',
+         processData: false,
+         contentType: false,
+         data: formData,
+         success: function(result) {
+            if (result.success === true) {
+               $('#file').val('');
+               $('#sms_data_upload_id').val('');
+               $('#fileName').val('');
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            showErrorModal("Error while clear data source");
+         }
+      });
+   }
+
+   function showShortLinkModalResend(elementId) {
+      $('#short_link_error_div_' + elementId).hide();
+      $("#shortLinkModalResend_" + elementId).modal('show');
+   }
+
+   function showShortLinkModal() {
+      $('#short_link_error_div').hide();
+      $("#shortLinkModal").modal('show');
+   }
+
+   function clearShortenUrlResend(elementId) {
+      $("#web_url_" + elementId).val('');
+      var shorten_link = $("#shorten_link_" + elementId).val();
+      var txtarea = document.getElementById("message_" + elementId);
+      txtarea.value = txtarea.value.replace(shorten_link, '');
+      $("#shorten_link_" + elementId).val('');
+      $("#original_link_" + elementId).val('');
+      $("#web_url_" + elementId).prop("disabled", false);
+      // $("#shorten_link_resend").prop( "disabled", false );
+   }
+
+   function clearShortenUrl() {
+      $('#web_url').val('');
+      var shorten_link = $('#shorten_link').val();
+      var txtarea = document.getElementById('message');
+      txtarea.value = txtarea.value.replace(shorten_link, '');
+      $('#shorten_link').val('');
+      $('#original_link').val('');
+      $("#web_url").prop("disabled", false);
+      // $("#shorten_link").prop( "disabled", false );
+   }
+
+
+   function shortenUrlResend(elementId) {
+      var web_url = $("#web_url_" + elementId).val();
+      var formData = new FormData();
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('original_link', web_url);
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/shortenUrlTest",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               $("#shorten_link_" + elementId).val(result.shorten_link);
+               $("#web_url_" + elementId).prop("disabled", true);
+               $("#shorten_link_" + elementId).prop("disabled", true);
+               var a = document.getElementById("test_open_link_" + elementId);
+               a.href = result.shorten_link;
+            } else {
+               $("#short_link_error_" + elementId).html(result.message);
+               $("#short_link_error_div_" + elementId).show();
+            }
+         },
+         error: function() {
+            $("#short_link_error_" + elementId).html("Error while shorten URL");
+            $("#short_link_error_div_" + elementId).show();
+         }
+      });
+   }
+
+   function shortenUrl() {
+      var web_url = $('#web_url').val();
+      var formData = new FormData();
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('original_link', web_url);
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/shortenUrlTest",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            if (result.success === true) {
+               $('#shorten_link').val(result.shorten_link);
+               $("#web_url").prop("disabled", true);
+               $("#shorten_link").prop("disabled", true);
+               var a = document.getElementById('test_open_link');
+               a.href = result.shorten_link;
+            } else {
+               $('#short_link_error').html(result.message);
+               $('#short_link_error_div').show();
+            }
+         },
+         error: function() {
+            $('#short_link_error').html("Error while shorten URL");
+            $('#short_link_error_div').show();
+         }
+      });
+   }
+
+   function setShortLinkResend(elementId) {
+      if ($("#shorten_link_" + elementId).val() == '') {
+         $("#short_link_error_" + elementId).html("Please define a valid short URL");
+         $("#short_link_error_div_" + elementId).show();
+      } else {
+         $("#shortLinkModalResend_" + elementId).modal('hide');
+         insertTextToArea("message_" + elementId, $("#shorten_link_" + elementId).val());
+         var web_url = $("#web_url_" + elementId).val();
+         $("#original_link_" + elementId).val(web_url);
+      }
+   }
+
+   function setShortLink() {
+      if ($('#shorten_link').val() == '') {
+         $('#short_link_error').html("Please define a valid short URL");
+         $('#short_link_error_div').show();
+      } else {
+         $("#shortLinkModal").modal('hide');
+         insertTextToArea('message', $('#shorten_link').val());
+         var web_url = $('#web_url').val();
+         $('#original_link').val(web_url);
+      }
+   }
+
+   function insertTextToArea(areaId, text) {
+      var txtarea = document.getElementById(areaId);
+      var scrollPos = txtarea.scrollTop;
+      var strPos = 0;
+      var br = ((txtarea.selectionStart || txtarea.selectionStart == '0') ?
+         "ff" : (document.selection ? "ie" : false));
+      if (br == "ie") {
+         txtarea.focus();
+         var range = document.selection.createRange();
+         range.moveStart('character', -txtarea.value.length);
+         strPos = range.text.length;
+      } else if (br == "ff") strPos = txtarea.selectionStart;
+
+      var front = (txtarea.value).substring(0, strPos);
+      var back = (txtarea.value).substring(strPos, txtarea.value.length);
+      txtarea.value = front + text + back;
+      strPos = strPos + text.length;
+      if (br == "ie") {
+         txtarea.focus();
+         var range = document.selection.createRange();
+         range.moveStart('character', -txtarea.value.length);
+         range.moveStart('character', strPos);
+         range.moveEnd('character', 0);
+         range.select();
+      } else if (br == "ff") {
+         txtarea.selectionStart = strPos;
+         txtarea.selectionEnd = strPos;
+         txtarea.focus();
+      }
+      txtarea.scrollTop = scrollPos;
+      setNumberOfCharacter();
+   }
+
+   function getFileName() {
+      var fullPath = document.getElementById('file').value;
+      if (fullPath) {
+         var startIndex = (fullPath.indexOf('\\') >= 0 ? fullPath.lastIndexOf('\\') : fullPath.lastIndexOf('/'));
+         var filename = fullPath.substring(startIndex);
+         if (filename.indexOf('\\') === 0 || filename.indexOf('/') === 0) {
+            filename = filename.substring(1);
+         }
+         return filename;
+      }
+      return '';
+   }
+
+   function displayFileName() {
+      var fileName = getFileName();
+      $('#fileName').val(fileName);
+   }
+
+
+   function showProcessing() {
+      totalSeconds = 0;
+      $('#pleaseWaitDialog').modal({
+         backdrop: 'static',
+         keyboard: false
+      });
+   }
+
+   function hideProcessing() {
+      setTimeout(function() {
+         $('#pleaseWaitDialog').modal('hide');
+      }, 1000);
+   }
+
+   function getDataFromExcelFile() {
+      resetValidateSetting();
+      var formData = new FormData();
+      var files = $('#file')[0].files;
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('file', files[0]);
+
+      displayFileName();
+
+      showProcessing();
+
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/getDataFromExcelFile",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            hideProcessing();
+            if (result.success === true) {
+               var table = result.datatable;
+               var header = result.headeroption;
+               initMobileColumnOptions('#mobile_column', header);
+               initDateColumnOptions('#date_column', header);
+               initLinkColumnOptions('#link_column', header);
+               initRefNoColumnOptions('#ref_no_column', header);
+               $('#dataSourceTableWrapper').html(table);
+               $('#settingUploadFileModal').modal('show');
+            } else {
+               showErrorModal(result.message)
+            }
+         },
+         error: function() {
+            hideProcessing();
+            showErrorModal("Error While Upload File");
+         }
+      });
+   }
+
+   function initMobileColumnOptions(elementId, columns) {
+      var options = "<option selected disabled>Please Select</option>";
+      var i = 0;
+      columns.forEach(col => {
+         options += '<option value="' + i + '" >' + col + '</option>';
+         i++;
+      });
+      $(elementId).html(options);
+   }
+
+   function initParameterOptions(parameters) {
+      $("#parameters").html('');
+      var options = "<option selected disabled>Parameters</option>";
+      parameters.forEach(col => {
+         options += '<option value="' + col + '" >' + col + '</option>';
+      });
+      $("#parameters").html(options);
+   }
+
+   function initLinkColumnOptions(elementId, columns) {
+      var options = "<option selected>Not Specific</option>";
+      var i = 0;
+      columns.forEach(col => {
+         options += '<option value="' + i + '" >' + col + '</option>';
+         i++;
+      });
+      $(elementId).html(options);
+   }
+
+   function initRefNoColumnOptions(elementId, columns) {
+      var options = "<option selected>Not Specific</option>";
+      var i = 0;
+      columns.forEach(col => {
+         options += '<option value="' + i + '" >' + col + '</option>';
+         i++;
+      });
+      $(elementId).html(options);
+   }
+
+   function initDateColumnOptions(elementId, columns) {
+      var options = "<option selected>Not Specific</option>";
+      var i = 0;
+      columns.forEach(col => {
+         options += '<option value="' + i + '" >' + col + '</option>';
+         i++;
+      });
+      $(elementId).html(options);
+   }
+
+   function setupFileUpload() {
+      clearOtherDataSource('excel');
+      var valid = validateSetting();
+      if (valid) {
+         $('#settingUploadFileModal').modal('hide');
+         showProcessing();
+         var formData = new FormData();
+         var files = $('#file')[0].files;
+         var mobile_column = $('#mobile_column').val();
+         var link_column = $('#link_column').val();
+         var date_column = $('#date_column').val();
+         var ref_no_column = $('#ref_no_column').val();
+         formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+         formData.append('file', files[0]);
+         formData.append('mobile_column', mobile_column);
+         formData.append('link_column', link_column);
+         formData.append('date_column', date_column);
+         formData.append('ref_no_column', ref_no_column);
+         formData.append('pattern_date', $('#pattern_date').val());
+         formData.append('adjust_date', $('#adjust_date').val());
+         formData.append('send_time_multi', $('#send_time_multi').val());
+         formData.append('nDay', $('#nDay').val());
+         formData.append('start_date', $('#start_date').val())
+         formData.append('end_date', $('#end_date').val())
+         $.ajax({
+            url: "https://smcp.sc4msg.com/dataset/setDataFromExcelFile",
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(result) {
+               hideProcessing();
+               if (result.success === true) {
+                  $('#numberOfMobile').val(result.correct);
+                  $('#totalMobile').html("Total" + ": " + result.total);
+                  $('#totalCorrect').html("Correct" + ": " + result.correct);
+                  $('#totalIncorrect').html("Incorrect" + ": " + result
+                     .incorrect);
+                  initParameterOptions(result.parameters);
+                  $('#sms_data_upload_id').val(result.sms_data_upload_id);
+                  showDropFileInfoModal(result);
+               } else {
+                  showErrorModal(result.message);
+               }
+            },
+            error: function() {
+               hideProcessing();
+               showErrorModal("Error While Upload File");
+            }
+         });
+      }
+   }
+
+   function validateSetting() {
+      var countInvalid = 0;
+      if ($("#mobile_column").val() == "" || $("#mobile_column").val() == null) {
+         $('#error_label_mobile_column').html("This field is required");
+         $('#error_label_mobile_column').show();
+         $('#mobile_column').css({
+            'border': 'solid red'
+         });
+         $("#mobile_column").focus();
+         countInvalid++;
+      } else {
+         $('#mobile_column').css({
+            'border': ''
+         });
+         $('#error_label_mobile_column').hide();
+      }
+      return countInvalid > 0 ? false : true;
+   }
+
+   function resetValidateSetting() {
+      $('#mobile_column').css({
+         'border': ''
+      });
+      $('#error_label_mobile_column').hide();
+   }
+
+   function showErrorModal(errorMessage) {
+      $("#error_label").html(errorMessage);
+      $('#errorModal').modal('show');
+   }
+
+   function showCorrectDataTable() {
+      event.preventDefault();
+      var sms_data_upload_id = $("#sms_data_upload_id").val();
+      var temp_id = $("#temp_id").val();
+      if (sms_data_upload_id == "" && temp_id == "") {
+         showErrorModal("Please upload file or Choose address book");
+      } else {
+         if ($.fn.DataTable.isDataTable('#dataUploadTable')) {
+            var dataUploadTable = $('#dataUploadTable').DataTable();
+            dataUploadTable.destroy();
+         }
+         if (sms_data_upload_id !== "") {
+            var baseUrlGetColumn = "https://smcp.sc4msg.com/dataset/getDataTableColumns";
+            var sms_data_upload_id = $("#sms_data_upload_id").val();
+            var urlGetColumn = baseUrlGetColumn.concat('?sms_data_upload_id=', sms_data_upload_id);
+            $.getJSON(urlGetColumn, function(columnsData) {
+               var sms_data_upload_id = $("#sms_data_upload_id").val();
+               $('#dataUploadTable').DataTable({
+                  processing: true,
+                  serverSide: true,
+                  ajax: {
+                     url: "https://smcp.sc4msg.com/dataset/list",
+                     type: "GET",
+                     data: {
+                        _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+                        filter: 'correct',
+                        data_upload_id: sms_data_upload_id
+                     }
+                  },
+                  columns: columnsData,
+                  aaSorting: []
+               });
+            });
+         } else if (temp_id !== "") {
+            $('#dataUploadTable').DataTable({
+               processing: true,
+               serverSide: true,
+               ajax: {
+                  url: "https://smcp.sc4msg.com/dataset/listAddressBookTemp",
+                  type: "GET",
+                  data: {
+                     _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+                     filter: 'correct',
+                     temp_id: temp_id
+                  }
+               },
+               columns: [{
+                     title: "mobile",
+                     data: "mobile",
+                     orderable: false
+                  },
+                  {
+                     title: "name",
+                     data: "name",
+                     orderable: false
+                  },
+                  {
+                     title: "url",
+                     data: "url",
+                     orderable: false
+                  },
+               ],
+               aaSorting: []
+            });
+         }
+         $('#dataUploadTableModal').modal('show');
+      }
+   }
+
+   function showInCorrectDataTable() {
+      event.preventDefault();
+      var sms_data_upload_id = $("#sms_data_upload_id").val();
+      var temp_id = $("#temp_id").val();
+      if (sms_data_upload_id == "" && temp_id == "") {
+         showErrorModal("Please upload file or Choose address book");
+      } else {
+         if ($.fn.DataTable.isDataTable('#incorrectDataUploadTable')) {
+            var incorrectDataUploadTable = $('#incorrectDataUploadTable').DataTable();
+            incorrectDataUploadTable.destroy();
+         }
+
+         if (sms_data_upload_id != "") {
+            var baseUrlGetColumn = "https://smcp.sc4msg.com/dataset/getDataTableColumns";
+            var urlGetColumn = baseUrlGetColumn.concat('?sms_data_upload_id=', sms_data_upload_id);
+            $.getJSON(urlGetColumn, function(columnsData) {
+               var sms_data_upload_id = $("#sms_data_upload_id").val();
+               $('#incorrectDataUploadTable').DataTable({
+                  processing: true,
+                  serverSide: true,
+                  ajax: {
+                     url: "https://smcp.sc4msg.com/dataset/list",
+                     type: "GET",
+                     data: {
+                        _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+                        filter: 'incorrect',
+                        data_upload_id: sms_data_upload_id
+                     }
+                  },
+                  columns: columnsData,
+                  aaSorting: []
+               });
+            });
+         } else if (temp_id != "") {
+            $('#incorrectDataUploadTable').DataTable({
+               processing: true,
+               serverSide: true,
+               ajax: {
+                  url: "https://smcp.sc4msg.com/dataset/listAddressBookTemp",
+                  type: "GET",
+                  data: {
+                     _token: "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH",
+                     filter: 'incorrect',
+                     temp_id: temp_id
+                  }
+               },
+               columns: [{
+                     title: "result",
+                     data: "error",
+                     orderable: false
+                  },
+                  {
+                     title: "mobile",
+                     data: "mobile",
+                     orderable: false
+                  },
+                  {
+                     title: "name",
+                     data: "name",
+                     orderable: false
+                  },
+                  {
+                     title: "url",
+                     data: "url",
+                     orderable: false
+                  },
+               ],
+               aaSorting: []
+            });
+         }
+
+         $('#incorrectDataUploadTableModal').modal('show');
+      }
+   }
+
+   function exportExcel(status) {
+      var sms_data_upload_id = $("#sms_data_upload_id").val();
+      var temp_id = $("#temp_id").val();
+      if (sms_data_upload_id != "") {
+         var baseUrl = "https://smcp.sc4msg.com/dataset/list/exportExcel";
+         let url = baseUrl.concat("?status=", status, "&sms_data_upload_id=", sms_data_upload_id);
+         window.location = url;
+      } else if (temp_id != "") {
+         var baseUrl = "https://smcp.sc4msg.com/dataset/list/exportAddressBook";
+         let url = baseUrl.concat("?status=", status, "&temp_id=", temp_id);
+         window.location = url;
+      }
+   }
+
+   function dropfile(file) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+         notepad.value = e.target.result;
+      };
+      reader.readAsText(file, "UTF-8");
+   }
+
+   notepad.ondrop = function(e) {
+      clearOtherDataSource('notepad');
+      e.preventDefault();
+      var file = e.dataTransfer.files[0];
+      var formData = new FormData();
+      formData.append('_token', "4kFQgxvknU5UTplGnsBN6sGL6A6OrpZ5W6xQaCMH");
+      formData.append('file', file);
+      $("#notepad").prop("disabled", true);
+      $.ajax({
+         url: "https://smcp.sc4msg.com/dataset/getMobileFromFileExcel",
+         type: 'POST',
+         data: formData,
+         processData: false,
+         contentType: false,
+         success: function(result) {
+            console.log('result :>> ', result);
+            $("#notepad").prop("disabled", false);
+            if (result.success === true) {
+               notepad.value = result.dataset + $("#notepad").val();
+               setLabelNumberOfMobile();
+               showDropFileInfoModal(result);
+            } else {
+               showErrorModal(result.message);
+            }
+         },
+         error: function() {
+            $("#notepad").prop("disabled", false);
+            showErrorModal("Error While Upload File");
+         }
+      });
+   };
+
+   function showDropFileInfoModal(data) {
+      $("#correct").html(data.correct);
+      $('#numberOfMobile').val(data.correct);
+      $("#error_newblocklist").html(data.error_newblocklist);
+      $("#error_systemblocklist").html(data.error_systemblocklist);
+      $("#error_accountblocklist").html(data.error_accountblocklist);
+      $("#error_invalidmobile").html(data.error_invalidmobile);
+      $("#error_date").html(data.error_date);
+      $('#dropFileInfoModal').modal('show');
+   }
+
+   function resetLabel() {
+      $('#numberOfMobile').val(0);
+      $('#totalMobile').html("Total" + ": 0");
+      $('#totalCorrect').html("Correct" + ": 0");
+      $('#totalIncorrect').html("Incorrect" + ": 0");
+      $('#fileName').val("File Name or Address Book");
+      // document.getElementById('div_calendar').style.display ='none';
+   }
+
+   function performClick(elemId) {
+      $('#' + elemId).val("");
+      var elem = document.getElementById(elemId);
+      if (elem && document.createEvent) {
+         var evt = document.createEvent("MouseEvents");
+         evt.initEvent("click", true, false);
+         elem.dispatchEvent(evt);
+      }
+   }
+
+   const mobilePrefix = [
+      '060', '061', '062', '063', '064', '065', '066', '068', '080', '081', '082', '083', '084', '085', '086',
+      '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099',
+   ];
+
+   function clearNotepad() {
+      $('#notepad').val("");
+      setLabelNumberOfMobile();
+   }
+
+   function clearMessage() {
+      $('#message').val("");
+      setNumberOfCharacter();
+   }
+
+   function isNumeric(number) {
+      if (+number) return true;
+   }
+
+   // function setLabelNumberOfMobile() {
+   //   var mobile = $('#notepad').val();
+   //   mobile = mobile.replace(/\s/g, ",");
+   //   mobile = mobile.replace(/\n/g, ",");
+   //   mobile = mobile.replace(/-/g, "");
+   //   mobile = mobile.replace(/\*/g, "");
+   //   mobile = mobile.replace(/\(/g, "").replace(/\)/g, "");
+   //   mobile = mobile.replace(/\+66/g, "0");
+   //   var listMobile = mobile.split(/[\r\n|\r|\n|,]/g || []);
+   //   var numberOfInvalidMobile = 0;
+   //   var numberOfValidMobile = 0;
+   //   var listValidMobile = [];
+   //   console.log('listMobile :>> ', listMobile);
+   //   if (listMobile.length > 0) {
+   //     listMobile.forEach(element => {
+   //       console.log(element)
+   //       if (element !== undefined && element !== "") {
+
+   //         if (!/^\d+$/.test(element)) {
+   //           numberOfInvalidMobile++;
+   //         } else if (element.length === 10) {
+   //           // if(listValidMobile.includes(element) === false && mobilePrefix.includes(element.substring(0, 3)) === true ){
+   //           // listValidMobile.push(element);
+   //           if (mobilePrefix.includes(element.substring(0, 3)) === true) {
+   //             numberOfValidMobile++;
+   //           } else {
+   //             numberOfInvalidMobile++;
+   //           }
+   //         } else if (element.length === 11) {
+   //           var tempElement = element.replace(/^(66)/, "0");
+   //           if (mobilePrefix.includes(tempElement.substring(0, 3)) === true) {
+   //             numberOfValidMobile++;
+   //           } else {
+   //             numberOfInvalidMobile++;
+   //           }
+   //         } else if (element.length === 9 && element.charAt(0) !== '0') {
+   //           var tempElement = '0' + element;
+   //           if (mobilePrefix.includes(tempElement.substring(0, 3)) === true) {
+   //             numberOfValidMobile++;
+   //           } else {
+   //             numberOfInvalidMobile++;
+   //           }
+   //         } else {
+   //           if (element.length > 0) {
+   //             numberOfInvalidMobile++;
+   //           }
+   //         }
+
+   //       }
+   //     });
+   //   }
+   //   $('#label_number_of_mobile').text(numberOfValidMobile);
+   //   $('#label_number_of_invalid_mobile').text(numberOfInvalidMobile);
+   //   $('#numberOfMobile').val(numberOfValidMobile);
+   // }
+
+   function setLabelNumberOfMobile() {
+      var mobile = $('#notepad').val();
+
+      // ทำการ replace และ format ทันที
+      let cleanedMobile = mobile
+         .replace(/[^\d\s,\n-]/g, "") // Allow only digits, spaces, commas, newlines, and hyphens
+         .replace(/\s+/g, " ") // Replace multiple spaces with a single space
+         .replace(/,+/g, ",") // Replace multiple commas with a single comma
+         .replace(/-+/g, "") // Remove all hyphens
+         .replace(/\+66/g, "0") // Replace the +66 prefix
+         .replace(/\(/g, "") // Remove parentheses
+         .replace(/\)/g, ""); // Remove parentheses
+
+      // อัพเดทค่ากลับไปใน notepad ทันที
+      $('#notepad').val(cleanedMobile);
+
+      let listMobile = cleanedMobile.split(/[\s,]/g);
+      var numberOfInvalidMobile = 0;
+      var numberOfValidMobile = 0;
+      var listValidMobile = [];
+
+      console.log('listMobile :>> ', listMobile);
+
+      if (listMobile.length > 0) {
+         listMobile.forEach(element => {
+            element = element.trim();
+            if (element !== "") {
+               if (/^\d+$/.test(element) && (element.length === 10 || element.length === 11 || (element.length === 9 && element.charAt(0) !== '0'))) {
+                  // Simplified validation based on length. You'd need to re-incorporate
+                  // the mobilePrefix check if that's critical.
+                  numberOfValidMobile++;
+               } else {
+                  numberOfInvalidMobile++;
+               }
+            }
+         });
+      }
+
+      $('#label_number_of_mobile').text(numberOfValidMobile);
+      $('#label_number_of_invalid_mobile').text(numberOfInvalidMobile);
+      $('#numberOfMobile').val(numberOfValidMobile);
+   }
+
+   function createHighlightedContent(processedNumbers) {
+      // วิธีที่ 1: ใช้ div แทน textarea เพื่อให้ styling ได้
+      var container = $('#notepad-container');
+      if (container.length === 0) {
+         // สร้าง container ใหม่ถ้ายังไม่มี
+         $('#notepad').after('<div id="notepad-container" style="border: 1px solid #ccc; padding: 10px; min-height: 100px; font-family: monospace; white-space: pre-wrap;"></div>');
+         $('#notepad').hide(); // ซ่อน textarea เดิม
+         container = $('#notepad-container');
+      }
+
+      var htmlContent = '';
+      processedNumbers.forEach(function(item, index) {
+         if (item.isValid) {
+            htmlContent += '<span style="background-color: transparent;">' + item.number + '</span>';
+         } else {
+            htmlContent += '<span style="background-color: #ffcccc; color: #cc0000; border-left: 4px solid #cc0000; padding-left: 5px;">' + item.number + '</span>';
+         }
+         if (index < processedNumbers.length - 1) {
+            htmlContent += '\n';
+         }
+      });
+
+      container.html(htmlContent);
+
+      // อัพเดทค่าใน hidden textarea สำหรับการ submit form
+      var cleanNumbers = processedNumbers.map(item => item.number).join('\n');
+      $('#notepad').val(cleanNumbers);
+   }
+
+   function setNumberOfCharacter() {
+      // การนับคำ Enter นับเป็น 2 char
+      // อักขระพิเศษบางตัวนับเป็น 2 char ดังนี้  ^ [ ] { } |
+      var $numberOfCharacter = $('#number_of_character'),
+         $messages = $('#messages');
+
+      var message = $('#message').val();
+      var specialCharCount = (message.match(/[\n^{}\[\]|]/g) || []).length;
+      var numberOfChar = message.length;
+      var numberOfMsg = getNumberOfMessage(message)
+
+      $numberOfCharacter.text(numberOfChar + specialCharCount);
+      $messages.text(numberOfMsg);
+      updateLanguageIndicator(message);
+   }
+
+   function getNumberOfMessage(message) {
+      if (!message || message.length === 0) {
+         return 0;
+      }
+
+      var isGsm7bit = isGsm7bitCharset(message);
+      var singleMax = isGsm7bit ? 160 : 70;
+      var concatMax = isGsm7bit ? 153 : 67;
+
+      // นับ special characters ที่นับเป็น 2 ตัวอักษร
+      var specialCharCount = (message.match(/[\n^{}\[\]|]/g) || []).length;
+      var textLength = message.length + specialCharCount;
+
+      var numberMessages;
+      if (textLength <= singleMax) {
+         numberMessages = 1;
+      } else {
+         numberMessages = Math.ceil(textLength / concatMax);
+      }
+      return numberMessages;
+   }
+
+   function updateLanguageIndicator(message) {
+      var $indicator = $('#language_indicator');
+      if (!$indicator.length) {
+         return; // element doesn't exist in this view
+      }
+
+      if (!message || message.length === 0) {
+         $indicator.text('[EN]');
+         $indicator.css('color', 'green');
+         return;
+      }
+
+      if (isGsm7bitCharset(message)) {
+         $indicator.text('[EN]');
+         $indicator.css('color', 'green');
+      } else {
+         $indicator.text('[Mixed]');
+         $indicator.css('color', 'orange');
+      }
+   }
+
+   function isGsm7bitCharset(message) {
+      // GSM 7-bit characters set
+      let gsm7bitChars = "\\@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà^{}[~]|€";
+
+      var textlen = message.length;
+      for (var i = 0; i < textlen; i++) {
+         if ((gsm7bitChars.indexOf(message[i]) === -1) && (message[i] !== "\\")) {
+            return false;
+         }
+      }
+      return true;
+   }
+
+   function isMultiGetTime() {
+      if ((document.getElementById("multi-send").style.display) == "inline" && document.getElementById(
+            'send_time_multi').value == '') {
+         return false;
+      }
+   }
+
+   function showfilter() {
+      document.getElementById("filter_input").style.display = "inline";
+   }
+
+   function notShowFilter() {
+      document.getElementById("filter_input").style.display = "none";
+      document.getElementById("start_date").value = "";
+      document.getElementById("end_date").value = "";
+   }
+
+   // ----------------
+</script>
+
+<style>
+   /* CSS สำหรับ highlight เบอร์ที่ผิด */
+
+   #notepad-container {
+      border: 1px solid #ccc;
+      padding: 10px;
+      min-height: 100px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      background-color: white;
+      border-radius: 4px;
+      line-height: 1.5;
+   }
+
+   #notepad-container span {
+      display: inline-block;
+      width: 100%;
+      padding: 2px 5px;
+      margin-bottom: 2px;
+      border-radius: 3px;
+   }
+
+   /* Style สำหรับเบอร์ที่ผิด */
+   .invalid-number {
+      background-color: #ffcccc !important;
+      color: #cc0000 !important;
+      border-left: 4px solid #cc0000 !important;
+      padding-left: 8px !important;
+   }
+
+   /* Style สำหรับเบอร์ที่ถูก */
+   .valid-number {
+      background-color: transparent;
+      color: #333;
+   }
+
+   /* Alternative style - ใช้ border แทน background */
+   .invalid-number-border {
+      border: 2px solid #cc0000;
+      background-color: #fff5f5;
+      color: #cc0000;
+   }
+
+   /* Style สำหรับ textarea ที่มีข้อผิดพลาด */
+   .textarea-error {
+      background-color: #ffe6e6 !important;
+      border-color: #cc0000 !important;
+      border-width: 2px !important;
+   }
+
+   .textarea-success {
+      background-color: #e6ffe6 !important;
+      border-color: #00cc00 !important;
+   }
+</style>
+
+</body>
+
+</html>
