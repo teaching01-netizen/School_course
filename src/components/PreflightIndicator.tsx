@@ -183,6 +183,12 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
               <div className="text-blue-700 text-[11px] mt-1 mb-1">
                 {conflictSuggestion(details.kind)}
               </div>
+              <Link
+                to="/slot-finder"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-wi-primary)] hover:underline mt-2"
+              >
+                Find Alternative Slots →
+              </Link>
               <div className="mt-1">
                 <div className="font-semibold text-gray-600 text-[11px]">
                   {isSeries ? "First blocked occurrence" : "Your requested time"}

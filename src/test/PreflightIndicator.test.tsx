@@ -279,6 +279,12 @@ describe("PreflightIndicator", () => {
     expect(screen.getByText("Try a different room or time slot")).toBeInTheDocument();
   });
 
+  it("renders 'Find Alternative Slots' link to /slot-finder when blocked", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "blocked", details: sampleConflictDetails })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    const link = screen.getByRole("link", { name: /Find Alternative Slots/ });
+    expect(link).toHaveAttribute("href", "/slot-finder");
+  });
+
   it("renders kind/detail/suggestion/requested when blocked with zero conflicts (availability violation)", () => {
     const availabilityDetails: ConflictDetails = {
       kind: "teacher_availability",
