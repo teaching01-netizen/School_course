@@ -1,0 +1,784 @@
+package series
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	sqldb "warwick-institute/internal/db"
+)
+
+type CreateParams struct {
+	CourseID        pgtype.UUID
+	RoomID          pgtype.UUID
+	TeacherID       pgtype.UUID
+	Weekdays        []time.Weekday
+	StartLocalTime  Clock
+	DurationMinutes int
+	StartDate       LocalDate
+	EndDate         *LocalDate
+	Count           *int
+	Occurrences     []Occurrence // pre-materialized occurrences; computed from params if nil
+}
+
+type CreateResult struct {
+	SeriesID      pgtype.UUID
+	SessionsAdded int
+}
+
+type Service struct {
+	db          *pgxpool.Pool
+	q           *sqldb.Queries
+	instituteTZ string
+	loc         *time.Location
+}
+
+func NewService(db *pgxpool.Pool, instituteTZ string) (*Service, error) {
+	loc, err := time.LoadLocation(instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{db: db, q: sqldb.New(db), instituteTZ: instituteTZ, loc: loc}, nil
+}
+
+type SplitParams struct {
+	SeriesID        pgtype.UUID
+	PivotDate       LocalDate
+	ExpectedVersion int32
+
+	// Optional overrides for the new series.
+	Weekdays        []time.Weekday
+	StartLocalTime  *Clock
+	DurationMinutes *int
+	EndDate         *LocalDate
+	Count           *int
+}
+
+type SplitResult struct {
+	OldSeriesID      pgtype.UUID
+	NewSeriesID      pgtype.UUID
+	OldSessionsEnded int
+	NewSessionsAdded int
+}
+
+func isSerializationErr(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "40001"
+}
+
+// CreateSeriesAndMaterializeTx performs the series creation and session materialization
+// using an existing transaction-bound Queries handle. Does not manage begin/commit/rollback.
+func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Queries, p CreateParams) (CreateResult, error) {
+	var occ []Occurrence
+	if p.Occurrences != nil {
+		occ = p.Occurrences
+	} else {
+		var err error
+		occ, err = Materialize(MaterializeInput{
+			Weekdays:        p.Weekdays,
+			StartDate:       p.StartDate,
+			EndDate:         p.EndDate,
+			Count:           p.Count,
+			StartLocalTime:  p.StartLocalTime,
+			DurationMinutes: p.DurationMinutes,
+			Location:        s.loc,
+		})
+		if err != nil {
+			return CreateResult{}, err
+		}
+	}
+	if len(occ) == 0 {
+		return CreateResult{}, fmt.Errorf("no occurrences to materialize")
+	}
+
+	// Compute the overall time span for student busy range locking.
+	minStart, maxEnd := occ[0].StartUTC, occ[0].EndUTC
+	for _, o := range occ {
+		if o.StartUTC.Before(minStart) {
+			minStart = o.StartUTC
+		}
+		if o.EndUTC.After(maxEnd) {
+			maxEnd = o.EndUTC
+		}
+	}
+
+	weekdays := make([]int16, 0, len(p.Weekdays))
+	seen := map[time.Weekday]struct{}{}
+	for _, wd := range p.Weekdays {
+		if _, ok := seen[wd]; ok {
+			continue
+		}
+		seen[wd] = struct{}{}
+		weekdays = append(weekdays, int16(wd))
+	}
+
+	startLocal := time.Date(p.StartDate.Year, p.StartDate.Month, p.StartDate.Day, p.StartLocalTime.Hour, p.StartLocalTime.Minute, 0, 0, s.loc)
+	startLocalTime := pgtype.Time{Microseconds: int64(startLocal.Hour())*60*60*1_000_000 + int64(startLocal.Minute())*60*1_000_000, Valid: true}
+
+	startDate := pgtype.Date{Time: time.Date(p.StartDate.Year, p.StartDate.Month, p.StartDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	var endDate pgtype.Date
+	if p.EndDate != nil {
+		endDate = pgtype.Date{Time: time.Date(p.EndDate.Year, p.EndDate.Month, p.EndDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	var count pgtype.Int4
+	if p.Count != nil {
+		count = pgtype.Int4{Int32: int32(*p.Count), Valid: true}
+	}
+
+	series, err := qtx.SeriesCreate(ctx, sqldb.SeriesCreateParams{
+		CourseID:        p.CourseID,
+		RoomID:          p.RoomID,
+		TeacherID:       p.TeacherID,
+		InstituteTz:     s.instituteTZ,
+		Weekdays:        weekdays,
+		StartLocalTime:  startLocalTime,
+		DurationMinutes: int32(p.DurationMinutes),
+		StartDate:       startDate,
+		EndDate:         endDate,
+		Count:           count,
+	})
+	if err != nil {
+		return CreateResult{}, err
+	}
+
+	seriesID := series.ID
+
+	// Lock student busy ranges FIRST to prevent deadlock with scheduling.CreateSessionTx
+	// (which also locks student_ranges before sessions).
+	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	if len(students) > 0 {
+		studentIDs := make([]pgtype.UUID, len(students))
+		for i, st := range students {
+			studentIDs[i] = st.StudentID
+		}
+		_, err = qtx.StudentBusyRangesLockOverlapping(ctx, sqldb.StudentBusyRangesLockOverlappingParams{
+			Column1:     studentIDs,
+			Tstzrange:   minStart,
+			Tstzrange_2: maxEnd,
+		})
+		if err != nil {
+			return CreateResult{}, err
+		}
+	}
+
+	added := 0
+	for _, o := range occ {
+		_, err := qtx.SessionLockOverlappingForInsert(ctx, sqldb.SessionLockOverlappingForInsertParams{
+			TeacherID:   p.TeacherID,
+			Tstzrange:   o.StartUTC,
+			Tstzrange_2: o.EndUTC,
+			RoomID:      p.RoomID,
+		})
+		if err != nil {
+			return CreateResult{}, err
+		}
+		_, err = qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
+			SeriesID:  seriesID,
+			CourseID:  p.CourseID,
+			RoomID:    p.RoomID,
+			TeacherID: p.TeacherID,
+			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+		})
+		if err != nil {
+			return CreateResult{}, err
+		}
+		added++
+	}
+
+	return CreateResult{SeriesID: seriesID, SessionsAdded: added}, nil
+}
+
+// SplitThisAndFutureTx performs the series split using an existing transaction-bound Queries handle.
+func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, p SplitParams) (SplitResult, error) {
+	old, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
+	if err != nil {
+		return SplitResult{}, err
+	}
+	if p.ExpectedVersion != 0 && old.Version != p.ExpectedVersion {
+		return SplitResult{}, fmt.Errorf("stale_edit")
+	}
+
+	oldWeekdays := make([]time.Weekday, 0, len(old.Weekdays))
+	for _, wd := range old.Weekdays {
+		oldWeekdays = append(oldWeekdays, time.Weekday(wd))
+	}
+
+	clock := ClockFromPgTime(old.StartLocalTime)
+	if p.StartLocalTime != nil {
+		clock = *p.StartLocalTime
+	}
+	duration := int(old.DurationMinutes)
+	if p.DurationMinutes != nil {
+		duration = *p.DurationMinutes
+	}
+	newWeekdays := oldWeekdays
+	if len(p.Weekdays) > 0 {
+		newWeekdays = p.Weekdays
+	}
+
+	pivotLocalStart := time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, clock.Hour, clock.Minute, 0, 0, s.loc)
+	pivotUTC := pivotLocalStart.UTC()
+
+	// Cancel future occurrences in old series.
+	if err := qtx.SessionSoftDeleteFutureBySeries(ctx, sqldb.SessionSoftDeleteFutureBySeriesParams{
+		SeriesID: old.ID,
+		StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
+	}); err != nil {
+		return SplitResult{}, err
+	}
+
+	// Update old end bound to "before pivot".
+	dayBefore := pivotLocalStart.AddDate(0, 0, -1)
+	dayBeforeDate := pgtype.Date{Time: time.Date(dayBefore.Year(), dayBefore.Month(), dayBefore.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+	if old.EndDate.Valid {
+		if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
+			return SplitResult{}, err
+		}
+	} else if old.Count.Valid {
+		startDate := LocalDateFromPgDate(old.StartDate)
+		var endDate *LocalDate
+		if old.EndDate.Valid {
+			tmp := LocalDateFromPgDate(old.EndDate)
+			endDate = &tmp
+		}
+		var count *int
+		if old.Count.Valid {
+			v := int(old.Count.Int32)
+			count = &v
+		}
+		occ, err := Materialize(MaterializeInput{
+			Weekdays:        oldWeekdays,
+			StartDate:       startDate,
+			EndDate:         endDate,
+			Count:           count,
+			StartLocalTime:  ClockFromPgTime(old.StartLocalTime),
+			DurationMinutes: int(old.DurationMinutes),
+			Location:        s.loc,
+		})
+		if err != nil {
+			return SplitResult{}, err
+		}
+		before := 0
+		for _, o := range occ {
+			local := o.StartUTC.In(s.loc)
+			ld := LocalDate{Year: local.Year(), Month: local.Month(), Day: local.Day()}
+			if ld.Before(p.PivotDate) {
+				before++
+			}
+		}
+		if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: int32(before), Valid: true}, Version: old.Version}); err != nil {
+			return SplitResult{}, err
+		}
+	} else {
+		return SplitResult{}, fmt.Errorf("series missing end bound")
+	}
+
+	// New series end bound: use overrides if provided, else keep old.
+	var newEndDate pgtype.Date
+	var newCount pgtype.Int4
+	if p.EndDate != nil {
+		newEndDate = pgtype.Date{Time: time.Date(p.EndDate.Year, p.EndDate.Month, p.EndDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	} else if old.EndDate.Valid {
+		newEndDate = old.EndDate
+	}
+	if p.Count != nil {
+		newCount = pgtype.Int4{Int32: int32(*p.Count), Valid: true}
+	} else if old.Count.Valid {
+		newCount = old.Count
+	}
+
+	// Create new series.
+	startDateNew := pgtype.Date{Time: time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	startLocalTime := pgtype.Time{Microseconds: int64(clock.Hour)*60*60*1_000_000 + int64(clock.Minute)*60*1_000_000, Valid: true}
+
+	wds := make([]int16, 0, len(newWeekdays))
+	seen := map[time.Weekday]struct{}{}
+	for _, wd := range newWeekdays {
+		if _, ok := seen[wd]; ok {
+			continue
+		}
+		seen[wd] = struct{}{}
+		wds = append(wds, int16(wd))
+	}
+
+	newSeries, err := qtx.SeriesCreate(ctx, sqldb.SeriesCreateParams{
+		CourseID:        old.CourseID,
+		RoomID:          old.RoomID,
+		TeacherID:       old.TeacherID,
+		InstituteTz:     s.instituteTZ,
+		Weekdays:        wds,
+		StartLocalTime:  startLocalTime,
+		DurationMinutes: int32(duration),
+		StartDate:       startDateNew,
+		EndDate:         newEndDate,
+		Count:           newCount,
+	})
+	if err != nil {
+		return SplitResult{}, err
+	}
+
+	// Materialize future occurrences for new series only (>= pivot date).
+	startDateLD := p.PivotDate
+	var endLD *LocalDate
+	if newEndDate.Valid {
+		tmp := LocalDateFromPgDate(newEndDate)
+		endLD = &tmp
+	}
+	var countNew *int
+	if newCount.Valid {
+		v := int(newCount.Int32)
+		countNew = &v
+	}
+	occNew, err := Materialize(MaterializeInput{
+		Weekdays:        newWeekdays,
+		StartDate:       startDateLD,
+		EndDate:         endLD,
+		Count:           countNew,
+		StartLocalTime:  clock,
+		DurationMinutes: duration,
+		Location:        s.loc,
+	})
+	if err != nil {
+		return SplitResult{}, err
+	}
+
+	added := 0
+	for _, o := range occNew {
+		_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
+			SeriesID:  newSeries.ID,
+			CourseID:  old.CourseID,
+			RoomID:    old.RoomID,
+			TeacherID: old.TeacherID,
+			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+		})
+		if err != nil {
+			return SplitResult{}, err
+		}
+		added++
+	}
+
+	return SplitResult{
+		OldSeriesID:      old.ID,
+		NewSeriesID:      newSeries.ID,
+		OldSessionsEnded: 0, // v1: not returned from SQL
+		NewSessionsAdded: added,
+	}, nil
+}
+
+func (s *Service) SplitThisAndFuture(ctx context.Context, p SplitParams) (SplitResult, error) {
+	const maxRetries = 2
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
+		}
+
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return SplitResult{}, err
+		}
+
+		result, err := s.SplitThisAndFutureTx(ctx, s.q.WithTx(tx), p)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return SplitResult{}, err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return SplitResult{}, err
+		}
+
+		return result, nil
+	}
+
+	return SplitResult{}, fmt.Errorf("too many serialization retries: %w", lastErr)
+}
+
+type EditEntireFutureParams struct {
+	SeriesID        pgtype.UUID
+	ExpectedVersion int32
+	NowUTC          time.Time
+
+	// New definition for the series (applies to future occurrences only).
+	CourseID        pgtype.UUID
+	RoomID          pgtype.UUID
+	TeacherID       pgtype.UUID
+	Weekdays        []time.Weekday
+	StartLocalTime  Clock
+	DurationMinutes int
+	EndDate         *LocalDate
+	Count           *int
+}
+
+type EditEntireFutureResult struct {
+	SeriesID         pgtype.UUID
+	SessionsCanceled int
+	SessionsAdded    int
+}
+
+// EditEntireSeriesFutureOnlyTx performs the edit-entire operation using an existing tx-bound Queries handle.
+func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Queries, p EditEntireFutureParams) (EditEntireFutureResult, error) {
+	nowUTC := p.NowUTC
+	if nowUTC.IsZero() {
+		nowUTC = time.Now().UTC()
+	}
+	if p.DurationMinutes <= 0 {
+		return EditEntireFutureResult{}, fmt.Errorf("bad_duration")
+	}
+	if len(p.Weekdays) == 0 {
+		return EditEntireFutureResult{}, fmt.Errorf("bad_weekdays")
+	}
+	if p.EndDate == nil && p.Count == nil {
+		return EditEntireFutureResult{}, fmt.Errorf("series missing end bound")
+	}
+
+	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+	if p.ExpectedVersion != 0 && ser.Version != p.ExpectedVersion {
+		return EditEntireFutureResult{}, fmt.Errorf("stale_edit")
+	}
+
+	// Store weekdays as unique int16.
+	wds := make([]int16, 0, len(p.Weekdays))
+	seen := map[time.Weekday]struct{}{}
+	for _, wd := range p.Weekdays {
+		if _, ok := seen[wd]; ok {
+			continue
+		}
+		seen[wd] = struct{}{}
+		wds = append(wds, int16(wd))
+	}
+
+	startLocalTime := pgtype.Time{Microseconds: int64(p.StartLocalTime.Hour)*60*60*1_000_000 + int64(p.StartLocalTime.Minute)*60*1_000_000, Valid: true}
+
+	var endDate pgtype.Date
+	if p.EndDate != nil {
+		endDate = pgtype.Date{Time: time.Date(p.EndDate.Year, p.EndDate.Month, p.EndDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	var count pgtype.Int4
+	if p.Count != nil {
+		count = pgtype.Int4{Int32: int32(*p.Count), Valid: true}
+	}
+
+	// Update series definition.
+	updated, err := qtx.SeriesUpdateFields(ctx, sqldb.SeriesUpdateFieldsParams{
+		ID:              ser.ID,
+		CourseID:        p.CourseID,
+		RoomID:          p.RoomID,
+		TeacherID:       p.TeacherID,
+		Weekdays:        wds,
+		StartLocalTime:  startLocalTime,
+		DurationMinutes: int32(p.DurationMinutes),
+		EndDate:         endDate,
+		Count:           count,
+		Version:         ser.Version,
+	})
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+
+	// Cancel all future sessions (from now).
+	canceled, err := qtx.SessionSoftDeleteFutureBySeriesCount(ctx, sqldb.SessionSoftDeleteFutureBySeriesCountParams{
+		SeriesID: updated.ID,
+		StartAt:  pgtype.Timestamptz{Time: nowUTC, Valid: true},
+	})
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+
+	// Re-materialize full series, then re-add only occurrences in the future.
+	startDate := LocalDateFromPgDate(updated.StartDate)
+	var endLD *LocalDate
+	if updated.EndDate.Valid {
+		tmp := LocalDateFromPgDate(updated.EndDate)
+		endLD = &tmp
+	}
+	var countPtr *int
+	if updated.Count.Valid {
+		v := int(updated.Count.Int32)
+		countPtr = &v
+	}
+	wdays := make([]time.Weekday, 0, len(updated.Weekdays))
+	for _, wd := range updated.Weekdays {
+		wdays = append(wdays, time.Weekday(wd))
+	}
+
+	occ, err := Materialize(MaterializeInput{
+		Weekdays:        wdays,
+		StartDate:       startDate,
+		EndDate:         endLD,
+		Count:           countPtr,
+		StartLocalTime:  p.StartLocalTime,
+		DurationMinutes: p.DurationMinutes,
+		Location:        s.loc,
+	})
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+
+	added := 0
+	for _, o := range occ {
+		if !o.StartUTC.After(nowUTC) && !o.StartUTC.Equal(nowUTC) {
+			continue
+		}
+		_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
+			SeriesID:  updated.ID,
+			CourseID:  updated.CourseID,
+			RoomID:    updated.RoomID,
+			TeacherID: updated.TeacherID,
+			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+		})
+		if err != nil {
+			return EditEntireFutureResult{}, err
+		}
+		added++
+	}
+
+	return EditEntireFutureResult{SeriesID: updated.ID, SessionsCanceled: int(canceled), SessionsAdded: added}, nil
+}
+
+func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireFutureParams) (EditEntireFutureResult, error) {
+	const maxRetries = 2
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
+		}
+
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return EditEntireFutureResult{}, err
+		}
+
+		result, err := s.EditEntireSeriesFutureOnlyTx(ctx, s.q.WithTx(tx), p)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return EditEntireFutureResult{}, err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return EditEntireFutureResult{}, err
+		}
+
+		return result, nil
+	}
+
+	return EditEntireFutureResult{}, fmt.Errorf("too many serialization retries: %w", lastErr)
+}
+
+type CancelScope string
+
+const (
+	CancelScopeThisAndFuture          CancelScope = "this_and_future"
+	CancelScopeEntireSeriesFutureOnly CancelScope = "entire_series_future_only"
+)
+
+type CancelParams struct {
+	SeriesID        pgtype.UUID
+	Scope           CancelScope
+	PivotDate       *LocalDate // required for this_and_future
+	ExpectedVersion int32
+	NowUTC          time.Time // injectable for tests; if zero, time.Now().UTC() is used
+}
+
+type CancelResult struct {
+	SeriesID         pgtype.UUID
+	CanceledFromUTC  time.Time
+	SessionsCanceled int
+}
+
+// CancelTx performs the series cancel using an existing transaction-bound Queries handle.
+func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelParams) (CancelResult, error) {
+	nowUTC := p.NowUTC
+	if nowUTC.IsZero() {
+		nowUTC = time.Now().UTC()
+	}
+
+	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
+	if err != nil {
+		return CancelResult{}, err
+	}
+	if p.ExpectedVersion != 0 && ser.Version != p.ExpectedVersion {
+		return CancelResult{}, fmt.Errorf("stale_edit")
+	}
+
+	startClock := ClockFromPgTime(ser.StartLocalTime)
+
+	var canceledFromUTC time.Time
+	var pivotLocalDate LocalDate
+	switch p.Scope {
+	case CancelScopeThisAndFuture:
+		if p.PivotDate == nil {
+			return CancelResult{}, fmt.Errorf("pivot_date required")
+		}
+		pivotLocalDate = *p.PivotDate
+		pivotLocalStart := time.Date(pivotLocalDate.Year, pivotLocalDate.Month, pivotLocalDate.Day, startClock.Hour, startClock.Minute, 0, 0, s.loc)
+		canceledFromUTC = pivotLocalStart.UTC()
+		if !canceledFromUTC.After(nowUTC) {
+			return CancelResult{}, fmt.Errorf("cannot_cancel_started")
+		}
+	case CancelScopeEntireSeriesFutureOnly:
+		canceledFromUTC = nowUTC
+		localNow := nowUTC.In(s.loc)
+		pivotLocalDate = LocalDate{Year: localNow.Year(), Month: localNow.Month(), Day: localNow.Day()}
+	default:
+		return CancelResult{}, fmt.Errorf("bad_scope")
+	}
+
+	canceled, err := qtx.SessionSoftDeleteFutureBySeriesCount(ctx, sqldb.SessionSoftDeleteFutureBySeriesCountParams{
+		SeriesID: ser.ID,
+		StartAt:  pgtype.Timestamptz{Time: canceledFromUTC, Valid: true},
+	})
+	if err != nil {
+		return CancelResult{}, err
+	}
+
+	// Clamp series end bound so it doesn't "promise" future occurrences.
+	pivotLocalStart := time.Date(pivotLocalDate.Year, pivotLocalDate.Month, pivotLocalDate.Day, startClock.Hour, startClock.Minute, 0, 0, s.loc)
+	dayBefore := pivotLocalStart.AddDate(0, 0, -1)
+	dayBeforeDate := pgtype.Date{Time: time.Date(dayBefore.Year(), dayBefore.Month(), dayBefore.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+
+	if ser.EndDate.Valid {
+		if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: ser.ID, EndDate: dayBeforeDate, Version: ser.Version}); err != nil {
+			return CancelResult{}, err
+		}
+	} else if ser.Count.Valid {
+		oldWeekdays := make([]time.Weekday, 0, len(ser.Weekdays))
+		for _, wd := range ser.Weekdays {
+			oldWeekdays = append(oldWeekdays, time.Weekday(wd))
+		}
+		startDate := LocalDateFromPgDate(ser.StartDate)
+		var endDate *LocalDate
+		if ser.EndDate.Valid {
+			tmp := LocalDateFromPgDate(ser.EndDate)
+			endDate = &tmp
+		}
+		var countPtr *int
+		if ser.Count.Valid {
+			v := int(ser.Count.Int32)
+			countPtr = &v
+		}
+		occ, err := Materialize(MaterializeInput{
+			Weekdays:        oldWeekdays,
+			StartDate:       startDate,
+			EndDate:         endDate,
+			Count:           countPtr,
+			StartLocalTime:  startClock,
+			DurationMinutes: int(ser.DurationMinutes),
+			Location:        s.loc,
+		})
+		if err != nil {
+			return CancelResult{}, err
+		}
+		before := 0
+		for _, o := range occ {
+			local := o.StartUTC.In(s.loc)
+			ld := LocalDate{Year: local.Year(), Month: local.Month(), Day: local.Day()}
+			if ld.Before(pivotLocalDate) {
+				before++
+			}
+		}
+		if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: ser.ID, Count: pgtype.Int4{Int32: int32(before), Valid: true}, Version: ser.Version}); err != nil {
+			return CancelResult{}, err
+		}
+	} else {
+		return CancelResult{}, fmt.Errorf("series missing end bound")
+	}
+
+	return CancelResult{SeriesID: ser.ID, CanceledFromUTC: canceledFromUTC, SessionsCanceled: int(canceled)}, nil
+}
+
+func (s *Service) Cancel(ctx context.Context, p CancelParams) (CancelResult, error) {
+	const maxRetries = 2
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
+		}
+
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return CancelResult{}, err
+		}
+
+		result, err := s.CancelTx(ctx, s.q.WithTx(tx), p)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return CancelResult{}, err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isSerializationErr(err) && attempt < maxRetries {
+				continue
+			}
+			return CancelResult{}, err
+		}
+
+		return result, nil
+	}
+
+	return CancelResult{}, fmt.Errorf("too many serialization retries: %w", lastErr)
+}
+
+func ClockFromPgTime(t pgtype.Time) Clock {
+	// Microseconds since midnight.
+	us := t.Microseconds
+	h := int(us / (60 * 60 * 1_000_000))
+	us -= int64(h) * 60 * 60 * 1_000_000
+	m := int(us / (60 * 1_000_000))
+	return Clock{Hour: h, Minute: m}
+}
+
+func LocalDateFromPgDate(d pgtype.Date) LocalDate {
+	t := d.Time.UTC()
+	return LocalDate{Year: t.Year(), Month: t.Month(), Day: t.Day()}
+}
+
+func (d LocalDate) Before(other LocalDate) bool {
+	if d.Year != other.Year {
+		return d.Year < other.Year
+	}
+	if d.Month != other.Month {
+		return d.Month < other.Month
+	}
+	return d.Day < other.Day
+}
