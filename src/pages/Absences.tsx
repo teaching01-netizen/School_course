@@ -71,6 +71,7 @@ export default function Absences() {
   const [cancelling, setCancelling] = useState(false);
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
+  const [batchFailed, setBatchFailed] = useState<Array<{ id: string; error: string }>>([]);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
 
@@ -137,6 +138,7 @@ export default function Absences() {
   async function cancelAbsences() {
     if (cancelTargets.length === 0) return;
     setCancelling(true);
+    setBatchFailed([]);
     try {
       const expectedVersions: Record<string, number> = {};
       for (const target of cancelTargets) {
@@ -157,12 +159,14 @@ export default function Absences() {
       );
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} cancelled, ${result.failed.length} failed`);
+        setBatchFailed(result.failed);
         for (const f of result.failed) {
           const item = cancelTargets.find((t) => t.id === f.id);
           if (item) item.status = "pending";
         }
       } else {
         addToast("success", `${result.succeeded.length} absences cancelled`);
+        setBatchFailed([]);
       }
       await load();
       setCancelTargets([]);
@@ -204,6 +208,7 @@ export default function Absences() {
     const records = (page?.items ?? []).filter((item) => selected.has(item.id) && item.status === "pending");
     if (records.length === 0) return;
     setBatchProcessing(true);
+    setBatchFailed([]);
     setBatchProgress({ done: 0, total: records.length });
     for (const item of records) {
       item.status = "reviewed";
@@ -227,12 +232,14 @@ export default function Absences() {
       setBatchProgress({ done: result.succeeded.length, total: result.total_processed });
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} succeeded, ${result.failed.length} failed`);
+        setBatchFailed(result.failed);
         for (const f of result.failed) {
           const item = records.find((r) => r.id === f.id);
           if (item) item.status = "pending";
         }
       } else {
         addToast("success", `${result.succeeded.length} absences marked reviewed`);
+        setBatchFailed([]);
       }
       await load();
     } catch (err) {
@@ -245,6 +252,14 @@ export default function Absences() {
       setBatchProcessing(false);
       setBatchProgress({ done: 0, total: 0 });
     }
+  }
+
+  async function retryFailed() {
+    if (batchFailed.length === 0) return;
+    const previousSelected = new Set(selected);
+    setSelected(new Set(batchFailed.map((f) => f.id)));
+    await markSelectedReviewed();
+    setSelected(previousSelected);
   }
 
   const subjects = useMemo(() => {
@@ -325,6 +340,13 @@ export default function Absences() {
             <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-gray-900"><LayoutGrid className="h-4 w-4" /> Board</button>
           </div>
           <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50">Dashboard</Link>
+          <Link
+            to="/admin/operations?tab=form-settings"
+            className="inline-flex items-center gap-1 rounded-sm border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+            title="Configure absence form settings"
+          >
+            ⚙️ Settings
+          </Link>
           <Button variant="secondary" onClick={() => setRefreshToken((value) => value + 1)}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
         </div>
       </div>
@@ -370,6 +392,13 @@ export default function Absences() {
             className="h-1.5 rounded-sm bg-blue-500 transition-all duration-300"
             style={{ width: `${batchProgress.total > 0 ? (batchProgress.done / batchProgress.total) * 100 : 0}%` }}
           />
+        </div>
+      ) : null}
+
+      {!batchProcessing && batchFailed.length > 0 ? (
+        <div className="mb-3 flex items-center gap-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+          <span className="text-amber-700">{batchFailed.length} failed</span>
+          <Button size="sm" variant="secondary" onClick={() => void retryFailed()}>Retry failed</Button>
         </div>
       ) : null}
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Absences from "../Absences";
@@ -169,6 +169,67 @@ describe("Absence inbox", () => {
       expect(mockApiJson).toHaveBeenCalledWith(
         "/api/v1/absences/abs-1/status",
         expect.objectContaining({ body: JSON.stringify({ status: "cancelled", expected_version: 1, reason: "Reported in error" }) }),
+      );
+    });
+  });
+
+  it("shows retry failed button after partial batch failure and retries only failed items", async () => {
+    vi.resetAllMocks();
+    const twoItemPage = {
+      items: [
+        { ...PAGE.items[0], id: "abs-1", wcode: "W250389", status: "pending" },
+        { ...PAGE.items[0], id: "abs-2", wcode: "W999999", student_name: "Jane Doe", status: "pending", version: 1 },
+      ],
+      total_count: 2,
+      offset: 0,
+      limit: 25,
+    };
+    const reloadedAfterBatch = {
+      ...twoItemPage,
+      items: [
+        { ...twoItemPage.items[0], status: "reviewed", version: 2 },
+        { ...twoItemPage.items[1], status: "pending", version: 1 },
+      ],
+    };
+
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("/batch-status")) {
+        return {
+          succeeded: ["abs-1"],
+          failed: [{ id: "abs-2", error: "version mismatch" }],
+          total_processed: 2,
+        };
+      }
+      return twoItemPage;
+    });
+
+    renderPage("/absences");
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText("Select W250389"));
+    await user.click(screen.getByLabelText("Select W999999"));
+
+    const batchBar = screen.getByText("2 selected").parentElement!;
+    await user.click(within(batchBar).getByRole("button", { name: /mark reviewed/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("1 failed")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /retry failed/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /retry failed/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/absences/batch-status"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("abs-2"),
+        }),
       );
     });
   });
