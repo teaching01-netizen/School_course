@@ -26,32 +26,31 @@ const navGroups = [
   {
     label: "Admin",
     items: [
-      { path: '/users', label: 'User' },
+      { path: '/users', label: 'Users' },
       { path: '/classrooms', label: 'Classroom' },
     ],
   },
   {
     label: "Audit",
     items: [
-      { path: '/reports', label: 'Report' },
-      { path: '/logs', label: 'Log' },
+      { path: '/reports', label: 'Reports' },
+      { path: '/logs', label: 'Logs' },
     ],
   },
 ];
 
 const adminNavItems = [{ path: '/crm', label: 'CRM' }];
 
-const configNavItems = [{ path: '/course-levels', label: 'Course Levels' }];
+const configNavItems = [
+  { path: '/course-levels', label: 'Course Levels' },
+  { path: '/admin/operations', label: 'Operations' },
+];
 
 const absenceSubItems: { path: string; label: string; adminOnly?: boolean }[] = [
   { path: '/absences', label: 'Inbox' },
   { path: '/absences/dashboard', label: 'Dashboard' },
   { path: '/absences/calendar', label: 'Calendar' },
   { path: '/admin/absence-settings', label: 'Settings', adminOnly: true },
-];
-
-const operationsSubItems: { path: string; label: string }[] = [
-  { path: '/admin/operations', label: 'Configuration' },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -62,8 +61,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [pendingAbsences, setPendingAbsences] = useState(0);
   const [absenceOpen, setAbsenceOpen] = useState(false);
   const [mobileAbsenceOpen, setMobileAbsenceOpen] = useState(false);
-  const [operationsOpen, setOperationsOpen] = useState(false);
-  const [mobileOperationsOpen, setMobileOperationsOpen] = useState(false);
 
   useEffect(() => {
     if (user?.role !== "Admin") {
@@ -123,10 +120,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     location.pathname === '/absences' ||
     location.pathname === '/admin/absence-settings';
 
-  const isOperationsActive = () =>
-    location.pathname.startsWith('/operations/') ||
-    location.pathname.startsWith('/admin/operations');
-
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <a
@@ -146,11 +139,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Directory */}
             {navGroups[1].items.map((item) => renderNavLink(item))}
-
-            <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
-
-            {/* Configuration */}
-            {configNavItems.map((item) => renderNavLink(item))}
 
             <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
 
@@ -213,50 +201,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
 
-            {/* Operations dropdown */}
-            <div
-              className="relative"
-              onMouseEnter={() => setOperationsOpen(true)}
-              onMouseLeave={() => setOperationsOpen(false)}
-            >
-              <button
-                onClick={() => setOperationsOpen((prev) => !prev)}
-                className={`flex items-center gap-1 px-3 py-2 text-[13px] transition-colors focus-visible:outline-offset-[-2px] ${
-                  isOperationsActive()
-                    ? 'text-white underline decoration-white/70 underline-offset-[10px]'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                aria-expanded={operationsOpen}
-                aria-haspopup="true"
-              >
-                Operations
-                <ChevronDown className={`w-3 h-3 transition-transform ${operationsOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {operationsOpen && (
-                <>
-                  <div className="absolute -bottom-1 left-0 right-0 h-1" />
-                  <div className="absolute top-full left-0 mt-0 bg-white shadow-lg border border-gray-200 rounded-sm min-w-[160px] z-50 py-1">
-                    {operationsSubItems.map((item) => {
-                      const isActive = location.pathname === item.path || location.pathname.startsWith(item.path);
-                      return (
-                        <Link
-                          key={item.path}
-                          to={item.path}
-                          onClick={() => { setOperationsOpen(false); }}
-                          className={`block px-4 py-2 text-[13px] transition-colors ${
-                            isActive
-                              ? 'text-[var(--color-wi-primary)] font-medium bg-blue-50'
-                              : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                          }`}
-                        >
-                          {item.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
+            {/* Config */}
+            {configNavItems.map((item) => renderNavLink(item))}
 
             <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
 
@@ -331,22 +277,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
               {/* Operations mobile */}
               <div>
-                <button
-                  onClick={() => setMobileOperationsOpen((prev) => !prev)}
-                  className={`flex items-center gap-1 w-full px-3 py-2 min-h-[44px] text-[13px] transition-colors ${
-                    isOperationsActive()
-                      ? 'text-white'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  Operations
-                  <ChevronDown className={`w-3 h-3 transition-transform ${mobileOperationsOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {mobileOperationsOpen && (
-                  <div className="ml-4 border-l border-white/20 pl-2 space-y-1">
-                    {operationsSubItems.map((item) => renderNavLink(item, true))}
-                  </div>
-                )}
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Config
+                </div>
+                {configNavItems.map((item) => renderNavLink(item, true))}
               </div>
 
               {navGroups.slice(2).map((group) => (
