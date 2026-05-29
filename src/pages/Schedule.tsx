@@ -995,7 +995,7 @@ export default function Schedule() {
       <ConfirmModal
         open={confirmCancelSeriesModal}
         title="Cancel Series"
-        message={cancelSeriesScope === "this_and_future" ? "Cancel this & future sessions in this series?" : "Cancel all future sessions in this series?"}
+        message={cancelSeriesScope === "this_and_future" ? "This will cancel this session and all future sessions in this series. Past sessions will remain for audit history. Continue?" : "This will cancel all future sessions in this series. Past sessions will remain for audit history. Continue?"}
         variant="danger"
         confirmLabel="Cancel Series"
         onConfirm={handleConfirmCancelSeries}
