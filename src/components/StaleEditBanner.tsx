@@ -4,7 +4,10 @@ interface StaleEditBannerProps {
   entityType: "session" | "series" | "absence";
   serverCopy: Record<string, unknown>;
   localCopy: Record<string, unknown>;
+  /** Keys present in both serverCopy and localCopy to display in the diff table. */
   fields: string[];
+  /** Optional: maps field names to human-readable display labels. Falls back to the raw field name. */
+  fieldLabels?: Record<string, string>;
   onAcceptServer: () => void;
   onRetry: () => void;
   onCancel: () => void;
@@ -21,6 +24,7 @@ export function StaleEditBanner({
   serverCopy,
   localCopy,
   fields,
+  fieldLabels,
   onAcceptServer,
   onRetry,
   onCancel,
@@ -48,9 +52,13 @@ export function StaleEditBanner({
             return (
               <tr
                 key={field}
+                data-changed={changed || undefined}
                 className={changed ? "bg-red-50" : ""}
               >
-                <td className="py-1 pr-4 font-medium">{field}</td>
+                <td className="py-1 pr-4 font-medium">
+                  {fieldLabels?.[field] ?? field}
+                  {changed && <span className="ml-1.5 text-xs text-red-600 font-normal">changed</span>}
+                </td>
                 <td className="py-1 pr-4">{localVal}</td>
                 <td className="py-1">{serverVal}</td>
               </tr>
