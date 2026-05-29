@@ -5,6 +5,7 @@ import { ApiRequestError, apiJson } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import WILogo from '../components/WILogo';
 import { localDayRangeRFC3339 } from '../utils/time';
+import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
 
 type Session = {
@@ -124,7 +125,7 @@ export default function Home() {
         {loading ? (
           <div className="text-sm text-gray-500">Loading…</div>
         ) : sessions.length === 0 ? (
-          <div className="text-sm text-gray-500">No sessions found for {dateStr}.</div>
+          <EmptyState message={`No sessions found for ${dateStr}.`} />
         ) : (
           roomsView.map((room) => (
           <div key={room.roomId}>

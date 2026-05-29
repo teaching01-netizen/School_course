@@ -4,6 +4,7 @@ import { apiJson, ApiRequestError } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
+import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 
 type UserRow = { id: string; username: string; role: "Admin" | "Teacher" };
@@ -246,7 +247,7 @@ export default function Availability() {
       </table></div>
 
       {loading && <LoadingSkeleton type="table" lines={3} />}
-      {!loading && selectedId && rows.length === 0 && <div className="py-8 text-center text-gray-400 text-sm">No windows yet</div>}
+      {!loading && selectedId && rows.length === 0 && <EmptyState message="No availability windows configured for this entity. Use the form above to add one." />}
     </div>
   );
 }

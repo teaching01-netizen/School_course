@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiJson, findAvailableSlots, type SlotFinderSlot } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
+import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
 
 type Student = { id: string; wcode: string; full_name: string };
@@ -216,9 +217,7 @@ export default function SlotFinder() {
       )}
 
       {!loading && searched && slots.length === 0 && (
-        <div className="py-8 text-center text-gray-400 text-sm">
-          No slots found in this range. Try a different date range or check that the student and course are valid.
-        </div>
+        <EmptyState message="No slots found in this range. Try a wider date range or different student/course." />
       )}
 
       {!loading && searched && slots.length > 0 && (

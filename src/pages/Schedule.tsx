@@ -669,7 +669,7 @@ export default function Schedule() {
       )}
 
       {loading && <LoadingSkeleton type="table" lines={3} />}
-      {!loading && sessions.length === 0 && <EmptyState message="No sessions in range" />}
+      {!loading && sessions.length === 0 && <EmptyState message="No sessions for this date range. Use the toolbar above to create a session or series." />}
 
       {create.open && (
         <Modal

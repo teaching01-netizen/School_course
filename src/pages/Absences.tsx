@@ -428,7 +428,12 @@ export default function Absences() {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={9}><EmptyState message="No absence records match these filters." /></td>
+                <td colSpan={9}><EmptyState message="All caught up! No absences match these filters." action={
+                  <div className="flex justify-center gap-2">
+                    <Link to="/absences" className="text-sm text-[var(--color-wi-primary)] hover:underline">View all</Link>
+                    <Link to="/absences/dashboard" className="text-sm text-[var(--color-wi-primary)] hover:underline">View dashboard</Link>
+                  </div>
+                } /></td>
               </tr>
             ) : null}
           </tbody>

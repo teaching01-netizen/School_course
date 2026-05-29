@@ -113,6 +113,15 @@ describe("Absence inbox", () => {
     expect(mockApiBlobDownload).toHaveBeenCalledWith(expect.stringContaining("ids=abs-1"));
   });
 
+  it("shows actionable empty state with CTA links when no records match filters", async () => {
+    mockApiJson.mockResolvedValueOnce({ items: [], total_count: 0, offset: 0, limit: 25 });
+    renderPage("/absences?status=cancelled");
+
+    expect(await screen.findByText("All caught up! No absences match these filters.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view all/i })).toHaveAttribute("href", "/absences");
+    expect(screen.getByRole("link", { name: /view dashboard/i })).toHaveAttribute("href", "/absences/dashboard");
+  });
+
   it("bulk cancels selected absences with a recorded reason", async () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
