@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/crmimport/crmtypes"
 	"warwick-institute/internal/crmimport/reconcile"
@@ -106,7 +107,22 @@ func (s *server) handleCrmOptions(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return
 	}
-	row, err := s.deps.Q.CrmDistinctOptions(r.Context())
+
+	var snapshotID [16]byte
+	err := s.deps.DB.QueryRow(r.Context(),
+		`SELECT COALESCE(active_snapshot_id, '00000000-0000-0000-0000-000000000000'::uuid) FROM crm_state WHERE singleton = true`,
+	).Scan(&snapshotID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+
+	var pgUUID pgtype.UUID
+	pgUUID.Bytes = snapshotID
+	pgUUID.Valid = true
+
+	row, err := s.deps.Q.CrmDistinctOptions(r.Context(), pgUUID)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
