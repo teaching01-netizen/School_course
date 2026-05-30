@@ -31,7 +31,7 @@ import type {
 type StepIndex = 0 | 1 | 2 | 3;
 
 const STEP_LABELS = ["Student Lookup", "Parent Verify", "Courses & Dates", "Sessions & Cover"] as const;
-const SESSION_STORAGE_KEY = "warwick-absence-form-state-v2";
+const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
 const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
 
 const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
@@ -114,7 +114,6 @@ function FormErrorSummary({
   onClearPageError,
   onClearSubmissionError,
   onGoToVerification,
-  onGoToStep: _onGoToStep,
 }: {
   pageError: string | null;
   submissionError: string | null;
@@ -127,7 +126,6 @@ function FormErrorSummary({
   onClearPageError: () => void;
   onClearSubmissionError: () => void;
   onGoToVerification: () => void;
-  onGoToStep: (step: number) => void;
 }) {
   const [showExpanded, setShowExpanded] = useState(false);
 
@@ -478,8 +476,7 @@ export default function AbsenceForm() {
       if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
       if (Array.isArray(parsed.coverSessionIds)) setCoverSessionIds(new Set(parsed.coverSessionIds));
       if (typeof parsed.step === "number") {
-        const stepMap: Record<number, StepIndex> = { 0: 0, 1: 2, 2: 3, 3: 3 };
-        goTo((stepMap[parsed.step] ?? 0) as StepIndex);
+        goTo(parsed.step as StepIndex);
       }
     } catch {
       // ignore restore failures
@@ -936,7 +933,6 @@ export default function AbsenceForm() {
           onClearPageError={() => setPageError(null)}
           onClearSubmissionError={() => setSubmissionError(null)}
           onGoToVerification={() => goTo(1)}
-          onGoToStep={goTo}
         />
 
         <div className="rounded-sm border border-gray-200 bg-white p-3 shadow-sm">
