@@ -110,8 +110,11 @@ function FormErrorSummary({
   sessionsError,
   parentPhoneMissing,
   lookup,
+  online,
+  justRestored,
   onClearPageError,
   onGoToVerification,
+  onGoToStep: _onGoToStep,
 }: {
   pageError: string | null;
   submissionError: string | null;
@@ -120,59 +123,143 @@ function FormErrorSummary({
   sessionsError: string | null;
   parentPhoneMissing: boolean;
   lookup: StudentLookupResponse | null;
+  online: boolean;
+  justRestored: boolean;
   onClearPageError: () => void;
   onGoToVerification: () => void;
+  onGoToStep: (step: number) => void;
 }) {
-  const activeError = useMemo(() => {
-    if (submissionError) return { type: "error", message: submissionError, dismissible: true };
-    if (pageError) return { type: "error", message: pageError, dismissible: true };
-    if (verificationBlocked) return { type: "verification_blocked", message: "Your parent verification has expired. Please verify again." };
-    if (lookupError) return { type: "error", message: lookupError, dismissible: false };
-    if (sessionsError) return { type: "error", message: sessionsError, dismissible: false };
-    if (lookup && !lookup.parent_phone) return { type: "warning", message: "No parent phone number is on file for this student. Contact the school office before submitting." };
-    return null;
-  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, parentPhoneMissing, lookup]);
+  const [showExpanded, setShowExpanded] = useState(false);
 
-  if (!activeError) return null;
+  const items = useMemo(() => {
+    const result: Array<{
+      type: string;
+      message: string;
+      dismissible: boolean;
+      role: "alert" | "status";
+    }> = [];
 
-  if (activeError.type === "verification_blocked") {
-    return (
-      <div role="alert" className="flex items-center justify-between gap-3 rounded-sm border border-amber-250 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
-        <div>
-          <strong>Verification expired.</strong> {activeError.message}
-        </div>
-        <button
-          type="button"
-          className="shrink-0 inline-flex items-center rounded-sm bg-amber-200/60 px-3 py-1 text-xs font-semibold text-amber-950 hover:bg-amber-200/90 transition-colors"
-          onClick={onGoToVerification}
-        >
-          Go to Step 1
-        </button>
-      </div>
-    );
-  }
+    if (submissionError) {
+      result.push({ type: "error", message: submissionError, dismissible: true, role: "alert" });
+    }
+    if (pageError) {
+      result.push({ type: "error", message: pageError, dismissible: true, role: "alert" });
+    }
+    if (verificationBlocked) {
+      result.push({ type: "verification_blocked", message: "Your parent verification has expired. Please verify again.", dismissible: false, role: "alert" });
+    }
+    if (lookupError) {
+      result.push({ type: "error", message: lookupError, dismissible: false, role: "alert" });
+    }
+    if (sessionsError) {
+      result.push({ type: "error", message: sessionsError, dismissible: false, role: "alert" });
+    }
+    if (lookup && !lookup.parent_phone) {
+      result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact the school office before submitting.", dismissible: false, role: "status" });
+    }
+    if (!online) {
+      result.push({ type: "offline", message: "You are offline. Your selections are saved locally.", dismissible: false, role: "status" });
+    } else if (justRestored) {
+      result.push({ type: "restored", message: "Connection restored.", dismissible: false, role: "status" });
+    }
 
-  if (activeError.type === "warning") {
-    return (
-      <div role="status" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
-        {activeError.message}
-      </div>
-    );
-  }
+    return result;
+  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, parentPhoneMissing, lookup, online, justRestored]);
+
+  if (items.length === 0) return null;
+
+  const visible = showExpanded ? items : [items[0]];
+  const hiddenCount = items.length - visible.length;
 
   return (
-    <div role="alert" className="flex items-start justify-between gap-3 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-950 animate-fade-in shadow-sm">
-      <div className="flex-1">{activeError.message}</div>
-      {activeError.dismissible && (
+    <div className="space-y-2">
+      {visible.map((item, index) => {
+        const isTop = index === 0;
+        const role = isTop ? item.role : "status";
+
+        if (item.type === "verification_blocked") {
+          return (
+            <div key={index} role={role} className="flex items-center justify-between gap-3 rounded-sm border border-amber-250 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
+              <div>
+                <strong>Verification expired.</strong> {item.message}
+              </div>
+              <button
+                type="button"
+                className="shrink-0 inline-flex items-center rounded-sm bg-amber-200/60 px-3 py-1 text-xs font-semibold text-amber-950 hover:bg-amber-200/90 transition-colors"
+                onClick={onGoToVerification}
+              >
+                Go to Step 1
+              </button>
+            </div>
+          );
+        }
+
+        if (item.type === "warning") {
+          return (
+            <div key={index} role={role} className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
+              {item.message}
+            </div>
+          );
+        }
+
+        if (item.type === "offline") {
+          return (
+            <div
+              key={index}
+              role={role}
+              aria-live="polite"
+              className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 animate-fade-in shadow-sm"
+            >
+              {item.message}
+            </div>
+          );
+        }
+
+        if (item.type === "restored") {
+          return (
+            <div
+              key={index}
+              role={role}
+              aria-live="polite"
+              className="rounded-sm border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 animate-fade-in shadow-sm"
+            >
+              {item.message}
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={index}
+            role={role}
+            className="flex items-start justify-between gap-3 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-950 animate-fade-in shadow-sm"
+          >
+            <div className="flex-1">{item.message}</div>
+            {item.dismissible && (
+              <button
+                type="button"
+                onClick={onClearPageError}
+                className="shrink-0 rounded-sm p-1 text-red-800 hover:bg-red-100 transition-colors"
+                aria-label="Dismiss error"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {hiddenCount > 0 && (
         <button
           type="button"
-          onClick={onClearPageError}
-          className="shrink-0 rounded-sm p-1 text-red-800 hover:bg-red-100 transition-colors"
-          aria-label="Dismiss error"
+          onClick={() => setShowExpanded((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-700 underline transition-colors"
         >
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-          </svg>
+          {showExpanded
+            ? "Show less"
+            : `${hiddenCount} more issue${hiddenCount === 1 ? "" : "s"}`}
         </button>
       )}
     </div>
@@ -753,21 +840,6 @@ export default function AbsenceForm() {
   }, [sessions, activeSubjectId]);
   const primarySessionGroup = activeSessions[0] ?? null;
 
-  const renderStatusBanner = () => {
-    if (online && !justRestored) return null;
-    return (
-      <div
-        className={`rounded-sm border px-4 py-3 text-sm font-medium ${
-          online ? "border-emerald-200 bg-emerald-50 text-emerald-900 animate-fade-in" : "border-amber-200 bg-amber-50 text-amber-900 animate-fade-in"
-        }`}
-        role="status"
-        aria-live="polite"
-      >
-        {online ? "Connection restored." : "You are offline. Your selections are saved locally."}
-      </div>
-    );
-  };
-
   if (finalResult) {
     const reference = `ABS-${finalResult.id.slice(0, 8).toUpperCase()}`;
     return (
@@ -784,7 +856,6 @@ export default function AbsenceForm() {
               </Button>
             </div>
           </div>
-          {renderStatusBanner()}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -869,8 +940,6 @@ export default function AbsenceForm() {
           <LoadingSkeleton type="card" lines={3} />
         ) : null}
 
-        {renderStatusBanner()}
-
         <FormErrorSummary
           pageError={pageError}
           submissionError={submissionError}
@@ -879,8 +948,11 @@ export default function AbsenceForm() {
           sessionsError={sessionsError}
           parentPhoneMissing={parentPhoneMissing}
           lookup={lookup}
+          online={online}
+          justRestored={justRestored}
           onClearPageError={() => setPageError(null)}
           onGoToVerification={() => goTo(0)}
+          onGoToStep={goTo}
         />
 
         <div className="rounded-sm border border-gray-200 bg-white p-3 shadow-sm">
