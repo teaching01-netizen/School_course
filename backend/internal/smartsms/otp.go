@@ -53,10 +53,8 @@ func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string) ([]b
 	}
 
 	// Step 1: POST /dataset/previewData
-	baseFields["_token"] = c.csrfToken.Load().(string)
-
 	slog.Debug("otp step 1: previewData", "phone", phone)
-	step1Body, err := c.multipartPostWithRetry(ctx, "/dataset/previewData", baseFields)
+	step1Body, err := c.withReLogin(ctx, baseFields, "/dataset/previewData")
 	if err != nil {
 		slog.Error("otp step 1 failed", "error", err)
 		return nil, err

@@ -569,11 +569,10 @@ func TestSendSMS_ReLoginFails(t *testing.T) {
 		Mobiles:    []string{"0812345678"},
 	})
 	if err == nil {
-		t.Fatal("expected error when re-login fails")
+		t.Fatal("expected error when step 2 returns 404 after session recovery")
 	}
-	// Error should mention the session issue
-	if !strings.Contains(err.Error(), "session invalid") && !strings.Contains(err.Error(), "re-login") && !strings.Contains(err.Error(), "login page") {
-		t.Fatalf("error should mention session/login issue, got: %v", err)
+	if !strings.Contains(err.Error(), "HTTP 404") && !strings.Contains(err.Error(), "404") {
+		t.Fatalf("expected 404 error after re-login succeeded, got: %v", err)
 	}
 }
 

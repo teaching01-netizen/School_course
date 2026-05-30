@@ -317,7 +317,6 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 				}
 				return 0, nil, err
 			}
-			_ = phone
 			if err := s.deps.OTPSender.SendOTP(r.Context(), phone, code); err != nil {
 				if s.deps.Log != nil {
 					s.deps.Log.Error("otp sms resend failed", "phone", phone, "error", err)
