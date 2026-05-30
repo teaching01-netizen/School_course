@@ -9,6 +9,7 @@ import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import CourseChip from "@/components/absences/CourseChip";
+import DateRangeInput from "@/components/absences/DateRangeInput";
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
 import ConfirmationSummary from "@/components/absences/ConfirmationSummary";
 import { useToast } from "@/hooks/useToast";
@@ -1043,26 +1044,14 @@ export default function AbsenceForm() {
                         </p>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="block text-sm text-gray-700">
-                          From
-                          <Input
-                            className="mt-1"
-                            type="date"
-                            value={dateFrom}
-                            onChange={(event) => setDateFrom(event.target.value)}
-                          />
-                        </label>
-                        <label className="block text-sm text-gray-700">
-                          To
-                          <Input
-                            className="mt-1"
-                            type="date"
-                            value={dateTo}
-                            onChange={(event) => setDateTo(event.target.value)}
-                          />
-                        </label>
-                      </div>
+                      <DateRangeInput
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        maxDays={config.form.max_date_range_days}
+                        onDateFromChange={setDateFrom}
+                        onDateToChange={setDateTo}
+                        error={pageError || undefined}
+                      />
 
                       <div className="grid gap-3">
                         <label className="block text-sm text-gray-700">
