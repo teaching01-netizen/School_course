@@ -108,11 +108,11 @@ function FormErrorSummary({
   verificationBlocked,
   lookupError,
   sessionsError,
-  parentPhoneMissing,
   lookup,
   online,
   justRestored,
   onClearPageError,
+  onClearSubmissionError,
   onGoToVerification,
   onGoToStep: _onGoToStep,
 }: {
@@ -121,11 +121,11 @@ function FormErrorSummary({
   verificationBlocked: boolean;
   lookupError: string | null;
   sessionsError: string | null;
-  parentPhoneMissing: boolean;
   lookup: StudentLookupResponse | null;
   online: boolean;
   justRestored: boolean;
   onClearPageError: () => void;
+  onClearSubmissionError: () => void;
   onGoToVerification: () => void;
   onGoToStep: (step: number) => void;
 }) {
@@ -137,13 +137,11 @@ function FormErrorSummary({
       message: string;
       dismissible: boolean;
       role: "alert" | "status";
+      onDismiss?: () => void;
     }> = [];
 
     if (submissionError) {
-      result.push({ type: "error", message: submissionError, dismissible: true, role: "alert" });
-    }
-    if (pageError) {
-      result.push({ type: "error", message: pageError, dismissible: true, role: "alert" });
+      result.push({ type: "error", message: submissionError, dismissible: true, role: "alert", onDismiss: onClearSubmissionError });
     }
     if (verificationBlocked) {
       result.push({ type: "verification_blocked", message: "Your parent verification has expired. Please verify again.", dismissible: false, role: "alert" });
@@ -153,6 +151,9 @@ function FormErrorSummary({
     }
     if (sessionsError) {
       result.push({ type: "error", message: sessionsError, dismissible: false, role: "alert" });
+    }
+    if (pageError) {
+      result.push({ type: "error", message: pageError, dismissible: true, role: "alert", onDismiss: onClearPageError });
     }
     if (lookup && !lookup.parent_phone) {
       result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact the school office before submitting.", dismissible: false, role: "status" });
@@ -164,7 +165,7 @@ function FormErrorSummary({
     }
 
     return result;
-  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, parentPhoneMissing, lookup, online, justRestored]);
+  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, lookup, online, justRestored]);
 
   if (items.length === 0) return null;
 
@@ -238,7 +239,7 @@ function FormErrorSummary({
             {item.dismissible && (
               <button
                 type="button"
-                onClick={onClearPageError}
+                onClick={() => item.onDismiss?.()}
                 className="shrink-0 rounded-sm p-1 text-red-800 hover:bg-red-100 transition-colors"
                 aria-label="Dismiss error"
               >
@@ -946,11 +947,11 @@ export default function AbsenceForm() {
           verificationBlocked={verificationBlocked}
           lookupError={lookupError}
           sessionsError={sessionsError}
-          parentPhoneMissing={parentPhoneMissing}
           lookup={lookup}
           online={online}
           justRestored={justRestored}
           onClearPageError={() => setPageError(null)}
+          onClearSubmissionError={() => setSubmissionError(null)}
           onGoToVerification={() => goTo(0)}
           onGoToStep={goTo}
         />
