@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { Check, CheckCircle, ChevronLeft, ChevronRight, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { apiJson, newIdempotencyKey } from "@/api/client";
 import Button from "@/components/ui/Button";
@@ -144,6 +144,7 @@ export default function AbsenceForm() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
+  const [verificationBlocked, setVerificationBlocked] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [finalResult, setFinalResult] = useState<ManagedAbsence | null>(null);
@@ -173,13 +174,15 @@ export default function AbsenceForm() {
     selectedSubjectCount > 0 &&
     !!dateFrom &&
     !!dateTo &&
-    daysBetween(dateFrom, dateTo) >= 0;
+    daysBetween(dateFrom, dateTo) >= 0 &&
+    !verificationBlocked;
   const canProceedToReview =
     !!activeGroup &&
     !!dateFrom &&
     !!dateTo &&
     daysBetween(dateFrom, dateTo) >= 0 &&
-    selectedSessionCount > 0;
+    selectedSessionCount > 0 &&
+    !verificationBlocked;
 
   useEffect(() => {
     let active = true;
@@ -330,9 +333,11 @@ export default function AbsenceForm() {
 
   useEffect(() => {
     if (!verificationSatisfied && step > 0) {
-      goTo(0);
+      setVerificationBlocked(true);
+    } else {
+      setVerificationBlocked(false);
     }
-  }, [goTo, step, verificationSatisfied]);
+  }, [verificationSatisfied, step]);
 
   useEffect(() => {
     if (!lookup) {
@@ -352,12 +357,6 @@ export default function AbsenceForm() {
       window.setTimeout(() => resultHeadingRef.current?.focus({ preventScroll: false }), 0);
     }
   }, [finalResult]);
-
-  useEffect(() => {
-    if (!pageError) return;
-    const timer = window.setTimeout(() => setPageError(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [pageError]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -755,25 +754,39 @@ export default function AbsenceForm() {
             </div>
           </div>
           {renderStatusBanner()}
-          <section
-            className="rounded-sm border border-emerald-200 bg-white p-5 shadow-sm"
-            aria-live="polite"
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", damping: 20, stiffness: 100 }}
           >
-            <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-semibold text-[var(--color-wi-text)]">
-              Submission complete
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              Your absence has been saved and is waiting for review.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Reference</span>
-              <span className="font-mono text-sm font-semibold">{reference}</span>
-              <Button variant="secondary" size="sm" onClick={() => void copyReference()}>
-                <Copy className="mr-1 h-4 w-4" />
-                {copiedReference ? "Copied" : "Copy"}
-              </Button>
-            </div>
-          </section>
+            <section
+              className="rounded-sm border border-emerald-200 bg-white p-5 shadow-sm"
+              aria-live="polite"
+            >
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-7 w-7 text-emerald-500" aria-hidden="true" />
+                <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-semibold text-[var(--color-wi-text)]">
+                  Submission complete
+                </h2>
+              </div>
+              <p className="mt-2 text-sm text-gray-600">
+                Your absence has been saved and is waiting for review.
+              </p>
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3, duration: 0.3 }}
+                className="mt-4 flex flex-wrap items-center gap-2 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3"
+              >
+                <span className="text-xs uppercase tracking-wide text-gray-500">Reference</span>
+                <span className="font-mono text-sm font-semibold">{reference}</span>
+                <Button variant="secondary" size="sm" onClick={() => void copyReference()}>
+                  <Copy className="mr-1 h-4 w-4" />
+                  {copiedReference ? "Copied" : "Copy"}
+                </Button>
+              </motion.div>
+            </section>
+          </motion.div>
           <ConfirmationSummary
             mode="result"
             studentName={lookup?.full_name ?? finalResult.student_name ?? ""}
@@ -828,22 +841,65 @@ export default function AbsenceForm() {
         {renderStatusBanner()}
 
         {pageError ? (
-          <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            {pageError}
+          <div role="alert" className="flex items-start justify-between gap-3 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            <span>{pageError}</span>
+            <button
+              type="button"
+              onClick={() => setPageError(null)}
+              className="shrink-0 rounded-sm p-1 text-red-700 hover:bg-red-100"
+              aria-label="Dismiss error"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
           </div>
         ) : null}
 
-        {lookupError ? (
-          <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            {lookupError}
+        {verificationBlocked ? (
+          <div role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong>Verification expired.</strong> Your parent verification has expired. Please go back to step 1 to verify again.
+            <button
+              type="button"
+              className="ml-3 inline-flex items-center rounded-sm bg-amber-200/50 px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-200/80"
+              onClick={() => goTo(0)}
+            >
+              Go to verification
+            </button>
           </div>
         ) : null}
 
-        {sessionsError ? (
-          <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            {sessionsError}
-          </div>
-        ) : null}
+        <AnimatePresence>
+          {lookupError ? (
+            <motion.div
+              key="lookup-error"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              role="alert"
+              className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+            >
+              {lookupError}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {sessionsError ? (
+            <motion.div
+              key="sessions-error"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              role="alert"
+              className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+            >
+              {sessionsError}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {lookup && parentPhoneMissing ? (
           <div role="status" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -854,9 +910,11 @@ export default function AbsenceForm() {
         <div className="rounded-sm border border-gray-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {STEP_LABELS.map((label, index) => (
-              <button
+              <motion.button
                 key={label}
                 type="button"
+                whileTap={reduceMotion ? undefined : { scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className={`inline-flex min-h-[44px] items-center gap-2 rounded-sm px-3 py-2 ${
                   index === step
                     ? "bg-[var(--color-wi-primary)]/10 text-[var(--color-wi-primary)]"
@@ -874,7 +932,7 @@ export default function AbsenceForm() {
                   {index < step ? <Check className="h-3 w-3" /> : index + 1}
                 </span>
                 <span className="hidden sm:inline">{label}</span>
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
