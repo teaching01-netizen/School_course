@@ -165,7 +165,7 @@ function FormErrorSummary({
     }
 
     return result;
-  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, lookup, online, justRestored]);
+  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, lookup, online, justRestored, onClearPageError, onClearSubmissionError, onGoToVerification]);
 
   if (items.length === 0) return null;
 
@@ -252,17 +252,24 @@ function FormErrorSummary({
         );
       })}
 
-      {hiddenCount > 0 && (
+      {items.length > 1 && !showExpanded ? (
         <button
           type="button"
           onClick={() => setShowExpanded((v) => !v)}
           className="text-xs text-gray-500 hover:text-gray-700 underline transition-colors"
         >
-          {showExpanded
-            ? "Show less"
-            : `${hiddenCount} more issue${hiddenCount === 1 ? "" : "s"}`}
+          {hiddenCount} more issue{hiddenCount === 1 ? "" : "s"}
         </button>
-      )}
+      ) : null}
+      {items.length > 1 && showExpanded ? (
+        <button
+          type="button"
+          onClick={() => setShowExpanded((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-700 underline transition-colors"
+        >
+          Show less
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -323,7 +330,6 @@ export default function AbsenceForm() {
     () => config.form.reason_categories.find((item) => item.value === reasonCategory)?.label ?? "",
     [config.form.reason_categories, reasonCategory],
   );
-  const parentPhoneMissing = !lookup?.parent_phone || lookup.parent_phone.trim() === "";
   const canProceedFromVerify = !!lookup && verificationSatisfied;
   const canProceedToSessions =
     !!activeGroup &&
