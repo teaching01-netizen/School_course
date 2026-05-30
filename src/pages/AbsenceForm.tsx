@@ -702,7 +702,6 @@ export default function AbsenceForm() {
     setCoverSessionIds(new Set());
     setPageError(null);
     setCourseAnnouncement("");
-    setShowReasonFields(false);
     setVerificationSatisfied(false);
     setSubmissionError(null);
     setFinalResult(null);
@@ -1014,7 +1013,6 @@ export default function AbsenceForm() {
                           setDateTo("");
                           setReasonCategory("");
                           setReason("");
-                          setShowReasonFields(false);
                           setSessions([]);
                           setSelectedSessionIds(new Set());
                           setCoverSessionIds(new Set());
