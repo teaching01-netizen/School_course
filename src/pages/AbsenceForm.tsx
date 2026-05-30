@@ -888,13 +888,15 @@ export default function AbsenceForm() {
 
         <AnimatePresence>
           {sessionsError ? (
-                              <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden border-t border-gray-200"
-                              >
+            <motion.div
+              key="sessions-error"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              role="alert"
+              className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+            >
               {sessionsError}
             </motion.div>
           ) : null}
