@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
@@ -29,7 +30,7 @@ const defaultTimeout = 30 * time.Second
 
 const clientUserAgent = "WarwickInstitute-SmartSMS/1.0"
 
-const maxRetries = 3
+const maxRetries = 1
 const retryBaseDelay = 500 * time.Millisecond
 
 // Config holds the credentials and settings for the SmartSMS client.
@@ -57,8 +58,10 @@ type Client struct {
 	label      string
 	username   string
 	password   string
-	csrfToken  string
-	loggedIn   bool
+	csrfToken       atomic.Value
+	loggedIn        bool
+	heartbeatCtx    context.Context
+	heartbeatCancel context.CancelFunc
 }
 
 // httpStatusError is returned when the HTTP response has a non-200 status code.
@@ -145,6 +148,11 @@ func New(cfg Config) (*Client, error) {
 
 	return &Client{
 		httpClient: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:        25,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 			Jar:     jar,
 			Timeout: timeout,
 		},
@@ -221,7 +229,6 @@ func (c *Client) Login(ctx context.Context) error {
 // loginLocked performs login while the caller already holds c.mu.
 func (c *Client) loginLocked(ctx context.Context) error {
 	c.loggedIn = false
-	c.csrfToken = ""
 
 	// Step 1: GET the sendsms page to extract the CSRF token.
 	sendsmsURL, err := c.abs("/sendsms")
@@ -253,13 +260,13 @@ func (c *Client) loginLocked(ctx context.Context) error {
 	if token == "" {
 		return fmt.Errorf("smartsms: could not extract CSRF token from /sendsms")
 	}
-	c.csrfToken = token
+	c.csrfToken.Store(token)
 
 	// Step 2: POST /login with credentials + CSRF token.
 	fields := map[string]string{
 		"email":    c.username,
 		"password": c.password,
-		"_token":   c.csrfToken,
+		"_token":   token,
 	}
 
 	respBody, err := c.multipartPost(ctx, "/login", fields)
@@ -297,9 +304,10 @@ func (c *Client) loginLocked(ctx context.Context) error {
 	if freshToken == "" {
 		return fmt.Errorf("smartsms: could not extract CSRF token after login; session may be invalid")
 	}
-	c.csrfToken = freshToken
+	c.csrfToken.Store(freshToken)
 
 	c.loggedIn = true
+	c.startHeartbeatLocked(ctx)
 	return nil
 }
 
@@ -423,11 +431,9 @@ func (c *Client) sendSMSBody(ctx context.Context, req SendRequest) (*SendRespons
 }
 
 // withReLogin executes the multipart POST with retry logic and session recovery.
-// It acquires/releases the lock only for CSRF token access and re-login.
+// It acquires/releases the lock only for re-login.
 func (c *Client) withReLogin(ctx context.Context, fields map[string]string, path string) ([]byte, error) {
-	c.mu.Lock()
-	fields["_token"] = c.csrfToken
-	c.mu.Unlock()
+	fields["_token"] = c.csrfToken.Load().(string)
 
 	body, err := c.multipartPostWithRetry(ctx, path, fields)
 	if err == nil && !isLoginPage(string(body)) {
@@ -447,7 +453,7 @@ func (c *Client) withReLogin(ctx context.Context, fields map[string]string, path
 		}
 		return nil, fmt.Errorf("smartsms: %s re-login failed: %w (triggered by login page)", path, reErr)
 	}
-	fields["_token"] = c.csrfToken
+	fields["_token"] = c.csrfToken.Load().(string)
 	c.mu.Unlock()
 
 	body, err = c.multipartPost(ctx, path, fields)
@@ -489,7 +495,6 @@ func (c *Client) ensureSessionLocked(ctx context.Context) error {
 // reLoginLocked resets state and logs in again. Caller holds c.mu.
 func (c *Client) reLoginLocked(ctx context.Context) error {
 	c.loggedIn = false
-	c.csrfToken = ""
 	return c.loginLocked(ctx)
 }
 
@@ -757,4 +762,80 @@ func parseSimpleSuccess(body []byte) (*SendResponse, error) {
 		return nil, fmt.Errorf("smartsms: parse JSON: %w", err)
 	}
 	return &SendResponse{Success: resp.Success}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Session heartbeat
+// ---------------------------------------------------------------------------
+
+// startHeartbeatLocked starts a background goroutine that keeps the Laravel
+// session alive by issuing a lightweight GET to /sendsms every 3 minutes.
+// Caller must hold c.mu. It cancels any previous heartbeat first.
+func (c *Client) startHeartbeatLocked(ctx context.Context) {
+	if c.heartbeatCancel != nil {
+		c.heartbeatCancel()
+	}
+	c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+	go c.heartbeatLoop(c.heartbeatCtx)
+}
+
+// heartbeatLoop runs the periodic heartbeat until ctx is cancelled.
+func (c *Client) heartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := c.heartbeatLocked(ctx); err != nil {
+				slog.Warn("smartsms: heartbeat failed", "err", err)
+			}
+		}
+	}
+}
+
+// heartbeatLocked issues a GET to /sendsms to keep the Laravel session alive.
+// On 401/403 it attempts a single re-login. Other errors are logged and ignored.
+func (c *Client) heartbeatLocked(ctx context.Context) error {
+	sendsmsURL, err := c.abs("/sendsms")
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sendsmsURL, nil)
+	if err != nil {
+		return fmt.Errorf("smartsms: heartbeat new request: %w", err)
+	}
+	req.Header.Set("User-Agent", clientUserAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("smartsms: heartbeat GET: %w", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		c.mu.Lock()
+		reErr := c.reLoginLocked(context.Background())
+		c.mu.Unlock()
+		if reErr != nil {
+			return fmt.Errorf("smartsms: heartbeat re-login: %w", reErr)
+		}
+		return nil
+	case resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("smartsms: heartbeat: HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// StopHeartbeat cancels the session heartbeat goroutine, if running.
+func (c *Client) StopHeartbeat() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.heartbeatCancel != nil {
+		c.heartbeatCancel()
+		c.heartbeatCancel = nil
+	}
 }
