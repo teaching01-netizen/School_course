@@ -30,7 +30,7 @@ import type {
 
 type StepIndex = 0 | 1 | 2 | 3;
 
-const STEP_LABELS = ["Lookup & Verify", "Courses & Dates", "Sessions & Cover", "Review & Submit"] as const;
+const STEP_LABELS = ["Student Lookup", "Parent Verify", "Courses & Dates", "Sessions & Cover"] as const;
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v2";
 const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
 
@@ -189,7 +189,7 @@ function FormErrorSummary({
                 className="shrink-0 inline-flex items-center rounded-sm bg-amber-200/60 px-3 py-1 text-xs font-semibold text-amber-950 hover:bg-amber-200/90 transition-colors"
                 onClick={onGoToVerification}
               >
-                Go to Step 1
+                Go to verification
               </button>
             </div>
           );
@@ -338,13 +338,7 @@ export default function AbsenceForm() {
     !!dateTo &&
     daysBetween(dateFrom, dateTo) >= 0 &&
     !verificationBlocked;
-  const canProceedToReview =
-    !!activeGroup &&
-    !!dateFrom &&
-    !!dateTo &&
-    daysBetween(dateFrom, dateTo) >= 0 &&
-    selectedSessionCount > 0 &&
-    !verificationBlocked;
+
 
   // Auto-expand reasons if loaded from storage
   useEffect(() => {
@@ -483,7 +477,10 @@ export default function AbsenceForm() {
       if (typeof parsed.reason === "string") setReason(parsed.reason);
       if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
       if (Array.isArray(parsed.coverSessionIds)) setCoverSessionIds(new Set(parsed.coverSessionIds));
-      if (typeof parsed.step === "number") goTo(Math.max(0, Math.min(3, parsed.step)) as StepIndex);
+      if (typeof parsed.step === "number") {
+        const stepMap: Record<number, StepIndex> = { 0: 0, 1: 2, 2: 3, 3: 3 };
+        goTo((stepMap[parsed.step] ?? 0) as StepIndex);
+      }
     } catch {
       // ignore restore failures
     }
@@ -708,7 +705,7 @@ export default function AbsenceForm() {
     }
   };
 
-  function validateStepOne() {
+  function validateStepTwo() {
     if (selectedSubjectIds.length === 0) {
       setPageError("Select at least one course.");
       return false;
@@ -723,26 +720,6 @@ export default function AbsenceForm() {
     }
     if (daysBetween(dateFrom, dateTo) > config.form.max_date_range_days) {
       setPageError(`Date range must be ${config.form.max_date_range_days} days or less.`);
-      return false;
-    }
-    return true;
-  }
-
-  function validateStepTwo() {
-    if (!activeGroup) {
-      setPageError("Choose a course first.");
-      return false;
-    }
-    if (selectedSubjectIds.length === 0) {
-      setPageError("Select at least one course.");
-      return false;
-    }
-    if (!dateFrom || !dateTo) {
-      setPageError("Select both dates.");
-      return false;
-    }
-    if (selectedSessionCount === 0) {
-      setPageError("Select at least one session.");
       return false;
     }
     return true;
@@ -958,7 +935,7 @@ export default function AbsenceForm() {
           justRestored={justRestored}
           onClearPageError={() => setPageError(null)}
           onClearSubmissionError={() => setSubmissionError(null)}
-          onGoToVerification={() => goTo(0)}
+          onGoToVerification={() => goTo(1)}
           onGoToStep={goTo}
         />
 
@@ -1009,7 +986,7 @@ export default function AbsenceForm() {
                   tabIndex={-1}
                   className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
                 >
-                  Lookup & verify
+                  Student Lookup
                 </h2>
                 <div className="grid gap-4">
                   <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -1041,8 +1018,8 @@ export default function AbsenceForm() {
                   </div>
 
                   {lookup ? (
-                    <div className="space-y-6 animate-fade-in mt-4">
-                      {/* Clean visual separator and distinct Student Info card */}
+                    <div className="space-y-4 animate-fade-in mt-4">
+                      {/* Student Profile Card */}
                       <div className="rounded-sm border border-gray-250 bg-gray-50 p-5 shadow-sm">
                         <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">Student Profile</h3>
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1056,59 +1033,13 @@ export default function AbsenceForm() {
                         </div>
                       </div>
 
-                      <hr className="border-gray-200" />
-
-                      {/* Verification section cleanly separate, not nested in a card wrapper */}
-                      <StepCoverVerification
-                        wcode={lookup.wcode}
-                        parentPhone={lookup.parent_phone}
-                        allowSubmitWithoutOtp={config.notifications?.allow_submit_without_otp ?? false}
-                        adminContact={config.admin_contact}
-                        verification={verification}
-                        completed={verificationSatisfied}
-                        onSatisfied={handleVerificationSatisfied}
-                        onWcodeChange={() => {
-                          setLookup(null);
-                          setLookupError(null);
-                          setSelectedSubjectIds([]);
-                          setActiveCourseIndex(0);
-                          setDateFrom("");
-                          setDateTo("");
-                          setReasonCategory("");
-                          setReason("");
-                          setSessions([]);
-                          setSelectedSessionIds(new Set());
-                          setCoverSessionIds(new Set());
-                           setPageError(null);
-                           setSubmissionError(null);
-                           setShowReasonFields(false);
-                           setVerificationSatisfied(false);
-                           verification.clearStoredToken();
-                           verification.setCode("");
-                         }}
-                       />
-
-                      {verificationSatisfied ? (
-                        <motion.div
-                          initial={{ opacity: 0, y: 12 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ type: "spring", damping: 20, stiffness: 100 }}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-emerald-250 bg-emerald-50/50 p-5 text-sm shadow-sm"
-                        >
-                          <div className="text-emerald-950 font-medium">
-                            Parent verified successfully. Proceed to select courses and dates.
-                          </div>
-                          <Button
-                            variant="primary"
-                            size="lg"
-                            disabled={!canProceedFromVerify}
-                            onClick={() => goTo(1)}
-                          >
-                            Continue to courses
-                            <ChevronRight className="ml-2 h-4 w-4" />
-                          </Button>
-                        </motion.div>
-                      ) : null}
+                      {/* Verify parent CTA */}
+                      <div className="flex justify-end">
+                        <Button variant="primary" size="lg" onClick={() => goTo(1)}>
+                          Verify parent
+                          <ChevronRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -1124,7 +1055,99 @@ export default function AbsenceForm() {
                   tabIndex={-1}
                   className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
                 >
-                  Courses & dates
+                  Parent Verify
+                </h2>
+                {lookup ? (
+                  <div className="space-y-6">
+                    {/* Student profile reference */}
+                    <div className="rounded-sm border border-gray-250 bg-gray-50 p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--color-wi-text)]">{lookup.full_name}</p>
+                          <p className="text-xs font-mono text-gray-700 mt-0.5">{lookup.wcode}</p>
+                        </div>
+                        <div className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                          {lookup.parent_phone ? `Parent phone ${maskPhone(lookup.parent_phone)}` : "No parent phone on file"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <StepCoverVerification
+                      wcode={lookup.wcode}
+                      parentPhone={lookup.parent_phone}
+                      allowSubmitWithoutOtp={config.notifications?.allow_submit_without_otp ?? false}
+                      adminContact={config.admin_contact}
+                      verification={verification}
+                      completed={verificationSatisfied}
+                      onSatisfied={handleVerificationSatisfied}
+                      onWcodeChange={() => {
+                        setLookup(null);
+                        setLookupError(null);
+                        setSelectedSubjectIds([]);
+                        setActiveCourseIndex(0);
+                        setDateFrom("");
+                        setDateTo("");
+                        setReasonCategory("");
+                        setReason("");
+                        setSessions([]);
+                        setSelectedSessionIds(new Set());
+                        setCoverSessionIds(new Set());
+                        setPageError(null);
+                        setSubmissionError(null);
+                        setShowReasonFields(false);
+                        setVerificationSatisfied(false);
+                        verification.clearStoredToken();
+                        verification.setCode("");
+                      }}
+                    />
+
+                    {verificationSatisfied ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ type: "spring", damping: 20, stiffness: 100 }}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-emerald-250 bg-emerald-50/50 p-5 text-sm shadow-sm"
+                      >
+                        <div className="text-emerald-950 font-medium">
+                          Parent verified successfully. Proceed to select courses and dates.
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="lg"
+                          disabled={!canProceedFromVerify}
+                          onClick={() => goTo(2)}
+                        >
+                          Continue to courses
+                          <ChevronRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </motion.div>
+                    ) : null}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                      <Button variant="secondary" onClick={() => back()}>
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Back
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
+                    Look up a student first.
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {step === 2 ? (
+              <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
+                <h2
+                  ref={(node) => {
+                    stepHeadingRefs.current[2] = node;
+                  }}
+                  tabIndex={-1}
+                  className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
+                >
+                  Courses & Dates
                 </h2>
                 <div className="space-y-6">
                   {lookup ? (
@@ -1132,11 +1155,7 @@ export default function AbsenceForm() {
                       <div className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Select your courses</h3>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={toggleAllSubjects}
-                          >
+                          <Button variant="secondary" size="sm" onClick={toggleAllSubjects}>
                             {selectedSubjectCount === lookup.subjects.length ? "Deselect all" : "Select all"}
                           </Button>
                         </div>
@@ -1179,7 +1198,6 @@ export default function AbsenceForm() {
                         onDateToChange={setDateTo}
                       />
 
-                      {/* Collapsible Disclosure Section for Reasons — only once courses + dates are partially filled */}
                       {selectedSubjectCount > 0 && dateFrom && dateTo ? (
                         <div className="border border-gray-200 rounded-sm overflow-hidden">
                           <button
@@ -1195,10 +1213,7 @@ export default function AbsenceForm() {
                               </span>
                             </span>
                             <ChevronRight
-                              className={clsx(
-                                "h-4 w-4 text-gray-600 transition-transform duration-200",
-                                showReasonFields && "rotate-90"
-                              )}
+                              className={clsx("h-4 w-4 text-gray-600 transition-transform duration-200", showReasonFields && "rotate-90")}
                             />
                           </button>
 
@@ -1248,7 +1263,6 @@ export default function AbsenceForm() {
                                           maxLength={500}
                                           placeholder="Provide details about the absence..."
                                         />
-                                        {/* Visual Progress Bar for character length */}
                                         <div className="mt-1.5 h-1 w-full bg-gray-100 rounded-full overflow-hidden">
                                           <div
                                             className={clsx(
@@ -1278,8 +1292,8 @@ export default function AbsenceForm() {
                           size="lg"
                           disabled={!canProceedToSessions}
                           onClick={() => {
-                            if (validateStepOne()) {
-                              goTo(2);
+                            if (validateStepTwo()) {
+                              goTo(3);
                             }
                           }}
                         >
@@ -1297,16 +1311,16 @@ export default function AbsenceForm() {
               </section>
             ) : null}
 
-            {step === 2 ? (
+            {step === 3 ? (
               <section className="space-y-4 rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
                 <h2
                   ref={(node) => {
-                    stepHeadingRefs.current[2] = node;
+                    stepHeadingRefs.current[3] = node;
                   }}
                   tabIndex={-1}
                   className="text-xl font-semibold text-[var(--color-wi-text)]"
                 >
-                  Sessions & cover
+                  Sessions & Cover
                 </h2>
                 {activeGroup ? (
                   <div className="space-y-4">
@@ -1412,23 +1426,54 @@ export default function AbsenceForm() {
                       );
                     })}
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm">
+                    {/* Inline review summary */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
+                        <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Parent phone</div>
+                        <div className="mt-1 font-semibold text-gray-800">{maskPhone(lookup?.parent_phone) || "Not available"}</div>
+                      </div>
+                      <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
+                        <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Date range</div>
+                        <div className="mt-1 font-semibold text-gray-800">
+                          {dateFrom ? formatDate(dateFrom) : "Start date"} - {dateTo ? formatDate(dateTo) : "End date"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-sm border border-gray-200 bg-white p-5">
+                      <div className="text-sm font-semibold text-[var(--color-wi-text)]">
+                        {activeGroup?.code} - {activeGroup?.name}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-700 font-medium">
+                        {selectedSessionCount} session{selectedSessionCount === 1 ? "" : "s"} selected, {coverSessionCount} cover session{coverSessionCount === 1 ? "" : "s"}
+                      </div>
+                      {reasonCategoryLabel ? (
+                        <div className="mt-2 text-sm text-gray-700 font-medium">
+                          Reason: {reasonCategoryLabel}
+                        </div>
+                      ) : null}
+                      {reason ? <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-3 border border-gray-150 rounded-sm italic">{reason}</div> : null}
+                    </div>
+
+                    <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
+                      <h3 className="font-semibold text-[var(--color-wi-text)]">What happens next?</h3>
+                      <p className="mt-2 text-gray-600">
+                        We will save this absence and place it in the review queue once you submit.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                       <Button variant="secondary" onClick={() => back()}>
                         <ChevronLeft className="mr-1 h-4 w-4" />
                         Back
                       </Button>
                       <Button
                         variant="primary"
-                        size="lg"
-                        disabled={!canProceedToReview}
-                        onClick={() => {
-                          if (validateStepTwo()) {
-                            goTo(3);
-                          }
-                        }}
+                        disabled={selectedSessionCount === 0}
+                        loading={isSubmitting}
+                        onClick={() => void handleSubmitAbsence()}
                       >
-                        Continue to review
-                        <ChevronRight className="ml-2 h-4 w-4" />
+                        Submit absence
                       </Button>
                     </div>
                   </div>
@@ -1437,68 +1482,6 @@ export default function AbsenceForm() {
                     Choose a course first.
                   </div>
                 )}
-              </section>
-            ) : null}
-
-            {step === 3 ? (
-              <section className="space-y-4 rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <h2
-                  ref={(node) => {
-                    stepHeadingRefs.current[3] = node;
-                  }}
-                  tabIndex={-1}
-                  className="text-xl font-semibold text-[var(--color-wi-text)]"
-                >
-                  Review & submit
-                </h2>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                    <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Parent phone</div>
-                    <div className="mt-1 font-semibold text-gray-800">{maskPhone(lookup?.parent_phone) || "Not available"}</div>
-                  </div>
-                  <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                    <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Date range</div>
-                    <div className="mt-1 font-semibold text-gray-800">
-                      {dateFrom ? formatDate(dateFrom) : "Start date"} - {dateTo ? formatDate(dateTo) : "End date"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-sm border border-gray-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-[var(--color-wi-text)]">
-                    {activeGroup?.code} - {activeGroup?.name}
-                  </div>
-                  <div className="mt-2 text-sm text-gray-700 font-medium">
-                    {selectedSessionCount} session{selectedSessionCount === 1 ? "" : "s"} selected, {coverSessionCount} cover session{coverSessionCount === 1 ? "" : "s"}
-                  </div>
-                  {reasonCategoryLabel ? (
-                    <div className="mt-2 text-sm text-gray-700 font-medium">
-                      Reason: {reasonCategoryLabel}
-                    </div>
-                  ) : null}
-                  {reason ? <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-3 border border-gray-150 rounded-sm italic">{reason}</div> : null}
-                </div>
-
-                <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                  <h3 className="font-semibold text-[var(--color-wi-text)]">What happens next?</h3>
-                  <p className="mt-2 text-gray-600">
-                    We will save this absence and place it in the review queue once you submit.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                  <Button variant="secondary" onClick={() => back()}>
-                    <ChevronLeft className="mr-1 h-4 w-4" />
-                    Back
-                  </Button>
-                  <Button
-                    variant="primary"
-                    loading={isSubmitting}
-                    onClick={() => void handleSubmitAbsence()}
-                  >
-                    Submit absence
-                  </Button>
-                </div>
               </section>
             ) : null}
           </motion.div>
