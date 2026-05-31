@@ -110,7 +110,22 @@ type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit_in"]>[
 type SitInCourse = NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
 
 function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
-  return allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
+  return sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
+}
+
+function getSitInCourseDisplayName(
+  sitInCourse: SitInCourse,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  return (
+    resolveSitInSubjectName(sitInCourse, allSubjects) ||
+    sitInCourse?.name?.trim() ||
+    sitInCourse?.subject_code?.trim() ||
+    fallbackSubjectName ||
+    sitInCourse?.code?.trim() ||
+    ""
+  );
 }
 
 function getSitInSessionLabel(
@@ -119,13 +134,13 @@ function getSitInSessionLabel(
   fallbackSubjectName: string,
   allSubjects: SubjectSessions[],
 ) {
-  const sitInSubjectName = resolveSitInSubjectName(sitInCourse, allSubjects);
   const className =
+    resolveSitInSubjectName(sitInCourse, allSubjects) ||
     sitInCourse?.name?.trim() ||
-    sitInSubjectName ||
     session.class_name?.trim() ||
     session.subject_name?.trim() ||
     session.course_name?.trim() ||
+    sitInCourse?.subject_code?.trim() ||
     session.subject_code?.trim() ||
     session.course_code?.trim() ||
     fallbackSubjectName ||
@@ -1146,6 +1161,7 @@ export default function AbsenceForm() {
                                       const currentSitIn = sitInSelections[session.id] || "";
                                       const sitIn = group.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
+                                      const sitInClassLabel = getSitInCourseDisplayName(sitIn?.sit_in_course, groupLabel, sessions);
 
                                       return (
                                         <div
@@ -1183,7 +1199,7 @@ export default function AbsenceForm() {
                                                      Pick a make-up class
                                                   </div>
                                                      <p className="text-xs text-gray-600 mb-2 truncate">
-                                                         Absence class: {groupLabel}
+                                                         Absence class: {sitInClassLabel}
                                                      </p>
                                                    <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
                                                      <span className="text-gray-700 font-medium">Make-up class:</span>

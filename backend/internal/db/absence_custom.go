@@ -439,6 +439,8 @@ type SubjectCourseV2 struct {
 	Code              string      `json:"code"`
 	Name              string      `json:"name"`
 	SubjectID         pgtype.UUID `json:"subject_id"`
+	SubjectCode       string      `json:"subject_code"`
+	SubjectName       string      `json:"subject_name"`
 	CycleID           pgtype.Text `json:"cycle_id"`
 	Level             pgtype.Int2 `json:"level"`
 	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
@@ -447,8 +449,10 @@ type SubjectCourseV2 struct {
 
 func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM courses c
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND c.deleted_at IS NULL AND c.level IS NOT NULL
 		ORDER BY c.level ASC
@@ -461,7 +465,7 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -474,8 +478,10 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 
 func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupID pgtype.UUID) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM courses c
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE c.root_course_group_id = $1
 		  AND c.deleted_at IS NULL
@@ -490,7 +496,7 @@ func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupI
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -506,8 +512,10 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 	var err error
 	if cycleID.Valid {
 		rows, err = q.db.Query(ctx, `
-			SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+			       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 			FROM courses c
+			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 			WHERE c.root_course_group_id = $1
 			  AND c.deleted_at IS NULL
@@ -517,8 +525,10 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 		`, rootCourseGroupID, cycleID.String)
 	} else {
 		rows, err = q.db.Query(ctx, `
-			SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+			       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 			FROM courses c
+			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 			WHERE c.root_course_group_id = $1
 			  AND c.deleted_at IS NULL
@@ -534,7 +544,7 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

@@ -42,9 +42,11 @@ type SitInResult struct {
 }
 
 type SitInCourseInfo struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	SubjectCode string `json:"subject_code,omitempty"`
+	SubjectName string `json:"subject_name,omitempty"`
 }
 
 type sessionBrief struct {
@@ -55,6 +57,7 @@ type sessionBrief struct {
 	CourseName  string `json:"course_name,omitempty"`
 	CourseCode  string `json:"course_code,omitempty"`
 	SubjectCode string `json:"subject_code,omitempty"`
+	SubjectName string `json:"subject_name,omitempty"`
 }
 
 type ResolverInput struct {
@@ -96,9 +99,11 @@ func buildPhysicalSitInResult(
 	result := &SitInResult{
 		SitInMethod: SitInMethodPhysical,
 		SitInCourse: &SitInCourseInfo{
-			ID:   targetIDStr,
-			Code: target.Code,
-			Name: target.Name,
+			ID:          targetIDStr,
+			Code:        target.Code,
+			Name:        target.Name,
+			SubjectCode: target.SubjectCode,
+			SubjectName: target.SubjectName,
 		},
 		MissedCount: len(missed),
 	}
@@ -420,6 +425,8 @@ func toSessionBriefForCourse(s sqldb.SessionInRange, c *sqldb.SubjectCourseV2) s
 		brief.ClassName = c.Name
 		brief.CourseName = c.Name
 		brief.CourseCode = c.Code
+		brief.SubjectCode = c.SubjectCode
+		brief.SubjectName = c.SubjectName
 	}
 	return brief
 }

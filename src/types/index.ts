@@ -320,7 +320,7 @@ export type SitInInfo = {
   rule_name?: string;
   rule_type?: string;
   sit_in_method: "physical" | "zoom" | "teacher_case" | "none";
-  sit_in_course?: { id: string; code: string; name: string };
+  sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
   available_sessions?: Array<{
     id: string;
     start_at: string;

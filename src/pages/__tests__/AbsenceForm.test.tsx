@@ -298,7 +298,7 @@ describe("AbsenceForm", () => {
     expect(screen.getByText("Reason for absence")).toBeInTheDocument();
   });
 
-  it("shows the student's own subject as Absence class, not the sit-in target's subject", async () => {
+  it("shows the resolved sit-in target as Absence class", async () => {
     const user = userEvent.setup();
     renderWithDateRange({
       student: {
@@ -362,8 +362,8 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
 
-    expect(screen.getByText(/^Absence class: math_advance$/)).toBeInTheDocument();
-    expect(screen.queryByText(/^Absence class: Math inter$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Absence class: Math inter$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Absence class: math_advance$/)).not.toBeInTheDocument();
   });
 
   it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
@@ -502,7 +502,7 @@ describe("AbsenceForm", () => {
           ],
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "c-scholar", code: "SCH-01", name: "Scholar" },
+            sit_in_course: { id: "c-scholar", code: "0000000371", name: "", subject_name: "Scholar" },
             available_sessions: [
               {
                 id: "as-scholar",
@@ -530,7 +530,8 @@ describe("AbsenceForm", () => {
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Scholar");
     expect(makeUpSelect).not.toHaveTextContent("Math advance");
-    expect(screen.getByText(/^Absence class: Math inter$/)).toBeInTheDocument();
+    expect(makeUpSelect).not.toHaveTextContent("0000000371");
+    expect(screen.getByText(/^Absence class: Scholar$/)).toBeInTheDocument();
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {
