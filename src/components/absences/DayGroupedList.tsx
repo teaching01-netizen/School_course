@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import clsx from "clsx";
 
@@ -41,8 +41,10 @@ function getDayName(dateStr: string): string {
 function formatTime(iso: string): string {
   const timePart = iso.split("T")[1];
   if (!timePart) return "";
-  const [h, m] = timePart.split(":");
-  return `${h}:${m}`;
+  const parts = timePart.split(":");
+  const h = parts[0] ?? "";
+  const m = parts[1] ?? "";
+  return m ? `${h}:${m}` : h;
 }
 
 function groupByDay(sessions: DayGroupedListSession[]): DayGroup[] {
@@ -61,6 +63,7 @@ function groupByDay(sessions: DayGroupedListSession[]): DayGroup[] {
   for (const dayName of DAY_ORDER) {
     const daySessions = map.get(dayName);
     if (daySessions) {
+      daySessions.sort((a, b) => a.start_at.localeCompare(b.start_at));
       groups.push({ dayName, sessions: daySessions });
     }
   }
@@ -77,10 +80,27 @@ export default function DayGroupedList({
   const reduceMotion = useReducedMotion();
   const groups = useMemo(() => groupByDay(sessions), [sessions]);
 
-  // All expanded by default
+  // All expanded by default; sync new days from prop changes
   const [expandedDays, setExpandedDays] = useState<Set<string>>(() => {
     return new Set(groups.map((g) => g.dayName));
   });
+
+  useEffect(() => {
+    setExpandedDays((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const g of groups) {
+        if (!next.has(g.dayName)) {
+          next.add(g.dayName);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [groups]);
+
+  // Debounce double-click to prevent click→dblclick race (CR-01)
+  const lastClickTime = useRef<Map<string, number>>(new Map());
 
   const toggleDay = useCallback((dayName: string) => {
     setExpandedDays((prev) => {
@@ -96,6 +116,11 @@ export default function DayGroupedList({
 
   const handleChipClick = useCallback(
     (id: string) => {
+      // Debounce: if dblclick just fired, skip the trailing click
+      const now = Date.now();
+      const last = lastClickTime.current.get(id) ?? 0;
+      if (now - last < 300) return;
+      lastClickTime.current.set(id, now);
       onToggleAbsent(id);
     },
     [onToggleAbsent],
@@ -103,19 +128,40 @@ export default function DayGroupedList({
 
   const handleChipDoubleClick = useCallback(
     (id: string) => {
-      onToggleCover(id);
+      // Record timestamp so the next single-click is suppressed (CR-01)
+      lastClickTime.current.set(id, Date.now());
+      // Mutual exclusivity: cover ON clears absent (CR-01)
+      if (!coverSessionIds.has(id)) {
+        onToggleCover(id);
+        if (absentSessionIds.has(id)) {
+          onToggleAbsent(id);
+        }
+      } else {
+        onToggleCover(id);
+      }
     },
-    [onToggleCover],
+    [onToggleCover, onToggleAbsent, absentSessionIds, coverSessionIds],
   );
 
   const handleChipKeyDown = useCallback(
     (e: React.KeyboardEvent, id: string) => {
-      if (e.key === "Enter" || e.key === " ") {
+      if (e.key === "Enter" && e.shiftKey) {
+        // Shift+Enter toggles cover (WR-01), with mutual exclusivity
+        e.preventDefault();
+        if (!coverSessionIds.has(id)) {
+          onToggleCover(id);
+          if (absentSessionIds.has(id)) {
+            onToggleAbsent(id);
+          }
+        } else {
+          onToggleCover(id);
+        }
+      } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         onToggleAbsent(id);
       }
     },
-    [onToggleAbsent],
+    [onToggleAbsent, onToggleCover, coverSessionIds, absentSessionIds],
   );
 
   if (sessions.length === 0) {
@@ -192,7 +238,6 @@ export default function DayGroupedList({
                         <button
                           key={session.id}
                           type="button"
-                          role="button"
                           aria-pressed={isActive}
                           aria-label={`${formatTime(session.start_at)}\u2013${formatTime(session.end_at)} ${session.subject_code}${isAbsent ? " absent" : ""}${isCover ? " cover" : ""}`}
                           onClick={() => handleChipClick(session.id)}
