@@ -4,9 +4,6 @@ import userEvent from "@testing-library/user-event";
 import BatchToolbar from "../BatchToolbar";
 
 const defaultProps = {
-  sessions: [],
-  selectedIds: new Set<string>(),
-  coverIds: new Set<string>(),
   onSelectAll: vi.fn(),
   onDeselectAll: vi.fn(),
   onSelectAllCovers: vi.fn(),
@@ -86,6 +83,13 @@ describe("BatchToolbar", () => {
     expect(screen.getByRole("button", { name: /none cover/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /all mornings/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /all afternoons/i })).toBeDisabled();
+  });
+
+  it("has correct accessibility attributes", () => {
+    render(<BatchToolbar {...defaultProps} />);
+    const group = screen.getByRole("group", { name: /batch actions/i });
+    expect(group).toBeInTheDocument();
+    expect(group).not.toHaveAttribute("role", "toolbar");
   });
 
   it("does not call callbacks when disabled", async () => {

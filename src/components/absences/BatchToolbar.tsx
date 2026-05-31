@@ -1,10 +1,6 @@
 import Button from "@/components/ui/Button";
-import type { SessionInSubject } from "@/types";
 
 type BatchToolbarProps = {
-  sessions: SessionInSubject[];
-  selectedIds: Set<string>;
-  coverIds: Set<string>;
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onSelectAllCovers: () => void;
@@ -24,7 +20,7 @@ export default function BatchToolbar({
   disabled = false,
 }: BatchToolbarProps) {
   return (
-    <div className="flex flex-wrap gap-2" role="toolbar" aria-label="Batch actions">
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Batch actions">
       <Button
         variant="secondary"
         size="sm"
