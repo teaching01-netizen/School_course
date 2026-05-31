@@ -690,7 +690,18 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Query sessions in range for all enrolled subjects
+	// Query sessions in range for all enrolled subjects.
+	type sessionDBRow struct {
+		ID          pgtype.UUID
+		StartAt     pgtype.Timestamptz
+		EndAt       pgtype.Timestamptz
+		CourseID    pgtype.UUID
+		CourseCode  string
+		CourseName  string
+		SubjectID   pgtype.UUID
+		SubjectCode string
+		SubjectName string
+	}
 	type sessionRow struct {
 		ID          string
 		StartAt     string
@@ -727,12 +738,42 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 
 	var sessions []sessionRow
 	for rows.Next() {
-		var row sessionRow
-		if err := rows.Scan(&row.ID, &row.StartAt, &row.EndAt,
-			&row.CourseID, &row.CourseCode, &row.CourseName,
-			&row.SubjectID, &row.SubjectCode, &row.SubjectName); err != nil {
+		var dbRow sessionDBRow
+		if err := rows.Scan(&dbRow.ID, &dbRow.StartAt, &dbRow.EndAt,
+			&dbRow.CourseID, &dbRow.CourseCode, &dbRow.CourseName,
+			&dbRow.SubjectID, &dbRow.SubjectCode, &dbRow.SubjectName); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 			return
+		}
+		sessionID, err := sUUIDString(dbRow.ID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
+			return
+		}
+		courseID, err := sUUIDString(dbRow.CourseID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
+			return
+		}
+		subjectID, err := sUUIDString(dbRow.SubjectID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
+			return
+		}
+		if !dbRow.StartAt.Valid || !dbRow.EndAt.Valid {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
+			return
+		}
+		row := sessionRow{
+			ID:          sessionID,
+			StartAt:     dbRow.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:       dbRow.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			CourseID:    courseID,
+			CourseCode:  dbRow.CourseCode,
+			CourseName:  dbRow.CourseName,
+			SubjectID:   subjectID,
+			SubjectCode: dbRow.SubjectCode,
+			SubjectName: dbRow.SubjectName,
 		}
 		if len(allowedCourseIDs) > 0 && !allowedCourseIDs[row.CourseID] {
 			continue
@@ -766,8 +807,13 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 
 	absentSet := map[string]bool{}
 	for absentRows.Next() {
-		var id string
+		var id pgtype.UUID
 		if err := absentRows.Scan(&id); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading absence data")
+			return
+		}
+		idStr, err := sUUIDString(id)
+		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading absence data")
 			return
 		}
@@ -775,7 +821,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			// Course filter is applied after the query so the SQL shape stays stable
 			// when only a subset is selected.
 		}
-		absentSet[id] = true
+		absentSet[idStr] = true
 	}
 	if err := absentRows.Err(); err != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading absence data")
