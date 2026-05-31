@@ -340,6 +340,7 @@ export type SubjectSessions = {
   subject_name: string;
   course_id: string;
   course_code: string;
+  course_name: string;
   sessions: SessionInSubject[];
   sit_in?: SitInInfo;
 };

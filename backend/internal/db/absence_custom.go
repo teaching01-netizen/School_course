@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -441,7 +442,7 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 	return out, nil
 }
 
-func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCourseGroupID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
+func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupID pgtype.UUID) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM courses c
@@ -451,6 +452,50 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 		  AND c.level IS NOT NULL
 		ORDER BY c.level ASC
 	`, rootCourseGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SubjectCourseV2
+	for rows.Next() {
+		var r SubjectCourseV2
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCourseGroupID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
+	var rows pgx.Rows
+	var err error
+	if cycleID.Valid {
+		rows, err = q.db.Query(ctx, `
+			SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			FROM courses c
+			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+			WHERE c.root_course_group_id = $1
+			  AND c.deleted_at IS NULL
+			  AND c.level IS NOT NULL
+			  AND c.cycle_id = $2
+			ORDER BY c.level ASC
+		`, rootCourseGroupID, cycleID.String)
+	} else {
+		rows, err = q.db.Query(ctx, `
+			SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			FROM courses c
+			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+			WHERE c.root_course_group_id = $1
+			  AND c.deleted_at IS NULL
+			  AND c.level IS NOT NULL
+			ORDER BY c.level ASC
+		`, rootCourseGroupID)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ const MOCK_SUBJECTS: SubjectSessions[] = [
     subject_name: "Mathematics",
     course_id: "c-math201",
     course_code: "MATH201",
+    course_name: "Mathematics 201",
     sessions: [
       { id: "s1", start_at: "2026-06-01T09:00:00Z", end_at: "2026-06-01T10:30:00Z", date: "2026-06-01", already_absent: false },
       { id: "s2", start_at: "2026-06-03T09:00:00Z", end_at: "2026-06-03T10:30:00Z", date: "2026-06-03", already_absent: false },
@@ -22,6 +23,7 @@ const MOCK_SUBJECTS: SubjectSessions[] = [
     subject_name: "Physics",
     course_id: "c-phys301",
     course_code: "PHYS301",
+    course_name: "Physics 301",
     sessions: [
       { id: "s3", start_at: "2026-06-02T11:00:00Z", end_at: "2026-06-02T12:30:00Z", date: "2026-06-02", already_absent: true },
     ],

@@ -348,63 +348,112 @@ func (q *Queries) SessionLockOverlappingForInsert(ctx context.Context, arg Sessi
 	return items, nil
 }
 
-const sessionSoftDelete = `-- name: SessionSoftDelete :one
-UPDATE sessions
-SET deleted_at = now(), updated_at = now(), version = version + 1
-WHERE id = $1 AND deleted_at IS NULL AND version = $2
+const sessionListActiveByCourse = `-- name: SessionListActiveByCourse :many
+SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
+FROM sessions
+WHERE deleted_at IS NULL
+  AND course_id = $1
+ORDER BY start_at ASC
+`
+
+type SessionListActiveByCourseRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	SeriesID  pgtype.UUID        `json:"series_id"`
+	CourseID  pgtype.UUID        `json:"course_id"`
+	RoomID    pgtype.UUID        `json:"room_id"`
+	TeacherID pgtype.UUID        `json:"teacher_id"`
+	StartAt   pgtype.Timestamptz `json:"start_at"`
+	EndAt     pgtype.Timestamptz `json:"end_at"`
+	Version   int32              `json:"version"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) SessionListActiveByCourse(ctx context.Context, courseID pgtype.UUID) ([]SessionListActiveByCourseRow, error) {
+	rows, err := q.db.Query(ctx, sessionListActiveByCourse, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SessionListActiveByCourseRow
+	for rows.Next() {
+		var i SessionListActiveByCourseRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SeriesID,
+			&i.CourseID,
+			&i.RoomID,
+			&i.TeacherID,
+			&i.StartAt,
+			&i.EndAt,
+			&i.Version,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionHardDelete = `-- name: SessionHardDelete :one
+DELETE FROM sessions
+WHERE id = $1 AND version = $2
 RETURNING 1
 `
 
-type SessionSoftDeleteParams struct {
+type SessionHardDeleteParams struct {
 	ID      pgtype.UUID `json:"id"`
 	Version int32       `json:"version"`
 }
 
-func (q *Queries) SessionSoftDelete(ctx context.Context, arg SessionSoftDeleteParams) (int32, error) {
-	row := q.db.QueryRow(ctx, sessionSoftDelete, arg.ID, arg.Version)
+func (q *Queries) SessionHardDelete(ctx context.Context, arg SessionHardDeleteParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sessionHardDelete, arg.ID, arg.Version)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
 }
 
-const sessionSoftDeleteFutureBySeries = `-- name: SessionSoftDeleteFutureBySeries :exec
-UPDATE sessions
-SET deleted_at = now(), updated_at = now(), version = version + 1
+const sessionHardDeleteFutureBySeries = `-- name: SessionHardDeleteFutureBySeries :exec
+DELETE FROM sessions
 WHERE series_id = $1
-  AND deleted_at IS NULL
   AND start_at >= $2
 `
 
-type SessionSoftDeleteFutureBySeriesParams struct {
+type SessionHardDeleteFutureBySeriesParams struct {
 	SeriesID pgtype.UUID        `json:"series_id"`
 	StartAt  pgtype.Timestamptz `json:"start_at"`
 }
 
-func (q *Queries) SessionSoftDeleteFutureBySeries(ctx context.Context, arg SessionSoftDeleteFutureBySeriesParams) error {
-	_, err := q.db.Exec(ctx, sessionSoftDeleteFutureBySeries, arg.SeriesID, arg.StartAt)
+func (q *Queries) SessionHardDeleteFutureBySeries(ctx context.Context, arg SessionHardDeleteFutureBySeriesParams) error {
+	_, err := q.db.Exec(ctx, sessionHardDeleteFutureBySeries, arg.SeriesID, arg.StartAt)
 	return err
 }
 
-const sessionSoftDeleteFutureBySeriesCount = `-- name: SessionSoftDeleteFutureBySeriesCount :one
-WITH upd AS (
-  UPDATE sessions
-  SET deleted_at = now(), updated_at = now(), version = version + 1
+const sessionHardDeleteFutureBySeriesCount = `-- name: SessionHardDeleteFutureBySeriesCount :one
+WITH del AS (
+  DELETE FROM sessions
   WHERE series_id = $1
-    AND deleted_at IS NULL
     AND start_at >= $2
   RETURNING 1
 )
 SELECT count(*)::int4 AS canceled
-FROM upd
+FROM del
 `
 
-type SessionSoftDeleteFutureBySeriesCountParams struct {
+type SessionHardDeleteFutureBySeriesCountParams struct {
 	SeriesID pgtype.UUID        `json:"series_id"`
 	StartAt  pgtype.Timestamptz `json:"start_at"`
 }
 
-func (q *Queries) SessionSoftDeleteFutureBySeriesCount(ctx context.Context, arg SessionSoftDeleteFutureBySeriesCountParams) (int32, error) {
-	row := q.db.QueryRow(ctx, sessionSoftDeleteFutureBySeriesCount, arg.SeriesID, arg.StartAt)
+func (q *Queries) SessionHardDeleteFutureBySeriesCount(ctx context.Context, arg SessionHardDeleteFutureBySeriesCountParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sessionHardDeleteFutureBySeriesCount, arg.SeriesID, arg.StartAt)
 	var canceled int32
 	err := row.Scan(&canceled)
 	return canceled, err

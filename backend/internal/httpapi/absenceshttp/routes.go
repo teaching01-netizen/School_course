@@ -782,29 +782,31 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Group by subject, preserving order
-	type subjectGroup struct {
+	// Group by course, preserving order
+	type courseGroup struct {
+		CourseID    string
+		CourseCode  string
+		CourseName  string
 		SubjectID   string
 		SubjectCode string
 		SubjectName string
-		CourseID    string
-		CourseCode  string
 		Sessions    []sessionRow
 	}
 
-	grouped := map[string]*subjectGroup{}
-	var subjectOrder []string
+	grouped := map[string]*courseGroup{}
+	var courseOrder []string
 	for _, sess := range sessions {
-		key := sess.SubjectID
+		key := sess.CourseID
 		if grouped[key] == nil {
-			grouped[key] = &subjectGroup{
+			grouped[key] = &courseGroup{
+				CourseID:    sess.CourseID,
+				CourseCode:  sess.CourseCode,
+				CourseName:  sess.CourseName,
 				SubjectID:   sess.SubjectID,
 				SubjectCode: sess.SubjectCode,
 				SubjectName: sess.SubjectName,
-				CourseID:    sess.CourseID,
-				CourseCode:  sess.CourseCode,
 			}
-			subjectOrder = append(subjectOrder, key)
+			courseOrder = append(courseOrder, key)
 		}
 		grouped[key].Sessions = append(grouped[key].Sessions, sess)
 	}
@@ -817,7 +819,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		Date          string `json:"date"`
 		AlreadyAbsent bool   `json:"already_absent"`
 	}
-	type subjectSitInResponse struct {
+	type courseSitInResponse struct {
 		RuleName          string           `json:"rule_name,omitempty"`
 		RuleType          string           `json:"rule_type,omitempty"`
 		SitInMethod       string           `json:"sit_in_method"`
@@ -825,18 +827,19 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		AvailableSessions []sessionBrief   `json:"available_sessions,omitempty"`
 		MissedSessions    []sessionBrief   `json:"missed_sessions,omitempty"`
 	}
-	type subjectResponse struct {
-		SubjectID   string                `json:"subject_id"`
-		SubjectCode string                `json:"subject_code"`
-		SubjectName string                `json:"subject_name"`
-		CourseID    string                `json:"course_id"`
-		CourseCode  string                `json:"course_code"`
-		Sessions    []sessionResponse     `json:"sessions"`
-		SitIn       *subjectSitInResponse `json:"sit_in,omitempty"`
+	type courseResponse struct {
+		SubjectID   string              `json:"subject_id"`
+		SubjectCode string              `json:"subject_code"`
+		SubjectName string              `json:"subject_name"`
+		CourseID    string              `json:"course_id"`
+		CourseCode  string              `json:"course_code"`
+		CourseName  string              `json:"course_name"`
+		Sessions    []sessionResponse   `json:"sessions"`
+		SitIn       *courseSitInResponse `json:"sit_in,omitempty"`
 	}
 
-	subjects := make([]subjectResponse, 0, len(subjectOrder))
-	for _, key := range subjectOrder {
+	courses := make([]courseResponse, 0, len(courseOrder))
+	for _, key := range courseOrder {
 		g := grouped[key]
 		sessionsResp := make([]sessionResponse, 0, len(g.Sessions))
 		for _, sess := range g.Sessions {
@@ -849,41 +852,45 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		var sitIn *subjectSitInResponse
-		subjectID, err := s.a.ParseUUID(g.SubjectID)
-		if err == nil {
-			result, resolveErr := resolveSitIn(r.Context(), s.deps.Q, wcode, subjectID, dateFrom, dateTo)
-			if resolveErr != nil {
-				s.deps.Log.Error("sit-in resolution failed", "subject_id", g.SubjectID, "error", resolveErr)
-			} else if result != nil && result.SitInMethod != SitInMethodNone {
-				sitIn = &subjectSitInResponse{
-					RuleName:    result.RuleName,
-					RuleType:    result.RuleType,
-					SitInMethod: result.SitInMethod,
-					SitInCourse: result.SitInCourse,
-				}
-	
-				if len(result.Available) > 0 {
-					sitIn.AvailableSessions = result.Available
-				}
-				if len(result.MissedSession) > 0 {
-					sitIn.MissedSessions = result.MissedSession
+		var sitIn *courseSitInResponse
+		// Resolve sit-in using the student's enrolled course ID for this block
+		courseID, cErr := s.a.ParseUUID(g.CourseID)
+		if cErr == nil {
+			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
+			if sErr == nil {
+				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo)
+				if resolveErr != nil {
+					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
+				} else if result != nil && result.SitInMethod != SitInMethodNone {
+					sitIn = &courseSitInResponse{
+						RuleName:    result.RuleName,
+						RuleType:    result.RuleType,
+						SitInMethod: result.SitInMethod,
+						SitInCourse: result.SitInCourse,
+					}
+					if len(result.Available) > 0 {
+						sitIn.AvailableSessions = result.Available
+					}
+					if len(result.MissedSession) > 0 {
+						sitIn.MissedSessions = result.MissedSession
+					}
 				}
 			}
 		}
 
-		subjects = append(subjects, subjectResponse{
+		courses = append(courses, courseResponse{
 			SubjectID:   g.SubjectID,
 			SubjectCode: g.SubjectCode,
 			SubjectName: g.SubjectName,
 			CourseID:    g.CourseID,
 			CourseCode:  g.CourseCode,
+			CourseName:  g.CourseName,
 			Sessions:    sessionsResp,
 			SitIn:       sitIn,
 		})
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"subjects": subjects})
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"subjects": courses})
 }
 
 // Admin: get absence policies

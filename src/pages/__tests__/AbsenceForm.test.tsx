@@ -206,12 +206,14 @@ describe("AbsenceForm", () => {
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
 
-    // Select a course first to reveal sessions
+    // Select all courses first to reveal sessions
     await user.click(screen.getByRole("button", { name: /select all/i }));
     await waitFor(() => expect(screen.getAllByText(/▼ MATH - Mathematics/i).length).toBeGreaterThan(0));
 
-    const sessionSelectAll = screen.getAllByRole("button", { name: /^select all$/i })[1];
-    await user.click(sessionSelectAll);
+    // Select first session checkbox to enable submit
+    const sessionCheckboxes = await screen.findAllByRole("checkbox");
+    const sessionCheckbox = sessionCheckboxes.find(cb => cb.getAttribute("id")?.startsWith("session-"));
+    if (sessionCheckbox) await user.click(sessionCheckbox);
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
     expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
@@ -312,6 +314,7 @@ describe("AbsenceForm", () => {
           subject_name: "math_advance",
           course_id: "c-adv",
           course_code: "0000000344",
+          course_name: "math_advance",
           sessions: [
             {
               id: "s1",
@@ -339,6 +342,7 @@ describe("AbsenceForm", () => {
           subject_name: "Math inter",
           course_id: "c-int",
           course_code: "0000000348",
+          course_name: "Math inter",
           sessions: [],
         },
       ]),
@@ -372,6 +376,7 @@ describe("AbsenceForm", () => {
           subject_name: "Math advance",
           course_id: "c-adv",
           course_code: "ADV-01",
+          course_name: "Math advance",
           sessions: [
             {
               id: "s1",
@@ -411,6 +416,64 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
   });
 
+  it("shows sit-in target course name (not student's enrolled course) in make-up dropdown when sit_in_course has name populated", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-1", code: "MATH", name: "Mathematics" },
+        ],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-adv",
+          course_code: "ADV-01",
+          course_name: "Mathematics",
+          sessions: [
+            {
+              id: "s1",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T10:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-scholar", code: "SCH-01", name: "scholar" },
+            available_sessions: [
+              {
+                id: "as1",
+                start_at: "2026-06-04T08:00:00Z",
+                end_at: "2026-06-04T10:00:00Z",
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    expect(makeUpSelect).toHaveTextContent("scholar");
+    expect(makeUpSelect).not.toHaveTextContent("advanced");
+    expect(makeUpSelect).not.toHaveTextContent("ADV-01");
+    expect(makeUpSelect).not.toHaveTextContent("0000000348");
+  });
+
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {
     const user = userEvent.setup();
     renderWithDateRange({
@@ -421,6 +484,7 @@ describe("AbsenceForm", () => {
           subject_name: "Math advance",
           course_id: "c-adv",
           course_code: "ADV-01",
+          course_name: "Math advance",
           sessions: [
             {
               id: "s1",

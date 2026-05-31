@@ -22,10 +22,16 @@ WHERE deleted_at IS NULL
   AND end_at > @range_start
 ORDER BY start_at ASC;
 
--- name: SessionSoftDelete :one
-UPDATE sessions
-SET deleted_at = now(), updated_at = now(), version = version + 1
-WHERE id = $1 AND deleted_at IS NULL AND version = $2
+-- name: SessionListActiveByCourse :many
+SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
+FROM sessions
+WHERE deleted_at IS NULL
+  AND course_id = $1
+ORDER BY start_at ASC;
+
+-- name: SessionHardDelete :one
+DELETE FROM sessions
+WHERE id = $1 AND version = $2
 RETURNING 1;
 
 -- name: SessionUpdateTime :one
@@ -56,24 +62,20 @@ WHERE sa.session_id = $1
       AND cs.student_id = sa.student_id
   );
 
--- name: SessionSoftDeleteFutureBySeries :exec
-UPDATE sessions
-SET deleted_at = now(), updated_at = now(), version = version + 1
+-- name: SessionHardDeleteFutureBySeries :exec
+DELETE FROM sessions
 WHERE series_id = $1
-  AND deleted_at IS NULL
   AND start_at >= $2;
 
--- name: SessionSoftDeleteFutureBySeriesCount :one
-WITH upd AS (
-  UPDATE sessions
-  SET deleted_at = now(), updated_at = now(), version = version + 1
+-- name: SessionHardDeleteFutureBySeriesCount :one
+WITH del AS (
+  DELETE FROM sessions
   WHERE series_id = $1
-    AND deleted_at IS NULL
     AND start_at >= $2
   RETURNING 1
 )
 SELECT count(*)::int4 AS canceled
-FROM upd;
+FROM del;
 
 
 -- name: SessionAttendanceUpsert :exec

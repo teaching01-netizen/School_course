@@ -7,8 +7,7 @@ import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/hooks/usePreflight";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
-import { clampDateRange } from "../utils/time";
-import { formatUTCToZone, utcISOToZoneDate, zoneDateToUTCISO, zoneLocalInputToUTCISO } from "../utils/timezone";
+import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
@@ -75,8 +74,7 @@ export default function CourseDetail() {
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
   const today = useMemo(() => new Date(), []);
-  const [rangeStart, setRangeStart] = useState(yyyyMmDd(today));
-  const [rangeEnd, setRangeEnd] = useState(yyyyMmDd(new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000)));
+  const todayStr = useMemo(() => yyyyMmDd(today), [today]);
   const zone = instituteTZ ?? "Asia/Bangkok";
 
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -259,18 +257,8 @@ export default function CourseDetail() {
     if (!id) return;
     try {
       setSessionsLoading(true);
-      const { endDate: cappedEnd, clamped } = clampDateRange(rangeStart, rangeEnd);
-      if (clamped) addToast("info", "Date range capped to 14 days");
-      // Fetch a range of sessions, then filter by course_id client-side.
-      // (Backend endpoint is range-based only; this keeps contracts stable.)
-      const start = zoneDateToUTCISO(rangeStart, zone, false);
-      const end = zoneDateToUTCISO(cappedEnd, zone, true);
-      if (!start || !end) {
-        addToast("error", "Invalid date range");
-        return;
-      }
-      const items = await apiJson<Session[]>(`/api/v1/sessions?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, { method: "GET" });
-      setSessions(items.filter((s) => s.course_id === id));
+      const items = await apiJson<Session[]>(`/api/v1/courses/${id}/sessions`, { method: "GET" });
+      setSessions(items);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load sessions");
     } finally {
@@ -282,7 +270,7 @@ export default function CourseDetail() {
     void loadRoster();
     void loadSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, rangeStart, rangeEnd]);
+  }, [id]);
 
   useEffect(() => {
     void loadLookups();
@@ -377,8 +365,8 @@ export default function CourseDetail() {
     weekdays: [false, false, false, false, false, false, false] as boolean[],
     start_local_time: "16:00",
     duration_minutes: 120,
-    start_date: rangeStart,
-    end_date: rangeEnd,
+    start_date: todayStr,
+    end_date: todayStr,
     count: 10,
   });
   const seriesPreflight = usePreflight("preflight_series");
@@ -402,8 +390,8 @@ export default function CourseDetail() {
       weekdays: [false, false, false, false, false, false, false],
       start_local_time: "16:00",
       duration_minutes: 120,
-      start_date: rangeStart,
-      end_date: rangeEnd,
+      start_date: todayStr,
+      end_date: todayStr,
       count: 10,
     });
     seriesPreflight.reset();
@@ -640,11 +628,7 @@ export default function CourseDetail() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setViewMode('calendar');
-                  setRangeStart(yyyyMmDd(weekStart));
-                  setRangeEnd(yyyyMmDd(weekEnd));
-                }}
+                onClick={() => setViewMode('calendar')}
                 className={`px-2 py-1 text-[11px] ${viewMode === 'calendar' ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
               >
                 Calendar
@@ -656,42 +640,19 @@ export default function CourseDetail() {
                   TZ: {zone}
                   {serverNow ? ` • Server now: ${serverNow}` : ""}
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">From</label>
-                  <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-2 py-1 text-sm border border-gray-300 rounded-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">To</label>
-                  <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-2 py-1 text-sm border border-gray-300 rounded-sm" />
-                </div>
                 <Button variant="secondary" size="md" onClick={loadSessions}>Refresh</Button>
                 <Button variant="primary" size="md" onClick={() => openCreate("series")}>Add…</Button>
               </>
             )}
             {viewMode === 'calendar' && (
               <div className="flex items-center gap-1.5 self-end pb-0.5">
-                <Button variant="ghost" size="sm" onClick={() => {
-                    const prev = addDays(weekStart, -7);
-                    setWeekStart(prev);
-                    setRangeStart(yyyyMmDd(prev));
-                    setRangeEnd(yyyyMmDd(addDays(prev, 6)));
-                  }}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, -7))}>
                   &lsaquo; Prev
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                    const today = startOfWeek(new Date(), { weekStartsOn: 1 });
-                    setWeekStart(today);
-                    setRangeStart(yyyyMmDd(today));
-                    setRangeEnd(yyyyMmDd(addDays(today, 6)));
-                  }}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
                   Today
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                    const next = addDays(weekStart, 7);
-                    setWeekStart(next);
-                    setRangeStart(yyyyMmDd(next));
-                    setRangeEnd(yyyyMmDd(addDays(next, 6)));
-                  }}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, 7))}>
                   Next &rsaquo;
                 </Button>
                 <span className="text-xs text-gray-500 ml-1 font-mono">

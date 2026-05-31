@@ -296,7 +296,7 @@ func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
 
 	s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if _, err := qtx.SessionSoftDelete(r.Context(), sqldb.SessionSoftDeleteParams{ID: id, Version: *body.ExpectedVersion}); err != nil {
+		if _, err := qtx.SessionHardDelete(r.Context(), sqldb.SessionHardDeleteParams{ID: id, Version: *body.ExpectedVersion}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"message": "session already deleted or version mismatch"})
 			return 0, nil, err
@@ -308,7 +308,7 @@ func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
-			Action:      "session.soft_delete",
+			Action:      "session.delete",
 			Payload:     map[string]any{"id": r.PathValue("id"), "expected_version": *body.ExpectedVersion},
 		}); aErr != nil {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "session_id", r.PathValue("id"))

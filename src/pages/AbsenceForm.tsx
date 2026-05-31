@@ -719,9 +719,8 @@ export default function AbsenceForm() {
     
     const payloads: Record<string, unknown>[] = [];
     
-    for (const subjectId of selectedSubjectIds) {
-      const group = sessions.find(g => g.subject_id === subjectId);
-      if (!group) continue;
+    for (const group of sessions) {
+      if (!selectedSubjectIds.includes(group.subject_id)) continue;
       
       const selectedSessIds = group.sessions.filter(s => selectedSessionIds.has(s.id)).map(s => s.id);
       if (selectedSessIds.length === 0) continue;
@@ -1128,11 +1127,12 @@ export default function AbsenceForm() {
 
                           {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
                             const selectedCount = group.sessions.filter((session) => selectedSessionIds.has(session.id)).length;
+                            const groupLabel = group.course_name?.trim() || group.subject_name;
 
                             return (
-                              <section key={group.subject_id} className="overflow-hidden rounded-sm border border-gray-250 bg-white">
+                              <section key={group.course_id} className="overflow-hidden rounded-sm border border-gray-250 bg-white">
                                 <div className="flex w-full items-center justify-between gap-2 border-b border-gray-150 bg-gray-50/50 px-3 py-3 text-sm font-semibold text-[var(--color-wi-text)] sm:px-4">
-                                  <span className="min-w-0 truncate">▼ {group.subject_code} - {group.subject_name} ({group.sessions.length} classes)</span>
+                                  <span className="min-w-0 truncate">▼ {group.course_code} - {groupLabel} ({group.sessions.length} classes)</span>
                                   <span className="shrink-0 text-xs font-semibold text-gray-650">
                                     {selectedCount} selected
                                   </span>
@@ -1182,9 +1182,9 @@ export default function AbsenceForm() {
                                                     <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
                                                      Pick a make-up class
                                                   </div>
-                                                    <p className="text-xs text-gray-600 mb-2 truncate">
-                                                        Absence class: {group.subject_name}
-                                                    </p>
+                                                     <p className="text-xs text-gray-600 mb-2 truncate">
+                                                         Absence class: {groupLabel}
+                                                     </p>
                                                    <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
                                                      <span className="text-gray-700 font-medium">Make-up class:</span>
                                                      <select
@@ -1195,7 +1195,7 @@ export default function AbsenceForm() {
                                                          <option value="">— Not yet —</option>
                                                          {sitInAvailable.map(c => (
                                                            <option key={c.id} value={c.id}>
-                                                             {getSitInSessionLabel(c, sitIn?.sit_in_course, group.subject_name, sessions)}
+                                                              {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
                                                            </option>
                                                          ))}
                                                        </select>

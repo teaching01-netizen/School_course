@@ -231,7 +231,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	pivotUTC := pivotLocalStart.UTC()
 
 	// Cancel future occurrences in old series.
-	if err := qtx.SessionSoftDeleteFutureBySeries(ctx, sqldb.SessionSoftDeleteFutureBySeriesParams{
+	if err := qtx.SessionHardDeleteFutureBySeries(ctx, sqldb.SessionHardDeleteFutureBySeriesParams{
 		SeriesID: old.ID,
 		StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
 	}); err != nil {
@@ -501,7 +501,7 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 	}
 
 	// Cancel all future sessions (from now).
-	canceled, err := qtx.SessionSoftDeleteFutureBySeriesCount(ctx, sqldb.SessionSoftDeleteFutureBySeriesCountParams{
+	canceled, err := qtx.SessionHardDeleteFutureBySeriesCount(ctx, sqldb.SessionHardDeleteFutureBySeriesCountParams{
 		SeriesID: updated.ID,
 		StartAt:  pgtype.Timestamptz{Time: nowUTC, Valid: true},
 	})
@@ -658,7 +658,7 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 		return CancelResult{}, fmt.Errorf("bad_scope")
 	}
 
-	canceled, err := qtx.SessionSoftDeleteFutureBySeriesCount(ctx, sqldb.SessionSoftDeleteFutureBySeriesCountParams{
+	canceled, err := qtx.SessionHardDeleteFutureBySeriesCount(ctx, sqldb.SessionHardDeleteFutureBySeriesCountParams{
 		SeriesID: ser.ID,
 		StartAt:  pgtype.Timestamptz{Time: canceledFromUTC, Valid: true},
 	})

@@ -272,7 +272,7 @@ func TestCourseCycleLevel(t *testing.T) {
 	})
 }
 
-func TestCoursesByRootCourseGroupIgnoresCycle(t *testing.T) {
+func TestCoursesByRootCourseGroupAndCycle(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
 	dbpool := newPool(t, databaseURL)
@@ -311,8 +311,12 @@ func TestCoursesByRootCourseGroupIgnoresCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	courses := make([]CourseCreateRow, 0, 3)
-	for i, code := range []string{"A", "B", "NULL"} {
+	type namedCourse struct {
+		CourseCreateRow
+		cycleID pgtype.Text
+	}
+	var courses []namedCourse
+	for i, code := range []string{"A", "B"} {
 		course, err := q.CourseCreate(ctx, CourseCreateParams{
 			Code: "C-" + code + "-RCG-" + suffix,
 			Name: "Course " + code + " RCG " + suffix,
@@ -320,36 +324,57 @@ func TestCoursesByRootCourseGroupIgnoresCycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		courses = append(courses, course)
 		if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := q.CourseUpdateRootCourseGroup(ctx, course.ID, rootID); err != nil {
 			t.Fatal(err)
 		}
-		cycleID := pgtype.Text{}
-		if i == 0 {
-			cycleID = pgtype.Text{String: cycleA.ID, Valid: true}
-		} else if i == 1 {
+		cycleID := pgtype.Text{String: cycleA.ID, Valid: true}
+		if i == 1 {
 			cycleID = pgtype.Text{String: cycleB.ID, Valid: true}
 		}
 		if err := q.CourseLevelUpdateV2(ctx, course.ID, cycleID, pgtype.Int2{Int16: int16(i + 1), Valid: true}); err != nil {
 			t.Fatal(err)
 		}
+		courses = append(courses, namedCourse{CourseCreateRow: course, cycleID: cycleID})
 	}
 
-	found, err := q.CoursesByRootCourseGroupAndCycle(ctx, rootID, pgtype.Text{String: cycleA.ID, Valid: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(found) != 3 {
-		t.Fatalf("expected all 3 root group courses regardless of cycle, got %d", len(found))
-	}
-	for i, course := range found {
-		if course.ID != courses[i].ID {
-			t.Fatalf("course %d = %v, want %v", i, course.ID, courses[i].ID)
+	t.Run("filters by cycle A", func(t *testing.T) {
+		found, err := q.CoursesByRootCourseGroupAndCycle(ctx, rootID, pgtype.Text{String: cycleA.ID, Valid: true})
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+		if len(found) != 1 {
+			t.Fatalf("expected 1 course in cycle A, got %d", len(found))
+		}
+		if found[0].ID != courses[0].ID {
+			t.Fatalf("expected course A, got %v", found[0].ID)
+		}
+	})
+
+	t.Run("filters by cycle B", func(t *testing.T) {
+		found, err := q.CoursesByRootCourseGroupAndCycle(ctx, rootID, pgtype.Text{String: cycleB.ID, Valid: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(found) != 1 {
+			t.Fatalf("expected 1 course in cycle B, got %d", len(found))
+		}
+		if found[0].ID != courses[1].ID {
+			t.Fatalf("expected course B, got %v", found[0].ID)
+		}
+	})
+
+	t.Run("returns all when cycle not set", func(t *testing.T) {
+		found, err := q.CoursesByRootCourseGroupAndCycle(ctx, rootID, pgtype.Text{Valid: false})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(found) != 2 {
+			t.Fatalf("expected both courses when cycle not set, got %d", len(found))
+		}
+	})
 }
 
 func contains(slice []string, target string) bool {

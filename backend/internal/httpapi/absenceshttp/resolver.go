@@ -112,6 +112,121 @@ func buildPhysicalSitInResult(
 	return result
 }
 
+// resolveSitInForCourse resolves sit-in for a specific student course block.
+// Uses the student's highest enrolled level for the ladder target, but missed
+// sessions come from the given courseID. Loads all ladder levels (any cycle)
+// so mixed-cycle enrollments resolve correctly.
+func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
+	student, err := q.StudentGetByWCode(ctx, wcode)
+	if err != nil {
+		return nil, fmt.Errorf("student not found: %w", err)
+	}
+
+	enrolled, err := q.StudentEnrolledCoursesBySubjectV2(ctx, student.ID, subjectID)
+	if err != nil {
+		return nil, fmt.Errorf("enrolled courses lookup: %w", err)
+	}
+	if len(enrolled) == 0 {
+		return nil, fmt.Errorf("student not enrolled in any course for this subject")
+	}
+
+	// Find highest enrolled level (determines ladder target)
+	var highest *sqldb.StudentEnrolledCourseV2
+	for i := range enrolled {
+		if !enrolled[i].Level.Valid {
+			continue
+		}
+		if highest == nil || enrolled[i].Level.Int16 > highest.Level.Int16 {
+			highest = &enrolled[i]
+		}
+	}
+	if highest == nil {
+		return nil, fmt.Errorf("no enrolled course has a level")
+	}
+
+	if !highest.RootCourseGroupID.Valid {
+		return nil, nil
+	}
+
+	allCourses, err := q.CoursesByRootCourseGroup(ctx, highest.RootCourseGroupID)
+	if err != nil {
+		return nil, fmt.Errorf("root course group lookup: %w", err)
+	}
+
+	rule, err := q.SitInRuleGetByRootCourseGroup(ctx, highest.RootCourseGroupID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("sit-in rule lookup: %w", err)
+	}
+	if rule == nil {
+		return nil, nil
+	}
+
+	predicate, err := parsePredicate(rule.Predicate)
+	if err != nil {
+		return nil, fmt.Errorf("rule predicate parse: %w", err)
+	}
+
+	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("missed sessions lookup: %w", err)
+	}
+
+	evalOutput, err := EvaluateRule(EvaluateRuleInput{
+		RuleType:     rule.Type,
+		Predicate:    predicate,
+		StudentLevel: highest.Level.Int16,
+		AllCourses:   allCourses,
+		MissedCount:  len(missedSessions),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rule evaluation: %w", err)
+	}
+
+	if !evalOutput.Eligible {
+		return nil, nil
+	}
+
+	var result *SitInResult
+	switch evalOutput.Method {
+	case SitInMethodZoom:
+		result = &SitInResult{SitInMethod: SitInMethodZoom}
+	case SitInMethodTeacher:
+		result = &SitInResult{SitInMethod: SitInMethodTeacher}
+	case SitInMethodPhysical:
+		if evalOutput.TargetCourseID == nil {
+			return nil, fmt.Errorf("physical sit-in eligible but no target course")
+		}
+		targetCourseID := *evalOutput.TargetCourseID
+
+		availSessions, err := q.SessionsByCourseInRange(ctx, targetCourseID, dateFrom, dateTo)
+		if err != nil {
+			return nil, fmt.Errorf("available sessions lookup: %w", err)
+		}
+
+		var targetCourse *sqldb.SubjectCourseV2
+		for i := range allCourses {
+			if allCourses[i].ID == targetCourseID {
+				targetCourse = &allCourses[i]
+				break
+			}
+		}
+		if targetCourse == nil {
+			return nil, fmt.Errorf("target course not found in course group")
+		}
+
+		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions)
+	default:
+		return nil, nil
+	}
+
+	result.RuleName = rule.Name
+	result.RuleType = rule.Type
+	return result, nil
+}
+
 func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
 	// 1. Find student by wcode
 	student, err := q.StudentGetByWCode(ctx, wcode)
@@ -140,10 +255,10 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		return nil, fmt.Errorf("main course has no level")
 	}
 
-	// 4. Determine root course group and scope courses
+	// 4. Determine root course group and scope courses (all cycles for full ladder)
 	var allCourses []sqldb.SubjectCourseV2
 	if main.RootCourseGroupID.Valid {
-		allCourses, err = q.CoursesByRootCourseGroupAndCycle(ctx, main.RootCourseGroupID, main.CycleID)
+		allCourses, err = q.CoursesByRootCourseGroup(ctx, main.RootCourseGroupID)
 		if err != nil {
 			return nil, fmt.Errorf("root course group lookup: %w", err)
 		}

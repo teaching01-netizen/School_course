@@ -32,6 +32,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("DELETE /api/v1/courses/{id}/students/{student_id}", s.handleCourseStudentsRemove)
 	mux.HandleFunc("POST /api/v1/courses/{id}/students/draft", s.handleCourseStudentsAddDraft)
 	mux.HandleFunc("POST /api/v1/courses/{id}/students/{student_id}/convert", s.handleCourseStudentsConvert)
+	mux.HandleFunc("GET /api/v1/courses/{id}/sessions", s.handleCourseSessionsList)
 }
 
 func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +113,73 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			CourseType:   courseType,
 			DeletedAt:    deletedAt,
 		})
+	}
+	s.a.WriteJSON(w, http.StatusOK, out)
+}
+
+func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustUser(w, r); !ok {
+		return
+	}
+	courseID, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
+		return
+	}
+	items, err := s.deps.Q.SessionListActiveByCourse(r.Context(), courseID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	type sessionDTO struct {
+		ID        string  `json:"id"`
+		SeriesID  *string `json:"series_id"`
+		CourseID  string  `json:"course_id"`
+		RoomID    *string `json:"room_id"`
+		TeacherID string  `json:"teacher_id"`
+		StartAt   string  `json:"start_at"`
+		EndAt     string  `json:"end_at"`
+		Version   int32   `json:"version"`
+	}
+	out := make([]sessionDTO, 0, len(items))
+	for _, ss := range items {
+		sid, err := s.a.UUIDString(ss.ID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		cid, err := s.a.UUIDString(ss.CourseID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		var rid *string
+		if ss.RoomID.Valid {
+			v, err := s.a.UUIDString(ss.RoomID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return
+			}
+			rid = &v
+		}
+		tid, err := s.a.UUIDString(ss.TeacherID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		startS, _ := s.a.TimeString(ss.StartAt)
+		endS, _ := s.a.TimeString(ss.EndAt)
+		var seriesID *string
+		if ss.SeriesID.Valid {
+			v, err := s.a.UUIDString(ss.SeriesID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return
+			}
+			seriesID = &v
+		}
+		out = append(out, sessionDTO{ID: sid, SeriesID: seriesID, CourseID: cid, RoomID: rid, TeacherID: tid, StartAt: startS, EndAt: endS, Version: ss.Version})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }
