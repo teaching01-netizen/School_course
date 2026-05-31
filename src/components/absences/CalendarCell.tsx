@@ -13,6 +13,8 @@ type CalendarCellProps = {
   onToggleCover: (sessionId: string) => void;
 };
 
+const CLICK_DEBOUNCE_MS = 250;
+
 export default function CalendarCell({
   sessionId,
   startTime,
@@ -23,6 +25,7 @@ export default function CalendarCell({
 }: CalendarCellProps) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reduceMotion = useReducedMotion();
 
   const ariaLabel = `${sessionId} ${startTime}–${endTime} ${status}`;
@@ -32,6 +35,13 @@ export default function CalendarCell({
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
+    }
+  }, []);
+
+  const clearClickTimer = useCallback(() => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
     }
   }, []);
 
@@ -47,18 +57,35 @@ export default function CalendarCell({
     clearLongPress();
   }, [clearLongPress]);
 
+  const handlePointerLeave = useCallback(() => {
+    clearLongPress();
+  }, [clearLongPress]);
+
+  const handlePointerCancel = useCallback(() => {
+    clearLongPress();
+  }, [clearLongPress]);
+
   const handleClick = useCallback(() => {
     if (longPressFired.current) {
       longPressFired.current = false;
       return;
     }
-    onToggleAbsent(sessionId);
-  }, [onToggleAbsent, sessionId]);
+    clearClickTimer();
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+      onToggleAbsent(sessionId);
+    }, CLICK_DEBOUNCE_MS);
+  }, [clearClickTimer, onToggleAbsent, sessionId]);
 
-  const handleDoubleClick = useCallback(() => {
-    clearLongPress();
-    onToggleCover(sessionId);
-  }, [clearLongPress, onToggleCover, sessionId]);
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      clearClickTimer();
+      clearLongPress();
+      onToggleCover(sessionId);
+    },
+    [clearClickTimer, clearLongPress, onToggleCover, sessionId],
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -89,6 +116,8 @@ export default function CalendarCell({
       )}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
+      onPointerCancel={handlePointerCancel}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}

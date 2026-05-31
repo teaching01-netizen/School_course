@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CalendarCell from "../CalendarCell";
@@ -14,6 +14,11 @@ const defaultProps = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("CalendarCell", () => {
@@ -53,23 +58,37 @@ describe("CalendarCell", () => {
     expect(cell.className).toContain("text-amber-800");
   });
 
-  it("click toggles absent (primary action)", async () => {
-    const user = userEvent.setup();
+  it("single click toggles absent after debounce", async () => {
+    vi.useFakeTimers();
     const onToggleAbsent = vi.fn();
     render(
       <CalendarCell {...defaultProps} onToggleAbsent={onToggleAbsent} />
     );
-    await user.click(screen.getByRole("gridcell"));
+    fireEvent.click(screen.getByRole("gridcell"));
+    expect(onToggleAbsent).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(250);
     expect(onToggleAbsent).toHaveBeenCalledWith("sess-1");
   });
 
-  it("double-click toggles cover (secondary action)", async () => {
-    const user = userEvent.setup();
+  it("double-click does NOT call onToggleAbsent (CR-01)", async () => {
+    vi.useFakeTimers();
+    const onToggleAbsent = vi.fn();
     const onToggleCover = vi.fn();
     render(
-      <CalendarCell {...defaultProps} onToggleCover={onToggleCover} />
+      <CalendarCell
+        {...defaultProps}
+        onToggleAbsent={onToggleAbsent}
+        onToggleCover={onToggleCover}
+      />
     );
-    await user.dblClick(screen.getByRole("gridcell"));
+    const cell = screen.getByRole("gridcell");
+    // Simulate browser double-click: click → click → dblclick
+    fireEvent.click(cell);
+    fireEvent.click(cell);
+    fireEvent.doubleClick(cell);
+    // Click debounce should have been cancelled by dblclick
+    vi.advanceTimersByTime(500);
+    expect(onToggleAbsent).not.toHaveBeenCalled();
     expect(onToggleCover).toHaveBeenCalledWith("sess-1");
   });
 
@@ -114,7 +133,34 @@ describe("CalendarCell", () => {
     fireEvent.pointerUp(cell);
     expect(onToggleCover).toHaveBeenCalledWith("sess-1");
     expect(onToggleAbsent).not.toHaveBeenCalled();
-    vi.useRealTimers();
+  });
+
+  it("long-press cancelled on pointerLeave (WR-01)", async () => {
+    vi.useFakeTimers();
+    const onToggleCover = vi.fn();
+    render(
+      <CalendarCell {...defaultProps} onToggleCover={onToggleCover} />
+    );
+    const cell = screen.getByRole("gridcell");
+    fireEvent.pointerDown(cell);
+    vi.advanceTimersByTime(300);
+    fireEvent.pointerLeave(cell);
+    vi.advanceTimersByTime(300);
+    expect(onToggleCover).not.toHaveBeenCalled();
+  });
+
+  it("long-press cancelled on pointerCancel (WR-02)", async () => {
+    vi.useFakeTimers();
+    const onToggleCover = vi.fn();
+    render(
+      <CalendarCell {...defaultProps} onToggleCover={onToggleCover} />
+    );
+    const cell = screen.getByRole("gridcell");
+    fireEvent.pointerDown(cell);
+    vi.advanceTimersByTime(300);
+    fireEvent.pointerCancel(cell);
+    vi.advanceTimersByTime(300);
+    expect(onToggleCover).not.toHaveBeenCalled();
   });
 
   it("aria-pressed is true when status is absent or cover", () => {
@@ -133,7 +179,6 @@ describe("CalendarCell", () => {
   it("renders with motion animation wrapper", () => {
     const { container } = render(<CalendarCell {...defaultProps} />);
     const cell = screen.getByRole("gridcell");
-    // motion.div renders as a div with data-motion attributes
     expect(cell).toBeInTheDocument();
     expect(container.querySelector("[role='gridcell']")).toBeTruthy();
   });
