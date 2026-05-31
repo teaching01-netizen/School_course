@@ -1,60 +1,30 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AbsenceForm from "../AbsenceForm";
-import { ToastProvider } from "../../hooks/useToast";
+import { renderWithProviders, createMockSessionsInRange } from "./helpers";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/client", async () => {
-  const actual = await vi.importActual<typeof import("@/api/client")>(
-    "@/api/client",
-  );
+  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return { ...actual, apiJson: mockApiJson };
 });
 
 const mockNavigate = vi.hoisted(() => vi.fn());
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
+  useLocation: () => ({ pathname: "/absence" }),
 }));
 
-function renderWithProviders(ui: React.ReactElement) {
-  return render(<ToastProvider>{ui}</ToastProvider>);
+const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
+
+function prePopulateSessionStorage(dateFrom: string, dateTo: string) {
+  window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+    dateFrom,
+    dateTo,
+  }));
 }
-
-const MOCK_STUDENT = {
-  student_id: "s1",
-  wcode: "W250389",
-  full_name: "John Smith",
-  subjects: [
-    { id: "subj-1", code: "MATH", name: "Mathematics" },
-    { id: "subj-2", code: "PHYS", name: "Physics" },
-  ],
-};
-
-const MOCK_STUDENT_WITH_ACTIVE = {
-  student_id: "s1",
-  wcode: "W250389",
-  full_name: "John Smith",
-  subjects: [
-    {
-      id: "subj-1",
-      code: "MATH",
-      name: "Mathematics",
-      active_course_id: "c-math201",
-      active_course_code: "MATH201",
-      active_cycle_label: "Cycle 2",
-    },
-    {
-      id: "subj-2",
-      code: "PHYS",
-      name: "Physics",
-      active_course_id: null,
-      active_course_code: null,
-      active_cycle_label: null,
-    },
-  ],
-};
 
 const MOCK_CONFIG = {
   form: {
@@ -66,298 +36,365 @@ const MOCK_CONFIG = {
     ],
     allow_free_text_reason: true,
     intro_text: "",
-    confirmation_text: "",
+    confirmation_text: "Thank you for reporting.",
   },
-  sit_in: { auto_resolve_enabled: true, zoom_description: "Zoom session - no physical class attendance required.", max_sessions_per_absence: 10 },
+  sit_in: {
+    auto_resolve_enabled: true,
+    zoom_description: "Zoom session.",
+    max_sessions_per_absence: 10,
+  },
+  notifications: {
+    sms_parent_enabled: true,
+    sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
+    sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+    allow_submit_without_otp: false,
+  },
+  admin_contact: {
+    email: "office@example.edu",
+    phone: "+66 2123 4567",
+    hours: "Mon-Fri 08:00-16:00",
+  },
 };
 
-const MOCK_ZOOM_RESULT = {
-  sit_in_method: "zoom" as const,
-  missed_count: 2,
-};
-
-const MOCK_PHYSICAL_RESULT = {
-  sit_in_method: "physical" as const,
-  sit_in_course: { id: "c-sit", code: "MATH-301", name: "Calculus III" },
-  missed_count: 2,
-  missed_sessions: [
-    { id: "ms1", start_at: "2025-06-02T09:00:00Z", end_at: "2025-06-02T10:30:00Z" },
-    { id: "ms2", start_at: "2025-06-04T09:00:00Z", end_at: "2025-06-04T10:30:00Z" },
-  ],
-  available_sessions: [
-    { id: "as1", start_at: "2025-06-02T11:00:00Z", end_at: "2025-06-02T12:30:00Z" },
-    { id: "as2", start_at: "2025-06-04T11:00:00Z", end_at: "2025-06-04T12:30:00Z" },
-  ],
-  pre_selected: [
-    { id: "as1", start_at: "2025-06-02T11:00:00Z", end_at: "2025-06-02T12:30:00Z" },
-  ],
-};
-
-const MOCK_SUBMIT_RESULT = {
-  id: "abs-1",
+const MOCK_STUDENT: {
+  student_id: string;
+  wcode: string;
+  full_name: string;
+  parent_phone: string | null;
+  subjects: Array<{ id: string; code: string; name: string }>;
+} = {
+  student_id: "s1",
   wcode: "W250389",
-  subject_id: "subj-1",
-  course_id: "c-sit",
-  date_from: "2025-06-02",
-  date_to: "2025-06-06",
-  sit_in_method: "physical",
+  full_name: "John Smith",
+  parent_phone: "+66812345678",
+  subjects: [
+    { id: "subj-1", code: "MATH", name: "Mathematics" },
+    { id: "subj-2", code: "PHYS", name: "Physics" },
+  ],
 };
 
-function getWCodeInput() {
-  return screen.getByPlaceholderText("e.g., W250389");
-}
+const MOCK_SESSIONS = createMockSessionsInRange();
 
-async function completeStep1(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(getWCodeInput(), "W250389");
-  await user.click(screen.getByRole("button", { name: /look up/i }));
-  await waitFor(() => {
-    expect(screen.getByText("John Smith")).toBeInTheDocument();
+const SUBMISSION_RESPONSE = {
+  id: "abc12345",
+  wcode: "W250389",
+  status: "pending" as const,
+  course_id: "c-math201",
+  course_code: "MATH201",
+  course_name: "Algebra II",
+  subject_id: "subj-1",
+  subject_code: "MATH",
+  subject_name: "Mathematics",
+  student_name: "John Smith",
+  date_from: "2026-06-01",
+  date_to: "2026-06-07",
+  reason_category: "medical",
+  reason: "Appointment",
+  sit_in_method: "zoom",
+  sit_in_course_id: "c-math201",
+  sit_in_course_code: "MATH201",
+  sit_in_course_name: "Algebra II",
+  version: 1,
+  created_at: "2026-05-27T09:00:00Z",
+  updated_at: "2026-05-27T09:00:00Z",
+};
+
+const OTP_SEND_RESPONSE = {
+  token: "otp-token-123",
+  status: "pending" as const,
+  wcode: MOCK_STUDENT.wcode,
+  parent_phone: MOCK_STUDENT.parent_phone,
+  otp_last_sent_at: "2026-05-30T08:00:00Z",
+  otp_code_expires_at: "2026-06-30T08:10:00Z",
+  expires_at: "2026-06-30T08:00:00Z",
+};
+
+const OTP_VERIFY_RESPONSE = {
+  ...OTP_SEND_RESPONSE,
+  status: "verified" as const,
+  verified_at: "2026-05-30T08:02:00Z",
+};
+
+function installHappyPathMocks(overrides?: {
+  student?: typeof MOCK_STUDENT;
+  sessions?: unknown;
+  send?: unknown;
+  verify?: unknown;
+  resume?: unknown;
+  submission?: unknown;
+  config?: unknown;
+}) {
+  mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+    const path = String(url);
+
+    if (path.includes("absence-form-config")) return overrides?.config ?? MOCK_CONFIG;
+    if (path.includes("student-lookup")) return overrides?.student ?? MOCK_STUDENT;
+    if (path.includes("sessions-in-range")) return overrides?.sessions ?? MOCK_SESSIONS;
+    if (path.includes("/parent-verification/") && init?.method === "GET") {
+      return overrides?.resume ?? OTP_SEND_RESPONSE;
+    }
+    if (path.endsWith("/parent-verification/send")) return overrides?.send ?? OTP_SEND_RESPONSE;
+    if (path.endsWith("/parent-verification/verify")) return overrides?.verify ?? OTP_VERIFY_RESPONSE;
+    if (path.endsWith("/absences") && init?.method === "POST") {
+      return overrides?.submission ?? SUBMISSION_RESPONSE;
+    }
+
+    throw new Error(`Unmocked API call: ${url}`);
   });
-  await user.click(screen.getByRole("button", { name: /next/i }));
 }
 
-async function completeStep2(user: ReturnType<typeof userEvent.setup>, dateFrom = "2025-06-02", dateTo = "2025-06-06") {
-  await user.selectOptions(screen.getByRole("combobox", { name: /subject/i }), "subj-1");
-  const fromInput = screen.getByLabelText("From");
-  const toInput = screen.getByLabelText("To");
-  await user.clear(fromInput);
-  await user.type(fromInput, dateFrom);
-  await user.clear(toInput);
-  await user.type(toInput, dateTo);
-  const nextBtn = screen.getByRole("button", { name: /check availability|next/i });
-  await user.click(nextBtn);
+async function lookupStudent(user: ReturnType<typeof userEvent.setup>) {
+  await user.clear(screen.getByPlaceholderText("e.g. W250389"));
+  await user.type(screen.getByPlaceholderText("e.g. W250389"), "W250389");
+  await user.click(screen.getByRole("button", { name: /search/i }));
+  await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
 }
 
-async function completeStep3(user: ReturnType<typeof userEvent.setup>) {
+async function verifyParent(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /send code/i }));
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: /next|submit absence/i })).toBeInTheDocument();
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/parent-verification/send",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
-  const nextBtn = screen.getByRole("button", { name: /next|submit absence/i });
-  if (nextBtn.textContent?.includes("Next")) {
-    await user.click(nextBtn);
-  }
+
+  const codeInput = (await screen.findAllByRole("textbox", { hidden: true })).find(
+    el => el.getAttribute("inputMode") === "numeric" || el.getAttribute("aria-label") === "Enter the code",
+  )!;
+  await user.type(codeInput, "123456");
+  await waitFor(() => expect(screen.getByText(/verification complete/i)).toBeInTheDocument());
 }
 
 describe("AbsenceForm", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
-    mockApiJson.mockResolvedValueOnce(MOCK_CONFIG);
+    mockNavigate.mockReset();
+    window.localStorage?.clear();
+    window.sessionStorage?.clear();
   });
 
-  it("renders w-code input initially", () => {
+  it("renders the lookup form initially", () => {
+    installHappyPathMocks();
     renderWithProviders(<AbsenceForm />);
-    expect(getWCodeInput()).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /look up/i })).toBeInTheDocument();
+
+    expect(screen.getByPlaceholderText("e.g. W250389")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /search/i })).toBeInTheDocument();
+    expect(screen.getByText("Absence form")).toBeInTheDocument();
   });
 
-  it("w-code lookup reveals subject picker and dates", async () => {
-    mockApiJson.mockResolvedValueOnce(MOCK_STUDENT);
+  function renderWithDateRange(overrides?: Parameters<typeof installHappyPathMocks>[0]) {
+    prePopulateSessionStorage("2026-06-01", "2026-06-07");
+    installHappyPathMocks(overrides);
+    renderWithProviders(<AbsenceForm />);
+  }
+
+  it("walks through lookup, verification, courses, sessions, and direct submission", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
+    renderWithDateRange();
 
-    await completeStep1(user);
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
 
-    const options = screen.getAllByRole("option");
-    expect(options.map((o) => o.textContent).join(" ")).toMatch(/MATH.*Physics/);
-  });
+    expect(screen.getByRole("button", { name: /send code/i })).toBeInTheDocument();
 
-  it("shows active cycle label in subject badges when available", async () => {
-    mockApiJson.mockResolvedValueOnce(MOCK_STUDENT_WITH_ACTIVE);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
+    await verifyParent(user);
+    expect(screen.getByText(/Parent confirmed! Now/)).toBeInTheDocument();
 
-    await user.type(getWCodeInput(), "W250389");
-    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
 
-    await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
-    });
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
 
-    expect(screen.getByText("MATH (Cycle 2)")).toBeInTheDocument();
-  });
+    // Select a course first to reveal sessions
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await waitFor(() => expect(screen.getAllByText(/▼ MATH - Mathematics/i).length).toBeGreaterThan(0));
 
-  it("dates step validates 30-day max cap", async () => {
-    mockApiJson.mockResolvedValueOnce(MOCK_STUDENT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    await completeStep1(user);
-    await completeStep2(user, "2025-06-01", "2025-07-15");
-
-    await waitFor(() => {
-      expect(screen.getByText(/30 days/i)).toBeInTheDocument();
-    });
-  });
-
-  it("applies administrator-configured date and reason rules", async () => {
-    mockApiJson.mockReset();
-    mockApiJson
-      .mockResolvedValueOnce({
-        ...MOCK_CONFIG,
-        form: { ...MOCK_CONFIG.form, max_date_range_days: 7, require_reason: true, intro_text: "Report early." },
-      })
-      .mockResolvedValueOnce(MOCK_STUDENT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    expect(await screen.findByText("Report early.")).toBeInTheDocument();
-    await completeStep1(user);
-    await completeStep2(user, "2025-06-01", "2025-06-15");
-
-    expect(screen.getByText(/7 days/i)).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /reason category/i })).toBeInTheDocument();
-  });
-
-  it("allows submission for staff assignment when auto-resolution is disabled", async () => {
-    mockApiJson.mockReset();
-    mockApiJson
-      .mockResolvedValueOnce({ ...MOCK_CONFIG, sit_in: { ...MOCK_CONFIG.sit_in, auto_resolve_enabled: false } })
-      .mockResolvedValueOnce(MOCK_STUDENT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    await completeStep1(user);
-    await completeStep2(user);
-
-    await waitFor(() => {
-      expect(screen.getByText(/assigned by staff/i)).toBeInTheDocument();
-    });
-    await completeStep3(user);
-
-    expect(screen.getByRole("button", { name: /submit absence/i })).toBeInTheDocument();
-    expect(mockApiJson.mock.calls.some(([path]) => String(path).includes("sit-in-options"))).toBe(false);
-  });
-
-  it("zoom result shows blue banner without session list", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(MOCK_STUDENT)
-      .mockResolvedValueOnce(MOCK_ZOOM_RESULT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    await completeStep1(user);
-    await completeStep2(user);
-
-    await waitFor(() => {
-      expect(screen.getByText(/zoom session/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/no physical class/i)).toBeInTheDocument();
-  });
-
-  it("physical result shows day-by-day timeline with pre-selected sessions", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(MOCK_STUDENT)
-      .mockResolvedValueOnce(MOCK_PHYSICAL_RESULT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    await completeStep1(user);
-    await completeStep2(user);
-
-    await waitFor(() => {
-      expect(screen.getByText("MATH-301")).toBeInTheDocument();
-    });
-
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes.length).toBeGreaterThanOrEqual(1);
-    expect(checkboxes[0]).toBeChecked();
-  });
-
-  it("includes course_id in submission when active course is set", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(MOCK_STUDENT_WITH_ACTIVE)
-      .mockResolvedValueOnce(MOCK_PHYSICAL_RESULT)
-      .mockResolvedValueOnce(MOCK_SUBMIT_RESULT);
-    const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
-    await completeStep1(user);
-    await completeStep2(user);
-
-    await waitFor(() => {
-      expect(screen.getByText("MATH-301")).toBeInTheDocument();
-    });
-
-    await completeStep3(user);
-
-    await waitFor(() => {
-      expect(screen.getByText(/MATH201 \(Cycle 2\)/)).toBeInTheDocument();
-    });
-
+    const sessionSelectAll = screen.getAllByRole("button", { name: /^select all$/i })[1];
+    await user.click(sessionSelectAll);
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
-    await waitFor(() => {
-      expect(mockApiJson).toHaveBeenCalledWith(
-        "/api/v1/absences",
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining("W250389"),
+    expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
+    expect(screen.getByText("Absence form")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /done/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /notify another absence/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("ABS-ABC12345")).not.toBeInTheDocument();
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Idempotency-Key": expect.any(String),
         }),
-      );
-    });
-    const submitCall = mockApiJson.mock.calls.find(([path]) => path === "/api/v1/absences");
-    expect(submitCall).toBeDefined();
-    const callBody = JSON.parse(submitCall![1].body);
-    expect(callBody.wcode).toBe("W250389");
-    expect(callBody.subject_id).toBe("subj-1");
-    expect(callBody.course_id).toBe("c-math201");
-    expect(callBody.date_from).toBe("2025-06-02");
-    expect(callBody.date_to).toBe("2025-06-06");
-    expect(callBody.sit_in_method).toBe("physical");
-    expect(callBody.sit_in_course_id).toBe("c-sit");
-    expect(callBody.sit_in_session_ids).toEqual(["as1"]);
-  });
+        body: expect.stringContaining('"verification_token":"otp-token-123"'),
+      }),
+    );
+  }, 30000);
 
-  it("omits course_id when subject has no active course", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(MOCK_STUDENT)
-      .mockResolvedValueOnce(MOCK_PHYSICAL_RESULT)
-      .mockResolvedValueOnce(MOCK_SUBMIT_RESULT);
+  it("warns when the student has no parent phone on file", async () => {
+    installHappyPathMocks({
+      student: {
+        ...MOCK_STUDENT,
+        parent_phone: null,
+      },
+    });
     const user = userEvent.setup();
     renderWithProviders(<AbsenceForm />);
 
-    await completeStep1(user);
-    await completeStep2(user);
+    await lookupStudent(user);
 
-    await waitFor(() => {
-      expect(screen.getByText("MATH-301")).toBeInTheDocument();
-    });
+    expect(screen.getByText(/No parent phone number is on file/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/No parent phone number is on file/);
 
-    await completeStep3(user);
-    await user.click(screen.getByRole("button", { name: /submit absence/i }));
-
-    await waitFor(() => {
-      const submitCall = mockApiJson.mock.calls.find(([path]) => path === "/api/v1/absences");
-      expect(submitCall).toBeDefined();
-      const body = JSON.parse(submitCall![1].body);
-      expect(body.course_id).toBeUndefined();
-    });
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
   });
 
-  it("confirmation shows submitted details", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(MOCK_STUDENT)
-      .mockResolvedValueOnce(MOCK_PHYSICAL_RESULT)
-      .mockResolvedValueOnce(MOCK_SUBMIT_RESULT);
+  it("shows a no-sessions status message when no sessions exist in range", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
+    renderWithDateRange({ sessions: { subjects: [] } });
 
-    await completeStep1(user);
-    await completeStep2(user);
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Family matter");
 
-    await waitFor(() => {
-      expect(screen.getByText("MATH-301")).toBeInTheDocument();
+    // Select a course to reveal sessions section
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+
+    expect(await screen.findByText("No classes found for the courses and dates you picked.")).toBeInTheDocument();
+  });
+
+  it("shows always-visible reason textarea on Step 2 after courses + dates are set", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange();
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    expect(screen.getByPlaceholderText("Tell us why you'll be away from class...")).toBeInTheDocument();
+    expect(screen.getByText("Reason for absence")).toBeInTheDocument();
+  });
+
+  it("resolves sit-in subject name from other subject in the sessions array when available_session lacks subject_name and sit_in_course.name is empty", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-1", code: "02", name: "math_advance" },
+        ],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "02",
+          subject_name: "math_advance",
+          course_id: "c-adv",
+          course_code: "0000000344",
+          sessions: [
+            {
+              id: "s1",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T11:00:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-int", code: "0000000348", name: "" },
+            available_sessions: [
+              {
+                id: "as1",
+                start_at: "2026-06-04T03:00:00Z",
+                end_at: "2026-06-04T05:00:00Z",
+              },
+            ],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "04",
+          subject_name: "Math inter",
+          course_id: "c-int",
+          course_code: "0000000348",
+          sessions: [],
+        },
+      ]),
     });
 
-    await completeStep3(user);
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
 
-    await waitFor(() => {
-      expect(screen.getByText("Absence Submitted")).toBeInTheDocument();
+    const makeUpSelect = await screen.findByRole("combobox");
+    expect(makeUpSelect).toHaveTextContent("Math inter");
+    expect(makeUpSelect).not.toHaveTextContent("0000000348");
+    expect(makeUpSelect).not.toHaveTextContent("math_advance");
+    expect(screen.getByText(/Absence class: Math inter/)).toBeInTheDocument();
+    expect(screen.queryByText(/Absence class: math_advance/)).not.toBeInTheDocument();
+  });
+
+  it("shows the sit-in class name from the available session instead of the absence class name", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "ADV",
+          subject_name: "Math advance",
+          course_id: "c-adv",
+          course_code: "ADV-01",
+          sessions: [
+            {
+              id: "s1",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T10:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-int", code: "INT-01", name: "Math inter" },
+            available_sessions: [
+              {
+                id: "as1",
+                start_at: "2026-06-18T10:00:00Z",
+                end_at: "2026-06-18T12:00:00Z",
+                subject_name: "Math inter",
+              },
+            ],
+          },
+        },
+      ]),
     });
-    expect(screen.getByText(/W250389/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /submit another/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /done/i })).toBeInTheDocument();
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    expect(makeUpSelect).toHaveTextContent("Math inter");
+    expect(makeUpSelect).not.toHaveTextContent("Math advance");
   });
 });

@@ -171,6 +171,163 @@ button {
   animation: slide-in-right 250ms ease-out;
 }
 
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blink {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* react-day-picker theming */
+.rdp {
+  --rdp-cell-size: 36px;
+  --rdp-cell-margin: 2px;
+  font-family: var(--font-sans);
+}
+.rdp-month_grid {
+  border-collapse: collapse;
+}
+.rdp-day_button {
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  color: var(--color-wi-text);
+}
+.rdp-day_button:hover {
+  background-color: #EFF6FF;
+}
+.rdp-day_button:focus-visible {
+  outline: 2px solid var(--color-wi-primary);
+  outline-offset: 1px;
+}
+.rdp-selected .rdp-day_button {
+  background-color: var(--color-wi-primary) !important;
+  color: white !important;
+  font-weight: 600;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.rdp-today .rdp-day_button {
+  border: 2px solid var(--color-wi-primary);
+  font-weight: 600;
+}
+.rdp-day_button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.rdp-button_previous,
+.rdp-button_next {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-wi-text);
+  transition: background-color 0.15s ease;
+}
+.rdp-button_previous:hover,
+.rdp-button_next:hover {
+  background-color: var(--color-wi-row-alt);
+}
+.rdp-month_caption {
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0 8px;
+  color: var(--color-wi-text);
+}
+.rdp-months {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.rdp-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.rdp-weekday {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-wi-text-light);
+  padding: 4px;
+  text-align: center;
+}
+.rdp-weekday:first-child,
+.rdp-weekday:last-child {
+  color: #94A3B8;
+}
+
+/* react-day-picker dropdown navigation */
+.rdp-dropdown_root > .rdp-caption_label {
+  display: none;
+}
+.rdp-dropdowns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.rdp-dropdown_root {
+  position: relative;
+}
+.rdp-dropdown {
+  appearance: none;
+  background-color: white;
+  border: 1px solid var(--color-wi-border);
+  border-radius: var(--radius-md);
+  padding: 4px 24px 4px 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-wi-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 4px center;
+  background-size: 16px;
+  background-repeat: no-repeat;
+  max-width: 100%;
+}
+@media (max-width: 640px) {
+  .rdp-dropdown {
+    font-size: 0.6875rem;
+    padding: 2px 18px 2px 4px;
+    background-size: 12px;
+  }
+  .rdp {
+    --rdp-cell-size: 28px;
+    --rdp-cell-margin: 1px;
+    font-size: 0.75rem;
+  }
+  .rdp-dropdowns {
+    gap: 2px;
+  }
+  .rdp-caption_label {
+    font-size: 0.75rem;
+  }
+}
+.rdp-dropdown:hover {
+  border-color: var(--color-wi-primary);
+}
+.rdp-dropdown:focus-visible {
+  outline: 2px solid var(--color-wi-primary);
+  outline-offset: 1px;
+}
+
 /* Print styles */
 @media print {
   .no-print { display: none !important; }

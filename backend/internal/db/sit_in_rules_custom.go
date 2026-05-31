@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -19,7 +20,7 @@ type SitInRule struct {
 type SitInRuleCreateInput struct {
 	Name        string
 	Type        string
-	Predicate   []byte
+	Predicate   json.RawMessage
 	Description string
 }
 

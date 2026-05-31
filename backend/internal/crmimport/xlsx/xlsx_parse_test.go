@@ -81,6 +81,30 @@ func TestParseXLSX_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestCleanPhoneSuffix(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "clean number with hyphens", input: "081-9814300", want: "081-9814300"},
+		{name: "number with trailing label", input: "081-5351563 Mom", want: "081-5351563"},
+		{name: "different number with trailing label", input: "061-8159889 Mom", want: "061-8159889"},
+		{name: "another clean hyphen number", input: "089-7808290", want: "089-7808290"},
+		{name: "country code with spaces", input: "+66 81 234 5678", want: "+66 81 234 5678"},
+		{name: "empty string", input: "", want: ""},
+		{name: "string with no digits", input: "N/A", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanPhoneSuffix(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanPhoneSuffix(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseXLSX_SkipsEmptyRows(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Bangkok")
 	f := excelize.NewFile()

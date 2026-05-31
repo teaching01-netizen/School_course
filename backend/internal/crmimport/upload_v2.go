@@ -104,18 +104,77 @@ func storeUploadBlob(ctx context.Context, db *pgxpool.Pool, uploadID string, dat
 func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) (*UploadResponse, error) {
 	var status, jobType string
 	var payload []byte
+	var lastError string
 	err := s.db.QueryRow(ctx, `
-		SELECT status::text, job_type::text, COALESCE(payload::text, '{}')
+		SELECT status::text, job_type::text, COALESCE(payload::text, '{}'), COALESCE(last_error, '')
 		FROM crm_jobs WHERE id = $1
-	`, jobID).Scan(&status, &jobType, &payload)
+	`, jobID).Scan(&status, &jobType, &payload, &lastError)
 	if err != nil {
 		return nil, fmt.Errorf("query job: %w", err)
+	}
+
+	message := fmt.Sprintf("Job %s is %s", jobType, status)
+	if status == "failed" && lastError != "" {
+		message = lastError
+	}
+
+	if jobType == string(queue.JobTypeImportSnapshot) {
+		var importPayload ImportSnapshotPayload
+		if err := json.Unmarshal(payload, &importPayload); err == nil {
+			snapshotID := importPayload.SnapshotID.String()
+
+			var failedCount, activeCount, succeededCount, totalCount int
+			err = s.db.QueryRow(ctx, `
+				SELECT
+					COUNT(*) FILTER (WHERE status = 'failed')::int,
+					COUNT(*) FILTER (WHERE status IN ('queued', 'running', 'retry'))::int,
+					COUNT(*) FILTER (WHERE status = 'succeeded')::int,
+					COUNT(*)::int
+				FROM crm_jobs
+				WHERE id <> $1
+				  AND payload->>'snapshot_id' = $2
+				  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+			`, jobID, snapshotID).Scan(&failedCount, &activeCount, &succeededCount, &totalCount)
+			if err != nil {
+				return nil, fmt.Errorf("query downstream job states: %w", err)
+			}
+
+			if failedCount > 0 {
+				status = "failed"
+
+				var failedJobType, failedJobError string
+				_ = s.db.QueryRow(ctx, `
+					SELECT job_type::text, COALESCE(last_error, '')
+					FROM crm_jobs
+					WHERE payload->>'snapshot_id' = $1
+					  AND status = 'failed'
+					  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+					ORDER BY updated_at DESC
+					LIMIT 1
+				`, snapshotID).Scan(&failedJobType, &failedJobError)
+
+				if failedJobError != "" {
+					message = failedJobError
+				} else {
+					message = fmt.Sprintf("Downstream CRM job failed (%s)", failedJobType)
+				}
+			} else if activeCount > 0 {
+				status = "running"
+				if totalCount > 0 {
+					message = fmt.Sprintf("Running downstream CRM jobs (%d/%d complete)", succeededCount, totalCount)
+				} else {
+					message = "Running downstream CRM jobs"
+				}
+			} else if totalCount > 0 && succeededCount == totalCount && status == "succeeded" {
+				message = "Snapshot import and downstream reconcile jobs completed"
+			}
+		}
 	}
 
 	return &UploadResponse{
 		JobID:   jobID,
 		Status:  status,
-		Message: fmt.Sprintf("Job %s is %s", jobType, status),
+		Message: message,
 	}, nil
 }
 

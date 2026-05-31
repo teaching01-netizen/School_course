@@ -108,7 +108,10 @@ export default function TeacherProfile() {
           <PageHeading>{teacher?.username ?? 'Teacher'}</PageHeading>
           <p className="text-sm text-gray-500 font-mono text-xs">{id}</p>
         </div>
-        <Button variant="secondary" size="md" onClick={() => void load()}>Reload</Button>
+        <div className="flex items-center gap-3">
+          <Link to="/users" className="text-sm text-[var(--color-wi-primary)] hover:underline">Manage account</Link>
+          <Button variant="secondary" size="md" onClick={() => void load()}>Reload</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -1,3 +1,4 @@
+import { type Dispatch, type SetStateAction } from "react";
 import Input from "./ui/Input";
 import Select from "./ui/Select";
 import FormField from "./ui/FormField";
@@ -12,15 +13,17 @@ interface FormValidationLike {
   validate: (field: string) => boolean;
 }
 
+export interface SessionOccurrenceFormData {
+  course_id: string;
+  room_id: string;
+  teacher_id: string;
+  start_local: string;
+  end_local: string;
+}
+
 interface SessionOccurrenceFormProps {
-  form: {
-    course_id: string;
-    room_id: string;
-    teacher_id: string;
-    start_local: string;
-    end_local: string;
-  };
-  setForm: (f: any) => void;
+  form: SessionOccurrenceFormData;
+  setForm: Dispatch<SetStateAction<SessionOccurrenceFormData>>;
   courseOptions: TypeaheadOption[];
   teacherOptions: TypeaheadOption[];
   rooms: Room[];

@@ -63,13 +63,27 @@ func main() {
 	}
 
 	// Acquire advisory lock to prevent concurrent migrations (e.g. parallel Railway deploys).
-	// Use a generous timeout — pg_advisory_lock blocks until acquired.
+	// Use pg_try_advisory_lock in a poll loop so context cancellation works properly.
+	// pg_advisory_lock is avoided because it blocks inside the Postgres session even when
+	// the client disconnects — connection poolers (Supavisor, PgBouncer) keep the session
+	// alive, causing the lock to persist across client reconnects.
 	lockCtx, lockCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer lockCancel()
 	var locked bool
-	if err := db.QueryRowContext(lockCtx, `SELECT pg_advisory_lock(12345)`).Scan(&locked); err != nil {
-		log.Error("acquire advisory lock", "err", err)
-		os.Exit(1)
+	for {
+		if err := db.QueryRowContext(lockCtx, `SELECT pg_try_advisory_lock(12345)`).Scan(&locked); err != nil {
+			log.Error("acquire advisory lock", "err", err)
+			os.Exit(1)
+		}
+		if locked {
+			break
+		}
+		select {
+		case <-lockCtx.Done():
+			log.Error("acquire advisory lock", "err", "timeout: could not acquire lock within 60s")
+			os.Exit(1)
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 	defer db.ExecContext(context.Background(), `SELECT pg_advisory_unlock(12345)`)
 

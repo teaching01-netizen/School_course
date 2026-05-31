@@ -18,7 +18,7 @@ export interface LadderCellData {
 interface LevelLadderCellProps {
   cell: LadderCellData;
   onClick?: (cell: LadderCellData) => void;
-  onDropCourse?: (fromLevel: number, toLevel: number, cycleId: string) => void;
+  onDropCourse?: (fromLevel: number, toLevel: number, cycleId: string, courseId: string) => void;
   selected?: boolean;
 }
 

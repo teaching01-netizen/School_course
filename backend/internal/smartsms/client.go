@@ -30,7 +30,7 @@ const defaultTimeout = 30 * time.Second
 
 const clientUserAgent = "WarwickInstitute-SmartSMS/1.0"
 
-const maxRetries = 2
+const maxRetries = 1
 const retryBaseDelay = 500 * time.Millisecond
 
 // Config holds the credentials and settings for the SmartSMS client.
@@ -146,7 +146,6 @@ func New(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("smartsms: cookiejar: %w", err)
 	}
 
-	var emptyCSRF string
 	return &Client{
 		httpClient: &http.Client{
 			Transport: &http.Transport{
@@ -157,12 +156,11 @@ func New(cfg Config) (*Client, error) {
 			Jar:     jar,
 			Timeout: timeout,
 		},
-		baseURL:   baseURL,
-		sender:    sender,
-		label:     label,
-		username:  cfg.Username,
-		password:  cfg.Password,
-		csrfToken: func() atomic.Value { var v atomic.Value; v.Store(emptyCSRF); return v }(),
+		baseURL:  baseURL,
+		sender:   sender,
+		label:    label,
+		username: cfg.Username,
+		password: cfg.Password,
 	}, nil
 }
 
@@ -309,7 +307,7 @@ func (c *Client) loginLocked(ctx context.Context) error {
 	c.csrfToken.Store(freshToken)
 
 	c.loggedIn = true
-	c.startHeartbeatLocked(context.Background())
+	c.startHeartbeatLocked(ctx)
 	return nil
 }
 
@@ -443,10 +441,6 @@ func (c *Client) withReLogin(ctx context.Context, fields map[string]string, path
 	}
 
 	if err != nil && isTransientError(err) {
-		return nil, err
-	}
-
-	if err != nil && !isSessionError(err) && !isLoginPage(string(body)) {
 		return nil, err
 	}
 
@@ -787,11 +781,6 @@ func (c *Client) startHeartbeatLocked(ctx context.Context) {
 
 // heartbeatLoop runs the periodic heartbeat until ctx is cancelled.
 func (c *Client) heartbeatLoop(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("smartsms: heartbeat panicked", "recover", r)
-		}
-	}()
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
 	for {

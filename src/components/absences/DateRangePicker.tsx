@@ -32,7 +32,7 @@ function validateRanges(
   for (let i = 0; i < ranges.length; i++) {
     const r = ranges[i];
     if (r.from && r.to && r.from > r.to) {
-      return `Range ${i + 1}: "From" date must be before or equal to "To" date.`;
+      return `Range ${i + 1}: start date must be before or equal to end date.`;
     }
   }
 
@@ -169,7 +169,7 @@ export default function DateRangePicker({
           className="rounded-lg border-dashed border-2 border-gray-300 px-4 hover:border-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary)] hover:bg-blue-50/50 transition-all duration-150"
         >
           <CalendarPlus className="h-4 w-4 mr-1.5" />
-          Add another date range
+          Add more dates
         </Button>
       </div>
 

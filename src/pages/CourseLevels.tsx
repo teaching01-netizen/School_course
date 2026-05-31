@@ -347,9 +347,10 @@ export default function CourseLevels() {
 
     setSavingRule(prev => ({ ...prev, [rootCourseId]: true }));
     try {
+      const groupName = rootCourseGroups.find(g => g.id === rootCourseId)?.name ?? "";
       await apiJson(`/api/v1/admin/root-course-groups/${rootCourseId}`, {
         method: "PUT",
-        body: JSON.stringify({ sit_in_rule_id: ruleId }),
+        body: JSON.stringify({ name: groupName, sit_in_rule_id: ruleId }),
       });
       setRuleAssignments(prev => ({ ...prev, [rootCourseId]: ruleId }));
       addToast("success", "Rule assigned");

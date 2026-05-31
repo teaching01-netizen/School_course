@@ -41,6 +41,7 @@ type ManagedAbsenceRow struct {
 	SitInCourseID       pgtype.UUID
 	SitInCourseCode     pgtype.Text
 	SitInCourseName     pgtype.Text
+	SitInSubjectName    pgtype.Text
 	Status              string
 	AdminNotes          pgtype.Text
 	ReviewedBy          pgtype.UUID
@@ -72,7 +73,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at,
 		       count(*) OVER()
@@ -81,6 +82,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
 		WHERE ($1 = '' OR sa.wcode ILIKE '%' || $1 || '%' OR COALESCE(sa.student_name, st.full_name, '') ILIKE '%' || $1 || '%')
 		  AND ($2::uuid IS NULL OR sa.subject_id = $2)
 		  AND ($3 = '' OR sa.status = $3)
@@ -103,7 +105,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 			&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
 			&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 			&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
-			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.Status, &item.AdminNotes,
+			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
 			&item.ReviewedBy, &item.ReviewedAt, &item.SitInOverridden, &item.SitInOverriddenBy,
 			&item.SitInOverrideReason, &item.Version, &item.CreatedAt, &item.UpdatedAt,
 			&total,
@@ -124,7 +126,7 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
 		FROM student_absences sa
@@ -132,12 +134,13 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
 		WHERE sa.id = $1
 	`, id).Scan(
 		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
 		&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 		&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
-		&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.Status, &item.AdminNotes,
+		&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
 		&item.ReviewedBy, &item.ReviewedAt, &item.SitInOverridden, &item.SitInOverriddenBy,
 		&item.SitInOverrideReason, &item.Version, &item.CreatedAt, &item.UpdatedAt,
 	)

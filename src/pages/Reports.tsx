@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ApiRequestError, apiJson } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { endOfLocalDay, minutesBetweenRFC3339, startOfLocalDay } from '../utils/time';
+import { clampDateRange, endOfLocalDay, minutesBetweenRFC3339, startOfLocalDay } from '../utils/time';
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -30,8 +30,10 @@ export default function Reports() {
   const load = async () => {
     try {
       setLoading(true);
+      const { endDate: cappedEnd, clamped } = clampDateRange(startDate, endDate);
+      if (clamped) addToast("info", "Date range capped to 14 days");
       const start = startOfLocalDay(parseISO(startDate)).toISOString();
-      const end = endOfLocalDay(parseISO(endDate)).toISOString();
+      const end = endOfLocalDay(parseISO(cappedEnd)).toISOString();
       const [sess, courseItems, roomItems, teacherItems] = await Promise.all([
         apiJson<Session[]>(`/api/v1/sessions?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, { method: 'GET' }),
         apiJson<Course[]>('/api/v1/courses', { method: 'GET' }),

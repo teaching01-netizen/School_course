@@ -181,7 +181,7 @@ func (s *server) handleCourseFilterPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deps.CRMReconcileV2.SetCourseFilterAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Enabled, body.Filter); err != nil {
+	if err := s.deps.CRMReconcileV2.SetCourseFilterAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Enabled, string(body.Filter)); err != nil {
 		s.deps.Log.Error("set course filter failed", "error", err)
 		var enqueueErr *reconcile.EnqueueApplyJobError
 		if errors.As(err, &enqueueErr) {

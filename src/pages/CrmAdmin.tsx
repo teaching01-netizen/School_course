@@ -19,6 +19,11 @@ type UploadJobStatusResponse = {
   message?: string;
 };
 
+type BusyRangeConflict = {
+  studentWCode: string | null;
+  detail: string;
+};
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -43,6 +48,21 @@ function statusLabel(status: string): string {
 
 function isActive(status: string): boolean {
   return ["importing", "queued", "running"].includes(status);
+}
+
+function parseBusyRangeConflict(message?: string): BusyRangeConflict | null {
+  if (!message) return null;
+  const normalized = message.toLowerCase();
+  const hasBusyRangeSignal =
+    normalized.includes("student_busy_ranges_no_overlap") ||
+    normalized.includes("sqlstate 23p01");
+  if (!hasBusyRangeSignal) return null;
+
+  const match = message.match(/add student ([A-Za-z0-9_-]+):/i);
+  return {
+    studentWCode: match?.[1] ?? null,
+    detail: message,
+  };
 }
 
 export default function CrmAdmin() {
@@ -151,6 +171,7 @@ export default function CrmAdmin() {
   const isFailed = job?.status === "failed";
   const isSucceeded = job?.status === "succeeded";
   const showSpinner = uploading || running;
+  const busyRangeConflict = isFailed ? parseBusyRangeConflict(job?.message) : null;
 
   return (
     <div className="max-w-2xl">
@@ -417,9 +438,35 @@ export default function CrmAdmin() {
           {/* Error detail */}
           {isFailed && (
             <div className="px-5 py-3 bg-red-50 border-b border-red-100">
-              <p className="text-xs text-red-700 font-mono">
-                {job.message || "Import failed — check server logs"}
-              </p>
+              {busyRangeConflict ? (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-red-200 bg-white px-3 py-2">
+                    <p className="text-xs font-semibold text-red-800">
+                      Roster update conflict detected
+                    </p>
+                    <p className="mt-1 text-xs text-red-700">
+                      {busyRangeConflict.studentWCode
+                        ? `Student ${busyRangeConflict.studentWCode} already has an overlapping scheduled time.`
+                        : "A student already has an overlapping scheduled time."}
+                    </p>
+                    <p className="mt-1 text-xs text-red-700">
+                      Check the student schedule and adjust overlapping sessions before retrying the CRM import.
+                    </p>
+                  </div>
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-red-700 hover:text-red-800">
+                      Technical details
+                    </summary>
+                    <p className="mt-2 text-red-700 font-mono break-all">
+                      {busyRangeConflict.detail}
+                    </p>
+                  </details>
+                </div>
+              ) : (
+                <p className="text-xs text-red-700 font-mono break-all">
+                  {job.message || "Import failed — check server logs"}
+                </p>
+              )}
             </div>
           )}
 
@@ -428,7 +475,7 @@ export default function CrmAdmin() {
             <div className="px-5 py-4">
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                Upload processed successfully. Course rosters are being updated in the background.
+                Upload processed successfully. Downstream roster reconcile jobs completed.
               </div>
               <div className="mt-3 text-xs text-gray-400">
                 Visit individual course pages to review roster changes.

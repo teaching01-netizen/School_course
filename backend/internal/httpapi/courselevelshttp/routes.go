@@ -281,15 +281,15 @@ func (s *server) handleUpdateRootCourseGroupMeta(w http.ResponseWriter, r *http.
 	}
 
 	var body struct {
-		Name        string  `json:"name"`
+		Name        *string `json:"name"`
 		SitInRuleID *string `json:"sit_in_rule_id"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
-	if body.Name == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "missing_fields", "name is required")
+	if body.Name == nil && body.SitInRuleID == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "missing_fields", "at least one of name or sit_in_rule_id is required")
 		return
 	}
 
@@ -304,7 +304,26 @@ func (s *server) handleUpdateRootCourseGroupMeta(w http.ResponseWriter, r *http.
 		return
 	}
 
-	sitInRuleID := pgtype.UUID{}
+	// Load current values for fields not provided
+	currentName := ""
+	currentSitInRuleID := pgtype.UUID{}
+	if body.Name == nil || body.SitInRuleID == nil {
+		dbName, dbSitInRuleID, err := s.deps.Q.RootCourseGroupGetByID(r.Context(), id)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		currentName = dbName
+		currentSitInRuleID = dbSitInRuleID
+	}
+
+	// Merge provided values over current values
+	name := currentName
+	if body.Name != nil {
+		name = *body.Name
+	}
+	sitInRuleID := currentSitInRuleID
 	if body.SitInRuleID != nil {
 		sid, err := s.a.ParseUUID(*body.SitInRuleID)
 		if err != nil {
@@ -314,7 +333,7 @@ func (s *server) handleUpdateRootCourseGroupMeta(w http.ResponseWriter, r *http.
 		sitInRuleID = sid
 	}
 
-	if err := s.deps.Q.RootCourseGroupUpdate(r.Context(), id, body.Name, sitInRuleID); err != nil {
+	if err := s.deps.Q.RootCourseGroupUpdate(r.Context(), id, name, sitInRuleID); err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return

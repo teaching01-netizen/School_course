@@ -275,7 +275,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {/* Operations mobile */}
+              {/* Config mobile */}
               <div>
                 <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   Config

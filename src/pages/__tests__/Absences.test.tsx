@@ -160,15 +160,24 @@ describe("Absence inbox", () => {
 
     await user.click(await screen.findByLabelText("Select W250389"));
     await user.click(screen.getByRole("button", { name: /cancel selected/i }));
-    await user.type(screen.getByLabelText(/cancellation reason/i), "Reported in error");
+    await user.selectOptions(screen.getByLabelText(/cancellation reason/i), "other");
+    await user.type(screen.getByLabelText(/additional details/i), "Reported in error");
     const confirm = screen.getByRole("button", { name: /^cancel absence/i });
     expect(confirm).toBeEnabled();
     await user.click(confirm);
 
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
-        "/api/v1/absences/abs-1/status",
-        expect.objectContaining({ body: JSON.stringify({ status: "cancelled", expected_version: 1, reason: "Reported in error" }) }),
+        "/api/v1/absences/batch-status",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            ids: ["abs-1"],
+            status: "cancelled",
+            reason: JSON.stringify({ category: "other", detail: "Reported in error" }),
+            expected_versions: { "abs-1": 1 },
+          }),
+        }),
       );
     });
   });
@@ -184,14 +193,6 @@ describe("Absence inbox", () => {
       offset: 0,
       limit: 25,
     };
-    const reloadedAfterBatch = {
-      ...twoItemPage,
-      items: [
-        { ...twoItemPage.items[0], status: "reviewed", version: 2 },
-        { ...twoItemPage.items[1], status: "pending", version: 1 },
-      ],
-    };
-
     mockApiJson.mockImplementation(async (url: string) => {
       if (url.includes("/batch-status")) {
         return {

@@ -1,4 +1,4 @@
-import { type InputHTMLAttributes, type Ref, forwardRef } from "react";
+import { type InputHTMLAttributes, forwardRef } from "react";
 
 type InputSize = "sm" | "md";
 

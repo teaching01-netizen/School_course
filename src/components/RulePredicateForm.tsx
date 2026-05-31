@@ -139,19 +139,6 @@ function LevelLadderFields({
           <option value="physical">Physical</option>
         </Select>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="min_level">
-          Minimum Level for Sit-Down
-            <Tooltip content={FIELD_TOOLTIPS.min_level} />
-        </label>
-        <Input
-          id="min_level"
-          type="number"
-          min={1}
-          value={Number(predicate.min_level_for_sit_lower ?? 2)}
-          onChange={(e) => onChange({ min_level_for_sit_lower: Number(e.target.value) })}
-        />
-      </div>
     </>
   );
 }

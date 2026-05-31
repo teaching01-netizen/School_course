@@ -13,7 +13,7 @@ export default function LoadingSkeleton({ lines = 3, type = "table" }: LoadingSk
           <div
             key={i}
             className="h-4 bg-gray-200 rounded animate-pulse"
-            style={{ width: `${60 + Math.random() * 40}%` }}
+            style={{ width: `${[80, 65, 75, 50][i % 4]}%` }}
           />
         ))}
         <span className="sr-only">Loading...</span>

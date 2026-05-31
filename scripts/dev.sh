@@ -6,10 +6,22 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if [[ -f ".env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source ".env"
-  set +a
+  while IFS= read -r line; do
+    # trim leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    key="${line%%=*}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    val="${line#*=}"
+    case "$val" in
+      \"*\") val="${val:1:-1}" ;;
+      \'*\') val="${val:1:-1}" ;;
+    esac
+    printf -v "$key" "%s" "$val"
+    export "$key"
+  done < ".env"
 fi
 
 if [[ -n "${TEST_DATABASE_URL:-}" ]]; then

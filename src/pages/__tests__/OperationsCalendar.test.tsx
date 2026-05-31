@@ -32,7 +32,7 @@ describe("OperationsCalendar", () => {
 
   it("renders week grid header", async () => {
     renderPage();
-    expect(await screen.findByText("Operations Calendar")).toBeInTheDocument();
+    expect(await screen.findByText("Calendar")).toBeInTheDocument();
     expect(screen.getByText("Today")).toBeInTheDocument();
   });
 });

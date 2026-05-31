@@ -206,7 +206,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
         method: "PUT",
         body: JSON.stringify({ enabled, filter }),
       });
-      addToast("success", enabled ? "CRM filter enabled — roster reconciled" : "CRM filter disabled");
+      addToast("success", enabled ? "CRM filter enabled — reconcile queued" : "CRM filter disabled");
       onRosterChanged();
     } catch (err: any) {
       addToast("error", err?.message ?? "Failed to save filter");

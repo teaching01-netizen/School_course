@@ -724,7 +724,7 @@ func (s *ReconcileV2Service) UpdateCourseFilter(ctx context.Context, courseID pg
 	return err
 }
 
-func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, enabled bool, filterJSON []byte) error {
+func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, enabled bool, filterJSON string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE courses
 		SET crm_filter_enabled = $2,

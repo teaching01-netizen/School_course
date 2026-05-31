@@ -89,6 +89,7 @@ type managedAbsenceDTO struct {
 	SitInCourseID       *string              `json:"sit_in_course_id"`
 	SitInCourseCode     *string              `json:"sit_in_course_code"`
 	SitInCourseName     *string              `json:"sit_in_course_name"`
+	SitInSubjectName    *string              `json:"sit_in_subject_name"`
 	Status              string               `json:"status"`
 	AdminNotes          *string              `json:"admin_notes"`
 	ReviewedBy          *string              `json:"reviewed_by"`
@@ -130,6 +131,7 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 		SitInMethod:         stringPtrIfValid(row.SitInMethod),
 		SitInCourseCode:     stringPtrIfValid(row.SitInCourseCode),
 		SitInCourseName:     stringPtrIfValid(row.SitInCourseName),
+		SitInSubjectName:    stringPtrIfValid(row.SitInSubjectName),
 		Status:              row.Status,
 		AdminNotes:          stringPtrIfValid(row.AdminNotes),
 		SitInOverridden:     row.SitInOverridden,
@@ -509,6 +511,12 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_reason", "Cancellation reason is required")
 		return
 	}
+	settings, settingsErr := s.readAbsenceSettings(r)
+	if settingsErr != nil {
+		status, code, msg := s.a.ClassifyDBErr(settingsErr)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
 	adminID := actorID(user.ID)
 	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
@@ -556,6 +564,16 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write audit log")
 			return 0, nil, err
+		}
+		if body.Status == "actioned" {
+			if current.StudentPhone.Valid && strings.TrimSpace(current.StudentPhone.String) != "" {
+				sessions, sessErr := qtx.ManagedAbsenceSessions(r.Context(), id)
+				if sessErr == nil {
+					sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, current.StudentPhone.String, s.deps.InstituteTZ)
+				} else if s.deps.Log != nil {
+					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)
+				}
+			}
 		}
 		return http.StatusOK, map[string]any{"status": body.Status, "version": version}, nil
 	})
@@ -1002,15 +1020,30 @@ type absenceSitInSettings struct {
 	MaxSessionsPerAbsence int    `json:"max_sessions_per_absence"`
 }
 
+type absenceNotificationsSettings struct {
+	SmsParentEnabled      bool   `json:"sms_parent_enabled"`
+	SmsParentTemplate     string `json:"sms_parent_template"`
+	SmsSuccessTemplate    string `json:"sms_success_template"`
+	AllowSubmitWithoutOtp bool   `json:"allow_submit_without_otp"`
+}
+
+type adminContactSettings struct {
+	Email string `json:"email"`
+	Phone string `json:"phone"`
+	Hours string `json:"hours"`
+}
+
 type studentSelfServiceSettings struct {
 	CanViewOwn   bool `json:"can_view_own"`
 	CanCancelOwn bool `json:"can_cancel_own"`
 }
 
 type absenceSettings struct {
-	Form               absenceFormSettings        `json:"form"`
-	SitIn              absenceSitInSettings       `json:"sit_in"`
-	StudentSelfService studentSelfServiceSettings `json:"student_self_service"`
+	Form               absenceFormSettings          `json:"form"`
+	SitIn              absenceSitInSettings         `json:"sit_in"`
+	Notifications      absenceNotificationsSettings `json:"notifications"`
+	AdminContact       adminContactSettings         `json:"admin_contact"`
+	StudentSelfService studentSelfServiceSettings   `json:"student_self_service"`
 }
 
 func defaultAbsenceSettings() absenceSettings {
@@ -1020,16 +1053,24 @@ func defaultAbsenceSettings() absenceSettings {
 			ReasonCategories: []reasonCategory{{Value: "medical", Label: "Medical"}, {Value: "family", Label: "Family"}, {Value: "transport", Label: "Transport"}, {Value: "other", Label: "Other"}},
 		},
 		SitIn: absenceSitInSettings{AutoResolveEnabled: true, ZoomDescription: "Zoom session - no physical class attendance required.", MaxSessionsPerAbsence: 10},
+		Notifications: absenceNotificationsSettings{
+			SmsParentEnabled:      true,
+			SmsParentTemplate:     "Your Warwick verification code is {{code}}.",
+			SmsSuccessTemplate:    "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+			AllowSubmitWithoutOtp: false,
+		},
 	}
 }
 
 func parseAbsenceSettings(raw []byte) absenceSettings {
 	settings := defaultAbsenceSettings()
 	var policies struct {
-		Form               *absenceFormSettings        `json:"form"`
-		SitIn              *absenceSitInSettings       `json:"sit_in"`
-		StudentSelfService *studentSelfServiceSettings `json:"student_self_service"`
-		Zoom               *sqldb.ZoomConfig           `json:"zoom"`
+		Form               *absenceFormSettings          `json:"form"`
+		SitIn              *absenceSitInSettings         `json:"sit_in"`
+		Notifications      *absenceNotificationsSettings `json:"notifications"`
+		AdminContact       *adminContactSettings         `json:"admin_contact"`
+		StudentSelfService *studentSelfServiceSettings   `json:"student_self_service"`
+		Zoom               *sqldb.ZoomConfig             `json:"zoom"`
 	}
 	if json.Unmarshal(raw, &policies) != nil {
 		return settings
@@ -1041,6 +1082,12 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 		settings.SitIn = *policies.SitIn
 	} else if policies.Zoom != nil && policies.Zoom.Description != "" {
 		settings.SitIn.ZoomDescription = policies.Zoom.Description
+	}
+	if policies.Notifications != nil {
+		settings.Notifications = *policies.Notifications
+	}
+	if policies.AdminContact != nil {
+		settings.AdminContact = *policies.AdminContact
 	}
 	if policies.StudentSelfService != nil {
 		settings.StudentSelfService = *policies.StudentSelfService
@@ -1069,6 +1116,15 @@ func validateAbsenceSettings(settings absenceSettings) error {
 	if settings.SitIn.MaxSessionsPerAbsence < 1 || settings.SitIn.MaxSessionsPerAbsence > 100 {
 		return fmt.Errorf("max_sessions_per_absence must be between 1 and 100")
 	}
+	if len([]rune(settings.Notifications.SmsParentTemplate)) > 500 {
+		return fmt.Errorf("sms_parent_template must not exceed 500 characters")
+	}
+	if len([]rune(settings.Notifications.SmsSuccessTemplate)) > 500 {
+		return fmt.Errorf("sms_success_template must not exceed 500 characters")
+	}
+	if len([]rune(settings.AdminContact.Email)) > 200 || len([]rune(settings.AdminContact.Phone)) > 50 || len([]rune(settings.AdminContact.Hours)) > 120 {
+		return fmt.Errorf("admin contact fields are too long")
+	}
 	return nil
 }
 
@@ -1087,7 +1143,12 @@ func (s *server) handleFormConfigGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, message)
 		return
 	}
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"form": settings.Form, "sit_in": settings.SitIn})
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"form":          settings.Form,
+		"sit_in":        settings.SitIn,
+		"notifications": settings.Notifications,
+		"admin_contact": settings.AdminContact,
+	})
 }
 
 func (s *server) handleAbsenceSettingsGet(w http.ResponseWriter, r *http.Request) {

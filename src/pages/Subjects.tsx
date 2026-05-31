@@ -56,6 +56,7 @@ export default function Subjects() {
       <PageHeading>Subject</PageHeading>
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <SearchInput value={search} onChange={setSearch} placeholder="Search ID, Name" />
+        <Button variant="secondary" size="sm" onClick={() => void refetch()}>Refresh</Button>
         <Link to="/subjects/create" className="px-4 py-2 text-sm rounded-md bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white inline-block">
           Create
         </Link>

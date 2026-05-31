@@ -29,6 +29,10 @@ const (
 type SitInResult struct {
 	SitInMethod string `json:"sit_in_method"` // "physical" or "zoom"
 
+	// Rule metadata
+	RuleName string `json:"rule_name,omitempty"`
+	RuleType string `json:"rule_type,omitempty"`
+
 	// For physical sit-in
 	SitInCourse   *SitInCourseInfo `json:"sit_in_course,omitempty"`
 	MissedCount   int              `json:"missed_count"`
@@ -192,11 +196,12 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		return nil, nil
 	}
 
+	var result *SitInResult
 	switch evalOutput.Method {
 	case SitInMethodZoom:
-		return &SitInResult{SitInMethod: SitInMethodZoom}, nil
+		result = &SitInResult{SitInMethod: SitInMethodZoom}
 	case SitInMethodTeacher:
-		return nil, nil
+		result = &SitInResult{SitInMethod: SitInMethodTeacher}
 	case SitInMethodPhysical:
 		if evalOutput.TargetCourseID == nil {
 			return nil, fmt.Errorf("physical sit-in eligible but no target course")
@@ -219,10 +224,14 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 			return nil, fmt.Errorf("target course not found in course group")
 		}
 
-		return buildPhysicalSitInResult(targetCourse, missedSessions, availSessions), nil
+		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions)
 	default:
 		return nil, nil
 	}
+
+	result.RuleName = rule.Name
+	result.RuleType = rule.Type
+	return result, nil
 }
 
 func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, rootCourseGroupID pgtype.UUID) (bool, error) {

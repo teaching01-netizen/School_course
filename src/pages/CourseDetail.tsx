@@ -7,10 +7,12 @@ import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/hooks/usePreflight";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
+import { clampDateRange } from "../utils/time";
 import { formatUTCToZone, utcISOToZoneDate, zoneDateToUTCISO, zoneLocalInputToUTCISO } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
+import { parseSchedulePaste } from "@/utils/schedulePaste";
 import { addDays, format, startOfWeek } from 'date-fns';
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -257,10 +259,12 @@ export default function CourseDetail() {
     if (!id) return;
     try {
       setSessionsLoading(true);
+      const { endDate: cappedEnd, clamped } = clampDateRange(rangeStart, rangeEnd);
+      if (clamped) addToast("info", "Date range capped to 14 days");
       // Fetch a range of sessions, then filter by course_id client-side.
       // (Backend endpoint is range-based only; this keeps contracts stable.)
       const start = zoneDateToUTCISO(rangeStart, zone, false);
-      const end = zoneDateToUTCISO(rangeEnd, zone, true);
+      const end = zoneDateToUTCISO(cappedEnd, zone, true);
       if (!start || !end) {
         addToast("error", "Invalid date range");
         return;
@@ -345,7 +349,7 @@ export default function CourseDetail() {
   };
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createTab, setCreateTab] = useState<"series" | "session">("series");
+  const [createTab, setCreateTab] = useState<"series" | "session" | "paste">("series");
 
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionForm, setSessionForm] = useState({
@@ -355,6 +359,15 @@ export default function CourseDetail() {
     end_local: "",
   });
   const sessionPreflight = usePreflight();
+  const [pasteText, setPasteText] = useState("");
+  const [pasteTeacherId, setPasteTeacherId] = useState("");
+  const [creatingPaste, setCreatingPaste] = useState(false);
+  const parsedPaste = useMemo(() => parseSchedulePaste(pasteText), [pasteText]);
+  const roomIdByPastedName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const room of rooms) map.set(room.name.trim().toLowerCase(), room.id);
+    return map;
+  }, [rooms]);
 
   const [creatingSeries, setCreatingSeries] = useState(false);
   const [seriesUseCount, setSeriesUseCount] = useState(false);
@@ -370,7 +383,7 @@ export default function CourseDetail() {
   });
   const seriesPreflight = usePreflight("preflight_series");
 
-  const openCreate = (tab: "series" | "session" = "series") => {
+  const openCreate = (tab: "series" | "session" | "paste" = "series") => {
     setCreateOpen(true);
     setCreateTab(tab);
     setSessionForm({
@@ -379,6 +392,8 @@ export default function CourseDetail() {
       start_local: "",
       end_local: "",
     });
+    setPasteTeacherId(teachers[0]?.id ?? "");
+    setPasteText("");
     sessionPreflight.reset();
     setSeriesUseCount(false);
     setSeriesForm({
@@ -460,6 +475,43 @@ export default function CourseDetail() {
       addToast("error", err instanceof Error ? err.message : "Create failed");
     } finally {
       setCreatingSession(false);
+    }
+  };
+
+  const submitPastedSessions = async () => {
+    if (!id || !pasteTeacherId || parsedPaste.rows.length === 0 || parsedPaste.errors.length > 0) return;
+    try {
+      setCreatingPaste(true);
+      for (const row of parsedPaste.rows) {
+        const startISO = zoneLocalInputToUTCISO(`${row.date}T${row.begin}`, zone);
+        const endISO = zoneLocalInputToUTCISO(`${row.date}T${row.end}`, zone);
+        if (!startISO || !endISO || endISO <= startISO) {
+          throw new Error(`Invalid time on pasted row ${row.rowNumber}`);
+        }
+        const roomID = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) ?? null : null;
+        await apiJson("/api/v1/sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            course_id: id,
+            room_id: roomID,
+            teacher_id: pasteTeacherId,
+            start_at: startISO,
+            end_at: endISO,
+          }),
+        });
+      }
+      addToast("success", `Created ${parsedPaste.rows.length} sessions`);
+      setCreateOpen(false);
+      setPasteText("");
+      await loadSessions();
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.details) {
+        addToast("error", `${err.code ?? "error"}: ${err.message}`);
+        return;
+      }
+      addToast("error", err instanceof Error ? err.message : "Create pasted sessions failed");
+    } finally {
+      setCreatingPaste(false);
     }
   };
 
@@ -851,7 +903,7 @@ export default function CourseDetail() {
                 >
                   {creatingSeries ? "Creating…" : getSaveButtonLabel({ status: seriesPreflight.status, loading: seriesPreflight.loading }, "Create series", seriesPreflight.details)}
                 </Button>
-              ) : (
+              ) : createTab === "session" ? (
                 <Button
                   variant="primary"
                   size="sm"
@@ -860,6 +912,16 @@ export default function CourseDetail() {
                   loading={sessionPreflight.loading || creatingSession}
                 >
                   {creatingSession ? "Creating…" : getSaveButtonLabel({ status: sessionPreflight.status, loading: sessionPreflight.loading }, "Create session", sessionPreflight.details)}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={submitPastedSessions}
+                  disabled={creatingPaste || !pasteTeacherId || parsedPaste.rows.length === 0 || parsedPaste.errors.length > 0}
+                  loading={creatingPaste}
+                >
+                  {creatingPaste ? "Creating…" : `Create ${parsedPaste.rows.length} sessions`}
                 </Button>
               )}
             </>
@@ -881,6 +943,13 @@ export default function CourseDetail() {
                   className={`px-3 py-1.5 text-sm ${createTab === "session" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
                 >
                   One-off session
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateTab("paste")}
+                  className={`px-3 py-1.5 text-sm ${createTab === "paste" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                >
+                  Paste schedule
                 </button>
               </div>
               <div className="text-xs text-gray-500">
@@ -953,6 +1022,78 @@ export default function CourseDetail() {
                     { label: "End", value: sessionForm.end_local },
                   ]}
                 />
+              </div>
+            ) : createTab === "paste" ? (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teacher</div>
+                  <TypeaheadSelect
+                    value={pasteTeacherId}
+                    onChange={setPasteTeacherId}
+                    options={teacherOptions}
+                    placeholder="Search teacher…"
+                  />
+                </div>
+
+                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
+                  <label htmlFor="paste-schedule-rows" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Paste schedule rows
+                  </label>
+                  <textarea
+                    id="paste-schedule-rows"
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    className="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-gray-300 rounded-sm focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+                    placeholder={"Date\tBegin\tEnd\tDuration\tClassroom\tConfirm\tBy\nSun 31 May 26\t13:00\t15:00\t02:00"}
+                  />
+                  {parsedPaste.errors.length > 0 && (
+                    <div className="rounded-sm border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                      {parsedPaste.errors.map((error) => (
+                        <div key={`${error.rowNumber}-${error.message}`}>Row {error.rowNumber}: {error.message}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {parsedPaste.rows.length > 0 && (
+                  <div className="border border-gray-200 rounded-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
+                        <thead className="bg-gray-50">
+                          <tr className="border-b border-gray-200">
+                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+                            <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Duration</th>
+                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedPaste.rows.map((row) => {
+                            const matchedRoomId = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) : null;
+                            return (
+                              <tr key={row.rowNumber} className="border-b border-gray-100">
+                                <td className="py-2 px-2 font-mono">{row.date}</td>
+                                <td className="py-2 px-2 font-mono">{row.begin}</td>
+                                <td className="py-2 px-2 font-mono">{row.end}</td>
+                                <td className="py-2 px-2 font-mono">{row.duration || "—"}</td>
+                                <td className="py-2 px-2">
+                                  {row.classroom ? (
+                                    <span className={matchedRoomId ? "text-gray-700" : "text-amber-700"}>
+                                      {row.classroom}{matchedRoomId ? "" : " (not matched)"}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">[NOT SET]</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-6">

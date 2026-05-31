@@ -10,6 +10,8 @@ import (
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
+	"warwick-institute/internal/otp"
+	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/users"
@@ -31,5 +33,10 @@ type Deps struct {
 	CRMReconcileV2  *reconcile.ReconcileV2Service
 	CRMWorker       *queue.QueueWorker
 
-	SMS smartsms.SMSProvider
+	SMS             smartsms.SMSProvider
+	OTPSender       smartsms.OTPProvider
+	OTP             *otp.Service
+	RateLimiter     *ratelimit.Store
+	CircuitBreaker  *smartsms.CircuitBreaker
+	AppOrigin       string
 }

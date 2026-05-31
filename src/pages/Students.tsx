@@ -60,6 +60,7 @@ export default function Students() {
       <PageHeading>Student</PageHeading>
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <SearchInput value={search} onChange={setSearch} placeholder="Search name / W-Code..." />
+        <Button variant="secondary" size="sm" onClick={() => void refetch()}>Refresh</Button>
         <Button variant="primary" size="md" onClick={() => setCreateModal(true)}>
           Create
         </Button>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { clampDateRange } from "../utils/time";
 import { utcISOToZoneDate, zoneLocalInputToUTCISO } from "../utils/timezone";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -51,10 +52,13 @@ export default function Schedule() {
   const load = async () => {
     try {
       setLoading(true);
+      const { endDate: cappedEnd, clamped } = clampDateRange(startDate, endDate);
+      if (clamped) addToast("info", "Date range capped to 14 days");
       const start = zoneLocalInputToUTCISO(`${startDate}T${startTime}`, zone);
-      const end = zoneLocalInputToUTCISO(`${endDate}T${endTime}`, zone);
+      const end = zoneLocalInputToUTCISO(`${cappedEnd}T${endTime}`, zone);
       if (!start || !end) {
         addToast("error", "Invalid date/time range");
+        setSessions([]);
         return;
       }
       const items = await apiJson<Session[]>(`/api/v1/sessions?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
@@ -181,7 +185,7 @@ export default function Schedule() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startDate, endDate, startTime, endTime]);
 
   // --- Cancel occurrence ---
   const cancelOccurrence = (sess: Session) => {
@@ -854,17 +858,32 @@ export default function Schedule() {
               </div>
               <SeriesFormFields
                 weekdays={editSeriesForm.weekdays}
-                onWeekdayChange={(idx) => { setEditSeriesForm(prev => { const next = prev.weekdays.slice(); next[idx] = !next[idx]; return { ...prev, weekdays: next }; }); }}
+                onWeekdayChange={(idx) => {
+                  setEditSeriesForm((prev) => {
+                    if (!prev) return prev;
+                    const next = prev.weekdays.slice();
+                    next[idx] = !next[idx];
+                    return { ...prev, weekdays: next };
+                  });
+                }}
                 startLocalTime={editSeriesForm.start_local_time}
-                onStartLocalTimeChange={(v) => setEditSeriesForm(prev => ({ ...prev, start_local_time: v }))}
+                onStartLocalTimeChange={(v) => {
+                  setEditSeriesForm((prev) => (prev ? { ...prev, start_local_time: v } : prev));
+                }}
                 durationMinutes={editSeriesForm.duration_minutes}
-                onDurationMinutesChange={(v) => setEditSeriesForm(prev => ({ ...prev, duration_minutes: v }))}
+                onDurationMinutesChange={(v) => {
+                  setEditSeriesForm((prev) => (prev ? { ...prev, duration_minutes: v } : prev));
+                }}
                 useCount={editSeriesUseCount}
                 onUseCountChange={setEditSeriesUseCount}
                 count={editSeriesForm.count}
-                onCountChange={(v) => setEditSeriesForm(prev => ({ ...prev, count: v }))}
+                onCountChange={(v) => {
+                  setEditSeriesForm((prev) => (prev ? { ...prev, count: v } : prev));
+                }}
                 endDate={editSeriesForm.end_date}
-                onEndDateChange={(v) => setEditSeriesForm(prev => ({ ...prev, end_date: v }))}
+                onEndDateChange={(v) => {
+                  setEditSeriesForm((prev) => (prev ? { ...prev, end_date: v } : prev));
+                }}
                 prefix="es-"
               />
               <PreflightIndicator preflight={editSeriesPreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
@@ -905,31 +924,68 @@ export default function Schedule() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <FormField name="ese-course_id" label="Course">
-                  <TypeaheadSelect value={editSeriesEntireForm.course_id} onChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, course_id: v }))} options={courseOptions} placeholder="Search course…" />
+                  <TypeaheadSelect
+                    value={editSeriesEntireForm.course_id}
+                    onChange={(v) => {
+                      setEditSeriesEntireForm((prev) => (prev ? { ...prev, course_id: v } : prev));
+                    }}
+                    options={courseOptions}
+                    placeholder="Search course…"
+                  />
                 </FormField>
                 <FormField name="ese-room_id" label="Room">
-                  <Select size="sm" value={editSeriesEntireForm.room_id ?? ""} onChange={(e) => setEditSeriesEntireForm(prev => ({ ...prev, room_id: e.target.value ? e.target.value : null }))}>
+                  <Select
+                    size="sm"
+                    value={editSeriesEntireForm.room_id ?? ""}
+                    onChange={(e) => {
+                      setEditSeriesEntireForm((prev) =>
+                        prev ? { ...prev, room_id: e.target.value ? e.target.value : null } : prev,
+                      );
+                    }}
+                  >
                     <option value="">[NOT SET] (Provisional)</option>
                     {rooms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </Select>
                 </FormField>
                 <FormField name="ese-teacher_id" label="Teacher">
-                  <TypeaheadSelect value={editSeriesEntireForm.teacher_id} onChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, teacher_id: v }))} options={teacherOptions} placeholder="Search teacher…" />
+                  <TypeaheadSelect
+                    value={editSeriesEntireForm.teacher_id}
+                    onChange={(v) => {
+                      setEditSeriesEntireForm((prev) => (prev ? { ...prev, teacher_id: v } : prev));
+                    }}
+                    options={teacherOptions}
+                    placeholder="Search teacher…"
+                  />
                 </FormField>
               </div>
               <SeriesFormFields
                 weekdays={editSeriesEntireForm.weekdays}
-                onWeekdayChange={(idx) => { setEditSeriesEntireForm(prev => { const next = prev.weekdays.slice(); next[idx] = !next[idx]; return { ...prev, weekdays: next }; }); }}
+                onWeekdayChange={(idx) => {
+                  setEditSeriesEntireForm((prev) => {
+                    if (!prev) return prev;
+                    const next = prev.weekdays.slice();
+                    next[idx] = !next[idx];
+                    return { ...prev, weekdays: next };
+                  });
+                }}
                 startLocalTime={editSeriesEntireForm.start_local_time}
-                onStartLocalTimeChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, start_local_time: v }))}
+                onStartLocalTimeChange={(v) => {
+                  setEditSeriesEntireForm((prev) => (prev ? { ...prev, start_local_time: v } : prev));
+                }}
                 durationMinutes={editSeriesEntireForm.duration_minutes}
-                onDurationMinutesChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, duration_minutes: v }))}
+                onDurationMinutesChange={(v) => {
+                  setEditSeriesEntireForm((prev) => (prev ? { ...prev, duration_minutes: v } : prev));
+                }}
                 useCount={editSeriesEntireUseCount}
                 onUseCountChange={setEditSeriesEntireUseCount}
                 count={editSeriesEntireForm.count}
-                onCountChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, count: v }))}
+                onCountChange={(v) => {
+                  setEditSeriesEntireForm((prev) => (prev ? { ...prev, count: v } : prev));
+                }}
                 endDate={editSeriesEntireForm.end_date}
-                onEndDateChange={(v) => setEditSeriesEntireForm(prev => ({ ...prev, end_date: v }))}
+                onEndDateChange={(v) => {
+                  setEditSeriesEntireForm((prev) => (prev ? { ...prev, end_date: v } : prev));
+                }}
                 prefix="ese-"
               />
               <PreflightIndicator preflight={editSeriesEntirePreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}

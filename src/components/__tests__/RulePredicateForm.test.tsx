@@ -12,9 +12,7 @@ it("renders level_ladder fields with defaults", () => {
     />
   );
   expect(screen.getByRole("combobox", { name: /level 1 action/i })).toBeInTheDocument();
-  expect(screen.getByRole("spinbutton", { name: /minimum level for sit-down/i })).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: /level 1 action/i })).toHaveValue("zoom");
-  expect(screen.getByRole("spinbutton", { name: /minimum level for sit-down/i })).toHaveValue(2);
 });
 
 it("level_ladder reflects provided predicate values", () => {
@@ -26,27 +24,6 @@ it("level_ladder reflects provided predicate values", () => {
     />
   );
   expect(screen.getByRole("combobox", { name: /level 1 action/i })).toHaveValue("physical");
-  expect(screen.getByRole("spinbutton", { name: /minimum level for sit-down/i })).toHaveValue(3);
-});
-
-it("level_ladder default uses min_level_for_sit_lower key (not min_level)", async () => {
-  const user = userEvent.setup();
-  const onChange = vi.fn();
-  render(
-    <RulePredicateForm
-      ruleType="level_ladder"
-      predicate={{}}
-      onChange={onChange}
-    />
-  );
-  await user.clear(screen.getByRole("spinbutton", { name: /minimum level for sit-down/i }));
-  await user.type(screen.getByRole("spinbutton", { name: /minimum level for sit-down/i }), "4");
-  expect(onChange).toHaveBeenCalledWith(
-    expect.objectContaining({ min_level_for_sit_lower: 4 })
-  );
-  expect(onChange).not.toHaveBeenCalledWith(
-    expect.objectContaining({ min_level: expect.anything() })
-  );
 });
 
 it("renders cross_section fields with defaults", () => {
@@ -158,7 +135,7 @@ it("shows advanced JSON toggle and textarea", async () => {
   expect(screen.getByRole("textbox", { name: /json predicate/i })).toBeInTheDocument();
 });
 
-it("renders tooltip info icons for level_ladder fields", () => {
+it("renders tooltip info icon for level_1_action field", () => {
   render(
     <RulePredicateForm
       ruleType="level_ladder"
@@ -169,5 +146,5 @@ it("renders tooltip info icons for level_ladder fields", () => {
   const infoButtons = screen.getAllByRole("button").filter(
     (btn) => btn.querySelector(".lucide-info") !== null
   );
-  expect(infoButtons.length).toBeGreaterThanOrEqual(2);
+  expect(infoButtons.length).toBeGreaterThanOrEqual(1);
 });

@@ -8,18 +8,21 @@ import (
 )
 
 type StudentSubjectRow struct {
-	StudentID   pgtype.UUID `json:"student_id"`
-	Wcode       string      `json:"wcode"`
-	FullName    string      `json:"full_name"`
-	SubjectID   pgtype.UUID `json:"subject_id"`
-	SubjectCode string      `json:"subject_code"`
-	SubjectName string      `json:"subject_name"`
+	StudentID      pgtype.UUID `json:"student_id"`
+	Wcode          string      `json:"wcode"`
+	FullName       string      `json:"full_name"`
+	ParentPhone    pgtype.Text `json:"parent_phone"`
+	SubjectID      pgtype.UUID `json:"subject_id"`
+	SubjectCode    string      `json:"subject_code"`
+	SubjectName    string      `json:"subject_name"`
+	ActiveCourseID pgtype.UUID `json:"active_course_id"`
 }
 
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT s.id, s.wcode, s.full_name,
-		       sub.id, sub.code, sub.name
+		SELECT s.id, s.wcode, s.full_name, s.parent_phone,
+		       sub.id, sub.code, sub.name,
+		       MIN(c.id::text)::uuid AS active_course_id
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
@@ -36,7 +39,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.SubjectID, &r.SubjectCode, &r.SubjectName); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.ParentPhone, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -119,11 +122,11 @@ func (q *Queries) SubjectCoursesBySubject(ctx context.Context, subjectID pgtype.
 }
 
 type SessionInRange struct {
-	ID        pgtype.UUID        `json:"id"`
-	CourseID  pgtype.UUID        `json:"course_id"`
-	RoomID    pgtype.UUID        `json:"room_id"`
-	StartAt   pgtype.Timestamptz `json:"start_at"`
-	EndAt     pgtype.Timestamptz `json:"end_at"`
+	ID       pgtype.UUID        `json:"id"`
+	CourseID pgtype.UUID        `json:"course_id"`
+	RoomID   pgtype.UUID        `json:"room_id"`
+	StartAt  pgtype.Timestamptz `json:"start_at"`
+	EndAt    pgtype.Timestamptz `json:"end_at"`
 }
 
 func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.UUID, dateFrom time.Time, dateTo time.Time) ([]SessionInRange, error) {
@@ -362,14 +365,14 @@ func (q *Queries) CourseLevelUpdateV2(ctx context.Context, courseID pgtype.UUID,
 }
 
 type StudentEnrolledCourseV2 struct {
-	CourseID         pgtype.UUID    `json:"course_id"`
-	CourseCode       string         `json:"course_code"`
-	CourseName       string         `json:"course_name"`
-	SubjectID        pgtype.UUID    `json:"subject_id"`
-	CycleID          pgtype.Text    `json:"cycle_id"`
-	Level            pgtype.Int2    `json:"level"`
-	RootCourseGroupID pgtype.UUID   `json:"root_course_group_id"`
-	SitInRuleID      pgtype.UUID    `json:"sit_in_rule_id"`
+	CourseID          pgtype.UUID `json:"course_id"`
+	CourseCode        string      `json:"course_code"`
+	CourseName        string      `json:"course_name"`
+	SubjectID         pgtype.UUID `json:"subject_id"`
+	CycleID           pgtype.Text `json:"cycle_id"`
+	Level             pgtype.Int2 `json:"level"`
+	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
+	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
 }
 
 func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, studentID pgtype.UUID, subjectID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
@@ -401,14 +404,14 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 }
 
 type SubjectCourseV2 struct {
-	ID                pgtype.UUID    `json:"id"`
-	Code              string         `json:"code"`
-	Name              string         `json:"name"`
-	SubjectID         pgtype.UUID    `json:"subject_id"`
-	CycleID           pgtype.Text    `json:"cycle_id"`
-	Level             pgtype.Int2    `json:"level"`
-	RootCourseGroupID pgtype.UUID    `json:"root_course_group_id"`
-	SitInRuleID       pgtype.UUID    `json:"sit_in_rule_id"`
+	ID                pgtype.UUID `json:"id"`
+	Code              string      `json:"code"`
+	Name              string      `json:"name"`
+	SubjectID         pgtype.UUID `json:"subject_id"`
+	CycleID           pgtype.Text `json:"cycle_id"`
+	Level             pgtype.Int2 `json:"level"`
+	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
+	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
 }
 
 func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
@@ -444,11 +447,10 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 		FROM courses c
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE c.root_course_group_id = $1
-		  AND c.cycle_id = $2
 		  AND c.deleted_at IS NULL
 		  AND c.level IS NOT NULL
 		ORDER BY c.level ASC
-	`, rootCourseGroupID, cycleID)
+	`, rootCourseGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +493,17 @@ func (q *Queries) CourseUpdateRootCourseGroup(ctx context.Context, courseID pgty
 		WHERE id = $1
 	`, courseID, rootCourseGroupID)
 	return err
+}
+
+func (q *Queries) RootCourseGroupGetByID(ctx context.Context, id pgtype.UUID) (string, pgtype.UUID, error) {
+	var name string
+	var sitInRuleID pgtype.UUID
+	err := q.db.QueryRow(ctx, `
+		SELECT name, sit_in_rule_id
+		FROM root_course_groups
+		WHERE id = $1
+	`, id).Scan(&name, &sitInRuleID)
+	return name, sitInRuleID, err
 }
 
 func (q *Queries) RootCourseGroupExists(ctx context.Context, id pgtype.UUID) (bool, error) {
@@ -564,5 +577,3 @@ func (q *Queries) RootCourseGroupDelete(ctx context.Context, id pgtype.UUID) err
 	`, id)
 	return err
 }
-
-

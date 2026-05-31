@@ -7,10 +7,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/auth"
+	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpdeps"
 )
 
@@ -110,6 +113,66 @@ func TestAbsenceSettingsRejectsInvalidMaximumDateRange(t *testing.T) {
 	}
 	if got := responseCode(t, w); got != "bad_settings" {
 		t.Fatalf("code = %q, want bad_settings", got)
+	}
+}
+
+func TestParseAbsenceSettingsPreservesSuccessSMSTemplate(t *testing.T) {
+	settings := parseAbsenceSettings([]byte(`{
+		"notifications": {
+			"sms_parent_enabled": true,
+			"sms_parent_template": "OTP {{code}}",
+			"sms_success_template": "Done {{class_name}} {{sit_in_class}}",
+			"allow_submit_without_otp": false
+		}
+	}`))
+
+	if settings.Notifications.SmsSuccessTemplate != "Done {{class_name}} {{sit_in_class}}" {
+		t.Fatalf("sms_success_template = %q", settings.Notifications.SmsSuccessTemplate)
+	}
+}
+
+func TestRenderSuccessSMSTemplateUsesSubjectNamesAndSelectedSitInDate(t *testing.T) {
+	row := sqldb.ManagedAbsenceRow{
+		StudentName:      pgtype.Text{String: "Ada", Valid: true},
+		SubjectName:      pgtype.Text{String: "Math inter", Valid: true},
+		SitInSubjectName: pgtype.Text{String: "Math advanced", Valid: true},
+		DateFrom:         pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:           pgtype.Date{Time: time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+	sessions := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 9, 11, 0, 0, 0, time.UTC), Valid: true},
+	}}
+
+	got := renderSuccessSMSTemplate(
+		"{{nickname}}|{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}",
+		row,
+		sessions,
+		time.UTC,
+	)
+	want := "Ada|Math inter|9 Jun 2026|Math advanced|9 Jun, 09:00 - 11:00"
+	if got != want {
+		t.Fatalf("rendered = %q, want %q", got, want)
+	}
+}
+
+func TestRenderParentSMSTemplateReplacesStudentNameAndCode(t *testing.T) {
+	got := renderParentSMSTemplate(
+		"Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}}",
+		"สมชาย ใจดี",
+		"139809",
+	)
+	want := "Warwick Institute: สมชาย ใจดี ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส 139809"
+	if got != want {
+		t.Fatalf("rendered = %q, want %q", got, want)
+	}
+}
+
+func TestRenderParentSMSTemplateSkipsUnknownPlaceholders(t *testing.T) {
+	got := renderParentSMSTemplate("Hello {{student_name}}, code {{code}}, extra {{unknown}}", "Ada", "123")
+	want := "Hello Ada, code 123, extra {{unknown}}"
+	if got != want {
+		t.Fatalf("rendered = %q, want %q", got, want)
 	}
 }
 

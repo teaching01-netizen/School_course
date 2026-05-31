@@ -25,6 +25,10 @@ function displayDateTime(value: string): string {
   return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function displayDateFromDateTime(value: string): string {
+  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
@@ -33,6 +37,30 @@ function daysBetween(a: string, b: string): number {
   const d1 = new Date(a + "T00:00:00");
   const d2 = new Date(b + "T00:00:00");
   return Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+}
+
+function displayAbsenceDates(absence: ManagedAbsence): string {
+  const sitInDateLabels = [...new Set((absence.sit_ins ?? []).map((session) => displayDateFromDateTime(session.start_at)))];
+  if (sitInDateLabels.length === 1) {
+    return sitInDateLabels[0];
+  }
+  return `${displayDate(absence.date_from)} - ${displayDate(absence.date_to)} (${daysBetween(absence.date_from, absence.date_to)} days)`;
+}
+
+function displaySitInPlanLabel(absence: ManagedAbsence): string {
+  if (absence.sit_in_method === "zoom") {
+    return "Zoom";
+  }
+  return absence.sit_in_subject_name ?? absence.subject_name ?? absence.subject_code ?? absence.sit_in_course_name ?? absence.sit_in_course_code ?? "Not assigned";
+}
+
+function displayAbsenceReason(absence: ManagedAbsence): string {
+  const category = absence.reason_category ? titleCase(absence.reason_category) : "";
+  const reason = absence.reason?.trim() ?? "";
+  if (category && reason) {
+    return `${category} - ${reason}`;
+  }
+  return category || reason || "-";
 }
 
 function TimelineIcon({ action }: { action: string }) {
@@ -180,6 +208,11 @@ export default function AbsenceDetail() {
     <div className="mx-auto max-w-4xl">
       <Link className="text-sm text-[var(--color-wi-primary)] hover:underline" to="/absences">Back to Absences</Link>
 
+      <div className="mt-2 flex items-center gap-3">
+        <Link className="text-xs text-gray-500 hover:text-gray-700" to="/absences/calendar">View on Calendar</Link>
+        <Link className="text-xs text-gray-500 hover:text-gray-700" to="/slot-finder">Find Alternative Slots</Link>
+      </div>
+
       <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Absence Detail</h1>
@@ -229,9 +262,9 @@ export default function AbsenceDetail() {
               <dt className="text-gray-500">Subject</dt>
               <dd>{absence.subject_code ?? "-"} {absence.subject_name ? `- ${absence.subject_name}` : ""}</dd>
               <dt className="text-gray-500">Dates</dt>
-              <dd>{displayDate(absence.date_from)} - {displayDate(absence.date_to)} ({daysBetween(absence.date_from, absence.date_to)} days)</dd>
+              <dd>{displayAbsenceDates(absence)}</dd>
               <dt className="text-gray-500">Reason</dt>
-              <dd>{absence.reason_category ? titleCase(absence.reason_category) : "-"}{absence.reason ? ` - ${absence.reason}` : ""}</dd>
+              <dd>{displayAbsenceReason(absence)}</dd>
               <dt className="text-gray-500">Submitted</dt>
               <dd>{displayDateTime(absence.created_at)}</dd>
             </dl>
@@ -243,7 +276,7 @@ export default function AbsenceDetail() {
           <div className="p-4">
             <div className="mb-3 flex items-center gap-2">
               <span className="rounded-sm bg-blue-50 px-2 py-1 text-sm font-medium text-blue-700">
-                {absence.sit_in_method === "zoom" ? "Zoom" : absence.sit_in_course_code ?? "Not assigned"}
+                {displaySitInPlanLabel(absence)}
               </span>
               {absence.sit_in_rule_name ? <span className="rounded-sm bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{absence.sit_in_rule_name}</span> : null}
               {absence.sit_in_overridden ? <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-xs text-amber-700">Overridden</span> : null}

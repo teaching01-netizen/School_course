@@ -1,4 +1,4 @@
-import { type SelectHTMLAttributes, type Ref, forwardRef } from "react";
+import { type SelectHTMLAttributes, forwardRef } from "react";
 
 type SelectSize = "sm" | "md";
 

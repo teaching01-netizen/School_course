@@ -1,8 +1,10 @@
 .PHONY: dev build test lint fmt migrate-up migrate-down migrate-status sqlc tools
 
 dev:
+	export $$(grep -v '^\s*#' ../.env 2>/dev/null | grep -v '^\s*$$' | sed 's/[[:space:]]*#.*//' | xargs) 2>/dev/null; \
 	ADDR=$${ADDR:-:8080} \
 	STATIC_DIR=$${STATIC_DIR:-../dist} \
+	OTP_HMAC_KEY=$${OTP_HMAC_KEY:-dev-otp-hmac-key-change-in-production-32bytes} \
 	go run ./cmd/server
 
 build:

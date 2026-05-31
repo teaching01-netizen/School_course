@@ -10,21 +10,21 @@ import (
 
 // SendOTP sends a one-time verification code to a single phone number.
 // The phone number is normalized to E.164 before the SmartSMS send flow.
-func (c *Client) SendOTP(ctx context.Context, phone string, code string) error {
+func (c *Client) SendOTP(ctx context.Context, phone string, code string, message string) error {
 	normalized, err := normalizePhoneE164(phone)
 	if err != nil {
 		return err
 	}
-	_, err = c.sendOTPSMS(ctx, normalized, code)
+	_, err = c.sendOTPSMS(ctx, normalized, code, message)
 	return err
 }
 
-func (m *MockProvider) SendOTP(_ context.Context, phone string, code string) error {
-	slog.Info("SMS mock OTP send", "phone", phone, "code", code)
+func (m *MockProvider) SendOTP(_ context.Context, phone string, code string, message string) error {
+	slog.Info("SMS mock OTP send", "phone", phone, "code", code, "message", message)
 	return nil
 }
 
-func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string) ([]byte, error) {
+func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string, message string) ([]byte, error) {
 	c.mu.Lock()
 	if err := c.ensureSessionLocked(ctx); err != nil {
 		c.mu.Unlock()
@@ -39,7 +39,6 @@ func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string) ([]b
 	}
 
 	campaignID := fmt.Sprintf("otp-%s-%d", code, time.Now().UnixMilli())
-	message := fmt.Sprintf("Your Warwick verification code is %s.", code)
 	sendTime := ""
 	baseFields := map[string]string{
 		"campaign_no": campaignID,
@@ -53,8 +52,10 @@ func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string) ([]b
 	}
 
 	// Step 1: POST /dataset/previewData
+	baseFields["_token"] = c.csrfToken.Load().(string)
+
 	slog.Debug("otp step 1: previewData", "phone", phone)
-	step1Body, err := c.withReLogin(ctx, baseFields, "/dataset/previewData")
+	step1Body, err := c.multipartPostWithRetry(ctx, "/dataset/previewData", baseFields)
 	if err != nil {
 		slog.Error("otp step 1 failed", "error", err)
 		return nil, err

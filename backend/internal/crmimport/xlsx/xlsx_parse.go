@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -62,6 +63,30 @@ var requiredHeaders = []string{
 	"Last Name",
 	"Course Name",
 	"Cycle",
+}
+
+// cleanPhoneSuffix strips trailing non-phone text from a CRM phone string.
+// It scans left-to-right, keeping digits, +, -, (, ), and spaces.
+// Once it encounters a disallowed character after collecting at least one digit,
+// it stops and returns the collected portion (trimmed).
+// If no digits are found, it returns an empty string.
+func cleanPhoneSuffix(raw string) string {
+	var out strings.Builder
+	hadDigit := false
+	for _, r := range raw {
+		if unicode.IsDigit(r) || r == '+' || r == '-' || r == '(' || r == ')' || r == ' ' {
+			if unicode.IsDigit(r) {
+				hadDigit = true
+			}
+			out.WriteRune(r)
+		} else if hadDigit {
+			break
+		}
+	}
+	if !hadDigit {
+		return ""
+	}
+	return strings.TrimSpace(out.String())
 }
 
 // ParseXLSX parses an XLSX byte slice into rows using the canonical CRM schema.
@@ -169,7 +194,7 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 			TeachersRaw:         get("Teacher(s)"),
 			PrimaryEmail:        get("Primary E-mail"),
 			ParentName:          get("Parent Name"),
-			ParentPhone:         get("phoneparent"),
+			ParentPhone:         cleanPhoneSuffix(get("phoneparent")),
 			ParentEmail:         get("emailparent"),
 			OrderQuoteUpdatedAt: updatedAtPtr,
 		}

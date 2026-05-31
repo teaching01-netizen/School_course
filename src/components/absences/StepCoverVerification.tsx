@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiJson, ApiRequestError } from "@/api/client";
 import Button from "@/components/ui/Button";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import OtpInput from "./OtpInput";
 import CountdownTimer from "./CountdownTimer";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import type { AdminContactSettings, ParentVerificationResponse } from "@/types";
 
 type VerificationStore = {
@@ -24,13 +25,6 @@ type StepCoverVerificationProps = {
   onSatisfied: () => void;
   onWcodeChange?: () => void;
 };
-
-function maskPhone(phone?: string | null): string {
-  if (!phone) return "";
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length <= 4) return phone;
-  return `${digits.slice(0, 3)} *** ${digits.slice(-3)}`;
-}
 
 function formatTime(iso?: string | null): string | null {
   if (!iso) return null;
@@ -70,7 +64,6 @@ export default function StepCoverVerification({
   const [resendAvailableIn, setResendAvailableIn] = useState(0);
   const autoVerifyCodeRef = useRef<string | null>(null);
 
-  const phoneLabel = useMemo(() => maskPhone(parentPhone), [parentPhone]);
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
 
   useEffect(() => {
@@ -160,7 +153,7 @@ export default function StepCoverVerification({
       setSendCount((current) => current + 1);
       setSendError(err instanceof Error ? err.message : "Could not send verification code");
       if (allowSubmitWithoutOtp) {
-        setResumeError("Verification is optional for this submission, so you can continue without a code.");
+        setResumeError("Verification is optional — you can continue without a code.");
       }
     } finally {
       setIsSending(false);
@@ -209,21 +202,18 @@ export default function StepCoverVerification({
   const canSkip = allowSubmitWithoutOtp && !verified;
 
   return (
-    <section className="space-y-5 rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="space-y-4">
       <header className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-xs text-gray-600">
+          Verify the parent phone before continuing with the absence request.
+        </p>
+        {onWcodeChange ? (
           <div>
-            <h3 className="text-lg font-semibold text-[var(--color-wi-text)]">Parent verification</h3>
-            <p className="text-sm text-gray-600">
-              Enter the W-code first, then verify the parent phone before continuing with the absence details.
-            </p>
-          </div>
-          {onWcodeChange ? (
-            <Button variant="secondary" size="sm" onClick={onWcodeChange}>
+            <Button variant="ghost" size="sm" onClick={onWcodeChange}>
               Change W-code
             </Button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </header>
 
       {resumeLoading ? (
@@ -231,32 +221,20 @@ export default function StepCoverVerification({
       ) : null}
 
       {resumeError ? (
-        <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-          {resumeError}
+        <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <span>{resumeError}</span>
         </div>
       ) : null}
 
-      <div className="rounded-sm border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">W-code</div>
-            <div className="font-mono text-sm">{wcode}</div>
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">Parent phone</div>
-            <div>{phoneLabel || "No parent phone on file"}</div>
-          </div>
-        </div>
-      </div>
-
       {parentMissing ? (
         <div role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          No parent phone number is on file for this student.
+          Your parent's phone number is not in our records.
           {allowSubmitWithoutOtp ? (
-            <div className="mt-2">You can continue without verification because the policy allows it.</div>
+            <div className="mt-2 text-xs">You can continue without verification because the policy allows it.</div>
           ) : (
-            <div className="mt-2">
-              Contact the school office before submitting.
+            <div className="mt-2 text-xs">
+              Please contact the school office before continuing.
               {adminContact?.email ? (
                 <div className="mt-1">
                   <a className="font-medium underline" href={`mailto:${adminContact.email}`}>
@@ -270,30 +248,37 @@ export default function StepCoverVerification({
       ) : null}
 
       {verified ? (
-        <div className="rounded-sm border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <div className="font-semibold">Verification complete</div>
-          <p className="mt-1">
-            {session?.status === "consumed"
-              ? "This verification was already used for a previous submission."
-              : session
-                ? "The parent has successfully confirmed this absence request."
-                : "Verification was skipped, so you can continue with the form."}
-          </p>
-          {session?.verified_at ? (
-            <p className="mt-1 text-emerald-800">Verified at {formatTime(session.verified_at) ?? "the recorded time"}.</p>
-          ) : null}
-        </div>
+        session ? (
+          <div className="rounded-sm border border-emerald-250 bg-emerald-50 p-4 text-sm text-emerald-900 animate-fade-in">
+            <div className="font-semibold text-emerald-800">Verification complete</div>
+            <p className="mt-1 text-xs text-emerald-800 font-medium">
+              Parent confirmed via SMS code.
+            </p>
+            {session.verified_at ? (
+              <p className="mt-1 text-xs text-emerald-700">Verified at {formatTime(session.verified_at) ?? "the recorded time"}.</p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in">
+            <div className="font-semibold text-amber-800">Verification complete</div>
+            <p className="mt-1 text-xs text-amber-700 font-medium">
+              Verification was skipped — parent was not contacted.
+            </p>
+          </div>
+        )
       ) : (
         <div className="space-y-4">
           {sendError ? (
-            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-              {sendError}
+            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <span>{sendError}</span>
             </div>
           ) : null}
 
           {verifyError ? (
-            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-              {verifyError}
+            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <span>{verifyError}</span>
             </div>
           ) : null}
 
@@ -304,18 +289,18 @@ export default function StepCoverVerification({
               onClick={() => void handleSend()}
               disabled={!canSend}
             >
-              {sendCount > 0 ? "Resend verification code" : "Send verification code"}
+              {sendCount > 0 ? "Resend code" : "Send code"}
             </Button>
 
             {canSkip ? (
               <Button variant="secondary" onClick={handleSkip}>
-                Continue without verification
+                Continue without confirming
               </Button>
             ) : null}
           </div>
 
           {verification.token ? (
-            <div className="space-y-4 rounded-sm border border-gray-200 bg-white p-4">
+            <div className="space-y-3">
               <OtpInput
                 value={verification.code}
                 onChange={verification.setCode}
@@ -325,34 +310,37 @@ export default function StepCoverVerification({
                 label="Verification code"
               />
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => void handleVerify()}
+                loading={isVerifying}
+                disabled={!canVerify}
+                className="w-full"
+              >
+                <CheckCircle className="h-4 w-4 mr-1.5" />
+                Verify code
+              </Button>
+
+              <div className="flex items-center justify-between text-xs text-gray-500">
                 <CountdownTimer
                   secondsLeft={resendAvailableIn}
                   label={sendCount > 0 ? "Resend available in" : "Cooldown"}
                 />
-                <Button
-                  variant="primary"
-                  onClick={() => void handleVerify()}
-                  loading={isVerifying}
-                  disabled={!canVerify}
-                >
-                  Verify code
-                </Button>
+                {session?.otp_code_expires_at ? (
+                  <span>
+                    Code expires at {formatTime(session.otp_code_expires_at) ?? "the recorded time"}.
+                  </span>
+                ) : null}
               </div>
-
-              {session?.otp_code_expires_at ? (
-                <p className="text-xs text-gray-500">
-                  The current code expires at {formatTime(session.otp_code_expires_at) ?? "the recorded time"}.
-                </p>
-              ) : null}
             </div>
           ) : (
-            <p className="text-xs text-gray-500">
-              Send the verification code once you are ready to confirm the parent phone.
+            <p className="text-xs text-gray-600">
+              Send the code once you're ready for your parent to confirm.
             </p>
           )}
         </div>
       )}
-    </section>
+    </div>
   );
 }

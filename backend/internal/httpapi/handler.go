@@ -35,6 +35,8 @@ import (
 	"warwick-institute/internal/httpapi/studentshttp"
 	"warwick-institute/internal/httpapi/subjectshttp"
 	"warwick-institute/internal/httpapi/usershttp"
+	"warwick-institute/internal/otp"
+	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 	"warwick-institute/internal/users"
@@ -72,9 +74,22 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		CRMUploadV2:    uploadV2,
 		CRMReconcileV2: reconcileV2,
 		CRMWorker:      worker,
+		RateLimiter:    ratelimit.NewStore(db),
+		AppOrigin:      cfg.AppOrigin,
 	}
 
-	if cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
+	otpSvc, err := otp.NewService(db, cfg.OTPHMACKey)
+	if err != nil {
+		panic(err)
+	}
+	deps.OTP = otpSvc
+
+	otpProviderMode := cfg.OTPSMSProvider
+	if otpProviderMode == "" {
+		otpProviderMode = "mock"
+	}
+
+	if otpProviderMode == "smartsms" && cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
 		smsClient, err := smartsms.New(smartsms.Config{
 			BaseURL:  cfg.SMSServiceBaseURL,
 			Username: cfg.SMSServiceUsername,
@@ -84,8 +99,12 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 			panic(err)
 		}
 		deps.SMS = smsClient
+		deps.OTPSender = &smartsms.OTPAdapter{Client: smsClient}
+		deps.CircuitBreaker = smartsms.NewCircuitBreaker(db, "smartsms")
 	} else {
 		deps.SMS = &smartsms.MockProvider{}
+		deps.OTPSender = &smartsms.MockProvider{}
+		deps.CircuitBreaker = smartsms.NewCircuitBreaker(db, "mock")
 	}
 
 	absenceshttp.Register(mux, deps)

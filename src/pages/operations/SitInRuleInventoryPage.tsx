@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
 import Modal from "../../components/Modal";
@@ -6,7 +6,9 @@ import RulePredicateForm from "../../components/RulePredicateForm";
 import { RulePreviewPanel, RULE_TYPE_DESCRIPTIONS } from "../../components/RulePreviewPanel";
 import { RuleExampleSection } from "../../components/RuleExampleSection";
 import { useSitInRules } from "../../hooks/useSitInRules";
+import { apiJson } from "../../api/client";
 import type { SitInRuleType, SitInRuleCreateInput } from "../../types";
+import type { CourseLevelItem } from "../../utils/levels";
 
 const RULE_TYPE_LABELS: Record<SitInRuleType, string> = {
   level_ladder: "Level Ladder",
@@ -39,6 +41,29 @@ export function SitInRuleInventoryPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [courseLevels, setCourseLevels] = useState<CourseLevelItem[]>([]);
+
+  const maxLevel = useMemo(() => {
+    const levels = courseLevels
+      .map((c) => c.level)
+      .filter((l): l is number => l !== null);
+    return levels.length > 0 ? Math.max(...levels) : null;
+  }, [courseLevels]);
+
+  useEffect(() => {
+    apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" })
+      .then(setCourseLevels)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (form.type === "level_ladder" && maxLevel !== null) {
+      setForm((prev) => ({
+        ...prev,
+        predicate: { ...prev.predicate, min_level_for_sit_lower: maxLevel },
+      }));
+    }
+  }, [form.type, maxLevel]);
 
   function openCreate() {
     setEditingId(null);

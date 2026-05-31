@@ -317,7 +317,13 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 				}
 				return 0, nil, err
 			}
-			if err := s.deps.OTPSender.SendOTP(r.Context(), phone, code); err != nil {
+			_ = phone
+			studentName := session.Wcode
+			if student, err := s.deps.Q.StudentGetByWCode(r.Context(), session.Wcode); err == nil {
+				studentName = student.FullName
+			}
+			otpMessage := renderParentSMSTemplate(settings.Notifications.SmsParentTemplate, studentName, code)
+			if err := s.deps.OTPSender.SendOTP(r.Context(), phone, code, otpMessage); err != nil {
 				if s.deps.Log != nil {
 					s.deps.Log.Error("otp sms resend failed", "phone", phone, "error", err)
 				}
@@ -409,7 +415,8 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			}
 			return 0, nil, err
 		}
-		if err := s.deps.OTPSender.SendOTP(r.Context(), rows[0].ParentPhone.String, code); err != nil {
+		otpMessage := renderParentSMSTemplate(settings.Notifications.SmsParentTemplate, rows[0].FullName, code)
+		if err := s.deps.OTPSender.SendOTP(r.Context(), rows[0].ParentPhone.String, code, otpMessage); err != nil {
 			if s.deps.Log != nil {
 				s.deps.Log.Error("otp sms send failed", "phone", rows[0].ParentPhone.String, "error", err)
 			}

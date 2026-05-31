@@ -154,6 +154,32 @@ export function AbsenceFormEditor({
         </section>
       )}
 
+      {showTextEditors && (
+        <section className="rounded-sm border border-gray-200 bg-white p-5">
+          <h2 className="mb-4 text-base font-semibold">SMS Notifications</h2>
+          <div className="space-y-4">
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.notifications?.sms_parent_enabled ?? true}
+                onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_parent_enabled: e.target.checked, sms_parent_template: settings.notifications?.sms_parent_template ?? "", sms_success_template: settings.notifications?.sms_success_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })}
+              />{" "}
+              Enable parent SMS notifications
+            </label>
+            <label className="block text-sm">
+              Verification SMS template (sent to parent)
+              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_parent_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_parent_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_success_template: settings.notifications?.sms_success_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
+              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{student_name}}"}, {"{{code}}"}</span>
+            </label>
+            <label className="block text-sm">
+              Success SMS template (sent after submission)
+              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_success_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_parent_template: settings.notifications?.sms_parent_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
+              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{nickname}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
+            </label>
+          </div>
+        </section>
+      )}
+
       {showPreview && previewContent && (
         <>
           <div className="flex justify-end">

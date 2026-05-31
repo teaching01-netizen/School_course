@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AbsenceDetail from "../AbsenceDetail";
@@ -65,10 +65,10 @@ describe("Absence detail", () => {
     const user = userEvent.setup();
 
     expect(await screen.findByText("John Smith")).toBeInTheDocument();
-    expect(screen.getByText(/MATH-301/)).toBeInTheDocument();
+    expect(screen.getAllByText(/pending/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/submitted/i).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: /mark reviewed/i }));
+    await user.click(screen.getAllByRole("button", { name: /mark reviewed/i })[0]);
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         "/api/v1/absences/abs-1/status",
@@ -95,6 +95,66 @@ describe("Absence detail", () => {
     );
   });
 
+  it("shows the selected sit-in session day in the absence summary when the stored absence spans a wider range", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...DETAIL,
+      date_from: "2026-06-03",
+      date_to: "2026-06-16",
+      sit_ins: [{
+        id: "si-1",
+        session_id: "sess-1",
+        course_id: "sit-1",
+        course_code: "MATH-301",
+        course_name: "Calculus III",
+        room_name: null,
+        start_at: "2026-06-09T09:00:00Z",
+        end_at: "2026-06-09T11:00:00Z",
+      }],
+    });
+    renderDetail();
+
+    const summary = await screen.findByRole("heading", { name: /absence summary/i });
+    const summarySection = summary.closest("section");
+    expect(summarySection).not.toBeNull();
+
+    expect(within(summarySection as HTMLElement).getByText("9 Jun 2026")).toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).queryByText(/3 Jun 2026 - 16 Jun 2026/)).not.toBeInTheDocument();
+  });
+
+  it("shows free-text reason without old category separators", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...DETAIL,
+      reason_category: null,
+      reason: "sad",
+    });
+    renderDetail();
+
+    const summary = await screen.findByRole("heading", { name: /absence summary/i });
+    const summarySection = summary.closest("section");
+    expect(summarySection).not.toBeNull();
+
+    expect(within(summarySection as HTMLElement).getByText("sad")).toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).queryByText("- - sad")).not.toBeInTheDocument();
+  });
+
+  it("labels the sit-in plan with the sit-in subject name instead of an internal course code", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...DETAIL,
+      subject_name: "Math inter",
+      sit_in_subject_name: "Math advanced",
+      sit_in_course_code: "0000000344",
+      sit_in_course_name: "Internal placeholder course",
+    });
+    renderDetail();
+
+    const sitInPlan = await screen.findByRole("heading", { name: /sit-in plan/i });
+    const sitInSection = sitInPlan.closest("section");
+    expect(sitInSection).not.toBeNull();
+
+    expect(within(sitInSection as HTMLElement).getByText("Math advanced")).toBeInTheDocument();
+    expect(within(sitInSection as HTMLElement).queryByText("0000000344")).not.toBeInTheDocument();
+  });
+
   it("warns administrators when a manual sit-in session approaches room capacity", async () => {
     mockApiJson
       .mockResolvedValueOnce(DETAIL)
@@ -104,7 +164,7 @@ describe("Absence detail", () => {
     renderDetail();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /override sit-in/i }));
+    await user.click((await screen.findAllByRole("button", { name: /override sit-in/i }))[0]);
     await user.click(screen.getByRole("button", { name: /manual course/i }));
     await user.selectOptions(screen.getByLabelText("Course"), "sit-2");
 

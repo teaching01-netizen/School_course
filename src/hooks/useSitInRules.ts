@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { apiJson } from "../api/client";
 import { useToast } from "./useToast";
-import type { SitInRule, SitInRuleListResponse, SitInRuleCreateInput } from "../types";
+import type { SitInRule, SitInRuleCreateInput } from "../types";
 
 export function useSitInRules() {
   const { addToast } = useToast();
@@ -11,11 +11,11 @@ export function useSitInRules() {
   const loadRules = useCallback(async () => {
     try {
       setLoading(true);
-      const resp = await apiJson<SitInRuleListResponse>(
+      const resp = await apiJson<SitInRule[]>(
         "/api/v1/admin/sit-in-rules",
         { method: "GET" }
       );
-      setRules(resp.sit_in_rules ?? []);
+      setRules(resp ?? []);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load rules");
     } finally {

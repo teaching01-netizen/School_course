@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, CheckCircle, ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { Check, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { apiJson, newIdempotencyKey } from "@/api/client";
@@ -10,9 +10,8 @@ import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import CourseChip from "@/components/absences/CourseChip";
-import DateRangeInput from "@/components/absences/DateRangeInput";
+
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
-import ConfirmationSummary from "@/components/absences/ConfirmationSummary";
 import { useToast } from "@/hooks/useToast";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useOtp } from "@/hooks/useOtp";
@@ -28,15 +27,16 @@ import type {
   StudentLookupResponse,
 } from "@/types";
 
-type StepIndex = 0 | 1 | 2 | 3;
+type StepIndex = 0 | 1 | 2;
 
-const STEP_LABELS = ["Student Lookup", "Parent Verify", "Courses & Dates", "Sessions & Cover"] as const;
+const STEP_LABELS = ["Find your profile", "Parent confirmation", "Courses & classes"] as const;
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
 const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
 
 const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,
-  sms_parent_template: "Your Warwick verification code is {{code}}.",
+  sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
+  sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
   allow_submit_without_otp: false,
 };
 
@@ -63,6 +63,13 @@ const DEFAULT_CONFIG: AbsenceFormConfig = {
   notifications: DEFAULT_NOTIFICATIONS,
   admin_contact: DEFAULT_ADMIN_CONTACT,
 };
+
+function dateToLocalISO(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 function daysBetween(from: string, to: string): number {
   return Math.round(
@@ -97,6 +104,34 @@ function activeGroupForLookup(
   }
   const selected = lookup.subjects.find((subject) => selectedSubjectIds.includes(subject.id));
   return selected ?? lookup.subjects[0];
+}
+
+type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number];
+type SitInCourse = NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
+
+function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
+  return allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
+}
+
+function getSitInSessionLabel(
+  session: SitInAvailableSession,
+  sitInCourse: SitInCourse,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  const sitInSubjectName = resolveSitInSubjectName(sitInCourse, allSubjects);
+  const className =
+    session.class_name?.trim() ||
+    session.subject_name?.trim() ||
+    session.course_name?.trim() ||
+    sitInCourse?.name?.trim() ||
+    sitInSubjectName ||
+    session.subject_code?.trim() ||
+    session.course_code?.trim() ||
+    sitInCourse?.code?.trim() ||
+    fallbackSubjectName;
+
+  return `${className} — ${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -142,7 +177,7 @@ function FormErrorSummary({
       result.push({ type: "error", message: submissionError, dismissible: true, role: "alert", onDismiss: onClearSubmissionError });
     }
     if (verificationBlocked) {
-      result.push({ type: "verification_blocked", message: "Your parent verification has expired. Please verify again.", dismissible: false, role: "alert" });
+      result.push({ type: "verification_blocked", message: "Your parent's verification has expired. Please verify again.", dismissible: false, role: "alert" });
     }
     if (lookupError) {
       result.push({ type: "error", message: lookupError, dismissible: false, role: "alert" });
@@ -157,9 +192,9 @@ function FormErrorSummary({
       result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact the school office before submitting.", dismissible: false, role: "status" });
     }
     if (!online) {
-      result.push({ type: "offline", message: "You are offline. Your selections are saved locally.", dismissible: false, role: "status" });
+      result.push({ type: "offline", message: "You're offline. Your progress is saved locally.", dismissible: false, role: "status" });
     } else if (justRestored) {
-      result.push({ type: "restored", message: "Connection restored.", dismissible: false, role: "status" });
+      result.push({ type: "restored", message: "Back online!", dismissible: false, role: "status" });
     }
 
     return result;
@@ -292,15 +327,15 @@ export default function AbsenceForm() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [activeCourseIndex, setActiveCourseIndex] = useState(0);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [reasonCategory, setReasonCategory] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => dateToLocalISO(new Date()));
+  const [dateTo, setDateTo] = useState(() => dateToLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
   const [reason, setReason] = useState("");
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
-  const [coverSessionIds, setCoverSessionIds] = useState<Set<string>>(new Set());
+  const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
@@ -308,42 +343,37 @@ export default function AbsenceForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [finalResult, setFinalResult] = useState<ManagedAbsence | null>(null);
-  const [copiedReference, setCopiedReference] = useState(false);
-  const [showReasonFields, setShowReasonFields] = useState(false);
-
   const stepHeadingRefs = useRef<Array<HTMLHeadingElement | null>>([]);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const listboxRef = useRef<HTMLDivElement | null>(null);
   const typeaheadRef = useRef<{ buffer: string; timer: number | null }>({ buffer: "", timer: null });
 
-  const activeGroup = useMemo(
-    () => activeGroupForLookup(lookup, selectedSubjectIds, activeCourseIndex),
-    [lookup, selectedSubjectIds, activeCourseIndex],
-  );
-  const activeSubjectId = activeGroup?.id ?? null;
   const selectedSubjectCount = selectedSubjectIds.length;
   const selectedSessionCount = countSelectedSessions(sessions, selectedSessionIds);
-  const coverSessionCount = countSelectedSessions(sessions, coverSessionIds);
-  const reasonCategoryLabel = useMemo(
-    () => config.form.reason_categories.find((item) => item.value === reasonCategory)?.label ?? "",
-    [config.form.reason_categories, reasonCategory],
-  );
+  const maxSessions = config.sit_in.max_sessions_per_absence;
+  const atMaxSessions = selectedSessionCount >= maxSessions;
   const canProceedFromVerify = !!lookup && verificationSatisfied;
-  const canProceedToSessions =
-    !!activeGroup &&
-    selectedSubjectCount > 0 &&
-    !!dateFrom &&
-    !!dateTo &&
-    daysBetween(dateFrom, dateTo) >= 0 &&
-    !verificationBlocked;
 
-
-  // Auto-expand reasons if loaded from storage
-  useEffect(() => {
-    if (reasonCategory || reason) {
-      setShowReasonFields(true);
+  const missingSitIn = useMemo(() => {
+    for (const group of sessions) {
+      if (!selectedSubjectIds.includes(group.subject_id)) continue;
+      if (group.sit_in?.sit_in_method !== "physical") continue;
+      for (const session of group.sessions) {
+        if (selectedSessionIds.has(session.id) && !sitInSelections[session.id]) {
+          return true;
+        }
+      }
     }
-  }, [reasonCategory, reason]);
+    return false;
+  }, [sessions, selectedSubjectIds, selectedSessionIds, sitInSelections]);
+
+  const canSubmit =
+    selectedSubjectCount > 0 &&
+    selectedSessionCount > 0 &&
+    reason.trim().length > 0 &&
+    !verificationBlocked &&
+    !missingSitIn;
+
 
   useEffect(() => {
     let active = true;
@@ -353,6 +383,7 @@ export default function AbsenceForm() {
         const notifications: AbsenceNotificationsSettings = {
           sms_parent_enabled: data.notifications?.sms_parent_enabled ?? DEFAULT_NOTIFICATIONS.sms_parent_enabled,
           sms_parent_template: data.notifications?.sms_parent_template ?? DEFAULT_NOTIFICATIONS.sms_parent_template,
+          sms_success_template: data.notifications?.sms_success_template ?? DEFAULT_NOTIFICATIONS.sms_success_template,
           allow_submit_without_otp:
             data.notifications?.allow_submit_without_otp ?? DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
         };
@@ -381,7 +412,9 @@ export default function AbsenceForm() {
     };
   }, [addToast]);
 
+  // Fetch sessions when step 2 with valid lookup + dates
   useEffect(() => {
+    if (step !== 2) return;
     if (!lookup) return;
     if (!dateFrom || !dateTo || daysBetween(dateFrom, dateTo) < 0) {
       setSessions([]);
@@ -404,14 +437,14 @@ export default function AbsenceForm() {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setSessions([]);
-        setSessionsError(error instanceof Error ? error.message : "Failed to load sessions");
+        setSessionsError(error instanceof Error ? error.message : "Couldn't load your classes");
       })
       .finally(() => {
         if (!controller.signal.aborted) setSessionsLoading(false);
       });
 
     return () => controller.abort();
-  }, [lookup, dateFrom, dateTo]);
+  }, [step, lookup, dateFrom, dateTo]);
 
   useEffect(() => {
     if (!lookup) return;
@@ -423,10 +456,9 @@ export default function AbsenceForm() {
       activeCourseIndex,
       dateFrom,
       dateTo,
-      reasonCategory,
       reason,
       selectedSessionIds: [...selectedSessionIds],
-      coverSessionIds: [...coverSessionIds],
+      sitInSelections,
     };
     try {
       window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
@@ -440,11 +472,9 @@ export default function AbsenceForm() {
     activeCourseIndex,
     dateFrom,
     dateTo,
-    reasonCategory,
     reason,
     selectedSessionIds,
-    coverSessionIds,
-    verificationSatisfied,
+    sitInSelections,
     step,
   ]);
 
@@ -460,10 +490,9 @@ export default function AbsenceForm() {
         activeCourseIndex: number;
         dateFrom: string;
         dateTo: string;
-        reasonCategory: string;
         reason: string;
         selectedSessionIds: string[];
-        coverSessionIds: string[];
+        sitInSelections: Record<string, string>;
       }>;
       if (parsed.lookup) setLookup(parsed.lookup);
       if (typeof parsed.lookupInput === "string") setLookupInput(parsed.lookupInput);
@@ -471,10 +500,9 @@ export default function AbsenceForm() {
       if (typeof parsed.activeCourseIndex === "number") setActiveCourseIndex(parsed.activeCourseIndex);
       if (typeof parsed.dateFrom === "string") setDateFrom(parsed.dateFrom);
       if (typeof parsed.dateTo === "string") setDateTo(parsed.dateTo);
-      if (typeof parsed.reasonCategory === "string") setReasonCategory(parsed.reasonCategory);
       if (typeof parsed.reason === "string") setReason(parsed.reason);
       if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
-      if (Array.isArray(parsed.coverSessionIds)) setCoverSessionIds(new Set(parsed.coverSessionIds));
+      if (parsed.sitInSelections) setSitInSelections(parsed.sitInSelections);
       if (typeof parsed.step === "number") {
         goTo(parsed.step as StepIndex);
       }
@@ -522,7 +550,7 @@ export default function AbsenceForm() {
     setPageError(null);
     const cleaned = lookupInput.trim();
     if (!cleaned) {
-      setLookupError("Enter a W-Code.");
+      setLookupError("Enter your Student ID (W-Code).");
       return;
     }
 
@@ -532,13 +560,13 @@ export default function AbsenceForm() {
         method: "GET",
       });
       setLookup(response);
-      setSelectedSubjectIds(response.subjects.map((subject) => subject.id));
+      setSelectedSubjectIds([]);
       setActiveCourseIndex(0);
       verification.clearStoredToken();
       verification.setCode("");
       setVerificationSatisfied(false);
     } catch (error) {
-      setLookupError(error instanceof Error ? error.message : "Student not found");
+      setLookupError(error instanceof Error ? error.message : "We couldn't find your profile");
     } finally {
       setLookupLoading(false);
     }
@@ -559,79 +587,47 @@ export default function AbsenceForm() {
     });
   };
 
-  const toggleAllSubjects = () => {
+  const selectAllSubjects = () => {
     if (!lookup) return;
-    if (selectedSubjectCount === lookup.subjects.length) {
-      setSelectedSubjectIds([]);
-      setCourseAnnouncement("Deselected all courses.");
-    } else {
-      setSelectedSubjectIds(lookup.subjects.map((subject) => subject.id));
-      setCourseAnnouncement("Selected all courses.");
-    }
+    setSelectedSubjectIds(lookup.subjects.map((subject) => subject.id));
+    setCourseAnnouncement("Selected all courses.");
+  };
+
+  const deselectAllSubjects = () => {
+    if (!lookup) return;
+    setSelectedSubjectIds([]);
+    setCourseAnnouncement("Deselected all courses.");
   };
 
   const handleSessionToggle = (sessionId: string) => {
     setSelectedSessionIds((current) => {
-      const next = new Set(current);
-      if (next.has(sessionId)) {
+      if (current.has(sessionId)) {
+        const next = new Set(current);
         next.delete(sessionId);
-        setCoverSessionIds((currentCovers) => {
-          const nextCovers = new Set(currentCovers);
-          nextCovers.delete(sessionId);
-          return nextCovers;
+        setSitInSelections((currentSitIns) => {
+          const nextSitIns = { ...currentSitIns };
+          delete nextSitIns[sessionId];
+          return nextSitIns;
         });
-      } else {
-        next.add(sessionId);
+        return next;
       }
+      if (current.size >= maxSessions) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(sessionId);
       return next;
     });
   };
 
-  const handleCoverToggle = (sessionId: string) => {
-    setCoverSessionIds((current) => {
-      const next = new Set(current);
-      if (next.has(sessionId)) {
-        next.delete(sessionId);
-      } else {
-        next.add(sessionId);
+  const handleSitInSelect = (sessionId: string, sitInSessionId: string) => {
+    setSitInSelections((current) => {
+      if (!sitInSessionId) {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
       }
-      return next;
-    });
-  };
-
-  const toggleAllSessionsForGroup = (group: SubjectSessions, forceValue: boolean) => {
-    setSelectedSessionIds((current) => {
-      const next = new Set(current);
-      for (const session of group.sessions) {
-        if (forceValue) {
-          next.add(session.id);
-        } else {
-          next.delete(session.id);
-          setCoverSessionIds((currentCovers) => {
-            const nextCovers = new Set(currentCovers);
-            nextCovers.delete(session.id);
-            return nextCovers;
-          });
-        }
-      }
-      return next;
-    });
-  };
-
-  const toggleAllCoversForGroup = (group: SubjectSessions) => {
-    const selectedInGroup = group.sessions.filter((s) => selectedSessionIds.has(s.id));
-    const allSelectedCovers = selectedInGroup.every((s) => coverSessionIds.has(s.id));
-
-    setCoverSessionIds((current) => {
-      const next = new Set(current);
-      for (const session of selectedInGroup) {
-        if (allSelectedCovers) {
-          next.delete(session.id);
-        } else {
-          next.add(session.id);
-        }
-      }
-      return next;
+      return { ...current, [sessionId]: sitInSessionId };
     });
   };
 
@@ -707,57 +703,74 @@ export default function AbsenceForm() {
       setPageError("Select at least one course.");
       return false;
     }
-    if (!dateFrom || !dateTo) {
-      setPageError("Select both dates.");
+    if (!reason.trim()) {
+      setPageError("Please tell us why you'll be away.");
       return false;
     }
-    if (daysBetween(dateFrom, dateTo) < 0) {
-      setPageError("The end date must be on or after the start date.");
-      return false;
-    }
-    if (daysBetween(dateFrom, dateTo) > config.form.max_date_range_days) {
-      setPageError(`Date range must be ${config.form.max_date_range_days} days or less.`);
+    if (missingSitIn) {
+      setPageError("Pick a make-up class for all selected sessions before submitting.");
       return false;
     }
     return true;
   }
 
-  function buildSubmissionPayload() {
-    if (!lookup || !activeGroup || !primarySessionGroup) return null;
-    return {
-      wcode: lookup.wcode,
-      subject_id: activeGroup.id,
-      course_id: primarySessionGroup.course_id,
-      date_from: dateFrom,
-      date_to: dateTo,
-      reason_category: reasonCategory || undefined,
-      reason: reason.trim() || undefined,
-      sit_in_method: coverSessionCount > 0 ? "physical" : "zoom",
-      sit_in_course_id: primarySessionGroup.course_id,
-      sit_in_session_ids: [...coverSessionIds],
-      verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
-    } as Record<string, unknown>;
+  function buildSubmissionPayloads() {
+    if (!lookup) return [];
+    
+    const payloads: Record<string, unknown>[] = [];
+    
+    for (const subjectId of selectedSubjectIds) {
+      const group = sessions.find(g => g.subject_id === subjectId);
+      if (!group) continue;
+      
+      const selectedSessIds = group.sessions.filter(s => selectedSessionIds.has(s.id)).map(s => s.id);
+      if (selectedSessIds.length === 0) continue;
+      
+      const sitInSessionIds = selectedSessIds.map(id => sitInSelections[id]).filter(Boolean);
+      const sitInMethod = group.sit_in?.sit_in_method ?? "zoom";
+      
+      payloads.push({
+        wcode: lookup.wcode,
+        subject_id: group.subject_id,
+        course_id: group.course_id,
+        date_from: dateFrom,
+        date_to: dateTo,
+        reason: reason.trim() || undefined,
+        sit_in_method: sitInMethod,
+        sit_in_course_id: group.sit_in?.sit_in_course?.id ?? group.course_id,
+        sit_in_session_ids: sitInSessionIds,
+        verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
+      });
+    }
+    
+    return payloads;
   }
 
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
-    const payload = buildSubmissionPayload();
-    if (!payload) {
-      setPageError("Something is missing from the form.");
+    if (!validateStepTwo()) {
+      return;
+    }
+    const payloads = buildSubmissionPayloads();
+    if (payloads.length === 0) {
+      setPageError("Select at least one class to submit.");
       return;
     }
 
     try {
       setIsSubmitting(true);
-      const response = await apiJson<ManagedAbsence>("/api/v1/absences", {
-        method: "POST",
-        headers: {
-          "Idempotency-Key": submissionIdempotencyKey.current,
-        },
-        body: JSON.stringify(payload),
-      });
-      setFinalResult(response);
+      let lastResult: ManagedAbsence | null = null;
+      for (const payload of payloads) {
+        lastResult = await apiJson<ManagedAbsence>("/api/v1/absences", {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": submissionIdempotencyKey.current + "-" + String(payload.subject_id),
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+      setFinalResult(lastResult);
       verification.clearStoredToken();
       verification.setCode("");
       try {
@@ -766,77 +779,17 @@ export default function AbsenceForm() {
         // ignore
       }
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "Could not submit the absence");
+      setSubmissionError(error instanceof Error ? error.message : "Could not submit your absence");
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function copyReference() {
-    if (!finalResult) return;
-    const reference = `ABS-${finalResult.id.slice(0, 8).toUpperCase()}`;
-    try {
-      await navigator.clipboard.writeText(reference);
-      setCopiedReference(true);
-      window.setTimeout(() => setCopiedReference(false), 2000);
-    } catch {
-      addToast("warning", "Could not copy the reference");
-    }
-  }
-
-  function handleReset() {
-    setLookupInput("");
-    setLookup(null);
-    setLookupError(null);
-    setSelectedSubjectIds([]);
-    setActiveCourseIndex(0);
-    setDateFrom("");
-    setDateTo("");
-    setReasonCategory("");
-    setReason("");
-    setSessions([]);
-    setSessionsError(null);
-    setSelectedSessionIds(new Set());
-    setCoverSessionIds(new Set());
-    setPageError(null);
-    setShowReasonFields(false);
-    setCourseAnnouncement("");
-    setVerificationSatisfied(false);
-    setSubmissionError(null);
-    setFinalResult(null);
-    verification.clearStoredToken();
-    verification.setCode("");
-    submissionIdempotencyKey.current = newIdempotencyKey();
-    try {
-      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    goTo(0);
-  }
-
-  const activeSessions = useMemo(() => {
-    if (!activeSubjectId) return [];
-    return sessions.filter((group) => group.subject_id === activeSubjectId);
-  }, [sessions, activeSubjectId]);
-  const primarySessionGroup = activeSessions[0] ?? null;
-
   if (finalResult) {
-    const reference = `ABS-${finalResult.id.slice(0, 8).toUpperCase()}`;
     return (
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(17,24,39,0.03),_transparent_40%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8">
         <div className="mx-auto max-w-3xl space-y-5">
-          <div className="flex items-center justify-between">
-            <PageHeading>Report an Absence</PageHeading>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={handleReset}>
-                Report another
-              </Button>
-              <Button variant="secondary" onClick={() => navigate("/")}>
-                Done
-              </Button>
-            </div>
-          </div>
+          <PageHeading>Absence form</PageHeading>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -849,47 +802,14 @@ export default function AbsenceForm() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-7 w-7 text-emerald-500" aria-hidden="true" />
                 <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-semibold text-[var(--color-wi-text)]">
-                  Submission complete
+                  Absence submitted
                 </h2>
               </div>
               <p className="mt-2 text-sm text-gray-700 font-medium">
-                Your absence has been saved and is waiting for review.
+                Your absence request has been sent and is waiting for review.
               </p>
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3, duration: 0.3 }}
-                className="mt-4 flex flex-wrap items-center gap-2 rounded-sm border border-gray-250 bg-gray-50 px-4 py-3"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Reference</span>
-                <span className="font-mono text-sm font-semibold">{reference}</span>
-                <Button variant="secondary" size="sm" onClick={() => void copyReference()}>
-                  <Copy className="mr-1 h-4 w-4" />
-                  {copiedReference ? "Copied" : "Copy"}
-                </Button>
-              </motion.div>
             </section>
           </motion.div>
-          <ConfirmationSummary
-            mode="result"
-            studentName={lookup?.full_name ?? finalResult.student_name ?? ""}
-            wcode={finalResult.wcode}
-            dateFrom={finalResult.date_from}
-            dateTo={finalResult.date_to}
-            reasonCategoryLabel={reasonCategoryLabel}
-            reason={reason}
-            confirmationText={config.form.confirmation_text || "Your absence has been saved."}
-            subjects={[
-              {
-                subjectCode: finalResult.course_code ?? "",
-                subjectName: finalResult.course_name ?? "",
-                sessionCount: selectedSessionCount,
-                sitInMethod: finalResult.sit_in_method ?? undefined,
-                sitInCourseCode: finalResult.sit_in_course_code ?? undefined,
-                submitStatus: "success",
-              },
-            ]}
-          />
         </div>
       </div>
     );
@@ -907,9 +827,9 @@ export default function AbsenceForm() {
       <div className="mx-auto max-w-4xl space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
-            <PageHeading>Report an Absence</PageHeading>
+            <PageHeading>Absence form</PageHeading>
             <p className="max-w-2xl text-sm text-gray-700 font-medium">
-              To submit this absence, your parent or guardian will need to confirm it by text message.
+              Your parent or guardian will need to confirm by text message.
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => navigate("/")}>
@@ -982,12 +902,12 @@ export default function AbsenceForm() {
                   tabIndex={-1}
                   className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
                 >
-                  Student Lookup
+                  Find your profile
                 </h2>
                 <div className="grid gap-4">
                   <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                     <label className="block text-sm font-medium text-gray-800">
-                      W-Code
+                      Student ID (W-Code)
                       <Input
                         className="mt-1"
                         placeholder="e.g. W250389"
@@ -1008,7 +928,7 @@ export default function AbsenceForm() {
                         loading={lookupLoading}
                         onClick={() => void handleLookup()}
                       >
-                        Look up
+                        Search
                       </Button>
                     </div>
                   </div>
@@ -1017,14 +937,14 @@ export default function AbsenceForm() {
                     <div className="space-y-4 animate-fade-in mt-4">
                       {/* Student Profile Card */}
                       <div className="rounded-sm border border-gray-250 bg-gray-50 p-5 shadow-sm">
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">Student Profile</h3>
+                        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">Your profile</h3>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <p className="text-base font-semibold text-[var(--color-wi-text)]">{lookup.full_name}</p>
                             <p className="text-sm font-mono text-gray-700 mt-0.5">{lookup.wcode}</p>
                           </div>
                           <div className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700">
-                            {lookup.parent_phone ? `Parent phone ${maskPhone(lookup.parent_phone)}` : "No parent phone on file"}
+                            {lookup.parent_phone ? `Parent's phone ${maskPhone(lookup.parent_phone)}` : "No parent phone in records"}
                           </div>
                         </div>
                       </div>
@@ -1032,7 +952,7 @@ export default function AbsenceForm() {
                       {/* Verify parent CTA */}
                       <div className="flex justify-end">
                         <Button variant="primary" size="lg" onClick={() => goTo(1)}>
-                          Verify parent
+                          Verify with parent
                           <ChevronRight className="ml-2 h-4 w-4" />
                         </Button>
                       </div>
@@ -1044,30 +964,24 @@ export default function AbsenceForm() {
 
             {step === 1 ? (
               <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <h2
-                  ref={(node) => {
-                    stepHeadingRefs.current[1] = node;
-                  }}
-                  tabIndex={-1}
-                  className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
-                >
-                  Parent Verify
-                </h2>
+                <div className="mb-4 space-y-1">
+                  <h2
+                    ref={(node) => {
+                      stepHeadingRefs.current[1] = node;
+                    }}
+                    tabIndex={-1}
+                    className="text-xl font-semibold text-[var(--color-wi-text)]"
+                  >
+                    Parent confirmation
+                  </h2>
+                  {lookup ? (
+                    <p className="text-sm text-gray-600 font-normal">
+                      {lookup.full_name} ({lookup.wcode}) · Parent's phone {maskPhone(lookup.parent_phone) || "not on file"}
+                    </p>
+                  ) : null}
+                </div>
                 {lookup ? (
                   <div className="space-y-6">
-                    {/* Student profile reference */}
-                    <div className="rounded-sm border border-gray-250 bg-gray-50 p-4 shadow-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-[var(--color-wi-text)]">{lookup.full_name}</p>
-                          <p className="text-xs font-mono text-gray-700 mt-0.5">{lookup.wcode}</p>
-                        </div>
-                        <div className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700">
-                          {lookup.parent_phone ? `Parent phone ${maskPhone(lookup.parent_phone)}` : "No parent phone on file"}
-                        </div>
-                      </div>
-                    </div>
-
                     <StepCoverVerification
                       wcode={lookup.wcode}
                       parentPhone={lookup.parent_phone}
@@ -1081,19 +995,18 @@ export default function AbsenceForm() {
                         setLookupError(null);
                         setSelectedSubjectIds([]);
                         setActiveCourseIndex(0);
-                        setDateFrom("");
-                        setDateTo("");
-                        setReasonCategory("");
+                        setDateFrom(dateToLocalISO(new Date()));
+                        setDateTo(dateToLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
                         setReason("");
                         setSessions([]);
                         setSelectedSessionIds(new Set());
-                        setCoverSessionIds(new Set());
+                        setSitInSelections({});
                         setPageError(null);
                         setSubmissionError(null);
-                        setShowReasonFields(false);
                         setVerificationSatisfied(false);
                         verification.clearStoredToken();
                         verification.setCode("");
+                        goTo(0);
                       }}
                     />
 
@@ -1105,7 +1018,7 @@ export default function AbsenceForm() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-emerald-250 bg-emerald-50/50 p-5 text-sm shadow-sm"
                       >
                         <div className="text-emerald-950 font-medium">
-                          Parent verified successfully. Proceed to select courses and dates.
+                          Parent confirmed! Now choose your courses and dates.
                         </div>
                         <Button
                           variant="primary"
@@ -1113,7 +1026,7 @@ export default function AbsenceForm() {
                           disabled={!canProceedFromVerify}
                           onClick={() => goTo(2)}
                         >
-                          Continue to courses
+                          Continue
                           <ChevronRight className="ml-2 h-4 w-4" />
                         </Button>
                       </motion.div>
@@ -1128,7 +1041,7 @@ export default function AbsenceForm() {
                   </div>
                 ) : (
                   <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
-                    Look up a student first.
+                    Search for a student first.
                   </div>
                 )}
               </section>
@@ -1143,24 +1056,32 @@ export default function AbsenceForm() {
                   tabIndex={-1}
                   className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
                 >
-                  Courses & Dates
+                  Courses & classes
                 </h2>
                 <div className="space-y-6">
                   {lookup ? (
                     <div className="space-y-6">
                       <div className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
-                          <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Select your courses</h3>
-                          <Button variant="secondary" size="sm" onClick={toggleAllSubjects}>
-                            {selectedSubjectCount === lookup.subjects.length ? "Deselect all" : "Select all"}
-                          </Button>
+                           <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Choose your courses</h3>
+                          <div className="flex gap-2">
+                            {selectedSubjectCount < lookup.subjects.length ? (
+                              <Button variant="secondary" size="sm" onClick={selectAllSubjects}>
+                                Select all
+                              </Button>
+                            ) : null}
+                            {selectedSubjectCount > 0 ? (
+                              <Button variant="secondary" size="sm" onClick={deselectAllSubjects}>
+                                Deselect all
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                         <div
                           ref={listboxRef}
                           role="listbox"
                           aria-multiselectable="true"
-                          aria-label="Select your courses"
-                          aria-activedescendant={activeGroup ? `course-chip-${activeGroup.id}` : undefined}
+                          aria-label="Choose your courses"
                           tabIndex={0}
                           onKeyDown={handleCourseKeyDown}
                           className="grid gap-2 sm:grid-cols-2"
@@ -1169,8 +1090,8 @@ export default function AbsenceForm() {
                             <CourseChip
                               key={subject.id}
                               id={`course-chip-${subject.id}`}
+                              name={subject.name}
                               code={subject.code}
-                              cycle={subject.name}
                               selected={selectedSubjectIds.includes(subject.id)}
                               tabIndex={-1}
                               onToggle={() => toggleSubject(subject.id)}
@@ -1181,102 +1102,159 @@ export default function AbsenceForm() {
                         <div role="status" aria-live="polite" className="sr-only">
                           {courseAnnouncement}
                         </div>
-                        <p className="text-xs text-gray-650 font-medium">
-                          Use arrow keys to move, Space to toggle a course, and Enter to toggle the focused course.
-                        </p>
                       </div>
 
-                      <DateRangeInput
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        maxDays={config.form.max_date_range_days}
-                        onDateFromChange={setDateFrom}
-                        onDateToChange={setDateTo}
-                      />
-
-                      {selectedSubjectCount > 0 && dateFrom && dateTo ? (
-                        <div className="border border-gray-200 rounded-sm overflow-hidden">
-                          <button
-                            type="button"
-                            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100/70 transition-colors text-sm font-semibold text-gray-800"
-                            onClick={() => setShowReasonFields(!showReasonFields)}
-                            aria-expanded={showReasonFields}
-                          >
-                            <span className="flex items-center gap-2">
-                              Add reason details
-                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                                Optional
-                              </span>
+                      {selectedSubjectIds.length > 0 && dateFrom && dateTo ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between gap-2">
+                             <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Classes</h3>
+                            <span className="text-xs font-semibold text-gray-600">
+                              {selectedSessionCount}/{maxSessions} selected
                             </span>
-                            <ChevronRight
-                              className={clsx("h-4 w-4 text-gray-600 transition-transform duration-200", showReasonFields && "rotate-90")}
-                            />
-                          </button>
+                          </div>
+                          
+                          {sessionsLoading ? (
+                            <LoadingSkeleton type="table" lines={3} />
+                          ) : null}
 
-                          <AnimatePresence initial={false}>
-                            {showReasonFields && (
-                              <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden border-t border-gray-200"
-                              >
-                                <div className="p-4 bg-white">
-                                  <div className="grid gap-4">
-                                    <label className="block text-sm font-medium text-gray-700">
-                                      Reason category
-                                      <select
-                                        className="mt-1 w-full rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-                                        value={reasonCategory}
-                                        onChange={(event) => setReasonCategory(event.target.value)}
-                                      >
-                                        <option value="">Select a reason…</option>
-                                        {config.form.reason_categories.map((item) => (
-                                          <option key={item.value} value={item.value}>
-                                            {item.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </label>
+                          {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).length === 0 && !sessionsLoading ? (
+                            <EmptyState message="No classes found for the courses and dates you picked." />
+                          ) : null}
 
-                                    {reasonCategory ? (
-                                      <motion.label
-                                        initial={{ opacity: 0, y: -5 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="block text-sm font-medium text-gray-700"
-                                      >
-                                        <div className="flex items-center justify-between mb-1">
-                                          <span>Free-text details</span>
-                                          <span className={clsx("text-xs font-semibold", reason.length > 450 ? (reason.length >= 500 ? "text-red-600" : "text-amber-600") : "text-gray-600")}>
-                                            {reason.length}/500
-                                          </span>
+                          {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
+                            const selectedCount = group.sessions.filter((session) => selectedSessionIds.has(session.id)).length;
+
+                            return (
+                              <section key={group.subject_id} className="overflow-hidden rounded-sm border border-gray-250 bg-white">
+                                <div className="flex w-full items-center justify-between gap-2 border-b border-gray-150 bg-gray-50/50 px-3 py-3 text-sm font-semibold text-[var(--color-wi-text)] sm:px-4">
+                                  <span className="min-w-0 truncate">▼ {group.subject_code} - {group.subject_name} ({group.sessions.length} classes)</span>
+                                  <span className="shrink-0 text-xs font-semibold text-gray-650">
+                                    {selectedCount} selected
+                                  </span>
+                                </div>
+                                <div className="space-y-4 p-5">
+                                  <p className="text-xs text-gray-500 font-medium">Select day of class you want to absence</p>
+
+                                  <div className="space-y-2">
+                                    {group.sessions.map((session) => {
+                                      const selected = selectedSessionIds.has(session.id);
+                                      const currentSitIn = sitInSelections[session.id] || "";
+                                      const sitIn = group.sit_in;
+                                      const sitInAvailable = sitIn?.available_sessions ?? [];
+
+                                      return (
+                                        <div
+                                          key={session.id}
+                                          className={clsx(
+                                            "rounded-sm border px-3 py-3 transition-colors sm:px-4 sm:py-3.5",
+                                            selected ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]/5" : "border-gray-200 bg-white"
+                                          )}
+                                        >
+                                          <div className="min-w-0 text-sm text-[var(--color-wi-text)]">
+                                            <div className="flex items-center gap-2 min-w-0 sm:gap-3">
+                                              <input
+                                                type="checkbox"
+                                                id={`session-${session.id}`}
+                                                checked={selected}
+                                                disabled={!selected && atMaxSessions}
+                                                onChange={() => handleSessionToggle(session.id)}
+                                                className="h-4 w-4 shrink-0 rounded border-gray-300 text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              />
+                                              <label htmlFor={`session-${session.id}`} className="min-w-0 cursor-pointer">
+                                                <span className="block font-semibold sm:truncate">{formatDate(session.date)} {formatTime(session.start_at)}-{formatTime(session.end_at)}</span>
+                                              </label>
+                                            </div>
+                                          </div>
+                                          {selected ? (
+                                            <motion.div
+                                              initial={{ opacity: 0, scale: 0.95 }}
+                                              animate={{ opacity: 1, scale: 1 }}
+                                              className="mt-3 rounded-sm border border-amber-200 bg-amber-50/50 p-3"
+                                            >
+                                              {sitIn && sitIn.sit_in_method === "physical" ? (
+                                                <>
+                                                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
+                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
+                                                     Pick a make-up class
+                                                  </div>
+                                                   <p className="text-xs text-gray-600 mb-2 truncate">
+                                                       Absence class: {resolveSitInSubjectName(sitIn?.sit_in_course, sessions) || group.subject_name}
+                                                   </p>
+                                                   <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
+                                                     <span className="text-gray-700 font-medium">Make-up class:</span>
+                                                     <select
+                                                        value={currentSitIn}
+                                                        onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                        className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
+                                                      >
+                                                         <option value="">— Not yet —</option>
+                                                         {sitInAvailable.map(c => (
+                                                           <option key={c.id} value={c.id}>
+                                                             {getSitInSessionLabel(c, sitIn?.sit_in_course, group.subject_name, sessions)}
+                                                           </option>
+                                                         ))}
+                                                       </select>
+                                                   </div>
+                                                </>
+                                              ) : sitIn && sitIn.sit_in_method === "zoom" ? (
+                                                <div className="space-y-1 text-sm text-gray-700">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">Z</span>
+                                                    <span className="font-medium">Online make-up (Zoom)</span>
+                                                  </div>
+                                                  <p className="text-xs text-gray-500 ml-7">Staff will send a Zoom link — no need to pick a class</p>
+                                                </div>
+                                              ) : sitIn && sitIn.sit_in_method === "teacher_case" ? (
+                                                <div className="flex items-center gap-2 text-sm text-amber-700">
+                                                  <span className="text-xs font-semibold">Needs teacher approval</span>
+                                                </div>
+                                              ) : (
+                                                <div className="text-sm text-gray-600">
+                                                  <p className="font-medium">Make-up to be arranged</p>
+                                                  <p className="text-xs text-gray-500 mt-0.5">Staff will contact you to set up a make-up class.</p>
+                                                </div>
+                                              )}
+                                            </motion.div>
+                                          ) : null}
                                         </div>
-                                        <textarea
-                                          className="w-full min-h-[96px] rounded-sm border border-gray-300 px-3 py-2 text-sm text-gray-850 focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-                                          value={reason}
-                                          onChange={(event) => setReason(event.target.value)}
-                                          maxLength={500}
-                                          placeholder="Provide details about the absence..."
-                                        />
-                                        <div className="mt-1.5 h-1 w-full bg-gray-100 rounded-full overflow-hidden">
-                                          <div
-                                            className={clsx(
-                                              "h-full transition-all duration-150",
-                                              reason.length >= 475 ? "bg-red-500" : reason.length >= 400 ? "bg-amber-500" : "bg-[var(--color-wi-primary)]"
-                                            )}
-                                            style={{ width: `${(reason.length / 500) * 100}%` }}
-                                          />
-                                        </div>
-                                      </motion.label>
-                                    ) : null}
+                                      );
+                                    })}
                                   </div>
                                 </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+                              </section>
+                            );
+                          })}
                         </div>
                       ) : null}
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Reason for absence <span className="text-red-500">*</span>
+                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <span />
+                          <span className={clsx("text-xs font-semibold", reason.length > 450 ? (reason.length >= 500 ? "text-red-600" : "text-amber-600") : "text-gray-600")}>
+                            {reason.length}/500
+                          </span>
+                        </div>
+                        <textarea
+                          className="w-full min-h-[96px] rounded-sm border border-gray-300 px-3 py-2 text-sm text-gray-850 focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
+                          value={reason}
+                          onChange={(event) => setReason(event.target.value)}
+                          maxLength={500}
+                          placeholder="Tell us why you'll be away from class..."
+                          required
+                        />
+                        <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={clsx(
+                              "h-full transition-all duration-150",
+                              reason.length >= 475 ? "bg-red-500" : reason.length >= 400 ? "bg-amber-500" : "bg-[var(--color-wi-primary)]"
+                            )}
+                            style={{ width: `${(reason.length / 500) * 100}%` }}
+                          />
+                        </div>
+                      </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm">
                         <Button variant="secondary" onClick={() => back()}>
@@ -1286,198 +1264,20 @@ export default function AbsenceForm() {
                         <Button
                           variant="primary"
                           size="lg"
-                          disabled={!canProceedToSessions}
-                          onClick={() => {
-                            if (validateStepTwo()) {
-                              goTo(3);
-                            }
-                          }}
+                          disabled={!canSubmit}
+                          loading={isSubmitting}
+                          onClick={() => void handleSubmitAbsence()}
                         >
-                          Continue to sessions
-                          <ChevronRight className="ml-2 h-4 w-4" />
+                          Submit absence
                         </Button>
                       </div>
                     </div>
                   ) : (
                     <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
-                      Look up a student first.
+                    Search for your profile first.
                     </div>
                   )}
                 </div>
-              </section>
-            ) : null}
-
-            {step === 3 ? (
-              <section className="space-y-4 rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <h2
-                  ref={(node) => {
-                    stepHeadingRefs.current[3] = node;
-                  }}
-                  tabIndex={-1}
-                  className="text-xl font-semibold text-[var(--color-wi-text)]"
-                >
-                  Sessions & Cover
-                </h2>
-                {activeGroup ? (
-                  <div className="space-y-4">
-                    <div className="rounded-sm border border-gray-250 bg-gray-50 p-5 text-sm text-gray-700">
-                      <div className="font-semibold text-[var(--color-wi-text)]">{activeGroup.code}</div>
-                      <div className="font-medium text-gray-800 mt-0.5">{activeGroup.name}</div>
-                      <div className="mt-1.5 text-xs text-gray-650 font-semibold">
-                        {selectedSubjectCount > 1
-                          ? "This report will use the active course card below."
-                          : "Selected course."}
-                      </div>
-                    </div>
-
-                    {sessionsLoading ? (
-                      <LoadingSkeleton type="table" lines={5} />
-                    ) : null}
-
-                    {activeSessions.length === 0 && !sessionsLoading ? (
-                      <EmptyState message="No sessions found in this date range." />
-                    ) : null}
-
-                    {activeSessions.map((group) => {
-                      const allSelected = group.sessions.every((session) => selectedSessionIds.has(session.id));
-                      const allCovered = group.sessions.every((session) => coverSessionIds.has(session.id) && selectedSessionIds.has(session.id));
-                      const selectedCount = group.sessions.filter((session) => selectedSessionIds.has(session.id)).length;
-                      const coveredCount = group.sessions.filter((session) => coverSessionIds.has(session.id)).length;
-
-                      return (
-                        <fieldset key={group.subject_id} className="rounded-sm border border-gray-250 bg-white">
-                          <legend className="flex w-full items-center justify-between gap-3 border-b border-gray-150 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)] bg-gray-50/50">
-                            <span>
-                              {group.subject_code} - {group.subject_name}
-                            </span>
-                            <span className="text-xs font-semibold text-gray-650">
-                              {selectedCount} selected, {coveredCount} cover
-                            </span>
-                          </legend>
-                          <div className="space-y-4 p-5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button variant="secondary" size="sm" onClick={() => toggleAllSessionsForGroup(group, !allSelected)}>
-                                {allSelected ? "Deselect all" : "Select all"}
-                              </Button>
-                              <Button variant="secondary" size="sm" onClick={() => toggleAllCoversForGroup(group)}>
-                                {allCovered ? "None cover" : "All cover"}
-                              </Button>
-                              {coveredCount === 0 ? (
-                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-650 select-none">Cover optional</span>
-                              ) : null}
-                            </div>
-
-                            <div className="space-y-2">
-                              {group.sessions.map((session) => {
-                                const selected = selectedSessionIds.has(session.id);
-                                const covered = coverSessionIds.has(session.id);
-                                return (
-                                  <div
-                                    key={session.id}
-                                    className={`flex flex-col gap-2 rounded-sm border px-4 py-3.5 sm:flex-row sm:items-center transition-colors ${
-                                      selected ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]/5" : "border-gray-200 bg-white"
-                                    }`}
-                                  >
-                                    <div className="flex flex-col sm:flex-row flex-1 items-start sm:items-center gap-2 sm:gap-3 text-sm text-[var(--color-wi-text)]">
-                                      <div className="flex items-center gap-3">
-                                        <input
-                                          type="checkbox"
-                                          id={`session-${session.id}`}
-                                          checked={selected}
-                                          onChange={() => handleSessionToggle(session.id)}
-                                          className="h-4 w-4 rounded border-gray-300 text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-                                        />
-                                        <label htmlFor={`session-${session.id}`} className="cursor-pointer">
-                                          <div>
-                                            <span className="block font-semibold">{formatDate(session.date)}</span>
-                                            <span className="block text-xs text-gray-600 mt-0.5">
-                                              {formatTime(session.start_at)} - {formatTime(session.end_at)}
-                                            </span>
-                                          </div>
-                                        </label>
-                                      </div>
-                                      {selected ? (
-                                        <motion.label
-                                          initial={{ opacity: 0, scale: 0.95 }}
-                                          animate={{ opacity: 1, scale: 1 }}
-                                          className="ml-6 sm:ml-0 flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-1 select-none cursor-pointer shrink-0"
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={covered}
-                                            onChange={() => handleCoverToggle(session.id)}
-                                            className="h-4 w-4 rounded border-gray-350 text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-                                          />
-                                          <span className="text-xs font-semibold">Needs cover</span>
-                                        </motion.label>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </fieldset>
-                      );
-                    })}
-
-                    {/* Inline review summary */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                        <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Parent phone</div>
-                        <div className="mt-1 font-semibold text-gray-800">{maskPhone(lookup?.parent_phone) || "Not available"}</div>
-                      </div>
-                      <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                        <div className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Date range</div>
-                        <div className="mt-1 font-semibold text-gray-800">
-                          {dateFrom ? formatDate(dateFrom) : "Start date"} - {dateTo ? formatDate(dateTo) : "End date"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-sm border border-gray-200 bg-white p-5">
-                      <div className="text-sm font-semibold text-[var(--color-wi-text)]">
-                        {activeGroup?.code} - {activeGroup?.name}
-                      </div>
-                      <div className="mt-2 text-sm text-gray-700 font-medium">
-                        {selectedSessionCount} session{selectedSessionCount === 1 ? "" : "s"} selected, {coverSessionCount} cover session{coverSessionCount === 1 ? "" : "s"}
-                      </div>
-                      {reasonCategoryLabel ? (
-                        <div className="mt-2 text-sm text-gray-700 font-medium">
-                          Reason: {reasonCategoryLabel}
-                        </div>
-                      ) : null}
-                      {reason ? <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-3 border border-gray-150 rounded-sm italic">{reason}</div> : null}
-                    </div>
-
-                    <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                      <h3 className="font-semibold text-[var(--color-wi-text)]">What happens next?</h3>
-                      <p className="mt-2 text-gray-600">
-                        We will save this absence and place it in the review queue once you submit.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                      <Button variant="secondary" onClick={() => back()}>
-                        <ChevronLeft className="mr-1 h-4 w-4" />
-                        Back
-                      </Button>
-                      <Button
-                        variant="primary"
-                        disabled={selectedSessionCount === 0}
-                        loading={isSubmitting}
-                        onClick={() => void handleSubmitAbsence()}
-                      >
-                        Submit absence
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
-                    Choose a course first.
-                  </div>
-                )}
               </section>
             ) : null}
           </motion.div>

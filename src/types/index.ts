@@ -19,10 +19,6 @@ export type SitInRule = {
   updated_at: string;
 };
 
-export type SitInRuleListResponse = {
-  sit_in_rules: SitInRule[];
-};
-
 export type SitInRuleCreateInput = {
   name: string;
   type: SitInRuleType;
@@ -46,7 +42,14 @@ export type Session = {
 export type Course = { id: string; code: string; name: string; deleted_at?: string | null };
 export type Room = { id: string; name: string; capacity: number | null };
 export type User = { id: string; username: string; role: "Admin" | "Teacher" };
-export type Student = { id: string; wcode: string; full_name: string; notes: string; status?: string };
+export type Student = {
+  id: string;
+  wcode: string;
+  full_name: string;
+  notes: string;
+  status?: string;
+  parent_phone?: string | null;
+};
 export type AttendanceOverride = { student_id: string; status: "included" | "excluded"; created_at: string };
 
 export type ConflictDetails = {
@@ -103,6 +106,7 @@ export type StudentAbsence = {
   course_name?: string;
   sit_in_course_code?: string | null;
   sit_in_course_name?: string | null;
+  sit_in_subject_name?: string | null;
   created_at: string;
   subject_id?: string | null;
   subject_code?: string | null;
@@ -173,6 +177,19 @@ export type AbsenceStats = {
 
 export type ReasonCategory = { value: string; label: string };
 
+export type AbsenceNotificationsSettings = {
+  sms_parent_enabled: boolean;
+  sms_parent_template: string;
+  sms_success_template?: string;
+  allow_submit_without_otp: boolean;
+};
+
+export type AdminContactSettings = {
+  email: string;
+  phone: string;
+  hours: string;
+};
+
 export type AbsenceSettings = {
   form: {
     max_date_range_days: number;
@@ -187,10 +204,48 @@ export type AbsenceSettings = {
     zoom_description: string;
     max_sessions_per_absence: number;
   };
+  notifications?: AbsenceNotificationsSettings;
+  admin_contact?: AdminContactSettings;
   student_self_service?: {
     can_view_own: boolean;
     can_cancel_own: boolean;
   };
+};
+
+export type AbsenceFormConfig = {
+  form: AbsenceSettings["form"];
+  sit_in: AbsenceSettings["sit_in"];
+  notifications?: AbsenceNotificationsSettings;
+  admin_contact?: AdminContactSettings;
+};
+
+export type StudentLookupSubject = {
+  id: string;
+  code: string;
+  name: string;
+  active_course_id?: string | null;
+};
+
+export type StudentLookupResponse = {
+  student_id: string;
+  wcode: string;
+  full_name: string;
+  nickname?: string | null;
+  parent_phone?: string | null;
+  subjects: StudentLookupSubject[];
+};
+
+export type ParentVerificationResponse = {
+  token: string;
+  status: "pending" | "verified" | "consumed";
+  wcode: string;
+  parent_phone?: string | null;
+  otp_last_sent_at?: string | null;
+  otp_code_expires_at?: string | null;
+  verified_at?: string | null;
+  consumed_at?: string | null;
+  consumed_absence_id?: string | null;
+  expires_at?: string | null;
 };
 
 export type StaffAbsencePolicies = {
@@ -249,6 +304,48 @@ export type AbsenceTrends = {
   prev_reviewed_count: number;
   prev_actioned_count: number;
   prev_cancelled_count: number;
+};
+
+// === Multi-class absence types ===
+
+export type SessionInSubject = {
+  id: string;
+  start_at: string;
+  end_at: string;
+  date: string;
+  already_absent: boolean;
+};
+
+export type SitInInfo = {
+  rule_name?: string;
+  rule_type?: string;
+  sit_in_method: "physical" | "zoom" | "teacher_case" | "none";
+  sit_in_course?: { id: string; code: string; name: string };
+  available_sessions?: Array<{
+    id: string;
+    start_at: string;
+    end_at: string;
+    class_name?: string | null;
+    subject_name?: string | null;
+    subject_code?: string | null;
+    course_name?: string | null;
+    course_code?: string | null;
+  }>;
+  missed_sessions?: Array<{ id: string; start_at: string; end_at: string }>;
+};
+
+export type SubjectSessions = {
+  subject_id: string;
+  subject_code: string;
+  subject_name: string;
+  course_id: string;
+  course_code: string;
+  sessions: SessionInSubject[];
+  sit_in?: SitInInfo;
+};
+
+export type SessionsInRangeResponse = {
+  subjects: SubjectSessions[];
 };
 
 // === Legacy types kept for other pages ===
