@@ -5,6 +5,7 @@ import type { SubjectSessions, SessionInSubject } from "@/types";
 type CalendarGridProps = {
   subjectSessions: SubjectSessions[];
   onSelectionChange?: (absentIds: Set<string>) => void;
+  onToggleCover?: (sessionId: string) => void;
 };
 
 type DayColumn = {
@@ -35,39 +36,49 @@ function formatTimeLabel(iso: string): string {
 export default function CalendarGrid({
   subjectSessions,
   onSelectionChange,
+  onToggleCover = () => {},
 }: CalendarGridProps) {
   // Flatten sessions
   const allSessions = useMemo(() => {
     const flat: (SessionInSubject & { subjectCode: string })[] = [];
     for (const subj of subjectSessions) {
       for (const s of subj.sessions) {
-        flat.push({ ...s, subjectCode: subj.subject_code });
+        flat.push({ ...s, subjectCode: subj.subjectCode ?? subj.subject_code });
       }
     }
     return flat;
   }, [subjectSessions]);
 
-  // Build columns per day
+  // Build columns per day — include all dates in range, even those without sessions
   const dayColumns = useMemo(() => {
-    const map = new Map<string, (SessionInSubject & { subjectCode: string })[]>();
+    const sessionMap = new Map<string, (SessionInSubject & { subjectCode: string })[]>();
     for (const s of allSessions) {
       const date = toLocalDate(s.start_at);
-      const existing = map.get(date);
+      const existing = sessionMap.get(date);
       if (existing) existing.push(s);
-      else map.set(date, [s]);
+      else sessionMap.set(date, [s]);
     }
 
+    // Find date range
+    const allDates = Array.from(sessionMap.keys()).sort();
+    if (allDates.length === 0) return [];
+
+    const startDate = new Date(allDates[0] + "T12:00:00");
+    const endDate = new Date(allDates[allDates.length - 1] + "T12:00:00");
     const columns: DayColumn[] = [];
-    for (const [date, sessions] of map) {
-      const dow = getDayOfWeek(date);
+
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().slice(0, 10);
+      const dow = getDayOfWeek(dateStr);
+      const sessions = sessionMap.get(dateStr) ?? [];
       sessions.sort((a, b) => a.start_at.localeCompare(b.start_at));
       columns.push({
         label: DAY_LABELS[dow],
-        date,
+        date: dateStr,
         sessions,
       });
     }
-    columns.sort((a, b) => a.date.localeCompare(b.date));
+
     return columns;
   }, [allSessions]);
 
@@ -113,13 +124,16 @@ export default function CalendarGrid({
     [onSelectionChange],
   );
 
-  // Build a lookup: date → startTime → session
+  // CR-02: cellLookup maps date → time → Session[] (array for duplicates)
   const cellLookup = useMemo(() => {
-    const lookup = new Map<string, Map<string, SessionInSubject & { subjectCode: string }>>();
+    const lookup = new Map<string, Map<string, (SessionInSubject & { subjectCode: string })[]>>();
     for (const col of dayColumns) {
-      const rowMap = new Map<string, SessionInSubject & { subjectCode: string }>();
+      const rowMap = new Map<string, (SessionInSubject & { subjectCode: string })[]>();
       for (const s of col.sessions) {
-        rowMap.set(formatTimeLabel(s.start_at), s);
+        const time = formatTimeLabel(s.start_at);
+        const existing = rowMap.get(time);
+        if (existing) existing.push(s);
+        else rowMap.set(time, [s]);
       }
       lookup.set(col.date, rowMap);
     }
@@ -129,12 +143,20 @@ export default function CalendarGrid({
   // Keyboard navigation
   const gridRef = useRef<HTMLDivElement>(null);
 
+  // CR-01: Row-major iteration (time → day) so arrow directions match visual layout
+  // WR-03: Include empty cells with synthetic IDs for navigation across gaps
   const sortedCellIds = useMemo(() => {
     const ids: string[] = [];
-    for (const col of dayColumns) {
-      for (const time of timeRows) {
-        const session = cellLookup.get(col.date)?.get(time);
-        if (session) ids.push(session.id);
+    for (const time of timeRows) {
+      for (const col of dayColumns) {
+        const sessions = cellLookup.get(col.date)?.get(time);
+        if (sessions && sessions.length > 0) {
+          // Use first session's ID as the navigation representative for this cell
+          ids.push(sessions[0].id);
+        } else {
+          // WR-03: synthetic ID for empty cell
+          ids.push(`empty-${col.date}-${time}`);
+        }
       }
     }
     return ids;
@@ -142,30 +164,28 @@ export default function CalendarGrid({
 
   const handleGridKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Event delegation: identify focused cell from the active element
+      // Event delegation: identify focused cell from active element or event target
       const active = document.activeElement as HTMLElement;
-      const testId = active?.getAttribute("data-testid") ?? "";
+      const target = e.target as HTMLElement;
+      const el = (active?.getAttribute("data-testid")?.startsWith("cell-") ? active : target) as HTMLElement;
+      const testId = el?.getAttribute("data-testid") ?? "";
       if (!testId.startsWith("cell-")) return;
       const currentId = testId.replace("cell-", "");
 
       const idx = sortedCellIds.indexOf(currentId);
       if (idx === -1) return;
 
+      const cols = dayColumns.length;
       let nextIdx = -1;
       if (e.key === "ArrowRight") nextIdx = idx + 1;
       else if (e.key === "ArrowLeft") nextIdx = idx - 1;
-      else if (e.key === "ArrowDown") {
-        const cols = dayColumns.length;
-        nextIdx = idx + cols;
-      } else if (e.key === "ArrowUp") {
-        const cols = dayColumns.length;
-        nextIdx = idx - cols;
-      }
+      else if (e.key === "ArrowDown") nextIdx = idx + cols;
+      else if (e.key === "ArrowUp") nextIdx = idx - cols;
 
       if (nextIdx >= 0 && nextIdx < sortedCellIds.length) {
         e.preventDefault();
         const nextId = sortedCellIds[nextIdx];
-        // Focus the actual cell element (button inside wrapper) via querySelector
+        // Focus the actual cell element via querySelector
         const cellEl = gridRef.current?.querySelector<HTMLElement>(
           `[data-testid="cell-${nextId}"]`,
         );
@@ -220,19 +240,23 @@ export default function CalendarGrid({
 
           {/* Day cells */}
           {dayColumns.map((col) => {
-            const session = cellLookup.get(col.date)?.get(time);
-            if (!session) {
+            const sessions = cellLookup.get(col.date)?.get(time);
+
+            // WR-03: Empty cell — include in navigation, no aria-hidden
+            if (!sessions || sessions.length === 0) {
               return (
                 <div
                   key={`${col.date}-${time}`}
                   role="gridcell"
+                  data-testid={`cell-empty-${col.date}-${time}`}
                   className="flex-1 px-1 py-1"
-                  aria-hidden="true"
+                  tabIndex={-1}
                 />
               );
             }
 
-            return (
+            // CR-02: Render all sessions at this time slot (stacked)
+            return sessions.map((session) => (
               <div
                 key={session.id}
                 className="flex-1 px-1 py-1"
@@ -242,11 +266,12 @@ export default function CalendarGrid({
                   startTime={formatTimeLabel(session.start_at)}
                   endTime={formatTimeLabel(session.end_at)}
                   status={absentIds.has(session.id) ? "absent" : "available"}
+                  alreadyAbsent={session.already_absent}
                   onToggleAbsent={toggleAbsent}
-                  onToggleCover={() => {}}
+                  onToggleCover={onToggleCover}
                 />
               </div>
-            );
+            ));
           })}
         </div>
       ))}
