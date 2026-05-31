@@ -48,9 +48,13 @@ type SitInCourseInfo struct {
 }
 
 type sessionBrief struct {
-	ID      string `json:"id"`
-	StartAt string `json:"start_at"`
-	EndAt   string `json:"end_at"`
+	ID          string `json:"id"`
+	StartAt     string `json:"start_at"`
+	EndAt       string `json:"end_at"`
+	ClassName   string `json:"class_name,omitempty"`
+	CourseName  string `json:"course_name,omitempty"`
+	CourseCode  string `json:"course_code,omitempty"`
+	SubjectCode string `json:"subject_code,omitempty"`
 }
 
 type ResolverInput struct {
@@ -103,10 +107,10 @@ func buildPhysicalSitInResult(
 		result.MissedSession = append(result.MissedSession, toSessionBrief(m))
 	}
 	for _, a := range nonOverlapping {
-		result.Available = append(result.Available, toSessionBrief(a))
+		result.Available = append(result.Available, toSessionBriefForCourse(a, target))
 	}
 	for _, p := range preSelected {
-		result.PreSelected = append(result.PreSelected, toSessionBrief(p))
+		result.PreSelected = append(result.PreSelected, toSessionBriefForCourse(p, target))
 	}
 
 	return result
@@ -128,6 +132,19 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	}
 	if len(enrolled) == 0 {
 		return nil, fmt.Errorf("student not enrolled in any course for this subject")
+	}
+
+	for _, c := range enrolled {
+		if c.CourseID == courseID && c.RootCourseGroupID.Valid {
+			rootEnrolled, err := q.StudentEnrolledCoursesByRootCourseGroup(ctx, student.ID, c.RootCourseGroupID)
+			if err != nil {
+				return nil, fmt.Errorf("root course group enrollment lookup: %w", err)
+			}
+			if len(rootEnrolled) > 0 {
+				enrolled = rootEnrolled
+			}
+			break
+		}
 	}
 
 	// Find highest enrolled level (determines ladder target)
@@ -241,6 +258,19 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	}
 	if len(enrolled) == 0 {
 		return nil, fmt.Errorf("student not enrolled in any course for this subject")
+	}
+
+	for _, c := range enrolled {
+		if c.RootCourseGroupID.Valid {
+			rootEnrolled, err := q.StudentEnrolledCoursesByRootCourseGroup(ctx, student.ID, c.RootCourseGroupID)
+			if err != nil {
+				return nil, fmt.Errorf("root course group enrollment lookup: %w", err)
+			}
+			if len(rootEnrolled) > 0 {
+				enrolled = rootEnrolled
+			}
+			break
+		}
 	}
 
 	// 3. Pick main course (highest level)
@@ -382,6 +412,16 @@ func toSessionBrief(s sqldb.SessionInRange) sessionBrief {
 		StartAt: s.StartAt.Time.Format(time.RFC3339),
 		EndAt:   s.EndAt.Time.Format(time.RFC3339),
 	}
+}
+
+func toSessionBriefForCourse(s sqldb.SessionInRange, c *sqldb.SubjectCourseV2) sessionBrief {
+	brief := toSessionBrief(s)
+	if c != nil {
+		brief.ClassName = c.Name
+		brief.CourseName = c.Name
+		brief.CourseCode = c.Code
+	}
+	return brief
 }
 
 func timesOverlap(aStart, aEnd, bStart, bEnd pgtype.Timestamptz) bool {

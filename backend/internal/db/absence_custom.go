@@ -404,6 +404,36 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 	return out, nil
 }
 
+func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, studentID pgtype.UUID, rootCourseGroupID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		FROM course_students cs
+		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE cs.student_id = $1
+		  AND c.root_course_group_id = $2
+		  AND cs.status = 'enrolled'
+		ORDER BY c.level ASC NULLS LAST
+	`, studentID, rootCourseGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []StudentEnrolledCourseV2
+	for rows.Next() {
+		var r StudentEnrolledCourseV2
+		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type SubjectCourseV2 struct {
 	ID                pgtype.UUID `json:"id"`
 	Code              string      `json:"code"`
@@ -601,7 +631,7 @@ func (q *Queries) RootCourseGroupCreate(ctx context.Context, name string, sitInR
 	var sid pgtype.UUID
 	err := q.db.QueryRow(ctx, `
 		INSERT INTO root_course_groups (name, sit_in_rule_id)
-		VALUES ($1, NULLIF($2, '00000000-0000-0000-0000-000000000000'))
+		VALUES ($1, NULLIF($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
 		RETURNING id, name, sit_in_rule_id
 	`, name, sitInRuleID).Scan(&id, &name, &sid)
 	return id, name, sid, err
@@ -610,7 +640,7 @@ func (q *Queries) RootCourseGroupCreate(ctx context.Context, name string, sitInR
 func (q *Queries) RootCourseGroupUpdate(ctx context.Context, id pgtype.UUID, name string, sitInRuleID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE root_course_groups
-		SET name = $2, sit_in_rule_id = NULLIF($3, '00000000-0000-0000-0000-000000000000'), updated_at = now()
+		SET name = $2, sit_in_rule_id = NULLIF($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid), updated_at = now()
 		WHERE id = $1
 	`, id, name, sitInRuleID)
 	return err

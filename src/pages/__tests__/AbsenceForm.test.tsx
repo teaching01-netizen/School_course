@@ -474,6 +474,65 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
   });
 
+  it("uses the resolved Scholar sit-in course for mixed inter and advanced enrollments", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-math", code: "MATH", name: "Math" },
+        ],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-math",
+          subject_code: "MATH",
+          subject_name: "Math inter",
+          course_id: "c-inter",
+          course_code: "0000000348",
+          course_name: "Math inter",
+          sessions: [
+            {
+              id: "s-inter",
+              start_at: "2026-06-04T10:00:00+07:00",
+              end_at: "2026-06-04T12:00:00+07:00",
+              date: "2026-06-04",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-scholar", code: "SCH-01", name: "Scholar" },
+            available_sessions: [
+              {
+                id: "as-scholar",
+                start_at: "2026-06-06T10:00:00+07:00",
+                end_at: "2026-06-06T12:00:00+07:00",
+                subject_name: "Math advance",
+                course_name: "Math advance",
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    expect(makeUpSelect).toHaveTextContent("Scholar");
+    expect(makeUpSelect).not.toHaveTextContent("Math advance");
+    expect(screen.getByText(/^Absence class: Math inter$/)).toBeInTheDocument();
+  });
+
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {
     const user = userEvent.setup();
     renderWithDateRange({

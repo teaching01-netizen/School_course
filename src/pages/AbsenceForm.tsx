@@ -121,11 +121,11 @@ function getSitInSessionLabel(
 ) {
   const sitInSubjectName = resolveSitInSubjectName(sitInCourse, allSubjects);
   const className =
+    sitInCourse?.name?.trim() ||
+    sitInSubjectName ||
     session.class_name?.trim() ||
     session.subject_name?.trim() ||
     session.course_name?.trim() ||
-    sitInCourse?.name?.trim() ||
-    sitInSubjectName ||
     session.subject_code?.trim() ||
     session.course_code?.trim() ||
     fallbackSubjectName ||

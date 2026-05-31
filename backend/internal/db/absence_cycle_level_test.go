@@ -291,6 +291,13 @@ func TestCoursesByRootCourseGroupAndCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	subjB, err := q.SubjectCreate(ctx, SubjectCreateParams{
+		Code: "SUBJ-RCG-B-" + suffix,
+		Name: "Subject RCG B " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cycleA, err := q.CrmCycleUpsert(ctx, CrmCycleUpsertParams{
 		ID:    "cy-rcg-a-" + suffix,
 		Label: "Cycle RCG A " + suffix,
@@ -324,7 +331,11 @@ func TestCoursesByRootCourseGroupAndCycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		subjectID := subj.ID
+		if i == 1 {
+			subjectID = subjB.ID
+		}
+		if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subjectID, course.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := q.CourseUpdateRootCourseGroup(ctx, course.ID, rootID); err != nil {
@@ -373,6 +384,37 @@ func TestCoursesByRootCourseGroupAndCycle(t *testing.T) {
 		}
 		if len(found) != 2 {
 			t.Fatalf("expected both courses when cycle not set, got %d", len(found))
+		}
+	})
+
+	t.Run("student enrollments are resolved across subjects in the same root group", func(t *testing.T) {
+		student, err := q.StudentCreate(ctx, StudentCreateParams{
+			Wcode:    "WCODE-RCG-" + suffix,
+			FullName: "Student RCG " + suffix,
+			Notes:    "",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, course := range courses {
+			if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{
+				CourseID:  course.ID,
+				StudentID: student.ID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		enrolled, err := q.StudentEnrolledCoursesByRootCourseGroup(ctx, student.ID, rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(enrolled) != 2 {
+			t.Fatalf("expected both root group enrollments across subjects, got %d", len(enrolled))
+		}
+		if enrolled[0].CourseID != courses[0].ID || enrolled[1].CourseID != courses[1].ID {
+			t.Fatalf("expected enrollments ordered by level across root group, got %#v", enrolled)
 		}
 	})
 }
