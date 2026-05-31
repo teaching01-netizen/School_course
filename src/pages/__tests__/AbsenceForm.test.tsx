@@ -232,7 +232,7 @@ describe("AbsenceForm", () => {
     );
   }, 30000);
 
-  it("warns when the student has no parent phone on file", async () => {
+  it("disables verify parent button when student has no parent phone", async () => {
     installHappyPathMocks({
       student: {
         ...MOCK_STUDENT,
@@ -244,11 +244,25 @@ describe("AbsenceForm", () => {
 
     await lookupStudent(user);
 
-    expect(screen.getByText(/No parent phone number is on file/)).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/No parent phone number is on file/);
+    const verifyBtn = screen.getByRole("button", { name: /verify with parent/i });
+    expect(verifyBtn).toBeDisabled();
+  });
 
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
-    expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+  it("shows contact admin message when student has no parent phone", async () => {
+    installHappyPathMocks({
+      student: {
+        ...MOCK_STUDENT,
+        parent_phone: null,
+      },
+    });
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(userEvent.setup());
+
+    const phoneMatches = screen.getAllByText(/02-658-4880/);
+    expect(phoneMatches.length).toBeGreaterThanOrEqual(1);
+    const lineMatches = screen.getAllByText(/@warwick/);
+    expect(lineMatches.length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows a no-sessions status message when no sessions exist in range", async () => {
@@ -282,7 +296,7 @@ describe("AbsenceForm", () => {
     expect(screen.getByText("Reason for absence")).toBeInTheDocument();
   });
 
-  it("resolves sit-in subject name from other subject in the sessions array when available_session lacks subject_name and sit_in_course.name is empty", async () => {
+  it("shows the student's own subject as Absence class, not the sit-in target's subject", async () => {
     const user = userEvent.setup();
     renderWithDateRange({
       student: {
@@ -309,7 +323,7 @@ describe("AbsenceForm", () => {
           ],
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "c-int", code: "0000000348", name: "" },
+            sit_in_course: { id: "c-int", code: "0000000348", name: "Math inter" },
             available_sessions: [
               {
                 id: "as1",
@@ -343,9 +357,58 @@ describe("AbsenceForm", () => {
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
-    expect(makeUpSelect).not.toHaveTextContent("math_advance");
-    expect(screen.getByText(/Absence class: Math inter/)).toBeInTheDocument();
-    expect(screen.queryByText(/Absence class: math_advance/)).not.toBeInTheDocument();
+
+    expect(screen.getByText(/^Absence class: math_advance$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Absence class: Math inter$/)).not.toBeInTheDocument();
+  });
+
+  it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Math advance",
+          course_id: "c-adv",
+          course_code: "ADV-01",
+          sessions: [
+            {
+              id: "s1",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T10:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-int", code: "0000000348", name: "" },
+            available_sessions: [
+              {
+                id: "as1",
+                start_at: "2026-06-04T13:00:00Z",
+                end_at: "2026-06-04T15:00:00Z",
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    expect(makeUpSelect).toHaveTextContent("Math advance");
+    expect(makeUpSelect).not.toHaveTextContent("0000000348");
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {

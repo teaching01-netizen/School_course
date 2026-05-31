@@ -234,14 +234,7 @@ export default function StepCoverVerification({
             <div className="mt-2 text-xs">You can continue without verification because the policy allows it.</div>
           ) : (
             <div className="mt-2 text-xs">
-              Please contact the school office before continuing.
-              {adminContact?.email ? (
-                <div className="mt-1">
-                  <a className="font-medium underline" href={`mailto:${adminContact.email}`}>
-                    {adminContact.email}
-                  </a>
-                </div>
-              ) : null}
+              Contact admin at Tel. 02-658-4880 Line Official: @warwick before continuing.
             </div>
           )}
         </div>

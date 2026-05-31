@@ -128,8 +128,8 @@ function getSitInSessionLabel(
     sitInSubjectName ||
     session.subject_code?.trim() ||
     session.course_code?.trim() ||
-    sitInCourse?.code?.trim() ||
-    fallbackSubjectName;
+    fallbackSubjectName ||
+    sitInCourse?.code?.trim();
 
   return `${className} — ${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
@@ -189,7 +189,7 @@ function FormErrorSummary({
       result.push({ type: "error", message: pageError, dismissible: true, role: "alert", onDismiss: onClearPageError });
     }
     if (lookup && !lookup.parent_phone) {
-      result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact the school office before submitting.", dismissible: false, role: "status" });
+      result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact admin at Tel. 02-658-4880 Line Official: @warwick.", dismissible: false, role: "status" });
     }
     if (!online) {
       result.push({ type: "offline", message: "You're offline. Your progress is saved locally.", dismissible: false, role: "status" });
@@ -944,14 +944,19 @@ export default function AbsenceForm() {
                             <p className="text-sm font-mono text-gray-700 mt-0.5">{lookup.wcode}</p>
                           </div>
                           <div className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700">
-                            {lookup.parent_phone ? `Parent's phone ${maskPhone(lookup.parent_phone)}` : "No parent phone in records"}
+                            {lookup.parent_phone ? `Parent's phone ${maskPhone(lookup.parent_phone)}` : "No parent phone — contact admin at Tel. 02-658-4880"}
                           </div>
                         </div>
                       </div>
 
                       {/* Verify parent CTA */}
-                      <div className="flex justify-end">
-                        <Button variant="primary" size="lg" onClick={() => goTo(1)}>
+                      <div className="flex flex-col items-end gap-2">
+                        {!lookup.parent_phone ? (
+                          <p className="text-xs text-amber-700 text-right max-w-[280px]">
+                            No parent phone on file. Contact admin at Tel. 02-658-4880 Line Official: @warwick.
+                          </p>
+                        ) : null}
+                        <Button variant="primary" size="lg" onClick={() => goTo(1)} disabled={!lookup.parent_phone}>
                           Verify with parent
                           <ChevronRight className="ml-2 h-4 w-4" />
                         </Button>
@@ -976,7 +981,7 @@ export default function AbsenceForm() {
                   </h2>
                   {lookup ? (
                     <p className="text-sm text-gray-600 font-normal">
-                      {lookup.full_name} ({lookup.wcode}) · Parent's phone {maskPhone(lookup.parent_phone) || "not on file"}
+                      {lookup.full_name} ({lookup.wcode}) · Parent's phone {maskPhone(lookup.parent_phone) || "not on file — contact admin at Tel. 02-658-4880"}
                     </p>
                   ) : null}
                 </div>
@@ -1177,9 +1182,9 @@ export default function AbsenceForm() {
                                                     <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
                                                      Pick a make-up class
                                                   </div>
-                                                   <p className="text-xs text-gray-600 mb-2 truncate">
-                                                       Absence class: {resolveSitInSubjectName(sitIn?.sit_in_course, sessions) || group.subject_name}
-                                                   </p>
+                                                    <p className="text-xs text-gray-600 mb-2 truncate">
+                                                        Absence class: {group.subject_name}
+                                                    </p>
                                                    <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
                                                      <span className="text-gray-700 font-medium">Make-up class:</span>
                                                      <select
