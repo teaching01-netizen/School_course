@@ -158,6 +158,31 @@ type ManagedAbsenceSession struct {
 	EndAt      pgtype.Timestamptz
 }
 
+func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT ams.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
+		FROM absence_missed_sessions ams
+		JOIN sessions sess ON sess.id = ams.session_id AND sess.deleted_at IS NULL
+		JOIN courses c ON c.id = sess.course_id
+		LEFT JOIN rooms room ON room.id = sess.room_id
+		WHERE ams.absence_id = $1
+		ORDER BY sess.start_at ASC
+	`, absenceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ManagedAbsenceSession
+	for rows.Next() {
+		var session ManagedAbsenceSession
+		if err := rows.Scan(&session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
 func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT asi.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
@@ -320,6 +345,33 @@ func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUI
 	return tx.Commit(ctx)
 }
 
+func (q *Queries) AbsenceMissedSessionsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
+	for _, sid := range sessionIDs {
+		if _, err := q.db.Exec(ctx, `
+			INSERT INTO absence_missed_sessions (absence_id, session_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, absenceID, sid); err != nil {
+			return fmt.Errorf("insert missed session: %w", err)
+		}
+	}
+	return nil
+}
+
+func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM sessions sess
+		JOIN student_absences sa ON sa.id = $1
+		WHERE sess.id = ANY($2::uuid[])
+		  AND sess.course_id = sa.course_id
+		  AND sess.deleted_at IS NULL
+		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
+	`, absenceID, sessionIDs).Scan(&count)
+	return count, err
+}
+
 func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
@@ -329,7 +381,7 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		WHERE sess.id = ANY($3::uuid[])
 		  AND sess.course_id = $2
 		  AND sess.deleted_at IS NULL
-		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
+		  AND sess.start_at::date BETWEEN sa.date_from AND (sa.date_to + interval '30 day')::date
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed

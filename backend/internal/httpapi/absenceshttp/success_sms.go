@@ -13,11 +13,11 @@ import (
 	"warwick-institute/internal/smartsms"
 )
 
-func renderSuccessSMSTemplate(template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
+func renderSuccessSMSTemplate(template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
 	values := map[string]string{
 		"{{nickname}}":         textOr(row.StudentName, row.Wcode),
 		"{{class_name}}":       textOr(row.SubjectName, row.CourseName),
-		"{{absence_date}}":     successAbsenceDate(row, sessions, loc),
+		"{{absence_date}}":     successAbsenceDate(row, missed, loc),
 		"{{sit_in_class}}":     successSitInClass(row),
 		"{{sit_in_date_time}}": successSitInDateTime(sessions, loc),
 	}
@@ -45,10 +45,13 @@ func successSitInClass(row sqldb.ManagedAbsenceRow) string {
 	return textOr(row.SitInCourseName, textOr(row.SitInCourseCode, "Not assigned"))
 }
 
-func successAbsenceDate(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
-	dayLabels := uniqueSessionDateLabels(sessions, loc)
+func successAbsenceDate(row sqldb.ManagedAbsenceRow, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
+	dayLabels := uniqueSessionDateLabels(missed, loc)
 	if len(dayLabels) == 1 {
 		return dayLabels[0]
+	}
+	if len(dayLabels) > 1 {
+		return strings.Join(dayLabels, ", ")
 	}
 	if row.DateFrom.Valid && row.DateTo.Valid {
 		from := formatSMSDate(row.DateFrom.Time, loc)
@@ -59,21 +62,6 @@ func successAbsenceDate(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbs
 		return from + " - " + to
 	}
 	return ""
-}
-
-func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
-	labels := make([]string, 0, len(sessions))
-	for _, session := range sessions {
-		if !session.StartAt.Valid {
-			continue
-		}
-		label := formatSMSDateTime(session.StartAt.Time, loc)
-		if session.EndAt.Valid {
-			label += " - " + session.EndAt.Time.In(loc).Format("15:04")
-		}
-		labels = append(labels, label)
-	}
-	return strings.Join(labels, ", ")
 }
 
 func uniqueSessionDateLabels(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) []string {
@@ -93,6 +81,21 @@ func uniqueSessionDateLabels(sessions []sqldb.ManagedAbsenceSession, loc *time.L
 	return labels
 }
 
+func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
+	labels := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		if !session.StartAt.Valid {
+			continue
+		}
+		label := formatSMSDateTime(session.StartAt.Time, loc)
+		if session.EndAt.Valid {
+			label += " - " + session.EndAt.Time.In(loc).Format("15:04")
+		}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, ", ")
+}
+
 func formatSMSDate(value time.Time, loc *time.Location) string {
 	return value.In(loc).Format("2 Jan 2006")
 }
@@ -109,7 +112,16 @@ func resolveParentPhone(ctx context.Context, q *sqldb.Queries, wcode string) str
 	return rows[0].ParentPhone.String
 }
 
-func sendSuccessSMS(sms smartsms.SMSProvider, log *slog.Logger, template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, phone string, instituteTZ string) bool {
+func sendSuccessSMS(
+	sms smartsms.SMSProvider,
+	log *slog.Logger,
+	template string,
+	row sqldb.ManagedAbsenceRow,
+	sessions []sqldb.ManagedAbsenceSession,
+	missed []sqldb.ManagedAbsenceSession,
+	phone string,
+	instituteTZ string,
+) bool {
 	if template == "" || phone == "" {
 		return false
 	}
@@ -120,7 +132,7 @@ func sendSuccessSMS(sms smartsms.SMSProvider, log *slog.Logger, template string,
 		}
 		loc = time.UTC
 	}
-	rendered := renderSuccessSMSTemplate(template, row, sessions, loc)
+	rendered := renderSuccessSMSTemplate(template, row, sessions, missed, loc)
 	idStr, _ := sUUIDString(row.ID)
 	if idStr == "" {
 		idStr = fmt.Sprintf("%d", time.Now().UnixMilli())

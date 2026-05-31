@@ -121,6 +121,44 @@ describe("Absence detail", () => {
     expect(within(summarySection as HTMLElement).queryByText("9 Jun 2026")).not.toBeInTheDocument();
   });
 
+  it("shows one missed class date per line in the absence summary", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...DETAIL,
+      date_from: "2026-05-31",
+      date_to: "2026-06-30",
+      missed_sessions: [
+        {
+          id: "ms-1",
+          session_id: "sess-1",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          room_name: null,
+          start_at: "2026-06-01T10:00:00Z",
+          end_at: "2026-06-01T11:00:00Z",
+        },
+        {
+          id: "ms-2",
+          session_id: "sess-2",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          room_name: null,
+          start_at: "2026-06-08T10:00:00Z",
+          end_at: "2026-06-08T11:00:00Z",
+        },
+      ],
+    });
+    renderDetail();
+
+    const summary = await screen.findByRole("heading", { name: /absence summary/i });
+    const summarySection = summary.closest("section");
+    expect(summarySection).not.toBeNull();
+
+    expect(within(summarySection as HTMLElement).getByText(/1 Jun 2026\s+8 Jun 2026/)).toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).queryByText(/31 May 2026 - 30 Jun 2026/)).not.toBeInTheDocument();
+  });
+
   it("shows free-text reason without old category separators", async () => {
     mockApiJson.mockResolvedValueOnce({
       ...DETAIL,

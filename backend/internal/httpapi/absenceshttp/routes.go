@@ -163,6 +163,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			Reason            *string  `json:"reason"`
 			SitInMethod       *string  `json:"sit_in_method"`
 			SitInCourseID     *string  `json:"sit_in_course_id"`
+			MissedSessionIDs  []string `json:"missed_session_ids"`
 			SitInSessionIDs   []string `json:"sit_in_session_ids"`
 			VerificationToken *string  `json:"verification_token"`
 		}
@@ -246,6 +247,10 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		if len(body.SitInSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
 			s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
 			return 0, nil, fmt.Errorf("too many sessions")
+		}
+		if len(body.MissedSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
+			s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected missed sessions exceed the configured maximum")
+			return 0, nil, fmt.Errorf("too many missed sessions")
 		}
 		var sitInCourseID pgtype.UUID
 		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
@@ -363,10 +368,36 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if count != len(sessionUUIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and absence dates")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and within 30 days after the absence period")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 			if err := qtx.AbsenceSitInsCreate(r.Context(), item.ID, sessionUUIDs); err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+		}
+		if len(body.MissedSessionIDs) > 0 {
+			var missedUUIDs []pgtype.UUID
+			for _, sid := range body.MissedSessionIDs {
+				uid, err := s.a.ParseUUID(sid)
+				if err != nil {
+					s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
+					return 0, nil, err
+				}
+				missedUUIDs = append(missedUUIDs, uid)
+			}
+			count, err := qtx.ValidMissedSessionCount(r.Context(), item.ID, missedUUIDs)
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+			if count != len(missedUUIDs) {
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
+				return 0, nil, fmt.Errorf("invalid missed sessions")
+			}
+			if err := qtx.AbsenceMissedSessionsCreate(r.Context(), item.ID, missedUUIDs); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err
@@ -420,7 +451,15 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			if phone != "" {
 				sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
 				if sesErr == nil {
-					sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, phone, s.deps.InstituteTZ)
+					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
+					if missedErr == nil {
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, phone, s.deps.InstituteTZ)
+					} else {
+						if s.deps.Log != nil {
+							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", item.ID, "error", missedErr)
+						}
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, phone, s.deps.InstituteTZ)
+					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
 				}
@@ -874,13 +913,13 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		MissedSessions    []sessionBrief   `json:"missed_sessions,omitempty"`
 	}
 	type courseResponse struct {
-		SubjectID   string              `json:"subject_id"`
-		SubjectCode string              `json:"subject_code"`
-		SubjectName string              `json:"subject_name"`
-		CourseID    string              `json:"course_id"`
-		CourseCode  string              `json:"course_code"`
-		CourseName  string              `json:"course_name"`
-		Sessions    []sessionResponse   `json:"sessions"`
+		SubjectID   string               `json:"subject_id"`
+		SubjectCode string               `json:"subject_code"`
+		SubjectName string               `json:"subject_name"`
+		CourseID    string               `json:"course_id"`
+		CourseCode  string               `json:"course_code"`
+		CourseName  string               `json:"course_name"`
+		Sessions    []sessionResponse    `json:"sessions"`
 		SitIn       *courseSitInResponse `json:"sit_in,omitempty"`
 	}
 

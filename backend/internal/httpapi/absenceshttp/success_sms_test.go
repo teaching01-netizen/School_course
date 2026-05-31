@@ -22,7 +22,7 @@ func (r *recordingSMSProvider) SendSMS(_ context.Context, req smartsms.SendReque
 	return &smartsms.SendResponse{Success: true}, nil
 }
 
-func (r *recordingSMSProvider) HealthCheck(_ context.Context) error { return nil }
+func (r *recordingSMSProvider) HealthCheck(_ context.Context) error       { return nil }
 func (r *recordingSMSProvider) GetCredits(_ context.Context) (int, error) { return 999, nil }
 
 func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
@@ -42,7 +42,7 @@ func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
 	}}
 	tmpl := "{{nickname}}|{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}"
 
-	sent := sendSuccessSMS(mock, log, tmpl, row, sessions, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, log, tmpl, row, sessions, nil, "+66812345678", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -74,7 +74,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 		DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:      pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
-	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, "+66812345678", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -90,7 +90,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "", row, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, nil, "", row, nil, nil, "+66812345678", "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessSMS to return false for empty template")
 	}
@@ -102,7 +102,7 @@ func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 func TestSendSuccessSMS_SkipsWhenPhoneEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "template {{nickname}}", row, nil, "", "UTC")
+	sent := sendSuccessSMS(mock, nil, "template {{nickname}}", row, nil, nil, "", "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessSMS to return false for empty phone")
 	}
@@ -122,7 +122,7 @@ func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	}
 	// MockProvider always succeeds, so this tests the "no error path".
 	// For the error path, we use a provider that returns error.
-	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, "+66812345678", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true on success")
 	}

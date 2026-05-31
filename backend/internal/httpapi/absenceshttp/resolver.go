@@ -24,6 +24,9 @@ const (
 	SitInMethodZoom     = "zoom"
 	SitInMethodPhysical = "physical"
 	SitInMethodTeacher  = "teacher_case"
+	// SitInLookaheadDays controls how far after the absence end date
+	// we allow physical make-up session selection.
+	SitInLookaheadDays = 30
 )
 
 type SitInResult struct {
@@ -223,7 +226,8 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 		targetCourseID := *evalOutput.TargetCourseID
 
-		availSessions, err := q.SessionsByCourseInRange(ctx, targetCourseID, dateFrom, dateTo)
+		_, sitInWindowEnd := sitInSelectionWindow(dateFrom, dateTo)
+		availSessions, err := q.SessionsByCourseInRange(ctx, targetCourseID, dateFrom, sitInWindowEnd)
 		if err != nil {
 			return nil, fmt.Errorf("available sessions lookup: %w", err)
 		}
@@ -358,7 +362,8 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		}
 		targetCourseID := *evalOutput.TargetCourseID
 
-		availSessions, err := q.SessionsByCourseInRange(ctx, targetCourseID, dateFrom, dateTo)
+		_, sitInWindowEnd := sitInSelectionWindow(dateFrom, dateTo)
+		availSessions, err := q.SessionsByCourseInRange(ctx, targetCourseID, dateFrom, sitInWindowEnd)
 		if err != nil {
 			return nil, fmt.Errorf("available sessions lookup: %w", err)
 		}
@@ -408,6 +413,10 @@ func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, rootCourseGrou
 		}
 	}
 	return enabled, nil
+}
+
+func sitInSelectionWindow(dateFrom, dateTo time.Time) (time.Time, time.Time) {
+	return dateFrom, dateTo.AddDate(0, 0, SitInLookaheadDays)
 }
 
 func toSessionBrief(s sqldb.SessionInRange) sessionBrief {

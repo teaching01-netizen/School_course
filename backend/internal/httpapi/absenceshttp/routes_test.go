@@ -131,7 +131,7 @@ func TestParseAbsenceSettingsPreservesSuccessSMSTemplate(t *testing.T) {
 	}
 }
 
-func TestRenderSuccessSMSTemplateUsesSubjectNamesAndSelectedSitInDate(t *testing.T) {
+func TestRenderSuccessSMSTemplateUsesMissedSessionDatesAndSitInDateTime(t *testing.T) {
 	row := sqldb.ManagedAbsenceRow{
 		StudentName:      pgtype.Text{String: "Ada", Valid: true},
 		SubjectName:      pgtype.Text{String: "Math inter", Valid: true},
@@ -143,14 +143,23 @@ func TestRenderSuccessSMSTemplateUsesSubjectNamesAndSelectedSitInDate(t *testing
 		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC), Valid: true},
 		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 9, 11, 0, 0, 0, time.UTC), Valid: true},
 	}}
+	missed := []sqldb.ManagedAbsenceSession{
+		{
+			StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC), Valid: true},
+		},
+		{
+			StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 8, 9, 0, 0, 0, time.UTC), Valid: true},
+		},
+	}
 
 	got := renderSuccessSMSTemplate(
 		"{{nickname}}|{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}",
 		row,
 		sessions,
+		missed,
 		time.UTC,
 	)
-	want := "Ada|Math inter|9 Jun 2026|Math advanced|9 Jun, 09:00 - 11:00"
+	want := "Ada|Math inter|1 Jun 2026, 8 Jun 2026|Math advanced|9 Jun, 09:00 - 11:00"
 	if got != want {
 		t.Fatalf("rendered = %q, want %q", got, want)
 	}

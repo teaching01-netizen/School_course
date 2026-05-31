@@ -25,6 +25,10 @@ function displayDateTime(value: string): string {
   return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function displayDateFromDateTime(value: string): string {
+  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
@@ -36,6 +40,13 @@ function daysBetween(a: string, b: string): number {
 }
 
 function displayAbsenceDates(absence: ManagedAbsence): string {
+  const missedDateLabels = [...new Set((absence.missed_sessions ?? [])
+    .slice()
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+    .map((session) => displayDateFromDateTime(session.start_at)))];
+  if (missedDateLabels.length > 0) {
+    return missedDateLabels.join("\n");
+  }
   if (absence.date_from === absence.date_to) {
     return displayDate(absence.date_from);
   }
@@ -257,7 +268,7 @@ export default function AbsenceDetail() {
               <dt className="text-gray-500">Subject</dt>
               <dd>{absence.subject_code ?? "-"} {absence.subject_name ? `- ${absence.subject_name}` : ""}</dd>
               <dt className="text-gray-500">Dates</dt>
-              <dd>{displayAbsenceDates(absence)}</dd>
+              <dd className="whitespace-pre-line">{displayAbsenceDates(absence)}</dd>
               <dt className="text-gray-500">Reason</dt>
               <dd>{displayAbsenceReason(absence)}</dd>
               <dt className="text-gray-500">Submitted</dt>

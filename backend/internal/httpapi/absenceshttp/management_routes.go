@@ -100,6 +100,7 @@ type managedAbsenceDTO struct {
 	Version             int32                `json:"version"`
 	CreatedAt           string               `json:"created_at"`
 	UpdatedAt           string               `json:"updated_at"`
+	MissedSessions      []absenceSessionDTO  `json:"missed_sessions,omitempty"`
 	SitIns              []absenceSessionDTO  `json:"sit_ins,omitempty"`
 	Timeline            []absenceTimelineDTO `json:"timeline,omitempty"`
 }
@@ -435,6 +436,12 @@ func (s *server) handleAbsenceGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, message)
 		return
 	}
+	missedSessions, err := s.deps.Q.ManagedAbsenceMissedSessions(r.Context(), id)
+	if err != nil {
+		status, code, message := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, message)
+		return
+	}
 	timeline, err := s.deps.Q.AbsenceAuditList(r.Context(), id)
 	if err != nil {
 		status, code, message := s.a.ClassifyDBErr(err)
@@ -442,6 +449,7 @@ func (s *server) handleAbsenceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := s.managedAbsenceDTO(row)
+	out.MissedSessions = s.sessionDTO(missedSessions)
 	out.SitIns = s.sessionDTO(sessions)
 	out.Timeline = s.timelineDTO(timeline)
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -569,7 +577,15 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 			if current.StudentPhone.Valid && strings.TrimSpace(current.StudentPhone.String) != "" {
 				sessions, sessErr := qtx.ManagedAbsenceSessions(r.Context(), id)
 				if sessErr == nil {
-					sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, current.StudentPhone.String, s.deps.InstituteTZ)
+					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
+					if missedErr == nil {
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, missed, current.StudentPhone.String, s.deps.InstituteTZ)
+					} else {
+						if s.deps.Log != nil {
+							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", r.PathValue("id"), "error", missedErr)
+						}
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, nil, current.StudentPhone.String, s.deps.InstituteTZ)
+					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)
 				}
@@ -763,7 +779,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if count != len(sessionIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and absence dates")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and within 30 days after the absence period")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 		}

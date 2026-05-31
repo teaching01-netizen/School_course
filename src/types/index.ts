@@ -154,6 +154,7 @@ export type AbsenceTimelineEntry = {
 };
 
 export type ManagedAbsence = Omit<StudentAbsence, "sit_ins"> & {
+  missed_sessions?: AbsenceSitInSession[];
   sit_ins?: AbsenceSitInSession[];
   timeline?: AbsenceTimelineEntry[];
 };

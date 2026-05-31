@@ -739,7 +739,7 @@ export default function AbsenceForm() {
       
       const selectedSessIds = group.sessions.filter(s => selectedSessionIds.has(s.id)).map(s => s.id);
       if (selectedSessIds.length === 0) continue;
-      
+
       const sitInSessionIds = selectedSessIds.map(id => sitInSelections[id]).filter(Boolean);
       const sitInMethod = group.sit_in?.sit_in_method ?? "zoom";
       
@@ -752,6 +752,7 @@ export default function AbsenceForm() {
         reason: reason.trim() || undefined,
         sit_in_method: sitInMethod,
         sit_in_course_id: group.sit_in?.sit_in_course?.id ?? group.course_id,
+        missed_session_ids: selectedSessIds,
         sit_in_session_ids: sitInSessionIds,
         verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
       });
