@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import Button from "@/components/ui/Button";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -43,7 +44,7 @@ export default function SummaryBar({
     >
       <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
         {/* Left: counts */}
-        <p className="text-sm font-medium text-gray-800">
+        <p className="text-sm font-medium text-gray-800" aria-live="polite">
           Summary: {absentCount} absent, {coverCount} cover
         </p>
 
@@ -54,7 +55,6 @@ export default function SummaryBar({
               <button
                 key={d.date}
                 type="button"
-                role="listitem"
                 className={clsx(
                   "rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200",
                 )}
@@ -68,27 +68,17 @@ export default function SummaryBar({
 
         {/* Right: navigation */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[34px]"
-            onClick={onBack}
-          >
+          <Button variant="secondary" onClick={onBack}>
             Back
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={!hasSelection}
-            className={clsx(
-              "inline-flex items-center justify-center rounded-sm border border-transparent px-3 py-1.5 text-sm font-medium transition-colors min-h-[34px]",
-              hasSelection
-                ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
-                : "cursor-not-allowed bg-gray-200 text-gray-400",
-            )}
             onClick={onSubmit}
           >
             Submit
-          </button>
+          </Button>
         </div>
       </div>
     </div>

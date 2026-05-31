@@ -40,6 +40,12 @@ describe("SummaryBar", () => {
       expect(screen.getByText(/0 absent/)).toBeInTheDocument();
       expect(screen.getByText(/0 cover/)).toBeInTheDocument();
     });
+
+    it("summary text has aria-live for screen readers", () => {
+      render(<SummaryBar {...defaultProps} />);
+      const summary = screen.getByText(/5 absent/);
+      expect(summary).toHaveAttribute("aria-live", "polite");
+    });
   });
 
   describe("day breakdown chips", () => {
@@ -47,6 +53,14 @@ describe("SummaryBar", () => {
       render(<SummaryBar {...defaultProps} />);
       expect(screen.getByText("Mon: 3")).toBeInTheDocument();
       expect(screen.getByText("Tue: 2")).toBeInTheDocument();
+    });
+
+    it("day chip buttons have no listitem role", () => {
+      render(<SummaryBar {...defaultProps} />);
+      const chips = screen.getAllByText(/Mon:|Tue:/);
+      chips.forEach((chip) => {
+        expect(chip).not.toHaveAttribute("role", "listitem");
+      });
     });
 
     it("clicking a day chip calls onScrollToDate with the date", async () => {
