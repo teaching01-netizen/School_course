@@ -25,10 +25,6 @@ function displayDateTime(value: string): string {
   return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function displayDateFromDateTime(value: string): string {
-  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
@@ -40,9 +36,8 @@ function daysBetween(a: string, b: string): number {
 }
 
 function displayAbsenceDates(absence: ManagedAbsence): string {
-  const sitInDateLabels = [...new Set((absence.sit_ins ?? []).map((session) => displayDateFromDateTime(session.start_at)))];
-  if (sitInDateLabels.length === 1) {
-    return sitInDateLabels[0];
+  if (absence.date_from === absence.date_to) {
+    return displayDate(absence.date_from);
   }
   return `${displayDate(absence.date_from)} - ${displayDate(absence.date_to)} (${daysBetween(absence.date_from, absence.date_to)} days)`;
 }

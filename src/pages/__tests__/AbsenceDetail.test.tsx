@@ -95,7 +95,7 @@ describe("Absence detail", () => {
     );
   });
 
-  it("shows the selected sit-in session day in the absence summary when the stored absence spans a wider range", async () => {
+  it("shows absence date range in summary and does not replace it with sit-in session day", async () => {
     mockApiJson.mockResolvedValueOnce({
       ...DETAIL,
       date_from: "2026-06-03",
@@ -117,8 +117,8 @@ describe("Absence detail", () => {
     const summarySection = summary.closest("section");
     expect(summarySection).not.toBeNull();
 
-    expect(within(summarySection as HTMLElement).getByText("9 Jun 2026")).toBeInTheDocument();
-    expect(within(summarySection as HTMLElement).queryByText(/3 Jun 2026 - 16 Jun 2026/)).not.toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).getByText(/3 Jun 2026 - 16 Jun 2026 \(14 days\)/)).toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).queryByText("9 Jun 2026")).not.toBeInTheDocument();
   });
 
   it("shows free-text reason without old category separators", async () => {
