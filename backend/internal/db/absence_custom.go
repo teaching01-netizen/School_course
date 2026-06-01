@@ -159,6 +159,33 @@ func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.U
 	return out, nil
 }
 
+func (q *Queries) SessionsByCourse(ctx context.Context, courseID pgtype.UUID) ([]SessionInRange, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT id, course_id, room_id, start_at, end_at
+		FROM sessions
+		WHERE course_id = $1
+		  AND deleted_at IS NULL
+		ORDER BY start_at ASC
+	`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SessionInRange
+	for rows.Next() {
+		var r SessionInRange
+		if err := rows.Scan(&r.ID, &r.CourseID, &r.RoomID, &r.StartAt, &r.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type AbsenceSitIn struct {
 	ID        pgtype.UUID        `json:"id"`
 	AbsenceID pgtype.UUID        `json:"absence_id"`

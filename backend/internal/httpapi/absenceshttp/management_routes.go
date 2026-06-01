@@ -54,8 +54,8 @@ type calendarResponseDTO struct {
 }
 
 type calendarAbsenceEntry struct {
-	ID   string
-	DTO  calendarAbsenceDTO
+	ID  string
+	DTO calendarAbsenceDTO
 }
 
 type absenceSessionDTO struct {
@@ -319,7 +319,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		id, _ := s.a.UUIDString(row.ID)
 		absenceIDs = append(absenceIDs, row.ID)
 		entries = append(entries, calendarAbsenceEntry{
-			ID:               id,
+			ID: id,
 			DTO: calendarAbsenceDTO{
 				ID:               id,
 				Wcode:            row.Wcode,
@@ -860,7 +860,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if count != len(sessionIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and within 30 days after the absence period")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 		}

@@ -368,7 +368,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if count != len(sessionUUIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and within 30 days after the absence period")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 			if err := qtx.AbsenceSitInsCreate(r.Context(), item.ID, sessionUUIDs); err != nil {

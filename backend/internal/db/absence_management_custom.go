@@ -410,7 +410,6 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		WHERE sess.id = ANY($3::uuid[])
 		  AND sess.course_id = $2
 		  AND sess.deleted_at IS NULL
-		  AND sess.start_at::date BETWEEN sa.date_from AND (sa.date_to + interval '30 day')::date
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed
@@ -446,7 +445,6 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		LEFT JOIN rooms room ON room.id = sess.room_id
 		WHERE sess.course_id = $2
 		  AND sess.deleted_at IS NULL
-		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed
