@@ -7,7 +7,7 @@ import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/hooks/usePreflight";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
-import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO } from "../utils/timezone";
+import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO, groupSessionKey } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
@@ -87,10 +87,8 @@ export default function CourseDetail() {
   const sessionsByWeekdayAndHour = useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      const d = new Date(s.start_at);
-      const weekday = d.getDay();
-      const hour = format(d, 'HH:00');
-      const key = `${weekday}-${hour}`;
+      const key = groupSessionKey(s.start_at, zone);
+      if (!key) continue;
       const group = map.get(key);
       if (group) {
         group.push(s);
@@ -99,7 +97,7 @@ export default function CourseDetail() {
       }
     }
     return map;
-  }, [sessions]);
+  }, [sessions, zone]);
 
   const roomNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -675,7 +673,7 @@ export default function CourseDetail() {
                 </tr>
               </thead>
               <tbody>
-                {['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00'].map((slot) => (
+                {Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`).map((slot) => (
                   <tr key={slot} className="border-b border-gray-200">
                     <td className="py-1 px-1 text-xs text-gray-500 font-medium border-r border-gray-200">{slot}</td>
                     {[1,2,3,4,5].map((day) => {

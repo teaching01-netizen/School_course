@@ -30,6 +30,16 @@ export function utcISOToZoneLocalInput(utcISO: string, zone: string): string | n
   return z.toFormat("yyyy-MM-dd'T'HH:mm");
 }
 
+export function groupSessionKey(utcISO: string, zone: string): string | null {
+  const dt = DateTime.fromISO(utcISO, { zone: "utc" });
+  if (!dt.isValid) return null;
+  const zoned = dt.setZone(zone);
+  if (!zoned.isValid) return null;
+  const weekday = zoned.weekday % 7;
+  const hour = zoned.toFormat("HH:00");
+  return `${weekday}-${hour}`;
+}
+
 export function utcISOToZoneDate(utcISO: string, zone: string): string | null {
   const dt = DateTime.fromISO(utcISO, { zone: "utc" });
   if (!dt.isValid) return null;

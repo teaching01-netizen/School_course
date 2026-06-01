@@ -211,3 +211,96 @@ describe("Schedule create-series preflight guard", () => {
     expect(body.end_date).toBeNull();
   });
 });
+
+describe("validateSeriesPreflight edge cases", () => {
+  const validForm = {
+    course_id: "c1",
+    teacher_id: "t1",
+    room_id: "",
+    weekdays: [true, false, false, false, false, false, false],
+    start_local_time: "09:00",
+    duration_minutes: 120,
+    start_date: "2024-01-01",
+    end_date: "2024-01-14",
+    count: 10,
+  };
+
+  it("returns null when duration_minutes is 0", () => {
+    expect(validateSeriesPreflight({ ...validForm, duration_minutes: 0 }, false)).toBeNull();
+  });
+
+  it("returns null when duration_minutes is negative", () => {
+    expect(validateSeriesPreflight({ ...validForm, duration_minutes: -30 }, false)).toBeNull();
+  });
+
+  it("returns null when end_date is empty and useCount is false", () => {
+    expect(validateSeriesPreflight({ ...validForm, end_date: "" }, false)).toBeNull();
+  });
+
+  it("returns null when count is 0 and useCount is true", () => {
+    expect(validateSeriesPreflight({ ...validForm, count: 0 }, true)).toBeNull();
+  });
+
+  it("returns null when count is Infinity and useCount is true", () => {
+    expect(validateSeriesPreflight({ ...validForm, count: Infinity }, true)).toBeNull();
+  });
+
+  it("returns null when count is NaN and useCount is true", () => {
+    expect(validateSeriesPreflight({ ...validForm, count: NaN }, true)).toBeNull();
+  });
+
+  it("converts empty room_id to null", () => {
+    const result = validateSeriesPreflight(validForm, false);
+    expect(result).not.toBeNull();
+    expect(result!.room_id).toBeNull();
+  });
+
+  it("preserves non-empty room_id", () => {
+    const result = validateSeriesPreflight({ ...validForm, room_id: "r1" }, false);
+    expect(result).not.toBeNull();
+    expect(result!.room_id).toBe("r1");
+  });
+
+  it("returns null when no weekdays are selected", () => {
+    expect(validateSeriesPreflight({
+      ...validForm,
+      weekdays: [false, false, false, false, false, false, false],
+    }, false)).toBeNull();
+  });
+
+  it("returns null when start_local_time is empty", () => {
+    expect(validateSeriesPreflight({ ...validForm, start_local_time: "" }, false)).toBeNull();
+  });
+
+  it("returns null when start_date is empty", () => {
+    expect(validateSeriesPreflight({ ...validForm, start_date: "" }, false)).toBeNull();
+  });
+
+  it("returns null when course_id is empty", () => {
+    expect(validateSeriesPreflight({ ...validForm, course_id: "" }, false)).toBeNull();
+  });
+
+  it("returns null when teacher_id is empty", () => {
+    expect(validateSeriesPreflight({ ...validForm, teacher_id: "" }, false)).toBeNull();
+  });
+
+  it("returns valid result for all valid inputs (useCount=false)", () => {
+    const result = validateSeriesPreflight(validForm, false);
+    expect(result).toEqual({
+      weekdays: [0],
+      end_date: "2024-01-14",
+      count: null,
+      room_id: null,
+    });
+  });
+
+  it("returns valid result for all valid inputs (useCount=true)", () => {
+    const result = validateSeriesPreflight(validForm, true);
+    expect(result).toEqual({
+      weekdays: [0],
+      end_date: null,
+      count: 10,
+      room_id: null,
+    });
+  });
+});

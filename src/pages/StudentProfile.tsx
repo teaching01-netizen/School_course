@@ -5,6 +5,7 @@ import Modal from '../components/Modal';
 import { apiJson } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import { endOfLocalDay, startOfLocalDay } from '../utils/time';
+import { groupSessionKey } from '../utils/timezone';
 import ScheduleSessionCard from '../components/ScheduleSessionCard';
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -28,6 +29,8 @@ export default function StudentProfile() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
+  const zone = instituteTZ ?? 'Asia/Bangkok';
 
   const [editModal, setEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,6 +90,17 @@ export default function StudentProfile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [student?.id, weekStart, enrolledCourseIds]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const meta = await apiJson<{ institute_tz: string }>(`/api/v1/meta/time`, { method: 'GET' });
+        setInstituteTZ(meta.institute_tz);
+      } catch {
+        // Best-effort only.
+      }
+    })();
+  }, []);
+
   const handleSave = async () => {
     if (!student) return;
     if (!form.full_name.trim()) {
@@ -110,15 +124,13 @@ export default function StudentProfile() {
   };
 
   const days = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
-  const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+  const timeSlots = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
 
   const sessionsByWeekdayAndHour = useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      const d = new Date(s.start_at);
-      const weekday = d.getDay();
-      const hour = format(d, 'HH:00');
-      const key = `${weekday}-${hour}`;
+      const key = groupSessionKey(s.start_at, zone);
+      if (!key) continue;
       const group = map.get(key);
       if (group) {
         group.push(s);
@@ -127,7 +139,7 @@ export default function StudentProfile() {
       }
     }
     return map;
-  }, [sessions]);
+  }, [sessions, zone]);
 
   if (loading) return <LoadingSkeleton type="card" lines={3} />;
 
