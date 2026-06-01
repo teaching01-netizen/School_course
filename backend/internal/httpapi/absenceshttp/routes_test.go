@@ -35,6 +35,10 @@ func adminDeps() httpdeps.Deps {
 	}
 }
 
+func ptr(v string) *string {
+	return &v
+}
+
 func responseCode(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()
 	var response struct {
@@ -162,6 +166,83 @@ func TestRenderSuccessSMSTemplateUsesMissedSessionDatesAndSitInDateTime(t *testi
 	want := "Ada|Math inter|1 Jun 2026, 8 Jun 2026|Math advanced|9 Jun, 09:00 - 11:00"
 	if got != want {
 		t.Fatalf("rendered = %q, want %q", got, want)
+	}
+}
+
+func TestBuildCalendarAbsenceDaysUsesMissedSessionDates(t *testing.T) {
+	absenceID := uuid.New()
+	entries := []calendarAbsenceEntry{
+		{
+			ID: absenceID.String(),
+			DTO: calendarAbsenceDTO{
+				ID:          absenceID.String(),
+				Wcode:       "W111111",
+				StudentName: ptr("Test test"),
+				Status:      "pending",
+				SubjectName: ptr("SAT Math Intermediate"),
+				DateFrom:    "2026-06-04",
+				DateTo:      "2026-06-07",
+				SitInMethod: ptr("physical"),
+			},
+		},
+	}
+	missedDatesByAbsence := map[string]map[string]struct{}{
+		absenceID.String(): {
+			"2026-06-05": {},
+		},
+	}
+
+	got := buildCalendarAbsenceDays(
+		entries,
+		missedDatesByAbsence,
+		time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 30, 23, 59, 59, 0, time.UTC),
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 calendar day, got %d", len(got))
+	}
+	if got[0].Date != "2026-06-05" {
+		t.Fatalf("expected date 2026-06-05, got %s", got[0].Date)
+	}
+	if len(got[0].Absences) != 1 {
+		t.Fatalf("expected 1 absence on the day, got %d", len(got[0].Absences))
+	}
+	if got[0].Absences[0].Wcode != "W111111" {
+		t.Fatalf("expected wcode W111111, got %s", got[0].Absences[0].Wcode)
+	}
+}
+
+func TestBuildCalendarAbsenceDaysFallsBackToDateFrom(t *testing.T) {
+	absenceID := uuid.New()
+	entries := []calendarAbsenceEntry{
+		{
+			ID: absenceID.String(),
+			DTO: calendarAbsenceDTO{
+				ID:          absenceID.String(),
+				Wcode:       "W222222",
+				StudentName: ptr("Test legacy"),
+				Status:      "pending",
+				SubjectName: ptr("SAT Math Beginner"),
+				DateFrom:    "2026-06-04",
+				DateTo:      "2026-06-07",
+				SitInMethod: ptr("zoom"),
+			},
+		},
+	}
+
+	got := buildCalendarAbsenceDays(
+		entries,
+		map[string]map[string]struct{}{},
+		time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 30, 23, 59, 59, 0, time.UTC),
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 calendar day, got %d", len(got))
+	}
+	if got[0].Date != "2026-06-04" {
+		t.Fatalf("expected fallback date 2026-06-04, got %s", got[0].Date)
 	}
 }
 

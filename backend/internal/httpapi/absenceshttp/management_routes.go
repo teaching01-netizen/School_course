@@ -53,6 +53,11 @@ type calendarResponseDTO struct {
 	AbsenceDays []calendarAbsenceDayDTO   `json:"absence_days"`
 }
 
+type calendarAbsenceEntry struct {
+	ID   string
+	DTO  calendarAbsenceDTO
+}
+
 type absenceSessionDTO struct {
 	ID         string  `json:"id"`
 	SessionID  string  `json:"session_id"`
@@ -308,29 +313,79 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	absByDate := make(map[string][]calendarAbsenceDTO)
+	entries := make([]calendarAbsenceEntry, 0, len(absRows))
+	absenceIDs := make([]pgtype.UUID, 0, len(absRows))
 	for _, row := range absRows {
 		id, _ := s.a.UUIDString(row.ID)
-		dto := calendarAbsenceDTO{
+		absenceIDs = append(absenceIDs, row.ID)
+		entries = append(entries, calendarAbsenceEntry{
 			ID:               id,
-			Wcode:            row.Wcode,
-			StudentName:      stringPtrIfValid(row.StudentName),
-			Status:           row.Status,
-			SubjectCode:      stringPtrIfValid(row.SubjectCode),
-			SubjectName:      stringPtrIfValid(row.SubjectName),
-			DateFrom:         row.DateFrom.Time.Format("2006-01-02"),
-			DateTo:           row.DateTo.Time.Format("2006-01-02"),
-			SitInMethod:      stringPtrIfValid(row.SitInMethod),
-			SitInCourseCode:  stringPtrIfValid(row.SitInCourseCode),
-			SitInCourseName:  stringPtrIfValid(row.SitInCourseName),
-			SitInSubjectName: stringPtrIfValid(row.SitInSubjectName),
+			DTO: calendarAbsenceDTO{
+				ID:               id,
+				Wcode:            row.Wcode,
+				StudentName:      stringPtrIfValid(row.StudentName),
+				Status:           row.Status,
+				SubjectCode:      stringPtrIfValid(row.SubjectCode),
+				SubjectName:      stringPtrIfValid(row.SubjectName),
+				DateFrom:         row.DateFrom.Time.Format("2006-01-02"),
+				DateTo:           row.DateTo.Time.Format("2006-01-02"),
+				SitInMethod:      stringPtrIfValid(row.SitInMethod),
+				SitInCourseCode:  stringPtrIfValid(row.SitInCourseCode),
+				SitInCourseName:  stringPtrIfValid(row.SitInCourseName),
+				SitInSubjectName: stringPtrIfValid(row.SitInSubjectName),
+			},
+		})
+	}
+
+	missedDatesByAbsence := make(map[string]map[string]struct{})
+	if len(absenceIDs) > 0 {
+		missedRows, err := s.deps.Q.ManagedAbsenceMissedSessionsByAbsenceIDs(r.Context(), absenceIDs)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return
 		}
-		current := row.DateFrom.Time
-		end := row.DateTo.Time
-		for !current.After(end) {
-			key := current.Format("2006-01-02")
-			absByDate[key] = append(absByDate[key], dto)
-			current = current.AddDate(0, 0, 1)
+		for _, missed := range missedRows {
+			if !missed.AbsenceID.Valid || !missed.StartAt.Valid {
+				continue
+			}
+			absID, _ := s.a.UUIDString(missed.AbsenceID)
+			dateKey := missed.StartAt.Time.UTC().Format("2006-01-02")
+			if missedDatesByAbsence[absID] == nil {
+				missedDatesByAbsence[absID] = make(map[string]struct{})
+			}
+			missedDatesByAbsence[absID][dateKey] = struct{}{}
+		}
+	}
+
+	absenceDays := buildCalendarAbsenceDays(entries, missedDatesByAbsence, rangeStart, rangeEnd)
+
+	s.a.WriteJSON(w, http.StatusOK, calendarResponseDTO{
+		Sessions:    sessions,
+		AbsenceDays: absenceDays,
+	})
+}
+
+func buildCalendarAbsenceDays(entries []calendarAbsenceEntry, missedDatesByAbsence map[string]map[string]struct{}, rangeStart, rangeEnd time.Time) []calendarAbsenceDayDTO {
+	startKey := rangeStart.UTC().Format("2006-01-02")
+	endKey := rangeEnd.UTC().Format("2006-01-02")
+
+	absByDate := make(map[string][]calendarAbsenceDTO)
+	for _, entry := range entries {
+		dates := make([]string, 0, len(missedDatesByAbsence[entry.ID]))
+		for dateKey := range missedDatesByAbsence[entry.ID] {
+			if dateKey < startKey || dateKey > endKey {
+				continue
+			}
+			dates = append(dates, dateKey)
+		}
+		if len(dates) == 0 {
+			dates = []string{entry.DTO.DateFrom}
+		} else {
+			sort.Strings(dates)
+		}
+		for _, dateKey := range dates {
+			absByDate[dateKey] = append(absByDate[dateKey], entry.DTO)
 		}
 	}
 
@@ -343,11 +398,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	for _, d := range dates {
 		absenceDays = append(absenceDays, calendarAbsenceDayDTO{Date: d, Absences: absByDate[d]})
 	}
-
-	s.a.WriteJSON(w, http.StatusOK, calendarResponseDTO{
-		Sessions:    sessions,
-		AbsenceDays: absenceDays,
-	})
+	return absenceDays
 }
 
 func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
