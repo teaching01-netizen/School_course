@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import type { CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
+import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
+import Modal from "../components/Modal";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 
@@ -30,12 +31,29 @@ function formatMonth(d: Date): string {
   return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 }
 
+function formatFullDayLabel(dayKey: string): string {
+  return new Date(`${dayKey}T00:00:00`).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function yyyyMmDd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
+}
+
+function formatCount(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function getSessionLabel(session: CalendarSessionBrief): string {
@@ -84,6 +102,21 @@ function absenceInlineClasses(absence: CalendarAbsence): string {
 
 function absencesOnDate(day: CalendarAbsenceDay | undefined): CalendarAbsence[] {
   return day?.absences ?? [];
+}
+
+function statusBadgeClasses(status: AbsenceStatus): string {
+  switch (status) {
+    case "pending":
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    case "reviewed":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    case "actioned":
+      return "bg-slate-100 text-slate-600 border-slate-200";
+    case "cancelled":
+      return "bg-red-50 text-red-700 border-red-200";
+    default:
+      return "bg-gray-100 text-gray-600 border-gray-200";
+  }
 }
 
 function dayCellOddEven(date: Date): string {
@@ -175,6 +208,10 @@ export default function OperationsCalendar() {
     setSearchParams(params);
   }
 
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [viewMode, weekStart, monthStart]);
+
   const filteredSessions = useMemo(() => {
     if (!subjectFilter) return sessions;
     return sessions.filter((s) => s.course_id === subjectFilter);
@@ -226,6 +263,11 @@ export default function OperationsCalendar() {
     if (!selectedDay) return [];
     return sessionsByDay.get(selectedDay) ?? [];
   }, [sessionsByDay, selectedDay]);
+
+  const selectedDayTitle = useMemo(() => {
+    if (!selectedDay) return "";
+    return `${formatFullDayLabel(selectedDay)} · ${formatCount(selectedDaySessions.length, "session")} · ${formatCount(selectedDayAbsences.length, "absence")}`;
+  }, [selectedDay, selectedDayAbsences.length, selectedDaySessions.length]);
 
   if (loading) return <LoadingSkeleton type="table" lines={10} />;
 
@@ -285,7 +327,7 @@ export default function OperationsCalendar() {
       </section>
 
       {viewMode === "month" ? (
-        <div className="grid grid-cols-7 gap-px rounded-sm border border-gray-200 bg-gray-200 overflow-hidden" style={{ minHeight: "300px" }}>
+        <div className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-gray-200 bg-gray-200" style={{ minHeight: "300px" }}>
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
             <div key={d} className="bg-gray-50 px-2 py-1 text-center text-xs font-semibold text-gray-500">{d}</div>
           ))}
@@ -300,39 +342,70 @@ export default function OperationsCalendar() {
               const absenceCount = dayAbsenceRows.length;
               const isToday = todayStr === dayStr;
               const isCurrentMonth = date.getMonth() === monthStart.getMonth();
+              const dayLabel = formatFullDayLabel(dayStr);
+
               return (
                 <div
                   key={dayStr}
                   className={`min-h-[80px] bg-white p-1 ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""} ${!isCurrentMonth ? "opacity-40" : ""}`}
                 >
                   <button
-                    onClick={() => setSelectedDay(selectedDay === dayStr ? null : dayStr)}
+                    type="button"
+                    onClick={() => setSelectedDay(dayStr)}
+                    aria-label={`Open details for ${dayLabel}`}
                     className={`mb-1 flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${isToday ? "bg-[var(--color-wi-primary)] text-white" : "text-gray-700 hover:bg-gray-100"}`}
                   >
                     {date.getDate()}
                   </button>
                   <div className="space-y-1">
                     {daySessions.slice(0, 2).map((s) => (
-                      <div key={s.id} className="truncate rounded-sm bg-blue-50 px-1 py-0.5 text-[10px] text-blue-700">
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSelectedDay(dayStr)}
+                        aria-label={`Open details for ${getSessionLabel(s)} on ${dayLabel}`}
+                        className="w-full truncate rounded-sm bg-blue-50 px-1 py-0.5 text-left text-[10px] text-blue-700"
+                      >
                         {getSessionLabel(s)} {formatTime(s.start_at)}
-                      </div>
+                      </button>
                     ))}
-                    {daySessions.length > 2 ? <div className="text-[10px] text-gray-400 px-1">+{daySessions.length - 2} more</div> : null}
+                    {daySessions.length > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDay(dayStr)}
+                        aria-label={`View all session details for ${dayLabel}`}
+                        className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                      >
+                        +{daySessions.length - 2} more
+                      </button>
+                    ) : null}
                     {dayAbsenceRows.slice(0, 2).map((absence) => (
-                    <div
-                      key={absence.id}
-                      className={`rounded-sm border-l-2 px-1.5 py-1 text-[10px] leading-snug ${absenceInlineClasses(absence)}`}
-                    >
-                      <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
-                      <p className="truncate text-[10px] text-amber-700">
-                        <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
-                      </p>
-                      <p className="truncate text-[10px] text-sky-700">
-                        <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
-                      </p>
-                      </div>
+                      <button
+                        key={absence.id}
+                        type="button"
+                        onClick={() => setSelectedDay(dayStr)}
+                        aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
+                        className={`w-full rounded-sm border-l-2 px-1.5 py-1 text-left text-[10px] leading-snug ${absenceInlineClasses(absence)}`}
+                      >
+                        <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
+                        <p className="truncate text-[10px] text-amber-700">
+                          <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
+                        </p>
+                        <p className="truncate text-[10px] text-sky-700">
+                          <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
+                        </p>
+                      </button>
                     ))}
-                    {absenceCount > 2 ? <div className="text-[10px] text-gray-400 px-1">+{absenceCount - 2} more</div> : null}
+                    {absenceCount > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDay(dayStr)}
+                        aria-label={`View all absence details for ${dayLabel}`}
+                        className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                      >
+                        +{absenceCount - 2} more
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -341,7 +414,7 @@ export default function OperationsCalendar() {
         </div>
       ) : (
         <div
-          className="grid grid-cols-7 gap-px rounded-sm border border-gray-200 bg-gray-200 overflow-hidden"
+          className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-gray-200 bg-gray-200"
           style={{ minHeight: "400px" }}
         >
           {weekDates.map((date) => {
@@ -351,40 +424,51 @@ export default function OperationsCalendar() {
             const dayAbsenceRows = absencesOnDate(dayAbsences);
             const absenceCount = dayAbsenceRows.length;
             const isToday = yyyyMmDd(new Date()) === dayStr;
+            const dayLabel = formatFullDayLabel(dayStr);
 
             return (
               <div
                 key={dayStr}
-                className={`flex flex-col bg-white min-h-[200px] ${dayCellOddEven(date)} ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""}`}
+                className={`flex min-h-[200px] flex-col bg-white ${dayCellOddEven(date)} ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""}`}
               >
-                <div className={`sticky top-0 z-10 border-b border-gray-100 px-2 py-2 text-center ${isToday ? "bg-blue-50" : ""}`}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay(dayStr)}
+                  aria-label={`Open details for ${dayLabel}`}
+                  className={`sticky top-0 z-10 border-b border-gray-100 px-2 py-2 text-center ${isToday ? "bg-blue-50" : ""}`}
+                >
                   <p className={`text-xs font-semibold ${isToday ? "text-[var(--color-wi-primary)]" : "text-gray-600"}`}>
                     {formatDay(date)}
                   </p>
-                  <button
-                    onClick={() => setSelectedDay(selectedDay === dayStr ? null : dayStr)}
+                  <span
                     className={`mt-1 inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${absencePuckColor(absenceCount)}`}
+                    aria-hidden="true"
                   >
                     {absenceCount}
-                  </button>
-                </div>
+                  </span>
+                </button>
 
-                <div className="flex-1 space-y-1 p-1.5 overflow-y-auto">
+                <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
                   {daySessions.map((session) => (
-                    <div
+                    <button
                       key={session.id}
-                      className="rounded-sm border border-gray-100 bg-white px-2 py-1.5 text-xs shadow-sm hover:shadow-md transition-shadow cursor-default"
+                      type="button"
+                      onClick={() => setSelectedDay(dayStr)}
+                      aria-label={`Open details for ${getSessionLabel(session)} on ${dayLabel}`}
+                      className="w-full rounded-sm border border-gray-100 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
                     >
                       <p className="font-semibold text-gray-800">{getSessionLabel(session)}</p>
                       <p className="text-gray-500">{formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}</p>
-                      {session.room_name ? <p className="text-gray-400 truncate">{session.room_name}</p> : null}
-                    </div>
+                      {session.room_name ? <p className="truncate text-gray-400">{session.room_name}</p> : null}
+                    </button>
                   ))}
                   {dayAbsenceRows.slice(0, 2).map((absence) => (
-                    <Link
+                    <button
                       key={absence.id}
-                      to={`/absences/${absence.id}`}
-                      className={`block rounded-sm border-l-2 px-2 py-1.5 text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
+                      type="button"
+                      onClick={() => setSelectedDay(dayStr)}
+                      aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
+                      className={`block w-full rounded-sm border-l-2 px-2 py-1.5 text-left text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
                     >
                       <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
                       <p className="truncate text-amber-700">
@@ -393,12 +477,21 @@ export default function OperationsCalendar() {
                       <p className="truncate text-sky-700">
                         <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
                       </p>
-                    </Link>
+                    </button>
                   ))}
                   {daySessions.length === 0 && absenceCount === 0 ? (
                     <p className="px-1 py-4 text-center text-xs text-gray-300">No activity</p>
                   ) : null}
-                  {absenceCount > 2 ? <p className="px-1 text-[10px] text-gray-400">+{absenceCount - 2} more absences</p> : null}
+                  {absenceCount > 2 ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDay(dayStr)}
+                      aria-label={`View all absence details for ${dayLabel}`}
+                      className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                    >
+                      +{absenceCount - 2} more absences
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );
@@ -407,47 +500,73 @@ export default function OperationsCalendar() {
       )}
 
       {selectedDay ? (
-        <div className="mt-4 rounded-sm border border-gray-200 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-800">
-              {new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            </h3>
-            <button onClick={() => setSelectedDay(null)} className="text-xs text-gray-500 hover:text-gray-700">Close</button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({selectedDayAbsences.length})</h4>
-                  {selectedDayAbsences.length === 0 ? (
-                <p className="text-sm text-gray-400">No absences this day.</p>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {selectedDayAbsences.map((abs) => (
-                    <Link key={abs.id} to={`/absences/${abs.id}`} className="block rounded-sm border border-gray-100 bg-gray-50 p-2 text-sm hover:bg-gray-100 transition-colors">
-                      <p className="font-medium text-gray-800">{getAbsenceStudentLabel(abs)}</p>
-                      <p className="text-xs text-amber-700"><span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(abs)}</p>
-                      <p className="text-xs text-sky-700"><span className="font-semibold">Sit-in:</span> {getSitInLabel(abs)}</p>
-                    </Link>
-                  ))}
-                </div>
-              )}
+        <Modal
+          title={selectedDayTitle}
+          onClose={() => setSelectedDay(null)}
+          size="full"
+          footer={<Button variant="secondary" size="sm" onClick={() => setSelectedDay(null)}>Close</Button>}
+        >
+          {selectedDaySessions.length === 0 && selectedDayAbsences.length === 0 ? (
+            <p className="text-sm text-gray-400">No sessions or absences for this day.</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <section>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({selectedDayAbsences.length})</h4>
+                {selectedDayAbsences.length === 0 ? (
+                  <p className="text-sm text-gray-400">No absences this day.</p>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {selectedDayAbsences.map((abs) => (
+                      <div key={abs.id} className={`rounded-sm border-l-2 border border-gray-100 bg-gray-50 p-3 ${absenceInlineClasses(abs)}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(abs)}</p>
+                            <p className="mt-0.5 truncate text-xs text-amber-700">
+                              <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(abs)}
+                            </p>
+                            <p className="truncate text-xs text-sky-700">
+                              <span className="font-semibold">Sit-in:</span> {getSitInLabel(abs)}
+                            </p>
+                          </div>
+                          <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClasses(abs.status)}`}>
+                            {titleCase(abs.status)}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          <Link
+                            to={`/absences/${abs.id}`}
+                            aria-label={`View details for ${getAbsenceStudentLabel(abs)}`}
+                            className="inline-flex min-h-[28px] items-center rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            View details
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              <section>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions ({selectedDaySessions.length})</h4>
+                {selectedDaySessions.length === 0 ? (
+                  <p className="text-sm text-gray-400">No sessions this day.</p>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {selectedDaySessions.map((session) => (
+                      <div key={session.id} className="rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm">
+                        <p className="font-medium text-gray-800">{getSessionLabel(session)}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}
+                          {session.room_name ? ` · ${session.room_name}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions ({selectedDaySessions.length})</h4>
-              {selectedDaySessions.length === 0 ? (
-                <p className="text-sm text-gray-400">No sessions this day.</p>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {selectedDaySessions.map((s) => (
-                    <div key={s.id} className="rounded-sm border border-gray-100 bg-gray-50 p-2 text-sm">
-                      <p className="font-medium text-gray-800">{getSessionLabel(s)}</p>
-                      <p className="text-xs text-gray-500">{formatTime(s.start_at)} &ndash; {formatTime(s.end_at)}{s.room_name ? ` \u00b7 ${s.room_name}` : ""}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          )}
+        </Modal>
       ) : null}
     </div>
   );
