@@ -611,6 +611,179 @@ func TestSendOTP_Step1HTTP419_ReLogin(t *testing.T) {
 	}
 }
 
+func TestSendOTP_Step1HTTP401_ReLogin(t *testing.T) {
+	const csrfToken = "otp-csrf-401"
+	var loginCount int
+	var previewCount int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<form><input name="_token" value="` + csrfToken + `"></form>`))
+		case "/login":
+			loginCount++
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			previewCount++
+			if previewCount == 1 {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`<!DOCTYPE html><html><head><title>Unauthorized</title></head><body>Unauthorized</body></html>`))
+				return
+			}
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse preview form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if got := r.FormValue("_token"); got != csrfToken {
+				t.Errorf("previewData _token = %q, want %q", got, csrfToken)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":               true,
+				"preview_id":            "prev-otp-401",
+				"number_of_used_credit": 1,
+				"correct":               1,
+			})
+		case "/dataset/confirmSend":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse confirm form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if got := r.FormValue("_token"); got != csrfToken {
+				t.Errorf("confirmSend _token = %q, want %q", got, csrfToken)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = c.SendOTP(context.Background(), "+66812345678", "123456", "otp 401 test")
+	if err != nil {
+		t.Fatalf("SendOTP: %v", err)
+	}
+	if loginCount < 2 {
+		t.Fatalf("expected at least 2 login calls (initial + re-login), got %d", loginCount)
+	}
+	if previewCount != 2 {
+		t.Fatalf("expected 2 previewData calls (retry after 401), got %d", previewCount)
+	}
+}
+
+func TestSendOTP_Step2HTTP419_ReLogin(t *testing.T) {
+	const csrfToken = "otp-csrf-s2-419"
+	var loginCount int
+	var previewCount int
+	var confirmCount int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<form><input name="_token" value="` + csrfToken + `"></form>`))
+		case "/login":
+			loginCount++
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			previewCount++
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse preview form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":               true,
+				"preview_id":            "prev-otp-s2-419",
+				"number_of_used_credit": 1,
+				"correct":               1,
+			})
+		case "/dataset/confirmSend":
+			confirmCount++
+			if confirmCount == 1 {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(419)
+				w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><title>Page Expired</title></head><body>Page Expired</body></html>`))
+				return
+			}
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse confirm form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if got := r.FormValue("_token"); got != csrfToken {
+				t.Errorf("confirmSend _token = %q, want %q", got, csrfToken)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = c.SendOTP(context.Background(), "+66812345678", "123456", "otp step2 419 test")
+	if err != nil {
+		t.Fatalf("SendOTP: %v", err)
+	}
+	if loginCount < 2 {
+		t.Fatalf("expected at least 2 login calls (initial + re-login), got %d", loginCount)
+	}
+	if previewCount != 1 {
+		t.Fatalf("expected 1 previewData call, got %d", previewCount)
+	}
+	if confirmCount != 2 {
+		t.Fatalf("expected 2 confirmSend calls (retry after 419), got %d", confirmCount)
+	}
+}
+
+func TestSendOTP_ReLoginFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<form><input name="_token" value="tok"></form>`))
+		case "/login":
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html><body><form><input name="email" type="text"></form></body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = c.SendOTP(context.Background(), "+66812345678", "123456", "otp relogin fail")
+	if err == nil {
+		t.Fatal("expected error when OTP re-login fails")
+	}
+	if !strings.Contains(err.Error(), "re-login") && !strings.Contains(err.Error(), "login page") {
+		t.Fatalf("error should mention re-login/login page issue, got: %v", err)
+	}
+}
+
 func TestSendSMS_ReLoginFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
