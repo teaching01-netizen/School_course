@@ -51,13 +51,13 @@ type Config struct {
 //
 // All public methods are safe for concurrent use.
 type Client struct {
-	mu         sync.Mutex
-	httpClient *http.Client
-	baseURL    string
-	sender     string
-	label      string
-	username   string
-	password   string
+	mu              sync.Mutex
+	httpClient      *http.Client
+	baseURL         string
+	sender          string
+	label           string
+	username        string
+	password        string
 	csrfToken       atomic.Value
 	loggedIn        bool
 	heartbeatCtx    context.Context
@@ -95,14 +95,17 @@ func isTransientError(err error) bool {
 	return false
 }
 
-// isSessionError returns true if the error indicates an invalid session (401/403).
+// isSessionError returns true if the error indicates an invalid session or CSRF expiry.
 func isSessionError(err error) bool {
 	if err == nil {
 		return false
 	}
 	var httpErr *httpStatusError
 	if errors.As(err, &httpErr) {
-		return httpErr.StatusCode == 401 || httpErr.StatusCode == 403
+		switch httpErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden, 419:
+			return true
+		}
 	}
 	return false
 }
@@ -436,12 +439,17 @@ func (c *Client) withReLogin(ctx context.Context, fields map[string]string, path
 	fields["_token"] = c.csrfToken.Load().(string)
 
 	body, err := c.multipartPostWithRetry(ctx, path, fields)
-	if err == nil && !isLoginPage(string(body)) {
-		return body, nil
-	}
-
-	if err != nil && isTransientError(err) {
-		return nil, err
+	if err == nil {
+		if !isLoginPage(string(body)) {
+			return body, nil
+		}
+	} else {
+		if isTransientError(err) {
+			return nil, err
+		}
+		if !isSessionError(err) {
+			return nil, err
+		}
 	}
 
 	slog.Warn("smartsms: session invalid, re-logging in", "path", path, "err", err)

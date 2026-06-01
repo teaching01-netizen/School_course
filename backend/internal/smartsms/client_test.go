@@ -530,9 +530,88 @@ func TestSendSMS_SessionExpired_ReLogin(t *testing.T) {
 	}
 }
 
-func TestSendSMS_ReLoginFails(t *testing.T) {
-	var step1Calls int
+func TestSendOTP_Step1HTTP419_ReLogin(t *testing.T) {
+	const csrfToken = "otp-csrf"
+	var loginCount int
+	var previewCount int
+	var confirmCount int
 
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<form><input name="_token" value="` + csrfToken + `"></form>`))
+		case "/login":
+			loginCount++
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			previewCount++
+			if previewCount == 1 {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(419)
+				w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><title>Page Expired</title></head><body>Page Expired</body></html>`))
+				return
+			}
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse preview form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if got := r.FormValue("_token"); got != csrfToken {
+				t.Errorf("previewData _token = %q, want %q", got, csrfToken)
+			}
+			if got := r.FormValue("mobile"); got != "0812345678" {
+				t.Errorf("previewData mobile = %q, want %q", got, "0812345678")
+			}
+			if got := r.FormValue("ref_no"); got != "otp" {
+				t.Errorf("previewData ref_no = %q, want otp", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":               true,
+				"preview_id":            "prev-otp",
+				"number_of_used_credit": 1,
+				"correct":               1,
+			})
+		case "/dataset/confirmSend":
+			confirmCount++
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse confirm form: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if got := r.FormValue("_token"); got != csrfToken {
+				t.Errorf("confirmSend _token = %q, want %q", got, csrfToken)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = c.SendOTP(context.Background(), "+66812345678", "123456", "otp message")
+	if err != nil {
+		t.Fatalf("SendOTP: %v", err)
+	}
+	if loginCount < 2 {
+		t.Fatalf("expected at least 2 login calls (initial + re-login), got %d", loginCount)
+	}
+	if previewCount != 2 {
+		t.Fatalf("expected 2 previewData calls (retry after 419), got %d", previewCount)
+	}
+	if confirmCount != 1 {
+		t.Fatalf("expected 1 confirmSend call, got %d", confirmCount)
+	}
+}
+
+func TestSendSMS_ReLoginFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sendsms":
@@ -542,15 +621,9 @@ func TestSendSMS_ReLoginFails(t *testing.T) {
 			// Always accept login (return redirect to sendsms)
 			http.Redirect(w, r, "/sendsms", http.StatusFound)
 		case "/dataset/previewData":
-			step1Calls++
-			if step1Calls == 1 {
-				// First call: return login page (session expired)
-				w.Header().Set("Content-Type", "text/html")
-				w.Write([]byte(`<html><body><form><input name="email" type="text"></form></body></html>`))
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "preview_id": "p"})
+			// Keep returning the login page so the second attempt also fails.
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html><body><form><input name="email" type="text"></form></body></html>`))
 		default:
 			http.NotFound(w, r)
 		}
