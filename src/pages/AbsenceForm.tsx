@@ -1027,7 +1027,7 @@ export default function AbsenceForm() {
         </div>
 
         {configLoading ? (
-          <LoadingSkeleton type="card" lines={3} />
+          <LoadingSkeleton type="text" lines={3} />
         ) : null}
 
         <FormErrorSummary
