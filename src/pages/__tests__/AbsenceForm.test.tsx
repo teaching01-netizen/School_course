@@ -208,7 +208,7 @@ describe("AbsenceForm", () => {
 
     // Select all courses first to reveal sessions
     await user.click(screen.getByRole("button", { name: /select all/i }));
-    await waitFor(() => expect(screen.getAllByText(/▼ MATH - Mathematics/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/▼ Mathematics/i).length).toBeGreaterThan(0));
 
     // Select first session checkbox to enable submit
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
@@ -232,7 +232,44 @@ describe("AbsenceForm", () => {
         body: expect.stringContaining('"verification_token":"otp-token-123"'),
       }),
     );
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"date_from":"2026-06-01"'),
+      }),
+    );
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"date_to":"2026-06-01"'),
+      }),
+    );
   }, 30000);
+
+  it("blocks submission when selected sessions span more than one day", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange();
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
+      (cb) => cb.getAttribute("id")?.startsWith("session-"),
+    );
+    await user.click(sessionCheckboxes[0]);
+    await user.click(sessionCheckboxes[1]);
+
+    expect(screen.getByRole("button", { name: /submit absence/i })).toBeDisabled();
+    expect(screen.getByText(/Select sessions from one day only/i)).toBeInTheDocument();
+  });
 
   it("disables verify parent button when student has no parent phone", async () => {
     installHappyPathMocks({
@@ -362,8 +399,7 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
 
-    expect(screen.getByText(/^Absence class: Math inter$/)).toBeInTheDocument();
-    expect(screen.queryByText(/^Absence class: math_advance$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Subject:\s*Math inter/i)).toBeInTheDocument();
   });
 
   it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
@@ -531,7 +567,7 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Scholar");
     expect(makeUpSelect).not.toHaveTextContent("Math advance");
     expect(makeUpSelect).not.toHaveTextContent("0000000371");
-    expect(screen.getByText(/^Absence class: Scholar$/)).toBeInTheDocument();
+    expect(screen.getByText(/Subject:\s*Scholar/i)).toBeInTheDocument();
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {

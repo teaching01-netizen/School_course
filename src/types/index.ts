@@ -231,6 +231,7 @@ export type StudentLookupResponse = {
   student_id: string;
   wcode: string;
   full_name: string;
+  display_name?: string | null;
   nickname?: string | null;
   parent_phone?: string | null;
   subjects: StudentLookupSubject[];
@@ -264,6 +265,7 @@ export type CalendarSessionBrief = {
   course_id: string;
   course_code: string;
   course_name?: string;
+  subject_name?: string | null;
   start_at: string;
   end_at: string;
   room_name?: string | null;
@@ -280,10 +282,14 @@ export type CalendarAbsence = {
   wcode: string;
   student_name: string | null;
   status: AbsenceStatus;
+  subject_name?: string | null;
   subject_code?: string | null;
   date_from: string;
   date_to: string;
   sit_in_method: string | null;
+  sit_in_course_code?: string | null;
+  sit_in_course_name?: string | null;
+  sit_in_subject_name?: string | null;
   missed_sessions?: CalendarSessionBrief[];
   sit_in_sessions?: CalendarSessionBrief[];
 };

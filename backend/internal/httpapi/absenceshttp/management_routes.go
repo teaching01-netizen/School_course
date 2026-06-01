@@ -21,6 +21,7 @@ type calendarSessionBriefDTO struct {
 	CourseID    string  `json:"course_id"`
 	CourseCode  string  `json:"course_code"`
 	CourseName  string  `json:"course_name"`
+	SubjectName *string `json:"subject_name"`
 	StartAt     string  `json:"start_at"`
 	EndAt       string  `json:"end_at"`
 	RoomName    *string `json:"room_name"`
@@ -28,14 +29,18 @@ type calendarSessionBriefDTO struct {
 }
 
 type calendarAbsenceDTO struct {
-	ID          string  `json:"id"`
-	Wcode       string  `json:"wcode"`
-	StudentName *string `json:"student_name"`
-	Status      string  `json:"status"`
-	SubjectCode *string `json:"subject_code"`
-	DateFrom    string  `json:"date_from"`
-	DateTo      string  `json:"date_to"`
-	SitInMethod *string `json:"sit_in_method"`
+	ID               string  `json:"id"`
+	Wcode            string  `json:"wcode"`
+	StudentName      *string `json:"student_name"`
+	Status           string  `json:"status"`
+	SubjectCode      *string `json:"subject_code"`
+	SubjectName      *string `json:"subject_name"`
+	DateFrom         string  `json:"date_from"`
+	DateTo           string  `json:"date_to"`
+	SitInMethod      *string `json:"sit_in_method"`
+	SitInCourseCode  *string `json:"sit_in_course_code"`
+	SitInCourseName  *string `json:"sit_in_course_name"`
+	SitInSubjectName *string `json:"sit_in_subject_name"`
 }
 
 type calendarAbsenceDayDTO struct {
@@ -295,6 +300,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			CourseID:    courseID,
 			CourseCode:  row.CourseCode,
 			CourseName:  row.CourseName,
+			SubjectName: stringPtrIfValid(row.SubjectName),
 			StartAt:     row.StartAt.Time.UTC().Format(time.RFC3339Nano),
 			EndAt:       row.EndAt.Time.UTC().Format(time.RFC3339Nano),
 			RoomName:    stringPtrIfValid(row.RoomName),
@@ -306,14 +312,18 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	for _, row := range absRows {
 		id, _ := s.a.UUIDString(row.ID)
 		dto := calendarAbsenceDTO{
-			ID:          id,
-			Wcode:       row.Wcode,
-			StudentName: stringPtrIfValid(row.StudentName),
-			Status:      row.Status,
-			SubjectCode: stringPtrIfValid(row.SubjectCode),
-			DateFrom:    row.DateFrom.Time.Format("2006-01-02"),
-			DateTo:      row.DateTo.Time.Format("2006-01-02"),
-			SitInMethod: stringPtrIfValid(row.SitInMethod),
+			ID:               id,
+			Wcode:            row.Wcode,
+			StudentName:      stringPtrIfValid(row.StudentName),
+			Status:           row.Status,
+			SubjectCode:      stringPtrIfValid(row.SubjectCode),
+			SubjectName:      stringPtrIfValid(row.SubjectName),
+			DateFrom:         row.DateFrom.Time.Format("2006-01-02"),
+			DateTo:           row.DateTo.Time.Format("2006-01-02"),
+			SitInMethod:      stringPtrIfValid(row.SitInMethod),
+			SitInCourseCode:  stringPtrIfValid(row.SitInCourseCode),
+			SitInCourseName:  stringPtrIfValid(row.SitInCourseName),
+			SitInSubjectName: stringPtrIfValid(row.SitInSubjectName),
 		}
 		current := row.DateFrom.Time
 		end := row.DateTo.Time

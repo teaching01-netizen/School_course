@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import type { CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
+import type { CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 
@@ -38,11 +38,52 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+function getSessionLabel(session: CalendarSessionBrief): string {
+  return session.subject_name?.trim() || session.course_name?.trim() || session.course_code?.trim() || "Session";
+}
+
+function getAbsenceStudentLabel(absence: CalendarAbsence): string {
+  const name = absence.student_name?.trim();
+  return name ? `${absence.wcode} · ${name}` : absence.wcode;
+}
+
+function getAbsenceSubjectLabel(absence: CalendarAbsence): string {
+  return absence.subject_name?.trim() || absence.subject_code?.trim() || "Subject";
+}
+
+function getSitInLabel(absence: CalendarAbsence): string {
+  switch (absence.sit_in_method) {
+    case "zoom":
+      return "Zoom";
+    case "physical":
+      return absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || "To arrange";
+    case "teacher_case":
+      return "To arrange";
+    default:
+      return "To arrange";
+  }
+}
+
 function absencePuckColor(count: number): string {
   if (count === 0) return "bg-gray-100 text-gray-400";
   if (count <= 3) return "bg-green-100 text-green-700";
   if (count <= 6) return "bg-amber-100 text-amber-700";
   return "bg-red-100 text-red-700";
+}
+
+function absenceInlineClasses(absence: CalendarAbsence): string {
+  switch (absence.sit_in_method) {
+    case "physical":
+      return "border-amber-200 bg-amber-50/70";
+    case "zoom":
+      return "border-sky-200 bg-sky-50/70";
+    default:
+      return "border-rose-200 bg-rose-50/70";
+  }
+}
+
+function absencesOnDate(day: CalendarAbsenceDay | undefined): CalendarAbsence[] {
+  return day?.absences ?? [];
 }
 
 function dayCellOddEven(date: Date): string {
@@ -136,7 +177,7 @@ export default function OperationsCalendar() {
 
   const filteredSessions = useMemo(() => {
     if (!subjectFilter) return sessions;
-    return sessions.filter((s) => s.course_code === subjectFilter || s.course_id === subjectFilter);
+    return sessions.filter((s) => s.course_id === subjectFilter);
   }, [sessions, subjectFilter]);
 
   const filteredAbsenceDays = useMemo(() => {
@@ -148,11 +189,14 @@ export default function OperationsCalendar() {
   }, [absenceDays, statusFilter]);
 
   const subjects = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sessions) {
-      if (s.course_code) set.add(s.course_code);
+    const map = new Map<string, string>();
+    for (const session of sessions) {
+      const label = getSessionLabel(session);
+      if (!map.has(session.course_id)) {
+        map.set(session.course_id, label);
+      }
     }
-    return [...set].sort();
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [sessions]);
 
   const sessionsByDay = useMemo(() => {
@@ -228,7 +272,7 @@ export default function OperationsCalendar() {
         <div className="flex flex-wrap gap-3">
           <select aria-label="Subject" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="text-sm">
             <option value="">All subjects</option>
-            {subjects.map((code) => <option key={code} value={code}>{code}</option>)}
+            {subjects.map(([courseId, label]) => <option key={courseId} value={courseId}>{label}</option>)}
           </select>
           <select aria-label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm">
             <option value="">All statuses</option>
@@ -252,7 +296,8 @@ export default function OperationsCalendar() {
               const dayStr = yyyyMmDd(date);
               const dayAbsences = absencesByDay.get(dayStr);
               const daySessions = sessionsByDay.get(dayStr) ?? [];
-              const absenceCount = dayAbsences?.absences.length ?? 0;
+              const dayAbsenceRows = absencesOnDate(dayAbsences);
+              const absenceCount = dayAbsenceRows.length;
               const isToday = todayStr === dayStr;
               const isCurrentMonth = date.getMonth() === monthStart.getMonth();
               return (
@@ -266,18 +311,28 @@ export default function OperationsCalendar() {
                   >
                     {date.getDate()}
                   </button>
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {daySessions.slice(0, 2).map((s) => (
                       <div key={s.id} className="truncate rounded-sm bg-blue-50 px-1 py-0.5 text-[10px] text-blue-700">
-                        {s.course_code} {formatTime(s.start_at)}
+                        {getSessionLabel(s)} {formatTime(s.start_at)}
                       </div>
                     ))}
                     {daySessions.length > 2 ? <div className="text-[10px] text-gray-400 px-1">+{daySessions.length - 2} more</div> : null}
-                    {absenceCount > 0 ? (
-                      <div className={`mt-0.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${absencePuckColor(absenceCount)}`}>
-                        {absenceCount} absence{absenceCount !== 1 ? "s" : ""}
+                    {dayAbsenceRows.slice(0, 2).map((absence) => (
+                    <div
+                      key={absence.id}
+                      className={`rounded-sm border-l-2 px-1.5 py-1 text-[10px] leading-snug ${absenceInlineClasses(absence)}`}
+                    >
+                      <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
+                      <p className="truncate text-[10px] text-amber-700">
+                        <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
+                      </p>
+                      <p className="truncate text-[10px] text-sky-700">
+                        <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
+                      </p>
                       </div>
-                    ) : null}
+                    ))}
+                    {absenceCount > 2 ? <div className="text-[10px] text-gray-400 px-1">+{absenceCount - 2} more</div> : null}
                   </div>
                 </div>
               );
@@ -293,7 +348,8 @@ export default function OperationsCalendar() {
             const dayStr = yyyyMmDd(date);
             const dayAbsences = absencesByDay.get(dayStr);
             const daySessions = sessionsByDay.get(dayStr) ?? [];
-            const absenceCount = dayAbsences?.absences.length ?? 0;
+            const dayAbsenceRows = absencesOnDate(dayAbsences);
+            const absenceCount = dayAbsenceRows.length;
             const isToday = yyyyMmDd(new Date()) === dayStr;
 
             return (
@@ -319,14 +375,30 @@ export default function OperationsCalendar() {
                       key={session.id}
                       className="rounded-sm border border-gray-100 bg-white px-2 py-1.5 text-xs shadow-sm hover:shadow-md transition-shadow cursor-default"
                     >
-                      <p className="font-semibold text-gray-800">{session.course_code}</p>
+                      <p className="font-semibold text-gray-800">{getSessionLabel(session)}</p>
                       <p className="text-gray-500">{formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}</p>
                       {session.room_name ? <p className="text-gray-400 truncate">{session.room_name}</p> : null}
                     </div>
                   ))}
+                  {dayAbsenceRows.slice(0, 2).map((absence) => (
+                    <Link
+                      key={absence.id}
+                      to={`/absences/${absence.id}`}
+                      className={`block rounded-sm border-l-2 px-2 py-1.5 text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
+                    >
+                      <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
+                      <p className="truncate text-amber-700">
+                        <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
+                      </p>
+                      <p className="truncate text-sky-700">
+                        <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
+                      </p>
+                    </Link>
+                  ))}
                   {daySessions.length === 0 && absenceCount === 0 ? (
                     <p className="px-1 py-4 text-center text-xs text-gray-300">No activity</p>
                   ) : null}
+                  {absenceCount > 2 ? <p className="px-1 text-[10px] text-gray-400">+{absenceCount - 2} more absences</p> : null}
                 </div>
               </div>
             );
@@ -345,17 +417,15 @@ export default function OperationsCalendar() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({selectedDayAbsences.length})</h4>
-              {selectedDayAbsences.length === 0 ? (
+                  {selectedDayAbsences.length === 0 ? (
                 <p className="text-sm text-gray-400">No absences this day.</p>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {selectedDayAbsences.map((abs) => (
                     <Link key={abs.id} to={`/absences/${abs.id}`} className="block rounded-sm border border-gray-100 bg-gray-50 p-2 text-sm hover:bg-gray-100 transition-colors">
-                      <p className="font-medium text-gray-800">{abs.student_name ?? abs.wcode}</p>
-                      <p className="text-xs text-gray-500">{abs.wcode} &middot; {abs.subject_code}</p>
-                      {abs.sit_in_method ? (
-                        <span className="mt-1 inline-block rounded-sm bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700">{abs.sit_in_method === "zoom" ? "Zoom" : "Physical"}</span>
-                      ) : null}
+                      <p className="font-medium text-gray-800">{getAbsenceStudentLabel(abs)}</p>
+                      <p className="text-xs text-amber-700"><span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(abs)}</p>
+                      <p className="text-xs text-sky-700"><span className="font-semibold">Sit-in:</span> {getSitInLabel(abs)}</p>
                     </Link>
                   ))}
                 </div>
@@ -369,7 +439,7 @@ export default function OperationsCalendar() {
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {selectedDaySessions.map((s) => (
                     <div key={s.id} className="rounded-sm border border-gray-100 bg-gray-50 p-2 text-sm">
-                      <p className="font-medium text-gray-800">{s.course_code}</p>
+                      <p className="font-medium text-gray-800">{getSessionLabel(s)}</p>
                       <p className="text-xs text-gray-500">{formatTime(s.start_at)} &ndash; {formatTime(s.end_at)}{s.room_name ? ` \u00b7 ${s.room_name}` : ""}</p>
                     </div>
                   ))}

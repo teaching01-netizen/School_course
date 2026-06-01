@@ -564,14 +564,18 @@ func (q *Queries) AbsenceDashboardBreakdowns(ctx context.Context, from, to time.
 }
 
 type AbsenceDayInRangeRow struct {
-	ID          pgtype.UUID
-	Wcode       string
-	StudentName pgtype.Text
-	Status      string
-	SubjectCode pgtype.Text
-	DateFrom    pgtype.Date
-	DateTo      pgtype.Date
-	SitInMethod pgtype.Text
+	ID               pgtype.UUID
+	Wcode            string
+	StudentName      pgtype.Text
+	Status           string
+	SubjectCode      pgtype.Text
+	SubjectName      pgtype.Text
+	DateFrom         pgtype.Date
+	DateTo           pgtype.Date
+	SitInMethod      pgtype.Text
+	SitInCourseCode  pgtype.Text
+	SitInCourseName  pgtype.Text
+	SitInSubjectName pgtype.Text
 }
 
 func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd time.Time) ([]AbsenceDayInRangeRow, error) {
@@ -582,12 +586,18 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 		  COALESCE(sa.student_name, st.full_name),
 		  sa.status,
 		  sub.code,
+		  sub.name,
 		  sa.date_from,
 		  sa.date_to,
-		  sa.sit_in_method
+		  sa.sit_in_method,
+		  sc.code,
+		  sc.name,
+		  sit_sub.name
 		FROM student_absences sa
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
+		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
 		WHERE sa.date_from <= $2::date
 		  AND sa.date_to >= $1::date
 		ORDER BY sa.date_from ASC, sa.id ASC
@@ -599,7 +609,7 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 	var out []AbsenceDayInRangeRow
 	for rows.Next() {
 		var item AbsenceDayInRangeRow
-		if err := rows.Scan(&item.ID, &item.Wcode, &item.StudentName, &item.Status, &item.SubjectCode, &item.DateFrom, &item.DateTo, &item.SitInMethod); err != nil {
+		if err := rows.Scan(&item.ID, &item.Wcode, &item.StudentName, &item.Status, &item.SubjectCode, &item.SubjectName, &item.DateFrom, &item.DateTo, &item.SitInMethod, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName); err != nil {
 			return nil, err
 		}
 		out = append(out, item)

@@ -47,7 +47,6 @@ export default function StepCoverVerification({
   wcode,
   parentPhone,
   allowSubmitWithoutOtp,
-  adminContact,
   verification,
   completed,
   onSatisfied,
