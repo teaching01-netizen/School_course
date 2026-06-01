@@ -769,11 +769,9 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1
-		  AND sess.start_at >= $2
-		  AND sess.start_at < ($3::date + interval '1 day')
 		  AND sess.deleted_at IS NULL
 		ORDER BY sub.code, sess.start_at
-	`, wcode, dateFrom, dateTo)
+	`, wcode)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -839,10 +837,8 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		  AND sa.status <> 'cancelled'
 		  AND sess.start_at >= sa.date_from
 		  AND sess.start_at < (sa.date_to + interval '1 day')
-		  AND sess.start_at >= $2
-		  AND sess.start_at < ($3::date + interval '1 day')
 		  AND sess.deleted_at IS NULL
-	`, wcode, dateFrom, dateTo)
+	`, wcode)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
