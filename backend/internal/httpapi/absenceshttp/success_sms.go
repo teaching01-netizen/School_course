@@ -104,12 +104,29 @@ func formatSMSDateTime(value time.Time, loc *time.Location) string {
 	return value.In(loc).Format("2 Jan, 15:04")
 }
 
-func resolveParentPhone(ctx context.Context, q *sqldb.Queries, wcode string) string {
-	rows, err := q.StudentSubjectByWCode(ctx, wcode)
-	if err != nil || len(rows) == 0 || !rows[0].ParentPhone.Valid {
-		return ""
+func successSMSPhones(parentPhone pgtype.Text, studentPhone pgtype.Text) []string {
+	var phones []string
+	if parentPhone.Valid {
+		phones = append(phones, parentPhone.String)
 	}
-	return rows[0].ParentPhone.String
+	if studentPhone.Valid {
+		phones = append(phones, studentPhone.String)
+	}
+	return dedupePhones(phones)
+}
+
+func dedupePhones(phones []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(phones))
+	for _, phone := range phones {
+		phone = strings.TrimSpace(phone)
+		if phone == "" || seen[phone] {
+			continue
+		}
+		seen[phone] = true
+		out = append(out, phone)
+	}
+	return out
 }
 
 func sendSuccessSMS(
@@ -119,10 +136,11 @@ func sendSuccessSMS(
 	row sqldb.ManagedAbsenceRow,
 	sessions []sqldb.ManagedAbsenceSession,
 	missed []sqldb.ManagedAbsenceSession,
-	phone string,
+	phones []string,
 	instituteTZ string,
 ) bool {
-	if template == "" || phone == "" {
+	phones = dedupePhones(phones)
+	if template == "" || len(phones) == 0 {
 		return false
 	}
 	loc, err := time.LoadLocation(instituteTZ)
@@ -142,7 +160,7 @@ func sendSuccessSMS(
 		CampaignNo: campaignID,
 		Campaign:   campaignID,
 		Message:    rendered,
-		Mobiles:    []string{phone},
+		Mobiles:    phones,
 		RefNo:      idStr,
 	})
 	if err != nil {

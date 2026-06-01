@@ -294,12 +294,12 @@ func (q *Queries) AbsenceAuditList(ctx context.Context, absenceID pgtype.UUID) (
 	return out, rows.Err()
 }
 
-func (q *Queries) AbsenceSetSubmissionMetadata(ctx context.Context, id, subjectID pgtype.UUID, method pgtype.Text, studentName string, reasonCategory pgtype.Text, sitInCourseID pgtype.UUID) error {
+func (q *Queries) AbsenceSetSubmissionMetadata(ctx context.Context, id, subjectID pgtype.UUID, method pgtype.Text, studentName string, studentPhone pgtype.Text, reasonCategory pgtype.Text, sitInCourseID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE student_absences
-		SET subject_id = $2, sit_in_method = $3, student_name = $4, reason_category = $5, sit_in_course_id = $6, updated_at = now()
+		SET subject_id = $2, sit_in_method = $3, student_name = $4, student_phone = $5, reason_category = $6, sit_in_course_id = $7, updated_at = now()
 		WHERE id = $1
-	`, id, subjectID, method, studentName, reasonCategory, sitInCourseID)
+	`, id, subjectID, method, studentName, studentPhone, reasonCategory, sitInCourseID)
 	return err
 }
 

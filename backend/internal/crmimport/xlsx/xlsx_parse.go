@@ -189,7 +189,7 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 			Nickname:            get("Nickname"),
 			SecondarySchool:     get("Secondary School"),
 			AcademicLevel:       get("Academic level"),
-			MobilePhone:         get("Mobile Phone"),
+			MobilePhone:         cleanPhoneSuffix(get("Mobile Phone")),
 			Hours:               hoursPtr,
 			TeachersRaw:         get("Teacher(s)"),
 			PrimaryEmail:        get("Primary E-mail"),

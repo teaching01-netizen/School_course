@@ -12,10 +12,11 @@ import (
 
 // studentRow represents a student identity extracted from a snapshot.
 type studentRow struct {
-	WCode       string
-	FullName    string
-	Nickname    string
-	ParentPhone string
+	WCode        string
+	FullName     string
+	Nickname     string
+	StudentPhone string
+	ParentPhone  string
 }
 
 // StudentSyncService handles syncing student identities from a CRM snapshot.
@@ -42,6 +43,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 				ELSE ''
 			END AS full_name,
 			COALESCE(NULLIF(btrim(nickname), ''), '') AS nickname,
+			COALESCE(NULLIF(btrim(mobile_phone), ''), '') AS student_phone,
 			COALESCE(NULLIF(btrim(parent_phone), ''), '') AS parent_phone
 		FROM crm_rows
 		WHERE snapshot_id = $1
@@ -56,7 +58,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 	var students []studentRow
 	for rows.Next() {
 		var sr studentRow
-		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.ParentPhone); err != nil {
+		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.StudentPhone, &sr.ParentPhone); err != nil {
 			return 0, fmt.Errorf("scan student: %w", err)
 		}
 		sr.WCode = strings.TrimSpace(sr.WCode)
@@ -99,6 +101,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 			CREATE TEMP TABLE _sync_students (
 				wcode text NOT NULL,
 				full_name text NOT NULL,
+				student_phone text NOT NULL DEFAULT '',
 				parent_phone text NOT NULL DEFAULT ''
 			) ON COMMIT DROP
 		`); err != nil {
@@ -108,7 +111,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		copyCount, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{"_sync_students"},
-			[]string{"wcode", "full_name", "parent_phone"},
+			[]string{"wcode", "full_name", "student_phone", "parent_phone"},
 			pgx.CopyFromRows(studentCopies(batch)),
 		)
 		if err != nil {
@@ -117,10 +120,11 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		_ = copyCount
 
 		res, err := tx.Exec(ctx, `
-			INSERT INTO students (wcode, full_name, notes, parent_phone)
-			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.parent_phone, '') FROM _sync_students ss
+			INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone)
+			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
 			ON CONFLICT (wcode) DO UPDATE
 			SET full_name = EXCLUDED.full_name,
+			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL THEN EXCLUDED.student_phone ELSE students.student_phone END,
 			    parent_phone = CASE WHEN NULLIF(EXCLUDED.parent_phone, '') IS NOT NULL THEN EXCLUDED.parent_phone ELSE students.parent_phone END,
 			    updated_at = now()
 		`)
@@ -141,7 +145,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 func studentCopies(students []studentRow) [][]any {
 	sources := make([][]any, len(students))
 	for i, s := range students {
-		sources[i] = []any{s.WCode, s.FullName, s.ParentPhone}
+		sources[i] = []any{s.WCode, s.FullName, s.StudentPhone, s.ParentPhone}
 	}
 	return sources
 }

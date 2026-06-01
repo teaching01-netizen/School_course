@@ -273,6 +273,15 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 
+		var studentPhone pgtype.Text
+		var successSMSRecipients []string
+		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
+			studentPhone = contactRows[0].StudentPhone
+			successSMSRecipients = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
+		} else if contactErr != nil && s.deps.Log != nil {
+			s.deps.Log.Error("failed to load absence contact phones", "wcode", body.Wcode, "error", contactErr)
+		}
+
 		requireVerification := settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp
 		if !settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp {
 			s.a.WriteErr(w, http.StatusForbidden, "feature_disabled", "Parent verification codes are currently disabled")
@@ -341,7 +350,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), item.ID, subjectID, sitInMethod, student.FullName, reasonCategory, sitInCourseID); err != nil {
+		if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), item.ID, subjectID, sitInMethod, student.FullName, studentPhone, reasonCategory, sitInCourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -447,18 +456,17 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 
 		// Send success SMS after submission (non-critical; errors are logged only).
 		if settings.Notifications.SmsSuccessTemplate != "" {
-			phone := resolveParentPhone(r.Context(), qtx, body.Wcode)
-			if phone != "" {
+			if len(successSMSRecipients) > 0 {
 				sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
 				if sesErr == nil {
 					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
 					if missedErr == nil {
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, phone, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, successSMSRecipients, s.deps.InstituteTZ)
 					} else {
 						if s.deps.Log != nil {
 							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", item.ID, "error", missedErr)
 						}
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, phone, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, successSMSRecipients, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)

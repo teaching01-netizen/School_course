@@ -48,6 +48,7 @@ export type Student = {
   full_name: string;
   notes: string;
   status?: string;
+  student_phone?: string | null;
   parent_phone?: string | null;
 };
 export type AttendanceOverride = { student_id: string; status: "included" | "excluded"; created_at: string };

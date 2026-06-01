@@ -22,11 +22,11 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/crmimport/crmtypes"
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	"warwick-institute/internal/crmimport/xlsx"
+	sqldb "warwick-institute/internal/db"
 )
 
 // ============================================================================
@@ -767,6 +767,78 @@ func TestStudentSync_PreservesNotes(t *testing.T) {
 	}
 	if notes != "important note" {
 		t.Fatalf("expected notes 'important note' to be preserved, got %q", notes)
+	}
+}
+
+func TestStudentSync_SyncsStudentPhoneFromCRMMobile(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rows := []xlsx.Row{
+		{WCode: "W250040", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Phone", LastName: "Student", MobilePhone: "081-234-5678", ParentPhone: "089-876-5432"},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	_, err := syncSvc.SyncFromSnapshot(ctx, snapshotID)
+	if err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var studentPhone, parentPhone string
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250040'`).Scan(&studentPhone, &parentPhone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if studentPhone != "081-234-5678" {
+		t.Fatalf("student_phone = %q, want %q", studentPhone, "081-234-5678")
+	}
+	if parentPhone != "089-876-5432" {
+		t.Fatalf("parent_phone = %q, want %q", parentPhone, "089-876-5432")
+	}
+}
+
+func TestStudentSync_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone) VALUES ('W250041', 'Existing Name', '', '081-111-1111')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []xlsx.Row{
+		{WCode: "W250041", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Updated", LastName: "Name", MobilePhone: ""},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	_, err = syncSvc.SyncFromSnapshot(ctx, snapshotID)
+	if err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var studentPhone string
+	err = dbpool.QueryRow(ctx, `SELECT student_phone FROM students WHERE wcode = 'W250041'`).Scan(&studentPhone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if studentPhone != "081-111-1111" {
+		t.Fatalf("student_phone = %q, want existing phone", studentPhone)
 	}
 }
 

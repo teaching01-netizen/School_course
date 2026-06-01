@@ -42,7 +42,7 @@ func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
 	}}
 	tmpl := "{{nickname}}|{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}"
 
-	sent := sendSuccessSMS(mock, log, tmpl, row, sessions, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, log, tmpl, row, sessions, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -74,7 +74,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 		DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:      pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
-	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -90,7 +90,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "", row, nil, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, nil, "", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessSMS to return false for empty template")
 	}
@@ -99,15 +99,44 @@ func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 	}
 }
 
-func TestSendSuccessSMS_SkipsWhenPhoneEmpty(t *testing.T) {
+func TestSendSuccessSMS_SkipsWhenPhonesEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "template {{nickname}}", row, nil, nil, "", "UTC")
+	sent := sendSuccessSMS(mock, nil, "template {{nickname}}", row, nil, nil, nil, "UTC")
 	if sent {
-		t.Fatal("expected sendSuccessSMS to return false for empty phone")
+		t.Fatal("expected sendSuccessSMS to return false for empty phones")
 	}
 	if len(mock.sent) != 0 {
 		t.Fatal("expected no SMS sent for empty phone")
+	}
+}
+
+func TestSendSuccessSMS_SendsToDedupedParentAndStudentPhones(t *testing.T) {
+	mock := &recordingSMSProvider{}
+	row := sqldb.ManagedAbsenceRow{
+		ID:          makeUUID("3a296bd4-fd61-4877-b4b2-698475030911"),
+		StudentName: pgtype.Text{String: "Ada", Valid: true},
+		Wcode:       "W001",
+		SubjectName: pgtype.Text{String: "Math", Valid: true},
+		DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:      pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+
+	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, []string{
+		"+66812345678",
+		"+66898765432",
+		" +66812345678 ",
+		"",
+	}, "UTC")
+	if !sent {
+		t.Fatal("expected sendSuccessSMS to return true")
+	}
+	if len(mock.sent) != 1 {
+		t.Fatalf("expected 1 SMS request, got %d", len(mock.sent))
+	}
+	want := []string{"+66812345678", "+66898765432"}
+	if strings.Join(mock.sent[0].Mobiles, ",") != strings.Join(want, ",") {
+		t.Fatalf("mobiles = %v, want %v", mock.sent[0].Mobiles, want)
 	}
 }
 
@@ -122,7 +151,7 @@ func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	}
 	// MockProvider always succeeds, so this tests the "no error path".
 	// For the error path, we use a provider that returns error.
-	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, "+66812345678", "UTC")
+	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true on success")
 	}

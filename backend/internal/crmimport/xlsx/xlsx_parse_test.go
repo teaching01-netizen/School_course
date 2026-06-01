@@ -105,6 +105,32 @@ func TestCleanPhoneSuffix(t *testing.T) {
 	}
 }
 
+func TestParseXLSX_CleansMobilePhoneSuffix(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Bangkok")
+	f := excelize.NewFile()
+	sheet := f.GetSheetName(0)
+
+	headers := []string{"Student Id", "First Name", "Last Name", "Mobile Phone", "Course Name", "Cycle"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(sheet, cell, h)
+	}
+	row := []any{"W250001", "Test", "User", "081-234-5678 Student", "Course A", "Cycle 1"}
+	for i, v := range row {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
+		_ = f.SetCellValue(sheet, cell, v)
+	}
+
+	buf, _ := f.WriteToBuffer()
+	parsed, err := ParseXLSX(buf.Bytes(), loc)
+	if err != nil {
+		t.Fatalf("ParseXLSX: %v", err)
+	}
+	if parsed.Rows[0].MobilePhone != "081-234-5678" {
+		t.Fatalf("mobile phone = %q, want %q", parsed.Rows[0].MobilePhone, "081-234-5678")
+	}
+}
+
 func TestParseXLSX_SkipsEmptyRows(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Bangkok")
 	f := excelize.NewFile()
