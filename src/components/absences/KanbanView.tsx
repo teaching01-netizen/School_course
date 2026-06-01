@@ -6,6 +6,8 @@ import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../../types";
 import EmptyState from "../ui/EmptyState";
 import Button from "../ui/Button";
 import Modal from "../Modal";
+import { formatAbsenceSummaryDates } from "./dateSummary";
+import { formatSitInLabel } from "./sitInLabel";
 
 export const COLUMNS: { key: AbsenceStatus; label: string }[] = [
   { key: "pending", label: "Pending" },
@@ -21,10 +23,6 @@ const COLUMN_STYLES: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
-function formatDate(value: string): string {
-  return new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
 function submittedAgo(value: string): string {
   const elapsed = Date.now() - new Date(value).getTime();
   const hours = Math.floor(elapsed / 3_600_000);
@@ -36,10 +34,6 @@ function submittedAgo(value: string): string {
 
 function initials(name: string): string {
   return name.split(" ").map((part) => part.charAt(0)).join("").toUpperCase().slice(0, 2);
-}
-
-function dateSpan(absence: ManagedAbsence): string {
-  return `${formatDate(absence.date_from)} - ${formatDate(absence.date_to)}`;
 }
 
 function AbsenceCard({
@@ -63,15 +57,15 @@ function AbsenceCard({
           <p className="font-mono text-xs text-gray-500">{absence.wcode}</p>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="mt-2 flex flex-wrap items-start gap-1.5">
         <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_code ?? "-"}</span>
-        <span className="text-xs text-gray-600">{dateSpan(absence)}</span>
+        <span className="block whitespace-pre-line text-xs leading-tight text-gray-600">{formatAbsenceSummaryDates(absence)}</span>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         {absence.sit_in_method === "zoom" ? (
           <span className="rounded-sm bg-blue-50 px-2 py-0.5 text-xs text-blue-700">Zoom</span>
         ) : absence.sit_in_method === "physical" ? (
-          <span className="rounded-sm bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{absence.sit_in_course_code ?? "Physical"}</span>
+          <span className="rounded-sm bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{formatSitInLabel(absence)}</span>
         ) : (
           <span className="rounded-sm bg-gray-50 px-2 py-0.5 text-xs text-gray-500">Pending</span>
         )}
@@ -221,7 +215,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
                 </div>
                 <div className="mt-1 flex gap-1.5">
                   <span className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{absence.subject_code}</span>
-                  <span className="text-xs text-gray-500">{dateSpan(absence)}</span>
+                  <span className="block whitespace-pre-line text-xs leading-tight text-gray-500">{formatAbsenceSummaryDates(absence)}</span>
                 </div>
               </div>
             ))}

@@ -148,6 +148,7 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 }
 
 type ManagedAbsenceSession struct {
+	AbsenceID  pgtype.UUID
 	ID         pgtype.UUID
 	SessionID  pgtype.UUID
 	CourseID   pgtype.UUID
@@ -160,7 +161,7 @@ type ManagedAbsenceSession struct {
 
 func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT ams.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
+		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
 		FROM absence_missed_sessions ams
 		JOIN sessions sess ON sess.id = ams.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
@@ -175,7 +176,35 @@ func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pg
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) ManagedAbsenceMissedSessionsByAbsenceIDs(ctx context.Context, absenceIDs []pgtype.UUID) ([]ManagedAbsenceSession, error) {
+	if len(absenceIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
+		FROM absence_missed_sessions ams
+		JOIN sessions sess ON sess.id = ams.session_id AND sess.deleted_at IS NULL
+		JOIN courses c ON c.id = sess.course_id
+		LEFT JOIN rooms room ON room.id = sess.room_id
+		WHERE ams.absence_id = ANY($1::uuid[])
+		ORDER BY ams.absence_id, sess.start_at ASC, ams.id ASC
+	`, absenceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ManagedAbsenceSession
+	for rows.Next() {
+		var session ManagedAbsenceSession
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
 			return nil, err
 		}
 		out = append(out, session)
@@ -185,7 +214,7 @@ func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pg
 
 func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT asi.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
+		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
 		FROM absence_sit_ins asi
 		JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
@@ -200,7 +229,7 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
 			return nil, err
 		}
 		out = append(out, session)

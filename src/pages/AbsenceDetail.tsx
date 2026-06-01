@@ -7,6 +7,7 @@ import type { Course, ManagedAbsence } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
+import { formatSitInLabel } from "../components/absences/sitInLabel";
 
 type OverrideMethod = "auto" | "zoom" | "physical";
 type CandidateSession = {
@@ -54,10 +55,7 @@ function displayAbsenceDates(absence: ManagedAbsence): string {
 }
 
 function displaySitInPlanLabel(absence: ManagedAbsence): string {
-  if (absence.sit_in_method === "zoom") {
-    return "Zoom";
-  }
-  return absence.sit_in_subject_name ?? absence.subject_name ?? absence.subject_code ?? absence.sit_in_course_name ?? absence.sit_in_course_code ?? "Not assigned";
+  return formatSitInLabel(absence);
 }
 
 function displayAbsenceReason(absence: ManagedAbsence): string {
@@ -359,7 +357,7 @@ export default function AbsenceDetail() {
       {overrideOpen ? (
         <Modal title="Override Sit-in" onClose={() => setOverrideOpen(false)} size="lg"
           footer={<><Button variant="secondary" onClick={() => setOverrideOpen(false)}>Cancel</Button><Button disabled={!overrideReason.trim() || (overrideMethod === "physical" && (!courseID || selectedSessions.size === 0))} loading={saving} onClick={() => void saveOverride()}>Save Override</Button></>}>
-          <p className="mb-4 text-sm text-gray-600">Current: {absence.sit_in_course_code ?? absence.sit_in_method ?? "Not assigned"}</p>
+          <p className="mb-4 text-sm text-gray-600">Current: {formatSitInLabel(absence)}</p>
           <div className="border-b border-gray-200">
             <div className="flex gap-0">
               {(["auto", "zoom", "physical"] as OverrideMethod[]).map((method) => (

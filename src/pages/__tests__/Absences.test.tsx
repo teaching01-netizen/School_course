@@ -29,7 +29,10 @@ const PAGE = {
       date_to: "2026-06-06",
       reason_category: "medical",
       reason: "Appointment",
-      sit_in_method: "zoom",
+      sit_in_method: "physical",
+      sit_in_subject_name: "SAT Math Scholar C2",
+      sit_in_course_code: "000000004",
+      sit_in_course_name: "SAT Math Scholar C2",
       status: "pending",
       version: 1,
       created_at: "2026-05-27T09:00:00Z",
@@ -39,6 +42,35 @@ const PAGE = {
   total_count: 1,
   offset: 0,
   limit: 25,
+};
+
+const PAGE_WITH_MISSED_SESSIONS = {
+  ...PAGE,
+  items: [
+    {
+      ...PAGE.items[0],
+      missed_sessions: [
+        {
+          id: "miss-1",
+          session_id: "sess-1",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          start_at: "2026-06-01T09:00:00+07:00",
+          end_at: "2026-06-01T12:00:00+07:00",
+        },
+        {
+          id: "miss-2",
+          session_id: "sess-2",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          start_at: "2026-06-08T09:00:00+07:00",
+          end_at: "2026-06-08T12:00:00+07:00",
+        },
+      ],
+    },
+  ],
 };
 
 function renderPage(path = "/absences?status=pending") {
@@ -67,6 +99,22 @@ describe("Absence inbox", () => {
       expect.stringContaining("status=pending"),
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("renders missed session dates in the inbox table", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE_WITH_MISSED_SESSIONS);
+    renderPage();
+
+    const absenceLink = await screen.findByRole("link", { name: /view john smith absence/i });
+    const row = absenceLink.closest("tr");
+    if (!row) {
+      throw new Error("Expected absence table row");
+    }
+    expect(row).toHaveTextContent("1 Jun");
+    expect(row).toHaveTextContent("8 Jun");
+    expect(row).toHaveTextContent("SAT Math Scholar C2");
+    expect(row).not.toHaveTextContent("000000004");
+    expect(row).not.toHaveTextContent("31 May - 30 Jun");
   });
 
   it("marks an absence reviewed using its current version and reloads results", async () => {
@@ -120,6 +168,27 @@ describe("Absence inbox", () => {
     expect(await screen.findByText("All caught up! No absences match these filters.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view all/i })).toHaveAttribute("href", "/absences");
     expect(screen.getByRole("link", { name: /view dashboard/i })).toHaveAttribute("href", "/absences/dashboard");
+  });
+
+  it("renders missed session dates in the board view", async () => {
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return PAGE_WITH_MISSED_SESSIONS;
+      return { items: [], total_count: 0, offset: 0, limit: 25 };
+    });
+
+    renderPage("/absences?view=board");
+
+    expect(await screen.findByText("Absence Board")).toBeInTheDocument();
+    const name = await screen.findByText("John Smith");
+    const card = name.closest('[tabindex="0"]');
+    if (!card) {
+      throw new Error("Expected board card");
+    }
+    expect(card).toHaveTextContent("1 Jun");
+    expect(card).toHaveTextContent("8 Jun");
+    expect(card).toHaveTextContent("SAT Math Scholar C2");
+    expect(card).not.toHaveTextContent("000000004");
+    expect(card).not.toHaveTextContent("31 May - 30 Jun");
   });
 
   it("shows Actioned button for reviewed absences but not for pending", async () => {

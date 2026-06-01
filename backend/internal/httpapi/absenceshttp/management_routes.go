@@ -354,9 +354,29 @@ func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, message)
 		return
 	}
+	absenceIDs := make([]pgtype.UUID, 0, len(rows))
+	for _, row := range rows {
+		absenceIDs = append(absenceIDs, row.ID)
+	}
+	missedByAbsence := make(map[pgtype.UUID][]sqldb.ManagedAbsenceSession, len(rows))
+	if len(absenceIDs) > 0 {
+		missedRows, err := s.deps.Q.ManagedAbsenceMissedSessionsByAbsenceIDs(r.Context(), absenceIDs)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return
+		}
+		for _, session := range missedRows {
+			missedByAbsence[session.AbsenceID] = append(missedByAbsence[session.AbsenceID], session)
+		}
+	}
 	items := make([]managedAbsenceDTO, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, s.managedAbsenceDTO(row))
+		dto := s.managedAbsenceDTO(row)
+		if missed := missedByAbsence[row.ID]; len(missed) > 0 {
+			dto.MissedSessions = s.sessionDTO(missed)
+		}
+		items = append(items, dto)
 	}
 	subjectRows, err := s.deps.Q.SubjectListActive(r.Context())
 	if err != nil {

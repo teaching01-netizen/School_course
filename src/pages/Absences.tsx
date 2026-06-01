@@ -11,16 +11,10 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
+import { formatAbsenceSummaryDates } from "../components/absences/dateSummary";
+import { formatSitInLabel } from "../components/absences/sitInLabel";
 
 const PAGE_SIZE = 25;
-
-function formatDate(value: string): string {
-  return new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
-function dateSpan(absence: ManagedAbsence): string {
-  return `${formatDate(absence.date_from)} - ${formatDate(absence.date_to)}`;
-}
 
 function submittedAgo(value: string): string {
   const elapsed = Date.now() - new Date(value).getTime();
@@ -436,12 +430,12 @@ export default function Absences() {
                   <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
                 </td>
                 <td><span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_code ?? "-"}</span></td>
-                <td className="whitespace-nowrap">{dateSpan(absence)}</td>
+                <td className="whitespace-pre-line align-top text-gray-700">{formatAbsenceSummaryDates(absence)}</td>
                 <td>
                   {absence.sit_in_method === "zoom" ? (
                     <span className="rounded-sm bg-blue-50 px-2 py-1 text-xs text-blue-700">Zoom</span>
                   ) : (
-                    <span className="rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{absence.sit_in_course_code ?? "Physical"}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}</span>
+                    <span className="rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{formatSitInLabel(absence)}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}</span>
                   )}
                 </td>
                 <td className="max-w-[140px] truncate text-gray-600">{absence.reason_category ?? absence.reason ?? "-"}</td>
