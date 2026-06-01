@@ -140,6 +140,76 @@ func TestSendSuccessSMS_SendsToDedupedParentAndStudentPhones(t *testing.T) {
 	}
 }
 
+func TestSendBatchSuccessSMS_SendsAggregatedSummary(t *testing.T) {
+	mock := &recordingSMSProvider{}
+	log := slog.Default()
+
+	items := []successSMSItem{
+		{
+			row: sqldb.ManagedAbsenceRow{
+				ID:          makeUUID("3a296bd4-fd61-4877-b4b2-698475030911"),
+				StudentName: pgtype.Text{String: "Ada", Valid: true},
+				Wcode:       "W001",
+				SubjectName: pgtype.Text{String: "Math inter", Valid: true},
+				DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod: pgtype.Text{String: "zoom", Valid: true},
+			},
+			missed: []sqldb.ManagedAbsenceSession{
+				{
+					StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC), Valid: true},
+				},
+			},
+		},
+		{
+			row: sqldb.ManagedAbsenceRow{
+				ID:               makeUUID("6f1f0d51-57b5-4ce7-8c1a-4eb5803d6f10"),
+				StudentName:      pgtype.Text{String: "Ada", Valid: true},
+				Wcode:            "W001",
+				SubjectName:      pgtype.Text{String: "Physics", Valid: true},
+				DateFrom:         pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:           pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod:      pgtype.Text{String: "physical", Valid: true},
+				SitInCourseName:  pgtype.Text{String: "Physics 301", Valid: true},
+				SitInSubjectName: pgtype.Text{},
+			},
+			sessions: []sqldb.ManagedAbsenceSession{
+				{
+					StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 4, 9, 0, 0, 0, time.UTC), Valid: true},
+					EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC), Valid: true},
+				},
+			},
+			missed: []sqldb.ManagedAbsenceSession{
+				{
+					StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC), Valid: true},
+				},
+			},
+		},
+	}
+
+	sent := sendBatchSuccessSMS(
+		mock,
+		log,
+		"{{nickname}}|{{absence_summary}}|{{sit_in_summary}}",
+		items,
+		[]string{"+66812345678"},
+		"UTC",
+	)
+	if !sent {
+		t.Fatal("expected sendBatchSuccessSMS to return true")
+	}
+	if len(mock.sent) != 1 {
+		t.Fatalf("expected 1 SMS request, got %d", len(mock.sent))
+	}
+	wantMsg := "Ada|Math inter (1 Jun 2026); Physics (2 Jun 2026)|Zoom; Physics 301 (4 Jun, 09:00 - 11:00)"
+	if mock.sent[0].Message != wantMsg {
+		t.Fatalf("message = %q, want %q", mock.sent[0].Message, wantMsg)
+	}
+	if !strings.HasPrefix(mock.sent[0].Campaign, "absence-batch-") {
+		t.Fatalf("campaign = %q, want absence-batch- prefix", mock.sent[0].Campaign)
+	}
+}
+
 func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	mock := &smartsms.MockProvider{}
 	row := sqldb.ManagedAbsenceRow{

@@ -121,10 +121,26 @@ func buildPhysicalSitInResult(
 	return result
 }
 
+func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 {
+	levels := make([]int16, 0, len(courses))
+	seen := make(map[int16]struct{}, len(courses))
+	for _, course := range courses {
+		if !course.Level.Valid || course.Level.Int16 <= 0 {
+			continue
+		}
+		if _, ok := seen[course.Level.Int16]; ok {
+			continue
+		}
+		seen[course.Level.Int16] = struct{}{}
+		levels = append(levels, course.Level.Int16)
+	}
+	return levels
+}
+
 // resolveSitInForCourse resolves sit-in for a specific student course block.
-// Uses the student's highest enrolled level for the ladder target, but missed
-// sessions come from the given courseID. Loads all ladder levels (any cycle)
-// so mixed-cycle enrollments resolve correctly.
+// Uses the student's highest enrolled level for the ladder target, but passes
+// the full enrolled level set so the ladder can skip already-taken levels.
+// Missed sessions still come from the given courseID.
 func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
@@ -197,11 +213,12 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	}
 
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
-		RuleType:     rule.Type,
-		Predicate:    predicate,
-		StudentLevel: highest.Level.Int16,
-		AllCourses:   allCourses,
-		MissedCount:  len(missedSessions),
+		RuleType:       rule.Type,
+		Predicate:      predicate,
+		StudentLevel:   highest.Level.Int16,
+		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
+		AllCourses:     allCourses,
+		MissedCount:    len(missedSessions),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rule evaluation: %w", err)
@@ -332,11 +349,12 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 
 	// 8. Evaluate rule
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
-		RuleType:     rule.Type,
-		Predicate:    predicate,
-		StudentLevel: main.Level.Int16,
-		AllCourses:   allCourses,
-		MissedCount:  len(missedSessions),
+		RuleType:       rule.Type,
+		Predicate:      predicate,
+		StudentLevel:   main.Level.Int16,
+		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
+		AllCourses:     allCourses,
+		MissedCount:    len(missedSessions),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rule evaluation: %w", err)

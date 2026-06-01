@@ -78,6 +78,11 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 			s.handleBatchStatus(w, r)
 			return
 		}
+	case "batch":
+		if r.Method == http.MethodPost {
+			s.handleAbsenceBatchCreate(w, r)
+			return
+		}
 	case "calendar":
 		if r.Method == http.MethodGet {
 			s.handleCalendar(w, r)

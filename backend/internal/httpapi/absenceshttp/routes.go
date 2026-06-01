@@ -157,6 +157,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Wcode             string   `json:"wcode"`
 			SubjectID         string   `json:"subject_id"`
+			CourseID          string   `json:"course_id"`
 			DateFrom          string   `json:"date_from"`
 			DateTo            string   `json:"date_to"`
 			ReasonCategory    *string  `json:"reason_category"`
@@ -236,13 +237,10 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, fmt.Errorf("free text disabled")
 		}
 
-		var sitInMethod pgtype.Text
-		if body.SitInMethod != nil {
-			if *body.SitInMethod != "zoom" && *body.SitInMethod != "physical" {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "Invalid sit-in method")
-				return 0, nil, fmt.Errorf("bad sit in method")
-			}
-			sitInMethod = pgtype.Text{String: *body.SitInMethod, Valid: true}
+		sitInMethod, err := normalizeSubmissionSitInMethod(body.SitInMethod)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "Invalid sit-in method")
+			return 0, nil, err
 		}
 		if len(body.SitInSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
 			s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
@@ -261,7 +259,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, nil)
+		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, &body.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			if status == http.StatusInternalServerError {

@@ -1153,7 +1153,7 @@ func defaultAbsenceSettings() absenceSettings {
 		Notifications: absenceNotificationsSettings{
 			SmsParentEnabled:      true,
 			SmsParentTemplate:     "Your Warwick verification code is {{code}}.",
-			SmsSuccessTemplate:    "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+			SmsSuccessTemplate:    "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
 			AllowSubmitWithoutOtp: false,
 		},
 	}

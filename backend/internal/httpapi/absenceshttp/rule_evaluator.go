@@ -10,18 +10,18 @@ import (
 )
 
 type RulePredicate struct {
-	Level1Action         string      `json:"level_1_action"`
-	NonMaxDirection      string      `json:"non_max_direction"`
-	MaxDirection         string      `json:"max_direction"`
-	MinLevelForSitLower  int16       `json:"min_level_for_sit_lower"`
-	SectionMatch         string      `json:"section_match"`
-	OccurrenceMatch      string      `json:"occurrence_match"`
-	DayMatch             string      `json:"day_match"`
-	LastClassExcluded    bool        `json:"last_class_excluded"`
-	ScheduleSource       string      `json:"schedule_source"`
-	Chains               []RankChain `json:"chains"`
-	AutoAssign           bool        `json:"auto_assign"`
-	RequiresTeacherApproval bool     `json:"requires_teacher_approval"`
+	Level1Action            string      `json:"level_1_action"`
+	NonMaxDirection         string      `json:"non_max_direction"`
+	MaxDirection            string      `json:"max_direction"`
+	MinLevelForSitLower     int16       `json:"min_level_for_sit_lower"`
+	SectionMatch            string      `json:"section_match"`
+	OccurrenceMatch         string      `json:"occurrence_match"`
+	DayMatch                string      `json:"day_match"`
+	LastClassExcluded       bool        `json:"last_class_excluded"`
+	ScheduleSource          string      `json:"schedule_source"`
+	Chains                  []RankChain `json:"chains"`
+	AutoAssign              bool        `json:"auto_assign"`
+	RequiresTeacherApproval bool        `json:"requires_teacher_approval"`
 }
 
 type RankChain struct {
@@ -30,18 +30,19 @@ type RankChain struct {
 }
 
 type EvaluateRuleInput struct {
-	RuleType     string
-	Predicate    RulePredicate
-	StudentLevel int16
-	AllCourses   []sqldb.SubjectCourseV2
-	MissedCount  int
+	RuleType       string
+	Predicate      RulePredicate
+	StudentLevel   int16
+	EnrolledLevels []int16
+	AllCourses     []sqldb.SubjectCourseV2
+	MissedCount    int
 }
 
 type EvaluateRuleOutput struct {
 	Eligible       bool
-	Method         string       // "zoom", "physical", "teacher_case", "none"
+	Method         string // "zoom", "physical", "teacher_case", "none"
 	TargetCourseID *pgtype.UUID
-	Direction      string       // "higher", "lower", "same_section", "any_day", "chain"
+	Direction      string // "higher", "lower", "same_section", "any_day", "chain"
 	Reason         string
 }
 
@@ -70,6 +71,21 @@ func EvaluateRule(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 	}
 }
 
+func buildEnrolledLevelSet(input EvaluateRuleInput) map[int16]struct{} {
+	enrolledLevels := make(map[int16]struct{}, len(input.EnrolledLevels)+1)
+	if len(input.EnrolledLevels) > 0 {
+		for _, level := range input.EnrolledLevels {
+			if level > 0 {
+				enrolledLevels[level] = struct{}{}
+			}
+		}
+	}
+	if input.StudentLevel > 0 {
+		enrolledLevels[input.StudentLevel] = struct{}{}
+	}
+	return enrolledLevels
+}
+
 func evaluateLevelLadder(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 	if input.StudentLevel == 1 && input.Predicate.Level1Action == SitInMethodZoom {
 		return &EvaluateRuleOutput{
@@ -87,18 +103,22 @@ func evaluateLevelLadder(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 	}
 
 	isTopLevel := input.StudentLevel >= maxLevel
+	enrolledLevels := buildEnrolledLevelSet(input)
 
 	if isTopLevel {
-		return evaluateLevelLadderLower(input, maxLevel)
+		return evaluateLevelLadderLower(input, maxLevel, enrolledLevels)
 	}
-	return evaluateLevelLadderHigher(input)
+	return evaluateLevelLadderHigher(input, enrolledLevels)
 }
 
-func evaluateLevelLadderHigher(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
+func evaluateLevelLadderHigher(input EvaluateRuleInput, enrolledLevels map[int16]struct{}) (*EvaluateRuleOutput, error) {
 	var target *sqldb.SubjectCourseV2
 	for i := range input.AllCourses {
 		c := &input.AllCourses[i]
 		if c.Level.Valid && c.Level.Int16 > input.StudentLevel {
+			if _, ok := enrolledLevels[c.Level.Int16]; ok {
+				continue
+			}
 			if target == nil || c.Level.Int16 < target.Level.Int16 {
 				target = c
 			}
@@ -122,11 +142,14 @@ func evaluateLevelLadderHigher(input EvaluateRuleInput) (*EvaluateRuleOutput, er
 	}, nil
 }
 
-func evaluateLevelLadderLower(input EvaluateRuleInput, maxLevel int16) (*EvaluateRuleOutput, error) {
+func evaluateLevelLadderLower(input EvaluateRuleInput, maxLevel int16, enrolledLevels map[int16]struct{}) (*EvaluateRuleOutput, error) {
 	var target *sqldb.SubjectCourseV2
 	for i := range input.AllCourses {
 		c := &input.AllCourses[i]
 		if c.Level.Valid && c.Level.Int16 < input.StudentLevel && c.Level.Int16 >= input.Predicate.MinLevelForSitLower {
+			if _, ok := enrolledLevels[c.Level.Int16]; ok {
+				continue
+			}
 			if target == nil || c.Level.Int16 > target.Level.Int16 {
 				target = c
 			}

@@ -174,7 +174,7 @@ export function AbsenceFormEditor({
             <label className="block text-sm">
               Success SMS template (sent to parent and student after submission)
               <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_success_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_parent_template: settings.notifications?.sms_parent_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
-              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{nickname}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
+              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
           </div>
         </section>

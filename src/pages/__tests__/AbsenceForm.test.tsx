@@ -46,7 +46,7 @@ const MOCK_CONFIG = {
   notifications: {
     sms_parent_enabled: true,
     sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
-    sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+    sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
     allow_submit_without_otp: false,
   },
   admin_contact: {
@@ -99,6 +99,30 @@ const SUBMISSION_RESPONSE = {
   updated_at: "2026-05-27T09:00:00Z",
 };
 
+const SECOND_SUBMISSION_RESPONSE = {
+  id: "def67890",
+  wcode: "W250389",
+  status: "pending" as const,
+  course_id: "c-phys301",
+  course_code: "PHYS301",
+  course_name: "Physics 301",
+  subject_id: "subj-2",
+  subject_code: "PHYS",
+  subject_name: "Physics",
+  student_name: "John Smith",
+  date_from: "2026-06-02",
+  date_to: "2026-06-02",
+  reason_category: "medical",
+  reason: "Appointment",
+  sit_in_method: "physical",
+  sit_in_course_id: "c-phys301",
+  sit_in_course_code: "PHYS301",
+  sit_in_course_name: "Physics 301",
+  version: 1,
+  created_at: "2026-05-27T09:01:00Z",
+  updated_at: "2026-05-27T09:01:00Z",
+};
+
 const OTP_SEND_RESPONSE = {
   token: "otp-token-123",
   status: "pending" as const,
@@ -135,6 +159,9 @@ function installHappyPathMocks(overrides?: {
     }
     if (path.endsWith("/parent-verification/send")) return overrides?.send ?? OTP_SEND_RESPONSE;
     if (path.endsWith("/parent-verification/verify")) return overrides?.verify ?? OTP_VERIFY_RESPONSE;
+    if (path.endsWith("/absences/batch") && init?.method === "POST") {
+      return overrides?.submission ?? { items: [SUBMISSION_RESPONSE] };
+    }
     if (path.endsWith("/absences") && init?.method === "POST") {
       return overrides?.submission ?? SUBMISSION_RESPONSE;
     }
@@ -143,9 +170,9 @@ function installHappyPathMocks(overrides?: {
   });
 }
 
-async function lookupStudent(user: ReturnType<typeof userEvent.setup>) {
+async function lookupStudent(user: ReturnType<typeof userEvent.setup>, wcode = "W250389") {
   await user.clear(screen.getByPlaceholderText("e.g. W250389"));
-  await user.type(screen.getByPlaceholderText("e.g. W250389"), "W250389");
+  await user.type(screen.getByPlaceholderText("e.g. W250389"), wcode);
   await user.click(screen.getByRole("button", { name: /search/i }));
   await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
 }
@@ -183,6 +210,18 @@ describe("AbsenceForm", () => {
     expect(screen.getByText("Absence form")).toBeInTheDocument();
   });
 
+  it("normalizes a lowercase w-code before searching", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange();
+
+    await lookupStudent(user, "w250389");
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/student-lookup?wcode=W250389",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   function renderWithDateRange(overrides?: Parameters<typeof installHappyPathMocks>[0]) {
     prePopulateSessionStorage("2026-06-01", "2026-06-07");
     installHappyPathMocks(overrides);
@@ -217,13 +256,14 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
     expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
+    expect(screen.getByText("Submitted classes")).toBeInTheDocument();
     expect(screen.getByText("Absence form")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /done/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /notify another absence/i })).not.toBeInTheDocument();
     expect(screen.queryByText("ABS-ABC12345")).not.toBeInTheDocument();
 
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences",
+      "/api/v1/absences/batch",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -233,24 +273,62 @@ describe("AbsenceForm", () => {
       }),
     );
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences",
+      "/api/v1/absences/batch",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining('"date_from":"2026-06-01"'),
+        body: expect.stringContaining('"items":['),
       }),
     );
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences",
+      "/api/v1/absences/batch",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining('"date_to":"2026-06-01"'),
+        body: expect.stringContaining('"course_id":"c-math201"'),
       }),
     );
   }, 30000);
 
-  it("blocks submission when selected sessions span more than one day", async () => {
+  it("submits selected sessions across more than one day in a single batch", async () => {
     const user = userEvent.setup();
-    renderWithDateRange();
+    renderWithDateRange({
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Mathematics",
+          sessions: [
+            {
+              id: "s1",
+              start_at: "2026-06-01T09:00:00Z",
+              end_at: "2026-06-01T10:30:00Z",
+              date: "2026-06-01",
+              already_absent: false,
+            },
+          ],
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "c-phys301",
+          course_code: "PHYS301",
+          course_name: "Physics",
+          sessions: [
+            {
+              id: "s2",
+              start_at: "2026-06-02T11:00:00Z",
+              end_at: "2026-06-02T12:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+        },
+      ]),
+      submission: { items: [SUBMISSION_RESPONSE, SECOND_SUBMISSION_RESPONSE] },
+    });
 
     await lookupStudent(user);
     await user.click(screen.getByRole("button", { name: /verify with parent/i }));
@@ -267,8 +345,29 @@ describe("AbsenceForm", () => {
     await user.click(sessionCheckboxes[0]);
     await user.click(sessionCheckboxes[1]);
 
-    expect(screen.getByRole("button", { name: /submit absence/i })).toBeDisabled();
-    expect(screen.getByText(/Select sessions from one day only/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /submit absence/i })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    expect(await screen.findByText("Your 2 absence requests have been sent and are waiting for review.")).toBeInTheDocument();
+    expect(screen.getByText("Submitted classes")).toBeInTheDocument();
+
+    const batchCall = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+    expect(batchCall).toBeDefined();
+    const [, batchInit] = batchCall!;
+    const parsedBody = JSON.parse(String(batchInit?.body)) as {
+      items: Array<{ course_id: string; date_from: string; date_to: string }>;
+    };
+    expect(parsedBody.items).toHaveLength(2);
+    expect(parsedBody.items[0]).toMatchObject({
+      course_id: "c-math201",
+      date_from: "2026-06-01",
+      date_to: "2026-06-01",
+    });
+    expect(parsedBody.items[1]).toMatchObject({
+      course_id: "c-phys301",
+      date_from: "2026-06-02",
+      date_to: "2026-06-02",
+    });
   });
 
   it("disables verify parent button when student has no parent phone", async () => {

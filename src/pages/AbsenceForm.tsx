@@ -28,6 +28,20 @@ import type {
 } from "@/types";
 
 type StepIndex = 0 | 1 | 2;
+type AbsenceBatchCreateItem = {
+  subject_id: string;
+  course_id: string;
+  date_from: string;
+  date_to: string;
+  reason?: string;
+  sit_in_method?: string;
+  sit_in_course_id?: string;
+  missed_session_ids: string[];
+  sit_in_session_ids: string[];
+};
+type AbsenceBatchCreateResponse = {
+  items: ManagedAbsence[];
+};
 
 const STEP_LABELS = ["Find your profile", "Parent confirmation", "Courses & classes"] as const;
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
@@ -36,7 +50,7 @@ const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
 const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,
   sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
-  sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียนคลาส {{class_name}} ในวันที่ {{absence_date}} และมีกำหนดเข้าเรียนชดเชย คลาส {{sit_in_class}} ในวันที่ {{sit_in_date_time}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+  sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
   allow_submit_without_otp: false,
 };
 
@@ -76,6 +90,12 @@ function daysBetween(from: string, to: string): number {
     (new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) /
       (1000 * 60 * 60 * 24),
   );
+}
+
+function normalizeLookupWcode(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  return trimmed[0]?.toLowerCase() === "w" ? `W${trimmed.slice(1)}` : trimmed;
 }
 
 function maskPhone(phone?: string | null): string {
@@ -132,7 +152,7 @@ function getStudentDisplayName(lookup: StudentLookupResponse | null) {
   return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
 }
 
-function getSelectedAbsenceDate(groups: SubjectSessions[], selected: Set<string>) {
+function getSelectedSessionDates(groups: SubjectSessions[], selected: Set<string>) {
   const dates = new Set<string>();
   for (const group of groups) {
     for (const session of group.sessions) {
@@ -141,8 +161,82 @@ function getSelectedAbsenceDate(groups: SubjectSessions[], selected: Set<string>
       }
     }
   }
-  if (dates.size !== 1) return null;
-  return [...dates][0];
+  return [...dates].sort();
+}
+
+function summarizeSelectedSessionDates(dates: string[]) {
+  if (dates.length === 0) return "";
+  if (dates.length <= 3) {
+    return dates.map((date) => formatDate(date)).join(", ");
+  }
+  return `${formatDate(dates[0])}, ${formatDate(dates[1])}, +${dates.length - 2} more`;
+}
+
+function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
+  return group.sessions
+    .filter((session) => selected.has(session.id))
+    .slice()
+    .sort((a, b) => a.start_at.localeCompare(b.start_at));
+}
+
+function formatBatchAbsenceSummary(absence: ManagedAbsence) {
+  const className = absence.subject_name?.trim() || absence.course_name?.trim() || absence.course_code?.trim() || "";
+  const dates = getAbsenceSessionDateLabels(absence);
+  if (!className && !dates) {
+    return "To arrange";
+  }
+  if (!dates) {
+    return className || "To arrange";
+  }
+  if (!className) {
+    return dates;
+  }
+  return `${className} (${dates})`;
+}
+
+function getAbsenceSessionDateLabels(absence: ManagedAbsence) {
+  const sessions = absence.missed_sessions ?? [];
+  const dates = new Set<string>();
+  for (const session of sessions) {
+    if (session.start_at) {
+      dates.add(session.start_at.slice(0, 10));
+    }
+  }
+  const labels = [...dates].sort().map((date) => formatDate(date));
+  if (labels.length > 0) {
+    return labels.join(", ");
+  }
+  if (absence.date_from && absence.date_to) {
+    if (absence.date_from === absence.date_to) {
+      return formatDate(absence.date_from);
+    }
+    return `${formatDate(absence.date_from)} - ${formatDate(absence.date_to)}`;
+  }
+  return "";
+}
+
+function formatBatchSitInSummary(absence: ManagedAbsence) {
+  const method = absence.sit_in_method?.trim();
+  if (method === "zoom") {
+    return "Zoom";
+  }
+  const sessions = absence.sit_ins ?? [];
+  const sessionLabels = sessions
+    .filter((session) => session.start_at)
+    .map((session) => `${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`);
+  if (method !== "physical") {
+    if (sessionLabels.length > 0) {
+      return `To arrange (${sessionLabels.join(", ")})`;
+    }
+    return "To arrange";
+  }
+  if (sessionLabels.length > 0) {
+    const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim() || "Make-up class";
+    return `${className} (${sessionLabels.join(", ")})`;
+  }
+  const label = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim();
+  if (label) return label;
+  return "To arrange";
 }
 
 function getSitInSessionLabel(
@@ -374,7 +468,7 @@ export default function AbsenceForm() {
   const [verificationBlocked, setVerificationBlocked] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const [finalResult, setFinalResult] = useState<ManagedAbsence | null>(null);
+  const [finalResults, setFinalResults] = useState<ManagedAbsence[] | null>(null);
   const stepHeadingRefs = useRef<Array<HTMLHeadingElement | null>>([]);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const listboxRef = useRef<HTMLDivElement | null>(null);
@@ -382,9 +476,13 @@ export default function AbsenceForm() {
 
   const selectedSubjectCount = selectedSubjectIds.length;
   const selectedSessionCount = countSelectedSessions(sessions, selectedSessionIds);
-  const selectedAbsenceDate = useMemo(
-    () => getSelectedAbsenceDate(sessions, selectedSessionIds),
+  const selectedSessionDates = useMemo(
+    () => getSelectedSessionDates(sessions, selectedSessionIds),
     [sessions, selectedSessionIds],
+  );
+  const selectedSessionDatesLabel = useMemo(
+    () => summarizeSelectedSessionDates(selectedSessionDates),
+    [selectedSessionDates],
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
   const atMaxSessions = selectedSessionCount >= maxSessions;
@@ -407,7 +505,6 @@ export default function AbsenceForm() {
   const canSubmit =
     selectedSubjectCount > 0 &&
     selectedSessionCount > 0 &&
-    !!selectedAbsenceDate &&
     reason.trim().length > 0 &&
     !verificationBlocked &&
     !missingSitIn;
@@ -586,7 +683,7 @@ export default function AbsenceForm() {
     setLookupError(null);
     setLookup(null);
     setPageError(null);
-    const cleaned = lookupInput.trim();
+    const cleaned = normalizeLookupWcode(lookupInput);
     if (!cleaned) {
       setLookupError("Enter your Student ID (W-Code).");
       return;
@@ -598,6 +695,7 @@ export default function AbsenceForm() {
         method: "GET",
       });
       setLookup(response);
+      setLookupInput(cleaned);
       setSelectedSubjectIds([]);
       setActiveCourseIndex(0);
       verification.clearStoredToken();
@@ -745,10 +843,6 @@ export default function AbsenceForm() {
       setPageError("Please tell us why you'll be away.");
       return false;
     }
-    if (!selectedAbsenceDate) {
-      setPageError("Select sessions from one day only. Submit a separate absence for each date.");
-      return false;
-    }
     if (missingSitIn) {
       setPageError("Pick a make-up class for all selected sessions before submitting.");
       return false;
@@ -758,34 +852,46 @@ export default function AbsenceForm() {
 
   function buildSubmissionPayloads() {
     if (!lookup) return [];
-    if (!selectedAbsenceDate) return [];
-    
-    const payloads: Record<string, unknown>[] = [];
-    
+    const payloads: AbsenceBatchCreateItem[] = [];
+
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
-      
-      const selectedSessIds = group.sessions.filter(s => selectedSessionIds.has(s.id)).map(s => s.id);
-      if (selectedSessIds.length === 0) continue;
 
-      const sitInSessionIds = selectedSessIds.map(id => sitInSelections[id]).filter(Boolean);
-      const sitInMethod = group.sit_in?.sit_in_method ?? "zoom";
-      
-      payloads.push({
-        wcode: lookup.wcode,
+      const selectedGroupSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
+      if (selectedGroupSessions.length === 0) continue;
+
+      const selectedDates = [...new Set(selectedGroupSessions.map((session) => session.date))].sort();
+      const dateFrom = selectedDates[0];
+      const dateTo = selectedDates[selectedDates.length - 1];
+      if (daysBetween(dateFrom, dateTo) > config.form.max_date_range_days) {
+        setPageError(
+          `${group.subject_name || group.course_name} spans more than ${config.form.max_date_range_days} days. Split it into separate submissions.`,
+        );
+        return null;
+      }
+
+      const selectedSessIds = selectedGroupSessions.map((session) => session.id);
+      const sitInSessionIds = selectedSessIds.map((id) => sitInSelections[id]).filter((id): id is string => !!id);
+      const sitInMethod = group.sit_in?.sit_in_method;
+      const payload: AbsenceBatchCreateItem = {
         subject_id: group.subject_id,
         course_id: group.course_id,
-        date_from: selectedAbsenceDate,
-        date_to: selectedAbsenceDate,
+        date_from: dateFrom,
+        date_to: dateTo,
         reason: reason.trim() || undefined,
-        sit_in_method: sitInMethod,
-        sit_in_course_id: group.sit_in?.sit_in_course?.id ?? group.course_id,
         missed_session_ids: selectedSessIds,
         sit_in_session_ids: sitInSessionIds,
-        verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
-      });
+      };
+      if (sitInMethod === "physical" || sitInMethod === "zoom") {
+        payload.sit_in_method = sitInMethod;
+      }
+      const sitInCourseID = group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim();
+      if (sitInCourseID) {
+        payload.sit_in_course_id = sitInCourseID;
+      }
+      payloads.push(payload);
     }
-    
+
     return payloads;
   }
 
@@ -795,7 +901,14 @@ export default function AbsenceForm() {
     if (!validateStepTwo()) {
       return;
     }
+    if (!lookup) {
+      setPageError("Search for your profile first.");
+      return;
+    }
     const payloads = buildSubmissionPayloads();
+    if (payloads === null) {
+      return;
+    }
     if (payloads.length === 0) {
       setPageError("Select at least one class to submit.");
       return;
@@ -803,17 +916,19 @@ export default function AbsenceForm() {
 
     try {
       setIsSubmitting(true);
-      let lastResult: ManagedAbsence | null = null;
-      for (const payload of payloads) {
-        lastResult = await apiJson<ManagedAbsence>("/api/v1/absences", {
-          method: "POST",
-          headers: {
-            "Idempotency-Key": submissionIdempotencyKey.current + "-" + String(payload.subject_id),
-          },
-          body: JSON.stringify(payload),
-        });
-      }
-      setFinalResult(lastResult);
+      const response = await apiJson<AbsenceBatchCreateResponse>("/api/v1/absences/batch", {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": submissionIdempotencyKey.current,
+        },
+        body: JSON.stringify({
+          wcode: lookup.wcode,
+          reason: reason.trim(),
+          verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
+          items: payloads,
+        }),
+      });
+      setFinalResults(response.items);
       verification.clearStoredToken();
       verification.setCode("");
       try {
@@ -828,7 +943,11 @@ export default function AbsenceForm() {
     }
   }
 
-  if (finalResult) {
+  if (finalResults) {
+    const submittedCount = finalResults.length;
+    const successMessage = submittedCount === 1
+      ? "Your absence request has been sent and is waiting for review."
+      : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
     return (
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(17,24,39,0.03),_transparent_40%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8">
         <div className="mx-auto max-w-3xl space-y-5">
@@ -845,14 +964,41 @@ export default function AbsenceForm() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-7 w-7 text-emerald-500" aria-hidden="true" />
                 <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-semibold text-[var(--color-wi-text)]">
-                  Absence submitted
+                  {submittedCount === 1 ? "Absence submitted" : `${submittedCount} absences submitted`}
                 </h2>
               </div>
-              <p className="mt-2 text-sm text-gray-700 font-medium">
-                Your absence request has been sent and is waiting for review.
-              </p>
+              <p className="mt-2 text-sm text-gray-700 font-medium">{successMessage}</p>
             </section>
           </motion.div>
+          <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-900">Submitted classes</h3>
+            <div className="mt-4 space-y-3">
+              {finalResults.map((absence) => {
+                const label = absence.subject_code?.trim() || absence.subject_name?.trim() || absence.course_code?.trim() || absence.course_name?.trim() || "Submitted class";
+                return (
+                  <article key={absence.id} className="rounded-sm border border-gray-200 bg-gray-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{label}</p>
+                        <p className="text-xs text-gray-600">{formatBatchAbsenceSummary(absence)}</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">Pending review</span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm text-gray-700">
+                      <p>
+                        <span className="font-medium text-gray-900">Absence:</span>{" "}
+                        {formatBatchAbsenceSummary(absence)}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Make-up:</span>{" "}
+                        {formatBatchSitInSummary(absence)}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </div>
     );
@@ -1131,16 +1277,15 @@ export default function AbsenceForm() {
                               {studentDisplayName || lookup.full_name}
                             </span>
                             <span className="font-mono text-xs text-gray-600">{lookup.wcode}</span>
-                            {selectedAbsenceDate ? (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                                One-day absence: {formatDate(selectedAbsenceDate)}
-                              </span>
-                            ) : selectedSessionCount > 0 ? (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                                Select sessions from one day only
+                            {selectedSessionCount > 0 ? (
+                              <span
+                                className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+                                title={selectedSessionDatesLabel || undefined}
+                              >
+                                {selectedSessionCount} session{selectedSessionCount === 1 ? "" : "s"} across {selectedSessionDates.length} day{selectedSessionDates.length === 1 ? "" : "s"}
                               </span>
                             ) : (
-                              <span className="text-xs text-gray-500">Pick the class day first, then choose the sit-in.</span>
+                              <span className="text-xs text-gray-500">Pick sessions first, then choose the sit-in.</span>
                             )}
                           </div>
                         </div>
