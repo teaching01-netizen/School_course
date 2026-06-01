@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
@@ -116,4 +118,93 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 	})
 }
 
+func TestAbsenceDaysInRange_UsesSubjectAndStudentFallback(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	subj, err := q.SubjectCreate(ctx, SubjectCreateParams{
+		Code: "ABS-SUBJ-" + suffix,
+		Name: "Absence Subject " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "ABS-COURSE-" + suffix,
+		Name: "Absence Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	student, err := q.StudentCreate(ctx, StudentCreateParams{
+		Wcode:    "WABS-" + suffix,
+		FullName: "Absence Student " + suffix,
+		Notes:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+		Wcode:         student.Wcode,
+		CourseID:      course.ID,
+		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC), Valid: true},
+		Reason:        pgtype.Text{String: "travel", Valid: true},
+		SitInCourseID: pgtype.UUID{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE student_absences SET subject_id = $1 WHERE id = $2", subj.ID, absence.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := q.AbsenceDaysInRange(
+		ctx,
+		time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 absence row, got %d", len(rows))
+	}
+
+	row := rows[0]
+	if !row.ID.Valid {
+		t.Fatal("expected absence id to be set")
+	}
+	if row.Wcode != student.Wcode {
+		t.Fatalf("expected wcode %q, got %q", student.Wcode, row.Wcode)
+	}
+	if row.Status != "pending" {
+		t.Fatalf("expected status pending, got %q", row.Status)
+	}
+	if !row.StudentName.Valid || row.StudentName.String != student.FullName {
+		t.Fatalf("expected student_name %q, got %v", student.FullName, row.StudentName)
+	}
+	if !row.SubjectCode.Valid || row.SubjectCode.String != subj.Code {
+		t.Fatalf("expected subject_code %q, got %v", subj.Code, row.SubjectCode)
+	}
+	if got := row.DateFrom.Time.Format("2006-01-02"); got != "2026-06-01" {
+		t.Fatalf("expected date_from 2026-06-01, got %s", got)
+	}
+	if got := row.DateTo.Time.Format("2006-01-02"); got != "2026-06-06" {
+		t.Fatalf("expected date_to 2026-06-06, got %s", got)
+	}
+}

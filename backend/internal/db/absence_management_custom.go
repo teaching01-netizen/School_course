@@ -576,12 +576,21 @@ type AbsenceDayInRangeRow struct {
 
 func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd time.Time) ([]AbsenceDayInRangeRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT id, wcode, student_name, status, subject_code, date_from, date_to, sit_in_method
-		FROM student_absences
-		WHERE date_from <= $2::date
-		  AND date_to >= $1::date
-		  AND deleted_at IS NULL
-		ORDER BY date_from ASC
+		SELECT
+		  sa.id,
+		  sa.wcode,
+		  COALESCE(sa.student_name, st.full_name),
+		  sa.status,
+		  sub.code,
+		  sa.date_from,
+		  sa.date_to,
+		  sa.sit_in_method
+		FROM student_absences sa
+		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN subjects sub ON sub.id = sa.subject_id
+		WHERE sa.date_from <= $2::date
+		  AND sa.date_to >= $1::date
+		ORDER BY sa.date_from ASC, sa.id ASC
 	`, rangeStart, rangeEnd)
 	if err != nil {
 		return nil, err
