@@ -87,7 +87,8 @@ func buildEnrolledLevelSet(input EvaluateRuleInput) map[int16]struct{} {
 }
 
 func evaluateLevelLadder(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
-	if input.StudentLevel == 1 && input.Predicate.Level1Action == SitInMethodZoom {
+	// Level 1 always gets Zoom — no physical sit-in
+	if input.StudentLevel == 1 {
 		return &EvaluateRuleOutput{
 			Eligible: true,
 			Method:   SitInMethodZoom,

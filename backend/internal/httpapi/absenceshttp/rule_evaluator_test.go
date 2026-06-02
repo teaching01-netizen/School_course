@@ -72,6 +72,50 @@ func TestEvaluateRule_LevelLadder_Level1_ReturnsZoom(t *testing.T) {
 	}
 }
 
+// Test 1b: Level Ladder — Level 1 ALWAYS returns zoom, even with level_1_action="physical"
+func TestEvaluateRule_LevelLadder_Level1_AlwaysZoom(t *testing.T) {
+	predicate := mustParsePredicate(t, `{
+		"level_1_action": "physical",
+		"non_max_direction": "higher",
+		"max_direction": "lower",
+		"min_level_for_sit_lower": 2,
+		"section_match": "same_section",
+		"occurrence_match": "any",
+		"day_match": "any",
+		"last_class_excluded": false,
+		"schedule_source": "target",
+		"chains": [],
+		"auto_assign": true,
+		"requires_teacher_approval": false
+	}`)
+
+	input := EvaluateRuleInput{
+		RuleType:     "level_ladder",
+		Predicate:    predicate,
+		StudentLevel: 1,
+		AllCourses: []sqldb.SubjectCourseV2{
+			courseV2("10000000-0000-0000-0000-000000000001", 1),
+			courseV2("20000000-0000-0000-0000-000000000002", 2),
+			courseV2("30000000-0000-0000-0000-000000000003", 3),
+		},
+		MissedCount:  1,
+	}
+
+	output, err := EvaluateRule(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !output.Eligible {
+		t.Fatal("expected eligible=true")
+	}
+	if output.Method != "zoom" {
+		t.Fatalf("expected method=zoom for Level 1 regardless of level_1_action, got %s", output.Method)
+	}
+	if output.TargetCourseID != nil {
+		t.Fatal("expected nil target course for zoom")
+	}
+}
+
 // Test 2: Level Ladder — Level 2 sits higher
 func TestEvaluateRule_LevelLadder_SitsHigher(t *testing.T) {
 	c2 := "20000000-0000-0000-0000-000000000002"

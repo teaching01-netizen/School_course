@@ -138,9 +138,8 @@ func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 
 }
 
 // resolveSitInForCourse resolves sit-in for a specific student course block.
-// Uses the student's highest enrolled level for the ladder target, but passes
-// the full enrolled level set so the ladder can skip already-taken levels.
-// Missed sessions still come from the given courseID.
+// Uses the MISSED course's level to determine sit-in behavior, not the student's
+// highest enrolled level. Level 1 absences always yield Zoom.
 func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
@@ -168,30 +167,37 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 
-	// Find highest enrolled level (determines ladder target)
-	var highest *sqldb.StudentEnrolledCourseV2
+	// Find the MISSED course's level (determines sit-in behavior)
+	var missedCourse *sqldb.StudentEnrolledCourseV2
 	for i := range enrolled {
-		if !enrolled[i].Level.Valid {
-			continue
-		}
-		if highest == nil || enrolled[i].Level.Int16 > highest.Level.Int16 {
-			highest = &enrolled[i]
+		if enrolled[i].CourseID == courseID && enrolled[i].Level.Valid {
+			missedCourse = &enrolled[i]
+			break
 		}
 	}
-	if highest == nil {
+	// Fallback: if missed course not found in enrolled, use first enrolled with a level
+	if missedCourse == nil {
+		for i := range enrolled {
+			if enrolled[i].Level.Valid {
+				missedCourse = &enrolled[i]
+				break
+			}
+		}
+	}
+	if missedCourse == nil {
 		return nil, fmt.Errorf("no enrolled course has a level")
 	}
 
-	if !highest.RootCourseGroupID.Valid {
+	if !missedCourse.RootCourseGroupID.Valid {
 		return nil, nil
 	}
 
-	allCourses, err := q.CoursesByRootCourseGroup(ctx, highest.RootCourseGroupID)
+	allCourses, err := q.CoursesByRootCourseGroup(ctx, missedCourse.RootCourseGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("root course group lookup: %w", err)
 	}
 
-	rule, err := q.SitInRuleGetByRootCourseGroup(ctx, highest.RootCourseGroupID)
+	rule, err := q.SitInRuleGetByRootCourseGroup(ctx, missedCourse.RootCourseGroupID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -215,7 +221,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
 		RuleType:       rule.Type,
 		Predicate:      predicate,
-		StudentLevel:   highest.Level.Int16,
+		StudentLevel:   missedCourse.Level.Int16,
 		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
 		AllCourses:     allCourses,
 		MissedCount:    len(missedSessions),
@@ -295,10 +301,11 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		}
 	}
 
-	// 3. Pick main course (highest level)
+	// 3. Pick main course (lowest enrolled level — for sit-in resolution we need
+	//    the missed course level, not the highest)
 	main := enrolled[0]
 	for _, c := range enrolled {
-		if c.Level.Valid && main.Level.Valid && c.Level.Int16 > main.Level.Int16 {
+		if c.Level.Valid && main.Level.Valid && c.Level.Int16 < main.Level.Int16 {
 			main = c
 		}
 	}
