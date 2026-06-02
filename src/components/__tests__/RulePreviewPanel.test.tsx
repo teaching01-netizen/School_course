@@ -6,7 +6,7 @@ import type { SitInRuleCreateInput } from "../../types";
 const baseForm: SitInRuleCreateInput = {
   name: "Test Rule",
   type: "level_ladder",
-  predicate: { level_1_action: "zoom", min_level_for_sit_lower: 2 },
+  predicate: { min_level_for_sit_lower: 2 },
   description: "",
 };
 
@@ -17,12 +17,12 @@ it("renders rule preview panel", () => {
 
 it("shows summary with name and type description", () => {
   render(<RulePreviewPanel form={baseForm} />);
-  expect(screen.getByText("Test Rule: Students at different levels sit in lower-level classes")).toBeInTheDocument();
+  expect(screen.getByText("Test Rule: Level 1 students get Zoom; higher-level students sit in the next level up")).toBeInTheDocument();
 });
 
 it("shows summary without name using type description only", () => {
   render(<RulePreviewPanel form={{ ...baseForm, name: "" }} />);
-  expect(screen.getByText("Students at different levels sit in lower-level classes")).toBeInTheDocument();
+  expect(screen.getByText("Level 1 students get Zoom; higher-level students sit in the next level up")).toBeInTheDocument();
 });
 
 it("renders level ladder visual for level_ladder type", () => {
@@ -54,7 +54,7 @@ it("buildSummary returns type description when name is empty", () => {
 });
 
 it("buildSummary includes name when provided", () => {
-  expect(buildSummary(baseForm)).toBe("Test Rule: Students at different levels sit in lower-level classes");
+  expect(buildSummary(baseForm)).toBe("Test Rule: Level 1 students get Zoom; higher-level students sit in the next level up");
 });
 
 it("buildConditionBadge returns cross_section badge", () => {

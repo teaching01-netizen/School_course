@@ -500,6 +500,9 @@ export default function Absences() {
           onClose={() => { setCancelTargets([]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}
           footer={(
             <>
+              {cancelTargets.length === 1 ? (
+                <button type="button" className="text-sm text-red-600 hover:text-red-800 hover:underline" onClick={() => { setDeleteTarget(cancelTargets[0]); setCancelTargets([]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Delete Permanently</button>
+              ) : null}
               <Button variant="secondary" onClick={() => { setCancelTargets([]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Back</Button>
               <Button variant="danger" disabled={!cancelReasonCategory} loading={cancelling} onClick={() => void cancelAbsences()}>Cancel Absence</Button>
             </>

@@ -249,7 +249,11 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
 
       {cancelTarget ? (
         <Modal title="Cancel absence" onClose={() => { setCancelTarget(null); setCancelReason(""); }}
-          footer={<><Button variant="secondary" onClick={() => { setCancelTarget(null); setCancelReason(""); }}>Back</Button><Button variant="danger" disabled={!cancelReason.trim()} loading={cancelling} onClick={() => void handleCancel()}>Cancel Absence</Button></>}>
+          footer={<>
+            <button type="button" className="text-sm text-red-600 hover:text-red-800 hover:underline" onClick={() => { setDeleteTarget(cancelTarget); setCancelTarget(null); setCancelReason(""); }}>Delete Permanently</button>
+            <Button variant="secondary" onClick={() => { setCancelTarget(null); setCancelReason(""); }}>Back</Button>
+            <Button variant="danger" disabled={!cancelReason.trim()} loading={cancelling} onClick={() => void handleCancel()}>Cancel Absence</Button>
+          </>}>
           <p className="mb-3 text-sm text-gray-600">Assigned sit-in sessions will be released.</p>
           <label className="block text-sm font-medium text-gray-700" htmlFor="kanban-cancel-reason">Cancellation reason</label>
           <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />

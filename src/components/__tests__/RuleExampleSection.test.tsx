@@ -6,7 +6,7 @@ import type { SitInRuleCreateInput } from "../../types";
 const baseForm: SitInRuleCreateInput = {
   name: "Test Rule",
   type: "level_ladder",
-  predicate: { level_1_action: "zoom", min_level_for_sit_lower: 2 },
+  predicate: { min_level_for_sit_lower: 2 },
   description: "",
 };
 
@@ -23,13 +23,6 @@ it("does not render expand/collapse button", () => {
 it("buildExampleScenario returns level_ladder scenario with zoom", () => {
   expect(buildExampleScenario(baseForm)).toBe(
     "If a Level 1 student is absent, they attend a Zoom session. Non-top students sit in the next higher level. Top-level students sit in the level below."
-  );
-});
-
-it("buildExampleScenario returns level_ladder scenario with physical", () => {
-  const form = { ...baseForm, predicate: { level_1_action: "physical", min_level_for_sit_lower: 3 } };
-  expect(buildExampleScenario(form)).toBe(
-    "If a Level 1 student is absent, they attend a physical class. Non-top students sit in the next higher level. Top-level students sit in the level below."
   );
 });
 

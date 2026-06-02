@@ -135,4 +135,25 @@ describe("KanbanView hard delete", () => {
     await user.click(screen.getByRole("button", { name: /back/i }));
     expect(screen.queryByText("Permanently delete absence")).not.toBeInTheDocument();
   });
+
+  it("shows Delete Permanently link in cancel modal that transitions to delete modal", async () => {
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [PENDING_ABSENCE], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+    const user = userEvent.setup();
+
+    await screen.findByText("John Smith");
+    const cancelBtn = screen.getByRole("button", { name: /^Cancel$/ });
+    await user.click(cancelBtn);
+    expect(screen.getByText("Cancel absence")).toBeInTheDocument();
+    expect(screen.getByText(/delete permanently/i)).toBeInTheDocument();
+
+    await user.click(screen.getByText(/delete permanently/i));
+    expect(screen.queryByText("Cancel absence")).not.toBeInTheDocument();
+    expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
+    expect(screen.getByText(/permanently remove the absence record/i)).toBeInTheDocument();
+  });
 });

@@ -11,19 +11,19 @@ it("renders level_ladder fields with defaults", () => {
       onChange={vi.fn()}
     />
   );
-  expect(screen.getByRole("combobox", { name: /level 1 action/i })).toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: /level 1 action/i })).toHaveValue("zoom");
+  // Level 1 always gets Zoom - no configurable dropdown needed
+  expect(screen.queryByRole("combobox", { name: /level 1 action/i })).not.toBeInTheDocument();
 });
 
 it("level_ladder reflects provided predicate values", () => {
   render(
     <RulePredicateForm
       ruleType="level_ladder"
-      predicate={{ level_1_action: "physical", min_level_for_sit_lower: 3 }}
+      predicate={{ min_level_for_sit_lower: 3 }}
       onChange={vi.fn()}
     />
   );
-  expect(screen.getByRole("combobox", { name: /level 1 action/i })).toHaveValue("physical");
+  // No level_1_action field to check - Level 1 is always Zoom
 });
 
 it("renders cross_section fields with defaults", () => {
@@ -104,7 +104,6 @@ it("renders teacher_case_by_case fields with defaults", () => {
 });
 
 it("calls onChange with updated predicate on field change", async () => {
-  const user = userEvent.setup();
   const onChange = vi.fn();
   render(
     <RulePredicateForm
@@ -113,10 +112,8 @@ it("calls onChange with updated predicate on field change", async () => {
       onChange={onChange}
     />
   );
-  await user.selectOptions(screen.getByRole("combobox", { name: /level 1 action/i }), "physical");
-  expect(onChange).toHaveBeenCalledWith(
-    expect.objectContaining({ level_1_action: "physical" })
-  );
+  // No level_1_action field to interact with - Level 1 is always Zoom
+  // The level_ladder form is now empty (no fields to change)
 });
 
 it("shows advanced JSON toggle and textarea", async () => {
@@ -135,7 +132,7 @@ it("shows advanced JSON toggle and textarea", async () => {
   expect(screen.getByRole("textbox", { name: /json predicate/i })).toBeInTheDocument();
 });
 
-it("renders tooltip info icon for level_1_action field", () => {
+it("renders level_ladder form without level_1_action field", () => {
   render(
     <RulePredicateForm
       ruleType="level_ladder"
@@ -143,8 +140,6 @@ it("renders tooltip info icon for level_1_action field", () => {
       onChange={vi.fn()}
     />
   );
-  const infoButtons = screen.getAllByRole("button").filter(
-    (btn) => btn.querySelector(".lucide-info") !== null
-  );
-  expect(infoButtons.length).toBeGreaterThanOrEqual(1);
+  // Level 1 is always Zoom - no configurable dropdown needed
+  expect(screen.queryByRole("combobox", { name: /level 1 action/i })).not.toBeInTheDocument();
 });

@@ -387,4 +387,20 @@ describe("Absence inbox", () => {
     await user.click(screen.getByRole("button", { name: /back/i }));
     expect(screen.queryByText("Permanently delete absence")).not.toBeInTheDocument();
   });
+
+  it("shows Delete Permanently link in cancel modal that transitions to delete modal", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+    const cancelModal = screen.getByText("Cancel absence").closest("[role='dialog']") as HTMLElement;
+    expect(cancelModal).toBeInTheDocument();
+    expect(within(cancelModal).getByText(/delete permanently/i)).toBeInTheDocument();
+
+    await user.click(within(cancelModal).getByText(/delete permanently/i));
+    expect(screen.queryByText("Cancel absence")).not.toBeInTheDocument();
+    expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
+    expect(screen.getByText(/permanently remove the absence record/i)).toBeInTheDocument();
+  });
 });

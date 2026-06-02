@@ -17,7 +17,7 @@ type RulePredicateFormProps = {
 function buildDefaults(ruleType: SitInRuleType): Record<string, unknown> {
   switch (ruleType) {
     case "level_ladder":
-      return { level_1_action: "zoom", min_level_for_sit_lower: 2 };
+      return { min_level_for_sit_lower: 2 };
     case "cross_section":
       return {
         section_match: "cross_section",
@@ -116,30 +116,12 @@ export function RulePredicateForm({ ruleType, predicate, onChange }: RulePredica
   );
 }
 
-function LevelLadderFields({
-  predicate,
-  onChange,
-}: {
+function LevelLadderFields(_props: {
   predicate: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
 }) {
   return (
-    <>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="level_1_action">
-          Level 1 Action
-          <Tooltip content={FIELD_TOOLTIPS.level_1_action} />
-        </label>
-        <Select
-          id="level_1_action"
-          value={(predicate.level_1_action as string) ?? "zoom"}
-          onChange={(e) => onChange({ level_1_action: e.target.value })}
-        >
-          <option value="zoom">Zoom</option>
-          <option value="physical">Physical</option>
-        </Select>
-      </div>
-    </>
+    <></>
   );
 }
 

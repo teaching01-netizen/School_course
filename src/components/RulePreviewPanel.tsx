@@ -11,8 +11,8 @@ export type RuleTypeDescription = {
 export const RULE_TYPE_DESCRIPTIONS: Record<SitInRuleType, RuleTypeDescription> = {
   level_ladder: {
     label: "Level Ladder",
-    description: "Students at different levels sit in lower-level classes",
-    example: "A Level 3 student can sit in a Level 2 class when absent",
+    description: "Level 1 students get Zoom; higher-level students sit in the next level up",
+    example: "Level 1 absent → Zoom; Level 2 absent → sit in Level 3",
   },
   cross_section: {
     label: "Cross-Section",
@@ -37,10 +37,8 @@ export const RULE_TYPE_DESCRIPTIONS: Record<SitInRuleType, RuleTypeDescription> 
 };
 
 export const FIELD_TOOLTIPS: Record<string, string> = {
-  level_1_action:
-    "What happens to Level 1 students when absent? Zoom = attend remotely, Physical = attend a class in person",
   min_level:
-    "The lowest level allowed for sit-down. Students below this level get the Level 1 Action instead. For example, min_level=3 means only Level 3+ students can sit down; Level 1-2 students get Zoom/Physical.",
+    "The lowest level allowed for sit-in. Students below this level get Zoom instead. For example, min_level=3 means only Level 3+ students can sit in; Level 1-2 students get Zoom.",
   section_match:
     "Cross-section = students attend a different section's session, Any = any section",
   occurrence_match:
@@ -74,7 +72,7 @@ export function buildConditionBadge(form: SitInRuleCreateInput): string {
 
   switch (form.type) {
     case "level_ladder":
-      parts.push(`Level 1: ${p.level_1_action === "zoom" ? "Zoom" : "Physical"}`);
+      parts.push(`Level 1: Zoom`);
       parts.push(`Min Level: ${p.min_level_for_sit_lower ?? 2}`);
       break;
     case "cross_section":
@@ -149,7 +147,6 @@ export function RulePreviewPanel({ form }: RulePreviewPanelProps) {
       {form.type === "level_ladder" ? (
         <div className="mb-2">
           <LevelLadderVisual
-            level1Action={(form.predicate.level_1_action as "zoom" | "physical") ?? "zoom"}
             minLevelForSitLower={Number(form.predicate.min_level_for_sit_lower ?? 2)}
           />
         </div>

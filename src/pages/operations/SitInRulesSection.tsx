@@ -276,7 +276,7 @@ export function SitInRulesSection() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-500">Set level for each course. Levels must be consecutive. Level 1 = Zoom, higher = physical sit-in.</p>
+          <p className="text-sm text-gray-500">Set level for each course. Levels must be consecutive. Level 1 = Zoom, higher levels sit in next level up.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={verifyConfiguration}>Verify All</Button>

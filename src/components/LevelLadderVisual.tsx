@@ -1,13 +1,12 @@
 import { ArrowUp, ArrowDown } from "lucide-react";
 
 type LevelLadderVisualProps = {
-  level1Action: "zoom" | "physical";
   minLevelForSitLower: number;
 };
 
 const LEVEL_COUNT = 4;
 
-export function LevelLadderVisual({ level1Action, minLevelForSitLower }: LevelLadderVisualProps) {
+export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProps) {
   const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1);
 
   return (
@@ -35,12 +34,8 @@ export function LevelLadderVisual({ level1Action, minLevelForSitLower }: LevelLa
                   Level {level}
                 </div>
                 {isBottom && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    level1Action === "zoom"
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-emerald-100 text-emerald-700"
-                  }`}>
-                    {level1Action === "zoom" ? "Zoom" : "Physical"}
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                    Zoom
                   </span>
                 )}
                 {!isBottom && (

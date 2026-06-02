@@ -9,9 +9,7 @@ export function buildExampleScenario(form: SitInRuleCreateInput): string {
 
   switch (form.type) {
     case "level_ladder": {
-      const action =
-        p.level_1_action === "zoom" ? "attend a Zoom session" : "attend a physical class";
-      return `If a Level 1 student is absent, they ${action}. Non-top students sit in the next higher level. Top-level students sit in the level below.`;
+      return `If a Level 1 student is absent, they attend a Zoom session. Non-top students sit in the next higher level. Top-level students sit in the level below.`;
     }
     case "cross_section": {
       const section =
