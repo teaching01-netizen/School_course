@@ -66,6 +66,8 @@ export default function Absences() {
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchFailed, setBatchFailed] = useState<Array<{ id: string; error: string }>>([]);
+  const [deleteTarget, setDeleteTarget] = useState<ManagedAbsence | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
 
@@ -174,6 +176,21 @@ export default function Absences() {
       await load();
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function deleteAbsence() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiJson(`/api/v1/absences/${deleteTarget.id}`, { method: "DELETE", body: JSON.stringify({ expected_version: deleteTarget.version }) });
+      addToast("success", "Absence permanently deleted");
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -446,6 +463,7 @@ export default function Absences() {
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Actioned</Button> : null}
                     {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
+                    {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button> : null}
                   </div>
                 </td>
               </tr>
@@ -495,6 +513,25 @@ export default function Absences() {
           </select>
           <label className="mt-3 block text-sm font-medium text-gray-700" htmlFor="inbox-cancel-detail">Additional details (optional)</label>
           <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
+        </Modal>
+      ) : null}
+
+      {deleteTarget ? (
+        <Modal
+          title="Permanently delete absence"
+          onClose={() => setDeleteTarget(null)}
+          footer={(
+            <>
+              <Button variant="secondary" onClick={() => setDeleteTarget(null)}>Back</Button>
+              <Button variant="danger" loading={deleting} onClick={() => void deleteAbsence()}>Delete Permanently</Button>
+            </>
+          )}
+        >
+          <p className="mb-3 text-sm text-gray-600">
+            This will permanently remove the absence record for <strong>{deleteTarget.student_name ?? deleteTarget.wcode}</strong>.
+            This action cannot be undone.
+          </p>
+          <p className="text-sm text-red-600 font-medium">Warning: All associated data will be lost.</p>
         </Modal>
       ) : null}
     </div>

@@ -41,11 +41,13 @@ function AbsenceCard({
   reviewingId,
   onMarkReviewed,
   onCancelClick,
+  onDeleteClick,
 }: {
   absence: ManagedAbsence;
   reviewingId: string | null;
   onMarkReviewed: (a: ManagedAbsence) => void;
   onCancelClick: (a: ManagedAbsence) => void;
+  onDeleteClick: (a: ManagedAbsence) => void;
 }) {
   const navigate = useNavigate();
   return (
@@ -78,6 +80,9 @@ function AbsenceCard({
         {absence.status !== "cancelled" ? (
           <button onClick={() => onCancelClick(absence)} className="rounded-sm px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Cancel</button>
         ) : null}
+        {absence.status !== "cancelled" ? (
+          <button onClick={() => onDeleteClick(absence)} className="rounded-sm px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
+        ) : null}
       </div>
     </div>
   );
@@ -93,6 +98,8 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
   const [cancelTarget, setCancelTarget] = useState<ManagedAbsence | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ManagedAbsence | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
   const [cancelledPage, setCancelledPage] = useState<ManagedAbsence[]>([]);
   const [cancelledLoading, setCancelledLoading] = useState(false);
@@ -177,6 +184,21 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
     }
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiJson(`/api/v1/absences/${deleteTarget.id}`, { method: "DELETE", body: JSON.stringify({ expected_version: deleteTarget.version }) });
+      setColumns((prev) => ({ ...prev, [deleteTarget.status]: prev[deleteTarget.status].filter((a) => a.id !== deleteTarget.id) }));
+      setDeleteTarget(null);
+      addToast("success", "Absence permanently deleted");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!initialLoadDone && Object.values(loading).some(Boolean)) return null;
 
   return (
@@ -190,7 +212,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
             </div>
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
               {columns[key].map((absence) => (
-                <AbsenceCard key={absence.id} absence={absence} reviewingId={reviewingId} onMarkReviewed={handleMarkReviewed} onCancelClick={setCancelTarget} />
+                <AbsenceCard key={absence.id} absence={absence} reviewingId={reviewingId} onMarkReviewed={handleMarkReviewed} onCancelClick={setCancelTarget} onDeleteClick={setDeleteTarget} />
               ))}
               {columns[key].length === 0 && !loading[key] ? <EmptyState message={`No ${label.toLowerCase()} absences.`} /> : null}
               {loading[key] && columns[key].length > 0 ? <div className="py-2 text-center text-xs text-gray-400">Loading...</div> : null}
@@ -231,6 +253,17 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
           <p className="mb-3 text-sm text-gray-600">Assigned sit-in sessions will be released.</p>
           <label className="block text-sm font-medium text-gray-700" htmlFor="kanban-cancel-reason">Cancellation reason</label>
           <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+        </Modal>
+      ) : null}
+
+      {deleteTarget ? (
+        <Modal title="Permanently delete absence" onClose={() => setDeleteTarget(null)}
+          footer={<><Button variant="secondary" onClick={() => setDeleteTarget(null)}>Back</Button><Button variant="danger" loading={deleting} onClick={() => void handleDelete()}>Delete Permanently</Button></>}>
+          <p className="mb-3 text-sm text-gray-600">
+            This will permanently remove the absence record for <strong>{deleteTarget.student_name ?? deleteTarget.wcode}</strong>.
+            This action cannot be undone.
+          </p>
+          <p className="text-sm text-red-600 font-medium">Warning: All associated data will be lost.</p>
         </Modal>
       ) : null}
     </>

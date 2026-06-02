@@ -261,6 +261,14 @@ export type StaffAbsencePolicies = {
 
 export type RequestedSessionInfo = { course_id: string; teacher_id: string };
 
+export type CalendarSitInStudent = {
+  wcode: string;
+  student_name: string | null;
+  absence_id: string;
+  from_course_code: string;
+  from_course_name: string | null;
+};
+
 export type CalendarSessionBrief = {
   id: string;
   course_id: string;
@@ -271,6 +279,7 @@ export type CalendarSessionBrief = {
   end_at: string;
   room_name?: string | null;
   teacher_name?: string;
+  sit_in_students?: CalendarSitInStudent[];
 };
 
 export type CalendarAbsenceDay = {

@@ -237,6 +237,46 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 	return out, rows.Err()
 }
 
+type SitInStudentRow struct {
+	AbsenceID     pgtype.UUID
+	SessionID     pgtype.UUID
+	Wcode         string
+	StudentName   pgtype.Text
+	FromCourseCode string
+	FromCourseName pgtype.Text
+}
+
+func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UUID) ([]SitInStudentRow, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT asi.absence_id, asi.session_id, sa.wcode,
+		       COALESCE(st.full_name, '') AS student_name,
+		       c.code AS from_course_code,
+		       COALESCE(c.name, '') AS from_course_name
+		FROM absence_sit_ins asi
+		JOIN student_absences sa ON sa.id = asi.absence_id
+		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN courses c ON c.id = sa.sit_in_course_id
+		WHERE asi.session_id = ANY($1::uuid[])
+		ORDER BY asi.session_id, sa.wcode
+	`, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SitInStudentRow
+	for rows.Next() {
+		var r SitInStudentRow
+		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.StudentName, &r.FromCourseCode, &r.FromCourseName); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 type AbsenceAuditInsertParams struct {
 	AbsenceID pgtype.UUID
 	Action    string
@@ -340,6 +380,16 @@ func (q *Queries) AbsenceSitInUpdate(ctx context.Context, id pgtype.UUID, method
 		RETURNING version
 	`, id, method, courseID, actorID, reason, expectedVersion).Scan(&version)
 	return version, err
+}
+
+func (q *Queries) AbsenceHardDelete(ctx context.Context, id pgtype.UUID, expectedVersion int32) (int32, error) {
+	var one int32
+	err := q.db.QueryRow(ctx, `
+		DELETE FROM student_absences
+		WHERE id = $1 AND version = $2
+		RETURNING 1
+	`, id, expectedVersion).Scan(&one)
+	return one, err
 }
 
 func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {

@@ -115,6 +115,9 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 		case len(parts) == 2 && r.Method == http.MethodPost && parts[1] == "cancel":
 			s.handlePendingCancel(w, r)
 			return
+		case len(parts) == 1 && r.Method == http.MethodDelete:
+			s.handleAbsenceDelete(w, r)
+			return
 		}
 	}
 

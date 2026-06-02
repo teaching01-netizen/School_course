@@ -16,16 +16,25 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
+type calendarSitInStudentDTO struct {
+	Wcode         string  `json:"wcode"`
+	StudentName   *string `json:"student_name"`
+	AbsenceID     string  `json:"absence_id"`
+	FromCourseCode string `json:"from_course_code"`
+	FromCourseName *string `json:"from_course_name"`
+}
+
 type calendarSessionBriefDTO struct {
-	ID          string  `json:"id"`
-	CourseID    string  `json:"course_id"`
-	CourseCode  string  `json:"course_code"`
-	CourseName  string  `json:"course_name"`
-	SubjectName *string `json:"subject_name"`
-	StartAt     string  `json:"start_at"`
-	EndAt       string  `json:"end_at"`
-	RoomName    *string `json:"room_name"`
-	TeacherName *string `json:"teacher_name"`
+	ID           string                   `json:"id"`
+	CourseID     string                   `json:"course_id"`
+	CourseCode   string                   `json:"course_code"`
+	CourseName   string                   `json:"course_name"`
+	SubjectName  *string                  `json:"subject_name"`
+	StartAt      string                   `json:"start_at"`
+	EndAt        string                   `json:"end_at"`
+	RoomName     *string                  `json:"room_name"`
+	TeacherName  *string                  `json:"teacher_name"`
+	SitInStudents []calendarSitInStudentDTO `json:"sit_in_students,omitempty"`
 }
 
 type calendarAbsenceDTO struct {
@@ -359,6 +368,34 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	absenceDays := buildCalendarAbsenceDays(entries, missedDatesByAbsence, rangeStart, rangeEnd)
+
+	sessionIDs := make([]pgtype.UUID, 0, len(sessionRows))
+	for _, row := range sessionRows {
+		sessionIDs = append(sessionIDs, row.ID)
+	}
+	sitInBySession := make(map[string][]calendarSitInStudentDTO)
+	if len(sessionIDs) > 0 {
+		sitInRows, err := s.deps.Q.SitInsBySessionIDs(r.Context(), sessionIDs)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return
+		}
+		for _, si := range sitInRows {
+			sessID, _ := s.a.UUIDString(si.SessionID)
+			absID, _ := s.a.UUIDString(si.AbsenceID)
+			sitInBySession[sessID] = append(sitInBySession[sessID], calendarSitInStudentDTO{
+				Wcode:          si.Wcode,
+				StudentName:    stringPtrIfValid(si.StudentName),
+				AbsenceID:      absID,
+				FromCourseCode: si.FromCourseCode,
+				FromCourseName: stringPtrIfValid(si.FromCourseName),
+			})
+		}
+	}
+	for i := range sessions {
+		sessions[i].SitInStudents = sitInBySession[sessions[i].ID]
+	}
 
 	s.a.WriteJSON(w, http.StatusOK, calendarResponseDTO{
 		Sessions:    sessions,
@@ -1297,5 +1334,70 @@ func (s *server) handleAbsenceSettingsUpdate(w http.ResponseWriter, r *http.Requ
 			return 0, nil, err
 		}
 		return http.StatusOK, body, nil
+	})
+}
+
+func (s *server) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid absence ID")
+		return
+	}
+	var body struct {
+		ExpectedVersion *int32 `json:"expected_version"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.ExpectedVersion == nil || *body.ExpectedVersion < 1 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_expected_version", "expected_version is required")
+		return
+	}
+	adminID := actorID(user.ID)
+	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		current, err := qtx.ManagedAbsenceGet(r.Context(), id)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
+		if current.Version != *body.ExpectedVersion {
+			s.writeStaleAbsence(w)
+			return 0, nil, pgx.ErrNoRows
+		}
+		if current.Status == "cancelled" {
+			s.a.WriteErr(w, http.StatusConflict, "already_cancelled", "This absence is already cancelled")
+			return 0, nil, fmt.Errorf("already cancelled")
+		}
+
+		// ON DELETE CASCADE on absence_sit_ins, absence_missed_sessions,
+		// and absence_audit_log handles child row cleanup atomically.
+		// Version check in WHERE clause provides DB-level optimistic locking.
+		if _, err := qtx.AbsenceHardDelete(r.Context(), id, *body.ExpectedVersion); err != nil {
+			if sqldb.IsNoRows(err) {
+				s.writeStaleAbsence(w)
+			} else {
+				status, code, message := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, message)
+			}
+			return 0, nil, err
+		}
+
+		_, err = qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
+			ActorUserID: adminID,
+			Action:      "absence.hard_deleted",
+			Payload:     map[string]any{"absence_id": r.PathValue("id"), "wcode": current.Wcode},
+		})
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write audit log")
+			return 0, nil, err
+		}
+		return http.StatusOK, map[string]string{"status": "deleted"}, nil
 	})
 }

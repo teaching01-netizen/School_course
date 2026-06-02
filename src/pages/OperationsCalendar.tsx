@@ -82,6 +82,12 @@ function getSitInLabel(absence: CalendarAbsence): string {
   }
 }
 
+function getSitInVisitorLabel(student: { wcode: string; student_name: string | null; from_course_code: string; from_course_name: string | null }): string {
+  const name = student.student_name?.trim();
+  const course = student.from_course_name?.trim() || student.from_course_code;
+  return name ? `${student.wcode} (${course})` : `${student.wcode} (${course})`;
+}
+
 function absencePuckColor(count: number): string {
   if (count === 0) return "bg-gray-100 text-gray-400";
   if (count <= 3) return "bg-green-100 text-green-700";
@@ -460,6 +466,22 @@ export default function OperationsCalendar() {
                       <p className="font-semibold text-gray-800">{getSessionLabel(session)}</p>
                       <p className="text-gray-500">{formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}</p>
                       {session.room_name ? <p className="truncate text-gray-400">{session.room_name}</p> : null}
+                      {session.sit_in_students && session.sit_in_students.length > 0 ? (
+                        <div className="mt-1 border-t border-gray-100 pt-1">
+                          <p className="text-[10px] text-amber-700">
+                            <span className="font-semibold">Visitors:</span>{" "}
+                            {session.sit_in_students.slice(0, 2).map((student, idx) => (
+                              <span key={student.wcode}>
+                                {idx > 0 && ", "}
+                                {getSitInVisitorLabel(student)}
+                              </span>
+                            ))}
+                            {session.sit_in_students.length > 2 ? (
+                              <span className="text-amber-500"> +{session.sit_in_students.length - 2} more</span>
+                            ) : null}
+                          </p>
+                        </div>
+                      ) : null}
                     </button>
                   ))}
                   {dayAbsenceRows.slice(0, 2).map((absence) => (
@@ -509,7 +531,38 @@ export default function OperationsCalendar() {
           {selectedDaySessions.length === 0 && selectedDayAbsences.length === 0 ? (
             <p className="text-sm text-gray-400">No sessions or absences for this day.</p>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-6">
+              <section>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions ({selectedDaySessions.length})</h4>
+                {selectedDaySessions.length === 0 ? (
+                  <p className="text-sm text-gray-400">No sessions this day.</p>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {selectedDaySessions.map((session) => (
+                      <div key={session.id} className="rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm">
+                        <p className="font-medium text-gray-800">{getSessionLabel(session)}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}
+                          {session.room_name ? ` · ${session.room_name}` : ""}
+                        </p>
+                        {session.sit_in_students && session.sit_in_students.length > 0 ? (
+                          <div className="mt-2 border-t border-gray-100 pt-2">
+                            <p className="text-xs text-amber-700">
+                              <span className="font-semibold">Visitors:</span>{" "}
+                              {session.sit_in_students.map((student, idx) => (
+                                <span key={student.wcode}>
+                                  {idx > 0 && ", "}
+                                  {getSitInVisitorLabel(student)}
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
               <section>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({selectedDayAbsences.length})</h4>
                 {selectedDayAbsences.length === 0 ? (
@@ -541,24 +594,6 @@ export default function OperationsCalendar() {
                             View details
                           </Link>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-              <section>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions ({selectedDaySessions.length})</h4>
-                {selectedDaySessions.length === 0 ? (
-                  <p className="text-sm text-gray-400">No sessions this day.</p>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {selectedDaySessions.map((session) => (
-                      <div key={session.id} className="rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm">
-                        <p className="font-medium text-gray-800">{getSessionLabel(session)}</p>
-                        <p className="text-xs text-gray-500">
-                          {formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}
-                          {session.room_name ? ` · ${session.room_name}` : ""}
-                        </p>
                       </div>
                     ))}
                   </div>

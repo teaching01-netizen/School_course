@@ -303,4 +303,88 @@ describe("Absence inbox", () => {
       );
     });
   });
+
+  it("shows delete button for non-cancelled absences", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    const deleteBtn = screen.getByRole("button", { name: /delete/i });
+    expect(deleteBtn).toBeInTheDocument();
+  });
+
+  it("hides delete button for cancelled absences", async () => {
+    const cancelledPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], status: "cancelled" }],
+    };
+    mockApiJson.mockResolvedValueOnce(cancelledPage);
+    renderPage("/absences?status=cancelled");
+
+    await screen.findByText("John Smith");
+    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
+  });
+
+  it("opens confirmation modal when delete button is clicked", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+
+    const modal = screen.getByRole("dialog");
+    expect(within(modal).getByText("Permanently delete absence")).toBeInTheDocument();
+    expect(within(modal).getByText(/permanently remove the absence record/i)).toBeInTheDocument();
+    expect(within(modal).getByText("John Smith")).toBeInTheDocument();
+    expect(within(modal).getByText(/this action cannot be undone/i)).toBeInTheDocument();
+  });
+
+  it("calls DELETE API and reloads on successful deletion", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "deleted" })
+      .mockResolvedValueOnce({ ...PAGE, items: [] });
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/absences/abs-1",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows error toast when delete API fails", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockRejectedValueOnce(new Error("Delete failed"));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete failed")).toBeInTheDocument();
+    });
+  });
+
+  it("closes modal when Back button is clicked", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /back/i }));
+    expect(screen.queryByText("Permanently delete absence")).not.toBeInTheDocument();
+  });
 });
