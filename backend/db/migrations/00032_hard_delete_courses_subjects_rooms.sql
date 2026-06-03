@@ -63,10 +63,12 @@ ALTER TABLE courses
   ADD CONSTRAINT courses_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE;
 
--- absence_extensions: remove extensions when subject is deleted.
-ALTER TABLE absence_extensions
-  DROP CONSTRAINT IF EXISTS absence_extensions_subject_id_fkey,
-  ADD CONSTRAINT absence_extensions_subject_id_fkey
+-- student_absences: remove absence records when subject is deleted.
+-- Migration 00016 added subject_id directly to student_absences;
+-- there is no separate subject extension table.
+ALTER TABLE student_absences
+  DROP CONSTRAINT IF EXISTS student_absences_subject_id_fkey,
+  ADD CONSTRAINT student_absences_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE;
 
 -- Add ON DELETE CASCADE on child tables for rooms.
@@ -136,9 +138,9 @@ ALTER TABLE courses
   ADD CONSTRAINT courses_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id);
 
-ALTER TABLE absence_extensions
-  DROP CONSTRAINT IF EXISTS absence_extensions_subject_id_fkey,
-  ADD CONSTRAINT absence_extensions_subject_id_fkey
+ALTER TABLE student_absences
+  DROP CONSTRAINT IF EXISTS student_absences_subject_id_fkey,
+  ADD CONSTRAINT student_absences_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id);
 
 ALTER TABLE session_series
