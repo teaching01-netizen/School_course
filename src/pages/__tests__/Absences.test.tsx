@@ -313,7 +313,7 @@ describe("Absence inbox", () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
-  it("hides delete button for cancelled absences", async () => {
+  it("shows delete button for cancelled absences", async () => {
     const cancelledPage = {
       ...PAGE,
       items: [{ ...PAGE.items[0], status: "cancelled" }],
@@ -322,7 +322,7 @@ describe("Absence inbox", () => {
     renderPage("/absences?status=cancelled");
 
     await screen.findByText("John Smith");
-    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
   });
 
   it("opens confirmation modal when delete button is clicked", async () => {

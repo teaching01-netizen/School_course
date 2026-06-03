@@ -1371,10 +1371,6 @@ func (s *server) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
 			s.writeStaleAbsence(w)
 			return 0, nil, pgx.ErrNoRows
 		}
-		if current.Status == "cancelled" {
-			s.a.WriteErr(w, http.StatusConflict, "already_cancelled", "This absence is already cancelled")
-			return 0, nil, fmt.Errorf("already cancelled")
-		}
 
 		// ON DELETE CASCADE on absence_sit_ins, absence_missed_sessions,
 		// and absence_audit_log handles child row cleanup atomically.

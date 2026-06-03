@@ -80,9 +80,7 @@ function AbsenceCard({
         {absence.status !== "cancelled" ? (
           <button onClick={() => onCancelClick(absence)} className="rounded-sm px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Cancel</button>
         ) : null}
-        {absence.status !== "cancelled" ? (
-          <button onClick={() => onDeleteClick(absence)} className="rounded-sm px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
-        ) : null}
+        <button onClick={() => onDeleteClick(absence)} className="rounded-sm px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
       </div>
     </div>
   );

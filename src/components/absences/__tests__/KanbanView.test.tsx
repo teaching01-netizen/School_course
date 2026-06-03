@@ -61,6 +61,20 @@ describe("KanbanView hard delete", () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
+  it("shows delete button for cancelled absences in main columns", async () => {
+    // Cancelled absences in the main columns (e.g., when moving from pending to cancelled) use AbsenceCard
+    const cancelledAbsence = { ...PENDING_ABSENCE, status: "cancelled" };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [cancelledAbsence], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
+  });
+
   it("opens delete confirmation modal when delete button is clicked", async () => {
     mockApiJson.mockImplementation(async (url: string) => {
       if (url.includes("status=pending")) return { items: [PENDING_ABSENCE], total_count: 1, offset: 0, limit: 20 };
