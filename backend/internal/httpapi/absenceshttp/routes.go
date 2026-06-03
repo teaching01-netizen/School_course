@@ -764,8 +764,8 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		       c.id, c.code, c.name,
 		       sub.id, sub.code, sub.name
 		FROM sessions sess
-		JOIN courses c ON c.id = sess.course_id AND c.deleted_at IS NULL
-		JOIN subjects sub ON sub.id = c.subject_id AND sub.deleted_at IS NULL
+		JOIN courses c ON c.id = sess.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
 		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1

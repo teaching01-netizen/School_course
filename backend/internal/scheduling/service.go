@@ -134,13 +134,13 @@ func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) 
 
 	for _, o := range occ {
 		if se := s.preflightSlot(ctx, s.db, s.q, preflightInput{
-			CourseID:      p.CourseID,
-			RoomID:        p.RoomID,
-			TeacherID:     p.TeacherID,
-			StartUTC:      o.StartUTC,
-			EndUTC:        o.EndUTC,
-			IgnoreSeries:  p.SeriesID,
-			Requested:     ps.conflictRequested(o.StartUTC, o.EndUTC, nil),
+			CourseID:     p.CourseID,
+			RoomID:       p.RoomID,
+			TeacherID:    p.TeacherID,
+			StartUTC:     o.StartUTC,
+			EndUTC:       o.EndUTC,
+			IgnoreSeries: p.SeriesID,
+			Requested:    ps.conflictRequested(o.StartUTC, o.EndUTC, nil),
 		}); se != nil {
 			return PreflightSeriesResult{}, se, nil
 		}
@@ -1202,7 +1202,7 @@ func (s *Service) _explainFromDBErrByRepreflight(ctx context.Context, err error,
 
 func (s *Service) FindAvailableSlots(ctx context.Context, p FindAvailableSlotsParams) (FindAvailableSlotsResult, error) {
 	// Fetch course teacher.
-	row := s.db.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id = $1 AND deleted_at IS NULL`, p.CourseID)
+	row := s.db.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id = $1`, p.CourseID)
 	var teacherID pgtype.UUID
 	if err := row.Scan(&teacherID); err != nil {
 		return FindAvailableSlotsResult{}, fmt.Errorf("course not found: %w", err)

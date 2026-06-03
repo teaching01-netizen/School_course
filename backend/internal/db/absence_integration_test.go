@@ -57,7 +57,7 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Also create a deleted course in the same subject (should be excluded)
+	// Also create a course that will be hard-deleted from the same subject.
 	deletedCourse, err := q.CourseCreate(ctx, CourseCreateParams{
 		Code: "DEL-CRS-" + suffix,
 		Name: "Deleted Course " + suffix,
@@ -66,9 +66,6 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, deletedCourse.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbpool.Exec(ctx, "UPDATE courses SET deleted_at = NOW() WHERE id = $1", deletedCourse.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,8 +88,8 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("excludes_student_with_no_active_courses", func(t *testing.T) {
-		// Create a second student enrolled only in the soft-deleted course
+	t.Run("hard_delete_removes_enrollments_for_students_with_no_remaining_courses", func(t *testing.T) {
+		// Create a second student enrolled only in the deleted course.
 		noCourseWcode := "WNONE-" + suffix
 		noCourseStudent, err := q.StudentCreate(ctx, StudentCreateParams{
 			Wcode:    noCourseWcode,
@@ -102,9 +99,10 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Enroll them in the deleted course only
-		// CourseStudentAdd will succeed (it doesn't check deleted_at), but the query joins on c.deleted_at IS NULL
 		if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: deletedCourse.ID, StudentID: noCourseStudent.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.CourseDelete(ctx, deletedCourse.ID); err != nil {
 			t.Fatal(err)
 		}
 

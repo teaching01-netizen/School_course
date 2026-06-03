@@ -575,7 +575,7 @@ func (s *ReconcileV2Service) EnqueueReconcileJobsForSnapshot(ctx context.Context
 	rows, err := s.db.Query(ctx, `
 		SELECT id, crm_filter, crm_filter_version, crm_roster_locked
 		FROM courses
-		WHERE crm_filter_enabled = true AND deleted_at IS NULL
+		WHERE crm_filter_enabled = true
 	`)
 	if err != nil {
 		return fmt.Errorf("query courses: %w", err)
