@@ -289,7 +289,7 @@ export default function CourseDetail() {
     try {
       setDeleting(true);
       await apiJson(`/api/v1/courses/${id}`, { method: "DELETE" });
-      addToast("success", "Course archived");
+      addToast("success", "Course deleted");
       navigate("/courses");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Delete failed");
@@ -602,7 +602,7 @@ export default function CourseDetail() {
             Edit
           </Link>
           <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)} loading={deleting}>
-            {deleting ? "Archiving…" : "Delete"}
+            {deleting ? "Deleting..." : "Delete"}
           </Button>
         </div>
       </div>
@@ -1222,10 +1222,10 @@ export default function CourseDetail() {
 
       <ConfirmModal
         open={confirmDelete}
-        title="Archive Course"
-        message="Archive (soft-delete) this course?"
+        title="Delete Course"
+        message="Permanently delete this course? This cannot be undone."
         variant="danger"
-        confirmLabel="Archive"
+        confirmLabel="Delete"
         loading={deleting}
         onConfirm={() => void onDelete()}
         onCancel={() => setConfirmDelete(false)}
