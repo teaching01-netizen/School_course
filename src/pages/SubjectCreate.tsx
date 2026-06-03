@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiJson } from "../api/client";
+import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useFormValidation } from "../hooks/useFormValidation";
 import PageHeading from "../components/ui/PageHeading";
@@ -15,6 +15,15 @@ const schema = {
   name: [{ type: "required" as const, message: "Name is required" }],
 };
 
+function nextSubjectCode(subjects: Subject[]) {
+  const numericCodes = subjects
+    .map((s) => s.code.trim())
+    .filter((c) => /^\d+$/.test(c))
+    .map((c) => Number.parseInt(c, 10))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  return (numericCodes.length ? Math.max(...numericCodes) + 1 : 0).toString().padStart(2, "0");
+}
+
 export default function SubjectCreate() {
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -27,26 +36,22 @@ export default function SubjectCreate() {
   const formValues = { name };
   const { errors, validate, validateAll, touched, touch } = useFormValidation(schema, formValues);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setGenerating(true);
-        const subjects = await apiJson<Subject[]>("/api/v1/subjects", { method: "GET" });
-        const numericCodes = subjects
-          .map((s) => s.code.trim())
-          .filter((c) => /^\d+$/.test(c))
-          .map((c) => Number.parseInt(c, 10))
-          .filter((n) => Number.isFinite(n) && n >= 0);
-        const next = (numericCodes.length ? Math.max(...numericCodes) + 1 : 0).toString().padStart(2, "0");
-        setCode(next);
-      } catch {
-        const fallback = (Date.now() % 100).toString().padStart(2, "0");
-        setCode(fallback);
-      } finally {
-        setGenerating(false);
-      }
-    })();
+  const refreshGeneratedCode = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const subjects = await apiJson<Subject[]>("/api/v1/subjects", { method: "GET" });
+      setCode(nextSubjectCode(subjects));
+    } catch {
+      const fallback = (Date.now() % 100).toString().padStart(2, "0");
+      setCode(fallback);
+    } finally {
+      setGenerating(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshGeneratedCode();
+  }, [refreshGeneratedCode]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +66,11 @@ export default function SubjectCreate() {
       addToast("success", "Subject created");
       navigate("/subjects");
     } catch (err) {
+      if (err instanceof ApiRequestError && (err.status === 409 || err.code === "conflict")) {
+        await refreshGeneratedCode();
+        addToast("warning", "Id was already used. Generated a new id; review and save again.");
+        return;
+      }
       addToast("error", err instanceof Error ? err.message : "Create failed");
     } finally {
       setSubmitting(false);
