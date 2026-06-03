@@ -25,7 +25,6 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 	subjRows, err := q.db.Query(ctx, `
 		SELECT id, code, name
 		FROM subjects
-		WHERE deleted_at IS NULL
 		ORDER BY code ASC
 	`)
 	if err != nil {
@@ -53,7 +52,7 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 			FROM courses c
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 			LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = $1
-			WHERE c.subject_id = $1 AND c.deleted_at IS NULL
+			WHERE c.subject_id = $1
 			ORDER BY c.code ASC
 		`, subj.SubjectID)
 		if err != nil {
@@ -101,7 +100,7 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 		FROM subjects s
 		JOIN courses c ON c.subject_id = s.id
 		JOIN course_students cs ON cs.course_id = c.id
-		WHERE cs.student_id = $1 AND s.deleted_at IS NULL AND c.deleted_at IS NULL
+		WHERE cs.student_id = $1
 		ORDER BY s.code ASC
 	`, studentID)
 	if err != nil {
@@ -129,7 +128,7 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 			FROM courses c
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 			LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = $1
-			WHERE c.subject_id = $1 AND c.deleted_at IS NULL
+			WHERE c.subject_id = $1
 			ORDER BY c.code ASC
 		`, subj.SubjectID)
 		if err != nil {

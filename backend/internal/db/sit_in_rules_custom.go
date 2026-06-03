@@ -7,16 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type SitInRule struct {
-	ID          pgtype.UUID        `json:"id"`
-	Name        string             `json:"name"`
-	Type        string             `json:"type"`
-	Predicate   []byte             `json:"predicate"`
-	Description string             `json:"description"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
 type SitInRuleCreateInput struct {
 	Name        string
 	Type        string

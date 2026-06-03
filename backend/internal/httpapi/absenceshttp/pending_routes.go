@@ -112,9 +112,17 @@ func (s *server) allowPublicRateLimit(ctx context.Context, key string, limit int
 }
 
 func (s *server) resolveAbsenceSelection(ctx context.Context, q *sqldb.Queries, db publicRowExecutor, wcode string, subjectIDRaw, courseIDRaw *string) (sqldb.Student, pgtype.UUID, sqldb.StudentEnrolledCourseV2, error) {
-	student, err := q.StudentGetByWCode(ctx, wcode)
+	studentRow, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
+	}
+	student := sqldb.Student{
+		ID:        studentRow.ID,
+		Wcode:     studentRow.Wcode,
+		FullName:  studentRow.FullName,
+		Notes:     studentRow.Notes,
+		CreatedAt: studentRow.CreatedAt,
+		UpdatedAt: studentRow.UpdatedAt,
 	}
 
 	var subjectID pgtype.UUID
@@ -137,7 +145,7 @@ func (s *server) resolveAbsenceSelection(ctx context.Context, q *sqldb.Queries, 
 			Name      string
 			SubjectID pgtype.UUID
 		}
-		if err := db.QueryRow(ctx, `SELECT id, code, name, subject_id FROM courses WHERE id = $1 AND deleted_at IS NULL`, selectedCourse).Scan(&courseRow.ID, &courseRow.Code, &courseRow.Name, &courseRow.SubjectID); err != nil {
+		if err := db.QueryRow(ctx, `SELECT id, code, name, subject_id FROM courses WHERE id = $1`, selectedCourse).Scan(&courseRow.ID, &courseRow.Code, &courseRow.Name, &courseRow.SubjectID); err != nil {
 			return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
 		}
 		if !subjectID.Valid {

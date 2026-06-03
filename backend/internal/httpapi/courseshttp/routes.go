@@ -60,7 +60,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		Hour         any    `json:"hour"`
 		StudentCount any    `json:"student_count"`
 		CourseType   any    `json:"course_type"`
-		DeletedAt    any    `json:"deleted_at"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -93,10 +92,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.CourseType.Valid {
 			courseType = c.CourseType.String
 		}
-		var deletedAt any = nil
-		if c.DeletedAt.Valid {
-			deletedAt = c.DeletedAt.Time
-		}
 		out = append(out, courseDTO{
 			ID:           id,
 			CourseNo:     c.CourseNo,
@@ -111,7 +106,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			Hour:         hour,
 			StudentCount: studentCount,
 			CourseType:   courseType,
-			DeletedAt:    deletedAt,
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -646,8 +640,8 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 	s.deps.Log.Debug("deleting course", "course_id", r.PathValue("id"))
 	if !s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.CourseSoftDelete(r.Context(), id); err != nil {
-			s.deps.Log.Error("course_soft_delete failed", "error", err, "course_id", r.PathValue("id"))
+		if err := qtx.CourseDelete(r.Context(), id); err != nil {
+			s.deps.Log.Error("course_delete failed", "error", err, "course_id", r.PathValue("id"))
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err

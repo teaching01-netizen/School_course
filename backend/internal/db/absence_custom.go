@@ -27,8 +27,8 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		       MIN(c.id::text)::uuid AS active_course_id
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
-		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
-		JOIN subjects sub ON sub.id = c.subject_id AND sub.deleted_at IS NULL
+		JOIN courses c ON c.id = cs.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
 		WHERE s.wcode = $1
 		GROUP BY s.id, s.wcode, s.full_name, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
@@ -65,7 +65,7 @@ func (q *Queries) StudentEnrolledCoursesBySubject(ctx context.Context, studentID
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, c.course_level, c.level_order
 		FROM course_students cs
-		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
+		JOIN courses c ON c.id = cs.course_id
 		WHERE cs.student_id = $1 AND c.subject_id = $2 AND cs.status = 'enrolled'
 		ORDER BY c.level_order ASC NULLS LAST
 	`, studentID, subjectID)
@@ -101,7 +101,7 @@ func (q *Queries) SubjectCoursesBySubject(ctx context.Context, subjectID pgtype.
 	rows, err := q.db.Query(ctx, `
 		SELECT id, code, name, subject_id, course_level, level_order
 		FROM courses
-		WHERE subject_id = $1 AND deleted_at IS NULL AND course_level IS NOT NULL
+		WHERE subject_id = $1 AND course_level IS NOT NULL
 		ORDER BY level_order ASC NULLS LAST
 	`, subjectID)
 	if err != nil {
@@ -185,13 +185,6 @@ func (q *Queries) SessionsByCourse(ctx context.Context, courseID pgtype.UUID) ([
 		return nil, err
 	}
 	return out, nil
-}
-
-type AbsenceSitIn struct {
-	ID        pgtype.UUID        `json:"id"`
-	AbsenceID pgtype.UUID        `json:"absence_id"`
-	SessionID pgtype.UUID        `json:"session_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) AbsenceSitInsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
@@ -308,7 +301,6 @@ func (q *Queries) CourseLevelsList(ctx context.Context) ([]CourseLevelRow, error
 		       c.course_level, c.level_order
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		WHERE c.deleted_at IS NULL
 		ORDER BY sub.code ASC NULLS LAST, c.level_order ASC NULLS LAST, c.code ASC
 	`)
 	if err != nil {
@@ -362,7 +354,7 @@ func (q *Queries) CourseLevelsListV2(ctx context.Context) ([]CourseLevelRowV2, e
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE c.deleted_at IS NULL AND c.subject_id IS NOT NULL
+		WHERE c.subject_id IS NOT NULL
 		ORDER BY sub.code ASC NULLS LAST, c.cycle_id ASC NULLS LAST, c.level ASC NULLS LAST, c.code ASC
 	`)
 	if err != nil {
@@ -408,7 +400,7 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM course_students cs
-		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
+		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE cs.student_id = $1 AND c.subject_id = $2 AND cs.status = 'enrolled'
 		ORDER BY c.level ASC NULLS LAST
@@ -436,7 +428,7 @@ func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, s
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM course_students cs
-		JOIN courses c ON c.id = cs.course_id AND c.deleted_at IS NULL
+		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE cs.student_id = $1
 		  AND c.root_course_group_id = $2
@@ -482,7 +474,7 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND c.deleted_at IS NULL AND c.level IS NOT NULL
+		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND c.level IS NOT NULL
 		ORDER BY c.level ASC
 	`, subjectID, cycleID)
 	if err != nil {
@@ -512,7 +504,6 @@ func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupI
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE c.root_course_group_id = $1
-		  AND c.deleted_at IS NULL
 		  AND c.level IS NOT NULL
 		ORDER BY c.level ASC
 	`, rootCourseGroupID)
@@ -546,7 +537,6 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 			WHERE c.root_course_group_id = $1
-			  AND c.deleted_at IS NULL
 			  AND c.level IS NOT NULL
 			  AND c.cycle_id = $2
 			ORDER BY c.level ASC
@@ -559,7 +549,6 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 			WHERE c.root_course_group_id = $1
-			  AND c.deleted_at IS NULL
 			  AND c.level IS NOT NULL
 			ORDER BY c.level ASC
 		`, rootCourseGroupID)
@@ -592,7 +581,7 @@ func (q *Queries) SubjectAndCycleFromCourse(ctx context.Context, courseID pgtype
 	row := q.db.QueryRow(ctx, `
 		SELECT subject_id, cycle_id
 		FROM courses
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1
 	`, courseID)
 	var r SubjectAndCycleFromCourseRow
 	err := row.Scan(&r.SubjectID, &r.CycleID)
@@ -641,7 +630,7 @@ func (q *Queries) RootCourseGroupsList(ctx context.Context) ([]RootCourseGroupRo
 	SELECT g.id, g.name, COUNT(c.id)::int4 AS course_count,
 	       g.sit_in_rule_id, g.created_at, g.updated_at
 	FROM root_course_groups g
-	LEFT JOIN courses c ON c.root_course_group_id = g.id AND c.deleted_at IS NULL
+	LEFT JOIN courses c ON c.root_course_group_id = g.id
 	GROUP BY g.id, g.name, g.sit_in_rule_id, g.created_at, g.updated_at
 	ORDER BY g.name ASC
 	`)

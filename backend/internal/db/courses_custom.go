@@ -2,31 +2,14 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5"
 )
 
-type CourseListParams struct {
-	IncludeDeleted bool
-}
-
-func (q *Queries) CourseList(ctx context.Context, p CourseListParams) ([]Course, error) {
-	var rows pgx.Rows
-	var err error
-	if p.IncludeDeleted {
-		rows, err = q.db.Query(ctx, `
-			SELECT id, code, name, deleted_at, created_at, updated_at
-			FROM courses
-			ORDER BY code ASC
-		`)
-	} else {
-		rows, err = q.db.Query(ctx, `
-			SELECT id, code, name, deleted_at, created_at, updated_at
-			FROM courses
-			WHERE deleted_at IS NULL
-			ORDER BY code ASC
-		`)
-	}
+func (q *Queries) CourseList(ctx context.Context) ([]Course, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT id, code, name, created_at, updated_at
+		FROM courses
+		ORDER BY code ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +18,7 @@ func (q *Queries) CourseList(ctx context.Context, p CourseListParams) ([]Course,
 	var items []Course
 	for rows.Next() {
 		var c Course
-		if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.DeletedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, c)

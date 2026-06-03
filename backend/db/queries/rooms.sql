@@ -19,3 +19,6 @@ SET name = $2, capacity = $3, updated_at = now()
 WHERE id = $1
 RETURNING id, name, capacity, created_at, updated_at;
 
+-- name: RoomDelete :exec
+DELETE FROM rooms
+WHERE id = $1;

@@ -23,6 +23,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/rooms", s.handleRoomsCreate)
 	mux.HandleFunc("GET /api/v1/rooms/{id}", s.handleRoomsGet)
 	mux.HandleFunc("PUT /api/v1/rooms/{id}", s.handleRoomsUpdate)
+	mux.HandleFunc("DELETE /api/v1/rooms/{id}", s.handleRoomsDelete)
 }
 
 func (s *server) handleRoomsList(w http.ResponseWriter, r *http.Request) {
@@ -146,4 +147,29 @@ func (s *server) handleRoomsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		return http.StatusOK, map[string]any{"id": rid, "name": item.Name, "capacity": s.a.Int32Ptr(item.Capacity)}, nil
 	})
+}
+
+func (s *server) handleRoomsDelete(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
+		return
+	}
+	s.deps.Log.Debug("deleting room", "room_id", r.PathValue("id"))
+	if !s.a.WithIdempotentTx(w, r, user.ID, "rooms", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		if err := qtx.RoomDelete(r.Context(), id); err != nil {
+			s.deps.Log.Error("room_delete failed", "error", err, "room_id", r.PathValue("id"))
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		return http.StatusOK, map[string]any{"ok": true}, nil
+	}) {
+		s.deps.Log.Error("room_delete: idempotent tx failed", "room_id", r.PathValue("id"))
+	}
 }

@@ -91,7 +91,7 @@ func (s *server) handleSubjectsDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "subjects", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.SubjectSoftDelete(r.Context(), id); err != nil {
+		if err := qtx.SubjectDelete(r.Context(), id); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
