@@ -63,12 +63,6 @@ ALTER TABLE courses
   ADD CONSTRAINT courses_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE;
 
--- root_course_groups: remove groups when subject is deleted.
-ALTER TABLE root_course_groups
-  DROP CONSTRAINT IF EXISTS root_course_groups_subject_id_fkey,
-  ADD CONSTRAINT root_course_groups_subject_id_fkey
-    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE;
-
 -- absence_extensions: remove extensions when subject is deleted.
 ALTER TABLE absence_extensions
   DROP CONSTRAINT IF EXISTS absence_extensions_subject_id_fkey,
@@ -140,11 +134,6 @@ ALTER TABLE crm_pending_diffs
 ALTER TABLE courses
   DROP CONSTRAINT IF EXISTS courses_subject_id_fkey,
   ADD CONSTRAINT courses_subject_id_fkey
-    FOREIGN KEY (subject_id) REFERENCES subjects(id);
-
-ALTER TABLE root_course_groups
-  DROP CONSTRAINT IF EXISTS root_course_groups_subject_id_fkey,
-  ADD CONSTRAINT root_course_groups_subject_id_fkey
     FOREIGN KEY (subject_id) REFERENCES subjects(id);
 
 ALTER TABLE absence_extensions
