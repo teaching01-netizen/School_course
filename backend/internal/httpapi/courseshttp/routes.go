@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,6 +12,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/legacysync"
 	"warwick-institute/internal/scheduling"
 )
 
@@ -33,6 +35,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/courses/{id}/students/draft", s.handleCourseStudentsAddDraft)
 	mux.HandleFunc("POST /api/v1/courses/{id}/students/{student_id}/convert", s.handleCourseStudentsConvert)
 	mux.HandleFunc("GET /api/v1/courses/{id}/sessions", s.handleCourseSessionsList)
+	mux.HandleFunc("POST /api/v1/courses/{id}/legacy-sync", s.handleLegacySync)
 }
 
 func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
@@ -47,19 +50,21 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type courseDTO struct {
-		ID           string `json:"id"`
-		CourseNo     int64  `json:"course_no"`
-		Code         string `json:"code"`
-		Name         string `json:"name"`
-		Year         any    `json:"year"`
-		TeacherID    any    `json:"teacher_id"`
-		TeacherName  string `json:"teacher_name"`
-		SubjectID    any    `json:"subject_id"`
-		SubjectCode  string `json:"subject_code"`
-		SubjectName  string `json:"subject_name"`
-		Hour         any    `json:"hour"`
-		StudentCount any    `json:"student_count"`
-		CourseType   any    `json:"course_type"`
+		ID                string `json:"id"`
+		CourseNo          int64  `json:"course_no"`
+		Code              string `json:"code"`
+		Name              string `json:"name"`
+		Year              any    `json:"year"`
+		TeacherID         any    `json:"teacher_id"`
+		TeacherName       string `json:"teacher_name"`
+		SubjectID         any    `json:"subject_id"`
+		SubjectCode       string `json:"subject_code"`
+		SubjectName       string `json:"subject_name"`
+		Hour              any    `json:"hour"`
+		StudentCount      any    `json:"student_count"`
+		CourseType        any    `json:"course_type"`
+		LegacyCourseID    any    `json:"legacy_course_id"`
+		LegacyLastSyncedAt any   `json:"legacy_last_synced_at"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -92,20 +97,30 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.CourseType.Valid {
 			courseType = c.CourseType.String
 		}
+		var legacyCourseID any = nil
+		if c.LegacyCourseID.Valid {
+			legacyCourseID = c.LegacyCourseID.String
+		}
+		var legacyLastSyncedAt any = nil
+		if c.LegacyLastSyncedAt.Valid {
+			legacyLastSyncedAt, _ = s.a.TimeString(c.LegacyLastSyncedAt)
+		}
 		out = append(out, courseDTO{
-			ID:           id,
-			CourseNo:     c.CourseNo,
-			Code:         c.Code,
-			Name:         c.Name,
-			Year:         year,
-			TeacherID:    teacherID,
-			TeacherName:  c.TeacherName,
-			SubjectID:    subjectID,
-			SubjectCode:  c.SubjectCode,
-			SubjectName:  c.SubjectName,
-			Hour:         hour,
-			StudentCount: studentCount,
-			CourseType:   courseType,
+			ID:                 id,
+			CourseNo:           c.CourseNo,
+			Code:               c.Code,
+			Name:               c.Name,
+			Year:               year,
+			TeacherID:          teacherID,
+			TeacherName:        c.TeacherName,
+			SubjectID:          subjectID,
+			SubjectCode:        c.SubjectCode,
+			SubjectName:        c.SubjectName,
+			Hour:               hour,
+			StudentCount:       studentCount,
+			CourseType:         courseType,
+			LegacyCourseID:     legacyCourseID,
+			LegacyLastSyncedAt: legacyLastSyncedAt,
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -583,13 +598,32 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
+	// Fetch legacy fields separately since CourseGetByID doesn't include them.
+	var legacyCourseID any = nil
+	var legacyLastSyncedAt any = nil
+	var legacyCID pgtype.Text
+	var legacyLastSynced pgtype.Timestamptz
+	_ = s.deps.DB.QueryRow(r.Context(), `SELECT legacy_course_id, legacy_last_synced_at FROM courses WHERE id = $1`, id).Scan(&legacyCID, &legacyLastSynced)
+	if legacyCID.Valid {
+		legacyCourseID = legacyCID.String
+	}
+	if legacyLastSynced.Valid {
+		legacyLastSyncedAt, _ = s.a.TimeString(legacyLastSynced)
+	}
+
 	cid, err := s.a.UUIDString(item.ID)
 	if err != nil {
 		s.deps.Log.Error("uuid conversion failed", "error", err, "course_id", r.PathValue("id"))
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"id": cid, "code": item.Code, "name": item.Name})
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"id":                   cid,
+		"code":                 item.Code,
+		"name":                 item.Name,
+		"legacy_course_id":     legacyCourseID,
+		"legacy_last_synced_at": legacyLastSyncedAt,
+	})
 }
 
 func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
@@ -603,8 +637,9 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Code string `json:"code"`
-		Name string `json:"name"`
+		Code           string `json:"code"`
+		Name           string `json:"name"`
+		LegacyCourseID *string `json:"legacy_course_id"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -623,7 +658,28 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
-		return http.StatusOK, map[string]any{"id": cid, "code": item.Code, "name": item.Name}, nil
+		// Update legacy_course_id separately (not part of sqlc-generated CourseUpdate).
+		if err := qtx.CourseUpdateLegacyLink(r.Context(), id, pgtype.Text{String: strPtrOr(body.LegacyCourseID, ""), Valid: body.LegacyCourseID != nil}); err != nil {
+			s.deps.Log.Error("legacy_course_id update failed", "error", err, "course_id", cid)
+		}
+		// Read back legacy fields for response.
+		var legacyCourseID any = nil
+		var legacyLastSyncedAt any = nil
+		if body.LegacyCourseID != nil {
+			legacyCourseID = *body.LegacyCourseID
+		}
+		var legacyLastSynced pgtype.Timestamptz
+		_ = s.deps.DB.QueryRow(r.Context(), `SELECT legacy_last_synced_at FROM courses WHERE id = $1`, id).Scan(&legacyLastSynced)
+		if legacyLastSynced.Valid {
+			legacyLastSyncedAt, _ = s.a.TimeString(legacyLastSynced)
+		}
+		return http.StatusOK, map[string]any{
+			"id":                    cid,
+			"code":                  item.Code,
+			"name":                  item.Name,
+			"legacy_course_id":      legacyCourseID,
+			"legacy_last_synced_at": legacyLastSyncedAt,
+		}, nil
 	})
 }
 
@@ -650,4 +706,61 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 	}) {
 		s.deps.Log.Error("course_delete: idempotent tx failed", "course_id", r.PathValue("id"))
 	}
+}
+
+func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
+	_, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	courseID, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
+		return
+	}
+
+	var legacyCourseID pgtype.Text
+	if err := s.deps.DB.QueryRow(r.Context(), `SELECT legacy_course_id FROM courses WHERE id = $1`, courseID).Scan(&legacyCourseID); err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	if !legacyCourseID.Valid {
+		s.a.WriteErr(w, http.StatusBadRequest, "no_legacy_link", "Course has no legacy system link")
+		return
+	}
+
+	loc, err := time.LoadLocation(s.deps.InstituteTZ)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Invalid timezone configuration")
+		return
+	}
+
+	client, err := legacysync.NewClient(s.deps.LegacySyncURL, s.deps.LegacySyncUsername, s.deps.LegacySyncPassword)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Failed to create legacy sync client")
+		return
+	}
+
+	scraper := legacysync.NewScraper(client, s.deps.DB, s.deps.Q, s.deps.Log, loc)
+
+	result, err := scraper.SyncCourse(r.Context(), courseID, legacyCourseID.String)
+	if err != nil {
+		s.deps.Log.Error("legacy sync failed", "error", err, "course_id", r.PathValue("id"), "legacy_course_id", legacyCourseID.String)
+		s.a.WriteErr(w, http.StatusInternalServerError, "sync_failed", "Legacy sync failed: "+err.Error())
+		return
+	}
+
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"sessions_created": result.SessionsCreated,
+		"synced_at":        result.SyncedAt,
+	})
+}
+
+func strPtrOr(s *string, fallback string) string {
+	if s != nil {
+		return *s
+	}
+	return fallback
 }

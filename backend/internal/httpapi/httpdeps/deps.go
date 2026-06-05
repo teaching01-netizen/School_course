@@ -33,10 +33,13 @@ type Deps struct {
 	CRMReconcileV2  *reconcile.ReconcileV2Service
 	CRMWorker       *queue.QueueWorker
 
-	SMS             smartsms.SMSProvider
-	OTPSender       smartsms.OTPProvider
-	OTP             *otp.Service
-	RateLimiter     *ratelimit.Store
-	CircuitBreaker  *smartsms.CircuitBreaker
-	AppOrigin       string
+	SMS                  smartsms.SMSProvider
+	OTPSender            smartsms.OTPProvider
+	OTP                  *otp.Service
+	RateLimiter          *ratelimit.Store
+	CircuitBreaker       *smartsms.CircuitBreaker
+	AppOrigin            string
+	LegacySyncURL        string
+	LegacySyncUsername   string
+	LegacySyncPassword   string
 }

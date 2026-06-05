@@ -23,6 +23,7 @@ export default function Courses() {
     hour: number | null;
     student_count: number | null;
     course_type: string | null;
+    legacy_course_id?: string | null;
   };
 
   const [search, setSearch] = useState("");
@@ -78,6 +79,7 @@ export default function Courses() {
               <th className="text-left py-2 px-2 font-semibold text-gray-700">Hour</th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700">Type</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Legacy</th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700"></th>
             </tr>
           </thead>
@@ -95,6 +97,21 @@ export default function Courses() {
                 <td className="py-3 px-2">{course.hour ?? "—"}</td>
                 <td className="py-3 px-2">{course.student_count ?? "—"}</td>
                 <td className="py-3 px-2">{course.course_type ?? "—"}</td>
+                <td className="py-3 px-2">
+                  {course.legacy_course_id ? (
+                    <a
+                      href={`https://warwick.azurewebsites.net/Admin/Courses/Detail?id=${course.legacy_course_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline text-xs"
+                      title="Linked to old system"
+                    >
+                      ⚡
+                    </a>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </td>
                 <td className="py-3 px-2">
                   <Link to={`/courses/${course.id}`} className="px-3 py-1 text-xs bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm inline-block">
                     detail

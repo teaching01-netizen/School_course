@@ -18,6 +18,10 @@ type Config struct {
 	CRMUsername string
 	CRMPassword string
 
+	LegacySyncURL      string
+	LegacySyncUsername string
+	LegacySyncPassword string
+
 	SMSServiceBaseURL string
 	SMSServiceUsername string
 	SMSServicePassword string
@@ -38,6 +42,10 @@ func FromEnv() (Config, error) {
 	cfg.CRMBaseURL = envOr("CRM_BASE_URL", "")
 	cfg.CRMUsername = os.Getenv("CRM_USERNAME")
 	cfg.CRMPassword = os.Getenv("CRM_PASSWORD")
+
+	cfg.LegacySyncURL = envOr("LEGACY_SYNC_URL", "https://warwick.azurewebsites.net")
+	cfg.LegacySyncUsername = os.Getenv("LEGACY_SYNC_USERNAME")
+	cfg.LegacySyncPassword = os.Getenv("LEGACY_SYNC_PASSWORD")
 	cfg.SMSServiceBaseURL = envOr("SMS_SERVICE_BASE_URL", "")
 	cfg.SMSServiceUsername = os.Getenv("SMS_SERVICE_USERNAME")
 	cfg.SMSServicePassword = os.Getenv("SMS_SERVICE_PASSWORD")

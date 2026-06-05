@@ -78,12 +78,10 @@ const BASE_POLICIES = {
   },
 };
 
-const BASE_SIT_IN_RULES = {
-  sit_in_rules: [
-    { id: "rule-1", name: "Level Ladder Default", type: "level_ladder", description: "Default level ladder" },
-    { id: "rule-2", name: "Cross-Section Rule", type: "cross_section", description: "Cross-section rule" },
-  ],
-};
+const BASE_SIT_IN_RULES = [
+  { id: "rule-1", name: "Level Ladder Default", type: "level_ladder", description: "Default level ladder" },
+  { id: "rule-2", name: "Cross-Section Rule", type: "cross_section", description: "Cross-section rule" },
+];
 
 function renderWithProviders(ui: React.ReactElement) {
   return render(<MemoryRouter><ToastProvider>{ui}</ToastProvider></MemoryRouter>);
@@ -190,7 +188,7 @@ describe("CourseLevels - RuleSelector", () => {
         "/api/v1/admin/root-course-groups/g1",
         expect.objectContaining({
           method: "PUT",
-          body: JSON.stringify({ sit_in_rule_id: "rule-2" }),
+          body: JSON.stringify({ name: "SAT Math", sit_in_rule_id: "rule-2" }),
         }),
       );
     });

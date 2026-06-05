@@ -692,17 +692,18 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 			return 0, nil, err
 		}
 		if body.Status == "actioned" {
-			if current.StudentPhone.Valid && strings.TrimSpace(current.StudentPhone.String) != "" {
+			recipients := successSMSPhones(current.ParentPhone, current.StudentPhone)
+			if len(recipients) > 0 {
 				sessions, sessErr := qtx.ManagedAbsenceSessions(r.Context(), id)
 				if sessErr == nil {
 					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
 					if missedErr == nil {
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, missed, []string{current.StudentPhone.String}, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, missed, recipients, s.deps.InstituteTZ)
 					} else {
 						if s.deps.Log != nil {
 							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", r.PathValue("id"), "error", missedErr)
 						}
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, nil, []string{current.StudentPhone.String}, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, nil, recipients, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)

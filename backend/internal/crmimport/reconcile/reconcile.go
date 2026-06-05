@@ -30,9 +30,11 @@ type ReconcileDiffResult struct {
 }
 
 type reconcileDesiredStudent struct {
-	WCode     string
-	FirstName string
-	LastName  string
+	WCode        string
+	FirstName    string
+	LastName     string
+	StudentPhone string
+	ParentPhone  string
 }
 
 type ReconcileV2Service struct {
@@ -70,7 +72,9 @@ func (s *ReconcileV2Service) queryDesiredStudentsV2(ctx context.Context, snapsho
 		SELECT DISTINCT ON (cr.wcode)
 			cr.wcode,
 			COALESCE(cr.first_name, '') AS first_name,
-			COALESCE(cr.last_name, '') AS last_name
+			COALESCE(cr.last_name, '') AS last_name,
+			COALESCE(NULLIF(btrim(cr.mobile_phone), ''), '') AS student_phone,
+			COALESCE(NULLIF(btrim(cr.parent_phone), ''), '') AS parent_phone
 		FROM crm_rows cr
 		WHERE ` + strings.Join(conds, " AND ") + `
 		ORDER BY cr.wcode, cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC
@@ -86,7 +90,7 @@ func (s *ReconcileV2Service) queryDesiredStudentsV2(ctx context.Context, snapsho
 	var skippedWcodes []string
 	for rows.Next() {
 		var d reconcileDesiredStudent
-		if err := rows.Scan(&d.WCode, &d.FirstName, &d.LastName); err != nil {
+		if err := rows.Scan(&d.WCode, &d.FirstName, &d.LastName, &d.StudentPhone, &d.ParentPhone); err != nil {
 			return nil, nil, fmt.Errorf("scan desired student: %w", err)
 		}
 		if strings.TrimSpace(d.WCode) == "" {
@@ -115,13 +119,19 @@ func (s *ReconcileV2Service) reconcileDesiredStudentIDs(ctx context.Context, tx 
 
 		var stID pgtype.UUID
 		err := tx.QueryRow(ctx, `
-			INSERT INTO students (wcode, full_name, notes)
-			VALUES ($1, $2, '')
+			INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone)
+			VALUES ($1, $2, '', NULLIF($3, ''), NULLIF($4, ''))
 			ON CONFLICT (wcode) DO UPDATE
 			SET full_name = EXCLUDED.full_name,
+			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL
+			                         THEN EXCLUDED.student_phone
+			                         ELSE students.student_phone END,
+			    parent_phone = CASE WHEN NULLIF(EXCLUDED.parent_phone, '') IS NOT NULL
+			                        THEN EXCLUDED.parent_phone
+			                        ELSE students.parent_phone END,
 			    updated_at = now()
 			RETURNING id
-		`, d.WCode, fullName).Scan(&stID)
+		`, d.WCode, fullName, d.StudentPhone, d.ParentPhone).Scan(&stID)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("upsert student %s: %w", d.WCode, err)
 		}

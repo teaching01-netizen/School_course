@@ -52,11 +52,9 @@ const BASE_POLICIES = {
   },
 };
 
-const BASE_SIT_IN_RULES = {
-  sit_in_rules: [
-    { id: "rule-1", name: "Level Ladder Default", type: "level_ladder", description: "Default level ladder" },
-  ],
-};
+const BASE_SIT_IN_RULES = [
+  { id: "rule-1", name: "Level Ladder Default", type: "level_ladder", description: "Default level ladder" },
+];
 
 function renderWithProviders(ui: React.ReactElement) {
   return render(<MemoryRouter><ToastProvider>{ui}</ToastProvider></MemoryRouter>);

@@ -27,6 +27,7 @@ type ManagedAbsenceRow struct {
 	StudentName         pgtype.Text
 	StudentEmail        pgtype.Text
 	StudentPhone        pgtype.Text
+	ParentPhone         pgtype.Text
 	CourseID            pgtype.UUID
 	CourseCode          string
 	CourseName          string
@@ -71,6 +72,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 	p = normalizedAbsencePaging(p)
 	rows, err := q.db.Query(ctx, `
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
+		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
 		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
@@ -103,6 +105,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 		var item ManagedAbsenceRow
 		if err := rows.Scan(
 			&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
+			&item.ParentPhone,
 			&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 			&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
 			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
@@ -124,6 +127,7 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 	var item ManagedAbsenceRow
 	err := q.db.QueryRow(ctx, `
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
+		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
 		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
@@ -138,6 +142,7 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 		WHERE sa.id = $1
 	`, id).Scan(
 		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
+		&item.ParentPhone,
 		&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 		&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
 		&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,

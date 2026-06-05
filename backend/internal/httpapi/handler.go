@@ -64,18 +64,21 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		panic(err)
 	}
 	deps := httpdeps.Deps{
-		Log:            log,
-		Auth:           authSvc,
-		Q:              q,
-		DB:             db,
-		Scheduling:     schedulingSvc,
-		AdminUsers:     adminUsersSvc,
-		InstituteTZ:    cfg.InstituteTZ,
-		CRMUploadV2:    uploadV2,
-		CRMReconcileV2: reconcileV2,
-		CRMWorker:      worker,
-		RateLimiter:    ratelimit.NewStore(db),
-		AppOrigin:      cfg.AppOrigin,
+		Log:                log,
+		Auth:               authSvc,
+		Q:                  q,
+		DB:                 db,
+		Scheduling:         schedulingSvc,
+		AdminUsers:         adminUsersSvc,
+		InstituteTZ:        cfg.InstituteTZ,
+		CRMUploadV2:        uploadV2,
+		CRMReconcileV2:     reconcileV2,
+		CRMWorker:          worker,
+		RateLimiter:        ratelimit.NewStore(db),
+		AppOrigin:          cfg.AppOrigin,
+		LegacySyncURL:      cfg.LegacySyncURL,
+		LegacySyncUsername: cfg.LegacySyncUsername,
+		LegacySyncPassword: cfg.LegacySyncPassword,
 	}
 
 	otpSvc, err := otp.NewService(db, cfg.OTPHMACKey)

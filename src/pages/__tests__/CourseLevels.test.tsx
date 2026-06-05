@@ -142,7 +142,7 @@ describe("CourseLevels", () => {
 
   function setupDefault() {
     mockApiJson
-      .mockResolvedValueOnce({ sit_in_rules: [] })
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(BASE_COURSES)
       .mockResolvedValueOnce(BASE_POLICIES)
       .mockResolvedValueOnce(BASE_ROOT_COURSE_GROUPS)
@@ -200,7 +200,7 @@ describe("CourseLevels", () => {
     ];
 
     mockApiJson
-      .mockResolvedValueOnce({ sit_in_rules: [] })
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(gapCourses)
       .mockResolvedValueOnce(BASE_POLICIES)
       .mockResolvedValueOnce(BASE_ROOT_COURSE_GROUPS)

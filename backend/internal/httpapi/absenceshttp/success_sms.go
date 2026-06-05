@@ -265,7 +265,13 @@ func sendBatchSuccessSMS(
 ) bool {
 	phones = dedupePhones(phones)
 	if template == "" || len(phones) == 0 || len(items) == 0 {
+		if log != nil && template != "" && len(items) > 0 {
+			log.Info("success sms skipped: no recipient phones", "absence_count", len(items), "absence_id", items[0].row.ID)
+		}
 		return false
+	}
+	if log != nil {
+		log.Info("success sms sending", "recipient_count", len(phones), "absence_count", len(items), "absence_id", items[0].row.ID)
 	}
 	loc, err := time.LoadLocation(instituteTZ)
 	if err != nil {

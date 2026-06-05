@@ -26,7 +26,7 @@ describe("DateRangeSlot", () => {
       />,
     );
 
-    const fromInput = screen.getByLabelText("From date: Select date");
+    const fromInput = screen.getByLabelText("From date: Pick a date");
     const toInput = screen.getByLabelText("To date: Mon, Jun 8");
 
     expect(fromInput).toHaveAttribute("type", "date");
@@ -56,7 +56,7 @@ describe("DateRangeSlot", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("From date: Select date"), {
+    fireEvent.change(screen.getByLabelText("From date: Pick a date"), {
       target: { value: "2026-06-02" },
     });
 
