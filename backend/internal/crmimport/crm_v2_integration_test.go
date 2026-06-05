@@ -1633,6 +1633,130 @@ func TestCRMPipelineEndToEnd(t *testing.T) {
 }
 
 // ============================================================================
+// Regression: reconcile phone sync
+// ============================================================================
+
+func TestReconcileApply_SyncsStudentAndParentPhones(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	rows := []xlsx.Row{
+		{
+			WCode: "W250070", CourseName: "Math", CycleLabel: "Cycle A",
+			FirstName: "Phone", LastName: "Student",
+			MobilePhone: "081-234-5678", ParentPhone: "089-876-5432",
+		},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	filter := crmtypes.CourseFilter{
+		CycleLabels:              []string{"Cycle A"},
+		CycleBlankMode:           crmtypes.BlankModeAny,
+		CourseNameBlankMode:      crmtypes.BlankModeAny,
+		AcademicLevelBlankMode:   crmtypes.BlankModeAny,
+		SecondarySchoolBlankMode: crmtypes.BlankModeAny,
+		TeachersBlankMode:        crmtypes.BlankModeAny,
+	}
+
+	courseID := createTestCourse(t, ctx, dbpool, "C-PHONE-"+suffix, "Phone Sync Test", filter)
+
+	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
+	if err != nil {
+		t.Fatalf("ApplyCourseReconcile: %v", err)
+	}
+	if result.DesiredStudents != 1 {
+		t.Fatalf("expected DesiredStudents=1, got %d", result.DesiredStudents)
+	}
+	if result.Added != 1 {
+		t.Fatalf("expected Added=1, got %d", result.Added)
+	}
+
+	var studentPhone, parentPhone string
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250070'`).Scan(&studentPhone, &parentPhone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if studentPhone != "081-234-5678" {
+		t.Fatalf("student_phone = %q, want %q", studentPhone, "081-234-5678")
+	}
+	if parentPhone != "089-876-5432" {
+		t.Fatalf("parent_phone = %q, want %q", parentPhone, "089-876-5432")
+	}
+}
+
+func TestReconcileApply_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	// Pre-create student with phones already set.
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone) VALUES ('W250071', 'Existing Phone', '', '081-111-1111', '089-222-2222')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// CRM row has NO phone data (empty MobilePhone and ParentPhone).
+	rows := []xlsx.Row{
+		{
+			WCode: "W250071", CourseName: "Math", CycleLabel: "Cycle A",
+			FirstName: "Existing", LastName: "Phone",
+			MobilePhone: "", ParentPhone: "",
+		},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	filter := crmtypes.CourseFilter{
+		CycleLabels:              []string{"Cycle A"},
+		CycleBlankMode:           crmtypes.BlankModeAny,
+		CourseNameBlankMode:      crmtypes.BlankModeAny,
+		AcademicLevelBlankMode:   crmtypes.BlankModeAny,
+		SecondarySchoolBlankMode: crmtypes.BlankModeAny,
+		TeachersBlankMode:        crmtypes.BlankModeAny,
+	}
+
+	courseID := createTestCourse(t, ctx, dbpool, "C-PHONE-KEEP-"+suffix, "Phone Preserve Test", filter)
+
+	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
+	if err != nil {
+		t.Fatalf("ApplyCourseReconcile: %v", err)
+	}
+	if result.DesiredStudents != 1 {
+		t.Fatalf("expected DesiredStudents=1, got %d", result.DesiredStudents)
+	}
+
+	var studentPhone, parentPhone string
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250071'`).Scan(&studentPhone, &parentPhone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if studentPhone != "081-111-1111" {
+		t.Fatalf("student_phone changed to %q, want original %q", studentPhone, "081-111-1111")
+	}
+	if parentPhone != "089-222-2222" {
+		t.Fatalf("parent_phone changed to %q, want original %q", parentPhone, "089-222-2222")
+	}
+}
+
+// ============================================================================
 // Errors
 // ============================================================================
 

@@ -36,6 +36,26 @@ func TestHardDeleteMigrationUsesExistingStudentAbsencesSubjectFK(t *testing.T) {
 	}
 }
 
+func TestBackfillMigration_FillsNullStudentAndParentPhones(t *testing.T) {
+	sql := readMigration(t, "00034_backfill_student_phones.sql")
+
+	if !strings.Contains(sql, "UPDATE students") {
+		t.Fatal("00034 must UPDATE students")
+	}
+	if !strings.Contains(sql, "crm_rows") {
+		t.Fatal("00034 must reference crm_rows")
+	}
+	if !strings.Contains(sql, "student_phone") {
+		t.Fatal("00034 must backfill student_phone")
+	}
+	if !strings.Contains(sql, "parent_phone") {
+		t.Fatal("00034 must backfill parent_phone")
+	}
+	if !strings.Contains(sql, "NULL OR btrim") {
+		t.Fatal("00034 must only update NULL/empty phones")
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

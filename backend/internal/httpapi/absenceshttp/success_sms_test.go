@@ -210,6 +210,55 @@ func TestSendBatchSuccessSMS_SendsAggregatedSummary(t *testing.T) {
 	}
 }
 
+func TestSuccessSMSPhones_ExcludesNullPhones(t *testing.T) {
+	t.Run("both populated returns both", func(t *testing.T) {
+		phones := successSMSPhones(
+			pgtype.Text{String: "+66812345678", Valid: true},
+			pgtype.Text{String: "+66898765432", Valid: true},
+		)
+		if len(phones) != 2 {
+			t.Fatalf("expected 2 phones, got %d: %v", len(phones), phones)
+		}
+	})
+
+	t.Run("student phone NULL returns only parent", func(t *testing.T) {
+		phones := successSMSPhones(
+			pgtype.Text{String: "+66812345678", Valid: true},
+			pgtype.Text{Valid: false},
+		)
+		if len(phones) != 1 || phones[0] != "+66812345678" {
+			t.Fatalf("expected [parent_phone], got %v", phones)
+		}
+	})
+
+	t.Run("parent phone NULL returns only student", func(t *testing.T) {
+		phones := successSMSPhones(
+			pgtype.Text{Valid: false},
+			pgtype.Text{String: "+66898765432", Valid: true},
+		)
+		if len(phones) != 1 || phones[0] != "+66898765432" {
+			t.Fatalf("expected [student_phone], got %v", phones)
+		}
+	})
+
+	t.Run("both NULL returns empty", func(t *testing.T) {
+		phones := successSMSPhones(pgtype.Text{Valid: false}, pgtype.Text{Valid: false})
+		if len(phones) != 0 {
+			t.Fatalf("expected empty, got %v", phones)
+		}
+	})
+
+	t.Run("duplicate phones are deduped", func(t *testing.T) {
+		phones := successSMSPhones(
+			pgtype.Text{String: "+66812345678", Valid: true},
+			pgtype.Text{String: "+66812345678", Valid: true},
+		)
+		if len(phones) != 1 {
+			t.Fatalf("expected 1 deduped phone, got %d: %v", len(phones), phones)
+		}
+	})
+}
+
 func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	mock := &smartsms.MockProvider{}
 	row := sqldb.ManagedAbsenceRow{
