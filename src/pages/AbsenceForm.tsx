@@ -10,6 +10,7 @@ import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import CourseChip from "@/components/absences/CourseChip";
+import PriorityMakeupSelector from "@/components/absences/PriorityMakeupSelector";
 
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
 import { useToast } from "@/hooks/useToast";
@@ -21,6 +22,7 @@ import type {
   AbsenceFormConfig,
   AbsenceNotificationsSettings,
   AdminContactSettings,
+  BypassReason,
   ManagedAbsence,
   SessionsInRangeResponse,
   SubjectSessions,
@@ -38,6 +40,8 @@ type AbsenceBatchCreateItem = {
   sit_in_course_id?: string;
   missed_session_ids: string[];
   sit_in_session_ids: string[];
+  sit_in_priority?: 1 | 2 | 3;
+  priority_bypass_reason?: BypassReason;
 };
 type AbsenceBatchCreateResponse = {
   items: ManagedAbsence[];
@@ -462,6 +466,7 @@ export default function AbsenceForm() {
 
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
+  const [priorityBypassReasons, setPriorityBypassReasons] = useState<Record<string, BypassReason>>({});
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
@@ -767,6 +772,10 @@ export default function AbsenceForm() {
     });
   };
 
+  const handlePriorityBypass = (sessionId: string, _priority: 1 | 2 | 3, reason: BypassReason) => {
+    setPriorityBypassReasons((current) => ({ ...current, [sessionId]: reason }));
+  };
+
   const handleCourseKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!lookup || lookup.subjects.length === 0) return;
     const count = lookup.subjects.length;
@@ -888,6 +897,23 @@ export default function AbsenceForm() {
       const sitInCourseID = group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim();
       if (sitInCourseID) {
         payload.sit_in_course_id = sitInCourseID;
+      }
+      if (group.sit_in?.rule_type === "sat_verbal_priority") {
+        for (const sessId of selectedSessIds) {
+          if (priorityBypassReasons[sessId]) {
+            payload.priority_bypass_reason = priorityBypassReasons[sessId];
+            break;
+          }
+        }
+        const selectedSitInId = sitInSelections[selectedSessIds[0]];
+        if (selectedSitInId && group.sit_in?.priority_groups) {
+          for (const pg of group.sit_in.priority_groups) {
+            if (pg.available_sessions.some(s => s.id === selectedSitInId)) {
+              payload.sit_in_priority = pg.priority;
+              break;
+            }
+          }
+        }
       }
       payloads.push(payload);
     }
@@ -1400,30 +1426,41 @@ export default function AbsenceForm() {
                                                 </p>
                                               </div>
                                               {sitIn && sitIn.sit_in_method === "physical" ? (
-                                                <>
-                                                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
-                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
-                                                     Pick a make-up class
-                                                  </div>
-                                                     <p className="text-xs text-gray-600 mb-2 truncate">
-                                                         Sit-in class: {sitInClassLabel}
-                                                     </p>
-                                                   <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                     <span className="text-gray-700 font-medium">Sit-in class:</span>
-                                                     <select
-                                                        value={currentSitIn}
-                                                        onChange={(e) => handleSitInSelect(session.id, e.target.value)}
-                                                        className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
-                                                      >
-                                                         <option value="">— Not yet —</option>
-                                                         {sitInAvailable.map(c => (
-                                                           <option key={c.id} value={c.id}>
-                                                              {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
-                                                           </option>
-                                                         ))}
-                                                       </select>
-                                                   </div>
-                                                </>
+                                                sitIn.rule_type === "sat_verbal_priority" && sitIn.priority_groups && sitIn.priority_groups.length > 0 ? (
+                                                  <PriorityMakeupSelector
+                                                    priorityGroups={sitIn.priority_groups}
+                                                    selectedSessionId={currentSitIn || null}
+                                                    bypassReason={priorityBypassReasons[session.id] || null}
+                                                    onSelectSession={(sitInSessionId) => handleSitInSelect(session.id, sitInSessionId)}
+                                                    onBypassPriority={(priority, reason) => handlePriorityBypass(session.id, priority, reason)}
+                                                    onPreviousPriority={() => {}}
+                                                  />
+                                                ) : (
+                                                  <>
+                                                    <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
+                                                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
+                                                       Pick a make-up class
+                                                    </div>
+                                                       <p className="text-xs text-gray-600 mb-2 truncate">
+                                                           Sit-in class: {sitInClassLabel}
+                                                       </p>
+                                                     <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
+                                                       <span className="text-gray-700 font-medium">Sit-in class:</span>
+                                                       <select
+                                                          value={currentSitIn}
+                                                          onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                          className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
+                                                        >
+                                                           <option value="">— Not yet —</option>
+                                                           {sitInAvailable.map(c => (
+                                                             <option key={c.id} value={c.id}>
+                                                                {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
+                                                             </option>
+                                                           ))}
+                                                         </select>
+                                                     </div>
+                                                  </>
+                                                )
                                               ) : sitIn && sitIn.sit_in_method === "zoom" ? (
                                                 <div className="space-y-1 text-sm text-gray-700">
                                                   <div className="flex items-center gap-2">
