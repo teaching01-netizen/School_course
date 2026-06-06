@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,6 +27,14 @@ const (
 	SitInMethodTeacher  = "teacher_case"
 )
 
+type PriorityGroup struct {
+	Priority         int16          `json:"priority"`
+	Label            string         `json:"label"`
+	Locked           bool           `json:"locked"`
+	RuleSummary      string         `json:"rule_summary"`
+	AvailableSessions []sessionBrief `json:"available_sessions,omitempty"`
+}
+
 type SitInResult struct {
 	SitInMethod string `json:"sit_in_method"` // "physical" or "zoom"
 
@@ -39,6 +48,9 @@ type SitInResult struct {
 	MissedSession []sessionBrief   `json:"missed_sessions,omitempty"`
 	Available     []sessionBrief   `json:"available_sessions,omitempty"`
 	PreSelected   []sessionBrief   `json:"pre_selected,omitempty"`
+
+	// For priority-based sit-in (sat_verbal_priority)
+	PriorityGroups []PriorityGroup `json:"priority_groups,omitempty"`
 }
 
 type SitInCourseInfo struct {
@@ -50,14 +62,17 @@ type SitInCourseInfo struct {
 }
 
 type sessionBrief struct {
-	ID          string `json:"id"`
-	StartAt     string `json:"start_at"`
-	EndAt       string `json:"end_at"`
-	ClassName   string `json:"class_name,omitempty"`
-	CourseName  string `json:"course_name,omitempty"`
-	CourseCode  string `json:"course_code,omitempty"`
-	SubjectCode string `json:"subject_code,omitempty"`
-	SubjectName string `json:"subject_name,omitempty"`
+	ID               string `json:"id"`
+	StartAt          string `json:"start_at"`
+	EndAt            string `json:"end_at"`
+	ClassName        string `json:"class_name,omitempty"`
+	CourseName       string `json:"course_name,omitempty"`
+	CourseCode       string `json:"course_code,omitempty"`
+	SubjectCode      string `json:"subject_code,omitempty"`
+	SubjectName      string `json:"subject_name,omitempty"`
+	OccurrenceNumber *int   `json:"occurrence_number,omitempty"`
+	IsFinalClass     bool   `json:"is_final_class"`
+	DisabledReason   string `json:"disabled_reason,omitempty"`
 }
 
 type ResolverInput struct {
@@ -124,6 +139,127 @@ func buildPhysicalSitInResult(
 	}
 
 	return result
+}
+
+func resolveSatVerbalPriority(
+	eval *EvaluateRuleOutput,
+	missedSessions []sqldb.SessionInRange,
+	availableSessions []sqldb.SessionInRange,
+	predicate RulePredicate,
+	cutoff time.Time,
+) *SitInResult {
+	// 1. Determine the last (final class) session per course
+	lastSessionByCourse := make(map[string]bool) // keyed by session ID string
+	sessionsByCourse := make(map[string][]sqldb.SessionInRange)
+	for _, s := range availableSessions {
+		cid, err := uuidString(s.CourseID)
+		if err != nil {
+			continue
+		}
+		sessionsByCourse[cid] = append(sessionsByCourse[cid], s)
+	}
+	for _, sessions := range sessionsByCourse {
+		if len(sessions) == 0 {
+			continue
+		}
+		sorted := make([]sqldb.SessionInRange, len(sessions))
+		copy(sorted, sessions)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].StartAt.Time.Before(sorted[j].StartAt.Time)
+		})
+		lastID, err := uuidString(sorted[len(sorted)-1].ID)
+		if err == nil {
+			lastSessionByCourse[lastID] = true
+		}
+	}
+
+	// 2. Build priority group stubs (locked state determined by priority)
+	groupMap := make(map[int16]*PriorityGroup)
+	for _, row := range eval.PriorityRows {
+		if _, ok := groupMap[row.Priority]; !ok {
+			label := row.Label
+			if label == "" {
+				label = fmt.Sprintf("Priority %d", row.Priority)
+			}
+			groupMap[row.Priority] = &PriorityGroup{
+				Priority:    row.Priority,
+				Label:       label,
+				Locked:      row.Priority > 1, // priorities 2+ start locked
+				RuleSummary: row.RuleType,
+			}
+		}
+	}
+
+	// 3. Match available sessions to each priority row
+	for _, row := range eval.PriorityRows {
+		group, ok := groupMap[row.Priority]
+		if !ok {
+			continue
+		}
+
+		// Only populate sessions for priority 1 (unlocked).
+		// Priorities 2+ remain locked with no sessions shown initially.
+		if row.Priority > 1 {
+			continue
+		}
+
+		var matched []sqldb.SessionInRange
+		for _, s := range availableSessions {
+			// Filter by target course if specified
+			if row.TargetCourseID != "" {
+				cid, err := uuidString(s.CourseID)
+				if err != nil || cid != row.TargetCourseID {
+					continue
+				}
+			}
+
+			// Exclude sessions that overlap with missed sessions
+			overlaps := false
+			for _, m := range missedSessions {
+				if timesOverlap(s.StartAt, s.EndAt, m.StartAt, m.EndAt) {
+					overlaps = true
+					break
+				}
+			}
+			if overlaps {
+				continue
+			}
+
+			// Apply cutoff window
+			if !cutoff.IsZero() && s.StartAt.Time.After(cutoff) {
+				continue
+			}
+
+			matched = append(matched, s)
+		}
+
+		// 4. Convert to sessionBrief, applying final-class marking
+		for _, s := range matched {
+			brief := toSessionBrief(s)
+			sid, err := uuidString(s.ID)
+			if err == nil {
+				brief.IsFinalClass = lastSessionByCourse[sid]
+				if row.LastClassExcluded && brief.IsFinalClass {
+					brief.DisabledReason = "last class of the term is excluded"
+				}
+			}
+			group.AvailableSessions = append(group.AvailableSessions, brief)
+		}
+	}
+
+	// 5. Build ordered group slice (priority 1, 2, 3)
+	groups := make([]PriorityGroup, 0, len(groupMap))
+	for i := int16(1); i <= 3; i++ {
+		if g, ok := groupMap[i]; ok {
+			groups = append(groups, *g)
+		}
+	}
+
+	return &SitInResult{
+		SitInMethod:    SitInMethodPhysical,
+		MissedCount:    len(missedSessions),
+		PriorityGroups: groups,
+	}
 }
 
 func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 {
@@ -237,6 +373,29 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 
 	if !evalOutput.Eligible {
 		return nil, nil
+	}
+
+	// sat_verbal_priority uses priority-based resolution, not single target course
+	if rule.Type == RuleTypeSatVerbalPriority && evalOutput.Eligible {
+		allAvailSessions := make([]sqldb.SessionInRange, 0)
+		for _, course := range allCourses {
+			sessions, err := q.SessionsByCourse(ctx, course.ID)
+			if err != nil {
+				return nil, fmt.Errorf("available sessions lookup for priority: %w", err)
+			}
+			allAvailSessions = append(allAvailSessions, sessions...)
+		}
+
+		win := loadRootGroupWindowWeeks(ctx, q, missedCourse.RootCourseGroupID)
+		cutoff := time.Time{}
+		if win > 0 {
+			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
+		}
+
+		result := resolveSatVerbalPriority(evalOutput, missedSessions, allAvailSessions, predicate, cutoff)
+		result.RuleName = rule.Name
+		result.RuleType = rule.Type
+		return result, nil
 	}
 
 	var result *SitInResult
@@ -379,6 +538,29 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 
 	if !evalOutput.Eligible {
 		return nil, nil
+	}
+
+	// sat_verbal_priority uses priority-based resolution, not single target course
+	if rule.Type == RuleTypeSatVerbalPriority && evalOutput.Eligible {
+		allAvailSessions := make([]sqldb.SessionInRange, 0)
+		for _, course := range allCourses {
+			sessions, err := q.SessionsByCourse(ctx, course.ID)
+			if err != nil {
+				return nil, fmt.Errorf("available sessions lookup for priority: %w", err)
+			}
+			allAvailSessions = append(allAvailSessions, sessions...)
+		}
+
+		win := loadRootGroupWindowWeeks(ctx, q, main.RootCourseGroupID)
+		cutoff := time.Time{}
+		if win > 0 {
+			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
+		}
+
+		result := resolveSatVerbalPriority(evalOutput, missedSessions, allAvailSessions, predicate, cutoff)
+		result.RuleName = rule.Name
+		result.RuleType = rule.Type
+		return result, nil
 	}
 
 	var result *SitInResult

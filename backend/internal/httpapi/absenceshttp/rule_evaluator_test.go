@@ -624,7 +624,88 @@ func TestEvaluateRule_TeacherCaseByCase(t *testing.T) {
 	}
 }
 
-// Test 11: Unknown rule type returns error
+// Test 11: SAT Verbal Priority — No matching rows returns not eligible
+func TestEvaluateRule_SatVerbalPriority_NoMatch(t *testing.T) {
+	predicate := mustParsePredicate(t, `{
+		"level_1_action": "zoom",
+		"chains": [],
+		"auto_assign": true,
+		"requires_teacher_approval": false,
+		"priority_rows": []
+	}`)
+
+	input := EvaluateRuleInput{
+		RuleType:     "sat_verbal_priority",
+		Predicate:    predicate,
+		StudentLevel: 1,
+		AllCourses:   []sqldb.SubjectCourseV2{courseV2("10000000-0000-0000-0000-000000000001", 1)},
+		MissedCount:  1,
+	}
+
+	output, err := EvaluateRule(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if output.Eligible {
+		t.Fatal("expected eligible=false when no priority rows match")
+	}
+	if output.Method != "none" {
+		t.Fatalf("expected method=none, got %s", output.Method)
+	}
+}
+
+// Test 11b: SAT Verbal Priority — Matching rows by rank
+func TestEvaluateRule_SatVerbalPriority_MatchesByRank(t *testing.T) {
+	predicate := mustParsePredicate(t, `{
+		"level_1_action": "zoom",
+		"chains": [],
+		"auto_assign": true,
+		"requires_teacher_approval": false,
+		"priority_rows": [
+			{"missed_rank": 1, "priority": 1, "rule_type": "cross_section", "label": "Same section"},
+			{"missed_rank": 1, "priority": 2, "rule_type": "rank_chain", "label": "Rank chain"},
+			{"missed_rank": 2, "priority": 1, "rule_type": "cross_section", "label": "Other level"},
+			{"missed_rank": 1, "priority": 3, "rule_type": "any_day_except_last", "label": "Any day"}
+		]
+	}`)
+
+	input := EvaluateRuleInput{
+		RuleType:     "sat_verbal_priority",
+		Predicate:    predicate,
+		StudentLevel: 1,
+		AllCourses: []sqldb.SubjectCourseV2{
+			courseV2("10000000-0000-0000-0000-000000000001", 1),
+			courseV2("20000000-0000-0000-0000-000000000002", 2),
+		},
+		MissedCount: 1,
+	}
+
+	output, err := EvaluateRule(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !output.Eligible {
+		t.Fatal("expected eligible=true when priority rows match by rank")
+	}
+	if output.Method != "physical" {
+		t.Fatalf("expected method=physical, got %s", output.Method)
+	}
+	if output.Direction != "priority" {
+		t.Fatalf("expected direction=priority, got %s", output.Direction)
+	}
+	if len(output.PriorityRows) != 3 {
+		t.Fatalf("expected 3 matching priority rows (missed_rank=1), got %d", len(output.PriorityRows))
+	}
+	// Verify they are in order: cross_section, rank_chain, any_day_except_last
+	if output.PriorityRows[0].RuleType != "cross_section" {
+		t.Fatalf("expected first priority row rule_type=cross_section, got %s", output.PriorityRows[0].RuleType)
+	}
+	if output.PriorityRows[2].RuleType != "any_day_except_last" {
+		t.Fatalf("expected third priority row rule_type=any_day_except_last, got %s", output.PriorityRows[2].RuleType)
+	}
+}
+
+// Test 12: Unknown rule type returns error
 func TestEvaluateRule_UnknownType(t *testing.T) {
 	predicate := mustParsePredicate(t, `{
 		"level_1_action": "zoom",
