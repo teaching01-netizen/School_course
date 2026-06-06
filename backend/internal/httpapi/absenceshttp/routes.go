@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/absences/student-lookup", s.handleStudentLookup)
 	mux.HandleFunc("GET /api/v1/absences/sessions-in-range", s.handleSessionsInRange)
 	mux.HandleFunc("GET /api/v1/absences/sit-in-options", s.handleSitInOptions)
+	mux.HandleFunc("GET /api/v1/absences/sit-in-priority-groups", s.handleSitInPriorityGroups)
 
 	// Admin endpoints for absence policies (registered here for convenience)
 	mux.HandleFunc("GET /api/v1/admin/absence-policies", s.handlePoliciesGet)
@@ -681,6 +683,78 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, result)
+}
+
+// Public: return priority groups for a specific missed session (priority 2+ on demand)
+func (s *server) handleSitInPriorityGroups(w http.ResponseWriter, r *http.Request) {
+	wcode := r.URL.Query().Get("wcode")
+	courseIDStr := r.URL.Query().Get("course_id")
+	subjectIDStr := r.URL.Query().Get("subject_id")
+	dateFromStr := r.URL.Query().Get("date_from")
+	dateToStr := r.URL.Query().Get("date_to")
+	priorityStr := r.URL.Query().Get("priority")
+
+	if wcode == "" || courseIDStr == "" || subjectIDStr == "" || dateFromStr == "" || dateToStr == "" || priorityStr == "" {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode, course_id, subject_id, date_from, date_to, priority are required")
+		return
+	}
+
+	priority, err := strconv.Atoi(priorityStr)
+	if err != nil || priority < 1 || priority > 3 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_priority", "priority must be 1, 2, or 3")
+		return
+	}
+
+	courseID, err := s.a.ParseUUID(courseIDStr)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
+		return
+	}
+
+	subjectID, err := s.a.ParseUUID(subjectIDStr)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
+		return
+	}
+
+	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
+		return
+	}
+	dateTo, err := time.Parse("2006-01-02", dateToStr)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
+		return
+	}
+
+	result, err := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo)
+	if err != nil {
+		s.deps.Log.Error("resolve sit-in for priority groups failed", "error", err)
+		s.a.WriteErr(w, http.StatusBadRequest, "resolve_error", "Could not resolve sit-in priority groups")
+		return
+	}
+	if result == nil || len(result.PriorityGroups) == 0 {
+		s.a.WriteErr(w, http.StatusNotFound, "no_priority_groups", "No priority groups available")
+		return
+	}
+
+	// Find the requested priority group
+	var targetGroup *PriorityGroup
+	for i := range result.PriorityGroups {
+		if result.PriorityGroups[i].Priority == int16(priority) {
+			targetGroup = &result.PriorityGroups[i]
+			break
+		}
+	}
+	if targetGroup == nil {
+		s.a.WriteErr(w, http.StatusNotFound, "priority_not_found", "Requested priority level not found")
+		return
+	}
+
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"priority_group": targetGroup,
+	})
 }
 
 // Public: return all sessions for a student across enrolled subjects in a date range, with absence flagging
