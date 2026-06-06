@@ -42,6 +42,7 @@ type AbsencePolicies struct {
 
 type SubjectPolicy struct {
 	AutoSitInEnabled bool              `json:"auto_sit_in_enabled"`
+	SitInWindowWeeks int               `json:"sit_in_window_weeks"`
 	LevelActionMap   map[string]string `json:"level_action_map"`
 }
 

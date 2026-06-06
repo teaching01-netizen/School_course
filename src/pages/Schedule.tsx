@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { clampDateRange } from "../utils/time";
@@ -49,7 +49,7 @@ export default function Schedule() {
   const [viewMode, setViewMode] = useState<"week" | "table">("week");
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const { endDate: cappedEnd, clamped } = clampDateRange(startDate, endDate);
@@ -70,7 +70,7 @@ export default function Schedule() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate, startTime, endTime, zone, addToast]);
 
   // --- Create Session hook ---
   const create = useCreateSession(load, addToast, zone);

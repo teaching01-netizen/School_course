@@ -73,6 +73,7 @@ func buildPhysicalSitInResult(
 	target *sqldb.SubjectCourseV2,
 	missed []sqldb.SessionInRange,
 	available []sqldb.SessionInRange,
+	cutoff time.Time,
 ) *SitInResult {
 	var nonOverlapping []sqldb.SessionInRange
 	for _, a := range available {
@@ -83,9 +84,13 @@ func buildPhysicalSitInResult(
 				break
 			}
 		}
-		if !overlaps {
-			nonOverlapping = append(nonOverlapping, a)
+		if overlaps {
+			continue
 		}
+		if !cutoff.IsZero() && a.StartAt.Time.After(cutoff) {
+			continue
+		}
+		nonOverlapping = append(nonOverlapping, a)
 	}
 
 	preSelectCount := len(missed)
@@ -262,7 +267,12 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			return nil, fmt.Errorf("target course not found in course group")
 		}
 
-		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions)
+		win := loadRootGroupWindowWeeks(ctx, q, missedCourse.RootCourseGroupID)
+		cutoff := time.Time{}
+		if win > 0 {
+			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
+		}
+		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions, cutoff)
 	default:
 		return nil, nil
 	}
@@ -399,7 +409,12 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 			return nil, fmt.Errorf("target course not found in course group")
 		}
 
-		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions)
+		win := loadRootGroupWindowWeeks(ctx, q, main.RootCourseGroupID)
+		cutoff := time.Time{}
+		if win > 0 {
+			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
+		}
+		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions, cutoff)
 	default:
 		return nil, nil
 	}
@@ -407,6 +422,36 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
 	return result, nil
+}
+
+func rootGroupWindowWeeks(policies []byte, rootCourseGroupID string) int {
+	var p sqldb.AbsencePolicies
+	if err := json.Unmarshal(policies, &p); err != nil {
+		return 0
+	}
+	if p.RootCourseGroups == nil {
+		return 0
+	}
+	policy, ok := p.RootCourseGroups[rootCourseGroupID]
+	if !ok {
+		return 0
+	}
+	return policy.SitInWindowWeeks
+}
+
+func loadRootGroupWindowWeeks(ctx context.Context, q *sqldb.Queries, rootCourseGroupID pgtype.UUID) int {
+	if !rootCourseGroupID.Valid {
+		return 0
+	}
+	settings, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		return 0
+	}
+	id, err := uuidString(rootCourseGroupID)
+	if err != nil {
+		return 0
+	}
+	return rootGroupWindowWeeks(settings.AbsencePolicies, id)
 }
 
 func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, rootCourseGroupID pgtype.UUID) (bool, error) {

@@ -68,14 +68,14 @@ export function useAttendanceModal(
     });
     const next = await apiJson<AttendanceOverride[]>(`/api/v1/sessions/${session.id}/attendance`, { method: "GET" });
     setOverrides(next);
-  }, [session]);
+  }, [session?.id]);
 
   const deleteAttendance = useCallback(async (studentId: string) => {
     if (!session) return;
     await apiJson(`/api/v1/sessions/${session.id}/attendance/${studentId}`, { method: "DELETE" });
     const next = await apiJson<AttendanceOverride[]>(`/api/v1/sessions/${session.id}/attendance`, { method: "GET" });
     setOverrides(next);
-  }, [session]);
+  }, [session?.id]);
 
   const addIncludedByWcode = useCallback(async () => {
     if (!session) return;
@@ -92,7 +92,7 @@ export function useAttendanceModal(
     } finally {
       setIncludeAdding(false);
     }
-  }, [session, includeWcode, addToast, upsertAttendance]);
+  }, [session?.id, includeWcode, addToast, upsertAttendance]);
 
   return {
     session,

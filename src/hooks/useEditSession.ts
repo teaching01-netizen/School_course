@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { ApiRequestError, apiJson } from "../api/client";
 import { usePreflight } from "./usePreflight";
 import usePreflightGate from "./usePreflightGate";
@@ -50,6 +50,14 @@ export function useEditSession(
     requiredFields: [form.course_id, form.teacher_id, form.start_local, form.end_local],
   });
 
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+  const attendanceOverridesRef = useRef(attendanceOverrides);
+  attendanceOverridesRef.current = attendanceOverrides;
+  const attendanceOverridesLoadedRef = useRef(attendanceOverridesLoaded);
+  attendanceOverridesLoadedRef.current = attendanceOverridesLoaded;
+  const preflightCheckIdRef = useRef(0);
+
   const openModal = useCallback((sess: Session) => {
     const zone = instituteTZ;
     setSession(sess);
@@ -94,16 +102,15 @@ export function useEditSession(
     void loadAttendanceOverrides(session.id);
   }, [open, session?.id]);
 
-  // Run preflight when form changes
-  const runPreflight = useCallback(async () => {
+  // Run preflight when form changes — reads latest refs to avoid closure traps
+  useEffect(() => {
     if (!open || !session) {
-      console.debug("[useEditSession] runPreflight: skipped", { open, hasSession: !!session });
+      preflight.reset();
       return;
     }
     const startISO = localDateTimeToUTCISO(form.start_local, instituteTZ);
     const endISO = localDateTimeToUTCISO(form.end_local, instituteTZ);
     if (!startISO || !endISO || endISO <= startISO) {
-      console.debug("[useEditSession] runPreflight: invalid time range", { startISO, endISO });
       preflight.reset();
       return;
     }
@@ -119,34 +126,24 @@ export function useEditSession(
     } = {
       session_id: session.id,
       course_id: form.course_id,
-      room_id: form.room_id ? form.room_id : null,
+      room_id: form.room_id || null,
       teacher_id: form.teacher_id,
       start_at: startISO,
       end_at: endISO,
     };
-    if (attendanceOverridesLoaded) {
-      payload.included_student_ids = attendanceOverrides
+    if (attendanceOverridesLoadedRef.current) {
+      payload.included_student_ids = attendanceOverridesRef.current
         .filter((o) => o.status === "included")
         .map((o) => o.student_id);
-      payload.excluded_student_ids = attendanceOverrides
+      payload.excluded_student_ids = attendanceOverridesRef.current
         .filter((o) => o.status === "excluded")
         .map((o) => o.student_id);
     }
-    await preflight.check(payload);
-  }, [open, session, form, instituteTZ, attendanceOverrides, attendanceOverridesLoaded]);
-
-  useEffect(() => {
-    void runPreflight();
-  }, [
-    open,
-    session,
-    form.course_id,
-    form.room_id,
-    form.teacher_id,
-    form.start_local,
-    form.end_local,
-    attendanceOverrides,
-  ]);
+    const thisCallId = ++preflightCheckIdRef.current;
+    preflight.check(payload).then(() => {
+      if (thisCallId !== preflightCheckIdRef.current) return;
+    });
+  }, [open, session?.id, form.course_id, form.room_id, form.teacher_id, form.start_local, form.end_local, instituteTZ]);
 
   const submit = useCallback(async () => {
     if (!session) return;
@@ -164,7 +161,7 @@ export function useEditSession(
         body: JSON.stringify({
           expected_version: session.version,
           course_id: form.course_id,
-          room_id: form.room_id ? form.room_id : null,
+          room_id: form.room_id || null,
           teacher_id: form.teacher_id,
           start_at: startISO,
           end_at: endISO,
@@ -172,7 +169,7 @@ export function useEditSession(
       });
       addToast("success", "Updated session");
       closeModal();
-      onSuccess();
+      onSuccessRef.current();
     } catch (err) {
       if (err instanceof ApiRequestError) {
         if (err.code === "stale_edit") {
@@ -180,17 +177,16 @@ export function useEditSession(
           const reloaded = await apiJson<Session[]>(`/api/v1/sessions?ids=${session.id}`, { method: "GET" });
           const updated = reloaded[0];
           if (updated) {
-            const zone = instituteTZ;
             setSession(updated);
             setForm({
               course_id: updated.course_id,
               room_id: updated.room_id ?? "",
               teacher_id: updated.teacher_id,
-              start_local: utcISOToZoneLocalInput(updated.start_at, zone) ?? "",
-              end_local: utcISOToZoneLocalInput(updated.end_at, zone) ?? "",
+              start_local: utcISOToZoneLocalInput(updated.start_at, instituteTZ) ?? "",
+              end_local: utcISOToZoneLocalInput(updated.end_at, instituteTZ) ?? "",
             });
           }
-          onSuccess();
+          onSuccessRef.current();
           return;
         }
         addToast("error", `${err.code}: ${err.message}`);
@@ -200,7 +196,7 @@ export function useEditSession(
     } finally {
       setSaving(false);
     }
-  }, [session, gate.canSave, form, instituteTZ, addToast, closeModal, onSuccess]);
+  }, [session?.id, gate.canSave, form, instituteTZ, addToast, closeModal]);
 
   return {
     open,

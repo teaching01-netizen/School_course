@@ -38,6 +38,8 @@ export function SitInRulesSection() {
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
   const [autoToggles, setAutoToggles] = useState<Record<string, boolean>>({});
   const [initialAutoToggles, setInitialAutoToggles] = useState<Record<string, boolean>>({});
+  const [windowWeeks, setWindowWeeks] = useState<Record<string, number>>({});
+  const [initialWindowWeeks, setInitialWindowWeeks] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [editLevels, setEditLevels] = useState<Record<string, number | null>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -63,12 +65,18 @@ export function SitInRulesSection() {
         const rootPolicies = policiesResp.absence_policies?.root_course_groups ?? {};
         const toggles: Record<string, boolean> = {};
         const initial: Record<string, boolean> = {};
+        const weeks: Record<string, number> = {};
+        const initialWeeks: Record<string, number> = {};
         for (const [id, policy] of Object.entries(rootPolicies)) {
           toggles[id] = policy.auto_sit_in_enabled;
           initial[id] = policy.auto_sit_in_enabled;
+          weeks[id] = policy.sit_in_window_weeks ?? 0;
+          initialWeeks[id] = policy.sit_in_window_weeks ?? 0;
         }
         setAutoToggles(toggles);
         setInitialAutoToggles(initial);
+        setWindowWeeks(weeks);
+        setInitialWindowWeeks(initialWeeks);
         const levels: Record<string, number | null> = {};
         for (const c of coursesData) {
           levels[c.id] = c.level;
@@ -117,13 +125,17 @@ export function SitInRulesSection() {
         body: JSON.stringify({
           absence_policies: {
             root_course_groups: {
-              [rootCourseId]: { auto_sit_in_enabled: autoToggles[rootCourseId] },
+              [rootCourseId]: {
+                auto_sit_in_enabled: autoToggles[rootCourseId],
+                sit_in_window_weeks: windowWeeks[rootCourseId] ?? 0,
+              },
             },
           },
         }),
       });
       addToast("success", "Policy saved");
       setInitialAutoToggles((prev) => ({ ...prev, [rootCourseId]: autoToggles[rootCourseId] }));
+      setInitialWindowWeeks((prev) => ({ ...prev, [rootCourseId]: windowWeeks[rootCourseId] ?? 0 }));
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -356,7 +368,18 @@ export function SitInRulesSection() {
                       />
                       <span>Auto</span>
                     </label>
-                    {autoToggles[rcId] !== initialAutoToggles[rcId] ? (
+                    <label className="flex items-center gap-1 text-xs text-gray-600">
+                      <span>Window:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-14 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                        value={windowWeeks[rcId] ?? 0}
+                        onChange={(e) => setWindowWeeks((prev) => ({ ...prev, [rcId]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                      />
+                      <span>weeks</span>
+                    </label>
+                    {autoToggles[rcId] !== initialAutoToggles[rcId] || (windowWeeks[rcId] ?? 0) !== (initialWindowWeeks[rcId] ?? 0) ? (
                       <Button
                         size="sm"
                         loading={savingPolicy[rcId]}

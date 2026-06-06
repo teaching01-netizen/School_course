@@ -247,9 +247,9 @@ export default function CourseDetail() {
     editPreflight.reset();
   };
 
-  const runEditPreflight = async () => {
-    const s = getEditSession();
-    if (!s) {
+  useEffect(() => {
+    const s = sessions.find((sess) => sess.id === editingSessionId);
+    if (!s || !editingSessionId) {
       editPreflight.reset();
       return;
     }
@@ -263,20 +263,15 @@ export default function CourseDetail() {
       editPreflight.reset();
       return;
     }
-    await editPreflight.check({
+    editPreflight.check({
       session_id: s.id,
       course_id: s.course_id,
-      room_id: editForm.room_id ? editForm.room_id : null,
+      room_id: editForm.room_id || null,
       teacher_id: s.teacher_id,
       start_at: startISO,
       end_at: endISO,
     });
-  };
-
-  useEffect(() => {
-    void runEditPreflight();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingSessionId, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id]);
+  }, [editingSessionId, sessions, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id]);
 
   const submitEditSession = async () => {
     const s = getEditSession();

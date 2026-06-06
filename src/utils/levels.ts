@@ -16,6 +16,7 @@ export type CourseLevelItem = {
 
 export type SubjectPolicy = {
   auto_sit_in_enabled: boolean;
+  sit_in_window_weeks?: number;
 };
 
 export type PolicyResponse = {
