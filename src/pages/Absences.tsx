@@ -414,7 +414,7 @@ export default function Absences() {
       ) : null}
 
       <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
-        <table className="min-w-[920px] text-sm">
+        <table className="min-w-[1060px] text-sm">
           <thead>
             <tr className="text-left text-gray-500">
               <th className="w-8">
@@ -422,6 +422,8 @@ export default function Absences() {
               </th>
               <th>Status</th>
               <th>Student</th>
+              <th>Email</th>
+              <th>Nickname</th>
               <th>Subject</th>
               <th>Dates</th>
               <th>Sit-in</th>
@@ -446,6 +448,8 @@ export default function Absences() {
                   <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_name ?? "Unknown student"}</Link>
                   <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
                 </td>
+                <td className="text-xs text-gray-600">{absence.student_email ?? "-"}</td>
+                <td className="text-xs text-gray-600">{absence.student_nickname ?? "-"}</td>
                 <td><span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_name ?? absence.subject_code ?? "-"}</span></td>
                 <td className="whitespace-pre-line align-top text-gray-700">{formatAbsenceSummaryDates(absence)}</td>
                 <td>
@@ -470,7 +474,7 @@ export default function Absences() {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={9}><EmptyState message="All caught up! No absences match these filters." action={
+                <td colSpan={11}><EmptyState message="All caught up! No absences match these filters." action={
                   <div className="flex justify-center gap-2">
                     <Link to="/absences" className="text-sm text-[var(--color-wi-primary)] hover:underline">View all</Link>
                     <Link to="/absences/dashboard" className="text-sm text-[var(--color-wi-primary)] hover:underline">View dashboard</Link>

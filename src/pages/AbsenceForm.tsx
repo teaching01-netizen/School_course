@@ -10,7 +10,6 @@ import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import CourseChip from "@/components/absences/CourseChip";
-import PriorityMakeupSelector from "@/components/absences/PriorityMakeupSelector";
 
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
 import { useToast } from "@/hooks/useToast";
@@ -22,7 +21,6 @@ import type {
   AbsenceFormConfig,
   AbsenceNotificationsSettings,
   AdminContactSettings,
-  BypassReason,
   ManagedAbsence,
   SessionsInRangeResponse,
   SubjectSessions,
@@ -40,8 +38,6 @@ type AbsenceBatchCreateItem = {
   sit_in_course_id?: string;
   missed_session_ids: string[];
   sit_in_session_ids: string[];
-  sit_in_priority?: 1 | 2 | 3;
-  priority_bypass_reason?: BypassReason;
 };
 type AbsenceBatchCreateResponse = {
   items: ManagedAbsence[];
@@ -466,7 +462,7 @@ export default function AbsenceForm() {
 
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
-  const [priorityBypassReasons, setPriorityBypassReasons] = useState<Record<string, BypassReason>>({});
+  const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
@@ -599,6 +595,7 @@ export default function AbsenceForm() {
       reason,
       selectedSessionIds: [...selectedSessionIds],
       sitInSelections,
+      sitInPriorityLevels,
     };
     try {
       window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
@@ -615,6 +612,7 @@ export default function AbsenceForm() {
     reason,
     selectedSessionIds,
     sitInSelections,
+    sitInPriorityLevels,
     step,
   ]);
 
@@ -634,15 +632,19 @@ export default function AbsenceForm() {
         selectedSessionIds: string[];
         sitInSelections: Record<string, string>;
       }>;
-      if (parsed.lookup) setLookup(parsed.lookup);
-      if (typeof parsed.lookupInput === "string") setLookupInput(parsed.lookupInput);
-      if (Array.isArray(parsed.selectedSubjectIds)) setSelectedSubjectIds(parsed.selectedSubjectIds);
-      if (typeof parsed.activeCourseIndex === "number") setActiveCourseIndex(parsed.activeCourseIndex);
-      if (typeof parsed.dateFrom === "string") setDateFrom(parsed.dateFrom);
-      if (typeof parsed.dateTo === "string") setDateTo(parsed.dateTo);
-      if (typeof parsed.reason === "string") setReason(parsed.reason);
-      if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
-      if (parsed.sitInSelections) setSitInSelections(parsed.sitInSelections);
+
+      type AbsenceSnapshot = typeof parsed;
+      const typedParsed = parsed as AbsenceSnapshot & { sitInPriorityLevels?: Record<string, number> };
+      if (typedParsed.lookup) setLookup(typedParsed.lookup);
+      if (typeof typedParsed.lookupInput === "string") setLookupInput(typedParsed.lookupInput);
+      if (Array.isArray(typedParsed.selectedSubjectIds)) setSelectedSubjectIds(typedParsed.selectedSubjectIds);
+      if (typeof typedParsed.activeCourseIndex === "number") setActiveCourseIndex(typedParsed.activeCourseIndex);
+      if (typeof typedParsed.dateFrom === "string") setDateFrom(typedParsed.dateFrom);
+      if (typeof typedParsed.dateTo === "string") setDateTo(typedParsed.dateTo);
+      if (typeof typedParsed.reason === "string") setReason(typedParsed.reason);
+      if (Array.isArray(typedParsed.selectedSessionIds)) setSelectedSessionIds(new Set(typedParsed.selectedSessionIds));
+      if (typedParsed.sitInSelections) setSitInSelections(typedParsed.sitInSelections);
+      if (typedParsed.sitInPriorityLevels) setSitInPriorityLevels(typedParsed.sitInPriorityLevels);
       if (typeof parsed.step === "number") {
         goTo(parsed.step as StepIndex);
       }
@@ -772,8 +774,16 @@ export default function AbsenceForm() {
     });
   };
 
-  const handlePriorityBypass = (sessionId: string, _priority: 1 | 2 | 3, reason: BypassReason) => {
-    setPriorityBypassReasons((current) => ({ ...current, [sessionId]: reason }));
+  const handleNotAvailable = (sessionId: string) => {
+    setSitInPriorityLevels((prev) => ({
+      ...prev,
+      [sessionId]: (prev[sessionId] || 1) + 1,
+    }));
+    setSitInSelections((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
   };
 
   const handleCourseKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -897,23 +907,6 @@ export default function AbsenceForm() {
       const sitInCourseID = group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim();
       if (sitInCourseID) {
         payload.sit_in_course_id = sitInCourseID;
-      }
-      if (group.sit_in?.rule_type === "sat_verbal_priority") {
-        for (const sessId of selectedSessIds) {
-          if (priorityBypassReasons[sessId]) {
-            payload.priority_bypass_reason = priorityBypassReasons[sessId];
-            break;
-          }
-        }
-        const selectedSitInId = sitInSelections[selectedSessIds[0]];
-        if (selectedSitInId && group.sit_in?.priority_groups) {
-          for (const pg of group.sit_in.priority_groups) {
-            if (pg.available_sessions.some(s => s.id === selectedSitInId)) {
-              payload.sit_in_priority = pg.priority;
-              break;
-            }
-          }
-        }
       }
       payloads.push(payload);
     }
@@ -1425,42 +1418,91 @@ export default function AbsenceForm() {
                                                   <span className="ml-2">Subject: {sitIn && sitIn.sit_in_method === "physical" ? sitInClassLabel : sitIn && sitIn.sit_in_method === "zoom" ? "Zoom" : "To arrange"}</span>
                                                 </p>
                                               </div>
-                                              {sitIn && sitIn.sit_in_method === "physical" ? (
-                                                sitIn.rule_type === "sat_verbal_priority" && sitIn.priority_groups && sitIn.priority_groups.length > 0 ? (
-                                                  <PriorityMakeupSelector
-                                                    priorityGroups={sitIn.priority_groups}
-                                                    selectedSessionId={currentSitIn || null}
-                                                    bypassReason={priorityBypassReasons[session.id] || null}
-                                                    onSelectSession={(sitInSessionId) => handleSitInSelect(session.id, sitInSessionId)}
-                                                    onBypassPriority={(priority, reason) => handlePriorityBypass(session.id, priority, reason)}
-                                                    onPreviousPriority={() => {}}
-                                                  />
-                                                ) : (
-                                                  <>
-                                                    <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
-                                                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
-                                                       Pick a make-up class
-                                                    </div>
-                                                       <p className="text-xs text-gray-600 mb-2 truncate">
-                                                           Sit-in class: {sitInClassLabel}
-                                                       </p>
-                                                     <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                       <span className="text-gray-700 font-medium">Sit-in class:</span>
-                                                       <select
-                                                          value={currentSitIn}
-                                                          onChange={(e) => handleSitInSelect(session.id, e.target.value)}
-                                                          className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
-                                                        >
-                                                           <option value="">— Not yet —</option>
-                                                           {sitInAvailable.map(c => (
-                                                             <option key={c.id} value={c.id}>
-                                                                {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
-                                                             </option>
-                                                           ))}
-                                                         </select>
-                                                     </div>
-                                                  </>
-                                                )
+                                               {sitIn && sitIn.sit_in_method === "physical" ? (
+                                                (() => {
+                                                  const hasPriorities = sitIn.priorities && sitIn.priorities.length > 0;
+                                                  if (hasPriorities) {
+                                                    const currentLevel = sitInPriorityLevels[session.id] || 1;
+                                                    const currentPriority = sitIn.priorities!.find(p => p.level === currentLevel);
+                                                    const maxLevel = Math.max(...sitIn.priorities!.map(p => p.level));
+                                                    const hasMorePriorities = currentLevel < maxLevel;
+
+                                                    if (!currentPriority) {
+                                                      return (
+                                                        <div className="text-sm text-gray-600">
+                                                          <p className="font-medium">No more options available</p>
+                                                          <p className="text-xs text-gray-500 mt-0.5">Staff will contact you to arrange a make-up class.</p>
+                                                        </div>
+                                                      );
+                                                    }
+
+                                                    return (
+                                                      <>
+                                                        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
+                                                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">{currentLevel}</span>
+                                                           {currentPriority.label}
+                                                        </div>
+                                                        {currentPriority.sit_in_course && (
+                                                          <p className="text-xs text-gray-600 mb-2 truncate">
+                                                              Sit-in class: {getSitInCourseDisplayName(currentPriority.sit_in_course, groupLabel, sessions)}
+                                                          </p>
+                                                        )}
+                                                        <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
+                                                          <span className="text-gray-700 font-medium">Sit-in class:</span>
+                                                          <select
+                                                            value={currentSitIn}
+                                                            onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                            className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
+                                                          >
+                                                             <option value="">— Not yet —</option>
+                                                             {(currentPriority.available_sessions ?? []).map(c => (
+                                                               <option key={c.id} value={c.id}>
+                                                                  {getSitInSessionLabel(c, currentPriority.sit_in_course, groupLabel, sessions)}
+                                                               </option>
+                                                             ))}
+                                                           </select>
+                                                        </div>
+                                                        {hasMorePriorities && (
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => handleNotAvailable(session.id)}
+                                                            className="mt-2 text-xs font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900"
+                                                          >
+                                                            Not available for {currentLevel === 1 ? '1st' : currentLevel === 2 ? '2nd' : '3rd'} Priority &rarr; Show next
+                                                          </button>
+                                                        )}
+                                                      </>
+                                                    );
+                                                  }
+
+                                                  // Fallback: flat single-level sit-in (no priorities)
+                                                  return (
+                                                    <>
+                                                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
+                                                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
+                                                         Pick a make-up class
+                                                      </div>
+                                                         <p className="text-xs text-gray-600 mb-2 truncate">
+                                                             Sit-in class: {sitInClassLabel}
+                                                         </p>
+                                                       <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
+                                                         <span className="text-gray-700 font-medium">Sit-in class:</span>
+                                                         <select
+                                                           value={currentSitIn}
+                                                           onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                           className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
+                                                         >
+                                                            <option value="">— Not yet —</option>
+                                                            {sitInAvailable.map(c => (
+                                                              <option key={c.id} value={c.id}>
+                                                                 {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
+                                                              </option>
+                                                            ))}
+                                                          </select>
+                                                       </div>
+                                                    </>
+                                                  );
+                                                })()
                                               ) : sitIn && sitIn.sit_in_method === "zoom" ? (
                                                 <div className="space-y-1 text-sm text-gray-700">
                                                   <div className="flex items-center gap-2">

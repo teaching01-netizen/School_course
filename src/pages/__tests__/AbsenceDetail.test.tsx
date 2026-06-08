@@ -17,6 +17,7 @@ const DETAIL = {
   wcode: "W250389",
   student_name: "John Smith",
   student_email: null,
+  student_nickname: null,
   student_phone: null,
   course_id: "course-1",
   course_code: "MATH-201",

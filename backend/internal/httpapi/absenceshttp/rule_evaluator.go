@@ -9,23 +9,6 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
-const RuleTypeSatVerbalPriority = "sat_verbal_priority"
-
-type PriorityRow struct {
-	MissedRank       int16  `json:"missed_rank"`
-	MissedSection    string `json:"missed_section,omitempty"`
-	MissedCourseID   string `json:"missed_course_id,omitempty"`
-	Priority         int16  `json:"priority"` // 1, 2, or 3
-	RuleType         string `json:"rule_type"` // "cross_section", "rank_chain", "any_day_except_last"
-	TargetRank       *int16 `json:"target_rank,omitempty"`
-	TargetSection    string `json:"target_section,omitempty"`
-	TargetCourseID   string `json:"target_course_id,omitempty"`
-	OccurrenceMatch  string `json:"occurrence_match,omitempty"` // "same", "any"
-	DayMatch         string `json:"day_match,omitempty"` // "same_day", "any_day"
-	LastClassExcluded bool `json:"last_class_excluded"`
-	Label            string `json:"label,omitempty"`
-}
-
 type RulePredicate struct {
 	Level1Action            string      `json:"level_1_action"`
 	NonMaxDirection         string      `json:"non_max_direction"`
@@ -39,9 +22,6 @@ type RulePredicate struct {
 	Chains                  []RankChain `json:"chains"`
 	AutoAssign              bool        `json:"auto_assign"`
 	RequiresTeacherApproval bool        `json:"requires_teacher_approval"`
-
-	// sat_verbal_priority fields
-	PriorityRows []PriorityRow `json:"priority_rows,omitempty"`
 }
 
 type RankChain struct {
@@ -62,9 +42,8 @@ type EvaluateRuleOutput struct {
 	Eligible       bool
 	Method         string // "zoom", "physical", "teacher_case", "none"
 	TargetCourseID *pgtype.UUID
-	Direction      string // "higher", "lower", "same_section", "any_day", "chain", "priority"
+	Direction      string // "higher", "lower", "same_section", "any_day", "chain"
 	Reason         string
-	PriorityRows   []PriorityRow // populated by sat_verbal_priority evaluator
 }
 
 func parsePredicate(raw []byte) (RulePredicate, error) {
@@ -87,8 +66,6 @@ func EvaluateRule(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 		return evaluateRankChain(input)
 	case RuleTypeTeacherCase:
 		return evaluateTeacherCaseByCase(input)
-	case RuleTypeSatVerbalPriority:
-		return evaluateSatVerbalPriority(input)
 	default:
 		return nil, fmt.Errorf("unknown rule type: %s", input.RuleType)
 	}
@@ -296,31 +273,5 @@ func evaluateTeacherCaseByCase(input EvaluateRuleInput) (*EvaluateRuleOutput, er
 		Eligible: true,
 		Method:   SitInMethodTeacher,
 		Reason:   "sit-in requires teacher approval on case-by-case basis",
-	}, nil
-}
-
-func evaluateSatVerbalPriority(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
-	// Match priority rows by student level (rank)
-	matchedRows := make([]PriorityRow, 0)
-	for _, row := range input.Predicate.PriorityRows {
-		if row.MissedRank == input.StudentLevel {
-			matchedRows = append(matchedRows, row)
-		}
-	}
-
-	if len(matchedRows) == 0 {
-		return &EvaluateRuleOutput{
-			Eligible: false,
-			Method:   SitInMethodNone,
-			Reason:   "no sat_verbal_priority row matches this rank",
-		}, nil
-	}
-
-	return &EvaluateRuleOutput{
-		Eligible:     true,
-		Method:       SitInMethodPhysical,
-		Direction:    "priority",
-		Reason:       fmt.Sprintf("matched %d priority rows for rank %d", len(matchedRows), input.StudentLevel),
-		PriorityRows: matchedRows,
 	}, nil
 }

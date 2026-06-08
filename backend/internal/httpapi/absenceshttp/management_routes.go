@@ -93,6 +93,7 @@ type managedAbsenceDTO struct {
 	Wcode               string               `json:"wcode"`
 	StudentName         *string              `json:"student_name"`
 	StudentEmail        *string              `json:"student_email"`
+	StudentNickname     *string              `json:"student_nickname"`
 	StudentPhone        *string              `json:"student_phone"`
 	CourseID            string               `json:"course_id"`
 	CourseCode          string               `json:"course_code"`
@@ -140,6 +141,7 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 		Wcode:               row.Wcode,
 		StudentName:         stringPtrIfValid(row.StudentName),
 		StudentEmail:        stringPtrIfValid(row.StudentEmail),
+		StudentNickname:     stringPtrIfValid(row.StudentNickname),
 		StudentPhone:        stringPtrIfValid(row.StudentPhone),
 		CourseID:            courseID,
 		CourseCode:          row.CourseCode,

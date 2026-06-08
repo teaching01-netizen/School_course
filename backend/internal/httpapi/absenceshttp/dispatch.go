@@ -40,11 +40,6 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 			s.handleSitInOptions(w, r)
 			return
 		}
-	case "sit-in-priority-groups":
-		if r.Method == http.MethodGet {
-			s.handleSitInPriorityGroups(w, r)
-			return
-		}
 	case "sessions-in-range":
 		if r.Method == http.MethodGet {
 			s.handleSessionsInRange(w, r)

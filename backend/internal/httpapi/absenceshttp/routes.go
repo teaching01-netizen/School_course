@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -40,7 +39,6 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/absences/student-lookup", s.handleStudentLookup)
 	mux.HandleFunc("GET /api/v1/absences/sessions-in-range", s.handleSessionsInRange)
 	mux.HandleFunc("GET /api/v1/absences/sit-in-options", s.handleSitInOptions)
-	mux.HandleFunc("GET /api/v1/absences/sit-in-priority-groups", s.handleSitInPriorityGroups)
 
 	// Admin endpoints for absence policies (registered here for convenience)
 	mux.HandleFunc("GET /api/v1/admin/absence-policies", s.handlePoliciesGet)
@@ -94,6 +92,9 @@ func managedAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
 	}
 	if row.StudentEmail.Valid {
 		response["student_email"] = row.StudentEmail.String
+	}
+	if row.StudentNickname.Valid {
+		response["student_nickname"] = row.StudentNickname.String
 	}
 	if row.StudentPhone.Valid {
 		response["student_phone"] = row.StudentPhone.String
@@ -274,9 +275,13 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var studentPhone pgtype.Text
+		var studentEmail pgtype.Text
+		var studentNickname pgtype.Text
 		var successSMSRecipients []string
 		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 			studentPhone = contactRows[0].StudentPhone
+			studentEmail = contactRows[0].Email
+			studentNickname = contactRows[0].Nickname
 			successSMSRecipients = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		} else if contactErr != nil && s.deps.Log != nil {
 			s.deps.Log.Error("failed to load absence contact phones", "wcode", body.Wcode, "error", contactErr)
@@ -350,7 +355,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), item.ID, subjectID, sitInMethod, student.FullName, studentPhone, reasonCategory, sitInCourseID); err != nil {
+		if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), item.ID, subjectID, sitInMethod, student.FullName, studentEmail, studentNickname, studentPhone, reasonCategory, sitInCourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -685,78 +690,6 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	s.a.WriteJSON(w, http.StatusOK, result)
 }
 
-// Public: return priority groups for a specific missed session (priority 2+ on demand)
-func (s *server) handleSitInPriorityGroups(w http.ResponseWriter, r *http.Request) {
-	wcode := r.URL.Query().Get("wcode")
-	courseIDStr := r.URL.Query().Get("course_id")
-	subjectIDStr := r.URL.Query().Get("subject_id")
-	dateFromStr := r.URL.Query().Get("date_from")
-	dateToStr := r.URL.Query().Get("date_to")
-	priorityStr := r.URL.Query().Get("priority")
-
-	if wcode == "" || courseIDStr == "" || subjectIDStr == "" || dateFromStr == "" || dateToStr == "" || priorityStr == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode, course_id, subject_id, date_from, date_to, priority are required")
-		return
-	}
-
-	priority, err := strconv.Atoi(priorityStr)
-	if err != nil || priority < 1 || priority > 3 {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_priority", "priority must be 1, 2, or 3")
-		return
-	}
-
-	courseID, err := s.a.ParseUUID(courseIDStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
-		return
-	}
-
-	subjectID, err := s.a.ParseUUID(subjectIDStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
-		return
-	}
-
-	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
-		return
-	}
-	dateTo, err := time.Parse("2006-01-02", dateToStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
-		return
-	}
-
-	result, err := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo)
-	if err != nil {
-		s.deps.Log.Error("resolve sit-in for priority groups failed", "error", err)
-		s.a.WriteErr(w, http.StatusBadRequest, "resolve_error", "Could not resolve sit-in priority groups")
-		return
-	}
-	if result == nil || len(result.PriorityGroups) == 0 {
-		s.a.WriteErr(w, http.StatusNotFound, "no_priority_groups", "No priority groups available")
-		return
-	}
-
-	// Find the requested priority group
-	var targetGroup *PriorityGroup
-	for i := range result.PriorityGroups {
-		if result.PriorityGroups[i].Priority == int16(priority) {
-			targetGroup = &result.PriorityGroups[i]
-			break
-		}
-	}
-	if targetGroup == nil {
-		s.a.WriteErr(w, http.StatusNotFound, "priority_not_found", "Requested priority level not found")
-		return
-	}
-
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{
-		"priority_group": targetGroup,
-	})
-}
-
 // Public: return all sessions for a student across enrolled subjects in a date range, with absence flagging
 func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	wcode := r.URL.Query().Get("wcode")
@@ -981,12 +914,13 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		AlreadyAbsent bool   `json:"already_absent"`
 	}
 	type courseSitInResponse struct {
-		RuleName          string           `json:"rule_name,omitempty"`
-		RuleType          string           `json:"rule_type,omitempty"`
-		SitInMethod       string           `json:"sit_in_method"`
-		SitInCourse       *SitInCourseInfo `json:"sit_in_course,omitempty"`
-		AvailableSessions []sessionBrief   `json:"available_sessions,omitempty"`
-		MissedSessions    []sessionBrief   `json:"missed_sessions,omitempty"`
+		RuleName          string                  `json:"rule_name,omitempty"`
+		RuleType          string                  `json:"rule_type,omitempty"`
+		SitInMethod       string                  `json:"sit_in_method"`
+		Priorities        []SitInPriorityResult   `json:"priorities,omitempty"`
+		SitInCourse       *SitInCourseInfo        `json:"sit_in_course,omitempty"`
+		AvailableSessions []sessionBrief          `json:"available_sessions,omitempty"`
+		MissedSessions    []sessionBrief          `json:"missed_sessions,omitempty"`
 	}
 	type courseResponse struct {
 		SubjectID   string               `json:"subject_id"`
@@ -1028,6 +962,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 						RuleType:    result.RuleType,
 						SitInMethod: result.SitInMethod,
 						SitInCourse: result.SitInCourse,
+						Priorities:  result.Priorities,
 					}
 					if len(result.Available) > 0 {
 						sitIn.AvailableSessions = result.Available

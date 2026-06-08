@@ -265,6 +265,10 @@ export default function AbsenceDetail() {
             <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
               <dt className="text-gray-500">Subject</dt>
               <dd>{absence.subject_code ?? "-"} {absence.subject_name ? `- ${absence.subject_name}` : ""}</dd>
+              <dt className="text-gray-500">Email</dt>
+              <dd>{absence.student_email ?? "-"}</dd>
+              <dt className="text-gray-500">Nickname</dt>
+              <dd>{absence.student_nickname ?? "-"}</dd>
               <dt className="text-gray-500">Dates</dt>
               <dd className="whitespace-pre-line">{displayAbsenceDates(absence)}</dd>
               <dt className="text-gray-500">Reason</dt>

@@ -1,100 +1,112 @@
-# Codebase Concerns
+# Codebase Concerns: Sit-In Rules & Absence Handling
 
-**Analysis Date:** 2026-05-31
+**Analysis Date:** 2026-06-06
 
 ## Tech Debt
 
-**Sit-in name resolution — fragile cross-entity lookup chain:**
-- Issue: `resolveSitInSubjectName()` in `src/pages/AbsenceForm.tsx:112-114` resolves the sit-in subject name by cross-referencing `sit_in_course.id` against the `sessions` array's `course_id` field. This is an indirect, fragile mapping — if the sit-in course ID does not appear in the current `sessions` array (e.g., the sit-in course is not among the student's enrolled courses, or the array is stale), the function returns `undefined`, and the UI falls back to `group.subject_name` — which is the **absent** course's subject name, not the sit-in course.
-- Files: `src/pages/AbsenceForm.tsx:112-114`, `src/pages/AbsenceForm.tsx:1181`
-- Impact: The "Absence class:" label can display the wrong course name (the absent course instead of the sit-in course), or show no name at all when the lookup chain fails.
-- Fix approach: The API should return a `sit_in_subject_name` field directly on `SubjectSessions.sit_in`, or `resolveSitInSubjectName` should be backed by a dedicated course→subject lookup map rather than a linear scan of the sessions array.
+**Sit-In Rule Evaluation - Missing Priority Logic:**
+- Issue: Rule types are evaluated via a simple switch statement with no priority ordering. When multiple rules could theoretically apply to a student, only the single rule attached to the `root_course_groups.sit_in_rule_id` is evaluated.
+- Files: `backend/internal/httpapi/absenceshttp/rule_evaluator.go` (lines 57-72), `backend/internal/httpapi/absenceshttp/resolver.go` (lines 204-213)
+- Impact: The system assumes exactly one sit-in rule per root course group. If a student belongs to overlapping root course groups or if business rules evolve to require priority ordering (e.g., "if level_ladder matches, don't check cross_section"), there is no mechanism to support this.
+- Fix approach: Introduce a `priority` column on `sit_in_rules` and iterate through rules in priority order until one returns `Eligible: true`. Alternatively, implement a composite evaluator that tries multiple rules per root course group.
 
-**Sit-in display fallback chains are inconsistent across views:**
-- Issue: Three different views display sit-in course identity using three different fallback chains:
-  - `AbsenceForm.tsx:1181`: `resolveSitInSubjectName(sit_in_course, sessions) || group.subject_name`
-  - `AbsenceDetail.tsx:54`: `sit_in_subject_name ?? subject_name ?? subject_code ?? sit_in_course_name ?? sit_in_course_code ?? "Not assigned"`
-  - `Absences.tsx:444`: `sit_in_course_code ?? "Physical"` (no name at all, only code)
-- Files: `src/pages/AbsenceForm.tsx:1181`, `src/pages/AbsenceDetail.tsx:50-55`, `src/pages/Absences.tsx:441-445`
-- Impact: The same absence can display differently in the form, detail, and list views. A sit-in that shows as "Math advanced" in the detail view may show as "0000000344" (a raw internal code) in the list view.
-- Fix approach: Standardize a single helper function (e.g., `displaySitInLabel(absence: ManagedAbsence)`) that all views use, and ensure the API response includes all necessary name fields.
+**Rule Predicate Overloaded JSONB - No Validation:**
+- Issue: The `sit_in_rules.predicate` column is a JSONB field with no schema validation at the DB or application level. Each rule type uses different fields from the same `RulePredicate` struct (e.g., `rank_chain` uses `chains`, `level_ladder` uses `min_level_for_sit_lower`, `teacher_case_by_case` uses `requires_teacher_approval`). Unused fields are silently ignored.
+- Files: `backend/internal/httpapi/absenceshttp/rule_evaluator.go` (lines 12-25), `backend/db/migrations/00023_sit_in_rules.sql` (lines 3-11)
+- Impact: Admin can create a `rank_chain` rule with empty `chains` array and no validation error — the rule silently returns `not eligible`. No feedback that the predicate is incomplete for the chosen rule type.
+- Fix approach: Add per-rule-type predicate validation in `SitInRuleCreate`/`SitInRuleUpdate` handlers in `backend/internal/httpapi/sitinruleshttp/routes.go`. Validate that required fields for the specific `type` are present and well-formed.
 
-**`SitInResultCard` is orphaned — not imported by any app component:**
-- Issue: `src/components/absences/SitInResultCard.tsx` defines a sit-in result display component with its own type system (`SitInResult`, `SitInResultCardProps`), but it is never imported by any production component. Only `src/components/absences/__tests__/SitInResultCard.test.tsx` imports it.
-- Files: `src/components/absences/SitInResultCard.tsx`, `src/components/absences/__tests__/SitInResultCard.test.tsx`
-- Impact: Dead code. The component defines its own parallel type `SitInResult` that duplicates `SitInInfo` from `src/types/index.ts:319-335`, creating a maintenance burden and potential drift.
-- Fix approach: Either integrate `SitInResultCard` into the absence flow (e.g., use it in `AbsenceDetail.tsx` or `AbsenceForm.tsx`) or delete it. If integrating, reconcile the `SitInResult` type with `SitInInfo` from `src/types/index.ts`.
+**Cross-Section Evaluator Ignores `section_match` / `occurrence_match` / `day_match`:**
+- Issue: `evaluateCrossSection()` in `rule_evaluator.go` (lines 177-211) ignores the `section_match`, `occurrence_match`, and `day_match` predicate fields entirely. It simply finds any other course at the same level. The predicate fields `cross_section` / `same_occurrence_number` / `any` are defined in seed data but never used in evaluation logic.
+- Files: `backend/internal/httpapi/absenceshttp/rule_evaluator.go` (lines 177-211), `backend/db/migrations/00023_sit_in_rules.sql` (line 21)
+- Impact: The cross-section sit-in may suggest sessions that don't match the intended occurrence number or day, leading to incorrect sit-in recommendations.
+- Fix approach: Implement the actual cross-section filtering logic — match by occurrence number within the session series, filter by day-of-week, etc.
 
-**`getSitInSessionLabel()` fallback chain includes raw codes as last resort:**
-- Issue: `getSitInSessionLabel()` in `src/pages/AbsenceForm.tsx:116-135` tries 8 different fields in order, ultimately falling back to `sitInCourse?.code?.trim()` which can be an internal numeric code like `"0000000348"`. This raw code appears in a `<select>` option visible to students/parents.
-- Files: `src/pages/AbsenceForm.tsx:116-135`
-- Impact: Users see meaningless internal codes like "0000000348" in the make-up class dropdown when all name resolution fails.
-- Fix approach: The API should always provide a human-readable name on available sessions. The fallback chain should never surface raw internal codes to end users.
+**`resolveSitIn` vs `resolveSitInForCourse` Duplication:**
+- Issue: Two nearly identical resolver functions exist. `resolveSitIn()` (lines 285-425) is used by the `/sit-in-options` endpoint and picks the "main course" (lowest enrolled level). `resolveSitInForCourse()` (lines 148-283) is used by `/sessions-in-range` and takes a specific course ID. Both perform the same root course group lookup, rule loading, predicate parsing, and evaluation — with slightly different course selection logic.
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go` (lines 148-283, 285-425)
+- Impact: Maintenance burden — a bug fix in one resolver may not be applied to the other. The "main course" selection in `resolveSitIn` (lowest level) differs from `resolveSitInForCourse` (the specific missed course), which could lead to inconsistent results.
+- Fix approach: Extract shared logic into a common function. The difference is only in "which course is the missed course" — parameterize that and unify the resolution pipeline.
+
+**`automaticSitInEnabled` Function Defined But Never Called in Resolver Path:**
+- Issue: `automaticSitInEnabled()` (resolver.go lines 457-481) checks the `absence_policies` JSON for an `auto_sit_in_enabled` flag per root course group. However, neither `resolveSitIn` nor `resolveSitInForCourse` calls this function — sit-in resolution always proceeds regardless of this flag.
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go` (lines 457-481)
+- Impact: The `auto_sit_in_enabled` policy flag in `app_settings.absence_policies` is effectively dead code in the sit-in resolution path. If an admin disables auto sit-in, the system still resolves sit-ins.
+- Fix approach: Add an `automaticSitInEnabled()` check at the start of both resolver functions. If disabled, return `SitInMethodNone` / `nil` early.
+
+**Sit-In Window Cutoff Applied Inconsistently:**
+- Issue: `buildPhysicalSitInResult()` applies a `cutoff` time to filter available sessions (resolver.go lines 90-93). The cutoff is loaded from `absence_policies.root_course_groups[id].sit_in_window_weeks`. However, the cutoff only filters `Available` sessions — it does NOT filter `MissedSession` or affect the `MissedCount`. Also, when the cutoff is zero (no window configured), all sessions pass — there's no cap.
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go` (lines 72-127, 270-275, 412-417)
+- Impact: If no sit-in window is configured, students can theoretically sit in sessions far in the future. The pre-selection count (line 96-100) uses `len(missed)` which may exceed available sessions within the window.
+- Fix approach: Consider making the window required (non-zero default) or adding a maximum window cap. Also ensure pre-selection only counts sessions within the cutoff.
 
 ## Known Bugs
 
-**"Absence class:" label can show the absent course name instead of the sit-in course name:**
-- Symptoms: When a student's sit-in course ID does not match any `course_id` in the `sessions` array, `resolveSitInSubjectName()` returns `undefined`, and the label falls back to `group.subject_name` — the name of the class the student is **missing**, not the one they should attend instead.
-- Files: `src/pages/AbsenceForm.tsx:1181`
-- Trigger: Sit-in course is external to the student's enrolled subjects (e.g., cross-level sit-in where the sit-in course is not in the student's subject list).
-- Workaround: None — the wrong name is displayed.
+**`buildPhysicalSitInResult` Pre-Selection Can Over-Select:**
+- Symptoms: `PreSelected` count is `min(len(missed), len(nonOverlapping))` (line 96-100). If there are 3 missed sessions but only 2 available non-overlapping sessions within the window, it pre-selects all 2 available. This may confuse the UI if the student expected to see 3 sit-in options.
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go` (lines 96-100)
+- Trigger: Student misses 3 classes, only 2 sit-in slots available in target course within the window.
+- Workaround: The UI should handle the case where `pre_selected.length < missed_count` and display accordingly.
 
 ## Security Considerations
 
-**No sit-in display concern — internal codes are non-sensitive:**
-- Risk: Low. Internal course codes (e.g., "0000000348") are not secrets but are confusing to end users.
-- Files: N/A
-- Current mitigation: Fallback chains attempt to use names first.
-- Recommendations: Ensure raw UUIDs or internal codes are never displayed in parent-facing or student-facing UI.
+**Sit-In Rule CRUD Endpoints Lack Rate Limiting:**
+- Risk: The admin sit-in rule CRUD endpoints (`/api/v1/admin/sit-in-rules`) are wrapped with idempotent transactions but have no rate limiting beyond the standard idempotency key mechanism.
+- Files: `backend/internal/httpapi/sitinruleshttp/routes.go` (lines 19-27)
+- Current mitigation: Idempotency keys prevent duplicate writes. Admin auth required.
+- Recommendations: Low priority — admin-only endpoints. Consider adding validation that prevents deleting a sit-in rule that is currently referenced by active root course groups.
 
-## Performance Bottlenecks
-
-**Linear scan for sit-in subject name resolution:**
-- Problem: `resolveSitInSubjectName()` performs a linear `Array.find()` scan over all `SubjectSessions` groups on every render of every session in the form.
-- Files: `src/pages/AbsenceForm.tsx:112-114`, called at line 1181 (once per session in the selected group)
-- Cause: No pre-built lookup map exists for course_id → subject_name.
-- Improvement path: Build a `Map<string, string>` from `sessions` mapping `course_id` to `subject_name` once via `useMemo`, then use `map.get()` for O(1) lookups.
+**Public Sit-In Endpoints Expose Course Structure:**
+- Risk: `handleSessionsInRange` and `handleSitInOptions` are public (no auth) and accept a `wcode` parameter. They return course codes, names, subject info, and session times for all courses in a root course group.
+- Files: `backend/internal/httpapi/absenceshttp/routes.go` (lines 39-41, 687-981)
+- Current mitigation: The wcode acts as a weak form of identification. Sessions are filtered to the student's enrolled courses.
+- Recommendations: Consider whether this data exposure is acceptable for a public form. The sit-in options endpoint reveals the entire course ladder structure (all levels in the root course group).
 
 ## Fragile Areas
 
-**AbsenceForm sit-in state management:**
-- Files: `src/pages/AbsenceForm.tsx:338,357-368,602-631,723-746`
-- Why fragile: Sit-in state is spread across multiple local state variables (`sitInSelections`, `selectedSessionIds`, `selectedSubjectIds`) and recomputed on every interaction. The `missingSitIn` memo (lines 357-368) must stay in sync with `handleSessionToggle` (which clears sit-in selections on deselect) and `handleSitInSelect`. Adding or removing a session requires coordinated state updates in `handleSessionToggle` (lines 602-621) with no central reducer.
-- Safe modification: Always update `sitInSelections` in the same state transition as `selectedSessionIds`. Never call `setSitInSelections` independently of `setSelectedSessionIds`.
-- Test coverage: Covered by `src/pages/__tests__/AbsenceForm.test.tsx` but the sit-in name resolution tests (lines 285-399) only test two specific scenarios.
+**`resolveSitIn` Course Selection Logic:**
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go` (lines 314-321)
+- Why fragile: The "main course" is selected as the lowest-level enrolled course. But then root course group enrollment is loaded to get ALL enrolled levels. The logic assumes the first course found in the root course group is the right one. If a student is enrolled in multiple root course groups for the same subject, only the first one with a `RootCourseGroupID` is used.
+- Safe modification: When modifying course selection, always test with students enrolled in multiple levels within the same root course group, and students enrolled across multiple root course groups.
 
-**AbsenceDetail override modal data flow:**
-- Files: `src/pages/AbsenceDetail.tsx:160-193`
-- Why fragile: The override modal loads candidate sessions via a separate API call (`/api/v1/absences/${id}/sit-in-candidates?course_id=...`) and the course list via `/api/v1/courses/public`. The `courseID` state is initialized from `absence.sit_in_course_id` but the courses list may not contain that ID if the sit-in course was deleted or is internal. The override save sends `sit_in_course_id` and `sit_in_session_ids` but the absence API response may not immediately reflect the change (requires `load()` refresh).
-- Safe modification: Always await `load()` after `saveOverride()` before assuming the absence state is current.
-- Test coverage: Partial — `src/pages/__tests__/AbsenceDetail.test.tsx` covers capacity warnings but not the full override save flow.
+**Rule Evaluator Switch Statement:**
+- Files: `backend/internal/httpapi/absenceshttp/rule_evaluator.go` (lines 57-72)
+- Why fragile: Adding a new rule type requires modifying the switch statement AND creating a new `evaluate*` function. There's no compile-time enforcement that all rule types are handled — a typo in `rule.Type` falls through to the `default` error case.
+- Safe modification: Consider using a registry pattern or compile-time exhaustive switch.
 
 ## Missing Critical Features
 
-**Backend does not return `sit_in_subject_name` on the sessions-in-range response:**
-- Problem: The `SitInInfo` type (`src/types/index.ts:319-335`) includes `sit_in_course?: { id: string; code: string; name: string }` but does not include a `subject_name` or `subject_code` for the sit-in course. The frontend must cross-reference against the sessions array to derive a human-readable subject name.
-- Blocks: Clean sit-in name resolution in the absence form. Forces the fragile `resolveSitInSubjectName` workaround.
+**No Rule Type Priority / Ordering:**
+- Problem: Each root course group has exactly one `sit_in_rule_id`. There's no way to define fallback rules (e.g., "try level_ladder first, if not eligible, try cross_section").
+- Blocks: Complex sit-in scenarios where a student's eligibility depends on multiple rule types.
+
+**No Sit-In Rule Validation on Assignment:**
+- Problem: When assigning a `sit_in_rule_id` to a `root_course_group`, there's no validation that the rule type is compatible with the course group's structure (e.g., a `rank_chain` rule assigned to a course group with only 1 level will always return "not eligible").
+- Blocks: Prevents admin misconfiguration that leads to confusing sit-in behavior.
+
+**No Audit Trail for Sit-In Rule Changes:**
+- Problem: `SitInRuleCreate`, `SitInRuleUpdate`, and `SitInRuleDelete` in `sit_in_rules_custom.go` don't write to the audit log. Changes to sit-in rules are not tracked.
+- Blocks: Cannot determine when or why a sit-in rule was changed, making debugging sit-in resolution issues difficult.
 
 ## Test Coverage Gaps
 
-**Sit-in name resolution edge cases in AbsenceForm:**
-- What's not tested: The scenario where `sit_in_course.id` matches no `course_id` in the sessions array (causing `resolveSitInSubjectName` to return `undefined` and falling back to `group.subject_name`). Also untested: what happens when `sit_in_course.name` is set but `sit_in_course.code` contains an internal code, and the available session has no `class_name`, `subject_name`, or `course_name`.
-- Files: `src/pages/__tests__/AbsenceForm.test.tsx:285-399` (only two sit-in name resolution tests exist)
-- Risk: Regression in name resolution that causes raw codes or wrong course names to appear in the make-up class dropdown.
-- Priority: High — this is student/parent-facing UI.
+**Rule Evaluator Has Good Unit Tests:**
+- Files: `backend/internal/httpapi/absenceshttp/rule_evaluator_test.go` (656 lines)
+- Coverage: Tests cover all 5 rule types, edge cases (level 1 zoom, enrolled level skipping, no matching chain, unknown rule type).
+- Risk: Tests are thorough for the evaluator in isolation.
 
-**SitInResultCard not exercised in any production path:**
-- What's not tested: The component is tested in isolation but never exercised via a parent component in integration tests.
-- Files: `src/components/absences/__tests__/SitInResultCard.test.tsx`
-- Risk: If the component is ever integrated, its type assumptions may not match the real API shape.
-- Priority: Low (dead code).
+**Integration Test Gap - `resolveSitIn` and `resolveSitInForCourse`:**
+- What's not tested: The resolver functions that wire together DB queries, rule loading, and evaluation are only tested via integration tests (`absence_sit_in_dates_integration_test.go`, `absence_sit_ins_calendar_integration_test.go`). No unit tests for the resolver functions themselves.
+- Files: `backend/internal/httpapi/absenceshttp/resolver.go`
+- Risk: The integration between rule evaluation and session filtering (overlap detection, cutoff window) is only covered by integration tests that require a running database.
+- Priority: Medium
 
-**Absences list view sit-in display:**
-- What's not tested: The sit-in column in the absences list (`src/pages/Absences.tsx:441-445`) displays `sit_in_course_code` for physical sit-ins. No test verifies what happens when `sit_in_course_code` is `null` (falls back to "Physical" string) or when it's an internal code.
-- Files: `src/pages/Absences.tsx:441-445`
-- Risk: Users see "Physical" with no course context, or see a raw internal code.
-- Priority: Medium — admin-facing, but still a UX gap.
+**`handleSessionsInRange` Has No Tests:**
+- What's not tested: The `handleSessionsInRange` handler (routes.go lines 687-981) performs complex logic: session querying, absence flagging, sit-in resolution per course, and response assembly. This handler has zero test coverage.
+- Files: `backend/internal/httpapi/absenceshttp/routes.go` (lines 687-981)
+- Risk: Regression in the public-facing sessions-in-range endpoint would not be caught by tests.
+- Priority: High
 
 ---
 
-*Concerns audit: 2026-05-31*
+*Concerns audit: 2026-06-06*

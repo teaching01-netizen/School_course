@@ -53,3 +53,26 @@ func (q *Queries) CourseUpdateLegacyLink(ctx context.Context, courseID pgtype.UU
 	`, legacyCourseID, courseID)
 	return err
 }
+
+type CourseBatchDeleteResult struct {
+	ID      pgtype.UUID
+	Success bool
+	Error   string
+}
+
+func (q *Queries) CourseBatchDelete(ctx context.Context, ids []pgtype.UUID) []CourseBatchDeleteResult {
+	results := make([]CourseBatchDeleteResult, 0, len(ids))
+	for _, id := range ids {
+		tag, err := q.db.Exec(ctx, `DELETE FROM courses WHERE id = $1`, id)
+		if err != nil {
+			results = append(results, CourseBatchDeleteResult{ID: id, Success: false, Error: err.Error()})
+			continue
+		}
+		if tag.RowsAffected() == 0 {
+			results = append(results, CourseBatchDeleteResult{ID: id, Success: false, Error: "not found"})
+			continue
+		}
+		results = append(results, CourseBatchDeleteResult{ID: id, Success: true})
+	}
+	return results
+}

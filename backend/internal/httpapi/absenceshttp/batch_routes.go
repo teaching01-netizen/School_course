@@ -146,9 +146,13 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 		}
 
 		var studentPhone pgtype.Text
+		var studentEmail pgtype.Text
+		var studentNickname pgtype.Text
 		var successSMSRecipients []string
 		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 			studentPhone = contactRows[0].StudentPhone
+			studentEmail = contactRows[0].Email
+			studentNickname = contactRows[0].Nickname
 			successSMSRecipients = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		} else if contactErr != nil && s.deps.Log != nil {
 			s.deps.Log.Error("failed to load absence contact phones", "wcode", body.Wcode, "error", contactErr)
@@ -156,7 +160,7 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 
 		created := make([]createdAbsenceRecord, 0, len(body.Items))
 		for _, item := range body.Items {
-			record, ok := s.createAbsenceRecordTx(w, r, qtx, tx, settings, body.Wcode, reasonCategory, reason, studentPhone, item)
+			record, ok := s.createAbsenceRecordTx(w, r, qtx, tx, settings, body.Wcode, reasonCategory, reason, studentEmail, studentNickname, studentPhone, item)
 			if !ok {
 				return 0, nil, fmt.Errorf("failed to create absence item")
 			}
@@ -219,6 +223,8 @@ func (s *server) createAbsenceRecordTx(
 	wcode string,
 	reasonCategory pgtype.Text,
 	reason pgtype.Text,
+	studentEmail pgtype.Text,
+	studentNickname pgtype.Text,
 	studentPhone pgtype.Text,
 	item batchAbsenceCreateItem,
 ) (createdAbsenceRecord, bool) {
@@ -297,7 +303,7 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false
 	}
-	if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), row.ID, subjectID, sitInMethod, student.FullName, studentPhone, reasonCategory, sitInCourseID); err != nil {
+	if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), row.ID, subjectID, sitInMethod, student.FullName, studentEmail, studentNickname, studentPhone, reasonCategory, sitInCourseID); err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false

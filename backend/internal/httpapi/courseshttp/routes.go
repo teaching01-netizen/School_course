@@ -36,6 +36,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/courses/{id}/students/{student_id}/convert", s.handleCourseStudentsConvert)
 	mux.HandleFunc("GET /api/v1/courses/{id}/sessions", s.handleCourseSessionsList)
 	mux.HandleFunc("POST /api/v1/courses/{id}/legacy-sync", s.handleLegacySync)
+	mux.HandleFunc("POST /api/v1/courses/batch-delete", s.handleCoursesBatchDelete)
 }
 
 func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
@@ -756,6 +757,62 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 		"sessions_created": result.SessionsCreated,
 		"synced_at":        result.SyncedAt,
 	})
+}
+
+func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if len(body.IDs) == 0 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_ids", "ids array is required")
+		return
+	}
+	if len(body.IDs) > 100 {
+		s.a.WriteErr(w, http.StatusBadRequest, "too_many", "Maximum 100 courses per batch")
+		return
+	}
+
+	ids := make([]pgtype.UUID, 0, len(body.IDs))
+	for _, raw := range body.IDs {
+		id, err := s.a.ParseUUID(raw)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid course ID: "+raw)
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	s.deps.Log.Debug("batch deleting courses", "count", len(ids))
+	if !s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		results := qtx.CourseBatchDelete(r.Context(), ids)
+
+		succeeded := make([]string, 0, len(results))
+		failed := make([]map[string]any, 0)
+		for _, res := range results {
+			idStr, _ := s.a.UUIDString(res.ID)
+			if res.Success {
+				succeeded = append(succeeded, idStr)
+			} else {
+				failed = append(failed, map[string]any{"id": idStr, "error": res.Error})
+			}
+		}
+		return http.StatusOK, map[string]any{
+			"succeeded":       succeeded,
+			"failed":          failed,
+			"total_processed": len(results),
+		}, nil
+	}) {
+		s.deps.Log.Error("course_batch_delete: idempotent tx failed", "count", len(ids))
+	}
 }
 
 func strPtrOr(s *string, fallback string) string {

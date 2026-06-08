@@ -341,7 +341,7 @@ button {
     padding: 0.75rem;
   }
   .absence-inbox-table tbody td { border: none; padding: 0.25rem 0; }
-  .absence-inbox-table tbody tr:first-child td:first-child { display: none; }
+  .absence-inbox-table tbody tr td:first-child { display: none; }
   .absence-inbox-table tbody tr td:last-child { display: none; }
 }
 

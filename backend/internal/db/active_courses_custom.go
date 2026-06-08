@@ -22,58 +22,74 @@ type ActiveCourseCourseRow struct {
 }
 
 func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, error) {
-	subjRows, err := q.db.Query(ctx, `
-		SELECT id, code, name
-		FROM subjects
-		ORDER BY code ASC
+	rows, err := q.db.Query(ctx, `
+		SELECT s.id, s.code, s.name,
+		       c.id, c.code, c.name,
+		       c.cycle_id, COALESCE(cy.label, ''),
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
+		FROM subjects s
+		LEFT JOIN courses c ON c.subject_id = s.id
+		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = s.id
+		ORDER BY s.code ASC, c.code ASC
 	`)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer subjRows.Close()
+	defer rows.Close()
 
-	var subjects []ActiveCourseSubjectRow
-	for subjRows.Next() {
-		var s ActiveCourseSubjectRow
-		if err := subjRows.Scan(&s.SubjectID, &s.SubjectCode, &s.SubjectName); err != nil {
+	type flatRow struct {
+		subjectID   pgtype.UUID
+		subjectCode string
+		subjectName string
+		courseID    pgtype.UUID
+		courseCode  pgtype.Text
+		courseName  pgtype.Text
+		cycleID     pgtype.Text
+		cycleLabel  string
+		isActive    bool
+	}
+
+	var flat []flatRow
+	for rows.Next() {
+		var r flatRow
+		if err := rows.Scan(
+			&r.subjectID, &r.subjectCode, &r.subjectName,
+			&r.courseID, &r.courseCode, &r.courseName,
+			&r.cycleID, &r.cycleLabel,
+			&r.isActive,
+		); err != nil {
 			return nil, nil, err
 		}
-		subjects = append(subjects, s)
+		flat = append(flat, r)
 	}
-	if err := subjRows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 
-	coursesBySubject := make([][]ActiveCourseCourseRow, len(subjects))
-	for i, subj := range subjects {
-		cRows, err := q.db.Query(ctx, `
-			SELECT c.id, c.code, c.name, c.cycle_id, COALESCE(cy.label, ''),
-			       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END AS is_active
-			FROM courses c
-			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
-			LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = $1
-			WHERE c.subject_id = $1
-			ORDER BY c.code ASC
-		`, subj.SubjectID)
-		if err != nil {
-			return nil, nil, err
+	var subjects []ActiveCourseSubjectRow
+	var coursesBySubject [][]ActiveCourseCourseRow
+	for _, r := range flat {
+		if len(subjects) == 0 || subjects[len(subjects)-1].SubjectID.Bytes != r.subjectID.Bytes {
+			subjects = append(subjects, ActiveCourseSubjectRow{
+				SubjectID:   r.subjectID,
+				SubjectCode: r.subjectCode,
+				SubjectName: r.subjectName,
+			})
+			coursesBySubject = append(coursesBySubject, nil)
 		}
-
-		var courses []ActiveCourseCourseRow
-		for cRows.Next() {
-			var c ActiveCourseCourseRow
-			if err := cRows.Scan(&c.CourseID, &c.CourseCode, &c.CourseName, &c.CycleID, &c.CycleLabel, &c.IsActive); err != nil {
-				cRows.Close()
-				return nil, nil, err
-			}
-			courses = append(courses, c)
+		if !r.courseID.Valid {
+			continue
 		}
-		cRows.Close()
-		if err := cRows.Err(); err != nil {
-			return nil, nil, err
-		}
-
-		coursesBySubject[i] = courses
+		idx := len(subjects) - 1
+		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
+			CourseID:   r.courseID,
+			CourseCode: r.courseCode.String,
+			CourseName: r.courseName.String,
+			CycleID:    r.cycleID,
+			CycleLabel: r.cycleLabel,
+			IsActive:   r.isActive,
+		})
 	}
 
 	return subjects, coursesBySubject, nil
@@ -95,61 +111,73 @@ func (q *Queries) ActiveCourseUpsert(ctx context.Context, p ActiveCourseUpsertPa
 }
 
 func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgtype.UUID) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, error) {
-	subjRows, err := q.db.Query(ctx, `
-		SELECT DISTINCT s.id, s.code, s.name
+	rows, err := q.db.Query(ctx, `
+		SELECT s.id, s.code, s.name,
+		       c.id, c.code, c.name,
+		       c.cycle_id, COALESCE(cy.label, ''),
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
 		FROM subjects s
 		JOIN courses c ON c.subject_id = s.id
 		JOIN course_students cs ON cs.course_id = c.id
+		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = s.id
 		WHERE cs.student_id = $1
-		ORDER BY s.code ASC
+		ORDER BY s.code ASC, c.code ASC
 	`, studentID)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer subjRows.Close()
+	defer rows.Close()
 
-	var subjects []ActiveCourseSubjectRow
-	for subjRows.Next() {
-		var s ActiveCourseSubjectRow
-		if err := subjRows.Scan(&s.SubjectID, &s.SubjectCode, &s.SubjectName); err != nil {
+	type flatRow struct {
+		subjectID   pgtype.UUID
+		subjectCode string
+		subjectName string
+		courseID    pgtype.UUID
+		courseCode  string
+		courseName  string
+		cycleID     pgtype.Text
+		cycleLabel  string
+		isActive    bool
+	}
+
+	var flat []flatRow
+	for rows.Next() {
+		var r flatRow
+		if err := rows.Scan(
+			&r.subjectID, &r.subjectCode, &r.subjectName,
+			&r.courseID, &r.courseCode, &r.courseName,
+			&r.cycleID, &r.cycleLabel,
+			&r.isActive,
+		); err != nil {
 			return nil, nil, err
 		}
-		subjects = append(subjects, s)
+		flat = append(flat, r)
 	}
-	if err := subjRows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 
-	coursesBySubject := make([][]ActiveCourseCourseRow, len(subjects))
-	for i, subj := range subjects {
-		cRows, err := q.db.Query(ctx, `
-			SELECT c.id, c.code, c.name, c.cycle_id, COALESCE(cy.label, ''),
-			       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END AS is_active
-			FROM courses c
-			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
-			LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = $1
-			WHERE c.subject_id = $1
-			ORDER BY c.code ASC
-		`, subj.SubjectID)
-		if err != nil {
-			return nil, nil, err
+	var subjects []ActiveCourseSubjectRow
+	var coursesBySubject [][]ActiveCourseCourseRow
+	for _, r := range flat {
+		if len(subjects) == 0 || subjects[len(subjects)-1].SubjectID.Bytes != r.subjectID.Bytes {
+			subjects = append(subjects, ActiveCourseSubjectRow{
+				SubjectID:   r.subjectID,
+				SubjectCode: r.subjectCode,
+				SubjectName: r.subjectName,
+			})
+			coursesBySubject = append(coursesBySubject, nil)
 		}
-
-		var courses []ActiveCourseCourseRow
-		for cRows.Next() {
-			var c ActiveCourseCourseRow
-			if err := cRows.Scan(&c.CourseID, &c.CourseCode, &c.CourseName, &c.CycleID, &c.CycleLabel, &c.IsActive); err != nil {
-				cRows.Close()
-				return nil, nil, err
-			}
-			courses = append(courses, c)
-		}
-		cRows.Close()
-		if err := cRows.Err(); err != nil {
-			return nil, nil, err
-		}
-
-		coursesBySubject[i] = courses
+		idx := len(subjects) - 1
+		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
+			CourseID:   r.courseID,
+			CourseCode: r.courseCode,
+			CourseName: r.courseName,
+			CycleID:    r.cycleID,
+			CycleLabel: r.cycleLabel,
+			IsActive:   r.isActive,
+		})
 	}
 
 	return subjects, coursesBySubject, nil

@@ -26,6 +26,7 @@ type ManagedAbsenceRow struct {
 	Wcode               string
 	StudentName         pgtype.Text
 	StudentEmail        pgtype.Text
+	StudentNickname     pgtype.Text
 	StudentPhone        pgtype.Text
 	ParentPhone         pgtype.Text
 	CourseID            pgtype.UUID
@@ -71,7 +72,9 @@ func normalizedAbsencePaging(p AbsenceFilter) AbsenceFilter {
 func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]ManagedAbsenceRow, int64, error) {
 	p = normalizedAbsencePaging(p)
 	rows, err := q.db.Query(ctx, `
-		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
+		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
+		       COALESCE(sa.student_email, st.email), COALESCE(sa.student_nickname, st.nickname),
+		       sa.student_phone,
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
@@ -104,7 +107,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 	for rows.Next() {
 		var item ManagedAbsenceRow
 		if err := rows.Scan(
-			&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
+			&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentNickname, &item.StudentPhone,
 			&item.ParentPhone,
 			&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 			&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
@@ -126,7 +129,9 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (ManagedAbsenceRow, error) {
 	var item ManagedAbsenceRow
 	err := q.db.QueryRow(ctx, `
-		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name), sa.student_email, sa.student_phone,
+		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
+		       COALESCE(sa.student_email, st.email), COALESCE(sa.student_nickname, st.nickname),
+		       sa.student_phone,
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
@@ -141,7 +146,7 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
 		WHERE sa.id = $1
 	`, id).Scan(
-		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
+		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentNickname, &item.StudentPhone,
 		&item.ParentPhone,
 		&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
 		&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
@@ -339,12 +344,12 @@ func (q *Queries) AbsenceAuditList(ctx context.Context, absenceID pgtype.UUID) (
 	return out, rows.Err()
 }
 
-func (q *Queries) AbsenceSetSubmissionMetadata(ctx context.Context, id, subjectID pgtype.UUID, method pgtype.Text, studentName string, studentPhone pgtype.Text, reasonCategory pgtype.Text, sitInCourseID pgtype.UUID) error {
+func (q *Queries) AbsenceSetSubmissionMetadata(ctx context.Context, id, subjectID pgtype.UUID, method pgtype.Text, studentName string, studentEmail pgtype.Text, studentNickname pgtype.Text, studentPhone pgtype.Text, reasonCategory pgtype.Text, sitInCourseID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE student_absences
-		SET subject_id = $2, sit_in_method = $3, student_name = $4, student_phone = $5, reason_category = $6, sit_in_course_id = $7, updated_at = now()
+		SET subject_id = $2, sit_in_method = $3, student_name = $4, student_email = $5, student_nickname = $6, student_phone = $7, reason_category = $8, sit_in_course_id = $9, updated_at = now()
 		WHERE id = $1
-	`, id, subjectID, method, studentName, studentPhone, reasonCategory, sitInCourseID)
+	`, id, subjectID, method, studentName, studentEmail, studentNickname, studentPhone, reasonCategory, sitInCourseID)
 	return err
 }
 

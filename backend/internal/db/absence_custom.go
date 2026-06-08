@@ -14,6 +14,8 @@ type StudentSubjectRow struct {
 	FullName       string      `json:"full_name"`
 	StudentPhone   pgtype.Text `json:"student_phone"`
 	ParentPhone    pgtype.Text `json:"parent_phone"`
+	Email          pgtype.Text `json:"email"`
+	Nickname       pgtype.Text `json:"nickname"`
 	SubjectID      pgtype.UUID `json:"subject_id"`
 	SubjectCode    string      `json:"subject_code"`
 	SubjectName    string      `json:"subject_name"`
@@ -22,7 +24,7 @@ type StudentSubjectRow struct {
 
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
+		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone, s.email, s.nickname,
 		       sub.id, sub.code, sub.name,
 		       MIN(c.id::text)::uuid AS active_course_id
 		FROM students s
@@ -41,7 +43,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.Nickname, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

@@ -32,6 +32,7 @@ import AbsenceDashboard from './pages/AbsenceDashboard';
 import AbsenceSettings from './pages/AbsenceSettings';
 import OperationsCalendar from './pages/OperationsCalendar';
 import OperationsHub from './pages/operations/OperationsHub';
+import LeavePolicy from './pages/LeavePolicy';
 
 function AppLayout() {
   return (
@@ -87,6 +88,7 @@ function App() {
               <Route path="/absences/calendar" element={<OperationsCalendar />} />
               <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />
               <Route path="/admin/operations" element={<OperationsHub />} />
+              <Route path="/leave-policy" element={<LeavePolicy />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

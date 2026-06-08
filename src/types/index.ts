@@ -26,6 +26,84 @@ export type SitInRuleCreateInput = {
   description: string;
 };
 
+// === SAT Verbal Leave Policy types ===
+
+export type LeavePolicyRuleType =
+  | "cross_section"
+  | "any_day_except_last"
+  | "rank_chain"
+  | "mastery_wisdom_choice";
+
+export type PriorityCount = 2 | 3;
+
+export type LeavePolicyCourseRule = {
+  id: string;
+  courseName: string;
+  /** The subject this section teaches (e.g., "Reading", "Writing", "Math") */
+  subject: string;
+  ruleType: LeavePolicyRuleType;
+  priorityCount: PriorityCount;
+  description: string;
+  makeupRules: string[];
+  lastClassExcluded: boolean;
+  /**
+   * Explicit makeup targets for cross_section rules.
+   * Each target specifies which section (+ subject) the student can sit-in at.
+   * For rank_chain/any_day_except_last rules, use eligibleTargets instead.
+   */
+  makeupTargets?: { section: string; subject: string }[];
+  /** Which ranks/courses this rule can map to for sit-in */
+  eligibleTargets: string[];
+  /**
+   * Explicit priority levels. Each priority can have a different rule type.
+   * If defined, evaluation uses this instead of the top-level ruleType.
+   */
+  priorities?: RulePriority[];
+};
+
+/** A single priority level within a rule */
+export type RulePriority = {
+  level: 1 | 2 | 3;
+  ruleType: LeavePolicyRuleType;
+  label: string;
+  /** For cross_section: section + subject targets */
+  makeupTargets?: { section: string; subject: string }[];
+  /** For rank_chain: which courses/ranks to map to */
+  eligibleTargets?: string[];
+  /** For any_day_except_last: show as generic any-day option */
+  anyDay?: boolean;
+};
+
+export type SubjectMapping = {
+  ruleId: string;
+  subjectId: string;
+  subjectCode: string;
+  subjectName: string;
+};
+
+export type LeavePolicyTestInput = {
+  courseRuleId: string;
+  /** The course name the student is enrolled in (used to derive rank for rank_chain rules) */
+  missedCourseName: string;
+  missedSection: string;
+  missedOccurrence: number;
+  totalSessions: number;
+  isLastClass: boolean;
+};
+
+export type MakeupOption = {
+  label: string;
+  available: boolean;
+  reason?: string;
+};
+
+export type LeavePolicyTestResult = {
+  input: LeavePolicyTestInput;
+  options: MakeupOption[];
+  isBlocked: boolean;
+  blockReason?: string;
+};
+
 // === Canonical API types ===
 
 export type Session = {
@@ -123,6 +201,7 @@ export type StudentAbsence = {
   sit_ins?: Array<{ id: string; session_id: string }>;
   student_name?: string | null;
   student_email?: string | null;
+  student_nickname?: string | null;
   student_phone?: string | null;
   reason_category?: string | null;
   status: AbsenceStatus;
@@ -340,10 +419,28 @@ export type SessionInSubject = {
   already_absent: boolean;
 };
 
+export type SitInPriority = {
+  level: number;
+  label: string;
+  sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
+  available_sessions?: Array<{
+    id: string;
+    start_at: string;
+    end_at: string;
+    class_name?: string | null;
+    subject_name?: string | null;
+    subject_code?: string | null;
+    course_name?: string | null;
+    course_code?: string | null;
+  }>;
+  pre_selected?: Array<{ id: string; start_at: string; end_at: string }>;
+};
+
 export type SitInInfo = {
   rule_name?: string;
   rule_type?: string;
   sit_in_method: "physical" | "zoom" | "teacher_case" | "none";
+  priorities?: SitInPriority[];
   sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
   available_sessions?: Array<{
     id: string;

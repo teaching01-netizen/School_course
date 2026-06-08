@@ -19,6 +19,7 @@ const PAGE = {
       id: "abs-1",
       wcode: "W250389",
       student_name: "John Smith",
+      student_nickname: null,
       course_id: "course-1",
       course_code: "MATH-201",
       course_name: "Algebra II",
