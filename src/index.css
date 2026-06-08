@@ -327,6 +327,35 @@ button {
   outline: 2px solid var(--color-wi-primary);
   outline-offset: 1px;
 }
+/* Absence inbox — responsive card view */
+@media (max-width: 768px) {
+  .absence-inbox-table { min-width: 0 !important; width: 100%; }
+  .absence-inbox-table thead { display: none; }
+  .absence-inbox-table tbody,
+  .absence-inbox-table tbody tr,
+  .absence-inbox-table tbody td { display: block; width: 100%; }
+  .absence-inbox-table tbody tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-wi-border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+  }
+  .absence-inbox-table tbody td { border: none; padding: 0.25rem 0; }
+  .absence-inbox-table tbody tr:first-child td:first-child { display: none; }
+  .absence-inbox-table tbody tr td:last-child { display: none; }
+}
+
+/* Absence detail — timeline connecting lines */
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  top: 1.75rem;
+  bottom: -0.75rem;
+  width: 2px;
+  background: #e5e7eb;
+}
+.timeline-item:last-child::before { display: none; }
 
 /* Print styles */
 @media print {
