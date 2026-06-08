@@ -346,6 +346,9 @@ button {
 }
 
 /* Absence detail — timeline connecting lines */
+.timeline-item {
+  position: relative;
+}
 .timeline-item::before {
   content: '';
   position: absolute;
@@ -353,7 +356,7 @@ button {
   top: 1.75rem;
   bottom: -0.75rem;
   width: 2px;
-  background: #e5e7eb;
+  background: var(--color-wi-border);
 }
 .timeline-item:last-child::before { display: none; }
 
