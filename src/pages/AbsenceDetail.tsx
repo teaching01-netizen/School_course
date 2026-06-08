@@ -34,6 +34,10 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
 
+function initials(name: string): string {
+  return name.split(" ").map((part) => part.charAt(0)).join("").toUpperCase().slice(0, 2);
+}
+
 function daysBetween(a: string, b: string): number {
   const d1 = new Date(a + "T00:00:00");
   const d2 = new Date(b + "T00:00:00");
@@ -94,7 +98,8 @@ export default function AbsenceDetail() {
   const [notes, setNotes] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonCategory, setCancelReasonCategory] = useState("");
+  const [cancelReasonDetail, setCancelReasonDetail] = useState("");
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideMethod, setOverrideMethod] = useState<OverrideMethod>("auto");
   const [overrideReason, setOverrideReason] = useState("");
@@ -209,7 +214,7 @@ export default function AbsenceDetail() {
   if (!absence) return <p className="text-sm text-gray-500">Absence could not be loaded.</p>;
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-6xl">
       <Link className="text-sm text-[var(--color-wi-primary)] hover:underline" to="/absences">Back to Absences</Link>
 
       <div className="mt-2 flex items-center gap-3">
@@ -218,14 +223,17 @@ export default function AbsenceDetail() {
       </div>
 
       <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Absence Detail</h1>
-          <div className="mt-1 flex items-center gap-2 text-sm text-gray-600">
-            <span className="font-medium">{absence.student_name ?? "Unknown"}</span>
-            <span className="font-mono text-xs text-gray-400">{absence.wcode}</span>
+        <div className="flex items-start gap-3">
+          <span className="mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-base font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Absence Detail</h1>
+            <div className="mt-1 flex items-center gap-2 text-sm text-gray-600">
+              <span className="font-medium">{absence.student_name ?? "Unknown"}</span>
+              <span className="font-mono text-xs text-gray-400">{absence.wcode}</span>
+            </div>
           </div>
         </div>
-        <div className="sticky top-4 z-20 hidden md:flex flex-wrap items-center gap-2 rounded-sm border border-gray-200 bg-white p-3 shadow-sm md:flex-nowrap">
+        <div className="hidden md:flex flex-wrap items-center gap-2 rounded-sm border border-gray-200 bg-white p-3 shadow-sm md:flex-nowrap">
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusClasses}`}>{titleCase(absence.status)}</span>
           {absence.status === "pending" ? <Button size="sm" loading={saving} onClick={() => void updateStatus("reviewed")}>Mark Reviewed</Button> : null}
           {absence.status === "reviewed" ? (
@@ -241,24 +249,7 @@ export default function AbsenceDetail() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-gray-200 bg-white p-3 shadow-lg md:hidden">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusClasses}`}>{titleCase(absence.status)}</span>
-          {absence.status === "pending" ? <Button size="sm" loading={saving} onClick={() => void updateStatus("reviewed")}>Mark Reviewed</Button> : null}
-          {absence.status === "reviewed" ? (
-            <>
-              <Button size="sm" loading={saving} onClick={() => void updateStatus("actioned")}>Actioned</Button>
-              <Button size="sm" variant="secondary" loading={saving} onClick={() => void updateStatus("pending")}>Reopen</Button>
-            </>
-          ) : null}
-          {absence.status !== "cancelled" && absence.status !== "actioned" ? (
-            <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>Cancel</Button>
-          ) : null}
-          <Button size="sm" variant="secondary" onClick={() => void openOverride()}>Override Sit-in</Button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-4 pb-16 md:pb-0">
+      <div className="mt-4 grid gap-4">
         <section className="rounded-sm border border-gray-200 bg-white">
           <h2 className="border-b border-gray-100 bg-gray-50/70 px-4 py-3 text-sm font-semibold text-gray-800">Absence Summary</h2>
           <div className="grid gap-4 p-4 md:grid-cols-2">
@@ -308,7 +299,7 @@ export default function AbsenceDetail() {
           </div>
         </section>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4">
           <section className="rounded-sm border border-gray-200 bg-white">
             <h2 className="border-b border-gray-100 bg-gray-50/70 px-4 py-3 text-sm font-semibold text-gray-800">Admin Notes</h2>
             <div className="p-4">
@@ -335,7 +326,7 @@ export default function AbsenceDetail() {
             <div className="p-4">
               <ol className="space-y-3">
                 {(absence.timeline ?? []).map((entry) => (
-                  <li key={entry.id} className="flex gap-3">
+                  <li key={entry.id} className="relative flex gap-3 timeline-item">
                     <div className="mt-0.5 shrink-0">{TimelineIcon({ action: entry.action })}</div>
                     <div>
                       <p className="text-sm font-medium text-gray-800">{titleCase(entry.action)}</p>
@@ -352,14 +343,24 @@ export default function AbsenceDetail() {
 
       {cancelOpen ? (
         <Modal title="Cancel absence" onClose={() => setCancelOpen(false)}
-          footer={<><Button variant="secondary" onClick={() => setCancelOpen(false)}>Back</Button><Button variant="danger" disabled={!cancelReason.trim()} loading={saving} onClick={() => void updateStatus("cancelled", cancelReason.trim()).then(() => setCancelOpen(false))}>Cancel Absence</Button></>}>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="detail-cancel-reason">Reason</label>
-          <textarea id="detail-cancel-reason" className="mt-2 w-full rounded-sm border border-gray-300 p-2" rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+          footer={<><Button variant="secondary" onClick={() => setCancelOpen(false)}>Back</Button><Button variant="danger" disabled={!cancelReasonCategory} loading={saving} onClick={() => void updateStatus("cancelled", JSON.stringify({ category: cancelReasonCategory, detail: cancelReasonDetail })).then(() => setCancelOpen(false))}>Cancel Absence</Button></>}>
+          <p className="mb-3 text-sm text-gray-600">This action is retained in the audit timeline.</p>
+          <label className="block text-sm font-medium text-gray-700" htmlFor="detail-cancel-category">Cancellation reason</label>
+          <select id="detail-cancel-category" className="mt-1 w-full rounded-sm border border-gray-300 p-2 text-sm" value={cancelReasonCategory} onChange={(e) => setCancelReasonCategory(e.target.value)}>
+            <option value="">Select a reason...</option>
+            <option value="duplicate">Duplicate submission</option>
+            <option value="student_requested">Student requested cancellation</option>
+            <option value="admin_error">Admin error</option>
+            <option value="incorrect_dates">Incorrect dates</option>
+            <option value="other">Other</option>
+          </select>
+          <label className="mt-3 block text-sm font-medium text-gray-700" htmlFor="detail-cancel-detail">Additional details (optional)</label>
+          <textarea id="detail-cancel-detail" className="mt-1 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(e) => setCancelReasonDetail(e.target.value)} />
         </Modal>
       ) : null}
 
       {overrideOpen ? (
-        <Modal title="Override Sit-in" onClose={() => setOverrideOpen(false)} size="lg"
+        <Modal title="Override Sit-in" onClose={() => setOverrideOpen(false)} size="xl"
           footer={<><Button variant="secondary" onClick={() => setOverrideOpen(false)}>Cancel</Button><Button disabled={!overrideReason.trim() || (overrideMethod === "physical" && (!courseID || selectedSessions.size === 0))} loading={saving} onClick={() => void saveOverride()}>Save Override</Button></>}>
           <p className="mb-4 text-sm text-gray-600">Current: {formatSitInLabel(absence)}</p>
           <div className="border-b border-gray-200">
