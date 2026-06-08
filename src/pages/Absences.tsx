@@ -25,6 +25,10 @@ function submittedAgo(value: string): string {
   return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+function initials(name: string): string {
+  return name.split(" ").map((part) => part.charAt(0)).join("").toUpperCase().slice(0, 2);
+}
+
 const statusPresentation: Record<AbsenceStatus, { label: string; classes: string }> = {
   pending: { label: "Awaiting review", classes: "bg-blue-50 text-blue-700 border-blue-200" },
   reviewed: { label: "Reviewed", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -358,12 +362,13 @@ export default function Absences() {
           >
             ⚙️ Settings
           </Link>
+          <Button variant="secondary" onClick={exportCsv}><Download className="mr-1.5 h-4 w-4" />Export CSV</Button>
           <Button variant="secondary" onClick={() => setRefreshToken((value) => value + 1)}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
         </div>
       </div>
 
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
-        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr_auto]">
+        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
           <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name..." />
           <select aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
             <option value="">All subjects</option>
@@ -378,16 +383,15 @@ export default function Absences() {
           </select>
           <input aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
           <input aria-label="To date" type="date" value={filters.dateTo} onChange={(event) => updateFilter("date_to", event.target.value)} />
-          <Button variant="secondary" onClick={exportCsv}><Download className="mr-1.5 h-4 w-4" />Export CSV</Button>
         </div>
       </section>
 
-      {selected.size > 0 ? (
-        <div className="mb-3 flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${selected.size > 0 ? 'max-h-16 mb-3' : 'max-h-0'}`}>
+        <div className="flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
           <span className="font-medium text-blue-800">{selected.size} selected</span>
           <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
-  {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}...` : "Mark Reviewed"}
-</Button>
+            {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}...` : "Mark Reviewed"}
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => void exportSelected()}>Export Selected</Button>
           <Button size="sm" variant="danger" onClick={() => {
             setCancelTargets(items.filter((item) => selected.has(item.id) && item.status !== "cancelled"));
@@ -395,7 +399,7 @@ export default function Absences() {
             setCancelReasonDetail("");
           }}>Cancel Selected</Button>
         </div>
-      ) : null}
+      </div>
 
       {batchProcessing ? (
         <div className="mb-3 overflow-hidden rounded-sm bg-gray-100">
@@ -414,7 +418,7 @@ export default function Absences() {
       ) : null}
 
       <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
-        <table className="min-w-[1060px] text-sm">
+        <table className="min-w-[1060px] text-sm absence-inbox-table">
           <thead>
             <tr className="text-left text-gray-500">
               <th className="w-8">
@@ -422,19 +426,16 @@ export default function Absences() {
               </th>
               <th>Status</th>
               <th>Student</th>
-              <th>Email</th>
-              <th>Nickname</th>
               <th>Subject</th>
               <th>Dates</th>
               <th>Sit-in</th>
-              <th>Reason</th>
               <th>Submitted</th>
               <th className="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map((absence) => (
-              <tr key={absence.id} className="cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)}>
+              <tr key={absence.id} className="group cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)}>
                 <td onClick={(event) => event.stopPropagation()}>
                   <input aria-label={`Select ${absence.wcode}`} type="checkbox" checked={selected.has(absence.id)} onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
@@ -445,11 +446,14 @@ export default function Absences() {
                 </td>
                 <td><StatusBadge status={absence.status} /></td>
                 <td>
-                  <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_name ?? "Unknown student"}</Link>
-                  <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
+                    <div>
+                      <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_name ?? "Unknown student"}</Link>
+                      <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
+                    </div>
+                  </div>
                 </td>
-                <td className="text-xs text-gray-600">{absence.student_email ?? "-"}</td>
-                <td className="text-xs text-gray-600">{absence.student_nickname ?? "-"}</td>
                 <td><span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_name ?? absence.subject_code ?? "-"}</span></td>
                 <td className="whitespace-pre-line align-top text-gray-700">{formatAbsenceSummaryDates(absence)}</td>
                 <td>
@@ -459,22 +463,23 @@ export default function Absences() {
                     <span className="rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{formatSitInLabel(absence)}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}</span>
                   )}
                 </td>
-                <td className="max-w-[140px] truncate text-gray-600">{absence.reason_category ?? absence.reason ?? "-"}</td>
                 <td className="whitespace-nowrap text-gray-500">{submittedAgo(absence.created_at)}</td>
                 <td onClick={(event) => event.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Actioned</Button> : null}
-                    {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
-                    <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
+                      <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
+                    </div>
                   </div>
                 </td>
               </tr>
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={11}><EmptyState message="All caught up! No absences match these filters." action={
+                <td colSpan={8}><EmptyState message="All caught up! No absences match these filters." action={
                   <div className="flex justify-center gap-2">
                     <Link to="/absences" className="text-sm text-[var(--color-wi-primary)] hover:underline">View all</Link>
                     <Link to="/absences/dashboard" className="text-sm text-[var(--color-wi-primary)] hover:underline">View dashboard</Link>
