@@ -368,7 +368,7 @@ export default function Absences() {
       </div>
 
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
-        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
+        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
           <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name..." />
           <select aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
             <option value="">All subjects</option>
