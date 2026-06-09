@@ -842,6 +842,60 @@ func TestStudentSync_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
 	}
 }
 
+func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Simulate an older database that has not run migration 00036 yet.
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS email`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS nickname`); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []xlsx.Row{
+		{
+			WCode: "W250042", CourseName: "Math", CycleLabel: "Cycle A",
+			FirstName: "Email", LastName: "Nick",
+			Nickname: "Nicky", PrimaryEmail: "nicky@example.com",
+			MobilePhone: "081-222-3333", ParentPhone: "089-444-5555",
+		},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	_, err := syncSvc.SyncFromSnapshot(ctx, snapshotID)
+	if err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var email, nickname, studentPhone, parentPhone string
+	err = dbpool.QueryRow(ctx, `SELECT email, nickname, student_phone, parent_phone FROM students WHERE wcode = 'W250042'`).Scan(&email, &nickname, &studentPhone, &parentPhone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if email != "nicky@example.com" {
+		t.Fatalf("email = %q, want %q", email, "nicky@example.com")
+	}
+	if nickname != "Nicky" {
+		t.Fatalf("nickname = %q, want %q", nickname, "Nicky")
+	}
+	if studentPhone != "081-222-3333" {
+		t.Fatalf("student_phone = %q, want %q", studentPhone, "081-222-3333")
+	}
+	if parentPhone != "089-444-5555" {
+		t.Fatalf("parent_phone = %q, want %q", parentPhone, "089-444-5555")
+	}
+}
+
 // ============================================================================
 // Reconcile tests
 // ============================================================================

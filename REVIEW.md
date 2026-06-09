@@ -1,154 +1,145 @@
 ---
-phase: code-review
-reviewed: 2026-05-31T10:00:00Z
+phase: task-2-absence-inbox-review
+reviewed: 2026-06-08T12:00:00Z
 depth: standard
-files_reviewed: 4
+files_reviewed: 1
 files_reviewed_list:
-  - src/pages/AbsenceForm.tsx
-  - backend/internal/httpapi/absenceshttp/resolver.go
-  - backend/internal/httpapi/absenceshttp/routes.go
-  - src/types/index.ts
+  - src/pages/Absences.tsx
 findings:
-  critical: 0
+  critical: 1
   warning: 3
-  info: 2
-  total: 5
+  info: 3
+  total: 7
 status: issues_found
 ---
 
-# Phase: Code Review Report
+# Task 2: Code Review Report — Absence Inbox UI Refresh
 
-**Reviewed:** 2026-05-31T10:00:00Z
+**Reviewed:** 2026-06-08T12:00:00Z
 **Depth:** standard
-**Files Reviewed:** 4
+**Files Reviewed:** 1
 **Status:** issues_found
 
 ## Summary
 
-Reviewed 4 files implementing absence form v2 — subject-level session grouping, sit-in selection per session, `subject_name` on `SitInCourseInfo`, and client-side `missingSitIn` validation. Three WARNING-level issues found: one data-completeness bug in `buildPhysicalSitInResult` (constructor omits `SubjectName`), one fragile date-extraction pattern using string slicing in `handleSessionsInRange`, and one type-vs-runtime disconnect in `handleSessionToggle`. The `missingSitIn` validation and frontend label changes are correct.
+Reviewed `src/pages/Absences.tsx` (+25/−20) for the Absence Inbox UI refresh (commit `c790b35`). The 10 changes cover column reduction, avatar initials, hover-reveal actions, Export CSV button relocation, and an animated selection bar.
+
+**Overall assessment:** The changes are mostly cosmetic and do not alter the core data-fetching, state management, or API interaction logic. However, one regression was introduced to the filter bar grid layout, and the animated selection bar has an accessibility concern that was not present with the original conditional-rendering approach. Several pre-existing patterns (duplicate utility function, missing ARIA on decorative elements) persist.
+
+---
+
+## Critical Issues
+
+### CR-01: Filter bar grid has mismatched column count — "To date" wraps to a second row alone
+
+**File:** `src/pages/Absences.tsx:371`
+**Issue:** The table-view filter grid was changed from 6 columns (`[minmax(200px,2fr) 1fr 1fr 1fr 1fr auto]`) to 4 columns (`[minmax(200px,2fr) 1fr 1fr 1fr]`) when Export CSV was moved out. However, the grid still has **5 children** (Search, Subject, Status, From date, To date), while the template defines only **4 columns**.
+
+The kanban-view grid (line 314) correctly uses 4 columns for 4 children (it lacks the Status dropdown). The table view has 5 children but was incorrectly reduced to 4 columns to match.
+
+**Result:** CSS Grid's auto-placement puts the 5th child ("To date") on a second row in column 1, creating a broken layout — a single date input isolated at ~25% width on its own row.
+
+**Fix:** Change the grid to 5 columns:
+```tsx
+-        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
++        <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
+```
+
+---
 
 ## Warnings
 
-### WR-01: `buildPhysicalSitInResult` omits `SubjectName` on `SitInCourseInfo`
+### WR-01: Focusable hidden elements inside collapsed selection bar (keyboard a11y)
 
-**File:** `backend/internal/httpapi/absenceshttp/resolver.go:95-99`
-**Issue:** The newly added `SubjectName` field on `SitInCourseInfo` is never populated in the constructor function `buildPhysicalSitInResult`. It defaults to `""` in the JSON response. Only one consumer (`handleSessionsInRange` at routes.go:852) patches it after the fact via `sitIn.SitInCourse.SubjectName = g.SubjectName`. The other consumer (`handleSitInOptions` at routes.go:613-624) returns the `resolveSitIn` result directly without patching, so the sit-in options endpoint always emits `"subject_name": ""`.
+**File:** `src/pages/Absences.tsx:389-402`
+**Issue:** The selection bar now uses `max-h-0` with `overflow-hidden` to hide when no items are selected. Unlike the previous conditional-rendering approach (`{selected.size > 0 ? ... : null}`), the DOM elements remain present and are **focusable via keyboard** (Tab) even when visually hidden. A user tabbing through the page when nothing is selected will encounter hidden "Mark Reviewed", "Export Selected", and "Cancel Selected" buttons.
 
-**Risk:** Any code path consuming `SitInCourseInfo` from `resolveSitIn` without the post-hoc patch gets an empty string. While no frontend code currently calls `handleSitInOptions` directly, the endpoint contract is broken — an API consumer expecting `subject_name` receives `""`.
+This also affects screen readers — the buttons are announced even though they are not visible and not actionable (no items selected).
 
-**Fix:** Pass the subject name as an explicit parameter to `buildPhysicalSitInResult` and set it at construction time:
-
-```go
-// resolver.go
-func buildPhysicalSitInResult(
-    target *sqldb.SubjectCourseV2,
-    missed []sqldb.SessionInRange,
-    available []sqldb.SessionInRange,
-    subjectName string, // new parameter
-) *SitInResult {
-    // ...
-    result := &SitInResult{
-        SitInMethod: SitInMethodPhysical,
-        SitInCourse: &SitInCourseInfo{
-            ID:          targetIDStr,
-            Code:        target.Code,
-            Name:        target.Name,
-            SubjectName: subjectName,  // set here, not patched later
-        },
-        // ...
-    }
-}
+**Fix (option A):** Add `inert` attribute on the outer `<div>` when collapsed:
+```tsx
+<div
+  className={`overflow-hidden transition-all duration-300 ease-in-out ${selected.size > 0 ? 'max-h-16 mb-3' : 'max-h-0'}`}
+  inert={selected.size === 0 ? true : undefined}
+>
 ```
 
-Then update the call site at line 228 to pass the subject name (or empty string if unavailable), and remove the post-hoc patch at routes.go:852.
-
----
-
-### WR-02: Fragile `[:10]` string slicing for date extraction
-
-**File:** `backend/internal/httpapi/absenceshttp/routes.go:833`
-**Issue:** The `Date` field in the session response is derived by slicing the first 10 characters of `StartAt`:
-```go
-Date: sess.StartAt[:10],
-```
-`sess.StartAt` is a `string` scanned from a `timestamptz` column via pgx. The text representation depends on the pgx timestamptz codec and the PostgreSQL connection's timezone context. While the de facto output format includes the date as a prefix (`2026-05-31T...` or `2026-05-31 ...`), this is an implicit encoding assumption. Any change in the driver's text format for `timestamptz` → `string` conversion would silently produce wrong dates.
-
-**Risk:** Non-obvious failure mode. A pgx version upgrade or configuration change that alters timestamp text encoding would silently shift date values without any type error.
-
-**Fix:** Scan `sess.start_at` into `time.Time` and format explicitly, or add an explicit cast in SQL:
-
-Option A (SQL CAST):
-```sql
-SELECT sess.id, sess.start_at::text, sess.end_at::text, ...
-```
-and then parse with `time.Parse` for the Date field.
-
-Option B (Go scan + format):
-```go
-type sessionRow struct {
-    ID          string
-    StartAt     time.Time
-    EndAt       time.Time
-    CourseID    string
-    // ...
-}
-// after scan:
-Date: row.StartAt.Format("2006-01-02"),
+**Fix (option B, simpler):** Restore conditional rendering for the outer wrapper and only animate when transitioning:
+```tsx
+{selected.size > 0 || batchFailed.length > 0 ? (
+  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${selected.size > 0 ? 'max-h-16 mb-3' : 'max-h-0'}`}>
+    ...
+  </div>
+) : null}
 ```
 
----
+### WR-02: `max-h-16` animation timing mismatch — content height is less than max-height
 
-### WR-03: `handleSessionToggle` silently drops sessions beyond `maxSessions`
+**File:** `src/pages/Absences.tsx:389`
+**Issue:** `max-h-16` (4rem / 64px) is the animation target, but the actual content height of the selection bar is ~40–48px (a 32px-high bar with 8px vertical padding). Because CSS `max-height` transitions animate toward the `max-height` value, not the content height, the visual animation completes in ~75% of the 300ms duration, then stalls for the remaining ~75ms. This creates a perceptible "pause" at the final state.
 
-**File:** `src/pages/AbsenceForm.tsx:586-588`
-**Issue:** When the selected session count already equals `maxSessions`, calling `handleSessionToggle` returns the current set unchanged (line 587: `return current`). However, the UI checkbox for unselected sessions is disabled via `disabled={!selected && atMaxSessions}` (line 1158). This is visually correct for disabled checkboxes, but there is a mismatch: `handleSessionToggle` does not distinguish between a *disabled click* (which should be a no-op) and a *programmatic call* (which silently fails).
-
-**Risk:** If `toggleAllSessionsForGroup` is called with `forceValue=true` when `atMaxSessions` is already true (e.g., if the API limit changes after initial render, or if a future code path invokes `handleSessionToggle` programmatically without checking the disabled state), the new session is silently dropped with no feedback to the user. The user sees the checkbox appear to toggle for an instant (since the checked state in `selected` never changed), but the toggle doesn't register.
-
-**Fix:** Make the guard explicit and surface the limit condition:
-
-```typescript
-if (current.size >= maxSessions && !current.has(sessionId)) {
-    setPageError(`You can only select up to ${maxSessions} sessions.`);
-    return current;
-}
+**Fix:** Set `max-h` closer to the actual content height, or use a fragment-collapse pattern:
+```tsx
+- max-h-16
++ max-h-12
 ```
+(`max-h-12` = 3rem / 48px, closer to the actual content height.)
 
-This replaces the silent ignore with a visible user-facing message.
+### WR-03: Pre-existing `!important` on `absence-inbox-table` creates specificity trap
+
+**File:** `src/index.css:332`
+**Issue:** The addition of the `absence-inbox-table` class to `<table>` (line 421) now activates a CSS rule that uses `!important` unnecessarily:
+```css
+.absence-inbox-table { min-width: 0 !important; width: 100%; }
+```
+No competing rule sets `min-width` on the table. The `!important` creates a specificity trap: any future override must also use `!important` or higher specificity. This was already flagged in the prior Task 1 review but remains unaddressed.
+
+**Fix:** Remove `!important`:
+```css
+.absence-inbox-table { min-width: 0; width: 100%; }
+```
 
 ---
 
 ## Info
 
-### IN-01: Subject grouping discards per-session `course_id`
+### IN-01: Avatar `<span>` lacks `aria-hidden="true"` (decorative image)
 
-**File:** `backend/internal/httpapi/absenceshttp/routes.go:781-796`
-**Issue:** When sessions from multiple courses within the same subject are grouped, `subjectGroup.CourseID` is set from the first session only:
-```go
-if grouped[key] == nil {
-    grouped[key] = &subjectGroup{
-        CourseID: sess.CourseID,  // only from first session
-        // ...
-    }
+**File:** `src/pages/Absences.tsx:450`
+**Issue:** The initials avatar is purely decorative — the student name is already rendered as a `<Link>` immediately to its right. But the `<span>` has no `aria-hidden="true"`, so screen readers may announce the initials text redundantly. This matches the existing pattern in `KanbanView.tsx` (lines 56, 233), but the better pattern from `PreflightIndicator.tsx` (`aria-hidden="true"` on decorative indicators) is available in the same codebase.
+
+**Suggestion:**
+```tsx
+<span aria-hidden="true" className="flex h-7 w-7 ...">{initials(...)}</span>
+```
+
+### IN-02: `exportCsv` async callback lacks `void` prefix (inconsistent with peers)
+
+**File:** `src/pages/Absences.tsx:365`
+**Issue:** `onClick={exportCsv}` does not use the `void` operator, unlike other async handlers in the same component (e.g., `onClick={() => void markSelectedReviewed()}` at line 392, `onClick={() => void retryFailed()}` at line 416). While React handles the returned promise gracefully, the inconsistency suggests a copy-paste oversight.
+
+**Suggestion:**
+```tsx
+- <Button variant="secondary" onClick={exportCsv}>
++ <Button variant="secondary" onClick={() => void exportCsv()}>
+```
+
+### IN-03: `initials()` utility function duplicated across two files
+
+**Files:** `src/pages/Absences.tsx:28` and `src/components/absences/KanbanView.tsx:35`
+**Issue:** The exact same `initials()` function appears in two places with identical implementation. This is pre-existing duplication (the `KanbanView.tsx` copy was there first). The new `Absences.tsx` copy should have been imported or extracted to a shared utility.
+
+**Suggestion:** Extract to `src/lib/string.ts` or similar shared module:
+```ts
+// src/lib/string.ts
+export function initials(name: string): string {
+  return name.split(" ").map((part) => part.charAt(0)).join("").toUpperCase().slice(0, 2);
 }
 ```
-Sessions from other courses under the same subject still appear in `Sessions[]` but the group-level `course_id` (which the frontend uses in `buildSubmissionPayloads` at AbsenceForm.tsx:733) may not match all sessions.
-
-**Why this is INFO, not WARNING:** `handleAbsenceCreate` (routes.go) does not use `course_id` from the request body — it resolves via `subject_id` through `resolveAbsenceSelection`. So this is not a data corruption path. It creates confusing semantics in the API response: consumers see a `course_id` that may not correspond to every session in the group.
-
-**Fix:** Either (a) remove `course_id` from the subject-level response if it's not authoritative, or (b) use the first course's ID but document that sessions from sibling courses within the same subject may be included.
+Then import in both components.
 
 ---
 
-### IN-02: `handleSitInOptions` returns `"subject_name": ""` for physical sit-ins
-
-**File:** `backend/internal/httpapi/absenceshttp/routes.go:613-624`
-**Issue:** Same root cause as WR-01, scoped to the `/api/v1/absences/sit-in-options` endpoint. This endpoint returns `resolveSitIn`'s result directly, so `SitInCourseInfo.SubjectName` is always empty for physical sit-in results. No frontend code currently consumes this endpoint, but the API contract is incomplete.
-
-**Fix:** Resolve WR-01 at the source (set `SubjectName` in `buildPhysicalSitInResult`), which fixes both endpoints.
-
----
-
-_Reviewed: 2026-05-31T10:00:00Z_
-_Reviewer: gsd-code-reviewer_
+_Reviewed: 2026-06-08T12:00:00Z_
+_Reviewer: gsd-code-reviewer (standard depth)_
 _Depth: standard_

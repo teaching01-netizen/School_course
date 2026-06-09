@@ -212,6 +212,106 @@ func TestAbsenceDaysInRange_UsesSubjectAndStudentFallback(t *testing.T) {
 	}
 }
 
+func TestManagedAbsenceList_FallsBackWithoutStudentNicknameColumn(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	subj, err := q.SubjectCreate(ctx, SubjectCreateParams{
+		Code: "ABS-LIST-SUBJ-" + suffix,
+		Name: "Absence List Subject " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "ABS-LIST-COURSE-" + suffix,
+		Name: "Absence List Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	student, err := q.StudentCreate(ctx, StudentCreateParams{
+		Wcode:    "WABS-LIST-" + suffix,
+		FullName: "Absence List Student " + suffix,
+		Notes:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE students SET nickname = $1 WHERE id = $2", "Student Nickname "+suffix, student.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+		Wcode:         student.Wcode,
+		CourseID:      course.ID,
+		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+		Reason:        pgtype.Text{String: "travel", Valid: true},
+		SitInCourseID: pgtype.UUID{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	if _, err := tx.Exec(ctx, `ALTER TABLE student_absences DROP COLUMN IF EXISTS student_nickname`); err != nil {
+		t.Fatal(err)
+	}
+
+	qtx := q.WithTx(tx)
+	if err := qtx.AbsenceSetSubmissionMetadata(
+		ctx,
+		absence.ID,
+		subj.ID,
+		pgtype.Text{String: "zoom", Valid: true},
+		"Snapshot Student Name",
+		pgtype.Text{String: "snapshot@example.com", Valid: true},
+		pgtype.Text{String: "Snapshot Nickname", Valid: true},
+		pgtype.Text{String: "0123456789", Valid: true},
+		pgtype.Text{String: "travel", Valid: true},
+		pgtype.UUID{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, total, err := qtx.ManagedAbsenceList(ctx, AbsenceFilter{Limit: 25, IDs: []pgtype.UUID{absence.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total count 1, got %d", total)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 managed absence row, got %d", len(rows))
+	}
+	row := rows[0]
+	if !row.StudentName.Valid || row.StudentName.String != "Snapshot Student Name" {
+		t.Fatalf("expected student_name %q, got %v", "Snapshot Student Name", row.StudentName)
+	}
+	if !row.StudentNickname.Valid || row.StudentNickname.String != "Student Nickname "+suffix {
+		t.Fatalf("expected fallback student_nickname %q, got %v", "Student Nickname "+suffix, row.StudentNickname)
+	}
+}
+
 func TestCalendarQueriesExposeReadableSubjectNames(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

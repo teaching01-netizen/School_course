@@ -9,12 +9,16 @@ CREATE TABLE IF NOT EXISTS rooms (
 );
 
 CREATE TABLE IF NOT EXISTS students (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  wcode       text NOT NULL UNIQUE,
-  full_name   text NOT NULL,
-  notes       text NOT NULL DEFAULT '',
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  wcode         text NOT NULL UNIQUE,
+  full_name     text NOT NULL,
+  nickname      text NULL,
+  email         text NULL,
+  student_phone text NULL,
+  parent_phone  text NULL,
+  notes         text NOT NULL DEFAULT '',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS courses (

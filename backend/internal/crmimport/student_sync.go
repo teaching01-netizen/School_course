@@ -78,13 +78,24 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		return 0, nil
 	}
 
-	// Batch upsert students: update full_name only, preserve notes.
+	// Batch upsert students: update core identity/contact fields and preserve notes.
 	// We use a VALUES-based upsert for set-based operation.
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	// Older databases may not have the optional contact columns yet. Make the
+	// student sync self-healing so the job can recover without a separate manual
+	// migration step.
+	if _, err := tx.Exec(ctx, `
+		ALTER TABLE students
+			ADD COLUMN IF NOT EXISTS email text NULL,
+			ADD COLUMN IF NOT EXISTS nickname text NULL
+	`); err != nil {
+		return 0, fmt.Errorf("ensure students contact columns: %w", err)
+	}
 
 	// Use a values CTE for bulk upsert.
 	batchSize := 500

@@ -387,18 +387,20 @@ export default function Absences() {
       </section>
 
       <div className={`overflow-hidden transition-all duration-300 ease-in-out ${selected.size > 0 ? 'max-h-16 mb-3' : 'max-h-0'}`}>
-        <div className="flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
-          <span className="font-medium text-blue-800">{selected.size} selected</span>
-          <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
-            {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}...` : "Mark Reviewed"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => void exportSelected()}>Export Selected</Button>
-          <Button size="sm" variant="danger" onClick={() => {
-            setCancelTargets(items.filter((item) => selected.has(item.id) && item.status !== "cancelled"));
-            setCancelReasonCategory("");
-            setCancelReasonDetail("");
-          }}>Cancel Selected</Button>
-        </div>
+        {selected.size > 0 ? (
+          <div className="flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+            <span className="font-medium text-blue-800">{selected.size} selected</span>
+            <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
+              {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}...` : "Mark Reviewed"}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => void exportSelected()}>Export Selected</Button>
+            <Button size="sm" variant="danger" onClick={() => {
+              setCancelTargets(items.filter((item) => selected.has(item.id) && item.status !== "cancelled"));
+              setCancelReasonCategory("");
+              setCancelReasonDetail("");
+            }}>Cancel Selected</Button>
+          </div>
+        ) : null}
       </div>
 
       {batchProcessing ? (

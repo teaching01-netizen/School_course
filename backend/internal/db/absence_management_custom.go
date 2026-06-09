@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -69,11 +70,11 @@ func normalizedAbsencePaging(p AbsenceFilter) AbsenceFilter {
 	return p
 }
 
-func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]ManagedAbsenceRow, int64, error) {
-	p = normalizedAbsencePaging(p)
-	rows, err := q.db.Query(ctx, `
+const absenceStudentNicknameExprPlaceholder = "__STUDENT_NICKNAME_EXPR__"
+
+const managedAbsenceListQueryTemplate = `
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
-		       COALESCE(sa.student_email, st.email), COALESCE(sa.student_nickname, st.nickname),
+		       COALESCE(sa.student_email, st.email), __STUDENT_NICKNAME_EXPR__,
 		       sa.student_phone,
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
@@ -96,7 +97,56 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
 		ORDER BY sa.created_at DESC, sa.id DESC
 		LIMIT $6 OFFSET $7
-	`, p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs)
+`
+
+const managedAbsenceGetQueryTemplate = `
+		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
+		       COALESCE(sa.student_email, st.email), __STUDENT_NICKNAME_EXPR__,
+		       sa.student_phone,
+		       st.parent_phone,
+		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
+		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
+		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
+		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
+		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
+		FROM student_absences sa
+		JOIN courses c ON c.id = sa.course_id
+		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN subjects sub ON sub.id = sa.subject_id
+		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
+		WHERE sa.id = $1
+`
+
+func managedAbsenceQuerySQL(template string, hasStudentNicknameColumn bool) string {
+	studentNicknameExpr := "st.nickname"
+	if hasStudentNicknameColumn {
+		studentNicknameExpr = "COALESCE(sa.student_nickname, st.nickname)"
+	}
+	return strings.ReplaceAll(template, absenceStudentNicknameExprPlaceholder, studentNicknameExpr)
+}
+
+func (q *Queries) absenceStudentNicknameColumnExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_attribute
+			WHERE attrelid = 'public.student_absences'::regclass
+			  AND attname = 'student_nickname'
+			  AND NOT attisdropped
+		)
+	`).Scan(&exists)
+	return exists, err
+}
+
+func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]ManagedAbsenceRow, int64, error) {
+	p = normalizedAbsencePaging(p)
+	hasStudentNicknameColumn, err := q.absenceStudentNicknameColumnExists(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -128,24 +178,11 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 
 func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (ManagedAbsenceRow, error) {
 	var item ManagedAbsenceRow
-	err := q.db.QueryRow(ctx, `
-		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
-		       COALESCE(sa.student_email, st.email), COALESCE(sa.student_nickname, st.nickname),
-		       sa.student_phone,
-		       st.parent_phone,
-		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
-		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
-		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
-		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
-		FROM student_absences sa
-		JOIN courses c ON c.id = sa.course_id
-		LEFT JOIN students st ON st.wcode = sa.wcode
-		LEFT JOIN subjects sub ON sub.id = sa.subject_id
-		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
-		WHERE sa.id = $1
-	`, id).Scan(
+	hasStudentNicknameColumn, err := q.absenceStudentNicknameColumnExists(ctx)
+	if err != nil {
+		return item, err
+	}
+	err = q.db.QueryRow(ctx, managedAbsenceQuerySQL(managedAbsenceGetQueryTemplate, hasStudentNicknameColumn), id).Scan(
 		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentNickname, &item.StudentPhone,
 		&item.ParentPhone,
 		&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
@@ -248,10 +285,10 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 }
 
 type SitInStudentRow struct {
-	AbsenceID     pgtype.UUID
-	SessionID     pgtype.UUID
-	Wcode         string
-	StudentName   pgtype.Text
+	AbsenceID      pgtype.UUID
+	SessionID      pgtype.UUID
+	Wcode          string
+	StudentName    pgtype.Text
 	FromCourseCode string
 	FromCourseName pgtype.Text
 }
@@ -345,11 +382,23 @@ func (q *Queries) AbsenceAuditList(ctx context.Context, absenceID pgtype.UUID) (
 }
 
 func (q *Queries) AbsenceSetSubmissionMetadata(ctx context.Context, id, subjectID pgtype.UUID, method pgtype.Text, studentName string, studentEmail pgtype.Text, studentNickname pgtype.Text, studentPhone pgtype.Text, reasonCategory pgtype.Text, sitInCourseID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, `
+	hasStudentNicknameColumn, err := q.absenceStudentNicknameColumnExists(ctx)
+	if err != nil {
+		return err
+	}
+	if hasStudentNicknameColumn {
+		_, err = q.db.Exec(ctx, `
+			UPDATE student_absences
+			SET subject_id = $2, sit_in_method = $3, student_name = $4, student_email = $5, student_nickname = $6, student_phone = $7, reason_category = $8, sit_in_course_id = $9, updated_at = now()
+			WHERE id = $1
+		`, id, subjectID, method, studentName, studentEmail, studentNickname, studentPhone, reasonCategory, sitInCourseID)
+		return err
+	}
+	_, err = q.db.Exec(ctx, `
 		UPDATE student_absences
-		SET subject_id = $2, sit_in_method = $3, student_name = $4, student_email = $5, student_nickname = $6, student_phone = $7, reason_category = $8, sit_in_course_id = $9, updated_at = now()
+		SET subject_id = $2, sit_in_method = $3, student_name = $4, student_email = $5, student_phone = $6, reason_category = $7, sit_in_course_id = $8, updated_at = now()
 		WHERE id = $1
-	`, id, subjectID, method, studentName, studentEmail, studentNickname, studentPhone, reasonCategory, sitInCourseID)
+	`, id, subjectID, method, studentName, studentEmail, studentPhone, reasonCategory, sitInCourseID)
 	return err
 }
 
