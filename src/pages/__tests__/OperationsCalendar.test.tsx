@@ -28,13 +28,17 @@ function mockCalendarResponse(response: Parameters<typeof mockApiJson.mockResolv
 }
 
 describe("OperationsCalendar", () => {
+  const originalTimeZone = process.env.TZ;
+
   beforeAll(() => {
+    process.env.TZ = "Asia/Bangkok";
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-06-02T12:00:00Z"));
   });
 
   afterAll(() => {
     vi.useRealTimers();
+    process.env.TZ = originalTimeZone;
   });
 
   beforeEach(() => {
@@ -100,6 +104,35 @@ describe("OperationsCalendar", () => {
     expect(within(dialog).getByText(/leave:/i)).toBeInTheDocument();
     expect(within(dialog).getByText(/sit-in:/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: /view details for w250389 · john smith/i })).toHaveAttribute("href", "/absences/abs-1");
+  });
+
+  it("keeps month session chips and detail modal on the same local calendar day", async () => {
+    mockCalendarResponse({
+      sessions: [
+        {
+          id: "sess-midnight",
+          course_id: "course-1",
+          course_code: "0000000002",
+          course_name: "Midnight Math",
+          subject_name: "Midnight Math",
+          start_at: "2026-06-21T17:00:00Z",
+          end_at: "2026-06-21T18:20:00Z",
+          room_name: "Room 101",
+          teacher_name: "Teacher A",
+        },
+      ],
+      absence_days: [],
+    });
+
+    const user = userEvent.setup();
+    renderPage("/calendar?view=month");
+
+    await screen.findByText("Calendar");
+    await user.click(screen.getByRole("button", { name: /open details for midnight math on monday, 22 june 2026/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Monday, 22 June 2026 · 1 session · 0 absences")).toBeInTheDocument();
+    expect(within(dialog).getByText("Midnight Math")).toBeInTheDocument();
   });
 
   it("opens the day modal from a week session chip", async () => {

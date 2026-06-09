@@ -44,7 +44,14 @@ function formatFullDayLabel(dayKey: string): string {
 }
 
 function yyyyMmDd(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function sessionDayKey(session: CalendarSessionBrief): string {
+  return yyyyMmDd(new Date(session.start_at));
 }
 
 function formatTime(iso: string): string {
@@ -276,7 +283,7 @@ export default function OperationsCalendar() {
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, CalendarSessionBrief[]>();
     for (const session of filteredSessions) {
-      const day = session.start_at.slice(0, 10);
+      const day = sessionDayKey(session);
       if (!map.has(day)) map.set(day, []);
       map.get(day)!.push(session);
     }
