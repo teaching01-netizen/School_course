@@ -86,6 +86,47 @@ func buildEnrolledLevelSet(input EvaluateRuleInput) map[int16]struct{} {
 	return enrolledLevels
 }
 
+func levelLadderLowerBound(input EvaluateRuleInput) int16 {
+	lowerBound := input.Predicate.MinLevelForSitLower
+	if lowerBound < 2 {
+		return 2
+	}
+	return lowerBound
+}
+
+func findNearestHigherLevelCourse(input EvaluateRuleInput, enrolledLevels map[int16]struct{}) *sqldb.SubjectCourseV2 {
+	var target *sqldb.SubjectCourseV2
+	for i := range input.AllCourses {
+		c := &input.AllCourses[i]
+		if c.Level.Valid && c.Level.Int16 > input.StudentLevel {
+			if _, ok := enrolledLevels[c.Level.Int16]; ok {
+				continue
+			}
+			if target == nil || c.Level.Int16 < target.Level.Int16 {
+				target = c
+			}
+		}
+	}
+	return target
+}
+
+func findNearestLowerLevelCourse(input EvaluateRuleInput, enrolledLevels map[int16]struct{}) *sqldb.SubjectCourseV2 {
+	lowerBound := levelLadderLowerBound(input)
+	var target *sqldb.SubjectCourseV2
+	for i := range input.AllCourses {
+		c := &input.AllCourses[i]
+		if c.Level.Valid && c.Level.Int16 < input.StudentLevel && c.Level.Int16 >= lowerBound {
+			if _, ok := enrolledLevels[c.Level.Int16]; ok {
+				continue
+			}
+			if target == nil || c.Level.Int16 > target.Level.Int16 {
+				target = c
+			}
+		}
+	}
+	return target
+}
+
 func evaluateLevelLadder(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 	// Level 1 always gets Zoom — no physical sit-in
 	if input.StudentLevel == 1 {
@@ -107,31 +148,17 @@ func evaluateLevelLadder(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
 	enrolledLevels := buildEnrolledLevelSet(input)
 
 	if isTopLevel {
-		return evaluateLevelLadderLower(input, maxLevel, enrolledLevels)
+		return evaluateLevelLadderLower(input, enrolledLevels)
 	}
 	return evaluateLevelLadderHigher(input, enrolledLevels)
 }
 
 func evaluateLevelLadderHigher(input EvaluateRuleInput, enrolledLevels map[int16]struct{}) (*EvaluateRuleOutput, error) {
-	var target *sqldb.SubjectCourseV2
-	for i := range input.AllCourses {
-		c := &input.AllCourses[i]
-		if c.Level.Valid && c.Level.Int16 > input.StudentLevel {
-			if _, ok := enrolledLevels[c.Level.Int16]; ok {
-				continue
-			}
-			if target == nil || c.Level.Int16 < target.Level.Int16 {
-				target = c
-			}
-		}
-	}
-
+	target := findNearestHigherLevelCourse(input, enrolledLevels)
 	if target == nil {
-		return &EvaluateRuleOutput{
-			Eligible: false,
-			Method:   SitInMethodNone,
-			Reason:   "no higher-level course available",
-		}, nil
+		// If the adjacent higher level is already occupied, fall back to the
+		// nearest lower non-enrolled level instead of dropping sit-in entirely.
+		return evaluateLevelLadderLower(input, enrolledLevels)
 	}
 
 	return &EvaluateRuleOutput{
@@ -143,19 +170,8 @@ func evaluateLevelLadderHigher(input EvaluateRuleInput, enrolledLevels map[int16
 	}, nil
 }
 
-func evaluateLevelLadderLower(input EvaluateRuleInput, maxLevel int16, enrolledLevels map[int16]struct{}) (*EvaluateRuleOutput, error) {
-	var target *sqldb.SubjectCourseV2
-	for i := range input.AllCourses {
-		c := &input.AllCourses[i]
-		if c.Level.Valid && c.Level.Int16 < input.StudentLevel && c.Level.Int16 >= input.Predicate.MinLevelForSitLower {
-			if _, ok := enrolledLevels[c.Level.Int16]; ok {
-				continue
-			}
-			if target == nil || c.Level.Int16 > target.Level.Int16 {
-				target = c
-			}
-		}
-	}
+func evaluateLevelLadderLower(input EvaluateRuleInput, enrolledLevels map[int16]struct{}) (*EvaluateRuleOutput, error) {
+	target := findNearestLowerLevelCourse(input, enrolledLevels)
 
 	if target == nil {
 		return &EvaluateRuleOutput{
@@ -170,7 +186,7 @@ func evaluateLevelLadderLower(input EvaluateRuleInput, maxLevel int16, enrolledL
 		Method:         SitInMethodPhysical,
 		TargetCourseID: &target.ID,
 		Direction:      "lower",
-		Reason:         fmt.Sprintf("sit in level %d (lower from top level %d)", target.Level.Int16, maxLevel),
+		Reason:         fmt.Sprintf("sit in level %d (lower from level %d)", target.Level.Int16, input.StudentLevel),
 	}, nil
 }
 

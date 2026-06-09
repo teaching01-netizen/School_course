@@ -268,6 +268,39 @@ func TestEvaluateRule_LevelLadder_SkipsAlreadyEnrolledLevels(t *testing.T) {
 			t.Fatalf("expected target course level 3, got %v", output.TargetCourseID)
 		}
 	})
+
+	t.Run("student at level 3 falls back to the nearest lower non-enrolled level when the higher target is already enrolled", func(t *testing.T) {
+		output, err := EvaluateRule(EvaluateRuleInput{
+			RuleType:       "level_ladder",
+			Predicate:      predicate,
+			StudentLevel:   3,
+			EnrolledLevels: []int16{3, 4},
+			AllCourses: []sqldb.SubjectCourseV2{
+				courseV2("10000000-0000-0000-0000-000000000001", 2),
+				courseV2("20000000-0000-0000-0000-000000000002", 3),
+				courseV2("30000000-0000-0000-0000-000000000003", 4),
+			},
+			MissedCount: 1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !output.Eligible {
+			t.Fatal("expected eligible=true")
+		}
+		if output.Method != "physical" {
+			t.Fatalf("expected method=physical, got %s", output.Method)
+		}
+		if output.Direction != "lower" {
+			t.Fatalf("expected direction=lower, got %s", output.Direction)
+		}
+		if output.TargetCourseID == nil {
+			t.Fatal("expected target course to be set")
+		}
+		if *output.TargetCourseID != uuidFromString("10000000-0000-0000-0000-000000000001") {
+			t.Fatalf("expected target course level 2, got %v", output.TargetCourseID)
+		}
+	})
 }
 
 // Test 3: Level Ladder — Top level sits lower
