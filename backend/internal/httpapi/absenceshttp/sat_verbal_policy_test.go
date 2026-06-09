@@ -38,6 +38,78 @@ func mustDecodeSatVerbalPolicy(t *testing.T, raw string) []satVerbalCourseRule {
 	return rules
 }
 
+func TestResolveSatVerbalPolicy_MappedCourseUsesRuleIDInsteadOfProductionCourseName(t *testing.T) {
+	section1ID := "91000000-0000-0000-0000-000000000001"
+	section2ID := "92000000-0000-0000-0000-000000000002"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "rank3-sec1",
+			"courseName": "SAT Verbal Rank 3-Section 1",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Another Rank 3 section (same lesson #)",
+					"makeupTargets": [{ "section": "Section 2", "subject": "Writing" }]
+				}
+			]
+		},
+		{
+			"id": "rank3-sec2",
+			"courseName": "SAT Verbal Rank 3-Section 2",
+			"lastClassExcluded": true,
+			"priorities": []
+		}
+	]`)
+
+	missedCourse := satCourse(section1ID, "Custom Production Verbal A")
+	targetCourse := satCourse(section2ID, "Custom Production Verbal B")
+	missedSessions := []sqldb.SessionInRange{
+		session("91000000-0000-0000-0000-000000000102", section1ID, "2026-02-08T09:00:00Z", "2026-02-08T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section1ID): {
+			session("91000000-0000-0000-0000-000000000101", section1ID, "2026-02-01T09:00:00Z", "2026-02-01T10:00:00Z"),
+			missedSessions[0],
+			session("91000000-0000-0000-0000-000000000103", section1ID, "2026-02-15T09:00:00Z", "2026-02-15T10:00:00Z"),
+		},
+		makeUUID(section2ID): {
+			session("92000000-0000-0000-0000-000000000101", section2ID, "2026-02-01T11:00:00Z", "2026-02-01T12:00:00Z"),
+			session("92000000-0000-0000-0000-000000000102", section2ID, "2026-02-08T11:00:00Z", "2026-02-08T12:00:00Z"),
+			session("92000000-0000-0000-0000-000000000103", section2ID, "2026-02-15T11:00:00Z", "2026-02-15T12:00:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Rule:         &rules[0],
+		MissedCourse: missedCourse,
+		MappedCourses: []satVerbalMappedCourse{
+			{Rule: rules[0], Course: missedCourse},
+			{Rule: rules[1], Course: targetCourse},
+		},
+		Enrolled:       []sqldb.StudentEnrolledCourseV2{satEnrolled(section1ID, missedCourse.Name)},
+		MissedSessions: missedSessions,
+		Cutoff:         time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("expected mapped SAT Verbal priority, got %#v", result)
+	}
+	if result.Priorities[0].SitInCourse == nil || result.Priorities[0].SitInCourse.Name != "Custom Production Verbal B" {
+		t.Fatalf("priority target = %#v, want custom mapped target course", result.Priorities[0].SitInCourse)
+	}
+	if got := result.Priorities[0].Available; len(got) != 1 || got[0].ID != "92000000-0000-0000-0000-000000000102" {
+		t.Fatalf("available = %#v, want same lesson from mapped target course", got)
+	}
+}
+
 func TestResolveSatVerbalPolicy_Rank3Section3PreservesGapAndNeverOffersRank2(t *testing.T) {
 	section3ID := "30000000-0000-0000-0000-000000000003"
 	section1ID := "10000000-0000-0000-0000-000000000001"

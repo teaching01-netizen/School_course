@@ -21,34 +21,40 @@ describe("LeavePolicyRules production mapping", () => {
     vi.clearAllMocks();
   });
 
-  it("applies the full SAT Verbal policy to one selected subject", async () => {
+  it("saves SAT Verbal policy as one production course mapping per course rule", async () => {
     mockApiJson
       .mockResolvedValueOnce([
-        { id: "subject-satv", code: "SATV", name: "SAT Verbal" },
-        { id: "subject-math", code: "MATH", name: "Math" },
+        { id: "course-r3s3", code: "R3S3", name: "Custom Verbal Section C", subject_code: "SATV" },
+        { id: "course-believe", code: "BEL", name: "Specific Believe Name", subject_code: "BELIEVE" },
       ])
       .mockResolvedValueOnce({
         active: false,
+        mappings: [],
         warnings: [],
         matched_courses: [],
         unmatched_policy_rows: [],
-        unmatched_courses: [],
       })
       .mockResolvedValueOnce({
         active: true,
-        subject_id: "subject-satv",
-        warnings: ["No course found for SAT Verbal Believe"],
-        matched_courses: [{ policy_course_name: "SAT Verbal Rank 3-Section 3", course_name: "SAT Verbal Rank 3 Section 3" }],
+        mappings: [
+          {
+            active: true,
+            rule_id: "rank3-sec3",
+            course_id: "course-r3s3",
+            course_name: "Custom Verbal Section C",
+          },
+        ],
+        warnings: ["No course selected for SAT Verbal Believe"],
+        matched_courses: [{ policy_course_name: "SAT Verbal Rank 3-Section 3", course_name: "Custom Verbal Section C" }],
         unmatched_policy_rows: ["SAT Verbal Believe"],
-        unmatched_courses: [],
       });
 
     renderWithProviders(<LeavePolicyRules />);
 
     const user = userEvent.setup();
-    const subjectSelect = await screen.findByRole("combobox", { name: /sat verbal subject/i });
-    await user.selectOptions(subjectSelect, "subject-satv");
-    await user.click(screen.getByRole("button", { name: /apply sat verbal policy/i }));
+    const ruleSelect = await screen.findByRole("combobox", { name: /SAT Verbal Rank 3-Section 3 production course/i });
+    await user.selectOptions(ruleSelect, "course-r3s3");
+    await user.click(screen.getByRole("button", { name: /save sat verbal course rules/i }));
 
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
@@ -63,8 +69,9 @@ describe("LeavePolicyRules production mapping", () => {
     const applyCall = mockApiJson.mock.calls.find(([path]) => path === "/api/v1/admin/sat-verbal-policy/apply");
     expect(applyCall).toBeTruthy();
     const body = JSON.parse(applyCall?.[1]?.body as string);
-    expect(body.subject_id).toBe("subject-satv");
     expect(body.policy).toEqual(LEAVE_POLICY_COURSE_RULES);
-    expect(screen.getByText(/No course found for SAT Verbal Believe/)).toBeInTheDocument();
+    expect(body.mappings).toEqual([{ rule_id: "rank3-sec3", course_id: "course-r3s3" }]);
+    expect(body.subject_id).toBeUndefined();
+    expect(screen.getByText(/No course selected for SAT Verbal Believe/)).toBeInTheDocument();
   });
 });

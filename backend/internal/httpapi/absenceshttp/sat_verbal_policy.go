@@ -16,8 +16,15 @@ import (
 
 type satVerbalCourseRule = satverbalpolicy.CourseRule
 
+type satVerbalMappedCourse struct {
+	Rule   satVerbalCourseRule
+	Course sqldb.SubjectCourseV2
+}
+
 type satVerbalResolveInput struct {
+	Rule               *satVerbalCourseRule
 	Policy             []satVerbalCourseRule
+	MappedCourses      []satVerbalMappedCourse
 	MissedCourse       sqldb.SubjectCourseV2
 	Enrolled           []sqldb.StudentEnrolledCourseV2
 	AllCourses         []sqldb.SubjectCourseV2
@@ -35,7 +42,10 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	if input.LoadSessions == nil {
 		return nil, fmt.Errorf("SAT Verbal session loader is required")
 	}
-	rule := satverbalpolicy.MatchingRule(input.Policy, input.MissedCourse.Name)
+	rule := input.Rule
+	if rule == nil {
+		rule = satverbalpolicy.MatchingRule(input.Policy, input.MissedCourse.Name)
+	}
 	if rule == nil {
 		return nil, nil
 	}
@@ -49,7 +59,7 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	var priorities []SitInPriorityResult
 
 	for _, priority := range rule.Priorities {
-		targets := satVerbalPriorityTargets(*rule, priority, input.MissedCourse, input.Enrolled, input.AllCourses)
+		targets := satVerbalPriorityTargets(*rule, priority, input.MissedCourse, input.Enrolled, input.AllCourses, input.MappedCourses)
 		sameLessonOnly := priority.RuleType == RuleTypeCrossSection && !strings.Contains(strings.ToLower(priority.Label), "next available")
 		for _, target := range targets {
 			targetSessions, err := input.LoadSessions(ctx, target.ID)
@@ -149,7 +159,11 @@ func satVerbalPriorityTargets(
 	missed sqldb.SubjectCourseV2,
 	enrolled []sqldb.StudentEnrolledCourseV2,
 	allCourses []sqldb.SubjectCourseV2,
+	mappedCourses []satVerbalMappedCourse,
 ) []sqldb.SubjectCourseV2 {
+	if len(mappedCourses) > 0 {
+		return satVerbalPriorityMappedTargets(rule, priority, missed, enrolled, mappedCourses)
+	}
 	switch priority.RuleType {
 	case RuleTypeCrossSection:
 		return satVerbalCrossSectionTargets(rule, priority, missed, allCourses)
@@ -160,6 +174,69 @@ func satVerbalPriorityTargets(
 		}
 		return satVerbalCoursesByTargetNames(targetNames, missed.ID, allCourses)
 	}
+}
+
+func satVerbalPriorityMappedTargets(
+	rule satverbalpolicy.CourseRule,
+	priority satverbalpolicy.RulePriority,
+	missed sqldb.SubjectCourseV2,
+	enrolled []sqldb.StudentEnrolledCourseV2,
+	mappedCourses []satVerbalMappedCourse,
+) []sqldb.SubjectCourseV2 {
+	switch priority.RuleType {
+	case RuleTypeCrossSection:
+		return satVerbalMappedCrossSectionTargets(rule, priority, missed, mappedCourses)
+	default:
+		targetNames := priority.EligibleTargets
+		if derived := satVerbalDerivedTargetNames(rule.CourseName, priority, missed.Name, enrolled); len(derived) > 0 {
+			targetNames = derived
+		}
+		return satVerbalMappedCoursesByTargetNames(targetNames, missed.ID, mappedCourses)
+	}
+}
+
+func satVerbalMappedCrossSectionTargets(
+	rule satverbalpolicy.CourseRule,
+	priority satverbalpolicy.RulePriority,
+	missed sqldb.SubjectCourseV2,
+	mappedCourses []satVerbalMappedCourse,
+) []sqldb.SubjectCourseV2 {
+	missedSection := satverbalpolicy.DisplaySection(rule.CourseName)
+	targets := priority.MakeupTargets
+	if len(priority.SectionTargets) > 0 && missedSection != "" {
+		if sectionTargets, ok := priority.SectionTargets[missedSection]; ok {
+			targets = sectionTargets
+		}
+	}
+
+	family := satverbalpolicy.FamilyName(rule.CourseName)
+	var out []sqldb.SubjectCourseV2
+	for _, target := range targets {
+		if strings.EqualFold(strings.TrimSpace(target.Section), "Next available") {
+			for _, mapped := range mappedCourses {
+				if mapped.Course.ID == missed.ID {
+					continue
+				}
+				if satverbalpolicy.FamilyName(mapped.Rule.CourseName) == family {
+					out = append(out, mapped.Course)
+				}
+			}
+			continue
+		}
+		targetSection := strings.ToLower(strings.TrimSpace(target.Section))
+		for _, mapped := range mappedCourses {
+			if mapped.Course.ID == missed.ID {
+				continue
+			}
+			if satverbalpolicy.FamilyName(mapped.Rule.CourseName) != family {
+				continue
+			}
+			if satverbalpolicy.ExtractSection(mapped.Rule.CourseName) == targetSection {
+				out = append(out, mapped.Course)
+			}
+		}
+	}
+	return uniqueCourses(out)
 }
 
 func satVerbalCrossSectionTargets(
@@ -302,6 +379,27 @@ func satVerbalCoursesByTargetNames(targetNames []string, missedID pgtype.UUID, a
 			}
 			if matches {
 				out = append(out, course)
+			}
+		}
+	}
+	return uniqueCourses(out)
+}
+
+func satVerbalMappedCoursesByTargetNames(targetNames []string, missedID pgtype.UUID, mappedCourses []satVerbalMappedCourse) []sqldb.SubjectCourseV2 {
+	var out []sqldb.SubjectCourseV2
+	for _, targetName := range targetNames {
+		targetFamily := satverbalpolicy.FamilyName(targetName)
+		targetSection := satverbalpolicy.ExtractSection(targetName)
+		for _, mapped := range mappedCourses {
+			if mapped.Course.ID == missedID {
+				continue
+			}
+			if satverbalpolicy.CourseMatchesRule(mapped.Rule, targetName) {
+				out = append(out, mapped.Course)
+				continue
+			}
+			if targetSection == "" && targetFamily != "" && satverbalpolicy.FamilyName(mapped.Rule.CourseName) == targetFamily {
+				out = append(out, mapped.Course)
 			}
 		}
 	}

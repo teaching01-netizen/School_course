@@ -8,125 +8,70 @@ import (
 )
 
 type SatVerbalPolicyMapping struct {
-	ID                  pgtype.UUID        `json:"id"`
-	SubjectID           pgtype.UUID        `json:"subject_id"`
-	Policy              []byte             `json:"policy"`
-	PolicyHash          string             `json:"policy_hash"`
-	Warnings            []byte             `json:"warnings"`
-	MatchedCourses      []byte             `json:"matched_courses"`
-	UnmatchedPolicyRows []byte             `json:"unmatched_policy_rows"`
-	UnmatchedCourses    []byte             `json:"unmatched_courses"`
-	Active              bool               `json:"active"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	ID         pgtype.UUID        `json:"id"`
+	RuleID     string             `json:"rule_id"`
+	CourseID   pgtype.UUID        `json:"course_id"`
+	PolicyRule []byte             `json:"policy_rule"`
+	PolicyHash string             `json:"policy_hash"`
+	Active     bool               `json:"active"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
-type SatVerbalPolicyMappingUpsertParams struct {
-	SubjectID           pgtype.UUID
-	Policy              []byte
-	PolicyHash          string
-	Warnings            []byte
-	MatchedCourses      []byte
-	UnmatchedPolicyRows []byte
-	UnmatchedCourses    []byte
+type SatVerbalPolicyCourseMapping struct {
+	ID                pgtype.UUID        `json:"id"`
+	RuleID            string             `json:"rule_id"`
+	CourseID          pgtype.UUID        `json:"course_id"`
+	CourseCode        string             `json:"course_code"`
+	CourseName        string             `json:"course_name"`
+	SubjectID         pgtype.UUID        `json:"subject_id"`
+	SubjectCode       string             `json:"subject_code"`
+	SubjectName       string             `json:"subject_name"`
+	CycleID           pgtype.Text        `json:"cycle_id"`
+	Level             pgtype.Int2        `json:"level"`
+	RootCourseGroupID pgtype.UUID        `json:"root_course_group_id"`
+	SitInRuleID       pgtype.UUID        `json:"sit_in_rule_id"`
+	PolicyRule        []byte             `json:"policy_rule"`
+	PolicyHash        string             `json:"policy_hash"`
+	Active            bool               `json:"active"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) SatVerbalPolicyMappingGetBySubject(ctx context.Context, subjectID pgtype.UUID) (*SatVerbalPolicyMapping, error) {
-	var r SatVerbalPolicyMapping
-	err := q.db.QueryRow(ctx, `
-		SELECT id, subject_id, policy, policy_hash, warnings, matched_courses,
-		       unmatched_policy_rows, unmatched_courses, active, created_at, updated_at
-		FROM sat_verbal_policy_mappings
-		WHERE subject_id = $1
-	`, subjectID).Scan(
-		&r.ID, &r.SubjectID, &r.Policy, &r.PolicyHash, &r.Warnings, &r.MatchedCourses,
-		&r.UnmatchedPolicyRows, &r.UnmatchedCourses, &r.Active, &r.CreatedAt, &r.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &r, nil
+type SatVerbalPolicyMappingReplaceParam struct {
+	RuleID     string
+	CourseID   pgtype.UUID
+	PolicyRule []byte
+	PolicyHash string
 }
 
-func (q *Queries) SatVerbalPolicyMappingGetActiveBySubject(ctx context.Context, subjectID pgtype.UUID) (*SatVerbalPolicyMapping, error) {
-	var r SatVerbalPolicyMapping
-	err := q.db.QueryRow(ctx, `
-		SELECT id, subject_id, policy, policy_hash, warnings, matched_courses,
-		       unmatched_policy_rows, unmatched_courses, active, created_at, updated_at
-		FROM sat_verbal_policy_mappings
-		WHERE subject_id = $1 AND active = true
-	`, subjectID).Scan(
-		&r.ID, &r.SubjectID, &r.Policy, &r.PolicyHash, &r.Warnings, &r.MatchedCourses,
-		&r.UnmatchedPolicyRows, &r.UnmatchedCourses, &r.Active, &r.CreatedAt, &r.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &r, nil
-}
-
-func (q *Queries) SatVerbalPolicyMappingUpsert(ctx context.Context, p SatVerbalPolicyMappingUpsertParams) (*SatVerbalPolicyMapping, error) {
-	var r SatVerbalPolicyMapping
-	err := q.db.QueryRow(ctx, `
-		INSERT INTO sat_verbal_policy_mappings (
-			subject_id, policy, policy_hash, warnings, matched_courses,
-			unmatched_policy_rows, unmatched_courses, active
-		)
-		VALUES ($1, $2::jsonb, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, true)
-		ON CONFLICT (subject_id) DO UPDATE SET
-			policy = EXCLUDED.policy,
-			policy_hash = EXCLUDED.policy_hash,
-			warnings = EXCLUDED.warnings,
-			matched_courses = EXCLUDED.matched_courses,
-			unmatched_policy_rows = EXCLUDED.unmatched_policy_rows,
-			unmatched_courses = EXCLUDED.unmatched_courses,
-			active = true,
-			updated_at = now()
-		RETURNING id, subject_id, policy, policy_hash, warnings, matched_courses,
-		          unmatched_policy_rows, unmatched_courses, active, created_at, updated_at
-	`, p.SubjectID, string(p.Policy), p.PolicyHash, string(p.Warnings), string(p.MatchedCourses), string(p.UnmatchedPolicyRows), string(p.UnmatchedCourses)).Scan(
-		&r.ID, &r.SubjectID, &r.Policy, &r.PolicyHash, &r.Warnings, &r.MatchedCourses,
-		&r.UnmatchedPolicyRows, &r.UnmatchedCourses, &r.Active, &r.CreatedAt, &r.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &r, nil
-}
-
-func (q *Queries) SatVerbalPolicyMappingDelete(ctx context.Context, subjectID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, `
-		DELETE FROM sat_verbal_policy_mappings
-		WHERE subject_id = $1
-	`, subjectID)
-	return err
-}
-
-func (q *Queries) AdvisoryLockForText(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
-	return err
-}
-
-func (q *Queries) CoursesBySubject(ctx context.Context, subjectID pgtype.UUID) ([]SubjectCourseV2, error) {
+func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalPolicyCourseMapping, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
-		FROM courses c
+		SELECT m.id, m.rule_id, m.course_id, c.code, c.name, c.subject_id,
+		       COALESCE(sub.code, ''), COALESCE(sub.name, ''), c.cycle_id, c.level,
+		       c.root_course_group_id, rcg.sit_in_rule_id, m.policy_rule, m.policy_hash,
+		       m.active, m.created_at, m.updated_at
+		FROM sat_verbal_policy_mappings m
+		JOIN courses c ON c.id = m.course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE c.subject_id = $1
+		WHERE m.active = true
 		  AND c.deleted_at IS NULL
-		ORDER BY c.name ASC, c.code ASC
-	`, subjectID)
+		ORDER BY m.rule_id ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []SubjectCourseV2
+	var out []SatVerbalPolicyCourseMapping
 	for rows.Next() {
-		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		var r SatVerbalPolicyCourseMapping
+		if err := rows.Scan(
+			&r.ID, &r.RuleID, &r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID,
+			&r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID,
+			&r.SitInRuleID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -135,6 +80,89 @@ func (q *Queries) CoursesBySubject(ctx context.Context, subjectID pgtype.UUID) (
 		return nil, err
 	}
 	return out, nil
+}
+
+func (q *Queries) SatVerbalPolicyMappingGetActiveByCourse(ctx context.Context, courseID pgtype.UUID) (*SatVerbalPolicyCourseMapping, error) {
+	var r SatVerbalPolicyCourseMapping
+	err := q.db.QueryRow(ctx, `
+		SELECT m.id, m.rule_id, m.course_id, c.code, c.name, c.subject_id,
+		       COALESCE(sub.code, ''), COALESCE(sub.name, ''), c.cycle_id, c.level,
+		       c.root_course_group_id, rcg.sit_in_rule_id, m.policy_rule, m.policy_hash,
+		       m.active, m.created_at, m.updated_at
+		FROM sat_verbal_policy_mappings m
+		JOIN courses c ON c.id = m.course_id
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE m.course_id = $1
+		  AND m.active = true
+		  AND c.deleted_at IS NULL
+	`, courseID).Scan(
+		&r.ID, &r.RuleID, &r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID,
+		&r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID,
+		&r.SitInRuleID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (q *Queries) SatVerbalPolicyMappingsReplace(ctx context.Context, params []SatVerbalPolicyMappingReplaceParam) ([]SatVerbalPolicyMapping, error) {
+	if _, err := q.db.Exec(ctx, `DELETE FROM sat_verbal_policy_mappings`); err != nil {
+		return nil, err
+	}
+	out := make([]SatVerbalPolicyMapping, 0, len(params))
+	for _, p := range params {
+		var r SatVerbalPolicyMapping
+		err := q.db.QueryRow(ctx, `
+			INSERT INTO sat_verbal_policy_mappings (rule_id, course_id, policy_rule, policy_hash, active)
+			VALUES ($1, $2, $3::jsonb, $4, true)
+			RETURNING id, rule_id, course_id, policy_rule, policy_hash, active, created_at, updated_at
+		`, p.RuleID, p.CourseID, string(p.PolicyRule), p.PolicyHash).Scan(
+			&r.ID, &r.RuleID, &r.CourseID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (q *Queries) SatVerbalPolicyMappingDeleteByRule(ctx context.Context, ruleID string) error {
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM sat_verbal_policy_mappings
+		WHERE rule_id = $1
+	`, ruleID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (q *Queries) AdvisoryLockForText(ctx context.Context, key string) error {
+	_, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
+	return err
+}
+
+func (q *Queries) CourseSubjectByID(ctx context.Context, courseID pgtype.UUID) (SubjectCourseV2, error) {
+	var r SubjectCourseV2
+	err := q.db.QueryRow(ctx, `
+		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		FROM courses c
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE c.id = $1
+		  AND c.deleted_at IS NULL
+	`, courseID).Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID)
+	if err != nil {
+		return SubjectCourseV2{}, err
+	}
+	return r, nil
 }
 
 func (q *Queries) RootCourseGroupFindByName(ctx context.Context, name string) (pgtype.UUID, bool, error) {

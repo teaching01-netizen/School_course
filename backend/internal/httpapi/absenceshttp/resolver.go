@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -429,7 +430,7 @@ func resolveMappedSatVerbalSitIn(
 	dateTo time.Time,
 	afterPriorityLevel int,
 ) (*SitInResult, error) {
-	mapping, err := q.SatVerbalPolicyMappingGetActiveBySubject(ctx, subjectID)
+	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -437,31 +438,38 @@ func resolveMappedSatVerbalSitIn(
 		return nil, fmt.Errorf("SAT Verbal mapping lookup: %w", err)
 	}
 
-	rules, err := decodeSatVerbalPolicyRules(mapping.Policy)
+	rule, err := decodeSatVerbalMappedRule(mapping.PolicyRule)
 	if err != nil {
-		return nil, fmt.Errorf("SAT Verbal policy parse: %w", err)
+		return nil, fmt.Errorf("SAT Verbal policy rule parse: %w", err)
 	}
 
-	allCourses, err := q.CoursesBySubject(ctx, subjectID)
+	activeMappings, err := q.SatVerbalPolicyMappingsList(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("SAT Verbal subject courses lookup: %w", err)
+		return nil, fmt.Errorf("SAT Verbal mapping list lookup: %w", err)
+	}
+	mappedCourses := make([]satVerbalMappedCourse, 0, len(activeMappings))
+	allCourses := make([]sqldb.SubjectCourseV2, 0, len(activeMappings))
+	for _, active := range activeMappings {
+		activeRule, err := decodeSatVerbalMappedRule(active.PolicyRule)
+		if err != nil {
+			return nil, fmt.Errorf("SAT Verbal mapped policy rule parse: %w", err)
+		}
+		course := satVerbalCourseFromMapping(active)
+		mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
+		allCourses = append(allCourses, course)
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
 	if err != nil {
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
-
-	missedCourse, ok := satVerbalMissedCourse(courseID, allCourses, enrolled)
-	if !ok {
-		return nil, nil
-	}
+	missedCourse := satVerbalCourseFromMapping(*mapping)
 
 	settings, err := q.AppSettingsGetWithPolicies(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("policy lookup: %w", err)
 	}
-	subjectIDStr, _ := uuidString(subjectID)
+	subjectIDStr, _ := uuidString(mapping.SubjectID)
 	rootIDStr := ""
 	if missedCourse.RootCourseGroupID.Valid {
 		rootIDStr, _ = uuidString(missedCourse.RootCourseGroupID)
@@ -473,7 +481,8 @@ func resolveMappedSatVerbalSitIn(
 	}
 
 	return resolveSatVerbalPolicy(ctx, satVerbalResolveInput{
-		Policy:             rules,
+		Rule:               &rule,
+		MappedCourses:      mappedCourses,
 		MissedCourse:       missedCourse,
 		Enrolled:           enrolled,
 		AllCourses:         allCourses,
@@ -484,6 +493,32 @@ func resolveMappedSatVerbalSitIn(
 			return q.SessionsByCourse(ctx, targetCourseID)
 		},
 	})
+}
+
+func decodeSatVerbalMappedRule(raw []byte) (satVerbalCourseRule, error) {
+	var rule satVerbalCourseRule
+	if err := json.Unmarshal(raw, &rule); err != nil {
+		return satVerbalCourseRule{}, err
+	}
+	if strings.TrimSpace(rule.ID) == "" || strings.TrimSpace(rule.CourseName) == "" {
+		return satVerbalCourseRule{}, fmt.Errorf("missing id or courseName")
+	}
+	return rule, nil
+}
+
+func satVerbalCourseFromMapping(mapping sqldb.SatVerbalPolicyCourseMapping) sqldb.SubjectCourseV2 {
+	return sqldb.SubjectCourseV2{
+		ID:                mapping.CourseID,
+		Code:              mapping.CourseCode,
+		Name:              mapping.CourseName,
+		SubjectID:         mapping.SubjectID,
+		SubjectCode:       mapping.SubjectCode,
+		SubjectName:       mapping.SubjectName,
+		CycleID:           mapping.CycleID,
+		Level:             mapping.Level,
+		RootCourseGroupID: mapping.RootCourseGroupID,
+		SitInRuleID:       mapping.SitInRuleID,
+	}
 }
 
 func satVerbalMissedCourse(courseID pgtype.UUID, allCourses []sqldb.SubjectCourseV2, enrolled []sqldb.StudentEnrolledCourseV2) (sqldb.SubjectCourseV2, bool) {
