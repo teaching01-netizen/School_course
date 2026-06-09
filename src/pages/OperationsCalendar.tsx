@@ -7,6 +7,9 @@ import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarRespon
 import Modal from "../components/Modal";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
+import EmptyState from "../components/ui/EmptyState";
+
+type CalendarShowMode = "all" | "sessions" | "absences" | "sit-ins";
 
 function getMonday(d: Date): Date {
   const date = new Date(d);
@@ -158,6 +161,9 @@ export default function OperationsCalendar() {
   const { addToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const viewMode = searchParams.get("view") === "month" ? "month" : "week";
+  const showParam = searchParams.get("show");
+  const showMode: CalendarShowMode =
+    showParam === "sessions" || showParam === "absences" || showParam === "sit-ins" ? showParam : "all";
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [monthStart, setMonthStart] = useState(() => getMonthStart(new Date()));
   const [sessions, setSessions] = useState<CalendarSessionBrief[]>([]);
@@ -214,22 +220,47 @@ export default function OperationsCalendar() {
     setSearchParams(params);
   }
 
+  function setShowMode(mode: CalendarShowMode) {
+    const params = new URLSearchParams(searchParams);
+    if (mode === "all") params.delete("show");
+    else params.set("show", mode);
+    setSearchParams(params, { replace: true });
+    setSelectedDay(null);
+  }
+
   useEffect(() => {
     setSelectedDay(null);
   }, [viewMode, weekStart, monthStart]);
 
   const filteredSessions = useMemo(() => {
-    if (!subjectFilter) return sessions;
-    return sessions.filter((s) => s.course_id === subjectFilter);
-  }, [sessions, subjectFilter]);
+    let data = sessions;
+
+    if (showMode === "absences") {
+      return [];
+    }
+
+    if (subjectFilter) {
+      data = data.filter((s) => s.course_id === subjectFilter);
+    }
+
+    if (showMode === "sit-ins") {
+      data = data.filter((s) => (s.sit_in_students?.length ?? 0) > 0);
+    }
+
+    return data;
+  }, [sessions, subjectFilter, showMode]);
 
   const filteredAbsenceDays = useMemo(() => {
+    if (showMode === "sessions" || showMode === "sit-ins") {
+      return [];
+    }
+
     if (!statusFilter) return absenceDays;
     return absenceDays.map((day) => ({
       ...day,
       absences: day.absences.filter((a) => a.status === statusFilter),
     }));
-  }, [absenceDays, statusFilter]);
+  }, [absenceDays, statusFilter, showMode]);
 
   const subjects = useMemo(() => {
     const map = new Map<string, string>();
@@ -275,6 +306,19 @@ export default function OperationsCalendar() {
     return `${formatFullDayLabel(selectedDay)} · ${formatCount(selectedDaySessions.length, "session")} · ${formatCount(selectedDayAbsences.length, "absence")}`;
   }, [selectedDay, selectedDayAbsences.length, selectedDaySessions.length]);
 
+  const totalVisibleAbsences = useMemo(() => {
+    return absenceDays.reduce((count, day) => count + day.absences.length, 0);
+  }, [absenceDays]);
+
+  const totalVisibleSitIns = useMemo(() => {
+    return sessions.reduce((count, session) => count + (session.sit_in_students?.length ?? 0), 0);
+  }, [sessions]);
+
+  const visibleAbsenceCount = filteredAbsenceDays.reduce((count, day) => count + day.absences.length, 0);
+  const hasVisibleCalendarActivity = filteredSessions.length > 0 || visibleAbsenceCount > 0;
+  const showSubjectFilter = showMode === "all" || showMode === "sessions" || showMode === "sit-ins";
+  const showStatusFilter = showMode === "all" || showMode === "absences";
+
   if (loading) return <LoadingSkeleton type="table" lines={10} />;
 
   return (
@@ -316,23 +360,58 @@ export default function OperationsCalendar() {
         </div>
       </div>
 
+      <div className="mb-4 rounded-sm border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-600">
+        Summary: <strong className="text-gray-900">{totalVisibleAbsences}</strong> absences |{" "}
+        <strong className="text-gray-900">{totalVisibleSitIns}</strong> sit-in assignments
+      </div>
+
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3">
         <div className="flex flex-wrap gap-3">
-          <select aria-label="Subject" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="text-sm">
-            <option value="">All subjects</option>
-            {subjects.map(([courseId, label]) => <option key={courseId} value={courseId}>{label}</option>)}
-          </select>
-          <select aria-label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm">
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="actioned">Actioned</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            Show:
+            <select
+              aria-label="Show"
+              value={showMode}
+              onChange={(e) => setShowMode(e.target.value as CalendarShowMode)}
+              className="text-sm"
+            >
+              <option value="all">All activity</option>
+              <option value="sessions">Sessions only</option>
+              <option value="absences">Absences only</option>
+              <option value="sit-ins">Sit-ins only</option>
+            </select>
+          </label>
+          {showSubjectFilter ? (
+            <select aria-label="Subject" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="text-sm">
+              <option value="">All subjects</option>
+              {subjects.map(([courseId, label]) => <option key={courseId} value={courseId}>{label}</option>)}
+            </select>
+          ) : null}
+          {showStatusFilter ? (
+            <select aria-label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="reviewed">Reviewed</option>
+              <option value="actioned">Actioned</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          ) : null}
         </div>
       </section>
 
-      {viewMode === "month" ? (
+      {showMode !== "all" && !hasVisibleCalendarActivity ? (
+        <div className="rounded-sm border border-gray-200 bg-white">
+          <EmptyState
+            message={
+              showMode === "sit-ins"
+                ? "No sit-in assignments match these filters."
+                : showMode === "absences"
+                  ? "No absences match these filters."
+                  : "No sessions match these filters."
+            }
+          />
+        </div>
+      ) : viewMode === "month" ? (
         <div className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-gray-200 bg-gray-200" style={{ minHeight: "300px" }}>
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
             <div key={d} className="bg-gray-50 px-2 py-1 text-center text-xs font-semibold text-gray-500">{d}</div>

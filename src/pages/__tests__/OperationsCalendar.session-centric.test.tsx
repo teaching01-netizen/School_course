@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import OperationsCalendar from "../OperationsCalendar";
@@ -22,6 +22,15 @@ function renderPage(initialEntry = "/calendar?view=week") {
 }
 
 describe("Calendar Session-Centric Redesign", () => {
+  beforeAll(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-06-02T12:00:00Z"));
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mockApiJson.mockReset();
   });
@@ -174,7 +183,9 @@ describe("Calendar Session-Centric Redesign", () => {
       await screen.findByText("Calendar");
       
       // Should show absence count pill
-      expect(screen.getByText("1")).toBeInTheDocument();
+      expect(
+        screen.getAllByText("1").some((el) => el.tagName === "SPAN" && el.getAttribute("aria-hidden") === "true"),
+      ).toBe(true);
     });
 
     it("does not render absence pill when no absences", async () => {
