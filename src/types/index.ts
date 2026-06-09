@@ -349,6 +349,7 @@ export type RequestedSessionInfo = { course_id: string; teacher_id: string };
 
 export type CalendarSitInStudent = {
   wcode: string;
+  nickname?: string | null;
   student_name: string | null;
   absence_id: string;
   from_course_code: string;

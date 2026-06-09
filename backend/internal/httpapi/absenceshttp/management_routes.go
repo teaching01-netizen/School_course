@@ -17,23 +17,24 @@ import (
 )
 
 type calendarSitInStudentDTO struct {
-	Wcode         string  `json:"wcode"`
-	StudentName   *string `json:"student_name"`
-	AbsenceID     string  `json:"absence_id"`
-	FromCourseCode string `json:"from_course_code"`
+	Wcode          string  `json:"wcode"`
+	Nickname       *string `json:"nickname"`
+	StudentName    *string `json:"student_name"`
+	AbsenceID      string  `json:"absence_id"`
+	FromCourseCode string  `json:"from_course_code"`
 	FromCourseName *string `json:"from_course_name"`
 }
 
 type calendarSessionBriefDTO struct {
-	ID           string                   `json:"id"`
-	CourseID     string                   `json:"course_id"`
-	CourseCode   string                   `json:"course_code"`
-	CourseName   string                   `json:"course_name"`
-	SubjectName  *string                  `json:"subject_name"`
-	StartAt      string                   `json:"start_at"`
-	EndAt        string                   `json:"end_at"`
-	RoomName     *string                  `json:"room_name"`
-	TeacherName  *string                  `json:"teacher_name"`
+	ID            string                    `json:"id"`
+	CourseID      string                    `json:"course_id"`
+	CourseCode    string                    `json:"course_code"`
+	CourseName    string                    `json:"course_name"`
+	SubjectName   *string                   `json:"subject_name"`
+	StartAt       string                    `json:"start_at"`
+	EndAt         string                    `json:"end_at"`
+	RoomName      *string                   `json:"room_name"`
+	TeacherName   *string                   `json:"teacher_name"`
 	SitInStudents []calendarSitInStudentDTO `json:"sit_in_students,omitempty"`
 }
 
@@ -388,6 +389,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			absID, _ := s.a.UUIDString(si.AbsenceID)
 			sitInBySession[sessID] = append(sitInBySession[sessID], calendarSitInStudentDTO{
 				Wcode:          si.Wcode,
+				Nickname:       stringPtrIfValid(si.Nickname),
 				StudentName:    stringPtrIfValid(si.StudentName),
 				AbsenceID:      absID,
 				FromCourseCode: si.FromCourseCode,

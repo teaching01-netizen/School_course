@@ -37,12 +37,16 @@ func TestSitInsBySessionIDs(t *testing.T) {
 	}
 
 	studentWcode := "WSCICAL-" + suffix
+	studentNickname := "Sit In Nickname " + suffix
 	_, err = q.StudentCreate(ctx, StudentCreateParams{
 		Wcode:    studentWcode,
 		FullName: "Sit In Calendar Student " + suffix,
 		Notes:    "",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `UPDATE students SET nickname = $1 WHERE wcode = $2`, studentNickname, studentWcode); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,6 +99,9 @@ func TestSitInsBySessionIDs(t *testing.T) {
 		si := bySession[targetKey][0]
 		if si.Wcode != studentWcode {
 			t.Errorf("expected wcode %s, got %s", studentWcode, si.Wcode)
+		}
+		if !si.Nickname.Valid || si.Nickname.String != studentNickname {
+			t.Errorf("expected nickname %q, got %v", studentNickname, si.Nickname)
 		}
 		if si.FromCourseCode != "COURSEB-"+suffix {
 			t.Errorf("expected from_course_code COURSEB-%s, got %s", suffix, si.FromCourseCode)

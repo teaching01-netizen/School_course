@@ -288,6 +288,7 @@ type SitInStudentRow struct {
 	AbsenceID      pgtype.UUID
 	SessionID      pgtype.UUID
 	Wcode          string
+	Nickname       pgtype.Text
 	StudentName    pgtype.Text
 	FromCourseCode string
 	FromCourseName pgtype.Text
@@ -299,6 +300,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 	}
 	rows, err := q.db.Query(ctx, `
 		SELECT asi.absence_id, asi.session_id, sa.wcode,
+		       st.nickname,
 		       COALESCE(st.full_name, '') AS student_name,
 		       c.code AS from_course_code,
 		       COALESCE(c.name, '') AS from_course_name
@@ -316,7 +318,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 	var out []SitInStudentRow
 	for rows.Next() {
 		var r SitInStudentRow
-		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.StudentName, &r.FromCourseCode, &r.FromCourseName); err != nil {
+		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

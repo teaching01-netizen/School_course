@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
+import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief, CalendarSitInStudent } from "../types";
 import Modal from "../components/Modal";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
@@ -92,10 +92,10 @@ function getSitInLabel(absence: CalendarAbsence): string {
   }
 }
 
-function getSitInVisitorLabel(student: { wcode: string; student_name: string | null; from_course_code: string; from_course_name: string | null }): string {
-  const name = student.student_name?.trim();
+function getSitInVisitorLabel(student: CalendarSitInStudent): string {
+  const name = student.nickname?.trim() || student.student_name?.trim();
   const course = student.from_course_name?.trim() || student.from_course_code;
-  return name ? `${student.wcode} (${course})` : `${student.wcode} (${course})`;
+  return name ? `${name} (${student.wcode}) — ${course}` : `${student.wcode} — ${course}`;
 }
 
 function absencePuckColor(count: number): string {
@@ -167,10 +167,13 @@ function getMonthGrid(d: Date): Date[] {
 export default function OperationsCalendar() {
   const { addToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const viewMode = searchParams.get("view") === "month" ? "month" : "week";
+  const viewParam = searchParams.get("view");
+  const viewMode = viewParam === "week" ? "week" : "month";
   const showParam = searchParams.get("show");
   const showMode: CalendarShowMode =
-    showParam === "sessions" || showParam === "absences" || showParam === "sit-ins" ? showParam : "all";
+    showParam === "all" || showParam === "sessions" || showParam === "absences" || showParam === "sit-ins"
+      ? showParam
+      : "sit-ins";
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [monthStart, setMonthStart] = useState(() => getMonthStart(new Date()));
   const [sessions, setSessions] = useState<CalendarSessionBrief[]>([]);
@@ -222,15 +225,13 @@ export default function OperationsCalendar() {
 
   function setViewMode(mode: "week" | "month") {
     const params = new URLSearchParams(searchParams);
-    if (mode === "month") params.set("view", "month");
-    else params.delete("view");
+    params.set("view", mode);
     setSearchParams(params);
   }
 
   function setShowMode(mode: CalendarShowMode) {
     const params = new URLSearchParams(searchParams);
-    if (mode === "all") params.delete("show");
-    else params.set("show", mode);
+    params.set("show", mode);
     setSearchParams(params, { replace: true });
     setSelectedDay(null);
   }
@@ -456,9 +457,25 @@ export default function OperationsCalendar() {
                         type="button"
                         onClick={() => setSelectedDay(dayStr)}
                         aria-label={`Open details for ${getSessionLabel(s)} on ${dayLabel}`}
-                        className="w-full truncate rounded-sm bg-blue-50 px-1 py-0.5 text-left text-[10px] text-blue-700"
+                        className="w-full rounded-sm bg-blue-50 px-1 py-0.5 text-left text-[10px] text-blue-700"
                       >
-                        {getSessionLabel(s)} {formatTime(s.start_at)}
+                        <div className="space-y-0.5">
+                          <p className="truncate">{getSessionLabel(s)} {formatTime(s.start_at)}</p>
+                          {s.sit_in_students && s.sit_in_students.length > 0 ? (
+                            <p className="truncate text-[10px] text-amber-700">
+                              <span className="font-semibold">Visitors:</span>{" "}
+                              {s.sit_in_students.slice(0, 2).map((student, idx) => (
+                                <span key={`${student.wcode}-${student.absence_id}`}>
+                                  {idx > 0 && ", "}
+                                  {getSitInVisitorLabel(student)}
+                                </span>
+                              ))}
+                              {s.sit_in_students.length > 2 ? (
+                                <span className="text-amber-500"> +{s.sit_in_students.length - 2} more</span>
+                              ) : null}
+                            </p>
+                          ) : null}
+                        </div>
                       </button>
                     ))}
                     {daySessions.length > 2 ? (

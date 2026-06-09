@@ -52,6 +52,7 @@ describe("Calendar Session-Centric Redesign", () => {
             sit_in_students: [
               {
                 wcode: "W250389",
+                nickname: "Nicky",
                 student_name: "John Smith",
                 absence_id: "abs-1",
                 from_course_code: "0000000001",
@@ -63,13 +64,12 @@ describe("Calendar Session-Centric Redesign", () => {
         absence_days: [],
       });
 
-      renderPage("/calendar?view=week");
+      renderPage("/calendar?view=week&show=sessions");
 
       await screen.findByText("Calendar");
       
       // Session card should show the visitor
-      expect(screen.getByText(/W250389/)).toBeInTheDocument();
-      expect(screen.getByText(/Physics/)).toBeInTheDocument();
+      expect(screen.getByText(/Nicky \(W250389\) — Physics/)).toBeInTheDocument();
     });
 
     it("renders multiple sit-in visitors with overflow", async () => {
@@ -88,6 +88,7 @@ describe("Calendar Session-Centric Redesign", () => {
             sit_in_students: [
               {
                 wcode: "W250389",
+                nickname: "Nicky",
                 student_name: "John Smith",
                 absence_id: "abs-1",
                 from_course_code: "0000000001",
@@ -95,6 +96,7 @@ describe("Calendar Session-Centric Redesign", () => {
               },
               {
                 wcode: "W250390",
+                nickname: "Janie",
                 student_name: "Jane Roe",
                 absence_id: "abs-2",
                 from_course_code: "0000000001",
@@ -102,6 +104,7 @@ describe("Calendar Session-Centric Redesign", () => {
               },
               {
                 wcode: "W250391",
+                nickname: "Alex",
                 student_name: "Alex Chan",
                 absence_id: "abs-3",
                 from_course_code: "0000000003",
@@ -113,13 +116,13 @@ describe("Calendar Session-Centric Redesign", () => {
         absence_days: [],
       });
 
-      renderPage("/calendar?view=week");
+      renderPage("/calendar?view=week&show=sessions");
 
       await screen.findByText("Calendar");
       
       // Should show first 2 visitors
-      expect(screen.getByText(/W250389/)).toBeInTheDocument();
-      expect(screen.getByText(/W250390/)).toBeInTheDocument();
+      expect(screen.getByText(/Nicky \(W250389\) — Physics/)).toBeInTheDocument();
+      expect(screen.getByText(/Janie \(W250390\) — Physics/)).toBeInTheDocument();
       // Should show overflow indicator
       expect(screen.getByText(/\+1 more/)).toBeInTheDocument();
     });
@@ -143,7 +146,7 @@ describe("Calendar Session-Centric Redesign", () => {
         absence_days: [],
       });
 
-      renderPage("/calendar?view=week");
+      renderPage("/calendar?view=week&show=sessions");
 
       await screen.findByText("Calendar");
       
@@ -178,7 +181,7 @@ describe("Calendar Session-Centric Redesign", () => {
         ],
       });
 
-      renderPage("/calendar?view=week");
+      renderPage("/calendar?view=week&show=absences");
 
       await screen.findByText("Calendar");
       
@@ -194,7 +197,7 @@ describe("Calendar Session-Centric Redesign", () => {
         absence_days: [],
       });
 
-      renderPage("/calendar?view=week");
+      renderPage("/calendar?view=week&show=absences");
 
       await screen.findByText("Calendar");
       
@@ -228,6 +231,7 @@ describe("Calendar Session-Centric Redesign", () => {
             sit_in_students: [
               {
                 wcode: "W250389",
+                nickname: "Nicky",
                 student_name: "John Smith",
                 absence_id: "abs-1",
                 from_course_code: "0000000001",
@@ -259,7 +263,7 @@ describe("Calendar Session-Centric Redesign", () => {
       });
 
       const user = (await import("@testing-library/user-event")).default.setup();
-      renderPage("/calendar?view=month");
+      renderPage("/calendar?view=month&show=all");
 
       await screen.findByText("Calendar");
       
@@ -276,10 +280,7 @@ describe("Calendar Session-Centric Redesign", () => {
       expect(sessionsHeader.compareDocumentPosition(absencesHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       
       // Should show sit-in visitor in session section
-      const wcodeElements = within(dialog).getAllByText(/W250389/);
-      expect(wcodeElements.length).toBeGreaterThanOrEqual(2);
-      const physicsElements = within(dialog).getAllByText(/Physics/);
-      expect(physicsElements.length).toBeGreaterThanOrEqual(2);
+      expect(within(dialog).getByText(/Nicky \(W250389\) — Physics/)).toBeInTheDocument();
     });
 
     it("shows absence details with status badge and view details link", async () => {
@@ -308,7 +309,7 @@ describe("Calendar Session-Centric Redesign", () => {
       });
 
       const user = (await import("@testing-library/user-event")).default.setup();
-      renderPage("/calendar?view=month");
+      renderPage("/calendar?view=month&show=absences");
 
       await screen.findByText("Calendar");
       

@@ -55,6 +55,63 @@ describe("OperationsCalendar", () => {
     expect(screen.getByText("Today")).toBeInTheDocument();
   });
 
+  it("defaults to month view and sit-ins when no calendar filters are provided", async () => {
+    mockCalendarResponse({
+      sessions: [
+        {
+          id: "sess-1",
+          course_id: "course-1",
+          course_code: "0000000002",
+          course_name: "SAT Math Scholar",
+          subject_name: "SAT Math",
+          start_at: "2026-06-02T09:00:00Z",
+          end_at: "2026-06-02T10:30:00Z",
+          room_name: "Room 101",
+          teacher_name: "Teacher A",
+          sit_in_students: [
+            {
+              wcode: "W250389",
+              nickname: "Nicky",
+              student_name: "John Smith",
+              absence_id: "abs-1",
+              from_course_code: "0000000001",
+              from_course_name: "Physics",
+            },
+          ],
+        },
+      ],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-1",
+              wcode: "W250389",
+              student_name: "John Smith",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "physical",
+              sit_in_course_name: "Physics",
+              sit_in_subject_name: "Physics",
+            },
+          ],
+        },
+      ],
+    });
+
+    renderPage("/calendar");
+
+    await screen.findByText("Calendar");
+    expect(screen.getByText("June 2026")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Show" })).toHaveValue("sit-ins");
+    expect(screen.getByRole("combobox", { name: "Subject" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Nicky \(W250389\) — Physics/)).toBeInTheDocument();
+  });
+
   it("opens the day modal from month view and links to the absence detail page", async () => {
     mockCalendarResponse({
       sessions: [
@@ -68,6 +125,16 @@ describe("OperationsCalendar", () => {
           end_at: "2026-06-02T10:30:00Z",
           room_name: "Room 101",
           teacher_name: "Teacher A",
+          sit_in_students: [
+            {
+              wcode: "W250389",
+              nickname: "Nicky",
+              student_name: "John Smith",
+              absence_id: "abs-1",
+              from_course_code: "0000000001",
+              from_course_name: "Physics",
+            },
+          ],
         },
       ],
       absence_days: [
@@ -93,9 +160,10 @@ describe("OperationsCalendar", () => {
     });
 
     const user = userEvent.setup();
-    renderPage("/calendar?view=month");
+    renderPage("/calendar?view=month&show=all");
 
     await screen.findByText("Calendar");
+    expect(screen.getByText(/Nicky \(W250389\) — Physics/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /open details for tuesday, 2 june 2026/i }));
 
     const dialog = await screen.findByRole("dialog");
@@ -125,7 +193,7 @@ describe("OperationsCalendar", () => {
     });
 
     const user = userEvent.setup();
-    renderPage("/calendar?view=month");
+    renderPage("/calendar?view=month&show=sessions");
 
     await screen.findByText("Calendar");
     await user.click(screen.getByRole("button", { name: /open details for midnight math on monday, 22 june 2026/i }));
@@ -173,7 +241,7 @@ describe("OperationsCalendar", () => {
     });
 
     const user = userEvent.setup();
-    renderPage("/calendar?view=week");
+    renderPage("/calendar?view=week&show=all");
 
     await screen.findByText("Calendar");
     await user.click(screen.getByRole("button", { name: /open details for sat math beginner on tuesday, 2 june 2026/i }));
@@ -210,7 +278,7 @@ describe("OperationsCalendar", () => {
     });
 
     const user = userEvent.setup();
-    renderPage("/calendar?view=month");
+    renderPage("/calendar?view=month&show=absences");
 
     await screen.findByText("Calendar");
     await user.click(screen.getByRole("button", { name: /open details for tuesday, 2 june 2026/i }));
@@ -272,7 +340,7 @@ describe("OperationsCalendar", () => {
     });
 
     const user = userEvent.setup();
-    renderPage("/calendar?view=month");
+    renderPage("/calendar?view=month&show=absences");
 
     await screen.findByText("Calendar");
     await user.click(screen.getByRole("button", { name: /view all absence details for tuesday, 2 june 2026/i }));
