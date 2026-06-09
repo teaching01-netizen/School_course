@@ -449,9 +449,9 @@ export default function Absences() {
                 <td><StatusBadge status={absence.status} /></td>
                 <td>
                   <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_nickname ?? absence.student_name ?? absence.wcode)}</span>
                     <div>
-                      <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_name ?? "Unknown student"}</Link>
+                      <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_nickname ?? absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_nickname ?? absence.student_name ?? "Unknown student"}</Link>
                       <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
                     </div>
                   </div>
