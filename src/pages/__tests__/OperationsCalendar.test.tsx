@@ -546,4 +546,100 @@ describe("OperationsCalendar", () => {
 
     expect(screen.getByText("No absences match these filters.")).toBeInTheDocument();
   });
+
+  it("renders sit-in assignments in list view", async () => {
+    mockCalendarResponse({
+      sessions: [
+        {
+          id: "sess-1",
+          course_id: "course-1",
+          course_code: "0000000002",
+          course_name: "SAT Math Scholar",
+          subject_name: "SAT Math",
+          start_at: "2026-06-02T09:00:00Z",
+          end_at: "2026-06-02T10:30:00Z",
+          room_name: "Room 101",
+          teacher_name: "Teacher A",
+          sit_in_students: [
+            {
+              wcode: "W250389",
+              nickname: "Nicky",
+              student_name: "John Smith",
+              absence_id: "abs-1",
+              from_course_code: "0000000001",
+              from_course_name: "Physics",
+            },
+          ],
+        },
+      ],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-1",
+              wcode: "W250389",
+              student_name: "John Smith",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "physical",
+              sit_in_course_name: "Physics",
+              sit_in_subject_name: "Physics",
+            },
+          ],
+        },
+      ],
+    });
+
+    renderPage("/calendar?view=list&show=sit-ins");
+
+    await screen.findByText("Calendar");
+    expect(screen.getByRole("columnheader", { name: /student/i })).toBeInTheDocument();
+    expect(screen.getByText("Nicky")).toBeInTheDocument();
+    expect(screen.getByText("W250389")).toBeInTheDocument();
+    expect(screen.getAllByText("SAT Math").length).toBeGreaterThan(0);
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+
+  it("opens nested student detail inside the side panel", async () => {
+    mockCalendarResponse({
+      sessions: [],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-1",
+              wcode: "W250389",
+              student_name: "John Smith",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "zoom",
+              sit_in_course_name: "Zoom",
+              sit_in_subject_name: "Zoom",
+            },
+          ],
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPage("/calendar?view=month&show=absences");
+
+    await screen.findByText("Calendar");
+    await user.click(screen.getByRole("button", { name: /open details for tuesday, 2 june 2026/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /sit-ins/i }));
+    await user.click(await within(dialog).findByRole("button", { name: /view student/i }));
+
+    expect(await within(dialog).findByText(/Focused absence and sit-in history/)).toBeInTheDocument();
+    expect(await within(dialog).findByText("Absence History (1)")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("button", { name: /Tuesday, 2 June 2026 > John Smith/i })).toBeInTheDocument();
+  });
 });

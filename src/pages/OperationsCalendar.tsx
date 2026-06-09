@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief, CalendarSitInStudent } from "../types";
-import Modal from "../components/Modal";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
+import SidePanel, { type AbsencePanelTab } from "../components/absences/SidePanel";
+import SitInListView from "../components/absences/SitInListView";
 
 type CalendarShowMode = "all" | "sessions" | "absences" | "sit-ins";
+type CalendarViewMode = "week" | "month" | "list";
 
 function getMonday(d: Date): Date {
   const date = new Date(d);
@@ -56,14 +58,6 @@ function sessionDayKey(session: CalendarSessionBrief): string {
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
-
-function titleCase(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
-
-function formatCount(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function getSessionLabel(session: CalendarSessionBrief): string {
@@ -120,21 +114,6 @@ function absencesOnDate(day: CalendarAbsenceDay | undefined): CalendarAbsence[] 
   return day?.absences ?? [];
 }
 
-function statusBadgeClasses(status: AbsenceStatus): string {
-  switch (status) {
-    case "pending":
-      return "bg-blue-50 text-blue-700 border-blue-200";
-    case "reviewed":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "actioned":
-      return "bg-slate-100 text-slate-600 border-slate-200";
-    case "cancelled":
-      return "bg-red-50 text-red-700 border-red-200";
-    default:
-      return "bg-gray-100 text-gray-600 border-gray-200";
-  }
-}
-
 function dayCellOddEven(date: Date): string {
   return date.getDate() % 2 === 0 ? "bg-gray-50/50" : "";
 }
@@ -168,20 +147,21 @@ export default function OperationsCalendar() {
   const { addToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get("view");
-  const viewMode = viewParam === "week" ? "week" : "month";
+  const viewMode: CalendarViewMode = viewParam === "week" || viewParam === "month" || viewParam === "list" ? viewParam : "month";
   const showParam = searchParams.get("show");
   const showMode: CalendarShowMode =
     showParam === "all" || showParam === "sessions" || showParam === "absences" || showParam === "sit-ins"
       ? showParam
       : "sit-ins";
+  const subjectParam = searchParams.get("subject") ?? "";
+  const statusParam = searchParams.get("status") ?? "";
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [monthStart, setMonthStart] = useState(() => getMonthStart(new Date()));
   const [sessions, setSessions] = useState<CalendarSessionBrief[]>([]);
   const [absenceDays, setAbsenceDays] = useState<CalendarAbsenceDay[]>([]);
   const [loading, setLoading] = useState(true);
-  const [subjectFilter, setSubjectFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [panelTab, setPanelTab] = useState<AbsencePanelTab>("sit-ins");
 
   const weekDates = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -191,7 +171,7 @@ export default function OperationsCalendar() {
     setLoading(true);
     try {
       let rangeStart: Date, rangeEnd: Date;
-      if (viewMode === "month") {
+      if (viewMode === "month" || viewMode === "list") {
         rangeStart = getMonthStart(monthStart);
         rangeEnd = getMonthEnd(monthStart);
       } else {
@@ -223,7 +203,7 @@ export default function OperationsCalendar() {
   const goNextMonth = () => setMonthStart((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   const goTodayMonth = () => setMonthStart(getMonthStart(new Date()));
 
-  function setViewMode(mode: "week" | "month") {
+  function setViewMode(mode: CalendarViewMode) {
     const params = new URLSearchParams(searchParams);
     params.set("view", mode);
     setSearchParams(params);
@@ -236,9 +216,46 @@ export default function OperationsCalendar() {
     setSelectedDay(null);
   }
 
+  function setSubjectFilter(value: string) {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set("subject", value);
+    else params.delete("subject");
+    setSearchParams(params, { replace: true });
+    setSelectedDay(null);
+  }
+
+  function setStatusFilter(value: string) {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set("status", value);
+    else params.delete("status");
+    setSearchParams(params, { replace: true });
+    setSelectedDay(null);
+  }
+
+  function openPanel(day: string, tab: AbsencePanelTab = showMode === "absences" ? "absences" : "sit-ins") {
+    setPanelTab(tab);
+    setSelectedDay(day);
+  }
+
   useEffect(() => {
     setSelectedDay(null);
   }, [viewMode, weekStart, monthStart]);
+
+  const subjects = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const session of sessions) {
+      const label = getSessionLabel(session);
+      if (!map.has(session.course_id)) {
+        map.set(session.course_id, label);
+      }
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [sessions]);
+
+  const validSubjectIds = useMemo(() => new Set(subjects.map(([courseId]) => courseId)), [subjects]);
+  const subjectFilter = subjectParam && validSubjectIds.has(subjectParam) ? subjectParam : "";
+  const statusFilter: AbsenceStatus | "" =
+    statusParam === "pending" || statusParam === "reviewed" || statusParam === "actioned" || statusParam === "cancelled" ? statusParam : "";
 
   const filteredSessions = useMemo(() => {
     let data = sessions;
@@ -270,17 +287,6 @@ export default function OperationsCalendar() {
     }));
   }, [absenceDays, statusFilter, showMode]);
 
-  const subjects = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const session of sessions) {
-      const label = getSessionLabel(session);
-      if (!map.has(session.course_id)) {
-        map.set(session.course_id, label);
-      }
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [sessions]);
-
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, CalendarSessionBrief[]>();
     for (const session of filteredSessions) {
@@ -309,11 +315,6 @@ export default function OperationsCalendar() {
     return sessionsByDay.get(selectedDay) ?? [];
   }, [sessionsByDay, selectedDay]);
 
-  const selectedDayTitle = useMemo(() => {
-    if (!selectedDay) return "";
-    return `${formatFullDayLabel(selectedDay)} · ${formatCount(selectedDaySessions.length, "session")} · ${formatCount(selectedDayAbsences.length, "absence")}`;
-  }, [selectedDay, selectedDayAbsences.length, selectedDaySessions.length]);
-
   const totalVisibleAbsences = useMemo(() => {
     return absenceDays.reduce((count, day) => count + day.absences.length, 0);
   }, [absenceDays]);
@@ -324,8 +325,18 @@ export default function OperationsCalendar() {
 
   const visibleAbsenceCount = filteredAbsenceDays.reduce((count, day) => count + day.absences.length, 0);
   const hasVisibleCalendarActivity = filteredSessions.length > 0 || visibleAbsenceCount > 0;
+  const hasAnySitIns = sessions.some((session) => (session.sit_in_students?.length ?? 0) > 0);
   const showSubjectFilter = showMode === "all" || showMode === "sessions" || showMode === "sit-ins";
   const showStatusFilter = showMode === "all" || showMode === "absences";
+  const activeFilterCount = (subjectFilter ? 1 : 0) + (statusFilter ? 1 : 0);
+
+  function clearFilters() {
+    const params = new URLSearchParams(searchParams);
+    params.set("show", "sit-ins");
+    params.delete("subject");
+    params.delete("status");
+    setSearchParams(params, { replace: true });
+  }
 
   if (loading) return <LoadingSkeleton type="table" lines={10} />;
 
@@ -340,13 +351,14 @@ export default function OperationsCalendar() {
           <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
             <button onClick={() => setViewMode("week")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "week" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>Week</button>
             <button onClick={() => setViewMode("month")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "month" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>Month</button>
+            <button onClick={() => setViewMode("list")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "list" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>List</button>
           </div>
-          <Button variant="secondary" size="sm" onClick={viewMode === "month" ? goTodayMonth : goToday}>
+          <Button variant="secondary" size="sm" onClick={viewMode === "week" ? goToday : goTodayMonth}>
             Today
           </Button>
           <div className="flex items-center gap-1 text-sm font-medium text-gray-700">
             <button
-              onClick={viewMode === "month" ? goPrevMonth : goPrevWeek}
+              onClick={viewMode === "week" ? goPrevWeek : goPrevMonth}
               className="rounded-sm p-1 hover:bg-gray-100"
               aria-label="Previous"
             >
@@ -355,10 +367,12 @@ export default function OperationsCalendar() {
             <span className="min-w-[180px] text-center">
               {viewMode === "month"
                 ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+                : viewMode === "list"
+                  ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
                 : formatMonth(weekStart)}
             </span>
             <button
-              onClick={viewMode === "month" ? goNextMonth : goNextWeek}
+              onClick={viewMode === "week" ? goNextWeek : goNextMonth}
               className="rounded-sm p-1 hover:bg-gray-100"
               aria-label="Next"
             >
@@ -375,6 +389,9 @@ export default function OperationsCalendar() {
 
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3">
         <div className="flex flex-wrap gap-3">
+          <span className="inline-flex min-h-[32px] items-center rounded-full bg-gray-100 px-3 text-xs font-semibold text-gray-600">
+            Filters ({activeFilterCount})
+          </span>
           <label className="flex items-center gap-2 text-sm text-gray-600">
             Show:
             <select
@@ -407,7 +424,9 @@ export default function OperationsCalendar() {
         </div>
       </section>
 
-      {showMode !== "all" && !hasVisibleCalendarActivity ? (
+      {viewMode === "list" ? (
+        <SitInListView sessions={filteredSessions} absenceDays={filteredAbsenceDays.length ? filteredAbsenceDays : absenceDays} onClearFilters={clearFilters} hasAnySitIns={hasAnySitIns} />
+      ) : showMode !== "all" && !hasVisibleCalendarActivity ? (
         <div className="rounded-sm border border-gray-200 bg-white">
           <EmptyState
             message={
@@ -444,7 +463,7 @@ export default function OperationsCalendar() {
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedDay(dayStr)}
+                    onClick={() => openPanel(dayStr)}
                     aria-label={`Open details for ${dayLabel}`}
                     className={`mb-1 flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${isToday ? "bg-[var(--color-wi-primary)] text-white" : "text-gray-700 hover:bg-gray-100"}`}
                   >
@@ -455,7 +474,7 @@ export default function OperationsCalendar() {
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setSelectedDay(dayStr)}
+                        onClick={() => openPanel(dayStr, "sit-ins")}
                         aria-label={`Open details for ${getSessionLabel(s)} on ${dayLabel}`}
                         className="w-full rounded-sm bg-blue-50 px-1 py-0.5 text-left text-[10px] text-blue-700"
                       >
@@ -481,7 +500,7 @@ export default function OperationsCalendar() {
                     {daySessions.length > 2 ? (
                       <button
                         type="button"
-                        onClick={() => setSelectedDay(dayStr)}
+                        onClick={() => openPanel(dayStr, "sit-ins")}
                         aria-label={`View all session details for ${dayLabel}`}
                         className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
                       >
@@ -492,7 +511,7 @@ export default function OperationsCalendar() {
                       <button
                         key={absence.id}
                         type="button"
-                        onClick={() => setSelectedDay(dayStr)}
+                        onClick={() => openPanel(dayStr, "absences")}
                         aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
                         className={`w-full rounded-sm border-l-2 px-1.5 py-1 text-left text-[10px] leading-snug ${absenceInlineClasses(absence)}`}
                       >
@@ -508,7 +527,7 @@ export default function OperationsCalendar() {
                     {absenceCount > 2 ? (
                       <button
                         type="button"
-                        onClick={() => setSelectedDay(dayStr)}
+                        onClick={() => openPanel(dayStr, "absences")}
                         aria-label={`View all absence details for ${dayLabel}`}
                         className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
                       >
@@ -542,7 +561,7 @@ export default function OperationsCalendar() {
               >
                 <button
                   type="button"
-                  onClick={() => setSelectedDay(dayStr)}
+                  onClick={() => openPanel(dayStr)}
                   aria-label={`Open details for ${dayLabel}`}
                   className={`sticky top-0 z-10 border-b border-gray-100 px-2 py-2 text-center ${isToday ? "bg-blue-50" : ""}`}
                 >
@@ -562,7 +581,7 @@ export default function OperationsCalendar() {
                     <button
                       key={session.id}
                       type="button"
-                      onClick={() => setSelectedDay(dayStr)}
+                      onClick={() => openPanel(dayStr, "sit-ins")}
                       aria-label={`Open details for ${getSessionLabel(session)} on ${dayLabel}`}
                       className="w-full rounded-sm border border-gray-100 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
                     >
@@ -591,7 +610,7 @@ export default function OperationsCalendar() {
                     <button
                       key={absence.id}
                       type="button"
-                      onClick={() => setSelectedDay(dayStr)}
+                      onClick={() => openPanel(dayStr, "absences")}
                       aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
                       className={`block w-full rounded-sm border-l-2 px-2 py-1.5 text-left text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
                     >
@@ -610,7 +629,7 @@ export default function OperationsCalendar() {
                   {absenceCount > 2 ? (
                     <button
                       type="button"
-                      onClick={() => setSelectedDay(dayStr)}
+                      onClick={() => openPanel(dayStr, "absences")}
                       aria-label={`View all absence details for ${dayLabel}`}
                       className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
                     >
@@ -625,86 +644,13 @@ export default function OperationsCalendar() {
       )}
 
       {selectedDay ? (
-        <Modal
-          title={selectedDayTitle}
+        <SidePanel
+          dayKey={selectedDay}
+          sessions={selectedDaySessions}
+          absences={selectedDayAbsences}
+          initialTab={panelTab}
           onClose={() => setSelectedDay(null)}
-          size="full"
-          footer={<Button variant="secondary" size="sm" onClick={() => setSelectedDay(null)}>Close</Button>}
-        >
-          {selectedDaySessions.length === 0 && selectedDayAbsences.length === 0 ? (
-            <p className="text-sm text-gray-400">No sessions or absences for this day.</p>
-          ) : (
-            <div className="space-y-6">
-              <section>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions ({selectedDaySessions.length})</h4>
-                {selectedDaySessions.length === 0 ? (
-                  <p className="text-sm text-gray-400">No sessions this day.</p>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {selectedDaySessions.map((session) => (
-                      <div key={session.id} className="rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm">
-                        <p className="font-medium text-gray-800">{getSessionLabel(session)}</p>
-                        <p className="text-xs text-gray-500">
-                          {formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}
-                          {session.room_name ? ` · ${session.room_name}` : ""}
-                        </p>
-                        {session.sit_in_students && session.sit_in_students.length > 0 ? (
-                          <div className="mt-2 border-t border-gray-100 pt-2">
-                            <p className="text-xs text-amber-700">
-                              <span className="font-semibold">Visitors:</span>{" "}
-                              {session.sit_in_students.map((student, idx) => (
-                                <span key={student.wcode}>
-                                  {idx > 0 && ", "}
-                                  {getSitInVisitorLabel(student)}
-                                </span>
-                              ))}
-                            </p>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-              <section>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({selectedDayAbsences.length})</h4>
-                {selectedDayAbsences.length === 0 ? (
-                  <p className="text-sm text-gray-400">No absences this day.</p>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {selectedDayAbsences.map((abs) => (
-                      <div key={abs.id} className={`rounded-sm border-l-2 border border-gray-100 bg-gray-50 p-3 ${absenceInlineClasses(abs)}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(abs)}</p>
-                            <p className="mt-0.5 truncate text-xs text-amber-700">
-                              <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(abs)}
-                            </p>
-                            <p className="truncate text-xs text-sky-700">
-                              <span className="font-semibold">Sit-in:</span> {getSitInLabel(abs)}
-                            </p>
-                          </div>
-                          <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClasses(abs.status)}`}>
-                            {titleCase(abs.status)}
-                          </span>
-                        </div>
-                        <div className="mt-3 flex justify-end">
-                          <Link
-                            to={`/absences/${abs.id}`}
-                            aria-label={`View details for ${getAbsenceStudentLabel(abs)}`}
-                            className="inline-flex min-h-[28px] items-center rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                          >
-                            View details
-                          </Link>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </div>
-          )}
-        </Modal>
+        />
       ) : null}
     </div>
   );
