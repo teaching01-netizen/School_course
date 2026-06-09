@@ -56,7 +56,6 @@ func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalP
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE m.active = true
-		  AND c.deleted_at IS NULL
 		ORDER BY m.rule_id ASC
 	`)
 	if err != nil {
@@ -95,7 +94,6 @@ func (q *Queries) SatVerbalPolicyMappingGetActiveByCourse(ctx context.Context, c
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE m.course_id = $1
 		  AND m.active = true
-		  AND c.deleted_at IS NULL
 	`, courseID).Scan(
 		&r.ID, &r.RuleID, &r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID,
 		&r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID,
