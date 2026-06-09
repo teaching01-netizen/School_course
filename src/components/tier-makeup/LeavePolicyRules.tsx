@@ -1,35 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 import EmptyState from "../ui/EmptyState";
 import Button from "../ui/Button";
 import { LEAVE_POLICY_COURSE_RULES, getRuleTypeBadgeColor, getRuleTypeLabel } from "./leavePolicyData";
-import type { SubjectMapping } from "../../types";
 
 type Subject = { id: string; code: string; name: string };
 
-const STORAGE_KEY = "sat-verbal-leave-policy-mappings";
-
-function loadMappings(): SubjectMapping[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMappings(mappings: SubjectMapping[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(mappings));
-}
+type SatVerbalPolicyMapping = {
+  active: boolean;
+  subject_id?: string;
+  policy_hash?: string;
+  warnings?: string[];
+  matched_courses?: Array<{ policy_course_name: string; course_name: string; root_group_name?: string }>;
+  unmatched_policy_rows?: string[];
+  unmatched_courses?: string[];
+};
 
 export default function LeavePolicyRules() {
   const { addToast } = useToast();
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [mappings, setMappings] = useState<SubjectMapping[]>(loadMappings);
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [mapping, setMapping] = useState<SatVerbalPolicyMapping | null>(null);
   const [loadingSubjects, setLoadingSubjects] = useState(true);
-  const [savingRuleId, setSavingRuleId] = useState<string | null>(null);
+  const [loadingMapping, setLoadingMapping] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,64 +41,65 @@ export default function LeavePolicyRules() {
     })();
   }, [addToast]);
 
-  const mappingsByRule = useMemo(() => {
-    const map = new Map<string, SubjectMapping>();
-    for (const m of mappings) {
-      map.set(m.ruleId, m);
-    }
-    return map;
-  }, [mappings]);
-
-  function handleMappingChange(ruleId: string, subjectId: string) {
-    const subject = subjects.find((s) => s.id === subjectId);
-    const next = mappings.filter((m) => m.ruleId !== ruleId);
-    if (subjectId && subject) {
-      next.push({
-        ruleId,
-        subjectId: subject.id,
-        subjectCode: subject.code,
-        subjectName: subject.name,
-      });
-    }
-    setMappings(next);
-    saveMappings(next);
-  }
-
-  async function persistMapping(ruleId: string) {
-    const mapping = mappings.find((m) => m.ruleId === ruleId);
-    if (!mapping) {
-      addToast("warning", "No subject selected for this rule");
+  useEffect(() => {
+    if (!selectedSubjectId) {
+      setMapping(null);
       return;
     }
-    setSavingRuleId(ruleId);
+    let cancelled = false;
+    setLoadingMapping(true);
+    void apiJson<SatVerbalPolicyMapping>(
+      `/api/v1/admin/sat-verbal-policy/mapping?subject_id=${encodeURIComponent(selectedSubjectId)}`,
+      { method: "GET" },
+    )
+      .then((data) => {
+        if (!cancelled) setMapping(data);
+      })
+      .catch((err) => {
+        if (!cancelled) addToast("error", err instanceof Error ? err.message : "Failed to load SAT Verbal mapping");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMapping(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubjectId, addToast]);
+
+  async function applyPolicy() {
+    if (!selectedSubjectId) {
+      addToast("warning", "Select the SAT Verbal subject first");
+      return;
+    }
+    setSaving(true);
     try {
-      // Find root course group for this subject and save the sit-in rule assignment
-      const rootGroups = await apiJson<Array<{ id: string; name: string; sit_in_rule_id: string | null }>>(
-        "/api/v1/admin/root-course-groups",
-        { method: "GET" }
-      );
-      // Match by subject code in group name
-      const matchingGroup = rootGroups.find(
-        (g) => g.name.toUpperCase().includes(mapping.subjectCode.toUpperCase())
-      );
-      if (matchingGroup) {
-        await apiJson(`/api/v1/admin/root-course-groups/${matchingGroup.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ sit_in_rule_id: ruleId }),
-        });
-        addToast("success", `Mapping saved for ${mapping.subjectCode}`);
+      const updated = await apiJson<SatVerbalPolicyMapping>("/api/v1/admin/sat-verbal-policy/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          subject_id: selectedSubjectId,
+          policy: LEAVE_POLICY_COURSE_RULES,
+        }),
+      });
+      setMapping(updated);
+      const warningCount = updated.warnings?.length ?? 0;
+      if (warningCount > 0) {
+        addToast("warning", `SAT Verbal policy applied with ${warningCount} warning${warningCount === 1 ? "" : "s"}`);
       } else {
-        addToast("warning", `No root course group found for subject ${mapping.subjectCode}`);
+        addToast("success", "SAT Verbal policy applied");
       }
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to save mapping");
+      addToast("error", err instanceof Error ? err.message : "Failed to apply SAT Verbal policy");
     } finally {
-      setSavingRuleId(null);
+      setSaving(false);
     }
   }
 
-  const mappedCount = mappings.filter((m) => m.subjectId).length;
   const totalRules = LEAVE_POLICY_COURSE_RULES.length;
+  const selectedSubject = subjects.find((subject) => subject.id === selectedSubjectId);
+  const warnings = mapping?.warnings ?? [];
+  const unmatchedPolicyRows = mapping?.unmatched_policy_rows ?? [];
+  const unmatchedCourses = mapping?.unmatched_courses ?? [];
+  const matchedCount = mapping?.matched_courses?.length ?? 0;
 
   if (loadingSubjects) {
     return <LoadingSkeleton type="table" lines={10} />;
@@ -113,23 +110,76 @@ export default function LeavePolicyRules() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">
-            Map each SAT Verbal course rule to a subject in your system. Mappings are used by the absence form
-            to determine sit-in options.
+            Apply the hard-coded SAT Verbal leave policy to one subject. After applying, the absence resolver uses
+            this policy automatically for courses under that subject.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-400">
-            {mappedCount}/{totalRules} mapped
+            {totalRules} policy rows
           </span>
-          <Button variant="secondary" size="sm" onClick={() => { setMappings([]); saveMappings([]); }}>
-            Reset All
-          </Button>
         </div>
       </div>
 
       {subjects.length === 0 ? (
         <EmptyState message="No subjects found. Create subjects first." />
       ) : (
+        <>
+        <div className="mb-4 rounded-sm border border-gray-200 bg-white p-4">
+          <div className="grid gap-3 md:grid-cols-[minmax(240px,360px)_auto_1fr] md:items-end">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">SAT Verbal Subject</span>
+              <select
+                aria-label="SAT Verbal subject"
+                value={selectedSubjectId}
+                onChange={(e) => setSelectedSubjectId(e.target.value)}
+                className="w-full rounded-sm border border-gray-200 bg-white px-2 py-2 text-sm"
+              >
+                <option value="">-- Select subject --</option>
+                {subjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.code} — {subject.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button loading={saving} disabled={!selectedSubjectId || loadingMapping} onClick={() => void applyPolicy()}>
+              Apply SAT Verbal Policy
+            </Button>
+            <div className="text-xs text-gray-500">
+              {loadingMapping ? (
+                <span>Loading mapping...</span>
+              ) : mapping?.active ? (
+                <span className="font-medium text-green-700">
+                  Active for {selectedSubject?.code ?? "selected subject"} · {matchedCount} matched course{matchedCount === 1 ? "" : "s"}
+                </span>
+              ) : selectedSubjectId ? (
+                <span className="font-medium text-amber-700">Not active for {selectedSubject?.code ?? "selected subject"}</span>
+              ) : (
+                <span>Select a subject to view or apply the production mapping.</span>
+              )}
+            </div>
+          </div>
+          {(warnings.length > 0 || unmatchedPolicyRows.length > 0 || unmatchedCourses.length > 0) && (
+            <div className="mt-3 space-y-2 text-xs">
+              {warnings.length > 0 && (
+                <div className="rounded-sm border border-amber-200 bg-amber-50 p-2 text-amber-800">
+                  <div className="font-medium">Warnings</div>
+                  <ul className="mt-1 list-disc pl-4">
+                    {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
+              {unmatchedCourses.length > 0 && (
+                <div className="text-gray-600">Unmatched real courses: {unmatchedCourses.join(", ")}</div>
+              )}
+              {unmatchedPolicyRows.length > 0 && (
+                <div className="text-gray-600">Unmatched policy rows: {unmatchedPolicyRows.join(", ")}</div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -139,14 +189,11 @@ export default function LeavePolicyRules() {
                 <th className="text-left py-2 px-2 font-semibold text-gray-700 w-[120px]">Rule Type</th>
                 <th className="text-left py-2 px-2 font-semibold text-gray-700 w-[80px]">Priorities</th>
                 <th className="text-left py-2 px-2 font-semibold text-gray-700">Makeup Rules</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700 w-[220px]">Map to Subject</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700 w-[80px]"></th>
               </tr>
             </thead>
             <tbody>
               {LEAVE_POLICY_COURSE_RULES.map((rule, idx) => {
                 const badge = getRuleTypeBadgeColor(rule.ruleType);
-                const mapping = mappingsByRule.get(rule.id);
                 const isExpanded = expandedRuleId === rule.id;
 
                 return (
@@ -179,37 +226,13 @@ export default function LeavePolicyRules() {
                     <td className="py-2 px-2 text-gray-600">
                       {rule.description}
                     </td>
-                    <td className="py-2 px-2">
-                      <select
-                        value={mapping?.subjectId ?? ""}
-                        onChange={(e) => handleMappingChange(rule.id, e.target.value)}
-                        className="w-full text-xs border border-gray-200 rounded-sm px-2 py-1.5 bg-white"
-                      >
-                        <option value="">-- Select subject --</option>
-                        {subjects.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.code} — {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 px-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={!mapping?.subjectId}
-                        loading={savingRuleId === rule.id}
-                        onClick={() => void persistMapping(rule.id)}
-                      >
-                        Save
-                      </Button>
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Expanded rule detail */}

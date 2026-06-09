@@ -42,7 +42,9 @@ type SitInResult struct {
 	RuleType string `json:"rule_type,omitempty"`
 
 	// Priority-based sit-in (multi-level)
-	Priorities []SitInPriorityResult `json:"priorities,omitempty"`
+	Priorities           []SitInPriorityResult `json:"priorities,omitempty"`
+	CurrentPriorityLevel int                   `json:"current_priority_level,omitempty"`
+	HasNextPriority      bool                  `json:"has_next_priority,omitempty"`
 
 	// For physical sit-in (single-level, backward compat)
 	SitInCourse   *SitInCourseInfo `json:"sit_in_course,omitempty"`
@@ -266,7 +268,7 @@ func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 
 // resolveSitInForCourse resolves sit-in for a specific student course block.
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
-func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
+func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, satVerbalAfterPriority int) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
@@ -291,6 +293,12 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			}
 			break
 		}
+	}
+
+	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, satVerbalAfterPriority); err != nil {
+		return nil, err
+	} else if mapped != nil {
+		return mapped, nil
 	}
 
 	// Find the MISSED course's level (determines sit-in behavior)
@@ -409,6 +417,96 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
 	return result, nil
+}
+
+func resolveMappedSatVerbalSitIn(
+	ctx context.Context,
+	q *sqldb.Queries,
+	subjectID pgtype.UUID,
+	courseID pgtype.UUID,
+	enrolled []sqldb.StudentEnrolledCourseV2,
+	dateFrom time.Time,
+	dateTo time.Time,
+	afterPriorityLevel int,
+) (*SitInResult, error) {
+	mapping, err := q.SatVerbalPolicyMappingGetActiveBySubject(ctx, subjectID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("SAT Verbal mapping lookup: %w", err)
+	}
+
+	rules, err := decodeSatVerbalPolicyRules(mapping.Policy)
+	if err != nil {
+		return nil, fmt.Errorf("SAT Verbal policy parse: %w", err)
+	}
+
+	allCourses, err := q.CoursesBySubject(ctx, subjectID)
+	if err != nil {
+		return nil, fmt.Errorf("SAT Verbal subject courses lookup: %w", err)
+	}
+
+	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("missed sessions lookup: %w", err)
+	}
+
+	missedCourse, ok := satVerbalMissedCourse(courseID, allCourses, enrolled)
+	if !ok {
+		return nil, nil
+	}
+
+	settings, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("policy lookup: %w", err)
+	}
+	subjectIDStr, _ := uuidString(subjectID)
+	rootIDStr := ""
+	if missedCourse.RootCourseGroupID.Valid {
+		rootIDStr, _ = uuidString(missedCourse.RootCourseGroupID)
+	}
+	win := subjectWindowWeeks(settings.AbsencePolicies, subjectIDStr, rootIDStr)
+	cutoff := time.Time{}
+	if win > 0 {
+		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
+	}
+
+	return resolveSatVerbalPolicy(ctx, satVerbalResolveInput{
+		Policy:             rules,
+		MissedCourse:       missedCourse,
+		Enrolled:           enrolled,
+		AllCourses:         allCourses,
+		MissedSessions:     missedSessions,
+		Cutoff:             cutoff,
+		AfterPriorityLevel: afterPriorityLevel,
+		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return q.SessionsByCourse(ctx, targetCourseID)
+		},
+	})
+}
+
+func satVerbalMissedCourse(courseID pgtype.UUID, allCourses []sqldb.SubjectCourseV2, enrolled []sqldb.StudentEnrolledCourseV2) (sqldb.SubjectCourseV2, bool) {
+	for _, course := range allCourses {
+		if course.ID == courseID {
+			return course, true
+		}
+	}
+	for _, course := range enrolled {
+		if course.CourseID == courseID {
+			return sqldb.SubjectCourseV2{
+				ID:                course.CourseID,
+				Code:              course.CourseCode,
+				Name:              course.CourseName,
+				SubjectID:         course.SubjectID,
+				CycleID:           course.CycleID,
+				Level:             course.Level,
+				RootCourseGroupID: course.RootCourseGroupID,
+				SitInRuleID:       course.SitInRuleID,
+			}, true
+		}
+	}
+	return sqldb.SubjectCourseV2{}, false
 }
 
 func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {

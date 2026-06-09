@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -741,6 +742,15 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			allowedCourseIDs[courseID] = true
 		}
 	}
+	satVerbalAfterPriority := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("sat_verbal_after_priority")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_sat_verbal_after_priority", "sat_verbal_after_priority must be a non-negative integer")
+			return
+		}
+		satVerbalAfterPriority = value
+	}
 
 	// Query sessions in range for all enrolled subjects.
 	type sessionDBRow struct {
@@ -914,13 +924,15 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		AlreadyAbsent bool   `json:"already_absent"`
 	}
 	type courseSitInResponse struct {
-		RuleName          string                  `json:"rule_name,omitempty"`
-		RuleType          string                  `json:"rule_type,omitempty"`
-		SitInMethod       string                  `json:"sit_in_method"`
-		Priorities        []SitInPriorityResult   `json:"priorities,omitempty"`
-		SitInCourse       *SitInCourseInfo        `json:"sit_in_course,omitempty"`
-		AvailableSessions []sessionBrief          `json:"available_sessions,omitempty"`
-		MissedSessions    []sessionBrief          `json:"missed_sessions,omitempty"`
+		RuleName             string                `json:"rule_name,omitempty"`
+		RuleType             string                `json:"rule_type,omitempty"`
+		SitInMethod          string                `json:"sit_in_method"`
+		Priorities           []SitInPriorityResult `json:"priorities,omitempty"`
+		CurrentPriorityLevel int                   `json:"current_priority_level,omitempty"`
+		HasNextPriority      bool                  `json:"has_next_priority,omitempty"`
+		SitInCourse          *SitInCourseInfo      `json:"sit_in_course,omitempty"`
+		AvailableSessions    []sessionBrief        `json:"available_sessions,omitempty"`
+		MissedSessions       []sessionBrief        `json:"missed_sessions,omitempty"`
 	}
 	type courseResponse struct {
 		SubjectID   string               `json:"subject_id"`
@@ -953,16 +965,18 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		if cErr == nil {
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
-				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo)
+				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo, satVerbalAfterPriority)
 				if resolveErr != nil {
 					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
 				} else if result != nil && result.SitInMethod != SitInMethodNone {
 					sitIn = &courseSitInResponse{
-						RuleName:    result.RuleName,
-						RuleType:    result.RuleType,
-						SitInMethod: result.SitInMethod,
-						SitInCourse: result.SitInCourse,
-						Priorities:  result.Priorities,
+						RuleName:             result.RuleName,
+						RuleType:             result.RuleType,
+						SitInMethod:          result.SitInMethod,
+						SitInCourse:          result.SitInCourse,
+						Priorities:           result.Priorities,
+						CurrentPriorityLevel: result.CurrentPriorityLevel,
+						HasNextPriority:      result.HasNextPriority,
 					}
 					if len(result.Available) > 0 {
 						sitIn.AvailableSessions = result.Available

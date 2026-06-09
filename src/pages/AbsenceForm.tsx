@@ -179,6 +179,95 @@ function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<strin
     .sort((a, b) => a.start_at.localeCompare(b.start_at));
 }
 
+function firstPriorityLevel(group: SubjectSessions): number {
+  const priorities = group.sit_in?.priorities ?? [];
+  if (priorities.length === 0) return 1;
+  return Math.min(...priorities.map((priority) => priority.level));
+}
+
+function nextPriorityLevel(group: SubjectSessions, currentLevel: number): number | null {
+  const levels = [...new Set((group.sit_in?.priorities ?? []).map((priority) => priority.level))]
+    .filter((level) => level > currentLevel)
+    .sort((a, b) => a - b);
+  return levels[0] ?? null;
+}
+
+function prioritiesForLevel(group: SubjectSessions, level: number) {
+  return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
+}
+
+function hasServerPriorityReveal(group: SubjectSessions): boolean {
+  return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
+}
+
+function priorityOrdinal(level: number): string {
+  const mod100 = level % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${level}th`;
+  switch (level % 10) {
+    case 1:
+      return `${level}st`;
+    case 2:
+      return `${level}nd`;
+    case 3:
+      return `${level}rd`;
+    default:
+      return `${level}th`;
+  }
+}
+
+function sessionsInRangePath(
+  wcode: string,
+  dateFrom: string,
+  dateTo: string,
+  options?: { courseIds?: string[]; satVerbalAfterPriority?: number },
+): string {
+  const params = new URLSearchParams({
+    wcode,
+    date_from: dateFrom,
+    date_to: dateTo,
+  });
+  if (options?.courseIds && options.courseIds.length > 0) {
+    params.set("course_ids", options.courseIds.join(","));
+  }
+  if (options?.satVerbalAfterPriority !== undefined) {
+    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
+  }
+  return `/api/v1/absences/sessions-in-range?${params.toString()}`;
+}
+
+function selectedSitInCourseIDForGroup(
+  group: SubjectSessions,
+  selectedMissedSessionIds: string[],
+  sitInSelections: Record<string, string>,
+): string | null {
+  if (group.sit_in?.sit_in_method !== "physical") {
+    return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+  }
+
+  const priorities = group.sit_in.priorities ?? [];
+  if (priorities.length === 0) {
+    return group.sit_in.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+  }
+
+  const courseIDs = new Set<string>();
+  for (const missedSessionID of selectedMissedSessionIds) {
+    const sitInSessionID = sitInSelections[missedSessionID];
+    if (!sitInSessionID) continue;
+    for (const priority of priorities) {
+      const hasSession = (priority.available_sessions ?? []).some((session) => session.id === sitInSessionID);
+      const courseID = priority.sit_in_course?.id?.trim();
+      if (hasSession && courseID) {
+        courseIDs.add(courseID);
+        break;
+      }
+    }
+  }
+
+  if (courseIDs.size === 1) return [...courseIDs][0];
+  if (courseIDs.size === 0) return group.sit_in.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+  return null;
+}
+
 function formatBatchAbsenceSummary(absence: ManagedAbsence) {
   const className = absence.subject_name?.trim() || absence.course_name?.trim() || absence.course_code?.trim() || "";
   const dates = getAbsenceSessionDateLabels(absence);
@@ -463,6 +552,7 @@ export default function AbsenceForm() {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
+  const [revealingPrioritySessionIds, setRevealingPrioritySessionIds] = useState<Set<string>>(new Set());
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
@@ -562,7 +652,7 @@ export default function AbsenceForm() {
     setSessionsError(null);
 
     void apiJson<SessionsInRangeResponse>(
-      `/api/v1/absences/sessions-in-range?wcode=${encodeURIComponent(lookup.wcode)}&date_from=${dateFrom}&date_to=${dateTo}`,
+      sessionsInRangePath(lookup.wcode, dateFrom, dateTo),
       { method: "GET", signal: controller.signal },
     )
       .then((data) => {
@@ -774,10 +864,53 @@ export default function AbsenceForm() {
     });
   };
 
-  const handleNotAvailable = (sessionId: string) => {
+  const handleNotAvailable = async (group: SubjectSessions, sessionId: string) => {
+    const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
+    if (lookup && hasServerPriorityReveal(group)) {
+      setRevealingPrioritySessionIds((current) => new Set(current).add(sessionId));
+      setSitInSelections((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+      try {
+        const data = await apiJson<SessionsInRangeResponse>(
+          sessionsInRangePath(lookup.wcode, dateFrom, dateTo, {
+            courseIds: [group.course_id],
+            satVerbalAfterPriority: currentLevel,
+          }),
+          { method: "GET" },
+        );
+        const updatedGroup = data.subjects.find((subject) => subject.course_id === group.course_id);
+        if (!updatedGroup) {
+          setPageError("No more make-up times are available for this class.");
+          return;
+        }
+        setSessions((current) =>
+          current.map((subject) => (subject.course_id === group.course_id ? updatedGroup : subject)),
+        );
+        const updatedLevel = updatedGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedGroup);
+        setSitInPriorityLevels((prev) => ({
+          ...prev,
+          [sessionId]: updatedLevel,
+        }));
+      } catch (error) {
+        setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
+      } finally {
+        setRevealingPrioritySessionIds((current) => {
+          const next = new Set(current);
+          next.delete(sessionId);
+          return next;
+        });
+      }
+      return;
+    }
+
+    const nextLevel = nextPriorityLevel(group, currentLevel);
+    if (nextLevel == null) return;
     setSitInPriorityLevels((prev) => ({
       ...prev,
-      [sessionId]: (prev[sessionId] || 1) + 1,
+      [sessionId]: nextLevel,
     }));
     setSitInSelections((prev) => {
       const next = { ...prev };
@@ -904,7 +1037,11 @@ export default function AbsenceForm() {
       if (sitInMethod === "physical" || sitInMethod === "zoom") {
         payload.sit_in_method = sitInMethod;
       }
-      const sitInCourseID = group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim();
+      const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, sitInSelections);
+      if (sitInCourseID === null) {
+        setPageError(`${group.subject_name || group.course_name} has sit-in selections from more than one priority class. Split them into separate submissions.`);
+        return null;
+      }
       if (sitInCourseID) {
         payload.sit_in_course_id = sitInCourseID;
       }
@@ -1422,10 +1559,13 @@ export default function AbsenceForm() {
                                                 (() => {
                                                   const hasPriorities = sitIn.priorities && sitIn.priorities.length > 0;
                                                   if (hasPriorities) {
-                                                    const currentLevel = sitInPriorityLevels[session.id] || 1;
-                                                    const currentPriority = sitIn.priorities!.find(p => p.level === currentLevel);
-                                                    const maxLevel = Math.max(...sitIn.priorities!.map(p => p.level));
-                                                    const hasMorePriorities = currentLevel < maxLevel;
+                                                    const serverReveal = hasServerPriorityReveal(group);
+                                                    const currentLevel = sitInPriorityLevels[session.id] || sitIn.current_priority_level || firstPriorityLevel(group);
+                                                    const currentPriorities = prioritiesForLevel(group, currentLevel);
+                                                    const currentPriority = currentPriorities[0];
+                                                    const nextLevel = nextPriorityLevel(group, currentLevel);
+                                                    const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
+                                                    const revealingPriority = revealingPrioritySessionIds.has(session.id);
 
                                                     if (!currentPriority) {
                                                       return (
@@ -1440,35 +1580,33 @@ export default function AbsenceForm() {
                                                       <>
                                                         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
                                                           <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">{currentLevel}</span>
-                                                           {currentPriority.label}
+                                                          {currentPriorities.length === 1 ? currentPriority.label : `${priorityOrdinal(currentLevel)} Priority`}
                                                         </div>
-                                                        {currentPriority.sit_in_course && (
-                                                          <p className="text-xs text-gray-600 mb-2 truncate">
-                                                              Sit-in class: {getSitInCourseDisplayName(currentPriority.sit_in_course, groupLabel, sessions)}
-                                                          </p>
-                                                        )}
                                                         <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                          <span className="text-gray-700 font-medium">Sit-in class:</span>
+                                                          <span className="text-gray-700 font-medium">Make-up class:</span>
                                                           <select
                                                             value={currentSitIn}
                                                             onChange={(e) => handleSitInSelect(session.id, e.target.value)}
                                                             className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
                                                           >
                                                              <option value="">— Not yet —</option>
-                                                             {(currentPriority.available_sessions ?? []).map(c => (
-                                                               <option key={c.id} value={c.id}>
-                                                                  {getSitInSessionLabel(c, currentPriority.sit_in_course, groupLabel, sessions)}
-                                                               </option>
-                                                             ))}
+                                                             {currentPriorities.flatMap(priority =>
+                                                               (priority.available_sessions ?? []).map(c => (
+                                                                 <option key={`${priority.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
+                                                                    {getSitInSessionLabel(c, priority.sit_in_course, groupLabel, sessions)}
+                                                                 </option>
+                                                               ))
+                                                             )}
                                                            </select>
                                                         </div>
                                                         {hasMorePriorities && (
                                                           <button
                                                             type="button"
-                                                            onClick={() => handleNotAvailable(session.id)}
+                                                            disabled={revealingPriority}
+                                                            onClick={() => void handleNotAvailable(group, session.id)}
                                                             className="mt-2 text-xs font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900"
                                                           >
-                                                            Not available for {currentLevel === 1 ? '1st' : currentLevel === 2 ? '2nd' : '3rd'} Priority &rarr; Show next
+                                                            {revealingPriority ? "Loading other times..." : "See other times"}
                                                           </button>
                                                         )}
                                                       </>
@@ -1479,14 +1617,13 @@ export default function AbsenceForm() {
                                                   return (
                                                     <>
                                                       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
-                                                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">2</span>
                                                          Pick a make-up class
                                                       </div>
                                                          <p className="text-xs text-gray-600 mb-2 truncate">
                                                              Sit-in class: {sitInClassLabel}
                                                          </p>
                                                        <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                         <span className="text-gray-700 font-medium">Sit-in class:</span>
+                                                         <span className="text-gray-700 font-medium">Make-up class:</span>
                                                          <select
                                                            value={currentSitIn}
                                                            onChange={(e) => handleSitInSelect(session.id, e.target.value)}

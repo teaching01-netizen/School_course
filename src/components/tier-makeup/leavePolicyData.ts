@@ -5,83 +5,142 @@ import type {
   MakeupOption,
 } from "../../types";
 
+function priorityOrdinal(level: number): string {
+  const mod100 = level % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${level}th`;
+  switch (level % 10) {
+    case 1:
+      return `${level}st`;
+    case 2:
+      return `${level}nd`;
+    case 3:
+      return `${level}rd`;
+    default:
+      return `${level}th`;
+  }
+}
+
 /**
  * Hard-coded SAT Verbal Leave Policy rules.
  * These define the sit-in/make-up rules for each course type.
  */
 export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
-  // ── Beginner — Section 1 (Reading) ────────────────────────────────────────
+  // ── Beginner Courses ──────────────────────────────────────────────────────
   {
-    id: "beginner-sec1-reading",
-    courseName: "SAT Verbal Rank 3-Section 1",
+    id: "sat-verbal-reading-beginner",
+    courseName: "SAT Verbal Reading Beginner",
     subject: "Reading",
     ruleType: "cross_section",
     priorityCount: 3,
     description:
-      "Section 1 (Reading) absence → makeup in another Rank 3 section, same lesson number only.",
+      "Same Reading Beginner lesson number only, in another available section.",
     makeupRules: [
-      "Section 2 (Writing) — same lesson #",
-      "Section 3 (Math) — same lesson #",
+      "1st Priority: Same Reading Beginner lesson in another section",
+      "2nd Priority: Same policy, next available priority section/date",
+      "3rd Priority: Same policy, next available priority section/date",
     ],
     lastClassExcluded: true,
     makeupTargets: [
-      { section: "Section 2", subject: "Writing" },
-      { section: "Section 3", subject: "Math" },
+      { section: "Section 2", subject: "Reading Beginner" },
+      { section: "Section 3", subject: "Reading Beginner" },
     ],
-    eligibleTargets: ["Section 2", "Section 3"],
+    sectionTargets: {
+      "Section 1": [
+        { section: "Section 2", subject: "Reading Beginner" },
+        { section: "Section 3", subject: "Reading Beginner" },
+      ],
+      "Section 2": [{ section: "Section 1", subject: "Reading Beginner" }],
+      "Section 3": [{ section: "Section 1", subject: "Reading Beginner" }],
+    },
+    eligibleTargets: ["Section 1", "Section 2", "Section 3"],
     priorities: [
       {
         level: 1,
         ruleType: "cross_section",
-        label: "1st Priority: Another Rank 3 section (same lesson #)",
+        label: "1st Priority: Same Reading Beginner lesson in another section",
         makeupTargets: [
-          { section: "Section 2", subject: "Writing" },
-          { section: "Section 3", subject: "Math" },
+          { section: "Section 2", subject: "Reading Beginner" },
+          { section: "Section 3", subject: "Reading Beginner" },
         ],
+        sectionTargets: {
+          "Section 1": [
+            { section: "Section 2", subject: "Reading Beginner" },
+            { section: "Section 3", subject: "Reading Beginner" },
+          ],
+          "Section 2": [{ section: "Section 1", subject: "Reading Beginner" }],
+          "Section 3": [{ section: "Section 1", subject: "Reading Beginner" }],
+        },
+      },
+      {
+        level: 2,
+        ruleType: "cross_section",
+        label: "2nd Priority: Next available Reading Beginner section/date",
+        makeupTargets: [{ section: "Next available", subject: "Reading Beginner" }],
+      },
+      {
+        level: 3,
+        ruleType: "cross_section",
+        label: "3rd Priority: Next available Reading Beginner section/date",
+        makeupTargets: [{ section: "Next available", subject: "Reading Beginner" }],
       },
     ],
   },
-  // ── Beginner — Section 2 (Writing) ────────────────────────────────────────
   {
-    id: "beginner-sec2-writing",
-    courseName: "SAT Verbal Rank 3-Section 2",
+    id: "sat-verbal-writing-beginner",
+    courseName: "SAT Verbal Writing Beginner",
     subject: "Writing",
     ruleType: "cross_section",
     priorityCount: 3,
     description:
-      "Section 2 (Writing) absence → makeup in Section 1 (Reading), same lesson number only.",
-    makeupRules: ["Section 1 (Reading) — same lesson #"],
-    lastClassExcluded: true,
-    makeupTargets: [{ section: "Section 1", subject: "Reading" }],
-    eligibleTargets: ["Section 1"],
-    priorities: [
-      {
-        level: 1,
-        ruleType: "cross_section",
-        label: "1st Priority: Section 1 (Reading) — same lesson #",
-        makeupTargets: [{ section: "Section 1", subject: "Reading" }],
-      },
+      "Same Writing Beginner lesson number only, in another available section.",
+    makeupRules: [
+      "1st Priority: Same Writing Beginner lesson in another section",
+      "2nd Priority: Same policy, next available priority section/date",
+      "3rd Priority: Same policy, next available priority section/date",
     ],
-  },
-  // ── Beginner — Section 3 (Math) ───────────────────────────────────────────
-  {
-    id: "beginner-sec3-math",
-    courseName: "SAT Verbal Rank 3-Section 3",
-    subject: "Math",
-    ruleType: "cross_section",
-    priorityCount: 3,
-    description:
-      "Section 3 (Math) absence → makeup in Section 1 (Reading), same lesson number only.",
-    makeupRules: ["Section 1 (Reading) — same lesson #"],
     lastClassExcluded: true,
-    makeupTargets: [{ section: "Section 1", subject: "Reading" }],
-    eligibleTargets: ["Section 1"],
+    makeupTargets: [
+      { section: "Section 2", subject: "Writing Beginner" },
+      { section: "Section 3", subject: "Writing Beginner" },
+    ],
+    sectionTargets: {
+      "Section 1": [
+        { section: "Section 2", subject: "Writing Beginner" },
+        { section: "Section 3", subject: "Writing Beginner" },
+      ],
+      "Section 2": [{ section: "Section 1", subject: "Writing Beginner" }],
+      "Section 3": [{ section: "Section 1", subject: "Writing Beginner" }],
+    },
+    eligibleTargets: ["Section 1", "Section 2", "Section 3"],
     priorities: [
       {
         level: 1,
         ruleType: "cross_section",
-        label: "1st Priority: Section 1 (Reading) — same lesson #",
-        makeupTargets: [{ section: "Section 1", subject: "Reading" }],
+        label: "1st Priority: Same Writing Beginner lesson in another section",
+        makeupTargets: [
+          { section: "Section 2", subject: "Writing Beginner" },
+          { section: "Section 3", subject: "Writing Beginner" },
+        ],
+        sectionTargets: {
+          "Section 1": [
+            { section: "Section 2", subject: "Writing Beginner" },
+            { section: "Section 3", subject: "Writing Beginner" },
+          ],
+          "Section 2": [{ section: "Section 1", subject: "Writing Beginner" }],
+          "Section 3": [{ section: "Section 1", subject: "Writing Beginner" }],
+        },
+      },
+      {
+        level: 2,
+        ruleType: "cross_section",
+        label: "2nd Priority: Next available Writing Beginner section/date",
+        makeupTargets: [{ section: "Next available", subject: "Writing Beginner" }],
+      },
+      {
+        level: 3,
+        ruleType: "cross_section",
+        label: "3rd Priority: Next available Writing Beginner section/date",
+        makeupTargets: [{ section: "Next available", subject: "Writing Beginner" }],
       },
     ],
   },
@@ -326,7 +385,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
 
   // ── Rank 3 — Section 1 (Reading) — 3 priorities ────────────────────────
   {
-    id: "rank3-sec1-reading",
+    id: "rank3-sec1",
     courseName: "SAT Verbal Rank 3-Section 1",
     subject: "Reading",
     ruleType: "cross_section",
@@ -368,9 +427,9 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
       },
     ],
   },
-  // ── Rank 3 — Section 2 (Writing) — 3 priorities (no Rank 2 — same time) ─
+  // ── Rank 3 — Section 2 — 3 priorities (no Rank 2 — same time) ──────────
   {
-    id: "rank3-sec2-writing",
+    id: "rank3-sec2",
     courseName: "SAT Verbal Rank 3-Section 2",
     subject: "Writing",
     ruleType: "cross_section",
@@ -400,35 +459,29 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
       },
     ],
   },
-  // ── Rank 3 — Section 3 (Math) — 3 priorities ───────────────────────────
+  // ── Rank 3 — Section 3 — follows Section 2 logic ───────────────────────
   {
-    id: "rank3-sec3-math",
+    id: "rank3-sec3",
     courseName: "SAT Verbal Rank 3-Section 3",
     subject: "Math",
     ruleType: "cross_section",
     priorityCount: 3,
     description:
-      "1st: Another Rank 3 section (same lesson #). 2nd: Rank 2. 3rd: Rank 4 Reading or Writing.",
+      "1st: Another Rank 3 section (same lesson #). 2nd: (none — follows Section 2 logic). 3rd: Rank 4 Reading or Writing.",
     makeupRules: [
       "1st Priority: Another Rank 3 section — same lesson #",
-      "2nd Priority: Rank 2",
+      "2nd Priority: (none — follows Section 2 logic; Rank 2 is not available)",
       "3rd Priority: SAT Verbal Reading Rank 4 or Writing Rank 4 — any available date",
     ],
     lastClassExcluded: true,
     makeupTargets: [{ section: "Section 1", subject: "Reading" }],
-    eligibleTargets: ["Section 1", "SAT Verbal Rank 2", "SAT Verbal Reading Rank 4", "SAT Verbal Writing Rank 4"],
+    eligibleTargets: ["Section 1", "SAT Verbal Reading Rank 4", "SAT Verbal Writing Rank 4"],
     priorities: [
       {
         level: 1,
         ruleType: "cross_section",
         label: "1st Priority: Another Rank 3 section (same lesson #)",
         makeupTargets: [{ section: "Section 1", subject: "Reading" }],
-      },
-      {
-        level: 2,
-        ruleType: "rank_chain",
-        label: "2nd Priority: Rank 2",
-        eligibleTargets: ["SAT Verbal Rank 2"],
       },
       {
         level: 3,
@@ -514,7 +567,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "Reading Mastery",
     subject: "Reading",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
     makeupRules: [
@@ -537,7 +590,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "Writing Wisdom",
     subject: "Writing",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
     makeupRules: [
@@ -562,7 +615,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Real-Time Practice",
     subject: "Practice",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Based on student's main course rank: Rank 3→2, Rank 2→1, Rank 1→2.",
     makeupRules: [
@@ -600,13 +653,15 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     description:
       "1st: Opposite rank between Rank 4 and Rank 5. 2nd: Rank 3 Section 1 or Section 2.",
     makeupRules: [
-      "1st Priority: Rank 4 → Rank 5 (R or W). Rank 5 → Rank 4 (R or W).",
+      "1st Priority: Rank 4 → Rank 5 Reading/Writing based on student's main course. Rank 5 → Rank 4 Reading/Writing based on student's main course.",
       "2nd Priority: Rank 3 Section 1 or Section 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: [
-      "SAT Verbal Rank 4",
-      "SAT Verbal Rank 5",
+      "SAT Verbal Reading Rank 4",
+      "SAT Verbal Writing Rank 4",
+      "SAT Verbal Reading Rank 5",
+      "SAT Verbal Writing Rank 5",
       "SAT Verbal Rank 3 Section 1",
       "SAT Verbal Rank 3 Section 2",
     ],
@@ -616,8 +671,10 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         ruleType: "rank_chain",
         label: "1st Priority: Opposite rank (Rank 4 ↔ Rank 5)",
         eligibleTargets: [
-          "SAT Verbal Rank 4",
-          "SAT Verbal Rank 5",
+          "SAT Verbal Reading Rank 4",
+          "SAT Verbal Writing Rank 4",
+          "SAT Verbal Reading Rank 5",
+          "SAT Verbal Writing Rank 5",
         ],
       },
       {
@@ -638,7 +695,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Knock Out",
     subject: "Knock Out",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
     makeupRules: [
@@ -663,7 +720,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Intensive",
     subject: "Intensive",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
     makeupRules: [
@@ -688,7 +745,7 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Believe",
     subject: "Believe",
     ruleType: "rank_chain",
-    priorityCount: 2,
+    priorityCount: 1,
     description:
       "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
     makeupRules: [
@@ -726,6 +783,20 @@ function extractRankFromCourseName(courseName: string): number | null {
 function extractSectionFromCourseName(courseName: string): string | null {
   const match = courseName.match(/Section\s+(\d+)/i);
   return match ? `Section ${match[1]}` : null;
+}
+
+function extractVerbalSubjectFromCourseName(courseName: string): "Reading" | "Writing" | null {
+  if (/\bReading\b/i.test(courseName)) return "Reading";
+  if (/\bWriting\b/i.test(courseName)) return "Writing";
+  return null;
+}
+
+function crossSectionTargets(
+  ruleTargets: { section: string; subject: string }[] | undefined,
+  sectionTargets: Record<string, { section: string; subject: string }[]> | undefined,
+  missedSection: string
+): { section: string; subject: string }[] {
+  return sectionTargets?.[missedSection] ?? ruleTargets ?? [];
 }
 
 /**
@@ -771,19 +842,17 @@ export function evaluateLeavePolicy(
       // Stepped reveal: skip priorities above maxPriorityToShow
       if (priority.level > maxPriorityToShow) continue;
 
-      const levelLabel =
-        priority.level === 1 ? "1st" : priority.level === 2 ? "2nd" : "3rd";
+      const levelLabel = priorityOrdinal(priority.level);
 
       switch (priority.ruleType) {
         case "cross_section": {
-          if (priority.makeupTargets) {
-            for (const target of priority.makeupTargets) {
-              options.push({
-                label: `${target.section} (${target.subject}) — same lesson #`,
-                available: true,
-                reason: `${levelLabel} Priority`,
-              });
-            }
+          const targets = crossSectionTargets(priority.makeupTargets, priority.sectionTargets, input.missedSection);
+          for (const target of targets) {
+            options.push({
+              label: `${target.section} (${target.subject}) — same lesson #`,
+              available: true,
+              reason: `${levelLabel} Priority`,
+            });
           }
           break;
         }
@@ -793,7 +862,8 @@ export function evaluateLeavePolicy(
             const filtered = filterTargetsByStudentRank(
               priority.eligibleTargets,
               studentRank,
-              rule.id
+              rule.id,
+              input.missedCourseName
             );
             for (const target of filtered) {
               const targetRank = extractRankFromCourseName(target);
@@ -859,7 +929,8 @@ export function evaluateLeavePolicy(
 function filterTargetsByStudentRank(
   targets: string[],
   studentRank: number | null,
-  ruleId: string
+  ruleId: string,
+  missedCourseName = ""
 ): string[] {
   if (studentRank === null) return targets;
 
@@ -876,8 +947,14 @@ function filterTargetsByStudentRank(
 
     // Brush Up: Rank 4↔5, Rank 3 → Sec 1 or Sec 2
     if (ruleId === "sat-verbal-brushup") {
-      if (studentRank === 4) return targetRank === 5;
-      if (studentRank === 5) return targetRank === 4;
+      const studentSubject = extractVerbalSubjectFromCourseName(missedCourseName);
+      const targetSubject = extractVerbalSubjectFromCourseName(target);
+      if (studentRank === 4) {
+        return targetRank === 5 && (studentSubject === null || targetSubject === studentSubject);
+      }
+      if (studentRank === 5) {
+        return targetRank === 4 && (studentSubject === null || targetSubject === studentSubject);
+      }
       if (studentRank === 3) {
         const targetSection = extractSectionFromCourseName(target);
         return targetSection !== null;
@@ -946,7 +1023,7 @@ function evaluateLegacy(
           options.push({
             label: `${target.section} (${target.subject}) — Occurrence #${input.missedOccurrence}`,
             available: true,
-            reason: i === 0 ? "1st Priority" : `${i + 1}${i === 1 ? "nd" : "rd"} Priority`,
+            reason: `${priorityOrdinal(i + 1)} Priority`,
           });
         }
       }
@@ -982,7 +1059,8 @@ function evaluateLegacy(
         const filtered = filterTargetsByStudentRank(
           rule.eligibleTargets,
           studentRank,
-          rule.id
+          rule.id,
+          input.missedCourseName
         );
         for (const target of filtered) {
           const targetRank = extractRankFromCourseName(target);

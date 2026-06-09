@@ -370,6 +370,245 @@ describe("AbsenceForm", () => {
     });
   });
 
+  it("submits the selected priority sit-in course for SAT Verbal priority options", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-satv", code: "SATV", name: "SAT Verbal" },
+        ],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-satv",
+          subject_code: "SATV",
+          subject_name: "SAT Verbal",
+          course_id: "c-r3s3",
+          course_code: "R3S3",
+          course_name: "SAT Verbal Rank 3 Section 3",
+          sessions: [
+            {
+              id: "missed-r3s3-lesson-2",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T10:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            priorities: [
+              {
+                level: 1,
+                label: "1st Priority: Another Rank 3 section (same lesson #)",
+                sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
+                available_sessions: [
+                  {
+                    id: "sit-r3s1-lesson-2",
+                    start_at: "2026-06-04T09:00:00Z",
+                    end_at: "2026-06-04T10:30:00Z",
+                    course_name: "SAT Verbal Rank 3 Section 1",
+                  },
+                ],
+              },
+              {
+                level: 3,
+                label: "3rd Priority: Rank 4 Reading or Writing",
+                sit_in_course: { id: "c-r4r", code: "R4R", name: "SAT Verbal Reading Rank 4" },
+                available_sessions: [
+                  {
+                    id: "sit-r4r",
+                    start_at: "2026-06-05T09:00:00Z",
+                    end_at: "2026-06-05T10:30:00Z",
+                    course_name: "SAT Verbal Reading Rank 4",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+    await user.selectOptions(await screen.findByRole("combobox"), "sit-r3s1-lesson-2");
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    const batchCall = await waitFor(() => {
+      const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const parsedBody = JSON.parse(String(batchCall[1]?.body)) as {
+      items: Array<{ course_id: string; sit_in_course_id: string; sit_in_session_ids: string[] }>;
+    };
+    expect(parsedBody.items[0]).toMatchObject({
+      course_id: "c-r3s3",
+      sit_in_course_id: "c-r3s1",
+      sit_in_session_ids: ["sit-r3s1-lesson-2"],
+    });
+  }, 30000);
+
+  it("advances SAT Verbal priority display across skipped priority levels", async () => {
+    const user = userEvent.setup();
+    const initialSessions = createMockSessionsInRange([
+      {
+        subject_id: "subj-satv",
+        subject_code: "SATV",
+        subject_name: "SAT Verbal",
+        course_id: "c-r3s3",
+        course_code: "R3S3",
+        course_name: "SAT Verbal Rank 3 Section 3",
+        sessions: [
+          {
+            id: "missed-r3s3",
+            start_at: "2026-06-02T09:00:00Z",
+            end_at: "2026-06-02T10:30:00Z",
+            date: "2026-06-02",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [
+            {
+              level: 1,
+              label: "1st Priority: Another Rank 3 section (same lesson #)",
+              sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
+              available_sessions: [{ id: "sit-r3s1", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z" }],
+            },
+          ],
+        },
+      },
+    ]);
+    const nextSessions = createMockSessionsInRange([
+      {
+        ...initialSessions.subjects[0],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 3,
+          has_next_priority: false,
+          priorities: [
+            {
+              level: 3,
+              label: "3rd Priority: Rank 4 Reading or Writing",
+              sit_in_course: { id: "c-r4r", code: "R4R", name: "SAT Verbal Reading Rank 4" },
+              available_sessions: [{ id: "sit-r4r", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z" }],
+            },
+          ],
+        },
+      },
+    ]);
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes("absence-form-config")) return MOCK_CONFIG;
+      if (path.includes("student-lookup")) {
+        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
+      }
+      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("sessions-in-range")) return initialSessions;
+      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
+      if (path.endsWith("/absences/batch") && init?.method === "POST") return { items: [SUBMISSION_RESPONSE] };
+      throw new Error(`Unmocked API call: ${url}`);
+    });
+    prePopulateSessionStorage("2026-06-01", "2026-06-07");
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(await screen.findByText(/1st Priority: Another Rank 3 section/)).toBeInTheDocument();
+    expect(screen.queryByText(/3rd Priority: Rank 4 Reading or Writing/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("sat_verbal_after_priority=1"),
+        expect.anything(),
+      );
+    });
+    expect(await screen.findByText(/3rd Priority: Rank 4 Reading or Writing/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
+  }, 30000);
+
+  it("shows every SAT Verbal target returned at the current priority level", async () => {
+    const user = userEvent.setup();
+    renderWithDateRange({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-satv",
+          subject_code: "SATV",
+          subject_name: "SAT Verbal",
+          course_id: "c-r3s3",
+          course_code: "R3S3",
+          course_name: "SAT Verbal Rank 3 Section 3",
+          sessions: [
+            {
+              id: "missed-r3s3",
+              start_at: "2026-06-02T09:00:00Z",
+              end_at: "2026-06-02T10:30:00Z",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            priorities: [
+              {
+                level: 1,
+                label: "1st Priority: Another Rank 3 section (same lesson #)",
+                sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
+                available_sessions: [{ id: "sit-r3s1", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z" }],
+              },
+              {
+                level: 1,
+                label: "1st Priority: Another Rank 3 section (same lesson #)",
+                sit_in_course: { id: "c-r3s2", code: "R3S2", name: "SAT Verbal Rank 3 Section 2" },
+                available_sessions: [{ id: "sit-r3s2", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z" }],
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /SAT Verbal Rank 3 Section 2/ })).toBeInTheDocument();
+  }, 30000);
+
   it("disables verify parent button when student has no parent phone", async () => {
     installHappyPathMocks({
       student: {

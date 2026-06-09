@@ -15,7 +15,6 @@ import (
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
-	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/httpapi/absenceshttp"
 	"warwick-institute/internal/httpapi/activecourseshttp"
 	"warwick-institute/internal/httpapi/adminusershttp"
@@ -27,6 +26,7 @@ import (
 	"warwick-institute/internal/httpapi/crmhttp"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/httpapi/roomshttp"
+	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
 	"warwick-institute/internal/httpapi/schedulinghttp"
 	"warwick-institute/internal/httpapi/serieshttp"
 	"warwick-institute/internal/httpapi/sessionshttp"
@@ -39,6 +39,7 @@ import (
 	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
+	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/users"
 )
 
@@ -117,6 +118,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	courseshttp.Register(mux, deps)
 	subjectshttp.Register(mux, deps)
 	roomshttp.Register(mux, deps)
+	satverbalpolicyhttp.Register(mux, deps)
 	sitinruleshttp.Register(mux, deps)
 	studentshttp.Register(mux, deps)
 	sessionshttp.Register(mux, deps)

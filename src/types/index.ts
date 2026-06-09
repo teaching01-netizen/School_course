@@ -34,7 +34,7 @@ export type LeavePolicyRuleType =
   | "rank_chain"
   | "mastery_wisdom_choice";
 
-export type PriorityCount = 2 | 3;
+export type PriorityCount = 1 | 2 | 3;
 
 export type LeavePolicyCourseRule = {
   id: string;
@@ -52,6 +52,8 @@ export type LeavePolicyCourseRule = {
    * For rank_chain/any_day_except_last rules, use eligibleTargets instead.
    */
   makeupTargets?: { section: string; subject: string }[];
+  /** Optional section-specific targets when the missed section changes the allowed make-up section. */
+  sectionTargets?: Record<string, { section: string; subject: string }[]>;
   /** Which ranks/courses this rule can map to for sit-in */
   eligibleTargets: string[];
   /**
@@ -68,6 +70,8 @@ export type RulePriority = {
   label: string;
   /** For cross_section: section + subject targets */
   makeupTargets?: { section: string; subject: string }[];
+  /** Optional section-specific targets when the missed section changes the allowed make-up section. */
+  sectionTargets?: Record<string, { section: string; subject: string }[]>;
   /** For rank_chain: which courses/ranks to map to */
   eligibleTargets?: string[];
   /** For any_day_except_last: show as generic any-day option */
@@ -442,6 +446,8 @@ export type SitInInfo = {
   rule_type?: string;
   sit_in_method: "physical" | "zoom" | "teacher_case" | "none";
   priorities?: SitInPriority[];
+  current_priority_level?: number;
+  has_next_priority?: boolean;
   sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
   available_sessions?: Array<{
     id: string;
