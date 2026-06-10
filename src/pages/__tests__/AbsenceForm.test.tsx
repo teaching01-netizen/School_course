@@ -659,7 +659,6 @@ describe("AbsenceForm", () => {
     await user.click(await screen.findByRole("checkbox"));
 
     expect(await screen.findByText(/1st Priority: Same Writing Beginner lesson/)).toBeInTheDocument();
-    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("Not available");
     expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
     expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
     expect(screen.getByText(/SAT Verbal Writing Beginner Section 2 C2\/26/)).toBeInTheDocument();
@@ -848,6 +847,92 @@ describe("AbsenceForm", () => {
     expect(within(selects[1]).getByRole("option", { name: /Sat, 27 Jun 2026/ })).toBeInTheDocument();
     expect(within(selects[1]).queryByRole("option", { name: /Sun, 14 Jun 2026/ })).not.toBeInTheDocument();
     expect(within(selects[1]).queryByRole("option", { name: /Sat, 13 Jun 2026/ })).not.toBeInTheDocument();
+  }, 30000);
+
+  it("ignores stale restored priority levels when the selected June 16 class has available sit-ins", async () => {
+    const user = userEvent.setup();
+    const missedSessionId = "1d9d68c1-9487-48aa-8696-b07326c0a0da";
+
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        dateFrom: "2026-06-16",
+        dateTo: "2026-06-16",
+        sitInPriorityLevels: {
+          [missedSessionId]: 2,
+        },
+      }),
+    );
+    installHappyPathMocks({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [{ id: "24af31dc-5b2b-4d2f-ab0f-4ee75b3cecaf", code: "17", name: "SAT Verbal Writing Beginner Section 1 C2/26" }],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "24af31dc-5b2b-4d2f-ab0f-4ee75b3cecaf",
+          subject_code: "17",
+          subject_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+          course_id: "a7645da2-6d71-44a0-98d8-759cd1d49e56",
+          course_code: "0000000013",
+          course_name: "",
+          sessions: [
+            {
+              id: missedSessionId,
+              start_at: "2026-06-16T10:00:00Z",
+              end_at: "2026-06-16T13:20:00Z",
+              date: "2026-06-16",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            rule_name: "SAT Verbal Policy",
+            rule_type: "sat_verbal_policy",
+            sit_in_method: "physical",
+            current_priority_level: 1,
+            has_next_priority: true,
+            priorities: [
+              {
+                level: 1,
+                label: "1st Priority: Same Writing Beginner lesson in another section",
+                sit_in_course: {
+                  id: "2d460d39-92dd-4cc2-8460-9f4a08fc4b5e",
+                  code: "0000000014",
+                  name: "",
+                  subject_code: "18",
+                  subject_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                },
+                available_sessions: [
+                  {
+                    id: "b1381c0e-72df-4fc3-99b0-b38e40c81f35",
+                    start_at: "2026-06-14T10:00:00Z",
+                    end_at: "2026-06-14T13:20:00Z",
+                    missed_session_id: missedSessionId,
+                    course_code: "0000000014",
+                    subject_code: "18",
+                    subject_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    });
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(screen.queryByText("No more options available")).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
   it("keeps SAT Verbal priority reveals isolated per selected missed session", async () => {
@@ -1205,14 +1290,10 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("button", { name: /select all/i }));
     await user.click(await screen.findByRole("checkbox"));
 
-    expect(await screen.findByText(/Subject:\s*SAT Verbal Writing Beginner Section 2 C2\/26/i)).toBeInTheDocument();
-    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("SAT Verbal Writing Beginner Section 2 C2/26");
     expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-    expect(await screen.findByText(/Subject:\s*SAT Verbal Writing Beginner Section 3 C2\/26/i)).toBeInTheDocument();
-    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("SAT Verbal Writing Beginner Section 3 C2/26");
-    expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
   it("disables verify parent button when student has no parent phone", async () => {
@@ -1343,7 +1424,7 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
 
-    expect(screen.getByText(/Subject:\s*Math inter/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sit-in class:/i).closest("p")).toHaveTextContent("Math inter");
   });
 
   it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
@@ -1511,7 +1592,7 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Scholar");
     expect(makeUpSelect).not.toHaveTextContent("Math advance");
     expect(makeUpSelect).not.toHaveTextContent("0000000371");
-    expect(screen.getByText(/Subject:\s*Scholar/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sit-in class:/i).closest("p")).toHaveTextContent("Scholar");
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {

@@ -234,6 +234,10 @@ function firstPriorityLevel(group: SubjectSessions): number {
   return Math.min(...priorities.map((priority) => priority.level));
 }
 
+function hasPriorityLevel(group: SubjectSessions, level: number): boolean {
+  return (group.sit_in?.priorities ?? []).some((priority) => priority.level === level);
+}
+
 function nextPriorityLevel(group: SubjectSessions, currentLevel: number): number | null {
   const levels = [...new Set((group.sit_in?.priorities ?? []).map((priority) => priority.level))]
     .filter((level) => level > currentLevel)
@@ -1664,9 +1668,13 @@ export default function AbsenceForm() {
                                       const sessionGroup = groupWithSitInForMissedSession(group, session.id);
                                       const baseSitIn = sessionGroup.sit_in;
                                       const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(sessionGroup);
-                                      const currentLevel = baseSitIn
+                                      const requestedLevel = baseSitIn
                                         ? sitInPriorityLevels[session.id] || baseLevel
                                         : firstPriorityLevel(sessionGroup);
+                                      const requestedPriorityGroup = sitInPriorityHistory[session.id]?.[requestedLevel] ?? sessionGroup;
+                                      const currentLevel = hasPriorityLevel(requestedPriorityGroup, requestedLevel)
+                                        ? requestedLevel
+                                        : baseLevel;
                                       const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
