@@ -875,15 +875,15 @@ describe("AbsenceForm", () => {
                 {
                   id: "sit-writing-2-16",
                   missed_session_id: "missed-writing-16",
-                  start_at: "2026-06-14T17:00:00Z",
-                  end_at: "2026-06-14T20:20:00Z",
+                  start_at: "2026-06-21T17:00:00Z",
+                  end_at: "2026-06-21T20:20:00Z",
                   course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
                 },
                 {
                   id: "sit-writing-2-23",
                   missed_session_id: "missed-writing-23",
-                  start_at: "2026-06-21T17:00:00Z",
-                  end_at: "2026-06-21T20:20:00Z",
+                  start_at: "2026-06-28T17:00:00Z",
+                  end_at: "2026-06-28T20:20:00Z",
                   course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
                 },
               ],
@@ -955,7 +955,7 @@ describe("AbsenceForm", () => {
 
     expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
     const remainingLevelOneSelect = screen.getAllByRole("combobox").find((select) =>
-      within(select).queryByRole("option", { name: /Sun, 21 Jun 2026/ }),
+      within(select).queryByRole("option", { name: /Sun, 28 Jun 2026/ }),
     );
     expect(remainingLevelOneSelect).toBeTruthy();
   }, 30000);

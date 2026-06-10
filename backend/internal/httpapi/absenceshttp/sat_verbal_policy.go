@@ -442,73 +442,34 @@ func satVerbalAvailableSessions(
 	var out []satVerbalAvailableSession
 	if sameLessonOnly {
 		for _, slot := range missedLessonSlots {
-			session, ok := satVerbalSameLessonSession(sessions, slot)
-			if !ok {
+			if slot.Index < 0 || slot.Index >= len(sessions) {
 				continue
 			}
-			if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
+			session := sessions[slot.Index]
+			if satVerbalSessionAllowed(session, finalID, false, missedSessions, notBefore, cutoff, offered) {
 				out = append(out, satVerbalAvailableSession{Session: session, MissedSessionID: slot.Missed.ID})
 			}
 		}
 		return out
 	}
 	for _, session := range sessions {
-		if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
+		if satVerbalSessionAllowed(session, finalID, true, missedSessions, notBefore, cutoff, offered) {
 			out = append(out, satVerbalAvailableSession{Session: session})
 		}
 	}
 	return out
 }
 
-func satVerbalSameLessonSession(sessions []sqldb.SessionInRange, slot satVerbalMissedLessonSlot) (sqldb.SessionInRange, bool) {
-	if len(sessions) == 0 {
-		return sqldb.SessionInRange{}, false
-	}
-	if slot.Missed.StartAt.Valid {
-		if session, ok := nearestSessionInOccurrenceWeek(sessions, slot.Missed.StartAt.Time); ok {
-			return session, true
-		}
-	}
-	if slot.Index >= 0 && slot.Index < len(sessions) {
-		return sessions[slot.Index], true
-	}
-	return sqldb.SessionInRange{}, false
-}
-
-func nearestSessionInOccurrenceWeek(sessions []sqldb.SessionInRange, missedStart time.Time) (sqldb.SessionInRange, bool) {
-	const maxOccurrenceGap = 6 * 24 * time.Hour
-	var best sqldb.SessionInRange
-	var bestDiff time.Duration
-	found := false
-	for _, session := range sessions {
-		if !session.StartAt.Valid {
-			continue
-		}
-		diff := session.StartAt.Time.Sub(missedStart)
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > maxOccurrenceGap {
-			continue
-		}
-		if !found || diff < bestDiff || (diff == bestDiff && session.StartAt.Time.Before(best.StartAt.Time)) {
-			best = session
-			bestDiff = diff
-			found = true
-		}
-	}
-	return best, found
-}
-
 func satVerbalSessionAllowed(
 	session sqldb.SessionInRange,
 	finalID pgtype.UUID,
+	excludeFinal bool,
 	missedSessions []sqldb.SessionInRange,
 	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
 ) bool {
-	if finalID.Valid && session.ID == finalID {
+	if excludeFinal && finalID.Valid && session.ID == finalID {
 		return false
 	}
 	if _, ok := offered[session.ID]; ok {
