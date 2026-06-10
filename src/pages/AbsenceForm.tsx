@@ -148,6 +148,49 @@ function getSitInCourseDisplayName(
   );
 }
 
+function getPriorityTargetDisplayName(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  const courseName = getSitInCourseDisplayName(priority.sit_in_course, "", allSubjects);
+  if (courseName) return courseName;
+
+  const firstSession = priority.available_sessions?.[0];
+  return (
+    firstSession?.class_name?.trim() ||
+    firstSession?.subject_name?.trim() ||
+    firstSession?.course_name?.trim() ||
+    firstSession?.subject_code?.trim() ||
+    firstSession?.course_code?.trim() ||
+    fallbackSubjectName
+  );
+}
+
+function getCurrentSitInDisplayName(
+  sitIn: SubjectSessions["sit_in"],
+  currentPriorities: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  if (sitIn?.sit_in_method !== "physical") {
+    return sitIn?.sit_in_method === "zoom" ? "Zoom" : "To arrange";
+  }
+
+  if (currentPriorities.length > 0) {
+    const labels = [
+      ...new Set(
+        currentPriorities
+          .map((priority) => getPriorityTargetDisplayName(priority, fallbackSubjectName, allSubjects).trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (labels.length > 0) return labels.join(", ");
+  }
+
+  return getSitInCourseDisplayName(sitIn.sit_in_course, fallbackSubjectName, allSubjects);
+}
+
 function getStudentDisplayName(lookup: StudentLookupResponse | null) {
   return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
 }
@@ -1572,7 +1615,12 @@ export default function AbsenceForm() {
                                       const currentSitIn = sitInSelections[session.id] || "";
                                       const sitIn = group.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
-                                      const sitInClassLabel = getSitInCourseDisplayName(sitIn?.sit_in_course, groupLabel, sessions);
+                                      const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
+                                      const currentLevel = sitIn
+                                        ? sitInPriorityLevels[session.id] || sitIn.current_priority_level || firstPriorityLevel(group)
+                                        : firstPriorityLevel(group);
+                                      const currentPriorities = hasPriorities ? prioritiesForLevel(group, currentLevel) : [];
+                                      const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
                                         <div
@@ -1619,11 +1667,8 @@ export default function AbsenceForm() {
                                               </div>
                                                {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
-                                                  const hasPriorities = sitIn.priorities && sitIn.priorities.length > 0;
                                                   if (hasPriorities) {
                                                     const serverReveal = hasServerPriorityReveal(group);
-                                                    const currentLevel = sitInPriorityLevels[session.id] || sitIn.current_priority_level || firstPriorityLevel(group);
-                                                    const currentPriorities = prioritiesForLevel(group, currentLevel);
                                                     const currentPriority = currentPriorities[0];
                                                     const nextLevel = nextPriorityLevel(group, currentLevel);
                                                     const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
@@ -1666,17 +1711,17 @@ export default function AbsenceForm() {
                                                             </div>
 
                                                             {(hasPreviousPriority || hasMorePriorities) && (
-                                                              <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 p-0.5 shadow-sm">
+                                                              <div className="inline-flex w-full shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 p-0.5 shadow-sm sm:w-fit">
                                                                 {hasPreviousPriority && (
                                                                   <button
                                                                     type="button"
                                                                     disabled={revealingPriority}
                                                                     onClick={() => handlePreviousPriority(group, session.id)}
                                                                     aria-label="See previous times"
-                                                                    className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                    className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                                                                   >
                                                                     <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                                                                    <span className="hidden sm:inline">Back</span>
+                                                                    <span>Back</span>
                                                                   </button>
                                                                 )}
                                                                 {hasMorePriorities && (
@@ -1684,7 +1729,7 @@ export default function AbsenceForm() {
                                                                     type="button"
                                                                     disabled={revealingPriority}
                                                                     onClick={() => void handleNotAvailable(group, session.id)}
-                                                                    className="inline-flex h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold text-gray-700 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                    className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-gray-700 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                                                                   >
                                                                     <span>{revealingPriority ? "Loading..." : "See other times"}</span>
                                                                     {!revealingPriority && <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}

@@ -614,6 +614,121 @@ describe("AbsenceForm", () => {
     expect(screen.getByRole("option", { name: /SAT Verbal Rank 3 Section 2/ })).toBeInTheDocument();
   }, 30000);
 
+  it("shows the current priority sit-in target in the header and dropdown", async () => {
+    const user = userEvent.setup();
+    const initialSessions = createMockSessionsInRange([
+      {
+        subject_id: "subj-satv",
+        subject_code: "SATV",
+        subject_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        course_id: "c-writing-1",
+        course_code: "W1",
+        course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        sessions: [
+          {
+            id: "missed-writing-1",
+            start_at: "2026-06-09T10:00:00Z",
+            end_at: "2026-06-09T13:20:00Z",
+            date: "2026-06-09",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical",
+          sit_in_course: {
+            id: "c-writing-1",
+            code: "W1",
+            name: "SAT Verbal Writing Beginner Section 1 C2/26",
+          },
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [
+            {
+              level: 1,
+              label: "1st Priority",
+              sit_in_course: {
+                id: "c-writing-2",
+                code: "W2",
+                name: "SAT Verbal Writing Beginner Section 2 C2/26",
+              },
+              available_sessions: [
+                {
+                  id: "sit-writing-2",
+                  start_at: "2026-06-14T10:00:00Z",
+                  end_at: "2026-06-14T13:20:00Z",
+                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const nextSessions = createMockSessionsInRange([
+      {
+        ...initialSessions.subjects[0],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 2,
+          has_next_priority: false,
+          priorities: [
+            {
+              level: 2,
+              label: "2nd Priority",
+              sit_in_course: {
+                id: "c-writing-3",
+                code: "W3",
+                name: "SAT Verbal Writing Beginner Section 3 C2/26",
+              },
+              available_sessions: [
+                {
+                  id: "sit-writing-3",
+                  start_at: "2026-06-15T10:00:00Z",
+                  end_at: "2026-06-15T13:20:00Z",
+                  course_name: "SAT Verbal Writing Beginner Section 3 C2/26",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes("absence-form-config")) return MOCK_CONFIG;
+      if (path.includes("student-lookup")) {
+        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
+      }
+      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("sessions-in-range")) return initialSessions;
+      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
+      throw new Error(`Unmocked API call: ${url}`);
+    });
+    prePopulateSessionStorage("2026-06-09", "2026-06-15");
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(await screen.findByText(/Subject:\s*SAT Verbal Writing Beginner Section 2 C2\/26/i)).toBeInTheDocument();
+    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("SAT Verbal Writing Beginner Section 2 C2/26");
+    expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    expect(await screen.findByText(/Subject:\s*SAT Verbal Writing Beginner Section 3 C2\/26/i)).toBeInTheDocument();
+    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("SAT Verbal Writing Beginner Section 3 C2/26");
+    expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
+  }, 30000);
+
   it("disables verify parent button when student has no parent phone", async () => {
     installHappyPathMocks({
       student: {

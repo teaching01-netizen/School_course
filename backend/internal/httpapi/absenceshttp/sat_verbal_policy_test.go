@@ -474,6 +474,85 @@ func TestResolveSatVerbalPolicy_BeginnerSection3TargetsSection1SameLessonOnly(t 
 	}
 }
 
+func TestResolveSatVerbalPolicy_BeginnerSection1DoesNotOfferSameLessonBeforeMissedDate(t *testing.T) {
+	section1ID := "11100000-0000-0000-0000-000000000001"
+	section2ID := "22200000-0000-0000-0000-000000000002"
+	section3ID := "33300000-0000-0000-0000-000000000003"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "sat-verbal-reading-beginner-sec1",
+			"courseName": "SAT Verbal Reading Beginner Section 1",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Same Reading Beginner lesson in another section",
+					"makeupTargets": [
+						{ "section": "Section 2", "subject": "Reading Beginner" },
+						{ "section": "Section 3", "subject": "Reading Beginner" }
+					]
+				}
+			]
+		}
+	]`)
+
+	courses := []sqldb.SubjectCourseV2{
+		satCourse(section1ID, "SAT Verbal Reading Beginner Section 1"),
+		satCourse(section2ID, "SAT Verbal Reading Beginner Section 2"),
+		satCourse(section3ID, "SAT Verbal Reading Beginner Section 3"),
+	}
+	missedSessions := []sqldb.SessionInRange{
+		session("b1110000-0000-0000-0000-000000000003", section1ID, "2026-06-09T09:00:00Z", "2026-06-09T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section1ID): {
+			session("b1110000-0000-0000-0000-000000000001", section1ID, "2026-05-26T09:00:00Z", "2026-05-26T10:00:00Z"),
+			session("b1110000-0000-0000-0000-000000000002", section1ID, "2026-06-02T09:00:00Z", "2026-06-02T10:00:00Z"),
+			missedSessions[0],
+			session("b1110000-0000-0000-0000-000000000004", section1ID, "2026-06-16T09:00:00Z", "2026-06-16T10:00:00Z"),
+		},
+		makeUUID(section2ID): {
+			session("b2220000-0000-0000-0000-000000000001", section2ID, "2026-05-25T11:00:00Z", "2026-05-25T12:00:00Z"),
+			session("b2220000-0000-0000-0000-000000000002", section2ID, "2026-06-01T11:00:00Z", "2026-06-01T12:00:00Z"),
+			session("b2220000-0000-0000-0000-000000000003", section2ID, "2026-06-08T11:00:00Z", "2026-06-08T12:00:00Z"),
+			session("b2220000-0000-0000-0000-000000000004", section2ID, "2026-06-15T11:00:00Z", "2026-06-15T12:00:00Z"),
+		},
+		makeUUID(section3ID): {
+			session("b3330000-0000-0000-0000-000000000001", section3ID, "2026-05-27T13:00:00Z", "2026-05-27T14:00:00Z"),
+			session("b3330000-0000-0000-0000-000000000002", section3ID, "2026-06-03T13:00:00Z", "2026-06-03T14:00:00Z"),
+			session("b3330000-0000-0000-0000-000000000003", section3ID, "2026-06-10T13:00:00Z", "2026-06-10T14:00:00Z"),
+			session("b3330000-0000-0000-0000-000000000004", section3ID, "2026-06-17T13:00:00Z", "2026-06-17T14:00:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Policy:         rules,
+		MissedCourse:   courses[0],
+		Enrolled:       []sqldb.StudentEnrolledCourseV2{satEnrolled(section1ID, "SAT Verbal Reading Beginner Section 1")},
+		AllCourses:     courses,
+		MissedSessions: missedSessions,
+		Cutoff:         time.Time{},
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("expected only the non-stale same-lesson priority, got %#v", result)
+	}
+	first := result.Priorities[0]
+	if first.SitInCourse == nil || first.SitInCourse.Name != "SAT Verbal Reading Beginner Section 3" {
+		t.Fatalf("priority target = %#v, want Section 3 because Section 2 same lesson is before missed date", first.SitInCourse)
+	}
+	if got := first.Available; len(got) != 1 || got[0].ID != "b3330000-0000-0000-0000-000000000003" {
+		t.Fatalf("available = %#v, want Section 3 same lesson on or after missed date", got)
+	}
+}
+
 func TestResolveSatVerbalPolicy_MappedBeginnerSection3TargetsSection1SameLessonOnly(t *testing.T) {
 	section3ID := "33000000-0000-0000-0000-000000000003"
 	section1ID := "13000000-0000-0000-0000-000000000001"
