@@ -192,6 +192,13 @@ function nextPriorityLevel(group: SubjectSessions, currentLevel: number): number
   return levels[0] ?? null;
 }
 
+function previousPriorityLevel(group: SubjectSessions, currentLevel: number): number | null {
+  const levels = [...new Set((group.sit_in?.priorities ?? []).map((priority) => priority.level))]
+    .filter((level) => level < currentLevel)
+    .sort((a, b) => b - a);
+  return levels[0] ?? null;
+}
+
 function prioritiesForLevel(group: SubjectSessions, level: number) {
   return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
 }
@@ -552,6 +559,7 @@ export default function AbsenceForm() {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
+  const [sitInPriorityHistory, setSitInPriorityHistory] = useState<Record<string, Record<number, SubjectSessions>>>({});
   const [revealingPrioritySessionIds, setRevealingPrioritySessionIds] = useState<Set<string>>(new Set());
   const [pageError, setPageError] = useState<string | null>(null);
   const [courseAnnouncement, setCourseAnnouncement] = useState("");
@@ -873,6 +881,13 @@ export default function AbsenceForm() {
         delete next[sessionId];
         return next;
       });
+      setSitInPriorityHistory((prev) => ({
+        ...prev,
+        [sessionId]: {
+          ...(prev[sessionId] ?? {}),
+          [currentLevel]: group,
+        },
+      }));
       try {
         const data = await apiJson<SessionsInRangeResponse>(
           sessionsInRangePath(lookup.wcode, dateFrom, dateTo, {
@@ -894,6 +909,13 @@ export default function AbsenceForm() {
           ...prev,
           [sessionId]: updatedLevel,
         }));
+        setSitInPriorityHistory((prev) => ({
+          ...prev,
+          [sessionId]: {
+            ...(prev[sessionId] ?? {}),
+            [updatedLevel]: updatedGroup,
+          },
+        }));
       } catch (error) {
         setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
       } finally {
@@ -911,6 +933,46 @@ export default function AbsenceForm() {
     setSitInPriorityLevels((prev) => ({
       ...prev,
       [sessionId]: nextLevel,
+    }));
+    setSitInSelections((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  };
+
+  const handlePreviousPriority = (group: SubjectSessions, sessionId: string) => {
+    const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
+
+    if (hasServerPriorityReveal(group)) {
+      const history = sitInPriorityHistory[sessionId] ?? {};
+      const previousLevel = Object.keys(history)
+        .map(Number)
+        .filter((level) => level < currentLevel)
+        .sort((a, b) => b - a)[0];
+      const previousGroup = previousLevel !== undefined ? history[previousLevel] : undefined;
+      if (!previousGroup) return;
+
+      setSessions((current) =>
+        current.map((subject) => (subject.course_id === group.course_id ? previousGroup : subject)),
+      );
+      setSitInPriorityLevels((prev) => ({
+        ...prev,
+        [sessionId]: previousLevel,
+      }));
+      setSitInSelections((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+      return;
+    }
+
+    const previousLevel = previousPriorityLevel(group, currentLevel);
+    if (previousLevel == null) return;
+    setSitInPriorityLevels((prev) => ({
+      ...prev,
+      [sessionId]: previousLevel,
     }));
     setSitInSelections((prev) => {
       const next = { ...prev };
@@ -1565,6 +1627,9 @@ export default function AbsenceForm() {
                                                     const currentPriority = currentPriorities[0];
                                                     const nextLevel = nextPriorityLevel(group, currentLevel);
                                                     const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
+                                                    const hasPreviousPriority = serverReveal
+                                                      ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((level) => Number(level) < currentLevel)
+                                                      : previousPriorityLevel(group, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
 
                                                     if (!currentPriority) {
@@ -1599,15 +1664,31 @@ export default function AbsenceForm() {
                                                              )}
                                                            </select>
                                                         </div>
-                                                        {hasMorePriorities && (
-                                                          <button
-                                                            type="button"
-                                                            disabled={revealingPriority}
-                                                            onClick={() => void handleNotAvailable(group, session.id)}
-                                                            className="mt-2 text-xs font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900"
-                                                          >
-                                                            {revealingPriority ? "Loading other times..." : "See other times"}
-                                                          </button>
+                                                        {(hasPreviousPriority || hasMorePriorities) && (
+                                                          <div className="mt-2 flex items-center gap-2">
+                                                            {hasPreviousPriority && (
+                                                              <button
+                                                                type="button"
+                                                                disabled={revealingPriority}
+                                                                onClick={() => handlePreviousPriority(group, session.id)}
+                                                                aria-label="See previous times"
+                                                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-amber-300 bg-white text-amber-700 transition hover:border-amber-500 hover:text-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                                              >
+                                                                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                                                              </button>
+                                                            )}
+                                                            {hasMorePriorities && (
+                                                              <button
+                                                                type="button"
+                                                                disabled={revealingPriority}
+                                                                onClick={() => void handleNotAvailable(group, session.id)}
+                                                                className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                                              >
+                                                                {revealingPriority ? "Loading other times..." : "See other times"}
+                                                                {!revealingPriority && <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
+                                                              </button>
+                                                            )}
+                                                          </div>
                                                         )}
                                                       </>
                                                     );

@@ -458,7 +458,7 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
-  it("advances SAT Verbal priority display across skipped priority levels", async () => {
+  it("advances and returns SAT Verbal priority display across skipped priority levels", async () => {
     const user = userEvent.setup();
     const initialSessions = createMockSessionsInRange([
       {
@@ -547,7 +547,12 @@ describe("AbsenceForm", () => {
       );
     });
     expect(await screen.findByText(/3rd Priority: Rank 4 Reading or Writing/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /see previous times/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /see previous times/i }));
+    expect(await screen.findByText(/1st Priority: Another Rank 3 section/)).toBeInTheDocument();
+    expect(screen.queryByText(/3rd Priority: Rank 4 Reading or Writing/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {
