@@ -95,6 +95,29 @@ func TestSatVerbalPolicyMappingsRepairAddsAllRuntimeColumns(t *testing.T) {
 	}
 }
 
+func TestSatVerbalPolicyMappingsLegacyColumnsDoNotBlockInserts(t *testing.T) {
+	sql := readMigration(t, "00041_relax_sat_verbal_policy_mapping_legacy_columns.sql")
+
+	for _, column := range []string{
+		"subject_id",
+		"root_course_group_id",
+		"warnings",
+		"matched_courses",
+		"unmatched_policy_rows",
+		"unmatched_courses",
+	} {
+		if !strings.Contains(sql, "column_name = '"+column+"'") {
+			t.Fatalf("00041 must check legacy column %s", column)
+		}
+	}
+	if !strings.Contains(sql, "ALTER COLUMN subject_id DROP NOT NULL") {
+		t.Fatal("00041 must relax subject_id so current insert path can save mappings")
+	}
+	if !strings.Contains(sql, "ALTER COLUMN root_course_group_id DROP NOT NULL") {
+		t.Fatal("00041 must relax root_course_group_id so current insert path can save mappings")
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
