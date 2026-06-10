@@ -961,9 +961,6 @@ export default function AbsenceForm() {
           setPageError("No more make-up times are available for this class.");
           return;
         }
-        setSessions((current) =>
-          current.map((subject) => (subject.course_id === group.course_id ? updatedGroup : subject)),
-        );
         const updatedLevel = updatedGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedGroup);
         setSitInPriorityLevels((prev) => ({
           ...prev,
@@ -1013,9 +1010,6 @@ export default function AbsenceForm() {
       const previousGroup = previousLevel !== undefined ? history[previousLevel] : undefined;
       if (!previousGroup) return;
 
-      setSessions((current) =>
-        current.map((subject) => (subject.course_id === group.course_id ? previousGroup : subject)),
-      );
       setSitInPriorityLevels((prev) => ({
         ...prev,
         [sessionId]: previousLevel,
@@ -1630,13 +1624,16 @@ export default function AbsenceForm() {
                                     {group.sessions.map((session) => {
                                       const selected = selectedSessionIds.has(session.id);
                                       const currentSitIn = sitInSelections[session.id] || "";
-                                      const sitIn = group.sit_in;
+                                      const baseSitIn = group.sit_in;
+                                      const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(group);
+                                      const currentLevel = baseSitIn
+                                        ? sitInPriorityLevels[session.id] || baseLevel
+                                        : firstPriorityLevel(group);
+                                      const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? group;
+                                      const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
                                       const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
-                                      const currentLevel = sitIn
-                                        ? sitInPriorityLevels[session.id] || sitIn.current_priority_level || firstPriorityLevel(group)
-                                        : firstPriorityLevel(group);
-                                      const currentPriorities = hasPriorities ? prioritiesForLevel(group, currentLevel) : [];
+                                      const currentPriorities = hasPriorities ? prioritiesForLevel(priorityGroup, currentLevel) : [];
                                       const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
@@ -1685,13 +1682,13 @@ export default function AbsenceForm() {
                                                {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
                                                   if (hasPriorities) {
-                                                    const serverReveal = hasServerPriorityReveal(group);
+                                                    const serverReveal = hasServerPriorityReveal(priorityGroup);
                                                     const currentPriority = currentPriorities[0];
-                                                    const nextLevel = nextPriorityLevel(group, currentLevel);
+                                                    const nextLevel = nextPriorityLevel(priorityGroup, currentLevel);
                                                     const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
                                                     const hasPreviousPriority = serverReveal
                                                       ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((level) => Number(level) < currentLevel)
-                                                      : previousPriorityLevel(group, currentLevel) !== null;
+                                                      : previousPriorityLevel(priorityGroup, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
                                                     const currentPriorityAvailable = currentPriorities.flatMap(priority =>
                                                       availableSessionsForMissedSession(priority, session.id),
@@ -1736,7 +1733,7 @@ export default function AbsenceForm() {
                                                                   <button
                                                                     type="button"
                                                                     disabled={revealingPriority}
-                                                                    onClick={() => handlePreviousPriority(group, session.id)}
+                                                                    onClick={() => handlePreviousPriority(priorityGroup, session.id)}
                                                                     aria-label="See previous times"
                                                                     className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                                                                   >
@@ -1748,7 +1745,7 @@ export default function AbsenceForm() {
                                                                   <button
                                                                     type="button"
                                                                     disabled={revealingPriority}
-                                                                    onClick={() => void handleNotAvailable(group, session.id)}
+                                                                    onClick={() => void handleNotAvailable(priorityGroup, session.id)}
                                                                     className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-gray-700 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                                                                   >
                                                                     <span>{revealingPriority ? "Loading..." : "See other times"}</span>

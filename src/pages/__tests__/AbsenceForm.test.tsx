@@ -832,6 +832,134 @@ describe("AbsenceForm", () => {
     expect(within(selects[1]).queryByRole("option", { name: /Sat, 13 Jun 2026/ })).not.toBeInTheDocument();
   }, 30000);
 
+  it("keeps SAT Verbal priority reveals isolated per selected missed session", async () => {
+    const user = userEvent.setup();
+    const initialSessions = createMockSessionsInRange([
+      {
+        subject_id: "subj-satv",
+        subject_code: "SATV",
+        subject_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        course_id: "c-writing-1",
+        course_code: "W1",
+        course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        sessions: [
+          {
+            id: "missed-writing-16",
+            start_at: "2026-06-16T17:00:00Z",
+            end_at: "2026-06-16T20:20:00Z",
+            date: "2026-06-16",
+            already_absent: false,
+          },
+          {
+            id: "missed-writing-23",
+            start_at: "2026-06-23T17:00:00Z",
+            end_at: "2026-06-23T20:20:00Z",
+            date: "2026-06-23",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [
+            {
+              level: 1,
+              label: "1st Priority",
+              sit_in_course: {
+                id: "c-writing-2",
+                code: "W2",
+                name: "SAT Verbal Writing Beginner Section 2 C2/26",
+              },
+              available_sessions: [
+                {
+                  id: "sit-writing-2-16",
+                  missed_session_id: "missed-writing-16",
+                  start_at: "2026-06-14T17:00:00Z",
+                  end_at: "2026-06-14T20:20:00Z",
+                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                },
+                {
+                  id: "sit-writing-2-23",
+                  missed_session_id: "missed-writing-23",
+                  start_at: "2026-06-21T17:00:00Z",
+                  end_at: "2026-06-21T20:20:00Z",
+                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const nextSessions = createMockSessionsInRange([
+      {
+        ...initialSessions.subjects[0],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 2,
+          has_next_priority: false,
+          priorities: [
+            {
+              level: 2,
+              label: "2nd Priority: SAT Verbal Writing Rank 5",
+              sit_in_course: {
+                id: "c-writing-rank5",
+                code: "WR5",
+                name: "SAT Verbal Writing Rank 5 C2/26",
+              },
+              available_sessions: [
+                {
+                  id: "sit-writing-rank5",
+                  start_at: "2026-06-17T17:00:00Z",
+                  end_at: "2026-06-17T20:20:00Z",
+                  course_name: "SAT Verbal Writing Rank 5 C2/26",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes("absence-form-config")) return MOCK_CONFIG;
+      if (path.includes("student-lookup")) {
+        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
+      }
+      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("sessions-in-range")) return initialSessions;
+      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
+      throw new Error(`Unmocked API call: ${url}`);
+    });
+    prePopulateSessionStorage("2026-06-16", "2026-06-23");
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    const sessionCheckboxes = await screen.findAllByRole("checkbox");
+    for (const checkbox of sessionCheckboxes) {
+      await user.click(checkbox);
+    }
+    expect(await screen.findAllByRole("combobox")).toHaveLength(2);
+
+    await user.click(screen.getAllByRole("button", { name: /see other times/i })[0]);
+
+    expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
+    const remainingLevelOneSelect = screen.getAllByRole("combobox").find((select) =>
+      within(select).queryByRole("option", { name: /Sun, 21 Jun 2026/ }),
+    );
+    expect(remainingLevelOneSelect).toBeTruthy();
+  }, 30000);
+
   it("shows the current priority sit-in target in the header and dropdown", async () => {
     const user = userEvent.setup();
     const initialSessions = createMockSessionsInRange([

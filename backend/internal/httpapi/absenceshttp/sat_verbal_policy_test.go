@@ -628,6 +628,109 @@ func TestResolveSatVerbalPolicy_BeginnerFutureLeaveCanUseSameLessonBeforeLeaveDa
 	}
 }
 
+func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLeaveDate(t *testing.T) {
+	section1ID := "81100000-0000-0000-0000-000000000001"
+	section2ID := "82200000-0000-0000-0000-000000000002"
+	section3ID := "83300000-0000-0000-0000-000000000003"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "sat-verbal-writing-beginner-sec1",
+			"courseName": "SAT Verbal Writing Beginner Section 1",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Same Writing Beginner lesson in another section",
+					"makeupTargets": [
+						{ "section": "Section 2", "subject": "Writing Beginner" },
+						{ "section": "Section 3", "subject": "Writing Beginner" }
+					]
+				}
+			]
+		}
+	]`)
+
+	courses := []sqldb.SubjectCourseV2{
+		satCourse(section1ID, "SAT Verbal Writing Beginner Section 1"),
+		satCourse(section2ID, "SAT Verbal Writing Beginner Section 2"),
+		satCourse(section3ID, "SAT Verbal Writing Beginner Section 3"),
+	}
+	missedSessions := []sqldb.SessionInRange{
+		session("e8110000-0000-0000-0000-000000000003", section1ID, "2026-06-16T17:00:00Z", "2026-06-16T20:20:00Z"),
+		session("e8110000-0000-0000-0000-000000000004", section1ID, "2026-06-23T17:00:00Z", "2026-06-23T20:20:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section1ID): {
+			session("e8110000-0000-0000-0000-000000000001", section1ID, "2026-06-02T17:00:00Z", "2026-06-02T20:20:00Z"),
+			session("e8110000-0000-0000-0000-000000000002", section1ID, "2026-06-09T17:00:00Z", "2026-06-09T20:20:00Z"),
+			missedSessions[0],
+			missedSessions[1],
+			session("e8110000-0000-0000-0000-000000000005", section1ID, "2026-06-30T17:00:00Z", "2026-06-30T20:20:00Z"),
+		},
+		makeUUID(section2ID): {
+			session("e8220000-0000-0000-0000-000000000001", section2ID, "2026-06-07T17:00:00Z", "2026-06-07T20:20:00Z"),
+			session("e8220000-0000-0000-0000-000000000002", section2ID, "2026-06-14T17:00:00Z", "2026-06-14T20:20:00Z"),
+			session("e8220000-0000-0000-0000-000000000003", section2ID, "2026-06-21T17:00:00Z", "2026-06-21T20:20:00Z"),
+			session("e8220000-0000-0000-0000-000000000004", section2ID, "2026-06-28T17:00:00Z", "2026-06-28T20:20:00Z"),
+		},
+		makeUUID(section3ID): {
+			session("e8330000-0000-0000-0000-000000000001", section3ID, "2026-06-06T17:00:00Z", "2026-06-06T20:20:00Z"),
+			session("e8330000-0000-0000-0000-000000000002", section3ID, "2026-06-13T17:00:00Z", "2026-06-13T20:20:00Z"),
+			session("e8330000-0000-0000-0000-000000000003", section3ID, "2026-06-20T17:00:00Z", "2026-06-20T20:20:00Z"),
+			session("e8330000-0000-0000-0000-000000000004", section3ID, "2026-06-27T17:00:00Z", "2026-06-27T20:20:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Policy:         rules,
+		MissedCourse:   courses[0],
+		Enrolled:       []sqldb.StudentEnrolledCourseV2{satEnrolled(section1ID, "SAT Verbal Writing Beginner Section 1")},
+		AllCourses:     courses,
+		MissedSessions: missedSessions,
+		Cutoff:         time.Time{},
+		RequestTime:    time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC),
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 2 {
+		t.Fatalf("expected Section 2 and Section 3 priorities, got %#v", result)
+	}
+
+	expectedByCourse := map[string]map[string]string{
+		"SAT Verbal Writing Beginner Section 2": {
+			"e8110000-0000-0000-0000-000000000003": "e8220000-0000-0000-0000-000000000002",
+			"e8110000-0000-0000-0000-000000000004": "e8220000-0000-0000-0000-000000000003",
+		},
+		"SAT Verbal Writing Beginner Section 3": {
+			"e8110000-0000-0000-0000-000000000003": "e8330000-0000-0000-0000-000000000002",
+			"e8110000-0000-0000-0000-000000000004": "e8330000-0000-0000-0000-000000000003",
+		},
+	}
+	for _, priority := range result.Priorities {
+		if priority.SitInCourse == nil {
+			t.Fatalf("priority missing target course: %#v", priority)
+		}
+		expected := expectedByCourse[priority.SitInCourse.Name]
+		if expected == nil {
+			t.Fatalf("unexpected target course %q", priority.SitInCourse.Name)
+		}
+		if len(priority.Available) != len(expected) {
+			t.Fatalf("%s available = %#v, want %d same-occurrence options", priority.SitInCourse.Name, priority.Available, len(expected))
+		}
+		for _, available := range priority.Available {
+			if expected[available.MissedSessionID] != available.ID {
+				t.Fatalf("%s option %#v does not match expected missed-session occurrence", priority.SitInCourse.Name, available)
+			}
+		}
+	}
+}
+
 func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevealRank5(t *testing.T) {
 	section1ID := "61100000-0000-0000-0000-000000000001"
 	section2ID := "62200000-0000-0000-0000-000000000002"
@@ -666,13 +769,13 @@ func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevea
 		satCourse(rank5ID, "SAT Verbal Writing Rank 5"),
 	}
 	missedSessions := []sqldb.SessionInRange{
-		session("c6110000-0000-0000-0000-000000000003", section1ID, "2026-06-16T17:00:00Z", "2026-06-16T20:20:00Z"),
+		session("c6110000-0000-0000-0000-000000000002", section1ID, "2026-06-09T17:00:00Z", "2026-06-09T20:20:00Z"),
 	}
 	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
 		makeUUID(section1ID): {
 			session("c6110000-0000-0000-0000-000000000001", section1ID, "2026-06-02T17:00:00Z", "2026-06-02T20:20:00Z"),
-			session("c6110000-0000-0000-0000-000000000002", section1ID, "2026-06-09T17:00:00Z", "2026-06-09T20:20:00Z"),
 			missedSessions[0],
+			session("c6110000-0000-0000-0000-000000000003", section1ID, "2026-06-16T17:00:00Z", "2026-06-16T20:20:00Z"),
 			session("c6110000-0000-0000-0000-000000000004", section1ID, "2026-06-23T17:00:00Z", "2026-06-23T20:20:00Z"),
 		},
 		makeUUID(section2ID): {
