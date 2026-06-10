@@ -1,8 +1,8 @@
 -- +goose Up
 
--- The sat_verbal_policy_mappings table exists in production but may be
--- missing columns from migration 00038. This migration repairs the expected
--- application schema idempotently.
+-- Repair environments where 00039 already ran but the pre-existing
+-- sat_verbal_policy_mappings table was still missing other columns required by
+-- the application queries.
 
 -- +goose StatementBegin
 DO $$
@@ -157,5 +157,4 @@ END $$;
 
 -- +goose Down
 
--- Down migration is intentionally a no-op: we never want to drop the
--- course_id column that the application requires.
+-- Down migration is intentionally a no-op: this is a production schema repair.

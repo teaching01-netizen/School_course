@@ -65,6 +65,36 @@ func TestSatVerbalPolicyMappingsFixWrapsDollarQuotedBlock(t *testing.T) {
 	}
 }
 
+func TestSatVerbalPolicyMappingsRepairAddsAllRuntimeColumns(t *testing.T) {
+	for _, name := range []string{
+		"00039_fix_sat_verbal_policy_mappings_course_id.sql",
+		"00040_repair_sat_verbal_policy_mappings_schema.sql",
+	} {
+		sql := readMigration(t, name)
+		for _, column := range []string{
+			"id",
+			"rule_id",
+			"course_id",
+			"policy_rule",
+			"policy_hash",
+			"active",
+			"created_at",
+			"updated_at",
+		} {
+			if !strings.Contains(sql, "column_name = '"+column+"'") {
+				t.Fatalf("%s must repair missing %s column", name, column)
+			}
+		}
+		if !strings.Contains(sql, "DELETE FROM sat_verbal_policy_mappings") ||
+			!strings.Contains(sql, "WHERE course_id IS NULL") {
+			t.Fatalf("%s must remove unrecoverable rows before enforcing course_id NOT NULL", name)
+		}
+		if !strings.Contains(sql, "sat_verbal_policy_mappings_rule_id_unique UNIQUE (rule_id)") {
+			t.Fatalf("%s must restore rule_id uniqueness", name)
+		}
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
