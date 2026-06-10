@@ -252,6 +252,16 @@ function prioritiesForLevel(group: SubjectSessions, level: number) {
   return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
 }
 
+function sitInForMissedSession(group: SubjectSessions, missedSessionId: string) {
+  return group.sit_in?.sit_in_by_missed_session?.[missedSessionId] ?? group.sit_in;
+}
+
+function groupWithSitInForMissedSession(group: SubjectSessions, missedSessionId: string): SubjectSessions {
+  const sitIn = sitInForMissedSession(group, missedSessionId);
+  if (!sitIn || sitIn === group.sit_in) return group;
+  return { ...group, sit_in: sitIn };
+}
+
 function availableSessionsForMissedSession(
   priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
   missedSessionId: string,
@@ -307,17 +317,24 @@ function selectedSitInCourseIDForGroup(
   selectedMissedSessionIds: string[],
   sitInSelections: Record<string, string>,
 ): string | null {
-  if (group.sit_in?.sit_in_method !== "physical") {
+  if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
     return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
-  }
-
-  const priorities = group.sit_in.priorities ?? [];
-  if (priorities.length === 0) {
-    return group.sit_in.sit_in_course?.id?.trim() || group.course_id.trim() || null;
   }
 
   const courseIDs = new Set<string>();
   for (const missedSessionID of selectedMissedSessionIds) {
+    const sitIn = sitInForMissedSession(group, missedSessionID);
+    if (sitIn?.sit_in_method !== "physical") {
+      const courseID = sitIn?.sit_in_course?.id?.trim() || group.course_id.trim();
+      if (courseID) courseIDs.add(courseID);
+      continue;
+    }
+    const priorities = sitIn.priorities ?? [];
+    if (priorities.length === 0) {
+      const courseID = sitIn.sit_in_course?.id?.trim() || group.course_id.trim();
+      if (courseID) courseIDs.add(courseID);
+      continue;
+    }
     const sitInSessionID = sitInSelections[missedSessionID];
     if (!sitInSessionID) continue;
     for (const priority of priorities) {
@@ -331,7 +348,7 @@ function selectedSitInCourseIDForGroup(
   }
 
   if (courseIDs.size === 1) return [...courseIDs][0];
-  if (courseIDs.size === 0) return group.sit_in.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+  if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
   return null;
 }
 
@@ -651,9 +668,10 @@ export default function AbsenceForm() {
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
-      if (group.sit_in?.sit_in_method !== "physical") continue;
       for (const session of group.sessions) {
-        if (selectedSessionIds.has(session.id) && !sitInSelections[session.id]) {
+        if (!selectedSessionIds.has(session.id)) continue;
+        const sitIn = sitInForMissedSession(group, session.id);
+        if (sitIn?.sit_in_method === "physical" && !sitInSelections[session.id]) {
           return true;
         }
       }
@@ -961,7 +979,8 @@ export default function AbsenceForm() {
           setPageError("No more make-up times are available for this class.");
           return;
         }
-        const updatedLevel = updatedGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedGroup);
+        const updatedSessionGroup = groupWithSitInForMissedSession(updatedGroup, sessionId);
+        const updatedLevel = updatedSessionGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedSessionGroup);
         setSitInPriorityLevels((prev) => ({
           ...prev,
           [sessionId]: updatedLevel,
@@ -970,7 +989,7 @@ export default function AbsenceForm() {
           ...prev,
           [sessionId]: {
             ...(prev[sessionId] ?? {}),
-            [updatedLevel]: updatedGroup,
+            [updatedLevel]: updatedSessionGroup,
           },
         }));
       } catch (error) {
@@ -1624,12 +1643,13 @@ export default function AbsenceForm() {
                                     {group.sessions.map((session) => {
                                       const selected = selectedSessionIds.has(session.id);
                                       const currentSitIn = sitInSelections[session.id] || "";
-                                      const baseSitIn = group.sit_in;
-                                      const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(group);
+                                      const sessionGroup = groupWithSitInForMissedSession(group, session.id);
+                                      const baseSitIn = sessionGroup.sit_in;
+                                      const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(sessionGroup);
                                       const currentLevel = baseSitIn
                                         ? sitInPriorityLevels[session.id] || baseLevel
-                                        : firstPriorityLevel(group);
-                                      const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? group;
+                                        : firstPriorityLevel(sessionGroup);
+                                      const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
                                       const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);

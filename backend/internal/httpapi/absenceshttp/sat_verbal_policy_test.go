@@ -701,6 +701,9 @@ func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLe
 	if result == nil || len(result.Priorities) != 2 {
 		t.Fatalf("expected Section 2 and Section 3 priorities, got %#v", result)
 	}
+	if len(result.SitInByMissedSession) != len(missedSessions) {
+		t.Fatalf("per-missed-session results = %#v, want %d entries", result.SitInByMissedSession, len(missedSessions))
+	}
 
 	expectedByCourse := map[string]map[string]string{
 		"SAT Verbal Writing Beginner Section 2": {
@@ -711,6 +714,24 @@ func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLe
 			"e8110000-0000-0000-0000-000000000003": "e8330000-0000-0000-0000-000000000003",
 			"e8110000-0000-0000-0000-000000000004": "e8330000-0000-0000-0000-000000000004",
 		},
+	}
+	for missedID, perSession := range result.SitInByMissedSession {
+		if perSession.MissedOccurrenceNumber == 0 {
+			t.Fatalf("per-session result for %s missing occurrence number: %#v", missedID, perSession)
+		}
+		for _, priority := range perSession.Priorities {
+			if priority.SitInCourse == nil {
+				t.Fatalf("per-session priority missing course: %#v", priority)
+			}
+			for _, available := range priority.Available {
+				if available.MissedSessionID != missedID {
+					t.Fatalf("per-session result for %s contains option for missed session %s", missedID, available.MissedSessionID)
+				}
+				if expectedByCourse[priority.SitInCourse.Name][missedID] != available.ID {
+					t.Fatalf("per-session option %#v does not match strict same-occurrence expectation", available)
+				}
+			}
+		}
 	}
 	for _, priority := range result.Priorities {
 		if priority.SitInCourse == nil {

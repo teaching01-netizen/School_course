@@ -67,31 +67,9 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	}
 	missedLessonSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, input.MissedSessions)
 	notBefore := requestDateLowerBound(input.RequestTime)
-	offered := make(map[pgtype.UUID]struct{})
-	var priorities []SitInPriorityResult
-
-	for _, priority := range rule.Priorities {
-		targets := satVerbalPriorityTargets(*rule, priority, input.MissedCourse, input.Enrolled, input.AllCourses, input.MappedCourses)
-		sameLessonOnly := priority.RuleType == RuleTypeCrossSection && !strings.Contains(strings.ToLower(priority.Label), "next available")
-		priorityHadResult := false
-		for _, target := range targets {
-			targetSessions, err := input.LoadSessions(ctx, target.ID)
-			if err != nil {
-				return nil, fmt.Errorf("target course sessions lookup: %w", err)
-			}
-			available := satVerbalAvailableSessions(targetSessions, input.MissedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
-			if len(available) == 0 {
-				continue
-			}
-			for _, availableSession := range available {
-				offered[availableSession.Session.ID] = struct{}{}
-			}
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, available, len(input.MissedSessions)))
-			priorityHadResult = true
-		}
-		if !priorityHadResult {
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, nil, len(input.MissedSessions)))
-		}
+	priorities, err := satVerbalResolvePriorities(ctx, input, *rule, input.MissedSessions, missedLessonSlots, notBefore)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(priorities) == 0 {
@@ -114,7 +92,70 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	for _, missed := range input.MissedSessions {
 		result.MissedSession = append(result.MissedSession, toSessionBrief(missed))
 	}
+	result.SitInByMissedSession = make(map[string]SitInSessionResult, len(input.MissedSessions))
+	for _, missed := range input.MissedSessions {
+		missedID, err := uuidString(missed.ID)
+		if err != nil {
+			continue
+		}
+		sessionSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, []sqldb.SessionInRange{missed})
+		sessionPriorities, err := satVerbalResolvePriorities(ctx, input, *rule, []sqldb.SessionInRange{missed}, sessionSlots, notBefore)
+		if err != nil {
+			return nil, err
+		}
+		visible, level, sessionHasNext := satVerbalVisiblePriority(sessionPriorities, input.AfterPriorityLevel)
+		occurrenceNumber := 0
+		if len(sessionSlots) > 0 {
+			occurrenceNumber = sessionSlots[0].Index + 1
+		}
+		result.SitInByMissedSession[missedID] = SitInSessionResult{
+			SitInMethod:            SitInMethodPhysical,
+			RuleName:               "SAT Verbal Policy",
+			RuleType:               "sat_verbal_policy",
+			Priorities:             visible,
+			CurrentPriorityLevel:   level,
+			HasNextPriority:        sessionHasNext,
+			MissedOccurrenceNumber: occurrenceNumber,
+		}
+	}
 	return result, nil
+}
+
+func satVerbalResolvePriorities(
+	ctx context.Context,
+	input satVerbalResolveInput,
+	rule satVerbalCourseRule,
+	missedSessions []sqldb.SessionInRange,
+	missedLessonSlots []satVerbalMissedLessonSlot,
+	notBefore time.Time,
+) ([]SitInPriorityResult, error) {
+	offered := make(map[pgtype.UUID]struct{})
+	var priorities []SitInPriorityResult
+
+	for _, priority := range rule.Priorities {
+		targets := satVerbalPriorityTargets(rule, priority, input.MissedCourse, input.Enrolled, input.AllCourses, input.MappedCourses)
+		sameLessonOnly := priority.RuleType == RuleTypeCrossSection && !strings.Contains(strings.ToLower(priority.Label), "next available")
+		priorityHadResult := false
+		for _, target := range targets {
+			targetSessions, err := input.LoadSessions(ctx, target.ID)
+			if err != nil {
+				return nil, fmt.Errorf("target course sessions lookup: %w", err)
+			}
+			available := satVerbalAvailableSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
+			if len(available) == 0 {
+				continue
+			}
+			for _, availableSession := range available {
+				offered[availableSession.Session.ID] = struct{}{}
+			}
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, available, len(missedSessions)))
+			priorityHadResult = true
+		}
+		if !priorityHadResult {
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, nil, len(missedSessions)))
+		}
+	}
+	return priorities, nil
 }
 
 func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) ([]SitInPriorityResult, int, bool) {

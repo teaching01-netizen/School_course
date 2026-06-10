@@ -442,7 +442,7 @@ export type SitInPriority = {
   pre_selected?: Array<{ id: string; start_at: string; end_at: string }>;
 };
 
-export type SitInInfo = {
+export type SitInSessionInfo = {
   rule_name?: string;
   rule_type?: string;
   sit_in_method: "physical" | "zoom" | "teacher_case" | "none";
@@ -462,6 +462,11 @@ export type SitInInfo = {
     course_code?: string | null;
   }>;
   missed_sessions?: Array<{ id: string; start_at: string; end_at: string }>;
+  missed_occurrence_number?: number;
+};
+
+export type SitInInfo = SitInSessionInfo & {
+  sit_in_by_missed_session?: Record<string, SitInSessionInfo>;
 };
 
 export type SubjectSessions = {

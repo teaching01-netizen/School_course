@@ -53,6 +53,23 @@ type SitInResult struct {
 	MissedSession []sessionBrief   `json:"missed_sessions,omitempty"`
 	Available     []sessionBrief   `json:"available_sessions,omitempty"`
 	PreSelected   []sessionBrief   `json:"pre_selected,omitempty"`
+
+	// Per missed session sit-in options. SAT Verbal Beginner uses this to keep
+	// same-occurrence choices independent when multiple leave dates are selected.
+	SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
+}
+
+type SitInSessionResult struct {
+	SitInMethod            string                `json:"sit_in_method"`
+	RuleName               string                `json:"rule_name,omitempty"`
+	RuleType               string                `json:"rule_type,omitempty"`
+	Priorities             []SitInPriorityResult `json:"priorities,omitempty"`
+	CurrentPriorityLevel   int                   `json:"current_priority_level,omitempty"`
+	HasNextPriority        bool                  `json:"has_next_priority,omitempty"`
+	SitInCourse            *SitInCourseInfo      `json:"sit_in_course,omitempty"`
+	Available              []sessionBrief        `json:"available_sessions,omitempty"`
+	PreSelected            []sessionBrief        `json:"pre_selected,omitempty"`
+	MissedOccurrenceNumber int                   `json:"missed_occurrence_number,omitempty"`
 }
 
 type SitInCourseInfo struct {
