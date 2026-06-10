@@ -1697,18 +1697,7 @@ export default function AbsenceForm() {
                                               className="mt-3 rounded-sm border border-amber-200 bg-amber-50/50 p-3"
                                             >
                                               <div className="mb-3 grid gap-1 text-sm">
-                                                <p className="text-gray-700">
-                                                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-900">
-                                                    Leave
-                                                  </span>
-                                                  <span className="ml-2">Subject: {groupLabel}</span>
-                                                </p>
-                                                <p className="text-gray-700">
-                                                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-700">
-                                                    Sit-in
-                                                  </span>
-                                                  <span className="ml-2">Subject: {sitIn && sitIn.sit_in_method === "physical" ? sitInClassLabel : sitIn && sitIn.sit_in_method === "zoom" ? "Zoom" : "To arrange"}</span>
-                                                </p>
+
                                               </div>
                                                {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
