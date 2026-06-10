@@ -31,6 +31,19 @@ type satVerbalAvailableSession struct {
 	MissedSessionID pgtype.UUID
 }
 
+type satVerbalUnavailableSession struct {
+	Session         *sqldb.SessionInRange
+	MissedSessionID pgtype.UUID
+	OccurrenceIndex int
+	Reason          string
+	ReasonCode      string
+}
+
+type satVerbalSessionOptions struct {
+	Available   []satVerbalAvailableSession
+	Unavailable []satVerbalUnavailableSession
+}
+
 type satVerbalResolveInput struct {
 	Rule               *satVerbalCourseRule
 	Policy             []satVerbalCourseRule
@@ -141,18 +154,18 @@ func satVerbalResolvePriorities(
 			if err != nil {
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
-			available := satVerbalAvailableSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
-			if len(available) == 0 {
+			options := satVerbalSessionOptionsForTarget(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
+			if len(options.Available) == 0 && len(options.Unavailable) == 0 {
 				continue
 			}
-			for _, availableSession := range available {
+			for _, availableSession := range options.Available {
 				offered[availableSession.Session.ID] = struct{}{}
 			}
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, available, len(missedSessions)))
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, options, len(missedSessions)))
 			priorityHadResult = true
 		}
 		if !priorityHadResult {
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, nil, len(missedSessions)))
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, satVerbalSessionOptions{}, len(missedSessions)))
 		}
 	}
 	return priorities, nil
@@ -185,7 +198,7 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 	return visible, currentLevel, len(levels) > 1
 }
 
-func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, available []satVerbalAvailableSession, missedCount int) SitInPriorityResult {
+func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, options satVerbalSessionOptions, missedCount int) SitInPriorityResult {
 	out := SitInPriorityResult{
 		Level: level,
 		Label: label,
@@ -200,14 +213,17 @@ func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCours
 			SubjectName: target.SubjectName,
 		}
 	}
-	for _, availableSession := range available {
+	for _, availableSession := range options.Available {
 		out.Available = append(out.Available, toSessionBriefForCourseWithMissedSession(availableSession, target))
 	}
-	preSelectCount := missedCount
-	if preSelectCount > len(available) {
-		preSelectCount = len(available)
+	for _, unavailable := range options.Unavailable {
+		out.Unavailable = append(out.Unavailable, toUnavailableSessionBrief(unavailable, target))
 	}
-	for _, availableSession := range available[:preSelectCount] {
+	preSelectCount := missedCount
+	if preSelectCount > len(options.Available) {
+		preSelectCount = len(options.Available)
+	}
+	for _, availableSession := range options.Available[:preSelectCount] {
 		out.PreSelected = append(out.PreSelected, toSessionBriefForCourseWithMissedSession(availableSession, target))
 	}
 	return out
@@ -466,7 +482,7 @@ func satVerbalMappedCoursesByTargetNames(targetNames []string, missedID pgtype.U
 	return uniqueCourses(out)
 }
 
-func satVerbalAvailableSessions(
+func satVerbalSessionOptionsForTarget(
 	targetSessions []sqldb.SessionInRange,
 	missedSessions []sqldb.SessionInRange,
 	missedLessonSlots []satVerbalMissedLessonSlot,
@@ -474,34 +490,48 @@ func satVerbalAvailableSessions(
 	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
-) []satVerbalAvailableSession {
+) satVerbalSessionOptions {
 	sessions := sortedSessions(targetSessions)
 	finalID := pgtype.UUID{}
 	if len(sessions) > 0 {
 		finalID = sessions[len(sessions)-1].ID
 	}
-	var out []satVerbalAvailableSession
+	out := satVerbalSessionOptions{}
 	if sameLessonOnly {
 		for _, slot := range missedLessonSlots {
 			if slot.Index < 0 || slot.Index >= len(sessions) {
+				out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
+					MissedSessionID: slot.Missed.ID,
+					OccurrenceIndex: slot.Index,
+					Reason:          fmt.Sprintf("Same class #%d does not exist in this section.", slot.Index+1),
+					ReasonCode:      "same_occurrence_missing",
+				})
 				continue
 			}
 			session := sessions[slot.Index]
-			if satVerbalSessionAllowed(session, finalID, false, missedSessions, notBefore, cutoff, offered) {
-				out = append(out, satVerbalAvailableSession{Session: session, MissedSessionID: slot.Missed.ID})
+			if reason, code := satVerbalSessionBlockReason(session, finalID, false, missedSessions, notBefore, cutoff, offered); reason != "" {
+				out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
+					Session:         &session,
+					MissedSessionID: slot.Missed.ID,
+					OccurrenceIndex: slot.Index,
+					Reason:          reason,
+					ReasonCode:      code,
+				})
+				continue
 			}
+			out.Available = append(out.Available, satVerbalAvailableSession{Session: session, MissedSessionID: slot.Missed.ID})
 		}
 		return out
 	}
 	for _, session := range sessions {
-		if satVerbalSessionAllowed(session, finalID, true, missedSessions, notBefore, cutoff, offered) {
-			out = append(out, satVerbalAvailableSession{Session: session})
+		if reason, _ := satVerbalSessionBlockReason(session, finalID, true, missedSessions, notBefore, cutoff, offered); reason == "" {
+			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
 		}
 	}
 	return out
 }
 
-func satVerbalSessionAllowed(
+func satVerbalSessionBlockReason(
 	session sqldb.SessionInRange,
 	finalID pgtype.UUID,
 	excludeFinal bool,
@@ -509,25 +539,25 @@ func satVerbalSessionAllowed(
 	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
-) bool {
+) (string, string) {
 	if excludeFinal && finalID.Valid && session.ID == finalID {
-		return false
+		return "This is the last class in the target cycle.", "target_final_class"
 	}
 	if _, ok := offered[session.ID]; ok {
-		return false
+		return "This slot was already used for another selected missed class.", "already_offered"
 	}
 	if !notBefore.IsZero() && session.StartAt.Time.Before(notBefore) {
-		return false
+		return "This same-number sit-in slot is before today/request date.", "before_request_date"
 	}
 	if !cutoff.IsZero() && session.StartAt.Time.After(cutoff) {
-		return false
+		return "This slot is outside the allowed make-up window.", "outside_cutoff"
 	}
 	for _, missed := range missedSessions {
 		if timesOverlap(session.StartAt, session.EndAt, missed.StartAt, missed.EndAt) {
-			return false
+			return "This slot overlaps the missed class time.", "overlaps_missed_class"
 		}
 	}
-	return true
+	return "", ""
 }
 
 func missedLessonSlotsForMissedSessions(allCourseSessions []sqldb.SessionInRange, missedSessions []sqldb.SessionInRange) []satVerbalMissedLessonSlot {
@@ -559,6 +589,25 @@ func toSessionBriefForCourseWithMissedSession(available satVerbalAvailableSessio
 		brief.MissedSessionID, _ = uuidString(available.MissedSessionID)
 	}
 	return brief
+}
+
+func toUnavailableSessionBrief(unavailable satVerbalUnavailableSession, target *sqldb.SubjectCourseV2) unavailableSessionBrief {
+	out := unavailableSessionBrief{
+		Reason:           unavailable.Reason,
+		ReasonCode:       unavailable.ReasonCode,
+		OccurrenceNumber: unavailable.OccurrenceIndex + 1,
+	}
+	if unavailable.MissedSessionID.Valid {
+		out.MissedSessionID, _ = uuidString(unavailable.MissedSessionID)
+	}
+	if unavailable.Session != nil {
+		brief := toSessionBriefForCourse(*unavailable.Session, target)
+		if out.MissedSessionID != "" {
+			brief.MissedSessionID = out.MissedSessionID
+		}
+		out.Session = &brief
+	}
+	return out
 }
 
 func sortedSessions(sessions []sqldb.SessionInRange) []sqldb.SessionInRange {

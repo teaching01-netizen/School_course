@@ -273,6 +273,17 @@ function availableSessionsForMissedSession(
   return available.filter((session) => session.missed_session_id === missedSessionId);
 }
 
+function unavailableSessionsForMissedSession(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionId: string,
+) {
+  const unavailable = priority.unavailable_sessions ?? [];
+  if (!unavailable.some((session) => session.missed_session_id)) {
+    return unavailable;
+  }
+  return unavailable.filter((session) => session.missed_session_id === missedSessionId);
+}
+
 function hasServerPriorityReveal(group: SubjectSessions): boolean {
   return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
 }
@@ -1713,6 +1724,12 @@ export default function AbsenceForm() {
                                                     const currentPriorityAvailable = currentPriorities.flatMap(priority =>
                                                       availableSessionsForMissedSession(priority, session.id),
                                                     );
+                                                    const currentPriorityUnavailable = currentPriorities.flatMap(priority =>
+                                                      unavailableSessionsForMissedSession(priority, session.id).map((unavailable) => ({
+                                                        ...unavailable,
+                                                        sitInCourse: priority.sit_in_course,
+                                                      })),
+                                                    );
 
                                                     if (!currentPriority) {
                                                       return (
@@ -1780,9 +1797,30 @@ export default function AbsenceForm() {
                                                             Make-up class
                                                           </label>
                                                           {currentPriorityAvailable.length === 0 ? (
-                                                            <p className="mt-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 sm:max-w-[420px]">
-                                                              No available make-up class for this priority.
-                                                            </p>
+                                                            <div className="mt-1.5 space-y-2">
+                                                              <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 sm:max-w-[520px]">
+                                                                No available make-up class for this priority.
+                                                              </p>
+                                                              {currentPriorityUnavailable.length > 0 ? (
+                                                                <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-950 sm:max-w-[640px]">
+                                                                  <p className="font-semibold">Checked same-number slot:</p>
+                                                                  <ul className="mt-1 space-y-1">
+                                                                    {currentPriorityUnavailable.map((unavailable, index) => {
+                                                                      const checkedSession = unavailable.session;
+                                                                      const slotLabel = checkedSession
+                                                                        ? getSitInSessionLabel(checkedSession, unavailable.sitInCourse, groupLabel, sessions)
+                                                                        : `${getSitInCourseDisplayName(unavailable.sitInCourse, groupLabel, sessions) || "Target section"} class #${unavailable.occurrence_number ?? "?"}`;
+                                                                      return (
+                                                                        <li key={`${unavailable.reason_code}-${checkedSession?.id ?? index}`}>
+                                                                          <span className="font-medium">{slotLabel}</span>
+                                                                          <span className="text-amber-800"> — {unavailable.reason}</span>
+                                                                        </li>
+                                                                      );
+                                                                    })}
+                                                                  </ul>
+                                                                </div>
+                                                              ) : null}
+                                                            </div>
                                                           ) : (
                                                             <select
                                                               id={`sit-in-${session.id}`}

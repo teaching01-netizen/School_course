@@ -583,6 +583,21 @@ describe("AbsenceForm", () => {
               level: 1,
               label: "1st Priority: Same Writing Beginner lesson in another section",
               available_sessions: [],
+              unavailable_sessions: [
+                {
+                  session: {
+                    id: "checked-writing-2",
+                    missed_session_id: "missed-writing-1",
+                    start_at: "2026-06-08T17:00:00Z",
+                    end_at: "2026-06-08T20:20:00Z",
+                    course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
+                  },
+                  missed_session_id: "missed-writing-1",
+                  occurrence_number: 3,
+                  reason_code: "before_request_date",
+                  reason: "This same-number sit-in slot is before today/request date.",
+                },
+              ],
             },
           ],
         },
@@ -646,6 +661,9 @@ describe("AbsenceForm", () => {
     expect(await screen.findByText(/1st Priority: Same Writing Beginner lesson/)).toBeInTheDocument();
     expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("Not available");
     expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
+    expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
+    expect(screen.getByText(/SAT Verbal Writing Beginner Section 2 C2\/26/)).toBeInTheDocument();
+    expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
     expect(screen.queryByText(/2nd Priority: SAT Verbal Writing Rank 5/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));

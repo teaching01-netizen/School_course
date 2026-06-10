@@ -28,11 +28,20 @@ const (
 )
 
 type SitInPriorityResult struct {
-	Level       int              `json:"level"`
-	Label       string           `json:"label"`
-	SitInCourse *SitInCourseInfo `json:"sit_in_course,omitempty"`
-	Available   []sessionBrief   `json:"available_sessions,omitempty"`
-	PreSelected []sessionBrief   `json:"pre_selected,omitempty"`
+	Level       int                       `json:"level"`
+	Label       string                    `json:"label"`
+	SitInCourse *SitInCourseInfo          `json:"sit_in_course,omitempty"`
+	Available   []sessionBrief            `json:"available_sessions,omitempty"`
+	PreSelected []sessionBrief            `json:"pre_selected,omitempty"`
+	Unavailable []unavailableSessionBrief `json:"unavailable_sessions,omitempty"`
+}
+
+type unavailableSessionBrief struct {
+	Session          *sessionBrief `json:"session,omitempty"`
+	Reason           string        `json:"reason"`
+	ReasonCode       string        `json:"reason_code"`
+	MissedSessionID  string        `json:"missed_session_id,omitempty"`
+	OccurrenceNumber int           `json:"occurrence_number,omitempty"`
 }
 
 type SitInResult struct {

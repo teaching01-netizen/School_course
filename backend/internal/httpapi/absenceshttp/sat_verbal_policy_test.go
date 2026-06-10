@@ -542,15 +542,31 @@ func TestResolveSatVerbalPolicy_BeginnerSection1DoesNotOfferSameLessonBeforeRequ
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if result == nil || len(result.Priorities) != 1 {
-		t.Fatalf("expected only the non-stale same-lesson priority, got %#v", result)
+	if result == nil || len(result.Priorities) != 2 {
+		t.Fatalf("expected available and diagnostic same-lesson priorities, got %#v", result)
 	}
-	first := result.Priorities[0]
-	if first.SitInCourse == nil || first.SitInCourse.Name != "SAT Verbal Reading Beginner Section 3" {
-		t.Fatalf("priority target = %#v, want Section 3 because Section 2 same lesson is before request date", first.SitInCourse)
+	var sawAvailableSection3 bool
+	var sawUnavailableSection2 bool
+	for _, priority := range result.Priorities {
+		if priority.SitInCourse == nil {
+			continue
+		}
+		switch priority.SitInCourse.Name {
+		case "SAT Verbal Reading Beginner Section 3":
+			if got := priority.Available; len(got) == 1 && got[0].ID == "b3330000-0000-0000-0000-000000000003" {
+				sawAvailableSection3 = true
+			}
+		case "SAT Verbal Reading Beginner Section 2":
+			if got := priority.Unavailable; len(got) == 1 && got[0].ReasonCode == "before_request_date" && got[0].Session != nil && got[0].Session.ID == "b2220000-0000-0000-0000-000000000003" {
+				sawUnavailableSection2 = true
+			}
+		}
 	}
-	if got := first.Available; len(got) != 1 || got[0].ID != "b3330000-0000-0000-0000-000000000003" {
-		t.Fatalf("available = %#v, want Section 3 same lesson on or after request date", got)
+	if !sawAvailableSection3 {
+		t.Fatalf("priorities = %#v, want Section 3 same lesson on or after request date", result.Priorities)
+	}
+	if !sawUnavailableSection2 {
+		t.Fatalf("priorities = %#v, want Section 2 same lesson diagnostic before request date", result.Priorities)
 	}
 }
 
@@ -835,8 +851,8 @@ func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevea
 		if err != nil {
 			t.Fatalf("resolve after level %d: %v", afterLevel, err)
 		}
-		if result == nil || len(result.Priorities) != 1 {
-			t.Fatalf("result after level %d = %#v, want one visible priority", afterLevel, result)
+		if result == nil || len(result.Priorities) == 0 {
+			t.Fatalf("result after level %d = %#v, want visible priority", afterLevel, result)
 		}
 		return result
 	}
@@ -847,6 +863,24 @@ func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevea
 	}
 	if len(initial.Priorities[0].Available) != 0 {
 		t.Fatalf("initial available = %#v, want no first-priority sessions", initial.Priorities[0].Available)
+	}
+	var unavailable []unavailableSessionBrief
+	for _, priority := range initial.Priorities {
+		unavailable = append(unavailable, priority.Unavailable...)
+	}
+	if len(unavailable) != 2 {
+		t.Fatalf("initial unavailable = %#v, want Section 2 and Section 3 same-number diagnostics", unavailable)
+	}
+	for _, checked := range unavailable {
+		if checked.Session == nil {
+			t.Fatalf("unavailable diagnostic missing real checked slot: %#v", checked)
+		}
+		if checked.ReasonCode != "before_request_date" {
+			t.Fatalf("unavailable reason = %#v, want before_request_date", checked)
+		}
+		if checked.OccurrenceNumber != 2 {
+			t.Fatalf("unavailable occurrence = %d, want class #2", checked.OccurrenceNumber)
+		}
 	}
 	if !initial.HasNextPriority {
 		t.Fatal("expected Rank 5 to be available behind See other times")
