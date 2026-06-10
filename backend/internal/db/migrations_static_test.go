@@ -118,6 +118,17 @@ func TestSatVerbalPolicyMappingsLegacyColumnsDoNotBlockInserts(t *testing.T) {
 	}
 }
 
+func TestSatVerbalPolicyMappingsLegacyPolicyColumnDoesNotBlockInserts(t *testing.T) {
+	sql := readMigration(t, "00042_relax_sat_verbal_policy_legacy_policy_column.sql")
+
+	if !strings.Contains(sql, "column_name = 'policy'") {
+		t.Fatal("00042 must check the legacy policy column")
+	}
+	if !strings.Contains(sql, "ALTER COLUMN policy DROP NOT NULL") {
+		t.Fatal("00042 must relax legacy policy so current insert path can save mappings")
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
