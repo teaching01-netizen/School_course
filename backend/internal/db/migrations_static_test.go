@@ -56,6 +56,15 @@ func TestBackfillMigration_FillsNullStudentAndParentPhones(t *testing.T) {
 	}
 }
 
+func TestSatVerbalPolicyMappingsFixWrapsDollarQuotedBlock(t *testing.T) {
+	sql := readMigration(t, "00039_fix_sat_verbal_policy_mappings_course_id.sql")
+
+	if !strings.Contains(sql, "-- +goose StatementBegin\nDO $$") ||
+		!strings.Contains(sql, "END $$;\n-- +goose StatementEnd") {
+		t.Fatal("00039 must wrap its DO $$ block with goose StatementBegin/StatementEnd")
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

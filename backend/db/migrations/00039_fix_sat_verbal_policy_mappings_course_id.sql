@@ -4,6 +4,7 @@
 -- the course_id column (migration 00038 was not fully applied).
 -- This migration adds the column and its constraints/index idempotently.
 
+-- +goose StatementBegin
 DO $$
 BEGIN
   -- Add course_id column if missing
@@ -22,6 +23,7 @@ BEGIN
       WHERE active;
   END IF;
 END $$;
+-- +goose StatementEnd
 
 -- +goose Down
 
