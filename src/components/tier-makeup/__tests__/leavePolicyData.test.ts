@@ -24,8 +24,12 @@ function optionLabels(ruleId: string, missedCourseName: string, maxPriorityToSho
 
 describe("SAT Verbal hardcoded leave policy", () => {
   it("keeps Beginner courses separate from Rank 3 course rules", () => {
-    expect(ruleById("sat-verbal-reading-beginner").courseName).toBe("SAT Verbal Reading Beginner");
-    expect(ruleById("sat-verbal-writing-beginner").courseName).toBe("SAT Verbal Writing Beginner");
+    expect(ruleById("sat-verbal-reading-beginner-sec1").courseName).toBe("SAT Verbal Reading Beginner Section 1");
+    expect(ruleById("sat-verbal-reading-beginner-sec2").courseName).toBe("SAT Verbal Reading Beginner Section 2");
+    expect(ruleById("sat-verbal-reading-beginner-sec3").courseName).toBe("SAT Verbal Reading Beginner Section 3");
+    expect(ruleById("sat-verbal-writing-beginner-sec1").courseName).toBe("SAT Verbal Writing Beginner Section 1");
+    expect(ruleById("sat-verbal-writing-beginner-sec2").courseName).toBe("SAT Verbal Writing Beginner Section 2");
+    expect(ruleById("sat-verbal-writing-beginner-sec3").courseName).toBe("SAT Verbal Writing Beginner Section 3");
 
     const beginnerNames = LEAVE_POLICY_COURSE_RULES
       .filter((rule) => rule.id.includes("beginner"))
@@ -37,8 +41,19 @@ describe("SAT Verbal hardcoded leave policy", () => {
   });
 
   it("directs Beginner Section 3 to Section 1 for the same lesson", () => {
-    expect(optionLabels("sat-verbal-reading-beginner", "SAT Verbal Reading Beginner", 1, "Section 3")).toEqual([
+    expect(optionLabels("sat-verbal-reading-beginner-sec3", "SAT Verbal Reading Beginner Section 3", 1, "Section 3")).toEqual([
       "Section 1 (Reading Beginner) — same lesson #",
+    ]);
+  });
+
+  it("does not offer a different Beginner lesson after the same-lesson priority", () => {
+    expect(optionLabels("sat-verbal-reading-beginner-sec1", "SAT Verbal Reading Beginner Section 1", 3, "Section 1")).toEqual([
+      "Section 2 (Reading Beginner) — same lesson #",
+      "Section 3 (Reading Beginner) — same lesson #",
+      "SAT Verbal Reading Rank 5",
+      "SAT Reading Rank 5",
+      "SAT Verbal Reading Rank 4",
+      "SAT Reading Rank 4",
     ]);
   });
 

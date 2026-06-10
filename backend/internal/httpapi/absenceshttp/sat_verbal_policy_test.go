@@ -474,6 +474,79 @@ func TestResolveSatVerbalPolicy_BeginnerSection3TargetsSection1SameLessonOnly(t 
 	}
 }
 
+func TestResolveSatVerbalPolicy_MappedBeginnerSection3TargetsSection1SameLessonOnly(t *testing.T) {
+	section3ID := "33000000-0000-0000-0000-000000000003"
+	section1ID := "13000000-0000-0000-0000-000000000001"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "sat-verbal-reading-beginner-sec3",
+			"courseName": "SAT Verbal Reading Beginner Section 3",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Same Reading Beginner lesson in Section 1",
+					"makeupTargets": [{ "section": "Section 1", "subject": "Reading Beginner" }]
+				}
+			]
+		},
+		{
+			"id": "sat-verbal-reading-beginner-sec1",
+			"courseName": "SAT Verbal Reading Beginner Section 1",
+			"lastClassExcluded": true,
+			"priorities": []
+		}
+	]`)
+
+	missedCourse := satCourse(section3ID, "Production Reading Beginner Sunday")
+	targetCourse := satCourse(section1ID, "Production Reading Beginner Monday")
+	missedSessions := []sqldb.SessionInRange{
+		session("c3000000-0000-0000-0000-000000000002", section3ID, "2026-04-08T09:00:00Z", "2026-04-08T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section3ID): {
+			session("c3000000-0000-0000-0000-000000000001", section3ID, "2026-04-01T09:00:00Z", "2026-04-01T10:00:00Z"),
+			missedSessions[0],
+			session("c3000000-0000-0000-0000-000000000003", section3ID, "2026-04-15T09:00:00Z", "2026-04-15T10:00:00Z"),
+		},
+		makeUUID(section1ID): {
+			session("c1000000-0000-0000-0000-000000000001", section1ID, "2026-04-01T11:00:00Z", "2026-04-01T12:00:00Z"),
+			session("c1000000-0000-0000-0000-000000000002", section1ID, "2026-04-08T11:00:00Z", "2026-04-08T12:00:00Z"),
+			session("c1000000-0000-0000-0000-000000000003", section1ID, "2026-04-15T11:00:00Z", "2026-04-15T12:00:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Rule:         &rules[0],
+		MissedCourse: missedCourse,
+		MappedCourses: []satVerbalMappedCourse{
+			{Rule: rules[0], Course: missedCourse},
+			{Rule: rules[1], Course: targetCourse},
+		},
+		Enrolled:       []sqldb.StudentEnrolledCourseV2{satEnrolled(section3ID, missedCourse.Name)},
+		MissedSessions: missedSessions,
+		Cutoff:         time.Time{},
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("expected mapped beginner priority, got %#v", result)
+	}
+	first := result.Priorities[0]
+	if first.SitInCourse == nil || first.SitInCourse.Name != "Production Reading Beginner Monday" {
+		t.Fatalf("priority 1 target = %#v, want mapped Section 1 production course", first.SitInCourse)
+	}
+	if got := first.Available; len(got) != 1 || got[0].ID != "c1000000-0000-0000-0000-000000000002" {
+		t.Fatalf("priority 1 available = %#v, want same lesson section 1", got)
+	}
+}
+
 func TestSubjectWindowWeeksFallsBackToRootGroup(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	rootID := "22222222-2222-2222-2222-222222222222"

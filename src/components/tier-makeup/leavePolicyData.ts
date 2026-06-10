@@ -20,130 +20,99 @@ function priorityOrdinal(level: number): string {
   }
 }
 
+function beginnerSectionTargets(section: number) {
+  if (section === 1) {
+    return [
+      { section: "Section 2", subject: "Reading Beginner" },
+      { section: "Section 3", subject: "Reading Beginner" },
+    ];
+  }
+  return [{ section: "Section 1", subject: "Reading Beginner" }];
+}
+
+function beginnerWritingSectionTargets(section: number) {
+  if (section === 1) {
+    return [
+      { section: "Section 2", subject: "Writing Beginner" },
+      { section: "Section 3", subject: "Writing Beginner" },
+    ];
+  }
+  return [{ section: "Section 1", subject: "Writing Beginner" }];
+}
+
+function beginnerRule(
+  subject: "Reading" | "Writing",
+  section: 1 | 2 | 3
+): LeavePolicyCourseRule {
+  const subjectLabel = `${subject} Beginner`;
+  const targets =
+    subject === "Reading"
+      ? beginnerSectionTargets(section)
+      : beginnerWritingSectionTargets(section);
+  const rank5Targets =
+    subject === "Reading"
+      ? ["SAT Verbal Reading Rank 5", "SAT Reading Rank 5"]
+      : ["SAT Verbal Writing Rank 5", "SAT Writing Rank 5"];
+  const rank4Targets =
+    subject === "Reading"
+      ? ["SAT Verbal Reading Rank 4", "SAT Reading Rank 4"]
+      : ["SAT Verbal Writing Rank 4", "SAT Writing Rank 4"];
+
+  return {
+    id: `sat-verbal-${subject.toLowerCase()}-beginner-sec${section}`,
+    courseName: `SAT Verbal ${subject} Beginner Section ${section}`,
+    subject,
+    ruleType: "cross_section",
+    priorityCount: 3,
+    description:
+      `Same ${subjectLabel} lesson number only, in another available section.`,
+    makeupRules: [
+      `1st Priority: Same ${subjectLabel} lesson in another section`,
+      `2nd Priority: SAT Verbal ${subject} Rank 5 — any available date`,
+      `3rd Priority: SAT Verbal ${subject} Rank 4 — any available date`,
+    ],
+    lastClassExcluded: true,
+    makeupTargets: targets,
+    eligibleTargets: [
+      ...targets.map((target) => target.section),
+      ...rank5Targets,
+      ...rank4Targets,
+    ],
+    priorities: [
+      {
+        level: 1,
+        ruleType: "cross_section",
+        label: `1st Priority: Same ${subjectLabel} lesson in another section`,
+        makeupTargets: targets,
+      },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: `2nd Priority: SAT Verbal ${subject} Rank 5`,
+        eligibleTargets: rank5Targets,
+      },
+      {
+        level: 3,
+        ruleType: "rank_chain",
+        label: `3rd Priority: SAT Verbal ${subject} Rank 4`,
+        eligibleTargets: rank4Targets,
+      },
+    ],
+  };
+}
+
 /**
  * Hard-coded SAT Verbal Leave Policy rules.
  * These define the sit-in/make-up rules for each course type.
  */
 export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
   // ── Beginner Courses ──────────────────────────────────────────────────────
-  {
-    id: "sat-verbal-reading-beginner",
-    courseName: "SAT Verbal Reading Beginner",
-    subject: "Reading",
-    ruleType: "cross_section",
-    priorityCount: 3,
-    description:
-      "Same Reading Beginner lesson number only, in another available section.",
-    makeupRules: [
-      "1st Priority: Same Reading Beginner lesson in another section",
-      "2nd Priority: Same policy, next available priority section/date",
-      "3rd Priority: Same policy, next available priority section/date",
-    ],
-    lastClassExcluded: true,
-    makeupTargets: [
-      { section: "Section 2", subject: "Reading Beginner" },
-      { section: "Section 3", subject: "Reading Beginner" },
-    ],
-    sectionTargets: {
-      "Section 1": [
-        { section: "Section 2", subject: "Reading Beginner" },
-        { section: "Section 3", subject: "Reading Beginner" },
-      ],
-      "Section 2": [{ section: "Section 1", subject: "Reading Beginner" }],
-      "Section 3": [{ section: "Section 1", subject: "Reading Beginner" }],
-    },
-    eligibleTargets: ["Section 1", "Section 2", "Section 3"],
-    priorities: [
-      {
-        level: 1,
-        ruleType: "cross_section",
-        label: "1st Priority: Same Reading Beginner lesson in another section",
-        makeupTargets: [
-          { section: "Section 2", subject: "Reading Beginner" },
-          { section: "Section 3", subject: "Reading Beginner" },
-        ],
-        sectionTargets: {
-          "Section 1": [
-            { section: "Section 2", subject: "Reading Beginner" },
-            { section: "Section 3", subject: "Reading Beginner" },
-          ],
-          "Section 2": [{ section: "Section 1", subject: "Reading Beginner" }],
-          "Section 3": [{ section: "Section 1", subject: "Reading Beginner" }],
-        },
-      },
-      {
-        level: 2,
-        ruleType: "cross_section",
-        label: "2nd Priority: Next available Reading Beginner section/date",
-        makeupTargets: [{ section: "Next available", subject: "Reading Beginner" }],
-      },
-      {
-        level: 3,
-        ruleType: "cross_section",
-        label: "3rd Priority: Next available Reading Beginner section/date",
-        makeupTargets: [{ section: "Next available", subject: "Reading Beginner" }],
-      },
-    ],
-  },
-  {
-    id: "sat-verbal-writing-beginner",
-    courseName: "SAT Verbal Writing Beginner",
-    subject: "Writing",
-    ruleType: "cross_section",
-    priorityCount: 3,
-    description:
-      "Same Writing Beginner lesson number only, in another available section.",
-    makeupRules: [
-      "1st Priority: Same Writing Beginner lesson in another section",
-      "2nd Priority: Same policy, next available priority section/date",
-      "3rd Priority: Same policy, next available priority section/date",
-    ],
-    lastClassExcluded: true,
-    makeupTargets: [
-      { section: "Section 2", subject: "Writing Beginner" },
-      { section: "Section 3", subject: "Writing Beginner" },
-    ],
-    sectionTargets: {
-      "Section 1": [
-        { section: "Section 2", subject: "Writing Beginner" },
-        { section: "Section 3", subject: "Writing Beginner" },
-      ],
-      "Section 2": [{ section: "Section 1", subject: "Writing Beginner" }],
-      "Section 3": [{ section: "Section 1", subject: "Writing Beginner" }],
-    },
-    eligibleTargets: ["Section 1", "Section 2", "Section 3"],
-    priorities: [
-      {
-        level: 1,
-        ruleType: "cross_section",
-        label: "1st Priority: Same Writing Beginner lesson in another section",
-        makeupTargets: [
-          { section: "Section 2", subject: "Writing Beginner" },
-          { section: "Section 3", subject: "Writing Beginner" },
-        ],
-        sectionTargets: {
-          "Section 1": [
-            { section: "Section 2", subject: "Writing Beginner" },
-            { section: "Section 3", subject: "Writing Beginner" },
-          ],
-          "Section 2": [{ section: "Section 1", subject: "Writing Beginner" }],
-          "Section 3": [{ section: "Section 1", subject: "Writing Beginner" }],
-        },
-      },
-      {
-        level: 2,
-        ruleType: "cross_section",
-        label: "2nd Priority: Next available Writing Beginner section/date",
-        makeupTargets: [{ section: "Next available", subject: "Writing Beginner" }],
-      },
-      {
-        level: 3,
-        ruleType: "cross_section",
-        label: "3rd Priority: Next available Writing Beginner section/date",
-        makeupTargets: [{ section: "Next available", subject: "Writing Beginner" }],
-      },
-    ],
-  },
+  beginnerRule("Reading", 1),
+  beginnerRule("Reading", 2),
+  beginnerRule("Reading", 3),
+  beginnerRule("Writing", 1),
+  beginnerRule("Writing", 2),
+  beginnerRule("Writing", 3),
 
   // ── Rank 5 Reading (2 priorities) ───────────────────────────────────────
   {
