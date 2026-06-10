@@ -33,8 +33,9 @@ type SatVerbalPolicyMapping = {
 };
 
 function courseLabel(course: Course) {
-  const subject = course.subject_code || course.subject_name;
-  return `${course.code} - ${course.name}${subject ? ` (${subject})` : ""}`;
+  const subject = course.subject_name || course.subject_code;
+  const name = course.name.trim();
+  return `${course.code}${name ? ` - ${name}` : ""}${subject ? ` - (${subject})` : ""}`;
 }
 
 export default function LeavePolicyRules() {

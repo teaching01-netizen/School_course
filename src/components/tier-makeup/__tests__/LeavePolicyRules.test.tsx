@@ -21,6 +21,36 @@ describe("LeavePolicyRules production mapping", () => {
     vi.clearAllMocks();
   });
 
+  it("shows subject names in production course dropdown labels", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        {
+          id: "course-reading",
+          code: "0000000026",
+          name: "",
+          subject_code: "05",
+          subject_name: "SAT Verbal Reading Beginner",
+        },
+      ])
+      .mockResolvedValueOnce({
+        active: false,
+        mappings: [],
+        warnings: [],
+        matched_courses: [],
+        unmatched_policy_rows: [],
+      });
+
+    renderWithProviders(<LeavePolicyRules />);
+
+    const options = await screen.findAllByRole("option", {
+      name: /0000000026 - \(SAT Verbal Reading Beginner\)/i,
+    });
+
+    expect(options).toHaveLength(LEAVE_POLICY_COURSE_RULES.length);
+    expect(options.every((option) => option.getAttribute("value") === "course-reading")).toBe(true);
+    expect(screen.queryAllByRole("option", { name: /0000000026 - \(05\)/i })).toHaveLength(0);
+  });
+
   it("saves SAT Verbal policy as one production course mapping per course rule", async () => {
     mockApiJson
       .mockResolvedValueOnce([
