@@ -488,6 +488,7 @@ func resolveMappedSatVerbalSitIn(
 		AllCourses:         allCourses,
 		MissedSessions:     missedSessions,
 		Cutoff:             cutoff,
+		RequestTime:        time.Now(),
 		AfterPriorityLevel: afterPriorityLevel,
 		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
 			return q.SessionsByCourse(ctx, targetCourseID)

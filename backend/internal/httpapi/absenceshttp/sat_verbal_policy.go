@@ -35,6 +35,7 @@ type satVerbalResolveInput struct {
 	AllCourses         []sqldb.SubjectCourseV2
 	MissedSessions     []sqldb.SessionInRange
 	Cutoff             time.Time
+	RequestTime        time.Time
 	AfterPriorityLevel int
 	LoadSessions       func(context.Context, pgtype.UUID) ([]sqldb.SessionInRange, error)
 }
@@ -60,6 +61,7 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 		return nil, fmt.Errorf("missed course sessions lookup: %w", err)
 	}
 	missedLessonSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, input.MissedSessions)
+	notBefore := requestDateLowerBound(input.RequestTime)
 	offered := make(map[pgtype.UUID]struct{})
 	var priorities []SitInPriorityResult
 
@@ -72,7 +74,7 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 			if err != nil {
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
-			available := satVerbalAvailableSessions(targetSessions, input.MissedSessions, missedLessonSlots, sameLessonOnly, input.Cutoff, offered)
+			available := satVerbalAvailableSessions(targetSessions, input.MissedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
 			if len(available) == 0 {
 				continue
 			}
@@ -423,6 +425,7 @@ func satVerbalAvailableSessions(
 	missedSessions []sqldb.SessionInRange,
 	missedLessonSlots []satVerbalMissedLessonSlot,
 	sameLessonOnly bool,
+	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
 ) []sqldb.SessionInRange {
@@ -438,13 +441,12 @@ func satVerbalAvailableSessions(
 				continue
 			}
 			session := sessions[slot.Index]
-			if satVerbalSessionAllowed(session, finalID, missedSessions, missedDateLowerBound(slot.Missed), cutoff, offered) {
+			if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
 				out = append(out, session)
 			}
 		}
 		return out
 	}
-	notBefore := earliestMissedDateLowerBound(missedSessions)
 	for _, session := range sessions {
 		if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
 			out = append(out, session)
@@ -496,22 +498,8 @@ func missedLessonSlotsForMissedSessions(allCourseSessions []sqldb.SessionInRange
 	return slots
 }
 
-func earliestMissedDateLowerBound(missedSessions []sqldb.SessionInRange) time.Time {
-	var earliest time.Time
-	for _, missed := range missedSessions {
-		bound := missedDateLowerBound(missed)
-		if bound.IsZero() {
-			continue
-		}
-		if earliest.IsZero() || bound.Before(earliest) {
-			earliest = bound
-		}
-	}
-	return earliest
-}
-
-func missedDateLowerBound(missed sqldb.SessionInRange) time.Time {
-	start := missed.StartAt.Time
+func requestDateLowerBound(requestTime time.Time) time.Time {
+	start := requestTime
 	if start.IsZero() {
 		return time.Time{}
 	}
