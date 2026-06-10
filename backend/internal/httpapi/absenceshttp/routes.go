@@ -924,15 +924,16 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		AlreadyAbsent bool   `json:"already_absent"`
 	}
 	type courseSitInResponse struct {
-		RuleName             string                `json:"rule_name,omitempty"`
-		RuleType             string                `json:"rule_type,omitempty"`
-		SitInMethod          string                `json:"sit_in_method"`
-		Priorities           []SitInPriorityResult `json:"priorities,omitempty"`
-		CurrentPriorityLevel int                   `json:"current_priority_level,omitempty"`
-		HasNextPriority      bool                  `json:"has_next_priority,omitempty"`
-		SitInCourse          *SitInCourseInfo      `json:"sit_in_course,omitempty"`
-		AvailableSessions    []sessionBrief        `json:"available_sessions,omitempty"`
-		MissedSessions       []sessionBrief        `json:"missed_sessions,omitempty"`
+		RuleName             string                       `json:"rule_name,omitempty"`
+		RuleType             string                       `json:"rule_type,omitempty"`
+		SitInMethod          string                       `json:"sit_in_method"`
+		Priorities           []SitInPriorityResult        `json:"priorities,omitempty"`
+		CurrentPriorityLevel int                          `json:"current_priority_level,omitempty"`
+		HasNextPriority      bool                         `json:"has_next_priority,omitempty"`
+		SitInCourse          *SitInCourseInfo             `json:"sit_in_course,omitempty"`
+		AvailableSessions    []sessionBrief               `json:"available_sessions,omitempty"`
+		MissedSessions       []sessionBrief               `json:"missed_sessions,omitempty"`
+		SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
 	}
 	type courseResponse struct {
 		SubjectID   string               `json:"subject_id"`
@@ -977,6 +978,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 						Priorities:           result.Priorities,
 						CurrentPriorityLevel: result.CurrentPriorityLevel,
 						HasNextPriority:      result.HasNextPriority,
+						SitInByMissedSession: result.SitInByMissedSession,
 					}
 					if len(result.Available) > 0 {
 						sitIn.AvailableSessions = result.Available
