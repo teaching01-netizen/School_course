@@ -555,6 +555,105 @@ describe("AbsenceForm", () => {
     expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
   }, 30000);
 
+  it("shows an unavailable first SAT Verbal priority before revealing the next priority", async () => {
+    const user = userEvent.setup();
+    const initialSessions = createMockSessionsInRange([
+      {
+        subject_id: "subj-satv",
+        subject_code: "SATV",
+        subject_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        course_id: "c-writing-1",
+        course_code: "W1",
+        course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
+        sessions: [
+          {
+            id: "missed-writing-1",
+            start_at: "2026-06-16T17:00:00Z",
+            end_at: "2026-06-16T20:20:00Z",
+            date: "2026-06-16",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [
+            {
+              level: 1,
+              label: "1st Priority: Same Writing Beginner lesson in another section",
+              available_sessions: [],
+            },
+          ],
+        },
+      },
+    ]);
+    const nextSessions = createMockSessionsInRange([
+      {
+        ...initialSessions.subjects[0],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 2,
+          has_next_priority: false,
+          priorities: [
+            {
+              level: 2,
+              label: "2nd Priority: SAT Verbal Writing Rank 5",
+              sit_in_course: {
+                id: "c-writing-rank5",
+                code: "WR5",
+                name: "SAT Verbal Writing Rank 5 C2/26",
+              },
+              available_sessions: [
+                {
+                  id: "sit-writing-rank5",
+                  start_at: "2026-06-17T17:00:00Z",
+                  end_at: "2026-06-17T20:20:00Z",
+                  course_name: "SAT Verbal Writing Rank 5 C2/26",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes("absence-form-config")) return MOCK_CONFIG;
+      if (path.includes("student-lookup")) {
+        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
+      }
+      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("sessions-in-range")) return initialSessions;
+      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
+      if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
+      throw new Error(`Unmocked API call: ${url}`);
+    });
+    prePopulateSessionStorage("2026-06-16", "2026-06-16");
+    renderWithProviders(<AbsenceForm />);
+
+    await lookupStudent(user);
+    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
+    await verifyParent(user);
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(await screen.findByText(/1st Priority: Same Writing Beginner lesson/)).toBeInTheDocument();
+    expect(screen.getByText("Sit-in").closest("p")).toHaveTextContent("Not available");
+    expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
+    expect(screen.queryByText(/2nd Priority: SAT Verbal Writing Rank 5/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /see other times/i }));
+
+    expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /SAT Verbal Writing Rank 5 C2\/26/ })).toBeInTheDocument();
+  }, 30000);
+
   it("shows every SAT Verbal target returned at the current priority level", async () => {
     const user = userEvent.setup();
     renderWithDateRange({

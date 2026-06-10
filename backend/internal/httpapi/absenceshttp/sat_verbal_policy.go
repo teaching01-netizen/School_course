@@ -66,6 +66,7 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	for _, priority := range rule.Priorities {
 		targets := satVerbalPriorityTargets(*rule, priority, input.MissedCourse, input.Enrolled, input.AllCourses, input.MappedCourses)
 		sameLessonOnly := priority.RuleType == RuleTypeCrossSection && !strings.Contains(strings.ToLower(priority.Label), "next available")
+		priorityHadResult := false
 		for _, target := range targets {
 			targetSessions, err := input.LoadSessions(ctx, target.ID)
 			if err != nil {
@@ -79,6 +80,10 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 				offered[session.ID] = struct{}{}
 			}
 			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, available, len(input.MissedSessions)))
+			priorityHadResult = true
+		}
+		if !priorityHadResult {
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, nil, len(input.MissedSessions)))
 		}
 	}
 
@@ -133,17 +138,19 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 }
 
 func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, available []sqldb.SessionInRange, missedCount int) SitInPriorityResult {
-	targetIDStr, _ := uuidString(target.ID)
 	out := SitInPriorityResult{
 		Level: level,
 		Label: label,
-		SitInCourse: &SitInCourseInfo{
+	}
+	if target != nil {
+		targetIDStr, _ := uuidString(target.ID)
+		out.SitInCourse = &SitInCourseInfo{
 			ID:          targetIDStr,
 			Code:        target.Code,
 			Name:        target.Name,
 			SubjectCode: target.SubjectCode,
 			SubjectName: target.SubjectName,
-		},
+		}
 	}
 	for _, session := range available {
 		out.Available = append(out.Available, toSessionBriefForCourse(session, target))

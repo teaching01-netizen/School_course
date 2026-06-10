@@ -181,11 +181,17 @@ function getCurrentSitInDisplayName(
     const labels = [
       ...new Set(
         currentPriorities
-          .map((priority) => getPriorityTargetDisplayName(priority, fallbackSubjectName, allSubjects).trim())
+          .map((priority) => {
+            if (!priority.sit_in_course && (priority.available_sessions ?? []).length === 0) {
+              return "";
+            }
+            return getPriorityTargetDisplayName(priority, fallbackSubjectName, allSubjects).trim();
+          })
           .filter(Boolean),
       ),
     ];
     if (labels.length > 0) return labels.join(", ");
+    return "Not available";
   }
 
   return getSitInCourseDisplayName(sitIn.sit_in_course, fallbackSubjectName, allSubjects);
@@ -1676,6 +1682,7 @@ export default function AbsenceForm() {
                                                       ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((level) => Number(level) < currentLevel)
                                                       : previousPriorityLevel(group, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
+                                                    const currentPriorityAvailable = currentPriorities.flatMap(priority => priority.available_sessions ?? []);
 
                                                     if (!currentPriority) {
                                                       return (
@@ -1742,21 +1749,27 @@ export default function AbsenceForm() {
                                                           <label className="mt-3 block text-xs font-medium text-gray-600" htmlFor={`sit-in-${session.id}`}>
                                                             Make-up class
                                                           </label>
-                                                          <select
-                                                            id={`sit-in-${session.id}`}
-                                                            value={currentSitIn}
-                                                            onChange={(e) => handleSitInSelect(session.id, e.target.value)}
-                                                            className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 sm:max-w-[420px]"
-                                                          >
-                                                            <option value="">Not yet selected</option>
-                                                            {currentPriorities.flatMap(priority =>
-                                                              (priority.available_sessions ?? []).map(c => (
-                                                                <option key={`${priority.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
-                                                                  {getSitInSessionLabel(c, priority.sit_in_course, groupLabel, sessions)}
-                                                                </option>
-                                                              ))
-                                                            )}
-                                                          </select>
+                                                          {currentPriorityAvailable.length === 0 ? (
+                                                            <p className="mt-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 sm:max-w-[420px]">
+                                                              No available make-up class for this priority.
+                                                            </p>
+                                                          ) : (
+                                                            <select
+                                                              id={`sit-in-${session.id}`}
+                                                              value={currentSitIn}
+                                                              onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                              className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 sm:max-w-[420px]"
+                                                            >
+                                                              <option value="">Not yet selected</option>
+                                                              {currentPriorities.flatMap(priority =>
+                                                                (priority.available_sessions ?? []).map(c => (
+                                                                  <option key={`${priority.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
+                                                                    {getSitInSessionLabel(c, priority.sit_in_course, groupLabel, sessions)}
+                                                                  </option>
+                                                                ))
+                                                              )}
+                                                            </select>
+                                                          )}
                                                         </motion.div>
                                                       </>
                                                     );
