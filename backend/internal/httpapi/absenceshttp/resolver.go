@@ -64,14 +64,15 @@ type SitInCourseInfo struct {
 }
 
 type sessionBrief struct {
-	ID          string `json:"id"`
-	StartAt     string `json:"start_at"`
-	EndAt       string `json:"end_at"`
-	ClassName   string `json:"class_name,omitempty"`
-	CourseName  string `json:"course_name,omitempty"`
-	CourseCode  string `json:"course_code,omitempty"`
-	SubjectCode string `json:"subject_code,omitempty"`
-	SubjectName string `json:"subject_name,omitempty"`
+	ID              string `json:"id"`
+	StartAt         string `json:"start_at"`
+	EndAt           string `json:"end_at"`
+	MissedSessionID string `json:"missed_session_id,omitempty"`
+	ClassName       string `json:"class_name,omitempty"`
+	CourseName      string `json:"course_name,omitempty"`
+	CourseCode      string `json:"course_code,omitempty"`
+	SubjectCode     string `json:"subject_code,omitempty"`
+	SubjectName     string `json:"subject_name,omitempty"`
 }
 
 type ResolverInput struct {

@@ -432,6 +432,7 @@ export type SitInPriority = {
     id: string;
     start_at: string;
     end_at: string;
+    missed_session_id?: string | null;
     class_name?: string | null;
     subject_name?: string | null;
     subject_code?: string | null;
@@ -453,6 +454,7 @@ export type SitInInfo = {
     id: string;
     start_at: string;
     end_at: string;
+    missed_session_id?: string | null;
     class_name?: string | null;
     subject_name?: string | null;
     subject_code?: string | null;

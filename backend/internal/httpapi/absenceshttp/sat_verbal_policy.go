@@ -26,6 +26,11 @@ type satVerbalMissedLessonSlot struct {
 	Missed sqldb.SessionInRange
 }
 
+type satVerbalAvailableSession struct {
+	Session         sqldb.SessionInRange
+	MissedSessionID pgtype.UUID
+}
+
 type satVerbalResolveInput struct {
 	Rule               *satVerbalCourseRule
 	Policy             []satVerbalCourseRule
@@ -78,8 +83,8 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 			if len(available) == 0 {
 				continue
 			}
-			for _, session := range available {
-				offered[session.ID] = struct{}{}
+			for _, availableSession := range available {
+				offered[availableSession.Session.ID] = struct{}{}
 			}
 			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, available, len(input.MissedSessions)))
 			priorityHadResult = true
@@ -139,7 +144,7 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 	return visible, currentLevel, len(levels) > 1
 }
 
-func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, available []sqldb.SessionInRange, missedCount int) SitInPriorityResult {
+func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, available []satVerbalAvailableSession, missedCount int) SitInPriorityResult {
 	out := SitInPriorityResult{
 		Level: level,
 		Label: label,
@@ -154,15 +159,15 @@ func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCours
 			SubjectName: target.SubjectName,
 		}
 	}
-	for _, session := range available {
-		out.Available = append(out.Available, toSessionBriefForCourse(session, target))
+	for _, availableSession := range available {
+		out.Available = append(out.Available, toSessionBriefForCourseWithMissedSession(availableSession, target))
 	}
 	preSelectCount := missedCount
 	if preSelectCount > len(available) {
 		preSelectCount = len(available)
 	}
-	for _, session := range available[:preSelectCount] {
-		out.PreSelected = append(out.PreSelected, toSessionBriefForCourse(session, target))
+	for _, availableSession := range available[:preSelectCount] {
+		out.PreSelected = append(out.PreSelected, toSessionBriefForCourseWithMissedSession(availableSession, target))
 	}
 	return out
 }
@@ -428,13 +433,13 @@ func satVerbalAvailableSessions(
 	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
-) []sqldb.SessionInRange {
+) []satVerbalAvailableSession {
 	sessions := sortedSessions(targetSessions)
 	finalID := pgtype.UUID{}
 	if len(sessions) > 0 {
 		finalID = sessions[len(sessions)-1].ID
 	}
-	var out []sqldb.SessionInRange
+	var out []satVerbalAvailableSession
 	if sameLessonOnly {
 		for _, slot := range missedLessonSlots {
 			if slot.Index < 0 || slot.Index >= len(sessions) {
@@ -442,14 +447,14 @@ func satVerbalAvailableSessions(
 			}
 			session := sessions[slot.Index]
 			if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
-				out = append(out, session)
+				out = append(out, satVerbalAvailableSession{Session: session, MissedSessionID: slot.Missed.ID})
 			}
 		}
 		return out
 	}
 	for _, session := range sessions {
 		if satVerbalSessionAllowed(session, finalID, missedSessions, notBefore, cutoff, offered) {
-			out = append(out, session)
+			out = append(out, satVerbalAvailableSession{Session: session})
 		}
 	}
 	return out
@@ -504,6 +509,14 @@ func requestDateLowerBound(requestTime time.Time) time.Time {
 		return time.Time{}
 	}
 	return time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+}
+
+func toSessionBriefForCourseWithMissedSession(available satVerbalAvailableSession, target *sqldb.SubjectCourseV2) sessionBrief {
+	brief := toSessionBriefForCourse(available.Session, target)
+	if available.MissedSessionID.Valid {
+		brief.MissedSessionID, _ = uuidString(available.MissedSessionID)
+	}
+	return brief
 }
 
 func sortedSessions(sessions []sqldb.SessionInRange) []sqldb.SessionInRange {

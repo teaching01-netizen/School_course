@@ -252,6 +252,17 @@ function prioritiesForLevel(group: SubjectSessions, level: number) {
   return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
 }
 
+function availableSessionsForMissedSession(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionId: string,
+) {
+  const available = priority.available_sessions ?? [];
+  if (!available.some((session) => session.missed_session_id)) {
+    return available;
+  }
+  return available.filter((session) => session.missed_session_id === missedSessionId);
+}
+
 function hasServerPriorityReveal(group: SubjectSessions): boolean {
   return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
 }
@@ -1682,7 +1693,9 @@ export default function AbsenceForm() {
                                                       ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((level) => Number(level) < currentLevel)
                                                       : previousPriorityLevel(group, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
-                                                    const currentPriorityAvailable = currentPriorities.flatMap(priority => priority.available_sessions ?? []);
+                                                    const currentPriorityAvailable = currentPriorities.flatMap(priority =>
+                                                      availableSessionsForMissedSession(priority, session.id),
+                                                    );
 
                                                     if (!currentPriority) {
                                                       return (
@@ -1762,7 +1775,7 @@ export default function AbsenceForm() {
                                                             >
                                                               <option value="">Not yet selected</option>
                                                               {currentPriorities.flatMap(priority =>
-                                                                (priority.available_sessions ?? []).map(c => (
+                                                                availableSessionsForMissedSession(priority, session.id).map(c => (
                                                                   <option key={`${priority.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
                                                                     {getSitInSessionLabel(c, priority.sit_in_course, groupLabel, sessions)}
                                                                   </option>

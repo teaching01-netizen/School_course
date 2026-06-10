@@ -623,6 +623,9 @@ func TestResolveSatVerbalPolicy_BeginnerFutureLeaveCanUseSameLessonBeforeLeaveDa
 	if got := first.Available; len(got) != 1 || got[0].ID != "d7220000-0000-0000-0000-000000000004" {
 		t.Fatalf("available = %#v, want same lesson on 2026-06-22 for 2026-06-23 leave requested on 2026-06-10", got)
 	}
+	if got := first.Available[0].MissedSessionID; got != "d7110000-0000-0000-0000-000000000004" {
+		t.Fatalf("missed session association = %q, want selected 2026-06-23 missed session", got)
+	}
 }
 
 func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevealRank5(t *testing.T) {
