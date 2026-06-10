@@ -83,10 +83,14 @@ func (s *server) handleApply(w http.ResponseWriter, r *http.Request) {
 	s.a.WithIdempotentTx(w, r, user.ID, "sat-verbal-policy", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := qtx.AdvisoryLockForText(r.Context(), "sat-verbal-policy:course-rules"); err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		params, report, err := s.buildReplaceParams(r.Context(), qtx, rules, rulesByID, body.Mappings)
 		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		if _, err := qtx.SatVerbalPolicyMappingsReplace(r.Context(), params); err != nil {

@@ -108,6 +108,8 @@ func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	stalePatterns := []*regexp.Regexp{
 		regexp.MustCompile(`(?is)\bcourses\s*\.\s*deleted_at\b`),
 		regexp.MustCompile(`(?is)\bsubjects\s*\.\s*deleted_at\b`),
+		regexp.MustCompile(`(?is)\bfrom\s+courses\s+c\b.*?\bc\s*\.\s*deleted_at\b`),
+		regexp.MustCompile(`(?is)\bfrom\s+subjects\s+s\b.*?\bs\s*\.\s*deleted_at\b`),
 		regexp.MustCompile(`(?im)^\s*from\s+courses\s*$\s*^\s*where[^\n]*\bdeleted_at\b`),
 		regexp.MustCompile(`(?im)^\s*from\s+subjects\s*$\s*^\s*where[^\n]*\bdeleted_at\b`),
 		regexp.MustCompile(`(?im)^\s*join\s+courses\s+\w+\s+on[^\n]*\bdeleted_at\b`),

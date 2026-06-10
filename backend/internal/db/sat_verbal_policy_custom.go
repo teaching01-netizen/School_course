@@ -155,7 +155,6 @@ func (q *Queries) CourseSubjectByID(ctx context.Context, courseID pgtype.UUID) (
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE c.id = $1
-		  AND c.deleted_at IS NULL
 	`, courseID).Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID)
 	if err != nil {
 		return SubjectCourseV2{}, err
