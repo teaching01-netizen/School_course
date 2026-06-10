@@ -783,6 +783,7 @@ export default function AbsenceForm() {
       selectedSessionIds: [...selectedSessionIds],
       sitInSelections,
       sitInPriorityLevels,
+      sitInPriorityHistory,
     };
     try {
       window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
@@ -800,6 +801,7 @@ export default function AbsenceForm() {
     selectedSessionIds,
     sitInSelections,
     sitInPriorityLevels,
+    sitInPriorityHistory,
     step,
   ]);
 
@@ -832,6 +834,11 @@ export default function AbsenceForm() {
       if (Array.isArray(typedParsed.selectedSessionIds)) setSelectedSessionIds(new Set(typedParsed.selectedSessionIds));
       if (typedParsed.sitInSelections) setSitInSelections(typedParsed.sitInSelections);
       if (typedParsed.sitInPriorityLevels) setSitInPriorityLevels(typedParsed.sitInPriorityLevels);
+      const typedWithHistory = typedParsed as AbsenceSnapshot & {
+        sitInPriorityLevels?: Record<string, number>;
+        sitInPriorityHistory?: Record<string, Record<number, SubjectSessions>>;
+      };
+      if (typedWithHistory.sitInPriorityHistory) setSitInPriorityHistory(typedWithHistory.sitInPriorityHistory);
       if (typeof parsed.step === "number") {
         goTo(parsed.step as StepIndex);
       }
