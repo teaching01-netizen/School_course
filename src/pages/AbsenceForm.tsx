@@ -271,6 +271,33 @@ function priorityOrdinal(level: number): string {
   }
 }
 
+function getReviewSitInLabel(
+  missedSession: { id: string },
+  group: SubjectSessions,
+  sitInSelections: Record<string, string>,
+  priorityLevels: Record<string, number>,
+  allSubjects: SubjectSessions[],
+): string {
+  const sitInGroup = groupWithSitInForMissedSession(group, missedSession.id);
+  const sitIn = sitInGroup.sit_in;
+  if (!sitIn) return "To arrange";
+  if (sitIn.sit_in_method === "zoom") return "Zoom";
+  if (sitIn.sit_in_method === "teacher_case") return "To arrange";
+  if (sitIn.sit_in_method !== "physical") return "To arrange";
+  const sitInSessionId = sitInSelections[missedSession.id];
+  if (!sitInSessionId) return "Not yet selected";
+  const priorities = sitIn.priorities ?? [];
+  const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+  for (const p of priorities) {
+    const available = availableSessionsForMissedSession(p, missedSession.id);
+    const match = available.find((s) => s.id === sitInSessionId);
+    if (match) {
+      return getSitInSessionLabel(match, p.sit_in_course, groupLabel, allSubjects);
+    }
+  }
+  return "Make-up class selected";
+}
+
 function getSitInSessionLabel(
   session: SitInAvailableSession,
   sitInCourse: SitInCourse,
@@ -885,14 +912,9 @@ export default function AbsenceForm() {
                     <div className="space-y-4">
                       <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)]/10 text-sm font-bold text-[var(--color-wi-primary)]">
-                              {studentDisplayName?.charAt(0)?.toUpperCase() || "?"}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
-                              <p className="text-xs font-mono text-[var(--color-wi-text-light)]">{lookup.wcode}</p>
-                            </div>
+                          <div>
+                            <p className="text-sm font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
+                            <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
                           </div>
                           {lookup.parent_phone ? (
                             <span className="text-xs text-[var(--color-wi-text-light)] whitespace-nowrap">Parent: {maskPhone(lookup.parent_phone)}</span>
@@ -1255,6 +1277,10 @@ export default function AbsenceForm() {
                 <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Review your absence</h1>
                 {lookup ? (
                   <div className="space-y-4">
+                    <p className="text-sm text-[var(--color-wi-text-light)]">
+                      <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</span> — {lookup.wcode}
+                    </p>
+
                     {/* Classes section */}
                     <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
                       <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
@@ -1272,16 +1298,16 @@ export default function AbsenceForm() {
                           const selectedSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
                           if (selectedSessions.length === 0) return null;
                           const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
-                          const sitIn = group.sit_in;
-                          const sitInMethod = sitIn?.sit_in_method;
-                          const sitInLabel = sitInMethod === "zoom" ? "Zoom" : sitInMethod === "teacher_case" ? "To arrange" : sitInMethod === "physical" ? "Make-up class selected" : "To arrange";
                           return (
                             <div key={group.course_id}>
                               <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>
-                              <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
-                                {selectedSessions.map(s => formatDate(s.date)).join(" · ")}
-                              </p>
-                              <p className="text-xs text-[var(--color-wi-text-light)]">Make-up: {sitInLabel}</p>
+                              {selectedSessions.map((s) => (
+                                <p key={s.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
+                                  {formatDate(s.date)} {formatTime(s.start_at)}–{formatTime(s.end_at)}
+                                  <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
+                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(s, group, sitInSelections, sitInPriorityLevels, sessions)}</span>
+                                </p>
+                              ))}
                             </div>
                           );
                         })}

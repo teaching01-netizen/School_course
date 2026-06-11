@@ -134,6 +134,12 @@ export default function StepCoverVerification({
         <p role="alert" className="text-xs text-red-600">{verifyError}</p>
       ) : null}
 
+      {!parentMissing && !verified ? (
+        <p className="text-xs text-[var(--color-wi-text-light)]">
+          We'll send a code to your parent's phone for consent.
+        </p>
+      ) : null}
+
       <SmsSendButton
         isSending={isSending}
         sendCount={sendCount}
