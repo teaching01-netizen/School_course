@@ -70,6 +70,17 @@ const PAGE_WITH_MISSED_SESSIONS = {
           end_at: "2026-06-08T12:00:00+07:00",
         },
       ],
+      sit_ins: [
+        {
+          id: "sit-1",
+          session_id: "sit-session-1",
+          course_id: "sit-course-1",
+          course_code: "MATH-301",
+          course_name: "SAT Math Scholar C2",
+          start_at: "2026-06-03T10:00:00+07:00",
+          end_at: "2026-06-03T11:30:00+07:00",
+        },
+      ],
     },
   ],
 };
@@ -106,7 +117,7 @@ describe("Absence inbox", () => {
     );
   });
 
-  it("renders missed session dates in the inbox table", async () => {
+  it("renders request and sit-in times without a separate dates column", async () => {
     mockApiJson.mockResolvedValueOnce(PAGE_WITH_MISSED_SESSIONS);
     renderPage();
 
@@ -115,9 +126,13 @@ describe("Absence inbox", () => {
     if (!row) {
       throw new Error("Expected absence table row");
     }
-    expect(row).toHaveTextContent("1 Jun");
-    expect(row).toHaveTextContent("8 Jun");
-    expect(row).toHaveTextContent("SAT Math Scholar C2");
+    expect(row).toHaveTextContent("Requested 27 May");
+    expect(row).toHaveTextContent("3 Jun");
+    expect(row).toHaveTextContent("10:00");
+    expect(row).toHaveTextContent("11:30");
+    expect(row).not.toHaveTextContent("1 Jun");
+    expect(row).not.toHaveTextContent("8 Jun");
+    expect(row).not.toHaveTextContent("SAT Math Scholar C2");
     expect(row).not.toHaveTextContent("000000004");
     expect(row).not.toHaveTextContent("31 May - 30 Jun");
   });

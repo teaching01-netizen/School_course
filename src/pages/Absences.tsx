@@ -11,10 +11,10 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
-import { formatAbsenceSummaryDates } from "../components/absences/dateSummary";
-import { formatSitInLabel } from "../components/absences/sitInLabel";
 
 const PAGE_SIZE = 25;
+const inboxDateTimeFormatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const inboxTimeFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 function submittedAgo(value: string): string {
   const elapsed = Date.now() - new Date(value).getTime();
@@ -55,14 +55,22 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function DateSummary({ absence }: { absence: ManagedAbsence }) {
-  const dates = formatAbsenceSummaryDates(absence).split("\n").filter(Boolean);
-  const compactLabel = dates.join(", ");
-  return (
-    <span className="block max-w-[160px] whitespace-normal leading-snug text-gray-700" title={compactLabel}>
-      {compactLabel}
-    </span>
-  );
+function formatInboxDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return inboxDateTimeFormatter.format(date);
+}
+
+function formatSitInWindow(startAt: string, endAt: string): string {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return startAt;
+
+  const startLabel = inboxDateTimeFormatter.format(start);
+  const endLabel = start.toDateString() === end.toDateString()
+    ? inboxTimeFormatter.format(end)
+    : inboxDateTimeFormatter.format(end);
+  return `${startLabel}-${endLabel}`;
 }
 
 function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
@@ -71,9 +79,29 @@ function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
       <div className="max-w-[210px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
         {absence.subject_name ?? absence.subject_code ?? "-"}
       </div>
-      {absence.subject_code && absence.subject_name && absence.subject_code !== absence.subject_name ? (
-        <div className="mt-0.5 text-xs font-medium text-gray-500">{absence.subject_code}</div>
-      ) : null}
+      <div className="mt-0.5 text-xs text-gray-500">Requested {formatInboxDateTime(absence.created_at)}</div>
+    </div>
+  );
+}
+
+function SitInSummary({ absence }: { absence: ManagedAbsence }) {
+  if (absence.sit_in_method === "zoom") {
+    return <span className="text-sm text-gray-700">Zoom</span>;
+  }
+
+  const sessions = (absence.sit_ins ?? [])
+    .slice()
+    .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+
+  if (sessions.length === 0) {
+    return <span className="text-sm text-gray-400">Not assigned</span>;
+  }
+
+  return (
+    <div className="space-y-1 text-sm leading-snug text-gray-700">
+      {sessions.map((session) => (
+        <div key={session.id}>{formatSitInWindow(session.start_at, session.end_at)}</div>
+      ))}
     </div>
   );
 }
@@ -470,7 +498,7 @@ export default function Absences() {
       ) : null}
 
       <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
-        <table className="min-w-[1080px] text-sm absence-inbox-table">
+        <table className="min-w-[960px] text-sm absence-inbox-table">
           <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
               <th className="w-8 px-3 py-2">
@@ -479,7 +507,6 @@ export default function Absences() {
               <th className="w-[116px] px-3 py-2">Status</th>
               <th className="w-[180px] px-3 py-2">Student</th>
               <th className="px-3 py-2">Subject</th>
-              <th className="w-[190px] px-3 py-2">Dates</th>
               <th className="w-[190px] px-3 py-2">Sit-in</th>
               <th className="w-[110px] px-3 py-2">Submitted</th>
               <th className="w-[260px] px-3 py-2 text-right">Actions</th>
@@ -507,15 +534,8 @@ export default function Absences() {
                   </div>
                 </td>
                 <td className="px-3 py-3" data-label="Subject"><SubjectSummary absence={absence} /></td>
-                <td className="px-3 py-3" data-label="Dates"><DateSummary absence={absence} /></td>
                 <td className="px-3 py-3" data-label="Sit-in">
-                  {absence.sit_in_method === "zoom" ? (
-                    <span className="rounded-sm bg-blue-50 px-2 py-1 text-xs text-blue-700">Zoom</span>
-                  ) : (
-                    <span className="inline-block max-w-[170px] truncate rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700" title={formatSitInLabel(absence)}>
-                      {formatSitInLabel(absence)}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}
-                    </span>
-                  )}
+                  <SitInSummary absence={absence} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-gray-500" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
                 <td className="px-3 py-3" data-label="Actions" onClick={(event) => event.stopPropagation()}>
@@ -533,7 +553,7 @@ export default function Absences() {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={8}><EmptyState message="All caught up! No absences match these filters." action={
+                <td colSpan={7}><EmptyState message="All caught up! No absences match these filters." action={
                   <div className="flex justify-center gap-2">
                     <Link to="/absences" className="text-sm text-[var(--color-wi-primary)] hover:underline">View all</Link>
                     <Link to="/absences/dashboard" className="text-sm text-[var(--color-wi-primary)] hover:underline">View dashboard</Link>
