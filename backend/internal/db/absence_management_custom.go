@@ -284,6 +284,34 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 	return out, rows.Err()
 }
 
+func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenceIDs []pgtype.UUID) ([]ManagedAbsenceSession, error) {
+	if len(absenceIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, room.name, sess.start_at, sess.end_at
+		FROM absence_sit_ins asi
+		JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
+		JOIN courses c ON c.id = sess.course_id
+		LEFT JOIN rooms room ON room.id = sess.room_id
+		WHERE asi.absence_id = ANY($1::uuid[])
+		ORDER BY asi.absence_id, sess.start_at ASC, asi.id ASC
+	`, absenceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ManagedAbsenceSession
+	for rows.Next() {
+		var session ManagedAbsenceSession
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
 type SitInStudentRow struct {
 	AbsenceID      pgtype.UUID
 	SessionID      pgtype.UUID

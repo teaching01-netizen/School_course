@@ -140,6 +140,20 @@ describe("Absence inbox", () => {
     expect(row).not.toHaveTextContent("31 May - 30 Jun");
   });
 
+  it("shows sit-in subject when no physical session is selected yet", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    const absenceLink = await screen.findByRole("link", { name: /view john smith absence/i });
+    const row = absenceLink.closest("tr");
+    if (!row) {
+      throw new Error("Expected absence table row");
+    }
+    expect(row).toHaveTextContent("SAT Math Scholar C2");
+    expect(row).toHaveTextContent("No session selected");
+    expect(row).not.toHaveTextContent("Not assigned");
+  });
+
   it("marks an absence reviewed using its current version and reloads results", async () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)

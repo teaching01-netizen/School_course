@@ -95,12 +95,21 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
     return <span className="text-sm text-gray-700">Zoom</span>;
   }
 
+  const fallbackLabel = absence.sit_in_subject_name ?? absence.sit_in_course_name ?? absence.sit_in_course_code;
   const sessions = (absence.sit_ins ?? [])
     .slice()
     .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
 
   if (sessions.length === 0) {
-    return <span className="text-sm text-gray-400">Not assigned</span>;
+    if (!fallbackLabel) {
+      return <span className="text-sm text-gray-400">Not assigned</span>;
+    }
+    return (
+      <div className="text-sm leading-snug">
+        <div className="max-w-[180px] truncate font-medium text-gray-900" title={fallbackLabel}>{fallbackLabel}</div>
+        <div className="text-xs text-gray-400">No session selected</div>
+      </div>
+    );
   }
 
   return (
@@ -108,7 +117,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
       {sessions.map((session) => (
         <div key={session.id}>
           <div className="max-w-[180px] truncate font-medium text-gray-900" title={session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
-            {absence.sit_in_subject_name ?? session.course_name ?? session.course_code ?? "Sit-in"}
+            {fallbackLabel ?? session.course_name ?? session.course_code ?? "Sit-in"}
           </div>
           <div className="text-xs text-gray-500">{formatSitInWindow(session.start_at, session.end_at)}</div>
         </div>

@@ -133,6 +133,78 @@ func TestSitInsBySessionIDs(t *testing.T) {
 	})
 }
 
+func TestManagedAbsenceSessionsByAbsenceIDs_GroupsByAbsence(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	teacherID, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "teacher-siab-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "SitInAbsRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, CourseCreateParams{Code: "SITINABS-" + suffix, Name: "Sit In Absence " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createAbsence := func(wcode string, day int) AbsenceCreateRow {
+		t.Helper()
+		absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+			Wcode:         wcode,
+			CourseID:      course.ID,
+			DateFrom:      pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true},
+			DateTo:        pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true},
+			Reason:        pgtype.Text{String: "sick", Valid: true},
+			SitInCourseID: course.ID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return absence
+	}
+
+	abs1 := createAbsence("WSIAB1-"+suffix, 1)
+	abs2 := createAbsence("WSIAB2-"+suffix, 2)
+	session1 := createTestSession(t, ctx, q, course.ID, teacherID, room.ID,
+		time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 3, 11, 30, 0, 0, time.UTC),
+	)
+	session2 := createTestSession(t, ctx, q, course.ID, teacherID, room.ID,
+		time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 4, 11, 30, 0, 0, time.UTC),
+	)
+
+	if err := q.AbsenceSitInsCreate(ctx, abs1.ID, []pgtype.UUID{session1, session2}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := q.ManagedAbsenceSessionsByAbsenceIDs(ctx, []pgtype.UUID{abs1.ID, abs2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 sit-in session rows, got %d", len(rows))
+	}
+	for _, row := range rows {
+		if row.AbsenceID != abs1.ID {
+			t.Fatalf("expected only first absence sit-in rows, got absence_id %v", row.AbsenceID)
+		}
+	}
+	if !rows[0].StartAt.Time.Before(rows[1].StartAt.Time) {
+		t.Fatal("expected sit-in sessions to be ordered by start_at")
+	}
+}
+
 func createTestSession(t *testing.T, ctx context.Context, q *Queries, courseID, teacherID, roomID pgtype.UUID, start, end time.Time) pgtype.UUID {
 	t.Helper()
 	session, err := q.SessionCreate(ctx, SessionCreateParams{

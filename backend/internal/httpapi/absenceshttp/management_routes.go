@@ -461,6 +461,7 @@ func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
 		absenceIDs = append(absenceIDs, row.ID)
 	}
 	missedByAbsence := make(map[pgtype.UUID][]sqldb.ManagedAbsenceSession, len(rows))
+	sitInsByAbsence := make(map[pgtype.UUID][]sqldb.ManagedAbsenceSession, len(rows))
 	if len(absenceIDs) > 0 {
 		missedRows, err := s.deps.Q.ManagedAbsenceMissedSessionsByAbsenceIDs(r.Context(), absenceIDs)
 		if err != nil {
@@ -471,12 +472,24 @@ func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
 		for _, session := range missedRows {
 			missedByAbsence[session.AbsenceID] = append(missedByAbsence[session.AbsenceID], session)
 		}
+		sitInRows, err := s.deps.Q.ManagedAbsenceSessionsByAbsenceIDs(r.Context(), absenceIDs)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return
+		}
+		for _, session := range sitInRows {
+			sitInsByAbsence[session.AbsenceID] = append(sitInsByAbsence[session.AbsenceID], session)
+		}
 	}
 	items := make([]managedAbsenceDTO, 0, len(rows))
 	for _, row := range rows {
 		dto := s.managedAbsenceDTO(row)
 		if missed := missedByAbsence[row.ID]; len(missed) > 0 {
 			dto.MissedSessions = s.sessionDTO(missed)
+		}
+		if sitIns := sitInsByAbsence[row.ID]; len(sitIns) > 0 {
+			dto.SitIns = s.sessionDTO(sitIns)
 		}
 		items = append(items, dto)
 	}
