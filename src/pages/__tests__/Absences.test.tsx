@@ -117,7 +117,7 @@ describe("Absence inbox", () => {
     );
   });
 
-  it("renders request and sit-in times without a separate dates column", async () => {
+  it("renders leave session times under subject and picked sit-in times under sit-in", async () => {
     mockApiJson.mockResolvedValueOnce(PAGE_WITH_MISSED_SESSIONS);
     renderPage();
 
@@ -126,13 +126,16 @@ describe("Absence inbox", () => {
     if (!row) {
       throw new Error("Expected absence table row");
     }
-    expect(row).toHaveTextContent("Requested 27 May");
+    expect(row).toHaveTextContent("Mathematics");
+    expect(row).toHaveTextContent("1 Jun");
+    expect(row).toHaveTextContent("8 Jun");
+    expect(row).toHaveTextContent("09:00");
+    expect(row).toHaveTextContent("12:00");
+    expect(row).toHaveTextContent("SAT Math Scholar C2");
     expect(row).toHaveTextContent("3 Jun");
     expect(row).toHaveTextContent("10:00");
     expect(row).toHaveTextContent("11:30");
-    expect(row).not.toHaveTextContent("1 Jun");
-    expect(row).not.toHaveTextContent("8 Jun");
-    expect(row).not.toHaveTextContent("SAT Math Scholar C2");
+    expect(row).not.toHaveTextContent("Requested 27 May");
     expect(row).not.toHaveTextContent("000000004");
     expect(row).not.toHaveTextContent("31 May - 30 Jun");
   });

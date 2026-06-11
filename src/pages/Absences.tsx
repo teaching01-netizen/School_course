@@ -55,12 +55,6 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function formatInboxDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return inboxDateTimeFormatter.format(date);
-}
-
 function formatSitInWindow(startAt: string, endAt: string): string {
   const start = new Date(startAt);
   const end = new Date(endAt);
@@ -74,12 +68,24 @@ function formatSitInWindow(startAt: string, endAt: string): string {
 }
 
 function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
+  const missedSessions = (absence.missed_sessions ?? [])
+    .slice()
+    .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+
   return (
     <div className="min-w-0">
       <div className="max-w-[210px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
         {absence.subject_name ?? absence.subject_code ?? "-"}
       </div>
-      <div className="mt-0.5 text-xs text-gray-500">Requested {formatInboxDateTime(absence.created_at)}</div>
+      {missedSessions.length > 0 ? (
+        <div className="mt-1 space-y-0.5 text-xs leading-snug text-gray-500">
+          {missedSessions.map((session) => (
+            <div key={session.id}>{formatSitInWindow(session.start_at, session.end_at)}</div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-0.5 text-xs text-gray-500">{absence.date_from === absence.date_to ? absence.date_from : `${absence.date_from}-${absence.date_to}`}</div>
+      )}
     </div>
   );
 }
@@ -100,7 +106,12 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
   return (
     <div className="space-y-1 text-sm leading-snug text-gray-700">
       {sessions.map((session) => (
-        <div key={session.id}>{formatSitInWindow(session.start_at, session.end_at)}</div>
+        <div key={session.id}>
+          <div className="max-w-[180px] truncate font-medium text-gray-900" title={session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
+            {absence.sit_in_subject_name ?? session.course_name ?? session.course_code ?? "Sit-in"}
+          </div>
+          <div className="text-xs text-gray-500">{formatSitInWindow(session.start_at, session.end_at)}</div>
+        </div>
       ))}
     </div>
   );
