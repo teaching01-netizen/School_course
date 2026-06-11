@@ -1096,4 +1096,33 @@ describe("AbsenceForm", () => {
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("Math advance");
   });
+
+  it("shows the selected root sit-in session on the review step", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1", subject_code: "ADV", subject_name: "Math advance",
+          course_id: "c-adv", course_code: "ADV-01", course_name: "Math advance",
+          sessions: [{ id: "s1", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-int", code: "INT-01", name: "Math inter" }, available_sessions: [{ id: "as1", start_at: "2026-06-18T10:00:00Z", end_at: "2026-06-18T12:00:00Z", subject_name: "Math inter" }] },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+    await user.selectOptions(await screen.findByRole("combobox"), "as1");
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument());
+    expect(screen.getByText(/Make-up:/).parentElement).toHaveTextContent("Math inter");
+    expect(screen.getByText(/Make-up:/).parentElement).toHaveTextContent("18 Jun 2026");
+    expect(screen.queryByText("Make-up class selected")).not.toBeInTheDocument();
+  });
 });

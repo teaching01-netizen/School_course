@@ -228,6 +228,15 @@ function unavailableSessionsForMissedSession(
   return unavailable.filter((session) => session.missed_session_id === missedSessionId);
 }
 
+function rootAvailableSessionsForMissedSession(
+  sitIn: SubjectSessions["sit_in"],
+  missedSessionId: string,
+) {
+  const available = sitIn?.available_sessions ?? [];
+  if (!available.some((session) => session.missed_session_id)) return available;
+  return available.filter((session) => session.missed_session_id === missedSessionId);
+}
+
 function hasServerPriorityReveal(group: SubjectSessions): boolean {
   return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
 }
@@ -276,9 +285,13 @@ function getReviewSitInLabel(
   group: SubjectSessions,
   sitInSelections: Record<string, string>,
   priorityLevels: Record<string, number>,
+  priorityHistory: Record<string, Record<number, SubjectSessions>>,
   allSubjects: SubjectSessions[],
 ): string {
-  const sitInGroup = groupWithSitInForMissedSession(group, missedSession.id);
+  const requestedLevel = priorityLevels[missedSession.id];
+  const sitInGroup = requestedLevel
+    ? priorityHistory[missedSession.id]?.[requestedLevel] ?? groupWithSitInForMissedSession(group, missedSession.id)
+    : groupWithSitInForMissedSession(group, missedSession.id);
   const sitIn = sitInGroup.sit_in;
   if (!sitIn) return "To arrange";
   if (sitIn.sit_in_method === "zoom") return "Zoom";
@@ -288,6 +301,10 @@ function getReviewSitInLabel(
   if (!sitInSessionId) return "Not yet selected";
   const priorities = sitIn.priorities ?? [];
   const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+  const rootMatch = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).find((s) => s.id === sitInSessionId);
+  if (rootMatch) {
+    return getSitInSessionLabel(rootMatch, sitIn.sit_in_course, groupLabel, allSubjects);
+  }
   for (const p of priorities) {
     const available = availableSessionsForMissedSession(p, missedSession.id);
     const match = available.find((s) => s.id === sitInSessionId);
@@ -1305,7 +1322,7 @@ export default function AbsenceForm() {
                                 <p key={s.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
                                   {formatDate(s.date)} {formatTime(s.start_at)}–{formatTime(s.end_at)}
                                   <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
-                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(s, group, sitInSelections, sitInPriorityLevels, sessions)}</span>
+                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(s, group, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
                                 </p>
                               ))}
                             </div>
