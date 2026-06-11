@@ -178,6 +178,9 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 		if priority.Level <= afterLevel {
 			continue
 		}
+		if satVerbalPriorityLevelOnlyExpiredSameOccurrence(priorities, priority.Level) {
+			continue
+		}
 		if _, ok := seen[priority.Level]; ok {
 			continue
 		}
@@ -196,6 +199,30 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 		}
 	}
 	return visible, currentLevel, len(levels) > 1
+}
+
+func satVerbalPriorityLevelOnlyExpiredSameOccurrence(priorities []SitInPriorityResult, level int) bool {
+	var sawPriority bool
+	var sawUnavailable bool
+	for _, priority := range priorities {
+		if priority.Level != level {
+			continue
+		}
+		sawPriority = true
+		if len(priority.Available) > 0 {
+			return false
+		}
+		if len(priority.Unavailable) == 0 {
+			return false
+		}
+		for _, unavailable := range priority.Unavailable {
+			if unavailable.ReasonCode != "before_request_date" {
+				return false
+			}
+			sawUnavailable = true
+		}
+	}
+	return sawPriority && sawUnavailable
 }
 
 func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, options satVerbalSessionOptions, missedCount int) SitInPriorityResult {

@@ -768,7 +768,7 @@ func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLe
 	}
 }
 
-func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevealRank5(t *testing.T) {
+func TestResolveSatVerbalPolicy_BeginnerExpiredSameOccurrenceAutoRevealsRank5(t *testing.T) {
 	section1ID := "61100000-0000-0000-0000-000000000001"
 	section2ID := "62200000-0000-0000-0000-000000000002"
 	section3ID := "63300000-0000-0000-0000-000000000003"
@@ -858,42 +858,16 @@ func TestResolveSatVerbalPolicy_BeginnerUnavailableFirstPriorityDoesNotAutoRevea
 	}
 
 	initial := resolve(0)
-	if initial.CurrentPriorityLevel != 1 || initial.Priorities[0].Level != 1 {
-		t.Fatalf("initial level = current %d priority %d, want level 1", initial.CurrentPriorityLevel, initial.Priorities[0].Level)
+	if initial.CurrentPriorityLevel != 2 || initial.Priorities[0].Level != 2 {
+		t.Fatalf("initial level = current %d priority %d, want level 2", initial.CurrentPriorityLevel, initial.Priorities[0].Level)
 	}
-	if len(initial.Priorities[0].Available) != 0 {
-		t.Fatalf("initial available = %#v, want no first-priority sessions", initial.Priorities[0].Available)
+	if initial.HasNextPriority {
+		t.Fatal("expected no hidden priority after auto-revealed Rank 5")
 	}
-	var unavailable []unavailableSessionBrief
-	for _, priority := range initial.Priorities {
-		unavailable = append(unavailable, priority.Unavailable...)
+	if initial.Priorities[0].SitInCourse == nil || initial.Priorities[0].SitInCourse.Name != "SAT Verbal Writing Rank 5" {
+		t.Fatalf("initial sit-in course = %#v, want Writing Rank 5", initial.Priorities[0].SitInCourse)
 	}
-	if len(unavailable) != 2 {
-		t.Fatalf("initial unavailable = %#v, want Section 2 and Section 3 same-number diagnostics", unavailable)
-	}
-	for _, checked := range unavailable {
-		if checked.Session == nil {
-			t.Fatalf("unavailable diagnostic missing real checked slot: %#v", checked)
-		}
-		if checked.ReasonCode != "before_request_date" {
-			t.Fatalf("unavailable reason = %#v, want before_request_date", checked)
-		}
-		if checked.OccurrenceNumber != 2 {
-			t.Fatalf("unavailable occurrence = %d, want class #2", checked.OccurrenceNumber)
-		}
-	}
-	if !initial.HasNextPriority {
-		t.Fatal("expected Rank 5 to be available behind See other times")
-	}
-
-	next := resolve(1)
-	if next.CurrentPriorityLevel != 2 || next.Priorities[0].Level != 2 {
-		t.Fatalf("next level = current %d priority %d, want level 2", next.CurrentPriorityLevel, next.Priorities[0].Level)
-	}
-	if next.Priorities[0].SitInCourse == nil || next.Priorities[0].SitInCourse.Name != "SAT Verbal Writing Rank 5" {
-		t.Fatalf("next sit-in course = %#v, want Writing Rank 5", next.Priorities[0].SitInCourse)
-	}
-	if got := next.Priorities[0].Available; len(got) != 1 || got[0].ID != "c6550000-0000-0000-0000-000000000001" {
+	if got := initial.Priorities[0].Available; len(got) != 1 || got[0].ID != "c6550000-0000-0000-0000-000000000001" {
 		t.Fatalf("next available = %#v, want first non-final Rank 5 session", got)
 	}
 }
