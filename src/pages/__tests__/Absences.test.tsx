@@ -115,6 +115,10 @@ describe("Absence inbox", () => {
       expect.stringContaining("status=pending"),
       expect.objectContaining({ method: "GET" }),
     );
+    expect(mockApiJson).toHaveBeenCalledWith(
+      expect.stringContaining("bucket=active"),
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("renders leave session times under subject and picked sit-in times under sit-in", async () => {
@@ -202,9 +206,28 @@ describe("Absence inbox", () => {
     mockApiJson.mockResolvedValueOnce({ items: [], total_count: 0, offset: 0, limit: 25 });
     renderPage("/absences?status=cancelled");
 
-    expect(await screen.findByText("All caught up! No absences match these filters.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view all/i })).toHaveAttribute("href", "/absences");
+    expect(await screen.findByText("No archived absences match these filters.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /view active table/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view dashboard/i })).toHaveAttribute("href", "/absences/dashboard");
+  });
+
+  it("switches from active table to archived table", async () => {
+    mockApiJson.mockResolvedValue({ ...PAGE, items: [], total_count: 0 });
+    renderPage("/absences");
+    const user = userEvent.setup();
+
+    await screen.findByText("All caught up! No active absences match these filters.");
+    await user.click(screen.getByRole("button", { name: /archived table/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("bucket=archived"),
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    expect(screen.getByRole("option", { name: "Actioned" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Cancelled" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Pending" })).not.toBeInTheDocument();
   });
 
   it("renders missed session dates in the board view", async () => {

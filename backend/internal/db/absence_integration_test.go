@@ -312,6 +312,76 @@ func TestManagedAbsenceList_FallsBackWithoutStudentNicknameColumn(t *testing.T) 
 	}
 }
 
+func TestManagedAbsenceList_BucketFiltersActiveAndArchived(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "ABS-BUCKET-" + suffix,
+		Name: "Absence Bucket " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAbsence := func(wcode, status string, day int) pgtype.UUID {
+		t.Helper()
+		absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+			Wcode:         wcode + "-" + suffix,
+			CourseID:      course.ID,
+			DateFrom:      pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true},
+			DateTo:        pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true},
+			Reason:        pgtype.Text{String: "travel", Valid: true},
+			SitInCourseID: pgtype.UUID{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := dbpool.Exec(ctx, "UPDATE student_absences SET status = $1 WHERE id = $2", status, absence.ID); err != nil {
+			t.Fatal(err)
+		}
+		return absence.ID
+	}
+
+	pendingID := createAbsence("WBUCKET-P", "pending", 1)
+	reviewedID := createAbsence("WBUCKET-R", "reviewed", 2)
+	actionedID := createAbsence("WBUCKET-A", "actioned", 3)
+	cancelledID := createAbsence("WBUCKET-C", "cancelled", 4)
+	ids := []pgtype.UUID{pendingID, reviewedID, actionedID, cancelledID}
+
+	activeRows, activeTotal, err := q.ManagedAbsenceList(ctx, AbsenceFilter{Limit: 25, IDs: ids, Bucket: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeTotal != 2 || len(activeRows) != 2 {
+		t.Fatalf("expected 2 active rows, got total=%d len=%d", activeTotal, len(activeRows))
+	}
+	for _, row := range activeRows {
+		if row.Status != "pending" && row.Status != "reviewed" {
+			t.Fatalf("expected active status, got %q", row.Status)
+		}
+	}
+
+	archivedRows, archivedTotal, err := q.ManagedAbsenceList(ctx, AbsenceFilter{Limit: 25, IDs: ids, Bucket: "archived"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archivedTotal != 2 || len(archivedRows) != 2 {
+		t.Fatalf("expected 2 archived rows, got total=%d len=%d", archivedTotal, len(archivedRows))
+	}
+	for _, row := range archivedRows {
+		if row.Status != "actioned" && row.Status != "cancelled" {
+			t.Fatalf("expected archived status, got %q", row.Status)
+		}
+	}
+}
+
 func TestCalendarQueriesExposeReadableSubjectNames(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

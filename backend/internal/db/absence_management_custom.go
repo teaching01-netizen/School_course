@@ -16,6 +16,7 @@ type AbsenceFilter struct {
 	IDs       []pgtype.UUID
 	SubjectID pgtype.UUID
 	Status    string
+	Bucket    string
 	DateFrom  pgtype.Date
 	DateTo    pgtype.Date
 	Limit     int32
@@ -95,6 +96,7 @@ const managedAbsenceListQueryTemplate = `
 		  AND ($4::date IS NULL OR sa.date_to >= $4)
 		  AND ($5::date IS NULL OR sa.date_from <= $5)
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
+		  AND ($9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled')))
 		ORDER BY sa.created_at DESC, sa.id DESC
 		LIMIT $6 OFFSET $7
 `
@@ -146,7 +148,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs)
+	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs, p.Bucket)
 	if err != nil {
 		return nil, 0, err
 	}

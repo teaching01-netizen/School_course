@@ -195,6 +195,11 @@ func (s *server) parseFilter(w http.ResponseWriter, r *http.Request, defaultLimi
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_status", "Unsupported status")
 		return filter, false
 	}
+	filter.Bucket = strings.TrimSpace(query.Get("bucket"))
+	if filter.Bucket != "" && filter.Bucket != "active" && filter.Bucket != "archived" {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_bucket", "Unsupported absence bucket")
+		return filter, false
+	}
 	if value := strings.TrimSpace(query.Get("subject_id")); value != "" {
 		id, err := s.a.ParseUUID(value)
 		if err != nil {

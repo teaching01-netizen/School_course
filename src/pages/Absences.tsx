@@ -15,6 +15,7 @@ import KanbanView from "../components/absences/KanbanView";
 const PAGE_SIZE = 25;
 const inboxDateTimeFormatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const inboxTimeFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+type AbsenceBucket = "active" | "archived";
 
 function submittedAgo(value: string): string {
   const elapsed = Date.now() - new Date(value).getTime();
@@ -154,11 +155,15 @@ export default function Absences() {
   const [deleting, setDeleting] = useState(false);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
+  const statusParam = searchParams.get("status") ?? "";
+  const bucketParam = searchParams.get("bucket");
+  const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && (statusParam === "actioned" || statusParam === "cancelled")) ? "archived" : "active";
 
   const filters = {
     query: searchParams.get("query") ?? "",
     subject: searchParams.get("subject_id") ?? "",
-    status: searchParams.get("status") ?? "",
+    status: statusParam,
+    bucket,
     dateFrom: searchParams.get("date_from") ?? "",
     dateTo: searchParams.get("date_to") ?? "",
     offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0),
@@ -168,8 +173,9 @@ export default function Absences() {
     const params = new URLSearchParams(searchParams);
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(filters.offset));
+    params.set("bucket", filters.bucket);
     return params.toString();
-  }, [searchParams, filters.offset]);
+  }, [searchParams, filters.bucket, filters.offset]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -193,6 +199,15 @@ export default function Absences() {
     if (value) params.set(key, value);
     else params.delete(key);
     if (key !== "view") params.delete("offset");
+    setSearchParams(params);
+  }
+
+  function setBucket(nextBucket: AbsenceBucket) {
+    const params = new URLSearchParams(searchParams);
+    if (nextBucket === "archived") params.set("bucket", "archived");
+    else params.delete("bucket");
+    params.delete("status");
+    params.delete("offset");
     setSearchParams(params);
   }
 
@@ -282,6 +297,7 @@ export default function Absences() {
     try {
       const params = new URLSearchParams(searchParams);
       params.delete("offset");
+      params.set("bucket", filters.bucket);
       await downloadApiFile(`/api/v1/absences/export?${params.toString()}`);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Export failed");
@@ -292,6 +308,7 @@ export default function Absences() {
     try {
       const params = new URLSearchParams(searchParams);
       params.delete("offset");
+      params.set("bucket", filters.bucket);
       params.set("ids", [...selected].join(","));
       await downloadApiFile(`/api/v1/absences/export?${params.toString()}`);
     } catch (err) {
@@ -424,6 +441,18 @@ export default function Absences() {
   const hasNext = filters.offset + PAGE_SIZE < (page?.total_count ?? 0);
   const totalPages = Math.ceil((page?.total_count ?? 0) / PAGE_SIZE);
   const currentPage = Math.floor(filters.offset / PAGE_SIZE) + 1;
+  const statusOptions = filters.bucket === "archived"
+    ? [
+        { value: "actioned", label: "Actioned" },
+        { value: "cancelled", label: "Cancelled" },
+      ]
+    : [
+        { value: "pending", label: "Pending" },
+        { value: "reviewed", label: "Reviewed" },
+      ];
+  const emptyMessage = filters.bucket === "archived"
+    ? "No archived absences match these filters."
+    : "All caught up! No active absences match these filters.";
 
   function jumpToPage(event: React.ChangeEvent<HTMLInputElement>) {
     const next = Math.max(1, Math.min(totalPages, Number(event.target.value) || 1));
@@ -435,7 +464,7 @@ export default function Absences() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <PageHeading>Absence Inbox</PageHeading>
-          <p className="text-sm text-gray-500">Review submitted absences and resolve sit-in arrangements.</p>
+          <p className="text-sm text-gray-500">Review active absences, then archive completed requests after staff action.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
@@ -455,6 +484,38 @@ export default function Absences() {
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
+        <div className="flex gap-4 text-sm" aria-label="Absence table sections">
+          <button
+            type="button"
+            onClick={() => setBucket("active")}
+            className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+              filters.bucket === "active"
+                ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
+                : "border-transparent text-gray-500 hover:text-gray-900"
+            }`}
+            aria-current={filters.bucket === "active" ? "page" : undefined}
+          >
+            Active table
+          </button>
+          <button
+            type="button"
+            onClick={() => setBucket("archived")}
+            className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+              filters.bucket === "archived"
+                ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
+                : "border-transparent text-gray-500 hover:text-gray-900"
+            }`}
+            aria-current={filters.bucket === "archived" ? "page" : undefined}
+          >
+            Archived table
+          </button>
+        </div>
+        <p className="pb-2 text-xs text-gray-500">
+          {filters.bucket === "archived" ? "Final records: actioned and cancelled." : "Working queue: pending and reviewed."}
+        </p>
+      </div>
+
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
         <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
           <FilterField label="Search">
@@ -469,10 +530,7 @@ export default function Absences() {
           <FilterField label="Status">
             <select className="w-full" aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
               <option value="">All statuses</option>
-              <option value="pending">Pending</option>
-              <option value="reviewed">Reviewed</option>
-              <option value="actioned">Actioned</option>
-              <option value="cancelled">Cancelled</option>
+              {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </FilterField>
           <FilterField label="From">
@@ -573,9 +631,11 @@ export default function Absences() {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7}><EmptyState message="All caught up! No absences match these filters." action={
+                <td colSpan={7}><EmptyState message={emptyMessage} action={
                   <div className="flex justify-center gap-2">
-                    <Link to="/absences" className="text-sm text-[var(--color-wi-primary)] hover:underline">View all</Link>
+                    <button type="button" onClick={() => setBucket(filters.bucket === "active" ? "archived" : "active")} className="text-sm text-[var(--color-wi-primary)] hover:underline">
+                      View {filters.bucket === "active" ? "archive" : "active table"}
+                    </button>
                     <Link to="/absences/dashboard" className="text-sm text-[var(--color-wi-primary)] hover:underline">View dashboard</Link>
                   </div>
                 } /></td>
