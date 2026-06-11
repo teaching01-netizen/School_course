@@ -25,6 +25,18 @@ type server struct {
 	a    httpadapter.Adapter
 }
 
+type sessionRow struct {
+	ID          string
+	StartAt     string
+	EndAt       string
+	CourseID    string
+	CourseCode  string
+	CourseName  string
+	SubjectID   string
+	SubjectCode string
+	SubjectName string
+}
+
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
@@ -764,17 +776,6 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		SubjectCode string
 		SubjectName string
 	}
-	type sessionRow struct {
-		ID          string
-		StartAt     string
-		EndAt       string
-		CourseID    string
-		CourseCode  string
-		CourseName  string
-		SubjectID   string
-		SubjectCode string
-		SubjectName string
-	}
 
 	rows, err := s.deps.DB.Query(r.Context(), `
 		SELECT sess.id, sess.start_at, sess.end_at,
@@ -924,15 +925,15 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		AlreadyAbsent bool   `json:"already_absent"`
 	}
 	type courseSitInResponse struct {
-		RuleName             string                       `json:"rule_name,omitempty"`
-		RuleType             string                       `json:"rule_type,omitempty"`
-		SitInMethod          string                       `json:"sit_in_method"`
-		Priorities           []SitInPriorityResult        `json:"priorities,omitempty"`
-		CurrentPriorityLevel int                          `json:"current_priority_level,omitempty"`
-		HasNextPriority      bool                         `json:"has_next_priority,omitempty"`
-		SitInCourse          *SitInCourseInfo             `json:"sit_in_course,omitempty"`
-		AvailableSessions    []sessionBrief               `json:"available_sessions,omitempty"`
-		MissedSessions       []sessionBrief               `json:"missed_sessions,omitempty"`
+		RuleName             string                        `json:"rule_name,omitempty"`
+		RuleType             string                        `json:"rule_type,omitempty"`
+		SitInMethod          string                        `json:"sit_in_method"`
+		Priorities           []SitInPriorityResult         `json:"priorities,omitempty"`
+		CurrentPriorityLevel int                           `json:"current_priority_level,omitempty"`
+		HasNextPriority      bool                          `json:"has_next_priority,omitempty"`
+		SitInCourse          *SitInCourseInfo              `json:"sit_in_course,omitempty"`
+		AvailableSessions    []sessionBrief                `json:"available_sessions,omitempty"`
+		MissedSessions       []sessionBrief                `json:"missed_sessions,omitempty"`
 		SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
 	}
 	type courseResponse struct {
@@ -966,7 +967,8 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		if cErr == nil {
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
-				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, dateFrom, dateTo, satVerbalAfterPriority)
+				resolveFrom, resolveTo := resolveDateRangeForSessionStarts(sessionStartAtValues(g.Sessions), dateFrom, dateTo)
+				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, satVerbalAfterPriority)
 				if resolveErr != nil {
 					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
 				} else if result != nil && result.SitInMethod != SitInMethodNone {
@@ -1003,6 +1005,36 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"subjects": courses})
+}
+
+func sessionStartAtValues(sessions []sessionRow) []string {
+	starts := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		starts = append(starts, session.StartAt)
+	}
+	return starts
+}
+
+func resolveDateRangeForSessionStarts(starts []string, fallbackFrom time.Time, fallbackTo time.Time) (time.Time, time.Time) {
+	var from time.Time
+	var to time.Time
+	for _, raw := range starts {
+		start, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			continue
+		}
+		date := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		if from.IsZero() || date.Before(from) {
+			from = date
+		}
+		if to.IsZero() || date.After(to) {
+			to = date
+		}
+	}
+	if from.IsZero() || to.IsZero() {
+		return fallbackFrom, fallbackTo
+	}
+	return from, to
 }
 
 // Admin: get absence policies
