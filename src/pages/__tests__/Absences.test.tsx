@@ -93,8 +93,12 @@ describe("Absence inbox", () => {
     mockApiJson.mockResolvedValueOnce(PAGE);
     renderPage();
 
-    expect(await screen.findByText("John Smith")).toBeInTheDocument();
-    expect(screen.getByText("Awaiting review")).toBeInTheDocument();
+    const student = await screen.findByText("John Smith");
+    const row = student.closest("tr");
+    if (!row) {
+      throw new Error("Expected absence table row");
+    }
+    expect(within(row).getByText("Pending")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view john smith absence/i })).toHaveAttribute("href", "/absences/abs-1");
     expect(mockApiJson).toHaveBeenCalledWith(
       expect.stringContaining("status=pending"),

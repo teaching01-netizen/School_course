@@ -61,6 +61,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingAbsences, setPendingAbsences] = useState(0);
   const [absenceOpen, setAbsenceOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [mobileAbsenceOpen, setMobileAbsenceOpen] = useState(false);
 
   useEffect(() => {
@@ -120,6 +121,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     location.pathname.startsWith('/absences/') ||
     location.pathname === '/absences' ||
     location.pathname === '/admin/absence-settings';
+
+  const moreNavItems = [
+    ...configNavItems,
+    ...navGroups[2].items,
+    ...navGroups[3].items,
+    ...(user?.role === 'Admin' ? adminNavItems : []),
+  ];
+  const isMoreActive = moreNavItems.some((item) => location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path)));
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -202,25 +211,69 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
 
-            {/* Config */}
-            {configNavItems.map((item) => renderNavLink(item))}
-
-            <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
-
-            {/* Admin */}
-            {navGroups[2].items.map((item) => renderNavLink(item))}
-
-            <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
-
-            {/* Audit */}
-            {navGroups[3].items.map((item) => renderNavLink(item))}
-
-            {user?.role === 'Admin' && (
-              <>
-                <div className="w-px h-4 mx-1 bg-white/20" aria-hidden="true" />
-                {adminNavItems.map((item) => renderNavLink(item))}
-              </>
-            )}
+            {/* More dropdown keeps lower-frequency admin links from crowding the bar */}
+            <div
+              className="relative"
+              onMouseEnter={() => setMoreOpen(true)}
+              onMouseLeave={() => setMoreOpen(false)}
+            >
+              <button
+                onClick={() => setMoreOpen((prev) => !prev)}
+                className={`flex items-center gap-1 px-3 py-2 text-[13px] transition-colors focus-visible:outline-offset-[-2px] ${
+                  isMoreActive
+                    ? 'text-white underline decoration-white/70 underline-offset-[10px]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                aria-expanded={moreOpen}
+                aria-haspopup="true"
+              >
+                More
+                <ChevronDown className={`w-3 h-3 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {moreOpen && (
+                <>
+                  <div className="absolute -bottom-1 left-0 right-0 h-1" />
+                  <div className="absolute top-full left-0 mt-0 grid min-w-[360px] grid-cols-2 gap-x-2 rounded-sm border border-gray-200 bg-white p-2 shadow-lg z-50">
+                    <div>
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Config</div>
+                      {configNavItems.map((item) => {
+                        const isActive = location.pathname === item.path || location.pathname.startsWith(item.path);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setMoreOpen(false)}
+                            className={`block rounded-sm px-2 py-1.5 text-[13px] transition-colors ${
+                              isActive ? 'bg-blue-50 font-medium text-[var(--color-wi-primary)]' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+                            }`}
+                          >
+                            {item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                    <div>
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Admin & Audit</div>
+                      {[...navGroups[2].items, ...navGroups[3].items, ...(user?.role === 'Admin' ? adminNavItems : [])].map((item) => {
+                        const isActive = location.pathname === item.path || location.pathname.startsWith(item.path);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setMoreOpen(false)}
+                            className={`block rounded-sm px-2 py-1.5 text-[13px] transition-colors ${
+                              isActive ? 'bg-blue-50 font-medium text-[var(--color-wi-primary)]' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+                            }`}
+                          >
+                            {item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </nav>
 
           <div className="flex items-center gap-4 text-[13px]">

@@ -340,9 +340,23 @@ button {
     border-radius: var(--radius-md);
     padding: 0.75rem;
   }
-  .absence-inbox-table tbody td { border: none; padding: 0.25rem 0; }
+  .absence-inbox-table tbody td {
+    border: none;
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.35rem 0;
+  }
+  .absence-inbox-table tbody td::before {
+    content: attr(data-label);
+    color: var(--color-wi-text-light);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
   .absence-inbox-table tbody tr td:first-child { display: none; }
-  .absence-inbox-table tbody tr td:last-child { display: none; }
+  .absence-inbox-table tbody tr td:last-child { display: grid; }
 }
 
 /* Absence detail — timeline connecting lines */

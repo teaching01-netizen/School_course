@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Download, Eye, LayoutGrid, RefreshCcw, Table2 } from "lucide-react";
+import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2 } from "lucide-react";
 import { apiJson, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
@@ -30,7 +30,7 @@ function initials(name: string): string {
 }
 
 const statusPresentation: Record<AbsenceStatus, { label: string; classes: string }> = {
-  pending: { label: "Awaiting review", classes: "bg-blue-50 text-blue-700 border-blue-200" },
+  pending: { label: "Pending", classes: "bg-blue-50 text-blue-700 border-blue-200" },
   reviewed: { label: "Reviewed", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   actioned: { label: "Actioned", classes: "bg-slate-100 text-slate-600 border-slate-200" },
   cancelled: { label: "Cancelled", classes: "bg-red-50 text-red-700 border-red-200 line-through" },
@@ -39,10 +39,42 @@ const statusPresentation: Record<AbsenceStatus, { label: string; classes: string
 function StatusBadge({ status }: { status: AbsenceStatus }) {
   const presentation = statusPresentation[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${presentation.classes}`}>
+    <span className={`inline-flex min-w-[82px] items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${presentation.classes}`}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {presentation.label}
     </span>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function DateSummary({ absence }: { absence: ManagedAbsence }) {
+  const dates = formatAbsenceSummaryDates(absence).split("\n").filter(Boolean);
+  const compactLabel = dates.join(", ");
+  return (
+    <span className="block max-w-[160px] whitespace-normal leading-snug text-gray-700" title={compactLabel}>
+      {compactLabel}
+    </span>
+  );
+}
+
+function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
+  return (
+    <div className="min-w-0">
+      <div className="max-w-[210px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
+        {absence.subject_name ?? absence.subject_code ?? "-"}
+      </div>
+      {absence.subject_code && absence.subject_name && absence.subject_code !== absence.subject_name ? (
+        <div className="mt-0.5 text-xs font-medium text-gray-500">{absence.subject_code}</div>
+      ) : null}
+    </div>
   );
 }
 
@@ -312,13 +344,21 @@ export default function Absences() {
         </div>
         <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
           <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
-            <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name..." />
-            <select aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
-              <option value="">All subjects</option>
-              {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-            <input aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
-            <input aria-label="To date" type="date" value={filters.dateTo} onChange={(event) => updateFilter("date_to", event.target.value)} />
+            <FilterField label="Search">
+              <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name…" />
+            </FilterField>
+            <FilterField label="Subject">
+              <select className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
+                <option value="">All subjects</option>
+                {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </FilterField>
+            <FilterField label="From">
+              <input className="w-full" aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
+            </FilterField>
+            <FilterField label="To">
+              <input className="w-full" aria-label="To date" type="date" value={filters.dateTo} onChange={(event) => updateFilter("date_to", event.target.value)} />
+            </FilterField>
           </div>
         </section>
         <KanbanView filters={filters} />
@@ -349,7 +389,7 @@ export default function Absences() {
           <PageHeading>Absence Inbox</PageHeading>
           <p className="text-sm text-gray-500">Review submitted absences and resolve sit-in arrangements.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
             <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-900 font-medium"><Table2 className="h-4 w-4" /> Table</button>
             <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-gray-900"><LayoutGrid className="h-4 w-4" /> Board</button>
@@ -357,10 +397,10 @@ export default function Absences() {
           <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50">Dashboard</Link>
           <Link
             to="/admin/operations?tab=form-settings"
-            className="inline-flex items-center gap-1 rounded-sm border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+            className="inline-flex items-center gap-1 rounded-sm border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
             title="Configure absence form settings"
           >
-            ⚙️ Settings
+            <Settings className="h-4 w-4" aria-hidden="true" /> Settings
           </Link>
           <Button variant="secondary" onClick={exportCsv}><Download className="mr-1.5 h-4 w-4" />Export CSV</Button>
           <Button variant="secondary" onClick={() => setRefreshToken((value) => value + 1)}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
@@ -369,20 +409,30 @@ export default function Absences() {
 
       <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
         <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
-          <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name..." />
-          <select aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
-            <option value="">All subjects</option>
-            {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
-          <select aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="actioned">Actioned</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <input aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
-          <input aria-label="To date" type="date" value={filters.dateTo} onChange={(event) => updateFilter("date_to", event.target.value)} />
+          <FilterField label="Search">
+            <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code or name…" />
+          </FilterField>
+          <FilterField label="Subject">
+            <select className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
+              <option value="">All subjects</option>
+              {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </FilterField>
+          <FilterField label="Status">
+            <select className="w-full" aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="reviewed">Reviewed</option>
+              <option value="actioned">Actioned</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </FilterField>
+          <FilterField label="From">
+            <input className="w-full" aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
+          </FilterField>
+          <FilterField label="To">
+            <input className="w-full" aria-label="To date" type="date" value={filters.dateTo} onChange={(event) => updateFilter("date_to", event.target.value)} />
+          </FilterField>
         </div>
       </section>
 
@@ -391,7 +441,7 @@ export default function Absences() {
           <div className="flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
             <span className="font-medium text-blue-800">{selected.size} selected</span>
             <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
-              {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}...` : "Mark Reviewed"}
+              {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}…` : "Mark Reviewed"}
             </Button>
             <Button size="sm" variant="secondary" onClick={() => void exportSelected()}>Export Selected</Button>
             <Button size="sm" variant="danger" onClick={() => {
@@ -420,25 +470,25 @@ export default function Absences() {
       ) : null}
 
       <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
-        <table className="min-w-[1060px] text-sm absence-inbox-table">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th className="w-8">
+        <table className="min-w-[1080px] text-sm absence-inbox-table">
+          <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <th className="w-8 px-3 py-2">
                 <input aria-label="Select all absences" type="checkbox" checked={allSelected} onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => item.id)) : new Set())} />
               </th>
-              <th>Status</th>
-              <th>Student</th>
-              <th>Subject</th>
-              <th>Dates</th>
-              <th>Sit-in</th>
-              <th>Submitted</th>
-              <th className="text-right">Actions</th>
+              <th className="w-[116px] px-3 py-2">Status</th>
+              <th className="w-[180px] px-3 py-2">Student</th>
+              <th className="px-3 py-2">Subject</th>
+              <th className="w-[190px] px-3 py-2">Dates</th>
+              <th className="w-[190px] px-3 py-2">Sit-in</th>
+              <th className="w-[110px] px-3 py-2">Submitted</th>
+              <th className="w-[260px] px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map((absence) => (
-              <tr key={absence.id} className="group cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)}>
-                <td onClick={(event) => event.stopPropagation()}>
+              <tr key={absence.id} className="group cursor-pointer align-middle hover:bg-blue-50/40" onClick={() => navigate(`/absences/${absence.id}`)}>
+                <td className="px-3 py-3" data-label="Select" onClick={(event) => event.stopPropagation()}>
                   <input aria-label={`Select ${absence.wcode}`} type="checkbox" checked={selected.has(absence.id)} onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
                     if (event.target.checked) next.add(absence.id);
@@ -446,31 +496,33 @@ export default function Absences() {
                     return next;
                   })} />
                 </td>
-                <td><StatusBadge status={absence.status} /></td>
-                <td>
+                <td className="px-3 py-3" data-label="Status"><StatusBadge status={absence.status} /></td>
+                <td className="px-3 py-3" data-label="Student">
                   <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_nickname ?? absence.student_name ?? absence.wcode)}</span>
-                    <div>
+                    <div className="min-w-0">
                       <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_nickname ?? absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_nickname ?? absence.student_name ?? "Unknown student"}</Link>
                       <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
                     </div>
                   </div>
                 </td>
-                <td><span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_name ?? absence.subject_code ?? "-"}</span></td>
-                <td className="whitespace-pre-line align-top text-gray-700">{formatAbsenceSummaryDates(absence)}</td>
-                <td>
+                <td className="px-3 py-3" data-label="Subject"><SubjectSummary absence={absence} /></td>
+                <td className="px-3 py-3" data-label="Dates"><DateSummary absence={absence} /></td>
+                <td className="px-3 py-3" data-label="Sit-in">
                   {absence.sit_in_method === "zoom" ? (
                     <span className="rounded-sm bg-blue-50 px-2 py-1 text-xs text-blue-700">Zoom</span>
                   ) : (
-                    <span className="rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{formatSitInLabel(absence)}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}</span>
+                    <span className="inline-block max-w-[170px] truncate rounded-sm bg-emerald-50 px-2 py-1 text-xs text-emerald-700" title={formatSitInLabel(absence)}>
+                      {formatSitInLabel(absence)}{absence.sit_ins?.length ? ` (${absence.sit_ins.length})` : ""}
+                    </span>
                   )}
                 </td>
-                <td className="whitespace-nowrap text-gray-500">{submittedAgo(absence.created_at)}</td>
-                <td onClick={(event) => event.stopPropagation()}>
-                  <div className="flex justify-end gap-1">
+                <td className="whitespace-nowrap px-3 py-3 text-gray-500" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
+                <td className="px-3 py-3" data-label="Actions" onClick={(event) => event.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1.5">
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
-                    {absence.status === "reviewed" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Actioned</Button> : null}
+                    {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                       {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
                       <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
