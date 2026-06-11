@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { apiJson, ApiRequestError } from "@/api/client";
-import Button from "@/components/ui/Button";
-import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import OtpInput from "./OtpInput";
-import CountdownTimer from "./CountdownTimer";
-import { CheckCircle, AlertCircle } from "lucide-react";
-import type { AdminContactSettings, ParentVerificationResponse } from "@/types";
+import SmsSendButton from "./SmsSendButton";
+import type { ParentVerificationResponse } from "@/types";
 
 type VerificationStore = {
   code: string;
@@ -19,22 +17,11 @@ type StepCoverVerificationProps = {
   wcode: string;
   parentPhone?: string | null;
   allowSubmitWithoutOtp: boolean;
-  adminContact?: AdminContactSettings;
+  adminContact?: { email: string; phone: string; hours: string };
   verification: VerificationStore;
   completed: boolean;
   onSatisfied: () => void;
-  onWcodeChange?: () => void;
 };
-
-function formatTime(iso?: string | null): string | null {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function isRetryable(err: unknown): boolean {
   if (err instanceof ApiRequestError) {
@@ -50,84 +37,25 @@ export default function StepCoverVerification({
   verification,
   completed,
   onSatisfied,
-  onWcodeChange,
 }: StepCoverVerificationProps) {
   const [session, setSession] = useState<ParentVerificationResponse | null>(null);
-  const [resumeLoading, setResumeLoading] = useState(false);
-  const [resumeError, setResumeError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [sendCount, setSendCount] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [resendAvailableIn, setResendAvailableIn] = useState(0);
+  const [lastSentAt, setLastSentAt] = useState<number | null>(null);
   const autoVerifyCodeRef = useRef<string | null>(null);
 
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
 
   useEffect(() => {
-    let cancelled = false;
-
-    if (!verification.token) {
-      setSession(null);
-      setResumeError(null);
-      setResumeLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setResumeLoading(true);
-    setResumeError(null);
-    void apiJson<ParentVerificationResponse>(`/api/v1/absences/parent-verification/${encodeURIComponent(verification.token)}`, {
-      method: "GET",
-    })
-      .then((response) => {
-        if (cancelled) return;
-        setSession(response);
-        if (response.status === "verified" || response.status === "consumed") {
-          onSatisfied();
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setResumeError(err instanceof Error ? err.message : "Saved verification could not be restored");
-        verification.clearStoredToken();
-        verification.setCode("");
-      })
-      .finally(() => {
-        if (!cancelled) setResumeLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [onSatisfied, verification.clearStoredToken, verification.setCode, verification.token]);
-
-  useEffect(() => {
-    if (resendAvailableIn <= 0) return;
-    const timer = window.setInterval(() => {
-      setResendAvailableIn((current) => Math.max(0, current - 1));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [resendAvailableIn]);
-
-  useEffect(() => {
-    if (verified || isSending || isVerifying || !verification.token) {
-      return;
-    }
-
+    if (verified || isSending || isVerifying || !verification.token) return;
     const normalized = verification.code.replace(/\D/g, "").slice(0, 6);
-    if (normalized.length !== 6) {
-      autoVerifyCodeRef.current = null;
-      return;
-    }
-    if (autoVerifyCodeRef.current === normalized) {
-      return;
-    }
+    if (normalized.length !== 6) { autoVerifyCodeRef.current = null; return; }
+    if (autoVerifyCodeRef.current === normalized) return;
     autoVerifyCodeRef.current = normalized;
     void handleVerify();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verification.code, verification.token, verified, isSending, isVerifying]);
 
   async function handleSend() {
@@ -138,22 +66,16 @@ export default function StepCoverVerification({
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/send", {
         method: "POST",
-        body: JSON.stringify({
-          wcode,
-          ...(verification.token ? { token: verification.token } : {}),
-        }),
+        body: JSON.stringify({ wcode, ...(verification.token ? { token: verification.token } : {}) }),
       });
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
       verification.setCode("");
-      setResendAvailableIn(60);
-      setSendCount((current) => current + 1);
+      setLastSentAt(Date.now());
+      setSendCount((c) => c + 1);
     } catch (err) {
-      setSendCount((current) => current + 1);
+      setSendCount((c) => c + 1);
       setSendError(err instanceof Error ? err.message : "Could not send verification code");
-      if (allowSubmitWithoutOtp) {
-        setResumeError("Verification is optional — you can continue without a code.");
-      }
     } finally {
       setIsSending(false);
     }
@@ -166,10 +88,7 @@ export default function StepCoverVerification({
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/verify", {
         method: "POST",
-        body: JSON.stringify({
-          token: verification.token,
-          code: verification.code,
-        }),
+        body: JSON.stringify({ token: verification.token, code: verification.code }),
       });
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
@@ -177,9 +96,7 @@ export default function StepCoverVerification({
     } catch (err) {
       const message = err instanceof Error ? err.message : "Verification failed";
       setVerifyError(message);
-      if (!isRetryable(err)) {
-        verification.setCode("");
-      }
+      if (!isRetryable(err)) verification.setCode("");
     } finally {
       setIsVerifying(false);
     }
@@ -191,148 +108,80 @@ export default function StepCoverVerification({
     setSession(null);
     setSendError(null);
     setVerifyError(null);
-    setResumeError(null);
     onSatisfied();
   }
 
   const parentMissing = !parentPhone || parentPhone.trim() === "";
   const canSend = !isSending && !isVerifying && !parentMissing && !verified;
-  const canVerify = !isSending && !isVerifying && verification.code.length === 6 && !!verification.token && !verified;
-  const canSkip = allowSubmitWithoutOtp && !verified;
+
+  if (verified) {
+    return <p className="text-xs text-green-600 font-medium">✓ Verified</p>;
+  }
 
   return (
-    <div className="space-y-4">
-      <header className="space-y-2">
-        <p className="text-xs text-gray-600">
-          Verify the parent phone before continuing with the absence request.
-        </p>
-        {onWcodeChange ? (
-          <div>
-            <Button variant="ghost" size="sm" onClick={onWcodeChange}>
-              Change W-code
-            </Button>
-          </div>
-        ) : null}
-      </header>
-
-      {resumeLoading ? (
-        <LoadingSkeleton type="text" lines={2} />
-      ) : null}
-
-      {resumeError ? (
-        <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
-          <span>{resumeError}</span>
-        </div>
-      ) : null}
-
+    <div className="space-y-3">
       {parentMissing ? (
-        <div role="alert" className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <p role="alert" className="text-xs text-amber-600">
           Your parent's phone number is not in our records.
-          {allowSubmitWithoutOtp ? (
-            <div className="mt-2 text-xs">You can continue without verification because the policy allows it.</div>
-          ) : (
-            <div className="mt-2 text-xs">
-              Contact admin at Tel. 02-658-4880 Line Official: @warwick before continuing.
-            </div>
-          )}
-        </div>
+          {!allowSubmitWithoutOtp ? " Contact admin before continuing." : null}
+        </p>
       ) : null}
 
-      {verified ? (
-        session ? (
-          <div className="rounded-sm border border-emerald-250 bg-emerald-50 p-4 text-sm text-emerald-900 animate-fade-in">
-            <div className="font-semibold text-emerald-800">Verification complete</div>
-            <p className="mt-1 text-xs text-emerald-800 font-medium">
-              Parent confirmed via SMS code.
-            </p>
-            {session.verified_at ? (
-              <p className="mt-1 text-xs text-emerald-700">Verified at {formatTime(session.verified_at) ?? "the recorded time"}.</p>
-            ) : null}
-          </div>
-        ) : (
-          <div className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in">
-            <div className="font-semibold text-amber-800">Verification complete</div>
-            <p className="mt-1 text-xs text-amber-700 font-medium">
-              Verification was skipped — parent was not contacted.
-            </p>
-          </div>
-        )
-      ) : (
-        <div className="space-y-4">
-          {sendError ? (
-            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
-            <span>{sendError}</span>
-            </div>
-          ) : null}
+      {sendError ? (
+        <p role="alert" className="text-xs text-red-600">{sendError}</p>
+      ) : null}
+      {verifyError ? (
+        <p role="alert" className="text-xs text-red-600">{verifyError}</p>
+      ) : null}
 
-          {verifyError ? (
-            <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
-            <span>{verifyError}</span>
-            </div>
-          ) : null}
+      <SmsSendButton
+        isSending={isSending}
+        sendCount={sendCount}
+        disabled={!canSend}
+        onClick={() => void handleSend()}
+        parentPhoneMissing={parentMissing}
+      />
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="primary"
-              loading={isSending}
-              onClick={() => void handleSend()}
-              disabled={!canSend}
-            >
-              {sendCount > 0 ? "Resend code" : "Send code"}
-            </Button>
-
-            {canSkip ? (
-              <Button variant="secondary" onClick={handleSkip}>
-                Continue without confirming
-              </Button>
-            ) : null}
-          </div>
-
-          {verification.token ? (
-            <div className="space-y-3">
-              <OtpInput
-                value={verification.code}
-                onChange={verification.setCode}
-                disabled={isSending || isVerifying}
-                error={!!verifyError}
-                autoFocus={sendCount > 0}
-                label="Verification code"
-              />
-
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={() => void handleVerify()}
-                loading={isVerifying}
-                disabled={!canVerify}
-                className="w-full"
-              >
-                <CheckCircle className="h-4 w-4 mr-1.5" />
-                Verify code
-              </Button>
-
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <CountdownTimer
-                  secondsLeft={resendAvailableIn}
-                  label={sendCount > 0 ? "Resend available in" : "Cooldown"}
-                />
-                {session?.otp_code_expires_at ? (
-                  <span>
-                    Code expires at {formatTime(session.otp_code_expires_at) ?? "the recorded time"}.
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-600">
-              Send the code once you're ready for your parent to confirm.
-            </p>
-          )}
-        </div>
+      {lastSentAt && !isSending && (
+        <motion.p
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          Code sent to {parentPhone ? `${parentPhone.replace(/\D/g, "").slice(0, 3)} *** ${parentPhone.replace(/\D/g, "").slice(-3)}` : "parent"}
+        </motion.p>
       )}
+
+      {verification.token ? (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="space-y-3"
+        >
+          <OtpInput
+            value={verification.code}
+            onChange={verification.setCode}
+            disabled={isSending || isVerifying}
+            error={!!verifyError}
+            autoFocus={sendCount > 0}
+            label="Verification code"
+          />
+          <p className="text-xs text-gray-500">Enter the 6-digit code sent to your parent's phone.</p>
+          {allowSubmitWithoutOtp ? (
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              Continue without verifying
+            </button>
+          ) : null}
+        </motion.div>
+      ) : null}
     </div>
   );
 }

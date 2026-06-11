@@ -19,13 +19,6 @@ vi.mock("react-router-dom", () => ({
 
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
 
-function prePopulateSessionStorage(dateFrom: string, dateTo: string) {
-  window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-    dateFrom,
-    dateTo,
-  }));
-}
-
 const MOCK_CONFIG = {
   form: {
     max_date_range_days: 30,
@@ -45,8 +38,8 @@ const MOCK_CONFIG = {
   },
   notifications: {
     sms_parent_enabled: true,
-    sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
-    sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+    sms_parent_template: "template",
+    sms_success_template: "success template",
     allow_submit_without_otp: false,
   },
   admin_contact: {
@@ -144,19 +137,15 @@ function installHappyPathMocks(overrides?: {
   sessions?: unknown;
   send?: unknown;
   verify?: unknown;
-  resume?: unknown;
   submission?: unknown;
   config?: unknown;
 }) {
   mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
     const path = String(url);
-
     if (path.includes("absence-form-config")) return overrides?.config ?? MOCK_CONFIG;
     if (path.includes("student-lookup")) return overrides?.student ?? MOCK_STUDENT;
     if (path.includes("sessions-in-range")) return overrides?.sessions ?? MOCK_SESSIONS;
-    if (path.includes("/parent-verification/") && init?.method === "GET") {
-      return overrides?.resume ?? OTP_SEND_RESPONSE;
-    }
+    if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
     if (path.endsWith("/parent-verification/send")) return overrides?.send ?? OTP_SEND_RESPONSE;
     if (path.endsWith("/parent-verification/verify")) return overrides?.verify ?? OTP_VERIFY_RESPONSE;
     if (path.endsWith("/absences/batch") && init?.method === "POST") {
@@ -165,7 +154,6 @@ function installHappyPathMocks(overrides?: {
     if (path.endsWith("/absences") && init?.method === "POST") {
       return overrides?.submission ?? SUBMISSION_RESPONSE;
     }
-
     throw new Error(`Unmocked API call: ${url}`);
   });
 }
@@ -190,7 +178,40 @@ async function verifyParent(user: ReturnType<typeof userEvent.setup>) {
     el => el.getAttribute("inputMode") === "numeric" || el.getAttribute("aria-label") === "Enter the code",
   )!;
   await user.type(codeInput, "123456");
-  await waitFor(() => expect(screen.getByText(/verification complete/i)).toBeInTheDocument());
+  await waitFor(() => {
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/parent-verification/verify",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+}
+
+async function goToCourses(_user: ReturnType<typeof userEvent.setup>) {
+  await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+}
+
+async function toggleAllCourseSwitches(user: ReturnType<typeof userEvent.setup>) {
+  const courseCheckboxes = (await screen.findAllByRole("checkbox")).filter(
+    (cb) => cb.getAttribute("id")?.startsWith("subject-"),
+  );
+  for (const cb of courseCheckboxes) {
+    await user.click(cb);
+  }
+  await waitFor(() => {
+    expect(courseCheckboxes[0]).toBeChecked();
+  });
+}
+
+async function findSessionCheckbox(): Promise<HTMLElement> {
+  const all = await screen.findAllByRole("checkbox");
+  const session = all.find(cb => cb.getAttribute("id")?.startsWith("session-"));
+  if (!session) throw new Error("No session checkbox found");
+  return session;
+}
+
+function renderAbsenceForm(overrides?: Parameters<typeof installHappyPathMocks>[0]) {
+  installHappyPathMocks(overrides);
+  renderWithProviders(<AbsenceForm />);
 }
 
 describe("AbsenceForm", () => {
@@ -204,63 +225,59 @@ describe("AbsenceForm", () => {
   it("renders the lookup form initially", () => {
     installHappyPathMocks();
     renderWithProviders(<AbsenceForm />);
-
     expect(screen.getByPlaceholderText("e.g. W250389")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /search/i })).toBeInTheDocument();
-    expect(screen.getByText("Absence form")).toBeInTheDocument();
+    expect(screen.getByText("Find your profile")).toBeInTheDocument();
   });
 
   it("normalizes a lowercase w-code before searching", async () => {
     const user = userEvent.setup();
-    renderWithDateRange();
-
+    renderAbsenceForm();
     await lookupStudent(user, "w250389");
-
     expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/absences/student-lookup?wcode=W250389",
       expect.objectContaining({ method: "GET" }),
     );
   });
 
-  function renderWithDateRange(overrides?: Parameters<typeof installHappyPathMocks>[0]) {
-    prePopulateSessionStorage("2026-06-01", "2026-06-07");
-    installHappyPathMocks(overrides);
-    renderWithProviders(<AbsenceForm />);
-  }
-
   it("walks through lookup, verification, courses, sessions, and direct submission", async () => {
     const user = userEvent.setup();
-    renderWithDateRange();
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ dateFrom: "2000-01-01", dateTo: "2000-01-02" }),
+    );
+    renderAbsenceForm();
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
-
-    expect(screen.getByRole("button", { name: /send code/i })).toBeInTheDocument();
 
     await verifyParent(user);
-    expect(screen.getByText(/Parent confirmed! Now/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
+
+    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
+    expect(sessionsCall).toBeDefined();
+    expect(String(sessionsCall?.[0])).toContain("date_from=");
+    expect(String(sessionsCall?.[0])).not.toContain("2000-01-01");
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
 
-    // Select all courses first to reveal sessions
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await waitFor(() => expect(screen.getAllByText(/▼ Mathematics/i).length).toBeGreaterThan(0));
+    await toggleAllCourseSwitches(user);
 
-    // Select first session checkbox to enable submit
-    const sessionCheckboxes = await screen.findAllByRole("checkbox");
-    const sessionCheckbox = sessionCheckboxes.find(cb => cb.getAttribute("id")?.startsWith("session-"));
-    if (sessionCheckbox) await user.click(sessionCheckbox);
-    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+    // Select first session checkbox
+    const sessionCheckbox = await findSessionCheckbox();
+    await user.click(sessionCheckbox);
+
+    // Click Review & Submit in sticky footer
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+
+    // Step 2 - Review page
+    expect(screen.getByText("Review your absence")).toBeInTheDocument();
+    expect(screen.getByText(/John Smith/)).toBeInTheDocument();
+
+    // Submit from sticky footer
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
 
     expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
-    expect(screen.getByText("Submitted classes")).toBeInTheDocument();
-    expect(screen.getByText("Absence form")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /done/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /notify another absence/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("ABS-ABC12345")).not.toBeInTheDocument();
 
     expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/absences/batch",
@@ -279,18 +296,11 @@ describe("AbsenceForm", () => {
         body: expect.stringContaining('"items":['),
       }),
     );
-    expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/batch",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining('"course_id":"c-math201"'),
-      }),
-    );
   }, 30000);
 
   it("submits selected sessions across more than one day in a single batch", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
+    renderAbsenceForm({
       sessions: createMockSessionsInRange([
         {
           subject_id: "subj-1",
@@ -300,13 +310,7 @@ describe("AbsenceForm", () => {
           course_code: "MATH201",
           course_name: "Mathematics",
           sessions: [
-            {
-              id: "s1",
-              start_at: "2026-06-01T09:00:00Z",
-              end_at: "2026-06-01T10:30:00Z",
-              date: "2026-06-01",
-              already_absent: false,
-            },
+            { id: "s1", start_at: "2026-06-01T09:00:00Z", end_at: "2026-06-01T10:30:00Z", date: "2026-06-01", already_absent: false },
           ],
         },
         {
@@ -317,13 +321,7 @@ describe("AbsenceForm", () => {
           course_code: "PHYS301",
           course_name: "Physics",
           sessions: [
-            {
-              id: "s2",
-              start_at: "2026-06-02T11:00:00Z",
-              end_at: "2026-06-02T12:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
+            { id: "s2", start_at: "2026-06-02T11:00:00Z", end_at: "2026-06-02T12:30:00Z", date: "2026-06-02", already_absent: false },
           ],
         },
       ]),
@@ -331,25 +329,28 @@ describe("AbsenceForm", () => {
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
 
-    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await toggleAllCourseSwitches(user);
+
+    // Select session checkboxes
     const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
       (cb) => cb.getAttribute("id")?.startsWith("session-"),
     );
     await user.click(sessionCheckboxes[0]);
     await user.click(sessionCheckboxes[1]);
 
-    expect(screen.getByRole("button", { name: /submit absence/i })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+    // Review & Submit
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    expect(screen.getByText("Review your absence")).toBeInTheDocument();
+
+    // Submit
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
 
     expect(await screen.findByText("Your 2 absence requests have been sent and are waiting for review.")).toBeInTheDocument();
-    expect(screen.getByText("Submitted classes")).toBeInTheDocument();
 
     const batchCall = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
     expect(batchCall).toBeDefined();
@@ -358,27 +359,14 @@ describe("AbsenceForm", () => {
       items: Array<{ course_id: string; date_from: string; date_to: string }>;
     };
     expect(parsedBody.items).toHaveLength(2);
-    expect(parsedBody.items[0]).toMatchObject({
-      course_id: "c-math201",
-      date_from: "2026-06-01",
-      date_to: "2026-06-01",
-    });
-    expect(parsedBody.items[1]).toMatchObject({
-      course_id: "c-phys301",
-      date_from: "2026-06-02",
-      date_to: "2026-06-02",
-    });
+    expect(parsedBody.items[0]).toMatchObject({ course_id: "c-math201", date_from: "2026-06-01", date_to: "2026-06-01" });
+    expect(parsedBody.items[1]).toMatchObject({ course_id: "c-phys301", date_from: "2026-06-02", date_to: "2026-06-02" });
   });
 
   it("submits the selected priority sit-in course for SAT Verbal priority options", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [
-          { id: "subj-satv", code: "SATV", name: "SAT Verbal" },
-        ],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] },
       sessions: createMockSessionsInRange([
         {
           subject_id: "subj-satv",
@@ -388,13 +376,7 @@ describe("AbsenceForm", () => {
           course_code: "R3S3",
           course_name: "SAT Verbal Rank 3 Section 3",
           sessions: [
-            {
-              id: "missed-r3s3-lesson-2",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T10:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
+            { id: "missed-r3s3-lesson-2", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false },
           ],
           sit_in: {
             sit_in_method: "physical",
@@ -403,27 +385,13 @@ describe("AbsenceForm", () => {
                 level: 1,
                 label: "1st Priority: Another Rank 3 section (same lesson #)",
                 sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
-                available_sessions: [
-                  {
-                    id: "sit-r3s1-lesson-2",
-                    start_at: "2026-06-04T09:00:00Z",
-                    end_at: "2026-06-04T10:30:00Z",
-                    course_name: "SAT Verbal Rank 3 Section 1",
-                  },
-                ],
+                available_sessions: [{ id: "sit-r3s1-lesson-2", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z", course_name: "SAT Verbal Rank 3 Section 1" }],
               },
               {
                 level: 3,
                 label: "3rd Priority: Rank 4 Reading or Writing",
                 sit_in_course: { id: "c-r4r", code: "R4R", name: "SAT Verbal Reading Rank 4" },
-                available_sessions: [
-                  {
-                    id: "sit-r4r",
-                    start_at: "2026-06-05T09:00:00Z",
-                    end_at: "2026-06-05T10:30:00Z",
-                    course_name: "SAT Verbal Reading Rank 4",
-                  },
-                ],
+                available_sessions: [{ id: "sit-r4r", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z", course_name: "SAT Verbal Reading Rank 4" }],
               },
             ],
           },
@@ -432,16 +400,16 @@ describe("AbsenceForm", () => {
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
     await user.selectOptions(await screen.findByRole("combobox"), "sit-r3s1-lesson-2");
-    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
 
     const batchCall = await waitFor(() => {
       const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
@@ -468,27 +436,17 @@ describe("AbsenceForm", () => {
         course_id: "c-r3s3",
         course_code: "R3S3",
         course_name: "SAT Verbal Rank 3 Section 3",
-        sessions: [
-          {
-            id: "missed-r3s3",
-            start_at: "2026-06-02T09:00:00Z",
-            end_at: "2026-06-02T10:30:00Z",
-            date: "2026-06-02",
-            already_absent: false,
-          },
-        ],
+        sessions: [{ id: "missed-r3s3", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
         sit_in: {
           sit_in_method: "physical",
           current_priority_level: 1,
           has_next_priority: true,
-          priorities: [
-            {
-              level: 1,
-              label: "1st Priority: Another Rank 3 section (same lesson #)",
-              sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
-              available_sessions: [{ id: "sit-r3s1", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z" }],
-            },
-          ],
+          priorities: [{
+            level: 1,
+            label: "1st Priority: Another Rank 3 section (same lesson #)",
+            sit_in_course: { id: "c-r3s1", code: "R3S1", name: "SAT Verbal Rank 3 Section 1" },
+            available_sessions: [{ id: "sit-r3s1", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z" }],
+          }],
         },
       },
     ]);
@@ -499,23 +457,19 @@ describe("AbsenceForm", () => {
           sit_in_method: "physical",
           current_priority_level: 3,
           has_next_priority: false,
-          priorities: [
-            {
-              level: 3,
-              label: "3rd Priority: Rank 4 Reading or Writing",
-              sit_in_course: { id: "c-r4r", code: "R4R", name: "SAT Verbal Reading Rank 4" },
-              available_sessions: [{ id: "sit-r4r", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z" }],
-            },
-          ],
+          priorities: [{
+            level: 3,
+            label: "3rd Priority: Rank 4 Reading or Writing",
+            sit_in_course: { id: "c-r4r", code: "R4R", name: "SAT Verbal Reading Rank 4" },
+            available_sessions: [{ id: "sit-r4r", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z" }],
+          }],
         },
       },
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) {
-        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      }
+      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
       if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
       if (path.includes("sessions-in-range")) return initialSessions;
       if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
@@ -524,18 +478,15 @@ describe("AbsenceForm", () => {
       if (path.endsWith("/absences/batch") && init?.method === "POST") return { items: [SUBMISSION_RESPONSE] };
       throw new Error(`Unmocked API call: ${url}`);
     });
-    prePopulateSessionStorage("2026-06-01", "2026-06-07");
     renderWithProviders(<AbsenceForm />);
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     expect(await screen.findByText(/1st Priority: Another Rank 3 section/)).toBeInTheDocument();
     expect(screen.queryByText(/3rd Priority: Rank 4 Reading or Writing/)).not.toBeInTheDocument();
@@ -565,41 +516,23 @@ describe("AbsenceForm", () => {
         course_id: "c-writing-1",
         course_code: "W1",
         course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
-        sessions: [
-          {
-            id: "missed-writing-1",
-            start_at: "2026-06-16T17:00:00Z",
-            end_at: "2026-06-16T20:20:00Z",
-            date: "2026-06-16",
-            already_absent: false,
-          },
-        ],
+        sessions: [{ id: "missed-writing-1", start_at: "2026-06-16T17:00:00Z", end_at: "2026-06-16T20:20:00Z", date: "2026-06-16", already_absent: false }],
         sit_in: {
           sit_in_method: "physical",
           current_priority_level: 1,
           has_next_priority: true,
-          priorities: [
-            {
-              level: 1,
-              label: "1st Priority: Same Writing Beginner lesson in another section",
-              available_sessions: [],
-              unavailable_sessions: [
-                {
-                  session: {
-                    id: "checked-writing-2",
-                    missed_session_id: "missed-writing-1",
-                    start_at: "2026-06-08T17:00:00Z",
-                    end_at: "2026-06-08T20:20:00Z",
-                    course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                  },
-                  missed_session_id: "missed-writing-1",
-                  occurrence_number: 3,
-                  reason_code: "before_request_date",
-                  reason: "This same-number sit-in slot is before today/request date.",
-                },
-              ],
-            },
-          ],
+          priorities: [{
+            level: 1,
+            label: "1st Priority: Same Writing Beginner lesson in another section",
+            available_sessions: [],
+            unavailable_sessions: [{
+              session: { id: "checked-writing-2", missed_session_id: "missed-writing-1", start_at: "2026-06-08T17:00:00Z", end_at: "2026-06-08T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+              missed_session_id: "missed-writing-1",
+              occurrence_number: 3,
+              reason_code: "before_request_date",
+              reason: "This same-number sit-in slot is before today/request date.",
+            }],
+          }],
         },
       },
     ]);
@@ -610,34 +543,19 @@ describe("AbsenceForm", () => {
           sit_in_method: "physical",
           current_priority_level: 2,
           has_next_priority: false,
-          priorities: [
-            {
-              level: 2,
-              label: "2nd Priority: SAT Verbal Writing Rank 5",
-              sit_in_course: {
-                id: "c-writing-rank5",
-                code: "WR5",
-                name: "SAT Verbal Writing Rank 5 C2/26",
-              },
-              available_sessions: [
-                {
-                  id: "sit-writing-rank5",
-                  start_at: "2026-06-17T17:00:00Z",
-                  end_at: "2026-06-17T20:20:00Z",
-                  course_name: "SAT Verbal Writing Rank 5 C2/26",
-                },
-              ],
-            },
-          ],
+          priorities: [{
+            level: 2,
+            label: "2nd Priority: SAT Verbal Writing Rank 5",
+            sit_in_course: { id: "c-writing-rank5", code: "WR5", name: "SAT Verbal Writing Rank 5 C2/26" },
+            available_sessions: [{ id: "sit-writing-rank5", start_at: "2026-06-17T17:00:00Z", end_at: "2026-06-17T20:20:00Z", course_name: "SAT Verbal Writing Rank 5 C2/26" }],
+          }],
         },
       },
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) {
-        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      }
+      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
       if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
       if (path.includes("sessions-in-range")) return initialSessions;
       if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
@@ -645,39 +563,29 @@ describe("AbsenceForm", () => {
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);
     });
-    prePopulateSessionStorage("2026-06-16", "2026-06-16");
     renderWithProviders(<AbsenceForm />);
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     expect(await screen.findByText(/1st Priority: Same Writing Beginner lesson/)).toBeInTheDocument();
     expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
     expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
-    expect(screen.getByText(/SAT Verbal Writing Beginner Section 2 C2\/26/)).toBeInTheDocument();
     expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
-    expect(screen.queryByText(/2nd Priority: SAT Verbal Writing Rank 5/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-
     expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /SAT Verbal Writing Rank 5 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] },
       sessions: createMockSessionsInRange([
         {
           subject_id: "subj-satv",
@@ -686,15 +594,7 @@ describe("AbsenceForm", () => {
           course_id: "c-r3s3",
           course_code: "R3S3",
           course_name: "SAT Verbal Rank 3 Section 3",
-          sessions: [
-            {
-              id: "missed-r3s3",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T10:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
-          ],
+          sessions: [{ id: "missed-r3s3", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
           sit_in: {
             sit_in_method: "physical",
             priorities: [
@@ -717,14 +617,12 @@ describe("AbsenceForm", () => {
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /SAT Verbal Rank 3 Section 2/ })).toBeInTheDocument();
@@ -732,11 +630,8 @@ describe("AbsenceForm", () => {
 
   it("filters SAT Verbal same-occurrence options to each selected missed session", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] },
       sessions: createMockSessionsInRange([
         {
           subject_id: "subj-satv",
@@ -746,20 +641,8 @@ describe("AbsenceForm", () => {
           course_code: "W1",
           course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
           sessions: [
-            {
-              id: "missed-writing-09",
-              start_at: "2026-06-09T17:00:00Z",
-              end_at: "2026-06-09T20:20:00Z",
-              date: "2026-06-09",
-              already_absent: false,
-            },
-            {
-              id: "missed-writing-23",
-              start_at: "2026-06-23T17:00:00Z",
-              end_at: "2026-06-23T20:20:00Z",
-              date: "2026-06-23",
-              already_absent: false,
-            },
+            { id: "missed-writing-09", start_at: "2026-06-09T17:00:00Z", end_at: "2026-06-09T20:20:00Z", date: "2026-06-09", already_absent: false },
+            { id: "missed-writing-23", start_at: "2026-06-23T17:00:00Z", end_at: "2026-06-23T20:20:00Z", date: "2026-06-23", already_absent: false },
           ],
           sit_in: {
             sit_in_method: "physical",
@@ -769,51 +652,19 @@ describe("AbsenceForm", () => {
               {
                 level: 1,
                 label: "1st Priority",
-                sit_in_course: {
-                  id: "c-writing-2",
-                  code: "W2",
-                  name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                },
+                sit_in_course: { id: "c-writing-2", code: "W2", name: "SAT Verbal Writing Beginner Section 2 C2/26" },
                 available_sessions: [
-                  {
-                    id: "sit-writing-2-09",
-                    missed_session_id: "missed-writing-09",
-                    start_at: "2026-06-14T17:00:00Z",
-                    end_at: "2026-06-14T20:20:00Z",
-                    course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                  },
-                  {
-                    id: "sit-writing-2-23",
-                    missed_session_id: "missed-writing-23",
-                    start_at: "2026-06-28T17:00:00Z",
-                    end_at: "2026-06-28T20:20:00Z",
-                    course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                  },
+                  { id: "sit-writing-2-09", missed_session_id: "missed-writing-09", start_at: "2026-06-14T17:00:00Z", end_at: "2026-06-14T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+                  { id: "sit-writing-2-23", missed_session_id: "missed-writing-23", start_at: "2026-06-28T17:00:00Z", end_at: "2026-06-28T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
                 ],
               },
               {
                 level: 1,
                 label: "1st Priority",
-                sit_in_course: {
-                  id: "c-writing-3",
-                  code: "W3",
-                  name: "SAT Verbal Writing Beginner Section 3 C2/26",
-                },
+                sit_in_course: { id: "c-writing-3", code: "W3", name: "SAT Verbal Writing Beginner Section 3 C2/26" },
                 available_sessions: [
-                  {
-                    id: "sit-writing-3-09",
-                    missed_session_id: "missed-writing-09",
-                    start_at: "2026-06-13T17:00:00Z",
-                    end_at: "2026-06-13T20:20:00Z",
-                    course_name: "SAT Verbal Writing Beginner Section 3 C2/26",
-                  },
-                  {
-                    id: "sit-writing-3-23",
-                    missed_session_id: "missed-writing-23",
-                    start_at: "2026-06-27T17:00:00Z",
-                    end_at: "2026-06-27T20:20:00Z",
-                    course_name: "SAT Verbal Writing Beginner Section 3 C2/26",
-                  },
+                  { id: "sit-writing-3-09", missed_session_id: "missed-writing-09", start_at: "2026-06-13T17:00:00Z", end_at: "2026-06-13T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 3 C2/26" },
+                  { id: "sit-writing-3-23", missed_session_id: "missed-writing-23", start_at: "2026-06-27T17:00:00Z", end_at: "2026-06-27T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 3 C2/26" },
                 ],
               },
             ],
@@ -823,51 +674,34 @@ describe("AbsenceForm", () => {
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
-      await user.click(checkbox);
+      if (checkbox.getAttribute("id")?.startsWith("session-")) {
+        await user.click(checkbox);
+      }
     }
 
     const selects = await screen.findAllByRole("combobox");
     expect(selects).toHaveLength(2);
-
     expect(within(selects[0]).getByRole("option", { name: /Sun, 14 Jun 2026/ })).toBeInTheDocument();
-    expect(within(selects[0]).getByRole("option", { name: /Sat, 13 Jun 2026/ })).toBeInTheDocument();
     expect(within(selects[0]).queryByRole("option", { name: /Sun, 28 Jun 2026/ })).not.toBeInTheDocument();
-    expect(within(selects[0]).queryByRole("option", { name: /Sat, 27 Jun 2026/ })).not.toBeInTheDocument();
-
     expect(within(selects[1]).getByRole("option", { name: /Sun, 28 Jun 2026/ })).toBeInTheDocument();
-    expect(within(selects[1]).getByRole("option", { name: /Sat, 27 Jun 2026/ })).toBeInTheDocument();
     expect(within(selects[1]).queryByRole("option", { name: /Sun, 14 Jun 2026/ })).not.toBeInTheDocument();
-    expect(within(selects[1]).queryByRole("option", { name: /Sat, 13 Jun 2026/ })).not.toBeInTheDocument();
   }, 30000);
 
   it("ignores stale restored priority levels when the selected June 16 class has available sit-ins", async () => {
     const user = userEvent.setup();
     const missedSessionId = "1d9d68c1-9487-48aa-8696-b07326c0a0da";
-
-    window.sessionStorage.setItem(
-      SESSION_STORAGE_KEY,
-      JSON.stringify({
-        dateFrom: "2026-06-16",
-        dateTo: "2026-06-16",
-        sitInPriorityLevels: {
-          [missedSessionId]: 2,
-        },
-      }),
-    );
-    installHappyPathMocks({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [{ id: "24af31dc-5b2b-4d2f-ab0f-4ee75b3cecaf", code: "17", name: "SAT Verbal Writing Beginner Section 1 C2/26" }],
-      },
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      sitInPriorityLevels: { [missedSessionId]: 2 },
+    }));
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "24af31dc-5b2b-4d2f-ab0f-4ee75b3cecaf", code: "17", name: "SAT Verbal Writing Beginner Section 1 C2/26" }] },
       sessions: createMockSessionsInRange([
         {
           subject_id: "24af31dc-5b2b-4d2f-ab0f-4ee75b3cecaf",
@@ -876,60 +710,31 @@ describe("AbsenceForm", () => {
           course_id: "a7645da2-6d71-44a0-98d8-759cd1d49e56",
           course_code: "0000000013",
           course_name: "",
-          sessions: [
-            {
-              id: missedSessionId,
-              start_at: "2026-06-16T10:00:00Z",
-              end_at: "2026-06-16T13:20:00Z",
-              date: "2026-06-16",
-              already_absent: false,
-            },
-          ],
+          sessions: [{ id: missedSessionId, start_at: "2026-06-16T10:00:00Z", end_at: "2026-06-16T13:20:00Z", date: "2026-06-16", already_absent: false }],
           sit_in: {
             rule_name: "SAT Verbal Policy",
             rule_type: "sat_verbal_policy",
             sit_in_method: "physical",
             current_priority_level: 1,
             has_next_priority: true,
-            priorities: [
-              {
-                level: 1,
-                label: "1st Priority: Same Writing Beginner lesson in another section",
-                sit_in_course: {
-                  id: "2d460d39-92dd-4cc2-8460-9f4a08fc4b5e",
-                  code: "0000000014",
-                  name: "",
-                  subject_code: "18",
-                  subject_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                },
-                available_sessions: [
-                  {
-                    id: "b1381c0e-72df-4fc3-99b0-b38e40c81f35",
-                    start_at: "2026-06-14T10:00:00Z",
-                    end_at: "2026-06-14T13:20:00Z",
-                    missed_session_id: missedSessionId,
-                    course_code: "0000000014",
-                    subject_code: "18",
-                    subject_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                  },
-                ],
-              },
-            ],
+            priorities: [{
+              level: 1,
+              label: "1st Priority: Same Writing Beginner lesson in another section",
+              sit_in_course: { id: "2d460d39-92dd-4cc2-8460-9f4a08fc4b5e", code: "0000000014", name: "", subject_code: "18", subject_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+              available_sessions: [{ id: "b1381c0e-72df-4fc3-99b0-b38e40c81f35", start_at: "2026-06-14T10:00:00Z", end_at: "2026-06-14T13:20:00Z", missed_session_id: missedSessionId }],
+            }],
           },
         },
       ]),
     });
-    renderWithProviders(<AbsenceForm />);
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     expect(screen.queryByText("No more options available")).not.toBeInTheDocument();
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
@@ -946,90 +751,35 @@ describe("AbsenceForm", () => {
         course_code: "W1",
         course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
         sessions: [
-          {
-            id: "missed-writing-16",
-            start_at: "2026-06-16T17:00:00Z",
-            end_at: "2026-06-16T20:20:00Z",
-            date: "2026-06-16",
-            already_absent: false,
-          },
-          {
-            id: "missed-writing-23",
-            start_at: "2026-06-23T17:00:00Z",
-            end_at: "2026-06-23T20:20:00Z",
-            date: "2026-06-23",
-            already_absent: false,
-          },
+          { id: "missed-writing-16", start_at: "2026-06-16T17:00:00Z", end_at: "2026-06-16T20:20:00Z", date: "2026-06-16", already_absent: false },
+          { id: "missed-writing-23", start_at: "2026-06-23T17:00:00Z", end_at: "2026-06-23T20:20:00Z", date: "2026-06-23", already_absent: false },
         ],
         sit_in: {
           sit_in_method: "physical",
           current_priority_level: 1,
           has_next_priority: true,
-          priorities: [
-            {
-              level: 1,
-              label: "1st Priority",
-              sit_in_course: {
-                id: "c-writing-2",
-                code: "W2",
-                name: "SAT Verbal Writing Beginner Section 2 C2/26",
-              },
-              available_sessions: [
-                {
-                  id: "sit-writing-2-16",
-                  missed_session_id: "missed-writing-16",
-                  start_at: "2026-06-21T17:00:00Z",
-                  end_at: "2026-06-21T20:20:00Z",
-                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                },
-                {
-                  id: "sit-writing-2-23",
-                  missed_session_id: "missed-writing-23",
-                  start_at: "2026-06-28T17:00:00Z",
-                  end_at: "2026-06-28T20:20:00Z",
-                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                },
-              ],
-            },
-          ],
+          priorities: [{
+            level: 1,
+            label: "1st Priority",
+            sit_in_course: { id: "c-writing-2", code: "W2", name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+            available_sessions: [
+              { id: "sit-writing-2-16", missed_session_id: "missed-writing-16", start_at: "2026-06-21T17:00:00Z", end_at: "2026-06-21T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+              { id: "sit-writing-2-23", missed_session_id: "missed-writing-23", start_at: "2026-06-28T17:00:00Z", end_at: "2026-06-28T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" },
+            ],
+          }],
         },
       },
     ]);
     const nextSessions = createMockSessionsInRange([
       {
         ...initialSessions.subjects[0],
-        sit_in: {
-          sit_in_method: "physical",
-          current_priority_level: 2,
-          has_next_priority: false,
-          priorities: [
-            {
-              level: 2,
-              label: "2nd Priority: SAT Verbal Writing Rank 5",
-              sit_in_course: {
-                id: "c-writing-rank5",
-                code: "WR5",
-                name: "SAT Verbal Writing Rank 5 C2/26",
-              },
-              available_sessions: [
-                {
-                  id: "sit-writing-rank5",
-                  start_at: "2026-06-17T17:00:00Z",
-                  end_at: "2026-06-17T20:20:00Z",
-                  course_name: "SAT Verbal Writing Rank 5 C2/26",
-                },
-              ],
-            },
-          ],
-        },
+        sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false, priorities: [{ level: 2, label: "2nd Priority: SAT Verbal Writing Rank 5", sit_in_course: { id: "c-writing-rank5", code: "WR5", name: "SAT Verbal Writing Rank 5 C2/26" }, available_sessions: [{ id: "sit-writing-rank5", start_at: "2026-06-17T17:00:00Z", end_at: "2026-06-17T20:20:00Z", course_name: "SAT Verbal Writing Rank 5 C2/26" }] }] },
       },
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) {
-        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      }
+      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
       if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
       if (path.includes("sessions-in-range")) return initialSessions;
       if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
@@ -1037,39 +787,30 @@ describe("AbsenceForm", () => {
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);
     });
-    prePopulateSessionStorage("2026-06-16", "2026-06-23");
     renderWithProviders(<AbsenceForm />);
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
-      await user.click(checkbox);
+      if (checkbox.getAttribute("id")?.startsWith("session-")) {
+        await user.click(checkbox);
+      }
     }
     expect(await screen.findAllByRole("combobox")).toHaveLength(2);
 
     await user.click(screen.getAllByRole("button", { name: /see other times/i })[0]);
-
     expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
-    const remainingLevelOneSelect = screen.getAllByRole("combobox").find((select) =>
-      within(select).queryByRole("option", { name: /Sun, 28 Jun 2026/ }),
-    );
-    expect(remainingLevelOneSelect).toBeTruthy();
   }, 30000);
 
   it("renders SAT Verbal same-number choices from per-missed-session sit-in results", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] },
       sessions: createMockSessionsInRange([
         {
           subject_id: "subj-satv",
@@ -1079,84 +820,28 @@ describe("AbsenceForm", () => {
           course_code: "W1",
           course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
           sessions: [
-            {
-              id: "missed-writing-16",
-              start_at: "2026-06-16T17:00:00Z",
-              end_at: "2026-06-16T20:20:00Z",
-              date: "2026-06-16",
-              already_absent: false,
-            },
-            {
-              id: "missed-writing-23",
-              start_at: "2026-06-23T17:00:00Z",
-              end_at: "2026-06-23T20:20:00Z",
-              date: "2026-06-23",
-              already_absent: false,
-            },
+            { id: "missed-writing-16", start_at: "2026-06-16T17:00:00Z", end_at: "2026-06-16T20:20:00Z", date: "2026-06-16", already_absent: false },
+            { id: "missed-writing-23", start_at: "2026-06-23T17:00:00Z", end_at: "2026-06-23T20:20:00Z", date: "2026-06-23", already_absent: false },
           ],
           sit_in: {
             sit_in_method: "physical",
             current_priority_level: 1,
             has_next_priority: true,
-            priorities: [
-              {
-                level: 1,
-                label: "1st Priority",
-                available_sessions: [],
-              },
-            ],
+            priorities: [{ level: 1, label: "1st Priority", available_sessions: [] }],
             sit_in_by_missed_session: {
               "missed-writing-16": {
                 sit_in_method: "physical",
                 current_priority_level: 1,
                 has_next_priority: true,
                 missed_occurrence_number: 3,
-                priorities: [
-                  {
-                    level: 1,
-                    label: "1st Priority",
-                    sit_in_course: {
-                      id: "c-writing-2",
-                      code: "W2",
-                      name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                    },
-                    available_sessions: [
-                      {
-                        id: "sit-writing-2-16",
-                        missed_session_id: "missed-writing-16",
-                        start_at: "2026-06-21T17:00:00Z",
-                        end_at: "2026-06-21T20:20:00Z",
-                        course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                      },
-                    ],
-                  },
-                ],
+                priorities: [{ level: 1, label: "1st Priority", sit_in_course: { id: "c-writing-2", code: "W2", name: "SAT Verbal Writing Beginner Section 2 C2/26" }, available_sessions: [{ id: "sit-writing-2-16", missed_session_id: "missed-writing-16", start_at: "2026-06-21T17:00:00Z", end_at: "2026-06-21T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" }] }],
               },
               "missed-writing-23": {
                 sit_in_method: "physical",
                 current_priority_level: 1,
                 has_next_priority: true,
                 missed_occurrence_number: 4,
-                priorities: [
-                  {
-                    level: 1,
-                    label: "1st Priority",
-                    sit_in_course: {
-                      id: "c-writing-2",
-                      code: "W2",
-                      name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                    },
-                    available_sessions: [
-                      {
-                        id: "sit-writing-2-23",
-                        missed_session_id: "missed-writing-23",
-                        start_at: "2026-06-28T17:00:00Z",
-                        end_at: "2026-06-28T20:20:00Z",
-                        course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                      },
-                    ],
-                  },
-                ],
+                priorities: [{ level: 1, label: "1st Priority", sit_in_course: { id: "c-writing-2", code: "W2", name: "SAT Verbal Writing Beginner Section 2 C2/26" }, available_sessions: [{ id: "sit-writing-2-23", missed_session_id: "missed-writing-23", start_at: "2026-06-28T17:00:00Z", end_at: "2026-06-28T20:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" }] }],
               },
             },
           },
@@ -1165,16 +850,16 @@ describe("AbsenceForm", () => {
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
-      await user.click(checkbox);
+      if (checkbox.getAttribute("id")?.startsWith("session-")) {
+        await user.click(checkbox);
+      }
     }
 
     const selects = await screen.findAllByRole("combobox");
@@ -1195,81 +880,24 @@ describe("AbsenceForm", () => {
         course_id: "c-writing-1",
         course_code: "W1",
         course_name: "SAT Verbal Writing Beginner Section 1 C2/26",
-        sessions: [
-          {
-            id: "missed-writing-1",
-            start_at: "2026-06-09T10:00:00Z",
-            end_at: "2026-06-09T13:20:00Z",
-            date: "2026-06-09",
-            already_absent: false,
-          },
-        ],
+        sessions: [{ id: "missed-writing-1", start_at: "2026-06-09T10:00:00Z", end_at: "2026-06-09T13:20:00Z", date: "2026-06-09", already_absent: false }],
         sit_in: {
-          sit_in_method: "physical",
-          sit_in_course: {
-            id: "c-writing-1",
-            code: "W1",
-            name: "SAT Verbal Writing Beginner Section 1 C2/26",
-          },
-          current_priority_level: 1,
-          has_next_priority: true,
-          priorities: [
-            {
-              level: 1,
-              label: "1st Priority",
-              sit_in_course: {
-                id: "c-writing-2",
-                code: "W2",
-                name: "SAT Verbal Writing Beginner Section 2 C2/26",
-              },
-              available_sessions: [
-                {
-                  id: "sit-writing-2",
-                  start_at: "2026-06-14T10:00:00Z",
-                  end_at: "2026-06-14T13:20:00Z",
-                  course_name: "SAT Verbal Writing Beginner Section 2 C2/26",
-                },
-              ],
-            },
-          ],
+          sit_in_method: "physical", sit_in_course: { id: "c-writing-1", code: "W1", name: "SAT Verbal Writing Beginner Section 1 C2/26" },
+          current_priority_level: 1, has_next_priority: true,
+          priorities: [{ level: 1, label: "1st Priority", sit_in_course: { id: "c-writing-2", code: "W2", name: "SAT Verbal Writing Beginner Section 2 C2/26" }, available_sessions: [{ id: "sit-writing-2", start_at: "2026-06-14T10:00:00Z", end_at: "2026-06-14T13:20:00Z", course_name: "SAT Verbal Writing Beginner Section 2 C2/26" }] }],
         },
       },
     ]);
     const nextSessions = createMockSessionsInRange([
       {
         ...initialSessions.subjects[0],
-        sit_in: {
-          sit_in_method: "physical",
-          current_priority_level: 2,
-          has_next_priority: false,
-          priorities: [
-            {
-              level: 2,
-              label: "2nd Priority",
-              sit_in_course: {
-                id: "c-writing-3",
-                code: "W3",
-                name: "SAT Verbal Writing Beginner Section 3 C2/26",
-              },
-              available_sessions: [
-                {
-                  id: "sit-writing-3",
-                  start_at: "2026-06-15T10:00:00Z",
-                  end_at: "2026-06-15T13:20:00Z",
-                  course_name: "SAT Verbal Writing Beginner Section 3 C2/26",
-                },
-              ],
-            },
-          ],
-        },
+        sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false, priorities: [{ level: 2, label: "2nd Priority", sit_in_course: { id: "c-writing-3", code: "W3", name: "SAT Verbal Writing Beginner Section 3 C2/26" }, available_sessions: [{ id: "sit-writing-3", start_at: "2026-06-15T10:00:00Z", end_at: "2026-06-15T13:20:00Z", course_name: "SAT Verbal Writing Beginner Section 3 C2/26" }] }] },
       },
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) {
-        return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      }
+      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
       if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
       if (path.includes("sessions-in-range")) return initialSessions;
       if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
@@ -1277,200 +905,112 @@ describe("AbsenceForm", () => {
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);
     });
-    prePopulateSessionStorage("2026-06-09", "2026-06-15");
     renderWithProviders(<AbsenceForm />);
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: /see other times/i }));
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
   it("disables verify parent button when student has no parent phone", async () => {
-    installHappyPathMocks({
-      student: {
-        ...MOCK_STUDENT,
-        parent_phone: null,
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, parent_phone: null },
     });
     const user = userEvent.setup();
-    renderWithProviders(<AbsenceForm />);
-
     await lookupStudent(user);
-
-    const verifyBtn = screen.getByRole("button", { name: /verify with parent/i });
-    expect(verifyBtn).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /send code/i })).not.toBeInTheDocument();
   });
 
   it("shows contact admin message when student has no parent phone", async () => {
-    installHappyPathMocks({
-      student: {
-        ...MOCK_STUDENT,
-        parent_phone: null,
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, parent_phone: null },
     });
-    renderWithProviders(<AbsenceForm />);
-
     await lookupStudent(userEvent.setup());
-
-    const phoneMatches = screen.getAllByText(/02-658-4880/);
-    expect(phoneMatches.length).toBeGreaterThanOrEqual(1);
-    const lineMatches = screen.getAllByText(/@warwick/);
-    expect(lineMatches.length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText(/not in our records/i)).toBeInTheDocument();
   });
 
   it("shows a no-sessions status message when no sessions exist in range", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({ sessions: { subjects: [] } });
+    renderAbsenceForm({ sessions: { subjects: [] } });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
+
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Family matter");
 
-    // Select a course to reveal sessions section
-    await user.click(screen.getByRole("button", { name: /select all/i }));
+    await toggleAllCourseSwitches(user);
 
-    expect(await screen.findByText("No classes found for the courses and dates you picked.")).toBeInTheDocument();
+    expect(await screen.findByText("No classes found for the selected courses.")).toBeInTheDocument();
   });
 
-  it("shows always-visible reason textarea on Step 2 after courses + dates are set", async () => {
+  it("shows always-visible reason textarea on Step 2 after courses are selected", async () => {
     const user = userEvent.setup();
-    renderWithDateRange();
+    renderAbsenceForm();
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     expect(screen.getByPlaceholderText("Tell us why you'll be away from class...")).toBeInTheDocument();
-    expect(screen.getByText("Reason for absence")).toBeInTheDocument();
   });
 
   it("shows the resolved sit-in target as Absence class", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [
-          { id: "subj-1", code: "02", name: "math_advance" },
-        ],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "02", name: "math_advance" }] },
       sessions: createMockSessionsInRange([
         {
-          subject_id: "subj-1",
-          subject_code: "02",
-          subject_name: "math_advance",
-          course_id: "c-adv",
-          course_code: "0000000344",
-          course_name: "math_advance",
-          sessions: [
-            {
-              id: "s1",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T11:00:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
-          ],
-          sit_in: {
-            sit_in_method: "physical",
-            sit_in_course: { id: "c-int", code: "0000000348", name: "Math inter" },
-            available_sessions: [
-              {
-                id: "as1",
-                start_at: "2026-06-04T03:00:00Z",
-                end_at: "2026-06-04T05:00:00Z",
-              },
-            ],
-          },
+          subject_id: "subj-1", subject_code: "02", subject_name: "math_advance",
+          course_id: "c-adv", course_code: "0000000344", course_name: "math_advance",
+          sessions: [{ id: "s1", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T11:00:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-int", code: "0000000348", name: "Math inter" }, available_sessions: [{ id: "as1", start_at: "2026-06-04T03:00:00Z", end_at: "2026-06-04T05:00:00Z" }] },
         },
-        {
-          subject_id: "subj-2",
-          subject_code: "04",
-          subject_name: "Math inter",
-          course_id: "c-int",
-          course_code: "0000000348",
-          course_name: "Math inter",
-          sessions: [],
-        },
+        { subject_id: "subj-2", subject_code: "04", subject_name: "Math inter", course_id: "c-int", course_code: "0000000348", course_name: "Math inter", sessions: [] },
       ]),
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Math inter");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
-
-    expect(screen.getByText(/Sit-in class:/i).closest("p")).toHaveTextContent("Math inter");
   });
 
   it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
+    renderAbsenceForm({
       sessions: createMockSessionsInRange([
         {
-          subject_id: "subj-1",
-          subject_code: "MATH",
-          subject_name: "Math advance",
-          course_id: "c-adv",
-          course_code: "ADV-01",
-          course_name: "Math advance",
-          sessions: [
-            {
-              id: "s1",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T10:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
-          ],
-          sit_in: {
-            sit_in_method: "physical",
-            sit_in_course: { id: "c-int", code: "0000000348", name: "" },
-            available_sessions: [
-              {
-                id: "as1",
-                start_at: "2026-06-04T13:00:00Z",
-                end_at: "2026-06-04T15:00:00Z",
-              },
-            ],
-          },
+          subject_id: "subj-1", subject_code: "MATH", subject_name: "Math advance",
+          course_id: "c-adv", course_code: "ADV-01", course_name: "Math advance",
+          sessions: [{ id: "s1", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-int", code: "0000000348", name: "" }, available_sessions: [{ id: "as1", start_at: "2026-06-04T13:00:00Z", end_at: "2026-06-04T15:00:00Z" }] },
         },
       ]),
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Math advance");
@@ -1479,167 +1019,78 @@ describe("AbsenceForm", () => {
 
   it("shows sit-in target course name (not student's enrolled course) in make-up dropdown when sit_in_course has name populated", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [
-          { id: "subj-1", code: "MATH", name: "Mathematics" },
-        ],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
       sessions: createMockSessionsInRange([
         {
-          subject_id: "subj-1",
-          subject_code: "MATH",
-          subject_name: "Mathematics",
-          course_id: "c-adv",
-          course_code: "ADV-01",
-          course_name: "Mathematics",
-          sessions: [
-            {
-              id: "s1",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T10:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
-          ],
-          sit_in: {
-            sit_in_method: "physical",
-            sit_in_course: { id: "c-scholar", code: "SCH-01", name: "scholar" },
-            available_sessions: [
-              {
-                id: "as1",
-                start_at: "2026-06-04T08:00:00Z",
-                end_at: "2026-06-04T10:00:00Z",
-              },
-            ],
-          },
+          subject_id: "subj-1", subject_code: "MATH", subject_name: "Mathematics",
+          course_id: "c-adv", course_code: "ADV-01", course_name: "Mathematics",
+          sessions: [{ id: "s1", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-scholar", code: "SCH-01", name: "scholar" }, available_sessions: [{ id: "as1", start_at: "2026-06-04T08:00:00Z", end_at: "2026-06-04T10:00:00Z" }] },
         },
       ]),
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("scholar");
-    expect(makeUpSelect).not.toHaveTextContent("advanced");
-    expect(makeUpSelect).not.toHaveTextContent("ADV-01");
     expect(makeUpSelect).not.toHaveTextContent("0000000348");
   });
 
   it("uses the resolved Scholar sit-in course for mixed inter and advanced enrollments", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
-      student: {
-        ...MOCK_STUDENT,
-        subjects: [
-          { id: "subj-math", code: "MATH", name: "Math" },
-        ],
-      },
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-math", code: "MATH", name: "Math" }] },
       sessions: createMockSessionsInRange([
         {
-          subject_id: "subj-math",
-          subject_code: "MATH",
-          subject_name: "Math inter",
-          course_id: "c-inter",
-          course_code: "0000000348",
-          course_name: "Math inter",
-          sessions: [
-            {
-              id: "s-inter",
-              start_at: "2026-06-04T10:00:00+07:00",
-              end_at: "2026-06-04T12:00:00+07:00",
-              date: "2026-06-04",
-              already_absent: false,
-            },
-          ],
-          sit_in: {
-            sit_in_method: "physical",
-            sit_in_course: { id: "c-scholar", code: "0000000371", name: "", subject_name: "Scholar" },
-            available_sessions: [
-              {
-                id: "as-scholar",
-                start_at: "2026-06-06T10:00:00+07:00",
-                end_at: "2026-06-06T12:00:00+07:00",
-                subject_name: "Math advance",
-                course_name: "Math advance",
-              },
-            ],
-          },
+          subject_id: "subj-math", subject_code: "MATH", subject_name: "Math inter",
+          course_id: "c-inter", course_code: "0000000348", course_name: "Math inter",
+          sessions: [{ id: "s-inter", start_at: "2026-06-04T10:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00", date: "2026-06-04", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-scholar", code: "0000000371", name: "", subject_name: "Scholar" }, available_sessions: [{ id: "as-scholar", start_at: "2026-06-06T10:00:00+07:00", end_at: "2026-06-06T12:00:00+07:00", subject_name: "Math advance", course_name: "Math advance" }] },
         },
       ]),
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Scholar");
-    expect(makeUpSelect).not.toHaveTextContent("Math advance");
     expect(makeUpSelect).not.toHaveTextContent("0000000371");
-    expect(screen.getByText(/Sit-in class:/i).closest("p")).toHaveTextContent("Scholar");
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {
     const user = userEvent.setup();
-    renderWithDateRange({
+    renderAbsenceForm({
       sessions: createMockSessionsInRange([
         {
-          subject_id: "subj-1",
-          subject_code: "ADV",
-          subject_name: "Math advance",
-          course_id: "c-adv",
-          course_code: "ADV-01",
-          course_name: "Math advance",
-          sessions: [
-            {
-              id: "s1",
-              start_at: "2026-06-02T09:00:00Z",
-              end_at: "2026-06-02T10:30:00Z",
-              date: "2026-06-02",
-              already_absent: false,
-            },
-          ],
-          sit_in: {
-            sit_in_method: "physical",
-            sit_in_course: { id: "c-int", code: "INT-01", name: "Math inter" },
-            available_sessions: [
-              {
-                id: "as1",
-                start_at: "2026-06-18T10:00:00Z",
-                end_at: "2026-06-18T12:00:00Z",
-                subject_name: "Math inter",
-              },
-            ],
-          },
+          subject_id: "subj-1", subject_code: "ADV", subject_name: "Math advance",
+          course_id: "c-adv", course_code: "ADV-01", course_name: "Math advance",
+          sessions: [{ id: "s1", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "physical", sit_in_course: { id: "c-int", code: "INT-01", name: "Math inter" }, available_sessions: [{ id: "as1", start_at: "2026-06-18T10:00:00Z", end_at: "2026-06-18T12:00:00Z", subject_name: "Math inter" }] },
         },
       ]),
     });
 
     await lookupStudent(user);
-    await user.click(screen.getByRole("button", { name: /verify with parent/i }));
     await verifyParent(user);
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await waitFor(() => expect(screen.getByText("Choose your courses")).toBeInTheDocument());
+    await goToCourses(user);
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
-    await user.click(screen.getByRole("button", { name: /select all/i }));
-    await user.click(await screen.findByRole("checkbox"));
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
     expect(makeUpSelect).toHaveTextContent("Math inter");

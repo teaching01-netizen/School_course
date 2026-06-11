@@ -113,7 +113,6 @@ export default function OtpInput({
           />
         </div>
       </label>
-      <p className="text-xs text-gray-600">Enter the 6-digit code sent to your parent's phone.</p>
     </div>
   );
 }

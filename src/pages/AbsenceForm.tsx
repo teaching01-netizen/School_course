@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { apiJson, newIdempotencyKey } from "@/api/client";
-import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input";
-import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
-import EmptyState from "@/components/ui/EmptyState";
-import CourseChip from "@/components/absences/CourseChip";
-
+import StepIndicator from "@/components/absences/StepIndicator";
+import SubjectCard from "@/components/absences/SubjectCard";
+import StickyFooter from "@/components/absences/StickyFooter";
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
 import { useToast } from "@/hooks/useToast";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useOtp } from "@/hooks/useOtp";
-import { useWizard } from "@/hooks/useWizard";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
   AbsenceFormConfig,
@@ -43,14 +39,13 @@ type AbsenceBatchCreateResponse = {
   items: ManagedAbsence[];
 };
 
-const STEP_LABELS = ["Find your profile", "Parent confirmation", "Courses & classes"] as const;
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
 const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
 
 const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,
-  sms_parent_template: "Warwick Institute: {{student_name}} ได้แจ้งความประสงค์ขอลาเรียน กรุณาแจ้งรหัส {{code}} ให้แก่นักเรียน เพื่อยืนยันว่าผู้ปกครองได้รับทราบแล้ว",
-  sms_success_template: "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+  sms_parent_template: "",
+  sms_success_template: "",
   allow_submit_without_otp: false,
 };
 
@@ -112,18 +107,15 @@ function countSelectedSessions(groups: SubjectSessions[], selected: Set<string>)
   );
 }
 
-function activeGroupForLookup(
-  lookup: StudentLookupResponse | null,
-  selectedSubjectIds: string[],
-  activeCourseIndex: number,
-) {
-  if (!lookup || lookup.subjects.length === 0) return null;
-  const activeFromIndex = lookup.subjects[activeCourseIndex];
-  if (activeFromIndex && selectedSubjectIds.includes(activeFromIndex.id)) {
-    return activeFromIndex;
-  }
-  const selected = lookup.subjects.find((subject) => selectedSubjectIds.includes(subject.id));
-  return selected ?? lookup.subjects[0];
+function getStudentDisplayName(lookup: StudentLookupResponse | null) {
+  return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
+}
+
+function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
+  return group.sessions
+    .filter((session) => selected.has(session.id))
+    .slice()
+    .sort((a, b) => a.start_at.localeCompare(b.start_at));
 }
 
 type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number];
@@ -155,7 +147,6 @@ function getPriorityTargetDisplayName(
 ) {
   const courseName = getSitInCourseDisplayName(priority.sit_in_course, "", allSubjects);
   if (courseName) return courseName;
-
   const firstSession = priority.available_sessions?.[0];
   return (
     firstSession?.class_name?.trim() ||
@@ -176,15 +167,12 @@ function getCurrentSitInDisplayName(
   if (sitIn?.sit_in_method !== "physical") {
     return sitIn?.sit_in_method === "zoom" ? "Zoom" : "To arrange";
   }
-
   if (currentPriorities.length > 0) {
     const labels = [
       ...new Set(
         currentPriorities
           .map((priority) => {
-            if (!priority.sit_in_course && (priority.available_sessions ?? []).length === 0) {
-              return "";
-            }
+            if (!priority.sit_in_course && (priority.available_sessions ?? []).length === 0) return "";
             return getPriorityTargetDisplayName(priority, fallbackSubjectName, allSubjects).trim();
           })
           .filter(Boolean),
@@ -193,39 +181,55 @@ function getCurrentSitInDisplayName(
     if (labels.length > 0) return labels.join(", ");
     return "Not available";
   }
-
   return getSitInCourseDisplayName(sitIn.sit_in_course, fallbackSubjectName, allSubjects);
 }
 
-function getStudentDisplayName(lookup: StudentLookupResponse | null) {
-  return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
-}
-
-function getSelectedSessionDates(groups: SubjectSessions[], selected: Set<string>) {
-  const dates = new Set<string>();
-  for (const group of groups) {
-    for (const session of group.sessions) {
-      if (selected.has(session.id)) {
-        dates.add(session.date);
-      }
-    }
+function sessionsInRangePath(
+  wcode: string,
+  dateFrom: string,
+  dateTo: string,
+  options?: { courseIds?: string[]; satVerbalAfterPriority?: number },
+): string {
+  const params = new URLSearchParams({ wcode, date_from: dateFrom, date_to: dateTo });
+  if (options?.courseIds && options.courseIds.length > 0) {
+    params.set("course_ids", options.courseIds.join(","));
   }
-  return [...dates].sort();
-}
-
-function summarizeSelectedSessionDates(dates: string[]) {
-  if (dates.length === 0) return "";
-  if (dates.length <= 3) {
-    return dates.map((date) => formatDate(date)).join(", ");
+  if (options?.satVerbalAfterPriority !== undefined) {
+    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
   }
-  return `${formatDate(dates[0])}, ${formatDate(dates[1])}, +${dates.length - 2} more`;
+  return `/api/v1/absences/sessions-in-range?${params.toString()}`;
 }
 
-function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
-  return group.sessions
-    .filter((session) => selected.has(session.id))
-    .slice()
-    .sort((a, b) => a.start_at.localeCompare(b.start_at));
+function sitInForMissedSession(group: SubjectSessions, missedSessionId: string) {
+  return group.sit_in?.sit_in_by_missed_session?.[missedSessionId] ?? group.sit_in;
+}
+
+function groupWithSitInForMissedSession(group: SubjectSessions, missedSessionId: string): SubjectSessions {
+  const sitIn = sitInForMissedSession(group, missedSessionId);
+  if (!sitIn || sitIn === group.sit_in) return group;
+  return { ...group, sit_in: sitIn };
+}
+
+function availableSessionsForMissedSession(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionId: string,
+) {
+  const available = priority.available_sessions ?? [];
+  if (!available.some((session) => session.missed_session_id)) return available;
+  return available.filter((session) => session.missed_session_id === missedSessionId);
+}
+
+function unavailableSessionsForMissedSession(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionId: string,
+) {
+  const unavailable = priority.unavailable_sessions ?? [];
+  if (!unavailable.some((session) => session.missed_session_id)) return unavailable;
+  return unavailable.filter((session) => session.missed_session_id === missedSessionId);
+}
+
+function hasServerPriorityReveal(group: SubjectSessions): boolean {
+  return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
 }
 
 function firstPriorityLevel(group: SubjectSessions): number {
@@ -256,75 +260,35 @@ function prioritiesForLevel(group: SubjectSessions, level: number) {
   return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
 }
 
-function sitInForMissedSession(group: SubjectSessions, missedSessionId: string) {
-  return group.sit_in?.sit_in_by_missed_session?.[missedSessionId] ?? group.sit_in;
-}
-
-function groupWithSitInForMissedSession(group: SubjectSessions, missedSessionId: string): SubjectSessions {
-  const sitIn = sitInForMissedSession(group, missedSessionId);
-  if (!sitIn || sitIn === group.sit_in) return group;
-  return { ...group, sit_in: sitIn };
-}
-
-function availableSessionsForMissedSession(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  missedSessionId: string,
-) {
-  const available = priority.available_sessions ?? [];
-  if (!available.some((session) => session.missed_session_id)) {
-    return available;
-  }
-  return available.filter((session) => session.missed_session_id === missedSessionId);
-}
-
-function unavailableSessionsForMissedSession(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  missedSessionId: string,
-) {
-  const unavailable = priority.unavailable_sessions ?? [];
-  if (!unavailable.some((session) => session.missed_session_id)) {
-    return unavailable;
-  }
-  return unavailable.filter((session) => session.missed_session_id === missedSessionId);
-}
-
-function hasServerPriorityReveal(group: SubjectSessions): boolean {
-  return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
-}
-
 function priorityOrdinal(level: number): string {
   const mod100 = level % 100;
   if (mod100 >= 11 && mod100 <= 13) return `${level}th`;
   switch (level % 10) {
-    case 1:
-      return `${level}st`;
-    case 2:
-      return `${level}nd`;
-    case 3:
-      return `${level}rd`;
-    default:
-      return `${level}th`;
+    case 1: return `${level}st`;
+    case 2: return `${level}nd`;
+    case 3: return `${level}rd`;
+    default: return `${level}th`;
   }
 }
 
-function sessionsInRangePath(
-  wcode: string,
-  dateFrom: string,
-  dateTo: string,
-  options?: { courseIds?: string[]; satVerbalAfterPriority?: number },
-): string {
-  const params = new URLSearchParams({
-    wcode,
-    date_from: dateFrom,
-    date_to: dateTo,
-  });
-  if (options?.courseIds && options.courseIds.length > 0) {
-    params.set("course_ids", options.courseIds.join(","));
-  }
-  if (options?.satVerbalAfterPriority !== undefined) {
-    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
-  }
-  return `/api/v1/absences/sessions-in-range?${params.toString()}`;
+function getSitInSessionLabel(
+  session: SitInAvailableSession,
+  sitInCourse: SitInCourse,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  const className =
+    resolveSitInSubjectName(sitInCourse, allSubjects) ||
+    sitInCourse?.name?.trim() ||
+    session.class_name?.trim() ||
+    session.subject_name?.trim() ||
+    session.course_name?.trim() ||
+    sitInCourse?.subject_code?.trim() ||
+    session.subject_code?.trim() ||
+    session.course_code?.trim() ||
+    fallbackSubjectName ||
+    sitInCourse?.code?.trim();
+  return `${className} — ${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
 
 function selectedSitInCourseIDForGroup(
@@ -335,7 +299,6 @@ function selectedSitInCourseIDForGroup(
   if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
     return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
   }
-
   const courseIDs = new Set<string>();
   for (const missedSessionID of selectedMissedSessionIds) {
     const sitIn = sitInForMissedSession(group, missedSessionID);
@@ -361,7 +324,6 @@ function selectedSitInCourseIDForGroup(
       }
     }
   }
-
   if (courseIDs.size === 1) return [...courseIDs][0];
   if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
   return null;
@@ -370,15 +332,9 @@ function selectedSitInCourseIDForGroup(
 function formatBatchAbsenceSummary(absence: ManagedAbsence) {
   const className = absence.subject_name?.trim() || absence.course_name?.trim() || absence.course_code?.trim() || "";
   const dates = getAbsenceSessionDateLabels(absence);
-  if (!className && !dates) {
-    return "To arrange";
-  }
-  if (!dates) {
-    return className || "To arrange";
-  }
-  if (!className) {
-    return dates;
-  }
+  if (!className && !dates) return "To arrange";
+  if (!dates) return className || "To arrange";
+  if (!className) return dates;
   return `${className} (${dates})`;
 }
 
@@ -386,18 +342,12 @@ function getAbsenceSessionDateLabels(absence: ManagedAbsence) {
   const sessions = absence.missed_sessions ?? [];
   const dates = new Set<string>();
   for (const session of sessions) {
-    if (session.start_at) {
-      dates.add(session.start_at.slice(0, 10));
-    }
+    if (session.start_at) dates.add(session.start_at.slice(0, 10));
   }
   const labels = [...dates].sort().map((date) => formatDate(date));
-  if (labels.length > 0) {
-    return labels.join(", ");
-  }
+  if (labels.length > 0) return labels.join(", ");
   if (absence.date_from && absence.date_to) {
-    if (absence.date_from === absence.date_to) {
-      return formatDate(absence.date_from);
-    }
+    if (absence.date_from === absence.date_to) return formatDate(absence.date_from);
     return `${formatDate(absence.date_from)} - ${formatDate(absence.date_to)}`;
   }
   return "";
@@ -405,18 +355,13 @@ function getAbsenceSessionDateLabels(absence: ManagedAbsence) {
 
 function formatBatchSitInSummary(absence: ManagedAbsence) {
   const method = absence.sit_in_method?.trim();
-  if (method === "zoom") {
-    return "Zoom";
-  }
+  if (method === "zoom") return "Zoom";
   const sessions = absence.sit_ins ?? [];
   const sessionLabels = sessions
     .filter((session) => session.start_at)
     .map((session) => `${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`);
   if (method !== "physical") {
-    if (sessionLabels.length > 0) {
-      return `To arrange (${sessionLabels.join(", ")})`;
-    }
-    return "To arrange";
+    return sessionLabels.length > 0 ? `To arrange (${sessionLabels.join(", ")})` : "To arrange";
   }
   if (sessionLabels.length > 0) {
     const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim() || "Make-up class";
@@ -427,212 +372,20 @@ function formatBatchSitInSummary(absence: ManagedAbsence) {
   return "To arrange";
 }
 
-function getSitInSessionLabel(
-  session: SitInAvailableSession,
-  sitInCourse: SitInCourse,
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  const className =
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    session.class_name?.trim() ||
-    session.subject_name?.trim() ||
-    session.course_name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    session.subject_code?.trim() ||
-    session.course_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim();
-
-  return `${className} — ${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Form Error Summary Region                                         */
-/* ------------------------------------------------------------------ */
-function FormErrorSummary({
-  pageError,
-  submissionError,
-  verificationBlocked,
-  lookupError,
-  sessionsError,
-  lookup,
-  online,
-  justRestored,
-  onClearPageError,
-  onClearSubmissionError,
-  onGoToVerification,
-}: {
-  pageError: string | null;
-  submissionError: string | null;
-  verificationBlocked: boolean;
-  lookupError: string | null;
-  sessionsError: string | null;
-  lookup: StudentLookupResponse | null;
-  online: boolean;
-  justRestored: boolean;
-  onClearPageError: () => void;
-  onClearSubmissionError: () => void;
-  onGoToVerification: () => void;
-}) {
-  const [showExpanded, setShowExpanded] = useState(false);
-
-  const items = useMemo(() => {
-    const result: Array<{
-      type: string;
-      message: string;
-      dismissible: boolean;
-      role: "alert" | "status";
-      onDismiss?: () => void;
-    }> = [];
-
-    if (submissionError) {
-      result.push({ type: "error", message: submissionError, dismissible: true, role: "alert", onDismiss: onClearSubmissionError });
-    }
-    if (verificationBlocked) {
-      result.push({ type: "verification_blocked", message: "Your parent's verification has expired. Please verify again.", dismissible: false, role: "alert" });
-    }
-    if (lookupError) {
-      result.push({ type: "error", message: lookupError, dismissible: false, role: "alert" });
-    }
-    if (sessionsError) {
-      result.push({ type: "error", message: sessionsError, dismissible: false, role: "alert" });
-    }
-    if (pageError) {
-      result.push({ type: "error", message: pageError, dismissible: true, role: "alert", onDismiss: onClearPageError });
-    }
-    if (lookup && !lookup.parent_phone) {
-      result.push({ type: "warning", message: "No parent phone number is on file for this student. Contact admin at Tel. 02-658-4880 Line Official: @warwick.", dismissible: false, role: "status" });
-    }
-    if (!online) {
-      result.push({ type: "offline", message: "You're offline. Your progress is saved locally.", dismissible: false, role: "status" });
-    } else if (justRestored) {
-      result.push({ type: "restored", message: "Back online!", dismissible: false, role: "status" });
-    }
-
-    return result;
-  }, [pageError, submissionError, verificationBlocked, lookupError, sessionsError, lookup, online, justRestored, onClearPageError, onClearSubmissionError, onGoToVerification]);
-
-  if (items.length === 0) return null;
-
-  const visible = showExpanded ? items : [items[0]];
-  const hiddenCount = items.length - visible.length;
-
-  return (
-    <div className="space-y-2">
-      {visible.map((item, index) => {
-        const isTop = index === 0;
-        const role = isTop ? item.role : "status";
-
-        if (item.type === "verification_blocked") {
-          return (
-            <div key={index} role={role} className="flex items-center justify-between gap-3 rounded-sm border border-amber-250 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
-              <div>
-                <strong>Verification expired.</strong> {item.message}
-              </div>
-              <button
-                type="button"
-                className="shrink-0 inline-flex items-center rounded-sm bg-amber-200/60 px-3 py-1 text-xs font-semibold text-amber-950 hover:bg-amber-200/90 transition-colors"
-                onClick={onGoToVerification}
-              >
-                Go to verification
-              </button>
-            </div>
-          );
-        }
-
-        if (item.type === "warning") {
-          return (
-            <div key={index} role={role} className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 animate-fade-in shadow-sm">
-              {item.message}
-            </div>
-          );
-        }
-
-        if (item.type === "offline") {
-          return (
-            <div
-              key={index}
-              role={role}
-              aria-live="polite"
-              className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 animate-fade-in shadow-sm"
-            >
-              {item.message}
-            </div>
-          );
-        }
-
-        if (item.type === "restored") {
-          return (
-            <div
-              key={index}
-              role={role}
-              aria-live="polite"
-              className="rounded-sm border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 animate-fade-in shadow-sm"
-            >
-              {item.message}
-            </div>
-          );
-        }
-
-        return (
-          <div
-            key={index}
-            role={role}
-            className="flex items-start justify-between gap-3 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-950 animate-fade-in shadow-sm"
-          >
-            <div className="flex-1">{item.message}</div>
-            {item.dismissible && (
-              <button
-                type="button"
-                onClick={() => item.onDismiss?.()}
-                className="shrink-0 rounded-sm p-1 text-red-800 hover:bg-red-100 transition-colors"
-                aria-label="Dismiss error"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                </svg>
-              </button>
-            )}
-          </div>
-        );
-      })}
-
-      {items.length > 1 && !showExpanded ? (
-        <button
-          type="button"
-          onClick={() => setShowExpanded((v) => !v)}
-          className="text-xs text-gray-500 hover:text-gray-700 underline transition-colors"
-        >
-          {hiddenCount} more issue{hiddenCount === 1 ? "" : "s"}
-        </button>
-      ) : null}
-      {items.length > 1 && showExpanded ? (
-        <button
-          type="button"
-          onClick={() => setShowExpanded((v) => !v)}
-          className="text-xs text-gray-500 hover:text-gray-700 underline transition-colors"
-        >
-          Show less
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Main Component                                                    */
-/* ------------------------------------------------------------------ */
 export default function AbsenceForm() {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const reduceMotion = useReducedMotion();
   const { online, justRestored } = useConnectivity();
-  const { step, direction, goTo, back, isTransitioning, setIsTransitioning } = useWizard(0);
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
 
+  const STEP_LABELS = [
+    { label: "Student", description: "Verify your profile" },
+    { label: "Classes", description: "Select classes & make-up" },
+    { label: "Review", description: "Confirm and submit" },
+  ];
+
+  const [step, setStep] = useState<StepIndex>(0);
   const [config, setConfig] = useState<AbsenceFormConfig>(DEFAULT_CONFIG);
   const [configLoading, setConfigLoading] = useState(true);
   const [lookupInput, setLookupInput] = useState("");
@@ -640,45 +393,40 @@ export default function AbsenceForm() {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
-  const [activeCourseIndex, setActiveCourseIndex] = useState(0);
-  const [dateFrom, setDateFrom] = useState(() => dateToLocalISO(new Date()));
-  const [dateTo, setDateTo] = useState(() => dateToLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
   const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
   const [sitInPriorityHistory, setSitInPriorityHistory] = useState<Record<string, Record<number, SubjectSessions>>>({});
   const [revealingPrioritySessionIds, setRevealingPrioritySessionIds] = useState<Set<string>>(new Set());
   const [pageError, setPageError] = useState<string | null>(null);
-  const [courseAnnouncement, setCourseAnnouncement] = useState("");
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
   const [verificationBlocked, setVerificationBlocked] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [finalResults, setFinalResults] = useState<ManagedAbsence[] | null>(null);
-  const stepHeadingRefs = useRef<Array<HTMLHeadingElement | null>>([]);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const listboxRef = useRef<HTMLDivElement | null>(null);
-  const typeaheadRef = useRef<{ buffer: string; timer: number | null }>({ buffer: "", timer: null });
 
   const selectedSubjectCount = selectedSubjectIds.length;
-  const selectedSessionCount = countSelectedSessions(sessions, selectedSessionIds);
-  const selectedSessionDates = useMemo(
-    () => getSelectedSessionDates(sessions, selectedSessionIds),
+  const selectedSessionCount = useMemo(
+    () => countSelectedSessions(sessions, selectedSessionIds),
     [sessions, selectedSessionIds],
-  );
-  const selectedSessionDatesLabel = useMemo(
-    () => summarizeSelectedSessionDates(selectedSessionDates),
-    [selectedSessionDates],
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
   const atMaxSessions = selectedSessionCount >= maxSessions;
   const canProceedFromVerify = !!lookup && verificationSatisfied;
   const studentDisplayName = getStudentDisplayName(lookup);
+  const sessionLookupWindow = useMemo(() => {
+    const today = new Date();
+    return {
+      dateFrom: dateToLocalISO(today),
+      dateTo: dateToLocalISO(new Date(today.getTime() + config.form.max_date_range_days * 24 * 60 * 60 * 1000)),
+    };
+  }, [config.form.max_date_range_days]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -686,21 +434,13 @@ export default function AbsenceForm() {
       for (const session of group.sessions) {
         if (!selectedSessionIds.has(session.id)) continue;
         const sitIn = sitInForMissedSession(group, session.id);
-        if (sitIn?.sit_in_method === "physical" && !sitInSelections[session.id]) {
-          return true;
-        }
+        if (sitIn?.sit_in_method === "physical" && !sitInSelections[session.id]) return true;
       }
     }
     return false;
   }, [sessions, selectedSubjectIds, selectedSessionIds, sitInSelections]);
 
-  const canSubmit =
-    selectedSubjectCount > 0 &&
-    selectedSessionCount > 0 &&
-    reason.trim().length > 0 &&
-    !verificationBlocked &&
-    !missingSitIn;
-
+  const canSubmit = selectedSubjectCount > 0 && selectedSessionCount > 0 && reason.trim().length > 0 && !verificationBlocked && !missingSitIn;
 
   useEffect(() => {
     let active = true;
@@ -711,156 +451,68 @@ export default function AbsenceForm() {
           sms_parent_enabled: data.notifications?.sms_parent_enabled ?? DEFAULT_NOTIFICATIONS.sms_parent_enabled,
           sms_parent_template: data.notifications?.sms_parent_template ?? DEFAULT_NOTIFICATIONS.sms_parent_template,
           sms_success_template: data.notifications?.sms_success_template ?? DEFAULT_NOTIFICATIONS.sms_success_template,
-          allow_submit_without_otp:
-            data.notifications?.allow_submit_without_otp ?? DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
+          allow_submit_without_otp: data.notifications?.allow_submit_without_otp ?? DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
         };
         const adminContact: AdminContactSettings = {
           email: data.admin_contact?.email ?? DEFAULT_ADMIN_CONTACT.email,
           phone: data.admin_contact?.phone ?? DEFAULT_ADMIN_CONTACT.phone,
           hours: data.admin_contact?.hours ?? DEFAULT_ADMIN_CONTACT.hours,
         };
-        setConfig({
-          ...DEFAULT_CONFIG,
-          ...data,
-          form: { ...DEFAULT_CONFIG.form, ...data.form },
-          sit_in: { ...DEFAULT_CONFIG.sit_in, ...data.sit_in },
-          notifications,
-          admin_contact: adminContact,
-        });
+        setConfig({ ...DEFAULT_CONFIG, ...data, form: { ...DEFAULT_CONFIG.form, ...data.form }, sit_in: { ...DEFAULT_CONFIG.sit_in, ...data.sit_in }, notifications, admin_contact: adminContact });
       })
       .catch((error: unknown) => {
         addToast("error", error instanceof Error ? error.message : "Failed to load form settings");
       })
-      .finally(() => {
-        if (active) setConfigLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+      .finally(() => { if (active) setConfigLoading(false); });
+    return () => { active = false; };
   }, [addToast]);
 
-  // Fetch sessions when step 2 with valid lookup + dates
   useEffect(() => {
-    if (step !== 2) return;
-    if (!lookup) return;
-    if (!dateFrom || !dateTo || daysBetween(dateFrom, dateTo) < 0) {
-      setSessions([]);
-      return;
-    }
-
+    if (step !== 1 || !lookup) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-
     void apiJson<SessionsInRangeResponse>(
-      sessionsInRangePath(lookup.wcode, dateFrom, dateTo),
+      sessionsInRangePath(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo),
       { method: "GET", signal: controller.signal },
     )
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setSessions(data.subjects);
-        }
-      })
+      .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects); })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setSessions([]);
         setSessionsError(error instanceof Error ? error.message : "Couldn't load your classes");
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setSessionsLoading(false);
-      });
-
+      .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup, dateFrom, dateTo]);
+  }, [step, lookup, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo]);
 
   useEffect(() => {
     if (!lookup) return;
-    const snapshot = {
-      step,
-      lookup,
-      lookupInput,
-      selectedSubjectIds,
-      activeCourseIndex,
-      dateFrom,
-      dateTo,
-      reason,
-      selectedSessionIds: [...selectedSessionIds],
-      sitInSelections,
-      sitInPriorityLevels,
-      sitInPriorityHistory,
-    };
-    try {
-      window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
-    } catch {
-      // ignore storage failures
-    }
-  }, [
-    lookup,
-    lookupInput,
-    selectedSubjectIds,
-    activeCourseIndex,
-    dateFrom,
-    dateTo,
-    reason,
-    selectedSessionIds,
-    sitInSelections,
-    sitInPriorityLevels,
-    sitInPriorityHistory,
-    step,
-  ]);
+    const snapshot = { step, lookup, lookupInput, selectedSubjectIds, reason, selectedSessionIds: [...selectedSessionIds], sitInSelections, sitInPriorityLevels, sitInPriorityHistory };
+    try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot)); } catch { }
+  }, [lookup, lookupInput, selectedSubjectIds, reason, selectedSessionIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, step]);
 
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as Partial<{
-        step: StepIndex;
-        lookup: StudentLookupResponse;
-        lookupInput: string;
-        selectedSubjectIds: string[];
-        activeCourseIndex: number;
-        dateFrom: string;
-        dateTo: string;
-        reason: string;
-        selectedSessionIds: string[];
-        sitInSelections: Record<string, string>;
+        step: StepIndex; lookup: StudentLookupResponse; lookupInput: string;
+        selectedSubjectIds: string[]; reason: string; selectedSessionIds: string[];
+        sitInSelections: Record<string, string>; sitInPriorityLevels: Record<string, number>;
+        sitInPriorityHistory: Record<string, Record<number, SubjectSessions>>;
       }>;
-
-      type AbsenceSnapshot = typeof parsed;
-      const typedParsed = parsed as AbsenceSnapshot & { sitInPriorityLevels?: Record<string, number> };
-      if (typedParsed.lookup) setLookup(typedParsed.lookup);
-      if (typeof typedParsed.lookupInput === "string") setLookupInput(typedParsed.lookupInput);
-      if (Array.isArray(typedParsed.selectedSubjectIds)) setSelectedSubjectIds(typedParsed.selectedSubjectIds);
-      if (typeof typedParsed.activeCourseIndex === "number") setActiveCourseIndex(typedParsed.activeCourseIndex);
-      if (typeof typedParsed.dateFrom === "string") setDateFrom(typedParsed.dateFrom);
-      if (typeof typedParsed.dateTo === "string") setDateTo(typedParsed.dateTo);
-      if (typeof typedParsed.reason === "string") setReason(typedParsed.reason);
-      if (Array.isArray(typedParsed.selectedSessionIds)) setSelectedSessionIds(new Set(typedParsed.selectedSessionIds));
-      if (typedParsed.sitInSelections) setSitInSelections(typedParsed.sitInSelections);
-      if (typedParsed.sitInPriorityLevels) setSitInPriorityLevels(typedParsed.sitInPriorityLevels);
-      const typedWithHistory = typedParsed as AbsenceSnapshot & {
-        sitInPriorityLevels?: Record<string, number>;
-        sitInPriorityHistory?: Record<string, Record<number, SubjectSessions>>;
-      };
-      if (typedWithHistory.sitInPriorityHistory) setSitInPriorityHistory(typedWithHistory.sitInPriorityHistory);
-      if (typeof parsed.step === "number") {
-        goTo(parsed.step as StepIndex);
-      }
-    } catch {
-      // ignore restore failures
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (parsed.lookup) setLookup(parsed.lookup);
+      if (typeof parsed.lookupInput === "string") setLookupInput(parsed.lookupInput);
+      if (Array.isArray(parsed.selectedSubjectIds)) setSelectedSubjectIds(parsed.selectedSubjectIds);
+      if (typeof parsed.reason === "string") setReason(parsed.reason);
+      if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
+      if (parsed.sitInSelections) setSitInSelections(parsed.sitInSelections);
+      if (parsed.sitInPriorityLevels) setSitInPriorityLevels(parsed.sitInPriorityLevels);
+      if (parsed.sitInPriorityHistory) setSitInPriorityHistory(parsed.sitInPriorityHistory);
+      if (typeof parsed.step === "number") setStep(parsed.step as StepIndex);
+    } catch { }
   }, []);
-
-  useEffect(() => {
-    if (lookup && selectedSubjectIds.length > 0) {
-      const activeId = lookup.subjects[activeCourseIndex]?.id;
-      if (!activeId || !selectedSubjectIds.includes(activeId)) {
-        const fallbackIndex = lookup.subjects.findIndex((subject) => selectedSubjectIds.includes(subject.id));
-        setActiveCourseIndex(Math.max(0, fallbackIndex));
-      }
-    }
-  }, [selectedSubjectIds, lookup, activeCourseIndex]);
 
   useEffect(() => {
     if (!verification.token) {
@@ -875,13 +527,11 @@ export default function AbsenceForm() {
       return;
     }
     setVerificationBlocked(false);
-    // Note: we do NOT set verificationSatisfied here. Having a token only
-    // means an OTP was sent, not verified. The StepCoverVerification
-    // component calls onSatisfied when the session is actually verified.
   }, [verification]);
 
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
+    setStep(1);
   }, []);
 
   const handleLookup = async () => {
@@ -893,16 +543,15 @@ export default function AbsenceForm() {
       setLookupError("Enter your Student ID (W-Code).");
       return;
     }
-
     try {
       setLookupLoading(true);
-      const response = await apiJson<StudentLookupResponse>(`/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`, {
-        method: "GET",
-      });
+      const response = await apiJson<StudentLookupResponse>(
+        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`,
+        { method: "GET" },
+      );
       setLookup(response);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
-      setActiveCourseIndex(0);
       verification.clearStoredToken();
       verification.setCode("");
       setVerificationSatisfied(false);
@@ -914,30 +563,9 @@ export default function AbsenceForm() {
   };
 
   const toggleSubject = (subjectId: string) => {
-    setSelectedSubjectIds((current) => {
-      const activeGroupBefore = activeGroupForLookup(lookup, current, activeCourseIndex);
-      const next = current.includes(subjectId) ? current.filter((id) => id !== subjectId) : [...current, subjectId];
-      if (lookup) {
-        const activeGroupAfter = activeGroupForLookup(lookup, next, activeCourseIndex);
-        if (activeGroupBefore && activeGroupAfter && activeGroupBefore.id !== activeGroupAfter.id) {
-          const index = lookup.subjects.findIndex((subject) => subject.id === activeGroupAfter.id);
-          setActiveCourseIndex(Math.max(0, index));
-        }
-      }
-      return next;
-    });
-  };
-
-  const selectAllSubjects = () => {
-    if (!lookup) return;
-    setSelectedSubjectIds(lookup.subjects.map((subject) => subject.id));
-    setCourseAnnouncement("Selected all courses.");
-  };
-
-  const deselectAllSubjects = () => {
-    if (!lookup) return;
-    setSelectedSubjectIds([]);
-    setCourseAnnouncement("Deselected all courses.");
+    setSelectedSubjectIds((current) =>
+      current.includes(subjectId) ? current.filter((id) => id !== subjectId) : [...current, subjectId],
+    );
   };
 
   const handleSessionToggle = (sessionId: string) => {
@@ -945,16 +573,10 @@ export default function AbsenceForm() {
       if (current.has(sessionId)) {
         const next = new Set(current);
         next.delete(sessionId);
-        setSitInSelections((currentSitIns) => {
-          const nextSitIns = { ...currentSitIns };
-          delete nextSitIns[sessionId];
-          return nextSitIns;
-        });
+        setSitInSelections((cs) => { const n = { ...cs }; delete n[sessionId]; return n; });
         return next;
       }
-      if (current.size >= maxSessions) {
-        return current;
-      }
+      if (current.size >= maxSessions) return current;
       const next = new Set(current);
       next.add(sessionId);
       return next;
@@ -963,11 +585,7 @@ export default function AbsenceForm() {
 
   const handleSitInSelect = (sessionId: string, sitInSessionId: string) => {
     setSitInSelections((current) => {
-      if (!sitInSessionId) {
-        const next = { ...current };
-        delete next[sessionId];
-        return next;
-      }
+      if (!sitInSessionId) { const n = { ...current }; delete n[sessionId]; return n; }
       return { ...current, [sessionId]: sitInSessionId };
     });
   };
@@ -976,180 +594,64 @@ export default function AbsenceForm() {
     const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
     if (lookup && hasServerPriorityReveal(group)) {
       setRevealingPrioritySessionIds((current) => new Set(current).add(sessionId));
-      setSitInSelections((prev) => {
-        const next = { ...prev };
-        delete next[sessionId];
-        return next;
-      });
-      setSitInPriorityHistory((prev) => ({
-        ...prev,
-        [sessionId]: {
-          ...(prev[sessionId] ?? {}),
-          [currentLevel]: group,
-        },
-      }));
+      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
+      setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
         const data = await apiJson<SessionsInRangeResponse>(
-          sessionsInRangePath(lookup.wcode, dateFrom, dateTo, {
-            courseIds: [group.course_id],
-            satVerbalAfterPriority: currentLevel,
+          sessionsInRangePath(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo, {
+            courseIds: [group.course_id], satVerbalAfterPriority: currentLevel,
           }),
           { method: "GET" },
         );
         const updatedGroup = data.subjects.find((subject) => subject.course_id === group.course_id);
-        if (!updatedGroup) {
-          setPageError("No more make-up times are available for this class.");
-          return;
-        }
+        if (!updatedGroup) { setPageError("No more make-up times are available for this class."); return; }
         const updatedSessionGroup = groupWithSitInForMissedSession(updatedGroup, sessionId);
         const updatedLevel = updatedSessionGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedSessionGroup);
-        setSitInPriorityLevels((prev) => ({
-          ...prev,
-          [sessionId]: updatedLevel,
-        }));
-        setSitInPriorityHistory((prev) => ({
-          ...prev,
-          [sessionId]: {
-            ...(prev[sessionId] ?? {}),
-            [updatedLevel]: updatedSessionGroup,
-          },
-        }));
+        setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: updatedLevel }));
+        setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [updatedLevel]: updatedSessionGroup } }));
       } catch (error) {
         setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
       } finally {
-        setRevealingPrioritySessionIds((current) => {
-          const next = new Set(current);
-          next.delete(sessionId);
-          return next;
-        });
+        setRevealingPrioritySessionIds((current) => { const n = new Set(current); n.delete(sessionId); return n; });
       }
       return;
     }
-
     const nextLevel = nextPriorityLevel(group, currentLevel);
     if (nextLevel == null) return;
-    setSitInPriorityLevels((prev) => ({
-      ...prev,
-      [sessionId]: nextLevel,
-    }));
-    setSitInSelections((prev) => {
-      const next = { ...prev };
-      delete next[sessionId];
-      return next;
-    });
+    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: nextLevel }));
+    setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
   };
 
   const handlePreviousPriority = (group: SubjectSessions, sessionId: string) => {
     const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
-
     if (hasServerPriorityReveal(group)) {
       const history = sitInPriorityHistory[sessionId] ?? {};
-      const previousLevel = Object.keys(history)
-        .map(Number)
-        .filter((level) => level < currentLevel)
-        .sort((a, b) => b - a)[0];
+      const previousLevel = Object.keys(history).map(Number).filter((level) => level < currentLevel).sort((a, b) => b - a)[0];
       const previousGroup = previousLevel !== undefined ? history[previousLevel] : undefined;
       if (!previousGroup) return;
-
-      setSitInPriorityLevels((prev) => ({
-        ...prev,
-        [sessionId]: previousLevel,
-      }));
-      setSitInSelections((prev) => {
-        const next = { ...prev };
-        delete next[sessionId];
-        return next;
-      });
+      setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: previousLevel }));
+      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       return;
     }
-
     const previousLevel = previousPriorityLevel(group, currentLevel);
     if (previousLevel == null) return;
-    setSitInPriorityLevels((prev) => ({
-      ...prev,
-      [sessionId]: previousLevel,
-    }));
-    setSitInSelections((prev) => {
-      const next = { ...prev };
-      delete next[sessionId];
-      return next;
-    });
+    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: previousLevel }));
+    setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
   };
 
-  const handleCourseKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!lookup || lookup.subjects.length === 0) return;
-    const count = lookup.subjects.length;
-    let nextIndex = activeCourseIndex;
+  const goToStep = useCallback((next: StepIndex) => {
+    setStep(next);
+    try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { }
+  }, []);
 
-    switch (event.key) {
-      case "ArrowDown":
-      case "ArrowRight":
-        event.preventDefault();
-        nextIndex = (activeCourseIndex + 1) % count;
-        break;
-      case "ArrowUp":
-      case "ArrowLeft":
-        event.preventDefault();
-        nextIndex = (activeCourseIndex - 1 + count) % count;
-        break;
-      case "Home":
-        event.preventDefault();
-        nextIndex = 0;
-        break;
-      case "End":
-        event.preventDefault();
-        nextIndex = count - 1;
-        break;
-      case " ":
-        event.preventDefault();
-        {
-          const subject = lookup.subjects[activeCourseIndex];
-          if (subject) toggleSubject(subject.id);
-        }
-        return;
-      case "Enter":
-        event.preventDefault();
-        {
-          const subject = lookup.subjects[activeCourseIndex];
-          if (subject) toggleSubject(subject.id);
-        }
-        return;
-      default:
-        // Handle typeahead
-        if (event.key.length === 1) {
-          const char = event.key.toLowerCase();
-          const buffer = typeaheadRef.current.buffer + char;
-          typeaheadRef.current.buffer = buffer;
-          if (typeaheadRef.current.timer) window.clearTimeout(typeaheadRef.current.timer);
-          typeaheadRef.current.timer = window.setTimeout(() => {
-            typeaheadRef.current.buffer = "";
-            typeaheadRef.current.timer = null;
-          }, 500);
-
-          const index = lookup.subjects.findIndex((subject) => subject.code.toLowerCase().startsWith(buffer));
-          if (index !== -1) {
-            nextIndex = index;
-          }
-        }
-        break;
-    }
-
-    if (nextIndex !== activeCourseIndex) {
-      setActiveCourseIndex(nextIndex);
-      const subject = lookup.subjects[nextIndex];
-      if (subject) {
-        setCourseAnnouncement(`Focused ${subject.code} ${subject.name}.`);
-      }
-    }
-  };
-
-  function validateStepTwo() {
+  function validateStepOne() {
+    setReasonError(null);
     if (selectedSubjectIds.length === 0) {
       setPageError("Select at least one course.");
       return false;
     }
     if (!reason.trim()) {
-      setPageError("Please tell us why you'll be away.");
+      setReasonError("Please tell us why you'll be away.");
       return false;
     }
     if (missingSitIn) {
@@ -1162,78 +664,51 @@ export default function AbsenceForm() {
   function buildSubmissionPayloads() {
     if (!lookup) return [];
     const payloads: AbsenceBatchCreateItem[] = [];
-
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
-
       const selectedGroupSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
       if (selectedGroupSessions.length === 0) continue;
-
       const selectedDates = [...new Set(selectedGroupSessions.map((session) => session.date))].sort();
       const dateFrom = selectedDates[0];
       const dateTo = selectedDates[selectedDates.length - 1];
       if (daysBetween(dateFrom, dateTo) > config.form.max_date_range_days) {
-        setPageError(
-          `${group.subject_name || group.course_name} spans more than ${config.form.max_date_range_days} days. Split it into separate submissions.`,
-        );
+        setPageError(`${group.subject_name || group.course_name} spans more than ${config.form.max_date_range_days} days. Split it into separate submissions.`);
         return null;
       }
-
       const selectedSessIds = selectedGroupSessions.map((session) => session.id);
       const sitInSessionIds = selectedSessIds.map((id) => sitInSelections[id]).filter((id): id is string => !!id);
       const sitInMethod = group.sit_in?.sit_in_method;
       const payload: AbsenceBatchCreateItem = {
-        subject_id: group.subject_id,
-        course_id: group.course_id,
-        date_from: dateFrom,
-        date_to: dateTo,
+        subject_id: group.subject_id, course_id: group.course_id,
+        date_from: dateFrom, date_to: dateTo,
         reason: reason.trim() || undefined,
-        missed_session_ids: selectedSessIds,
-        sit_in_session_ids: sitInSessionIds,
+        missed_session_ids: selectedSessIds, sit_in_session_ids: sitInSessionIds,
       };
-      if (sitInMethod === "physical" || sitInMethod === "zoom") {
-        payload.sit_in_method = sitInMethod;
-      }
+      if (sitInMethod === "physical" || sitInMethod === "zoom") payload.sit_in_method = sitInMethod;
       const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, sitInSelections);
       if (sitInCourseID === null) {
         setPageError(`${group.subject_name || group.course_name} has sit-in selections from more than one priority class. Split them into separate submissions.`);
         return null;
       }
-      if (sitInCourseID) {
-        payload.sit_in_course_id = sitInCourseID;
-      }
+      if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
       payloads.push(payload);
     }
-
     return payloads;
   }
 
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
-    if (!validateStepTwo()) {
-      return;
-    }
-    if (!lookup) {
-      setPageError("Search for your profile first.");
-      return;
-    }
+    if (!validateStepOne()) return;
+    if (!lookup) { setPageError("Search for your profile first."); return; }
     const payloads = buildSubmissionPayloads();
-    if (payloads === null) {
-      return;
-    }
-    if (payloads.length === 0) {
-      setPageError("Select at least one class to submit.");
-      return;
-    }
-
+    if (payloads === null) return;
+    if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
     try {
       setIsSubmitting(true);
       const response = await apiJson<AbsenceBatchCreateResponse>("/api/v1/absences/batch", {
         method: "POST",
-        headers: {
-          "Idempotency-Key": submissionIdempotencyKey.current,
-        },
+        headers: { "Idempotency-Key": submissionIdempotencyKey.current },
         body: JSON.stringify({
           wcode: lookup.wcode,
           reason: reason.trim(),
@@ -1244,11 +719,7 @@ export default function AbsenceForm() {
       setFinalResults(response.items);
       verification.clearStoredToken();
       verification.setCode("");
-      try {
-        window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      } catch {
-        // ignore
-      }
+      try { window.sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch { }
     } catch (error) {
       setSubmissionError(error instanceof Error ? error.message : "Could not submit your absence");
     } finally {
@@ -1256,412 +727,263 @@ export default function AbsenceForm() {
     }
   }
 
+  const submissionOverlay = !finalResults && isSubmitting ? (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm"
+      role="status"
+      aria-live="polite"
+      aria-label="Submitting absence request"
+    >
+      <div className="flex flex-col items-center gap-4">
+        <svg
+          className="h-10 w-10 animate-spin text-[var(--color-wi-primary)]"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          />
+        </svg>
+        <p className="text-sm font-semibold text-[var(--color-wi-text)]">Submitting your absence...</p>
+        <p className="text-xs text-[var(--color-wi-text-light)]">Please wait while we process your request.</p>
+      </div>
+    </motion.div>
+  ) : null;
+
   if (finalResults) {
     const submittedCount = finalResults.length;
     const successMessage = submittedCount === 1
       ? "Your absence request has been sent and is waiting for review."
       : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
+    const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(17,24,39,0.03),_transparent_40%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8">
-        <div className="mx-auto max-w-3xl space-y-5">
-          <PageHeading>Absence form</PageHeading>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", damping: 20, stiffness: 100 }}
-          >
-            <section
-              className="rounded-sm border border-emerald-200 bg-white p-5 shadow-sm animate-fade-in"
-              aria-live="polite"
-            >
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-7 w-7 text-emerald-500" aria-hidden="true" />
-                <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-semibold text-[var(--color-wi-text)]">
+      <div className="min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
+        <div className="mx-auto max-w-lg space-y-6">
+          <div className="rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-green)]/10">
+                <svg className="h-5 w-5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-bold tracking-tight text-[var(--color-wi-text)]">
                   {submittedCount === 1 ? "Absence submitted" : `${submittedCount} absences submitted`}
                 </h2>
+                {referenceId && (
+                  <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Reference: #{referenceId}</p>
+                )}
               </div>
-              <p className="mt-2 text-sm text-gray-700 font-medium">{successMessage}</p>
-            </section>
-          </motion.div>
-          <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900">Submitted classes</h3>
+            </div>
+            <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">{successMessage}</p>
+          </div>
+          <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-6 shadow-sm">
+            <h3 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Submitted classes</h3>
             <div className="mt-4 space-y-3">
               {finalResults.map((absence) => {
                 const label = absence.subject_code?.trim() || absence.subject_name?.trim() || absence.course_code?.trim() || absence.course_name?.trim() || "Submitted class";
                 return (
-                  <article key={absence.id} className="rounded-sm border border-gray-200 bg-gray-50 p-4">
+                  <article key={absence.id} className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900">{label}</p>
-                        <p className="text-xs text-gray-600">{formatBatchAbsenceSummary(absence)}</p>
+                        <p className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</p>
+                        <p className="text-xs text-[var(--color-wi-text-light)]">{formatBatchAbsenceSummary(absence)}</p>
                       </div>
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">Pending review</span>
+                      <span className="rounded-full bg-[var(--color-wi-green)]/10 px-2.5 py-0.5 text-xs font-semibold text-[var(--color-wi-green)]">Pending review</span>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-gray-700">
-                      <p>
-                        <span className="font-medium text-gray-900">Absence:</span>{" "}
-                        {formatBatchAbsenceSummary(absence)}
-                      </p>
-                      <p>
-                        <span className="font-medium text-gray-900">Make-up:</span>{" "}
-                        {formatBatchSitInSummary(absence)}
-                      </p>
+                    <div className="mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
+                      <p><span className="font-medium text-[var(--color-wi-text)]">Absence:</span> {formatBatchAbsenceSummary(absence)}</p>
+                      <p><span className="font-medium text-[var(--color-wi-text)]">Make-up:</span> {formatBatchSitInSummary(absence)}</p>
                     </div>
                   </article>
                 );
               })}
             </div>
-          </section>
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/absences")}
+              className="min-h-[48px] flex-1 rounded-lg bg-[var(--color-wi-primary)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-wi-primary-dark)]"
+            >
+              View my absences
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="min-h-[48px] flex-1 rounded-lg border border-[var(--color-wi-border)] bg-white px-4 text-sm font-semibold text-[var(--color-wi-text)] transition-colors hover:bg-[var(--color-wi-bg)]"
+            >
+              Back to home
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const stepTransition = {
-    initial: { opacity: 0, x: reduceMotion ? 0 : direction === "forward" ? 20 : -20 },
-    animate: { opacity: 1, x: 0 },
-    exit: { opacity: 0, x: reduceMotion ? 0 : direction === "forward" ? -20 : 20 },
-    transition: { duration: reduceMotion ? 0 : 0.22, ease: "easeInOut" as const },
-  };
+  
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(17,24,39,0.03),_transparent_40%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8">
-      <div className="mx-auto max-w-4xl space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <PageHeading>Absence form</PageHeading>
-            <p className="max-w-2xl text-sm text-gray-700 font-medium">
-              Your parent or guardian will need to confirm by text message.
-            </p>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate("/")}>
-            Exit
-          </Button>
-        </div>
-
-        {configLoading ? (
-          <LoadingSkeleton type="text" lines={3} />
-        ) : null}
-
-        <FormErrorSummary
-          pageError={pageError}
-          submissionError={submissionError}
-          verificationBlocked={verificationBlocked}
-          lookupError={lookupError}
-          sessionsError={sessionsError}
-          lookup={lookup}
-          online={online}
-          justRestored={justRestored}
-          onClearPageError={() => setPageError(null)}
-          onClearSubmissionError={() => setSubmissionError(null)}
-          onGoToVerification={() => goTo(1)}
+    <div className="min-h-screen bg-[var(--color-wi-bg)]">
+      <div className="mx-auto max-w-lg px-4 pb-24 pt-6">
+        <StepIndicator
+          steps={STEP_LABELS}
+          currentStep={step}
+          onStepClick={(s) => s < step && goToStep(s as StepIndex)}
         />
 
-        <div className="rounded-sm border border-gray-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {STEP_LABELS.map((label, index) => (
-              <motion.button
-                key={label}
-                type="button"
-                whileTap={reduceMotion ? undefined : { scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                className={clsx(
-                  "inline-flex min-h-[44px] items-center gap-2 rounded-sm px-3 py-2 transition-all",
-                  index === step
-                    ? "bg-[var(--color-wi-primary)]/10 text-[var(--color-wi-primary)] font-semibold"
-                    : index < step
-                      ? "text-gray-700 hover:bg-gray-50 font-medium"
-                      : "text-gray-600 font-normal hover:text-gray-700"
-                )}
-                onClick={() => {
-                  if (index < step) goTo(index as StepIndex);
-                }}
-                disabled={index > step || isTransitioning}
-                aria-label={`Step ${index + 1}: ${label}`}
-              >
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current/25 text-[10px] font-bold">
-                  {index < step ? <Check className="h-3 w-3" /> : index + 1}
-                </span>
-                <span className="hidden sm:inline">{label}</span>
-              </motion.button>
-            ))}
-          </div>
-        </div>
+        {configLoading ? <LoadingSkeleton type="text" lines={3} /> : null}
 
-        <AnimatePresence mode="popLayout">
-          <motion.div
-            key={step}
-            {...stepTransition}
-            onAnimationComplete={() => setIsTransitioning(false)}
-            className="space-y-5"
-          >
-            {step === 0 ? (
-              <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <h2
-                  ref={(node) => {
-                    stepHeadingRefs.current[0] = node;
-                  }}
-                  tabIndex={-1}
-                  className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
-                >
-                  Find your profile
-                </h2>
-                <div className="grid gap-4">
-                  <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                    <label className="block text-sm font-medium text-gray-800">
+        {pageError ? (
+          <div role="alert" className="mb-6 rounded-lg bg-[var(--color-wi-danger-bg)] p-4 text-sm text-[var(--color-wi-red)]">{pageError}</div>
+        ) : null}
+        {submissionError ? (
+          <div role="alert" className="mb-6 rounded-lg bg-[var(--color-wi-danger-bg)] p-4 text-sm text-[var(--color-wi-red)]">{submissionError}</div>
+        ) : null}
+
+        <div className="space-y-6">
+            {step === 0 && (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Find your profile</h1>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="wcode-input" className="block text-sm font-semibold text-[var(--color-wi-text)] mb-1.5">
                       Student ID (W-Code)
-                      <Input
-                        className="mt-1"
-                        placeholder="e.g. W250389"
-                        value={lookupInput}
-                        onChange={(event) => setLookupInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            void handleLookup();
-                          }
-                        }}
-                      />
                     </label>
-                    <div className="flex items-end">
-                      <Button
-                        variant="primary"
-                        size="lg"
-                        loading={lookupLoading}
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <input
+                          id="wcode-input"
+                          className="min-h-[48px] w-full rounded-lg border border-[var(--color-wi-border)] bg-white px-4 text-sm text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                          placeholder="e.g. W250389"
+                          value={lookupInput}
+                          onChange={(e) => setLookupInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}
+                        />
+                      </div>
+                      <button
+                        type="button"
                         onClick={() => void handleLookup()}
+                        disabled={lookupLoading}
+                        className="min-h-[48px] rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-wi-primary-dark)] disabled:opacity-50"
                       >
-                        Search
-                      </Button>
+                        {lookupLoading ? "..." : "Search"}
+                      </button>
                     </div>
+                    {lookupError ? (
+                      <p role="alert" className="text-sm text-[var(--color-wi-red)] mt-1.5">{lookupError}</p>
+                    ) : null}
                   </div>
 
                   {lookup ? (
-                    <div className="space-y-4 animate-fade-in mt-4">
-                      {/* Student Profile Card */}
-                      <div className="rounded-sm border border-gray-250 bg-gray-50 p-5 shadow-sm">
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">Your profile</h3>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-base font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
-                            <p className="text-sm font-mono text-gray-700 mt-0.5">{lookup.wcode}</p>
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)]/10 text-sm font-bold text-[var(--color-wi-primary)]">
+                              {studentDisplayName?.charAt(0)?.toUpperCase() || "?"}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
+                              <p className="text-xs font-mono text-[var(--color-wi-text-light)]">{lookup.wcode}</p>
+                            </div>
                           </div>
-                          <div className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700">
-                            {lookup.parent_phone ? `Parent's phone ${maskPhone(lookup.parent_phone)}` : "No parent phone — contact admin at Tel. 02-658-4880"}
-                          </div>
+                          {lookup.parent_phone ? (
+                            <span className="text-xs text-[var(--color-wi-text-light)] whitespace-nowrap">Parent: {maskPhone(lookup.parent_phone)}</span>
+                          ) : (
+                            <span className="text-xs text-[var(--color-wi-amber)] whitespace-nowrap">No parent phone</span>
+                          )}
+                        </div>
+                        <div className="border-t border-[var(--color-wi-border)] mt-4 pt-4">
+                          <StepCoverVerification
+                            wcode={lookup.wcode}
+                            parentPhone={lookup.parent_phone}
+                            allowSubmitWithoutOtp={config.notifications?.allow_submit_without_otp ?? false}
+                            adminContact={config.admin_contact}
+                            verification={verification}
+                            completed={verificationSatisfied}
+                            onSatisfied={handleVerificationSatisfied}
+                          />
                         </div>
                       </div>
 
-                      {/* Verify parent CTA */}
-                      <div className="flex flex-col items-end gap-2">
-                        {!lookup.parent_phone ? (
-                          <p className="text-xs text-amber-700 text-right max-w-[280px]">
-                            No parent phone on file. Contact admin at Tel. 02-658-4880 Line Official: @warwick.
-                          </p>
-                        ) : null}
-                        <Button variant="primary" size="lg" onClick={() => goTo(1)} disabled={!lookup.parent_phone}>
-                          Verify with parent
-                          <ChevronRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </div>
+                      {verificationBlocked ? (
+                        <div role="alert" className="rounded-lg bg-[var(--color-wi-amber-bg)] p-4 text-sm text-[var(--color-wi-amber)]">
+                          Your parent's verification has expired. Please verify again.
+                        </div>
+                      ) : null}
+
+                      {!online ? (
+                        <div role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm font-medium text-[var(--color-wi-amber)]">
+                          You're offline. Your progress is saved locally.
+                        </div>
+                      ) : justRestored ? (
+                        <div role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-green)]/10 px-4 py-3 text-sm font-medium text-[var(--color-wi-green)]">
+                          Back online!
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-              </section>
-            ) : null}
+              </>
+            )}
 
-            {step === 1 ? (
-              <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 space-y-1">
-                  <h2
-                    ref={(node) => {
-                      stepHeadingRefs.current[1] = node;
-                    }}
-                    tabIndex={-1}
-                    className="text-xl font-semibold text-[var(--color-wi-text)]"
-                  >
-                    Parent confirmation
-                  </h2>
-                  {lookup ? (
-                    <p className="text-sm text-gray-600 font-normal">
-                      {studentDisplayName || lookup.full_name} ({lookup.wcode}) · Parent's phone {maskPhone(lookup.parent_phone) || "not on file — contact admin at Tel. 02-658-4880"}
-                    </p>
-                  ) : null}
-                </div>
+            {step === 1 && (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Courses & classes</h1>
+
                 {lookup ? (
                   <div className="space-y-6">
-                    <StepCoverVerification
-                      wcode={lookup.wcode}
-                      parentPhone={lookup.parent_phone}
-                      allowSubmitWithoutOtp={config.notifications?.allow_submit_without_otp ?? false}
-                      adminContact={config.admin_contact}
-                      verification={verification}
-                      completed={verificationSatisfied}
-                      onSatisfied={handleVerificationSatisfied}
-                      onWcodeChange={() => {
-                        setLookup(null);
-                        setLookupError(null);
-                        setSelectedSubjectIds([]);
-                        setActiveCourseIndex(0);
-                        setDateFrom(dateToLocalISO(new Date()));
-                        setDateTo(dateToLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
-                        setReason("");
-                        setSessions([]);
-                        setSelectedSessionIds(new Set());
-                        setSitInSelections({});
-                        setPageError(null);
-                        setSubmissionError(null);
-                        setVerificationSatisfied(false);
-                        verification.clearStoredToken();
-                        verification.setCode("");
-                        goTo(0);
-                      }}
-                    />
-
-                    {verificationSatisfied ? (
-                      <motion.div
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ type: "spring", damping: 20, stiffness: 100 }}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-emerald-250 bg-emerald-50/50 p-5 text-sm shadow-sm"
-                      >
-                        <div className="text-emerald-950 font-medium">
-                          Parent confirmed! Now choose your courses and the class day.
-                        </div>
-                        <Button
-                          variant="primary"
-                          size="lg"
-                          disabled={!canProceedFromVerify}
-                          onClick={() => goTo(2)}
-                        >
-                          Continue
-                          <ChevronRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </motion.div>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                      <Button variant="secondary" onClick={() => back()}>
-                        <ChevronLeft className="mr-1 h-4 w-4" />
-                        Back
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
-                    Search for a student first.
-                  </div>
-                )}
-              </section>
-            ) : null}
-
-            {step === 2 ? (
-              <section className="rounded-sm border border-gray-200 bg-white p-5 shadow-sm">
-                <h2
-                  ref={(node) => {
-                    stepHeadingRefs.current[2] = node;
-                  }}
-                  tabIndex={-1}
-                  className="text-xl font-semibold text-[var(--color-wi-text)] mb-4"
-                >
-                  Courses & classes
-                </h2>
-                <div className="space-y-6">
-                  {lookup ? (
-                    <div className="space-y-6">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                           <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Choose your courses</h3>
-                          <div className="flex gap-2">
-                            {selectedSubjectCount < lookup.subjects.length ? (
-                              <Button variant="secondary" size="sm" onClick={selectAllSubjects}>
-                                Select all
-                              </Button>
-                            ) : null}
-                            {selectedSubjectCount > 0 ? (
-                              <Button variant="secondary" size="sm" onClick={deselectAllSubjects}>
-                                Deselect all
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-gray-900 px-2 py-0.5 text-xs font-semibold text-white">
-                              {studentDisplayName || lookup.full_name}
-                            </span>
-                            <span className="font-mono text-xs text-gray-600">{lookup.wcode}</span>
-                            {selectedSessionCount > 0 ? (
-                              <span
-                                className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
-                                title={selectedSessionDatesLabel || undefined}
-                              >
-                                {selectedSessionCount} session{selectedSessionCount === 1 ? "" : "s"} across {selectedSessionDates.length} day{selectedSessionDates.length === 1 ? "" : "s"}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-500">Pick sessions first, then choose the sit-in.</span>
-                            )}
-                          </div>
-                        </div>
-                        <div
-                          ref={listboxRef}
-                          role="listbox"
-                          aria-multiselectable="true"
-                          aria-label="Choose your courses"
-                          tabIndex={0}
-                          onKeyDown={handleCourseKeyDown}
-                          className="grid gap-2 sm:grid-cols-2"
-                        >
+                    <section>
+                      <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">Which classes?</h2>
+                      {lookup.subjects.length > 0 ? (
+                        <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
                           {lookup.subjects.map((subject) => (
-                            <CourseChip
+                            <SubjectCard
                               key={subject.id}
-                              id={`course-chip-${subject.id}`}
+                              id={subject.id}
                               name={subject.name}
                               code={subject.code}
                               selected={selectedSubjectIds.includes(subject.id)}
-                              tabIndex={-1}
                               onToggle={() => toggleSubject(subject.id)}
-                              disabled={false}
                             />
                           ))}
                         </div>
-                        <div role="status" aria-live="polite" className="sr-only">
-                          {courseAnnouncement}
+                      ) : (
+                        <p className="text-sm text-[var(--color-wi-text-light)]">No courses available.</p>
+                      )}
+                    </section>
+
+                    {selectedSubjectIds.length > 0 ? (
+                      <section>
+                        <div className="flex items-center justify-between mb-3">
+                          <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
+                          <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">{selectedSessionCount}/{maxSessions} selected</span>
                         </div>
-                      </div>
-
-                      {selectedSubjectIds.length > 0 && dateFrom && dateTo ? (
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between gap-2">
-                             <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Classes</h3>
-                            <span className="text-xs font-semibold text-gray-600">
-                              {selectedSessionCount}/{maxSessions} selected
-                            </span>
-                          </div>
-                          
-                          {sessionsLoading ? (
-                            <LoadingSkeleton type="table" lines={3} />
-                          ) : null}
-
-                          {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).length === 0 && !sessionsLoading ? (
-                            <EmptyState message="No classes found for the courses and dates you picked." />
-                          ) : null}
-
-                          {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
-                            const selectedCount = group.sessions.filter((session) => selectedSessionIds.has(session.id)).length;
-                            const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
-
-                            return (
-                              <section key={group.course_id} className="overflow-hidden rounded-sm border border-gray-250 bg-white">
-                                <div className="flex w-full items-center justify-between gap-2 border-b border-gray-150 bg-gray-50/50 px-3 py-3 text-sm font-semibold text-[var(--color-wi-text)] sm:px-4">
-                                  <span className="min-w-0 truncate">▼ {groupLabel} ({group.sessions.length} classes)</span>
-                                  <span className="shrink-0 text-xs font-semibold text-gray-650">
-                                    {selectedCount} selected
-                                  </span>
-                                </div>
-                                <div className="space-y-4 p-5">
-                                  <p className="text-xs text-gray-500 font-medium">Select the day you want to miss</p>
-
-                                  <div className="space-y-2">
+                        {sessionsLoading ? (
+                          <LoadingSkeleton type="table" lines={3} />
+                        ) : sessionsError ? (
+                          <p role="alert" className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
+                        ) : sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).length === 0 ? (
+                          <p className="text-sm text-[var(--color-wi-text-light)]">No classes found for the selected courses.</p>
+                        ) : (
+                          <div className="space-y-4">
+                            {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
+                              const selectedCount = group.sessions.filter((s) => selectedSessionIds.has(s.id)).length;
+                              const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+                              return (
+                                <div key={group.course_id} className="rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm">
+                                  <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
+                                    <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({group.sessions.length} classes)</span>
+                                    <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">{selectedCount} selected</span>
+                                  </div>
+                                  <div className="space-y-2 p-4">
                                     {group.sessions.map((session) => {
                                       const selected = selectedSessionIds.has(session.id);
                                       const currentSitIn = sitInSelections[session.id] || "";
@@ -1673,8 +995,7 @@ export default function AbsenceForm() {
                                         : firstPriorityLevel(sessionGroup);
                                       const requestedPriorityGroup = sitInPriorityHistory[session.id]?.[requestedLevel] ?? sessionGroup;
                                       const currentLevel = hasPriorityLevel(requestedPriorityGroup, requestedLevel)
-                                        ? requestedLevel
-                                        : baseLevel;
+                                        ? requestedLevel : baseLevel;
                                       const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = sitIn?.available_sessions ?? [];
@@ -1683,38 +1004,28 @@ export default function AbsenceForm() {
                                       const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
-                                        <div
-                                          key={session.id}
-                                          className={clsx(
-                                            "rounded-sm border px-3 py-3 transition-colors sm:px-4 sm:py-3.5",
-                                            selected ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]/5" : "border-gray-200 bg-white"
-                                          )}
-                                        >
-                                          <div className="min-w-0 text-sm text-[var(--color-wi-text)]">
-                                            <div className="flex items-center gap-2 min-w-0 sm:gap-3">
-                                              <input
-                                                type="checkbox"
-                                                id={`session-${session.id}`}
-                                                checked={selected}
-                                                disabled={!selected && atMaxSessions}
-                                                onChange={() => handleSessionToggle(session.id)}
-                                                className="h-4 w-4 shrink-0 rounded border-gray-300 text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                                              />
-                                              <label htmlFor={`session-${session.id}`} className="min-w-0 cursor-pointer">
-                                                <span className="block font-semibold sm:truncate">{formatDate(session.date)} {formatTime(session.start_at)}-{formatTime(session.end_at)}</span>
-                                              </label>
-                                            </div>
+                                        <div key={session.id} className={clsx(
+                                          "rounded-lg border px-4 py-3 transition-colors",
+                                          selected ? "border-[var(--color-wi-primary)]/30 bg-[var(--color-wi-primary)]/5" : "border-[var(--color-wi-border)] bg-white",
+                                        )}>
+                                          <div className="flex items-center gap-3">
+                                            <input
+                                              type="checkbox"
+                                              id={`session-${session.id}`}
+                                              checked={selected}
+                                              disabled={!selected && atMaxSessions}
+                                              onChange={() => handleSessionToggle(session.id)}
+                                              className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            />
+                                            <label htmlFor={`session-${session.id}`} className="min-w-0 cursor-pointer flex-1">
+                                              <span className="text-sm font-semibold text-[var(--color-wi-text)]">
+                                                {formatDate(session.date)} {formatTime(session.start_at)}-{formatTime(session.end_at)}
+                                              </span>
+                                            </label>
                                           </div>
                                           {selected ? (
-                                            <motion.div
-                                              initial={{ opacity: 0, scale: 0.95 }}
-                                              animate={{ opacity: 1, scale: 1 }}
-                                              className="mt-3 rounded-sm border border-amber-200 bg-amber-50/50 p-3"
-                                            >
-                                              <div className="mb-3 grid gap-1 text-sm">
-
-                                              </div>
-                                               {sitIn && sitIn.sit_in_method === "physical" ? (
+                                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="mt-3 pl-7">
+                                              {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
                                                   if (hasPriorities) {
                                                     const serverReveal = hasServerPriorityReveal(priorityGroup);
@@ -1722,174 +1033,159 @@ export default function AbsenceForm() {
                                                     const nextLevel = nextPriorityLevel(priorityGroup, currentLevel);
                                                     const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
                                                     const hasPreviousPriority = serverReveal
-                                                      ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((level) => Number(level) < currentLevel)
+                                                      ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((l) => Number(l) < currentLevel)
                                                       : previousPriorityLevel(priorityGroup, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
-                                                    const currentPriorityAvailable = currentPriorities.flatMap(priority =>
-                                                      availableSessionsForMissedSession(priority, session.id),
-                                                    );
-                                                    const currentPriorityUnavailable = currentPriorities.flatMap(priority =>
-                                                      unavailableSessionsForMissedSession(priority, session.id).map((unavailable) => ({
-                                                        ...unavailable,
-                                                        sitInCourse: priority.sit_in_course,
-                                                      })),
-                                                    );
+                                                    const currentPriorityAvailable = currentPriorities.flatMap(p =>
+                                                      availableSessionsForMissedSession(p, session.id));
+                                                    const currentPriorityUnavailable = currentPriorities.flatMap(p =>
+                                                      unavailableSessionsForMissedSession(p, session.id).map((u) => ({ ...u, sitInCourse: p.sit_in_course })));
 
                                                     if (!currentPriority) {
                                                       return (
-                                                        <div className="text-sm text-gray-600">
+                                                        <div className="text-sm text-[var(--color-wi-text-light)]">
                                                           <p className="font-medium">No more options available</p>
-                                                          <p className="text-xs text-gray-500 mt-0.5">Staff will contact you to arrange a make-up class.</p>
+                                                          <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to arrange a make-up class.</p>
                                                         </div>
                                                       );
                                                     }
 
                                                     return (
-                                                      <>
-                                                        <motion.div
-                                                          key={`${session.id}-${currentLevel}`}
-                                                          initial={reduceMotion ? false : { opacity: 0, y: 6 }}
-                                                          animate={{ opacity: 1, y: 0 }}
-                                                          transition={{ duration: 0.18, ease: "easeOut" }}
-                                                          className="rounded-md border border-amber-200 bg-white/80 p-3 shadow-sm shadow-amber-900/5"
-                                                        >
-                                                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                                            <div className="min-w-0">
-                                                              <div className="mb-1 flex items-center gap-2">
-                                                                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200">
-                                                                  {currentLevel}
-                                                                </span>
-                                                                <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                                                                  {priorityOrdinal(currentLevel)} choice
-                                                                </span>
-                                                              </div>
-                                                              <p className="text-sm font-semibold leading-5 text-gray-900">
-                                                                {currentPriorities.length === 1 ? currentPriority.label : `${priorityOrdinal(currentLevel)} Priority`}
-                                                              </p>
+                                                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
+                                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                          <div className="min-w-0">
+                                                            <div className="mb-1 flex items-center gap-2">
+                                                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-wi-amber-bg)] px-1.5 text-[11px] font-semibold text-[var(--color-wi-amber)] ring-1 ring-[var(--color-wi-amber)]/30">
+                                                                {currentLevel}
+                                                              </span>
+                                                              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-amber)]">
+                                                                {priorityOrdinal(currentLevel)} choice
+                                                              </span>
                                                             </div>
-
-                                                            {(hasPreviousPriority || hasMorePriorities) && (
-                                                              <div className="inline-flex w-full shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 p-0.5 shadow-sm sm:w-fit">
-                                                                {hasPreviousPriority && (
-                                                                  <button
-                                                                    type="button"
-                                                                    disabled={revealingPriority}
-                                                                    onClick={() => handlePreviousPriority(priorityGroup, session.id)}
-                                                                    aria-label="See previous times"
-                                                                    className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
-                                                                  >
-                                                                    <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                                                                    <span>Back</span>
-                                                                  </button>
-                                                                )}
-                                                                {hasMorePriorities && (
-                                                                  <button
-                                                                    type="button"
-                                                                    disabled={revealingPriority}
-                                                                    onClick={() => void handleNotAvailable(priorityGroup, session.id)}
-                                                                    className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-gray-700 transition hover:bg-white hover:text-gray-950 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
-                                                                  >
-                                                                    <span>{revealingPriority ? "Loading..." : "See other times"}</span>
-                                                                    {!revealingPriority && <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
-                                                                  </button>
-                                                                )}
-                                                              </div>
-                                                            )}
+                                                            <p className="text-sm font-semibold leading-5 text-[var(--color-wi-text)]">
+                                                              {currentPriorities.length === 1 ? currentPriority.label : `${priorityOrdinal(currentLevel)} Priority`}
+                                                            </p>
                                                           </div>
-
-                                                          <label className="mt-3 block text-xs font-medium text-gray-600" htmlFor={`sit-in-${session.id}`}>
-                                                            Make-up class
-                                                          </label>
-                                                          {currentPriorityAvailable.length === 0 ? (
-                                                            <div className="mt-1.5 space-y-2">
-                                                              <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 sm:max-w-[520px]">
-                                                                No available make-up class for this priority.
-                                                              </p>
-                                                              {currentPriorityUnavailable.length > 0 ? (
-                                                                <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-950 sm:max-w-[640px]">
-                                                                  <p className="font-semibold">Checked same-number slot:</p>
-                                                                  <ul className="mt-1 space-y-1">
-                                                                    {currentPriorityUnavailable.map((unavailable, index) => {
-                                                                      const checkedSession = unavailable.session;
-                                                                      const slotLabel = checkedSession
-                                                                        ? getSitInSessionLabel(checkedSession, unavailable.sitInCourse, groupLabel, sessions)
-                                                                        : `${getSitInCourseDisplayName(unavailable.sitInCourse, groupLabel, sessions) || "Target section"} class #${unavailable.occurrence_number ?? "?"}`;
-                                                                      return (
-                                                                        <li key={`${unavailable.reason_code}-${checkedSession?.id ?? index}`}>
-                                                                          <span className="font-medium">{slotLabel}</span>
-                                                                          <span className="text-amber-800"> — {unavailable.reason}</span>
-                                                                        </li>
-                                                                      );
-                                                                    })}
-                                                                  </ul>
-                                                                </div>
-                                                              ) : null}
-                                                            </div>
-                                                          ) : (
-                                                            <select
-                                                              id={`sit-in-${session.id}`}
-                                                              value={currentSitIn}
-                                                              onChange={(e) => handleSitInSelect(session.id, e.target.value)}
-                                                              className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 sm:max-w-[420px]"
-                                                            >
-                                                              <option value="">Not yet selected</option>
-                                                              {currentPriorities.flatMap(priority =>
-                                                                availableSessionsForMissedSession(priority, session.id).map(c => (
-                                                                  <option key={`${priority.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
-                                                                    {getSitInSessionLabel(c, priority.sit_in_course, groupLabel, sessions)}
-                                                                  </option>
-                                                                ))
+                                                          {(hasPreviousPriority || hasMorePriorities) && (
+                                                            <div className="inline-flex w-full shrink-0 overflow-hidden rounded-full border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-0.5 sm:w-fit">
+                                                              {hasPreviousPriority && (
+                                                                <button
+                                                                  type="button"
+                                                                  disabled={revealingPriority}
+                                                                  onClick={() => handlePreviousPriority(priorityGroup, session.id)}
+                                                                  aria-label="See previous times"
+                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
+                                                                >
+                                                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                                                  <span>Back</span>
+                                                                </button>
                                                               )}
-                                                            </select>
+                                                              {hasMorePriorities && (
+                                                                <button
+                                                                  type="button"
+                                                                  disabled={revealingPriority}
+                                                                  onClick={() => void handleNotAvailable(priorityGroup, session.id)}
+                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
+                                                                >
+                                                                  <span>{revealingPriority ? "Loading..." : "See other times"}</span>
+                                                                  {!revealingPriority && (
+                                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                                    </svg>
+                                                                  )}
+                                                                </button>
+                                                              )}
+                                                            </div>
                                                           )}
-                                                        </motion.div>
-                                                      </>
+                                                        </div>
+                                                        <label className="mt-3 block text-xs font-medium text-[var(--color-wi-text-light)]" htmlFor={`sit-in-${session.id}`}>
+                                                          Make-up class
+                                                        </label>
+                                                        {currentPriorityAvailable.length === 0 ? (
+                                                          <div className="mt-1.5 space-y-2">
+                                                            <p className="rounded-md border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-3 py-2 text-sm text-[var(--color-wi-text-light)]">
+                                                              No available make-up class for this priority.
+                                                            </p>
+                                                            {currentPriorityUnavailable.length > 0 ? (
+                                                              <div className="rounded-md border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs text-[var(--color-wi-amber)]">
+                                                                <p className="font-semibold">Checked same-number slot:</p>
+                                                                <ul className="mt-1 space-y-1">
+                                                                  {currentPriorityUnavailable.map((unavailable, index) => {
+                                                                    const checkedSession = unavailable.session;
+                                                                    const slotLabel = checkedSession
+                                                                      ? getSitInSessionLabel(checkedSession, unavailable.sitInCourse, groupLabel, sessions)
+                                                                      : `${getSitInCourseDisplayName(unavailable.sitInCourse, groupLabel, sessions) || "Target section"} class #${unavailable.occurrence_number ?? "?"}`;
+                                                                    return (
+                                                                      <li key={`${unavailable.reason_code}-${checkedSession?.id ?? index}`}>
+                                                                        <span className="font-medium">{slotLabel}</span>
+                                                                        <span className="text-[var(--color-wi-amber)]"> — {unavailable.reason}</span>
+                                                                      </li>
+                                                                    );
+                                                                  })}
+                                                                </ul>
+                                                              </div>
+                                                            ) : null}
+                                                          </div>
+                                                        ) : (
+                                                          <select
+                                                            id={`sit-in-${session.id}`}
+                                                            value={currentSitIn}
+                                                            onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                            className="mt-1.5 w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                                                          >
+                                                            <option value="">Not yet selected</option>
+                                                            {currentPriorities.flatMap(p =>
+                                                              availableSessionsForMissedSession(p, session.id).map(c => (
+                                                                <option key={`${p.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
+                                                                  {getSitInSessionLabel(c, p.sit_in_course, groupLabel, sessions)}
+                                                                </option>
+                                                              ))
+                                                            )}
+                                                          </select>
+                                                        )}
+                                                      </div>
                                                     );
                                                   }
-
-                                                  // Fallback: flat single-level sit-in (no priorities)
                                                   return (
-                                                    <>
-                                                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800 mb-2">
-                                                         Pick a make-up class
+                                                    <div>
+                                                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)] mb-2">
+                                                        Pick a make-up class
                                                       </div>
-                                                         <p className="text-xs text-gray-600 mb-2 truncate">
-                                                             Sit-in class: {sitInClassLabel}
-                                                         </p>
-                                                       <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                         <span className="text-gray-700 font-medium">Make-up class:</span>
-                                                         <select
-                                                           value={currentSitIn}
-                                                           onChange={(e) => handleSitInSelect(session.id, e.target.value)}
-                                                           className="w-full min-w-0 max-w-full rounded-sm border border-gray-300 py-1.5 px-2 text-sm focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 sm:w-auto sm:max-w-[320px]"
-                                                         >
-                                                            <option value="">— Not yet —</option>
-                                                            {sitInAvailable.map(c => (
-                                                              <option key={c.id} value={c.id}>
-                                                                 {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
-                                                              </option>
-                                                            ))}
-                                                          </select>
-                                                       </div>
-                                                    </>
+                                                      <p className="text-xs text-[var(--color-wi-text-light)] mb-2 truncate">Sit-in class: {sitInClassLabel}</p>
+                                                      <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
+                                                        <span className="text-[var(--color-wi-text)] font-medium">Make-up class:</span>
+                                                        <select
+                                                          value={currentSitIn}
+                                                          onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                          className="w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                                                        >
+                                                          <option value="">— Not yet —</option>
+                                                          {sitInAvailable.map(c => (
+                                                            <option key={c.id} value={c.id}>
+                                                              {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
+                                                            </option>
+                                                          ))}
+                                                        </select>
+                                                      </div>
+                                                    </div>
                                                   );
                                                 })()
                                               ) : sitIn && sitIn.sit_in_method === "zoom" ? (
-                                                <div className="space-y-1 text-sm text-gray-700">
+                                                <div className="space-y-1 text-sm text-[var(--color-wi-text)]">
                                                   <div className="flex items-center gap-2">
-                                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">Z</span>
+                                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-primary)]/10 text-[10px] font-bold text-[var(--color-wi-primary)]">Z</span>
                                                     <span className="font-medium">Online make-up (Zoom)</span>
                                                   </div>
-                                                  <p className="text-xs text-gray-500 ml-7">Staff will send a Zoom link — no need to pick a class</p>
+                                                  <p className="text-xs text-[var(--color-wi-text-light)] ml-7">Staff will send a Zoom link — no need to pick a class</p>
                                                 </div>
                                               ) : sitIn && sitIn.sit_in_method === "teacher_case" ? (
-                                                <div className="flex items-center gap-2 text-sm text-amber-700">
+                                                <div className="flex items-center gap-2 text-sm text-[var(--color-wi-amber)]">
                                                   <span className="text-xs font-semibold">To arrange</span>
                                                 </div>
                                               ) : (
-                                                <div className="text-sm text-gray-600">
+                                                <div className="text-sm text-[var(--color-wi-text-light)]">
                                                   <p className="font-medium">To arrange</p>
-                                                  <p className="text-xs text-gray-500 mt-0.5">Staff will contact you to set up a make-up class.</p>
+                                                  <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to set up a make-up class.</p>
                                                 </div>
                                               )}
                                             </motion.div>
@@ -1899,72 +1195,150 @@ export default function AbsenceForm() {
                                     })}
                                   </div>
                                 </div>
-                              </section>
-                            );
-                          })}
-                        </div>
-                      ) : null}
+                              );
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    ) : null}
 
-                      <div className="space-y-2">
-                        <label className="block text-sm font-medium text-gray-700">
-                          Reason for absence <span className="text-red-500">*</span>
-                        </label>
-                        <div className="flex items-center justify-between mb-1">
-                          <span />
-                          <span className={clsx("text-xs font-semibold", reason.length > 450 ? (reason.length >= 500 ? "text-red-600" : "text-amber-600") : "text-gray-600")}>
+                    <section>
+                      <label htmlFor="absence-reason" className="text-sm font-semibold text-[var(--color-wi-text)] uppercase tracking-wide mb-3 block">
+                        Reason for absence
+                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-[var(--color-wi-text-light)]">{reason.length}/500 characters</span>
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
+                            <div
+                              className={clsx(
+                                "h-full rounded-full transition-all duration-300",
+                                reason.length > 450 ? "bg-[var(--color-wi-amber)]" : reason.length > 0 ? "bg-[var(--color-wi-primary)]" : "bg-transparent",
+                              )}
+                              style={{ width: `${Math.min((reason.length / 500) * 100, 100)}%` }}
+                            />
+                          </div>
+                          <span className={clsx(
+                            "text-xs font-semibold tabular-nums",
+                            reason.length > 450 ? (reason.length >= 500 ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-amber)]") : "text-[var(--color-wi-text-light)]",
+                          )}>
                             {reason.length}/500
                           </span>
                         </div>
-                        <textarea
-                          className="w-full min-h-[96px] rounded-sm border border-gray-300 px-3 py-2 text-sm text-gray-850 focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-                          value={reason}
-                          onChange={(event) => setReason(event.target.value)}
-                          maxLength={500}
-                          placeholder="Tell us why you'll be away from class..."
-                          required
-                        />
-                        <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={clsx(
-                              "h-full transition-all duration-150",
-                              reason.length >= 475 ? "bg-red-500" : reason.length >= 400 ? "bg-amber-500" : "bg-[var(--color-wi-primary)]"
-                            )}
-                            style={{ width: `${(reason.length / 500) * 100}%` }}
-                          />
-                        </div>
                       </div>
+                      <textarea
+                        id="absence-reason"
+                        className={clsx(
+                          "w-full min-h-[100px] rounded-lg border px-4 py-3 text-sm text-[var(--color-wi-text)] focus:outline-none focus:ring-2",
+                          reasonError
+                            ? "border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20"
+                            : "border-[var(--color-wi-border)] focus:ring-[var(--color-wi-primary)]/20",
+                        )}
+                        value={reason}
+                        onChange={(e) => { setReason(e.target.value); setReasonError(null); }}
+                        maxLength={500}
+                        placeholder="Tell us why you'll be away from class..."
+                        aria-describedby={reasonError ? "reason-error" : undefined}
+                        required
+                      />
+                      {reasonError ? <p id="reason-error" role="alert" className="text-xs text-[var(--color-wi-red)] mt-1.5">{reasonError}</p> : null}
+                    </section>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--color-wi-text-light)]">Search for your profile first.</p>
+                )}
+              </>
+            )}
 
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm">
-                        <Button variant="secondary" onClick={() => back()}>
-                          <ChevronLeft className="mr-1 h-4 w-4" />
-                          Back
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="lg"
-                          disabled={!canSubmit}
-                          loading={isSubmitting}
-                          onClick={() => void handleSubmitAbsence()}
+            {step === 2 && (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Review your absence</h1>
+                {lookup ? (
+                  <div className="space-y-4">
+                    {/* Classes section */}
+                    <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
+                      <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
+                        <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Classes</h2>
+                        <button
+                          type="button"
+                          onClick={() => goToStep(1)}
+                          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] transition-colors min-h-[32px]"
                         >
-                          Submit absence
-                        </Button>
+                          Edit
+                        </button>
+                      </div>
+                      <div className="px-5 py-4 space-y-3">
+                        {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
+                          const selectedSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
+                          if (selectedSessions.length === 0) return null;
+                          const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+                          const sitIn = group.sit_in;
+                          const sitInMethod = sitIn?.sit_in_method;
+                          const sitInLabel = sitInMethod === "zoom" ? "Zoom" : sitInMethod === "teacher_case" ? "To arrange" : sitInMethod === "physical" ? "Make-up class selected" : "To arrange";
+                          return (
+                            <div key={group.course_id}>
+                              <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>
+                              <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
+                                {selectedSessions.map(s => formatDate(s.date)).join(" · ")}
+                              </p>
+                              <p className="text-xs text-[var(--color-wi-text-light)]">Make-up: {sitInLabel}</p>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ) : (
-                    <div className="rounded-sm border border-gray-200 bg-gray-50 p-5 text-sm text-gray-650 font-medium">
-                    Search for your profile first.
-                    </div>
-                  )}
-                </div>
-              </section>
-            ) : null}
-          </motion.div>
-        </AnimatePresence>
 
-        <div className="sr-only" aria-live="polite">
-          {courseAnnouncement}
+                    {/* Reason section */}
+                    <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
+                      <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
+                        <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</h2>
+                        <button
+                          type="button"
+                          onClick={() => goToStep(1)}
+                          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] transition-colors min-h-[32px]"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div className="px-5 py-4">
+                        <p className="text-sm text-[var(--color-wi-text)]">{reason || <span className="text-[var(--color-wi-text-light)] italic">No reason provided</span>}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
         </div>
       </div>
+
+      <StickyFooter
+        currentStep={step}
+        totalSteps={3}
+        canProceed={
+          step === 0 ? canProceedFromVerify :
+          step === 1 ? canSubmit :
+          step === 2 ? true : false
+        }
+        loading={isSubmitting}
+        onBack={() => goToStep(Math.max(0, step - 1) as StepIndex)}
+        onPrimary={() => {
+          if (step === 0) goToStep(1);
+          else if (step === 1) {
+            setPageError(null);
+            setReasonError(null);
+            if (selectedSubjectIds.length === 0) { setPageError("Select at least one course."); return; }
+            if (!reason.trim()) { setReasonError("Please tell us why you'll be away."); return; }
+            goToStep(2);
+          } else if (step === 2) void handleSubmitAbsence();
+        }}
+        primaryLabel={
+          step === 0 ? "Continue" :
+          step === 1 ? "Review & Submit" :
+          "Submit"
+        }
+      />
+
+      {submissionOverlay}
     </div>
   );
 }
