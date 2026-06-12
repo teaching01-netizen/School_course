@@ -510,6 +510,73 @@ func TestQueue_UniqueKeyDedupe(t *testing.T) {
 	}
 }
 
+func TestUploadJobStatus_ShowsRetryingStudentScheduleConflict(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	queueStore := queue.NewPostgresQueueStore(dbpool)
+	worker := queue.NewQueueWorker(tLogger, queueStore, "test-worker")
+	snapshotID := uuid.New()
+
+	importJobID, err := worker.EnqueueJob(ctx, queue.JobTypeImportSnapshot, ImportSnapshotPayload{
+		UploadID:   "upload-test",
+		SnapshotID: snapshotID,
+	}, "")
+	if err != nil {
+		t.Fatalf("Enqueue import job: %v", err)
+	}
+	if _, err := dbpool.Exec(ctx, `UPDATE crm_jobs SET status = 'succeeded', updated_at = now() WHERE id = $1`, importJobID); err != nil {
+		t.Fatalf("mark import succeeded: %v", err)
+	}
+
+	courseJobID, err := worker.EnqueueJob(ctx, queue.JobTypeCourseReconcileApply, crmtypes.CourseReconcilePayload{
+		SnapshotID:            snapshotID,
+		CourseID:              uuid.New(),
+		ExpectedFilterVersion: 1,
+	}, "")
+	if err != nil {
+		t.Fatalf("Enqueue course reconcile job: %v", err)
+	}
+
+	conflictError := `apply reconcile: {"message":"Student schedule conflict: Jane Student (W250001) cannot be added to SAT","details":{"kind":"crm_student_schedule_conflict","student":{"wcode":"W250001","full_name":"Jane Student"},"target_course":{"code":"SAT"},"conflicts":[{"course":{"code":"ALG"},"start_at":"2026-05-20T10:00:00Z","end_at":"2026-05-20T11:00:00Z"}]}}`
+	if _, err := dbpool.Exec(ctx, `
+		UPDATE crm_jobs
+		SET status = 'retry', last_error = $2, updated_at = now()
+		WHERE id = $1
+	`, courseJobID, conflictError); err != nil {
+		t.Fatalf("mark course reconcile retry: %v", err)
+	}
+
+	svc, err := NewUploadV2Service(dbpool, nil, "Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("NewUploadV2Service: %v", err)
+	}
+	resp, err := svc.GetUploadJobStatus(ctx, importJobID.String())
+	if err != nil {
+		t.Fatalf("GetUploadJobStatus: %v", err)
+	}
+
+	if resp.Status != "failed" {
+		t.Fatalf("expected status failed, got %q with message %q", resp.Status, resp.Message)
+	}
+	if !strings.Contains(resp.Message, "Student schedule conflict") {
+		t.Fatalf("expected conflict message, got %q", resp.Message)
+	}
+	details, ok := resp.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected structured details, got %#v", resp.Details)
+	}
+	if details["kind"] != "crm_student_schedule_conflict" {
+		t.Fatalf("expected crm_student_schedule_conflict details, got %#v", details["kind"])
+	}
+}
+
 // ============================================================================
 // Snapshot tests
 // ============================================================================

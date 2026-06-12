@@ -142,6 +142,32 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 				return nil, fmt.Errorf("query downstream job states: %w", err)
 			}
 
+			var conflictJobError string
+			_ = s.db.QueryRow(ctx, `
+				SELECT COALESCE(last_error, '')
+				FROM crm_jobs
+				WHERE payload->>'snapshot_id' = $1
+				  AND status IN ('failed', 'retry', 'running')
+				  AND COALESCE(last_error, '') <> ''
+				  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+				ORDER BY updated_at DESC
+				LIMIT 1
+			`, snapshotID).Scan(&conflictJobError)
+			if conflictJobError != "" {
+				parsedMessage, parsedDetails := parseCRMJobError(conflictJobError)
+				if isCRMStudentScheduleConflictDetails(parsedDetails) {
+					status = "failed"
+					message = parsedMessage
+					details = parsedDetails
+					return &UploadResponse{
+						JobID:   jobID,
+						Status:  status,
+						Message: message,
+						Details: details,
+					}, nil
+				}
+			}
+
 			if failedCount > 0 {
 				status = "failed"
 
@@ -204,6 +230,14 @@ func parseCRMJobError(raw string) (string, any) {
 		return structured.Message, nil
 	}
 	return structured.Message, details
+}
+
+func isCRMStudentScheduleConflictDetails(details any) bool {
+	detailsMap, ok := details.(map[string]any)
+	if !ok {
+		return false
+	}
+	return detailsMap["kind"] == "crm_student_schedule_conflict"
 }
 
 // EnqueueReconciler is implemented by reconcile.ReconcileV2Service to enqueue
