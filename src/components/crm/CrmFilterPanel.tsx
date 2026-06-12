@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import {
+  crmCourseLabel,
+  formatCRMConflictTechnicalDetail,
+  formatCRMConflictTime,
+  getCRMConflictDetails,
+  type CRMStudentScheduleConflictDetails,
+} from "../../utils/crmConflict";
 
 export type CourseFilter = {
   cycle_labels: string[];
@@ -47,26 +54,6 @@ type CourseFilterMutationResponse = {
   status?: string;
 };
 
-type CRMStudentScheduleConflictDetails = {
-  kind: "crm_student_schedule_conflict";
-  student?: {
-    wcode?: string;
-    full_name?: string;
-  };
-  target_course?: {
-    code?: string;
-    name?: string;
-  };
-  conflicts?: Array<{
-    course?: {
-      code?: string;
-      name?: string;
-    };
-    start_at?: string;
-    end_at?: string;
-  }>;
-};
-
 type CourseReconcileJobStatus = {
   job_id: string;
   status: string;
@@ -83,37 +70,6 @@ type Props = {
 
 function isActiveJob(status?: string): boolean {
   return status === "queued" || status === "running" || status === "retry";
-}
-
-function courseLabel(course?: { code?: string; name?: string } | null): string | null {
-  if (!course) return null;
-  if (course.code && course.name) return `${course.code} · ${course.name}`;
-  return course.code || course.name || null;
-}
-
-function formatConflictTime(startAt?: string, endAt?: string): string | null {
-  if (!startAt || !endAt) return null;
-  const start = new Date(startAt);
-  const end = new Date(endAt);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  const date = start.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${date}, ${startTime}-${endTime}`;
-}
-
-function getCRMConflictDetails(details?: CourseReconcileJobStatus["details"]): CRMStudentScheduleConflictDetails | null {
-  if (!details || typeof details !== "object") return null;
-  if ("kind" in details && details.kind === "crm_student_schedule_conflict") {
-    return details as CRMStudentScheduleConflictDetails;
-  }
-  if ("details" in details && details.details && typeof details.details === "object") {
-    const nested = details.details as Record<string, unknown>;
-    if (nested.kind === "crm_student_schedule_conflict") {
-      return nested as CRMStudentScheduleConflictDetails;
-    }
-  }
-  return null;
 }
 
 function MultiSelect<T extends string>({
@@ -361,9 +317,17 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   const conflictDetails = reconcileJob?.status === "failed" ? getCRMConflictDetails(reconcileJob.details) : null;
   const firstConflict = conflictDetails?.conflicts?.[0];
   const conflictStudent = conflictDetails?.student?.full_name || conflictDetails?.student?.wcode;
-  const conflictTarget = courseLabel(conflictDetails?.target_course);
-  const conflictingCourse = courseLabel(firstConflict?.course);
-  const conflictTime = formatConflictTime(firstConflict?.start_at, firstConflict?.end_at);
+  const conflictTarget = crmCourseLabel(conflictDetails?.target_course);
+  const conflictingCourse = crmCourseLabel(firstConflict?.course);
+  const conflictTime = formatCRMConflictTime(firstConflict?.start_at, firstConflict?.end_at);
+  const conflictTechnicalDetail = formatCRMConflictTechnicalDetail(
+    reconcileJob?.message,
+    conflictStudent,
+    conflictDetails?.student?.wcode,
+    conflictTarget,
+    conflictingCourse,
+    conflictTime,
+  );
 
   return (
     <div className={embeddedInModal ? "" : "border border-gray-200 rounded-sm p-4 mb-6"}>
@@ -416,7 +380,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
               )}
               <details>
                 <summary className="cursor-pointer">Technical details</summary>
-                <p className="mt-1 font-mono break-all">{reconcileJob.message}</p>
+                <p className="mt-1 font-mono break-all">{conflictTechnicalDetail}</p>
               </details>
             </div>
           ) : reconcileJob.message ? (

@@ -103,13 +103,15 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 		return nil
 	}
 
-	preflightIn, ok, err := s.courseStudentPreflightInput(ctx, tx, courseID, studentID, nil)
+	preflightInputs, err := s.courseStudentPreflightInputs(ctx, tx, courseID, studentID, nil)
 	if err != nil {
 		return err
 	}
-	if ok {
-		if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
-			return se
+	if len(preflightInputs) > 0 {
+		for _, preflightIn := range preflightInputs {
+			if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
+				return se
+			}
 		}
 	}
 
@@ -126,7 +128,7 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 		err = fmt.Errorf("unknown course student status %q", status)
 	}
 	if err != nil {
-		if ok {
+		for _, preflightIn := range preflightInputs {
 			if se := s.explainStudentDBErrByRepreflight(ctx, err, tx, preflightIn); se != nil {
 				return se
 			}
@@ -1300,35 +1302,51 @@ func (s *Service) _explainFromDBErrByRepreflight(ctx context.Context, err error,
 	return nil
 }
 
-func (s *Service) courseStudentPreflightInput(ctx context.Context, db sqldb.DBTX, courseID, studentID pgtype.UUID, ignoreSession *pgtype.UUID) (preflightInput, bool, error) {
-	var minStart, maxEnd pgtype.Timestamptz
-	if err := db.QueryRow(ctx, `
-		SELECT MIN(start_at), MAX(end_at) FROM sessions
-		WHERE course_id = $1 AND deleted_at IS NULL
-	`, courseID).Scan(&minStart, &maxEnd); err != nil {
-		return preflightInput{}, false, err
-	}
-	if !minStart.Valid || !maxEnd.Valid {
-		return preflightInput{}, false, nil
-	}
-
+func (s *Service) courseStudentPreflightInputs(ctx context.Context, db sqldb.DBTX, courseID, studentID pgtype.UUID, ignoreSession *pgtype.UUID) ([]preflightInput, error) {
 	courseIDStr, err := uuidString(courseID)
 	if err != nil {
-		return preflightInput{}, false, err
+		return nil, err
 	}
+	rows, err := db.Query(ctx, `
+		SELECT start_at, end_at
+		FROM sessions
+		WHERE course_id = $1
+		  AND deleted_at IS NULL
+		  AND ($2::uuid IS NULL OR id <> $2)
+		ORDER BY start_at ASC
+	`, courseID, ignoreUUID(ignoreSession))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
 	studentIDs := []pgtype.UUID{studentID}
-	return preflightInput{
-		CourseID:      courseID,
-		StartUTC:      minStart.Time.UTC(),
-		EndUTC:        maxEnd.Time.UTC(),
-		StudentIDs:    &studentIDs,
-		IgnoreSession: ignoreSession,
-		Requested: ConflictRequested{
-			StartAt:  minStart.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:    maxEnd.Time.UTC().Format(time.RFC3339Nano),
-			CourseID: courseIDStr,
-		},
-	}, true, nil
+	var out []preflightInput
+	for rows.Next() {
+		var startAt, endAt pgtype.Timestamptz
+		if err := rows.Scan(&startAt, &endAt); err != nil {
+			return nil, err
+		}
+		if !startAt.Valid || !endAt.Valid {
+			continue
+		}
+		out = append(out, preflightInput{
+			CourseID:      courseID,
+			StartUTC:      startAt.Time.UTC(),
+			EndUTC:        endAt.Time.UTC(),
+			StudentIDs:    &studentIDs,
+			IgnoreSession: ignoreSession,
+			Requested: ConflictRequested{
+				StartAt:  startAt.Time.UTC().Format(time.RFC3339Nano),
+				EndAt:    endAt.Time.UTC().Format(time.RFC3339Nano),
+				CourseID: courseIDStr,
+			},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Service) sessionIncludedStudentPreflightInput(ctx context.Context, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID) (preflightInput, bool, error) {

@@ -20,7 +20,10 @@ describe("CrmAdmin conflict parsing", () => {
     expect(parsed?.studentName).toBe("Jane Student");
     expect(parsed?.targetCourse).toBe("SAT · SAT Math");
     expect(parsed?.conflictingCourse).toBe("ALG · Algebra");
-    expect(parsed?.conflictTime).toContain("20 May");
+    expect(parsed?.conflictTime).toBe("20 May, 17:00-18:00");
+    expect(parsed?.detail).toBe(
+      "Student schedule conflict: Jane Student (W250001) cannot be added to SAT · SAT Math because they already have ALG · Algebra at 20 May, 17:00-18:00",
+    );
   });
 
   it("extracts nested structured CRM conflict details", () => {

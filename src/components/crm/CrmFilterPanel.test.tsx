@@ -88,6 +88,8 @@ describe("CrmFilterPanel reconcile status", () => {
 
     expect(await screen.findByText("CRM reconcile failed")).toBeInTheDocument();
     expect(screen.getByText(/^Jane cannot be added to SAT\.$/)).toBeInTheDocument();
+    expect(screen.getByText("Conflicts with ALG at 20 May, 17:00-18:00.")).toBeInTheDocument();
+    expect(screen.getByText("Student schedule conflict: Jane (W250001) cannot be added to SAT because they already have ALG at 20 May, 17:00-18:00")).toBeInTheDocument();
     expect(onRosterChanged).not.toHaveBeenCalled();
   });
 

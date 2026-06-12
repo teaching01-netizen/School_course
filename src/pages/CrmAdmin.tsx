@@ -3,6 +3,13 @@ import { apiJson, apiUpload } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
 import {
+  crmCourseLabel,
+  formatCRMConflictTechnicalDetail,
+  formatCRMConflictTime,
+  getCRMConflictDetails,
+  type CRMStudentScheduleConflictDetails,
+} from "../utils/crmConflict";
+import {
   Upload,
   FileSpreadsheet,
   CheckCircle2,
@@ -27,26 +34,6 @@ type BusyRangeConflict = {
   conflictingCourse?: string | null;
   conflictTime?: string | null;
   detail: string;
-};
-
-type CRMStudentScheduleConflictDetails = {
-  kind: "crm_student_schedule_conflict";
-  student?: {
-    wcode?: string;
-    full_name?: string;
-  };
-  target_course?: {
-    code?: string;
-    name?: string;
-  };
-  conflicts?: Array<{
-    course?: {
-      code?: string;
-      name?: string;
-    };
-    start_at?: string;
-    end_at?: string;
-  }>;
 };
 
 function formatBytes(bytes: number): string {
@@ -75,48 +62,22 @@ function isActive(status: string): boolean {
   return ["importing", "queued", "running"].includes(status);
 }
 
-function courseLabel(course?: { code?: string; name?: string } | null): string | null {
-  if (!course) return null;
-  if (course.code && course.name) return `${course.code} · ${course.name}`;
-  return course.code || course.name || null;
-}
-
-function formatConflictTime(startAt?: string, endAt?: string): string | null {
-  if (!startAt || !endAt) return null;
-  const start = new Date(startAt);
-  const end = new Date(endAt);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  const date = start.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${date}, ${startTime}-${endTime}`;
-}
-
-function getCRMConflictDetails(details?: UploadJobStatusResponse["details"]): CRMStudentScheduleConflictDetails | null {
-  if (!details || typeof details !== "object") return null;
-  if ("kind" in details && details.kind === "crm_student_schedule_conflict") {
-    return details as CRMStudentScheduleConflictDetails;
-  }
-  if ("details" in details && details.details && typeof details.details === "object") {
-    const nested = details.details as Record<string, unknown>;
-    if (nested.kind === "crm_student_schedule_conflict") {
-      return nested as CRMStudentScheduleConflictDetails;
-    }
-  }
-  return null;
-}
-
 export function parseBusyRangeConflict(message?: string, details?: UploadJobStatusResponse["details"]): BusyRangeConflict | null {
   const conflictDetails = getCRMConflictDetails(details);
   if (conflictDetails) {
     const firstConflict = conflictDetails.conflicts?.[0];
+    const studentWCode = conflictDetails.student?.wcode ?? null;
+    const studentName = conflictDetails.student?.full_name ?? null;
+    const targetCourse = crmCourseLabel(conflictDetails.target_course);
+    const conflictingCourse = crmCourseLabel(firstConflict?.course);
+    const conflictTime = formatCRMConflictTime(firstConflict?.start_at, firstConflict?.end_at);
     return {
-      studentWCode: conflictDetails.student?.wcode ?? null,
-      studentName: conflictDetails.student?.full_name ?? null,
-      targetCourse: courseLabel(conflictDetails.target_course),
-      conflictingCourse: courseLabel(firstConflict?.course),
-      conflictTime: formatConflictTime(firstConflict?.start_at, firstConflict?.end_at),
-      detail: message ?? "Student schedule conflict",
+      studentWCode,
+      studentName,
+      targetCourse,
+      conflictingCourse,
+      conflictTime,
+      detail: formatCRMConflictTechnicalDetail(message, studentName, studentWCode, targetCourse, conflictingCourse, conflictTime),
     };
   }
   if (!message) return null;

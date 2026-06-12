@@ -648,6 +648,102 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 	}
 }
 
+func TestAddCourseStudent_DoesNotTreatCourseDateSpanAsSingleBusyRange(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	targetTeacher, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "teacher-target-span-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictTeacher, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "teacher-conflict-span-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetRoom, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-target-span-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictRoom, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-conflict-span-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetCourse, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "TARGET-SPAN-" + suffix, Name: "Target span regression"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictCourse, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "BUSY-SPAN-" + suffix, Name: "Busy span regression"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{Wcode: "S-SPAN-" + suffix, FullName: "Student Span"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, teacherID := range []pgtype.UUID{targetTeacher, conflictTeacher} {
+		if _, err := q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Target course has Monday sessions. The student's existing busy range is on Tuesday
+	// between those dates, so it must not block adding the student to the target roster.
+	for _, start := range []time.Time{
+		time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC),
+	} {
+		if _, err := svc.CreateSession(ctx, CreateSessionParams{
+			CourseID:  targetCourse.ID,
+			RoomID:    targetRoom.ID,
+			TeacherID: targetTeacher,
+			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: start.Add(time.Hour), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: conflictCourse.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateSession(ctx, CreateSessionParams{
+		CourseID:  conflictCourse.ID,
+		RoomID:    conflictRoom.ID,
+		TeacherID: conflictTeacher,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 6, 2, 11, 0, 0, 0, time.UTC), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := svc.AddCourseStudentTx(ctx, tx, sqldb.New(tx), targetCourse.ID, student.ID, CourseStudentStatusEnrolled); err != nil {
+		t.Fatalf("expected roster add to ignore non-overlapping in-between busy range, got %T: %v", err, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPreflight_IncludedNonRosterStudentChecked(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
