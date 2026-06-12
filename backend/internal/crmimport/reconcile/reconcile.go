@@ -3,8 +3,10 @@ package reconcile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,6 +15,9 @@ import (
 
 	"warwick-institute/internal/crmimport/crmtypes"
 	"warwick-institute/internal/crmimport/queue"
+	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 type ReconcileApplyResult struct {
@@ -38,7 +43,8 @@ type reconcileDesiredStudent struct {
 }
 
 type ReconcileV2Service struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	scheduling *scheduling.Service
 }
 
 type EnqueueApplyJobError struct {
@@ -54,8 +60,57 @@ func (e *EnqueueApplyJobError) Error() string {
 
 func (e *EnqueueApplyJobError) Unwrap() error { return e.Err }
 
-func NewReconcileV2Service(db *pgxpool.Pool) *ReconcileV2Service {
-	return &ReconcileV2Service{db: db}
+func NewReconcileV2Service(db *pgxpool.Pool, schedulingSvc ...*scheduling.Service) *ReconcileV2Service {
+	var svc *scheduling.Service
+	if len(schedulingSvc) > 0 {
+		svc = schedulingSvc[0]
+	} else if seriesSvc, err := series.NewService(db, "Asia/Bangkok"); err == nil {
+		svc, _ = scheduling.NewService(db, "Asia/Bangkok", seriesSvc)
+	}
+	return &ReconcileV2Service{db: db, scheduling: svc}
+}
+
+type CRMStudentScheduleConflictDetails struct {
+	Kind          string                     `json:"kind"`
+	Student       CRMConflictStudent         `json:"student"`
+	TargetCourse  CRMConflictCourse          `json:"target_course"`
+	Conflicts     []CRMConflictSession       `json:"conflicts"`
+	ScheduleError scheduling.ConflictDetails `json:"schedule_error"`
+}
+
+type CRMConflictStudent struct {
+	ID       string `json:"id"`
+	WCode    string `json:"wcode"`
+	FullName string `json:"full_name"`
+}
+
+type CRMConflictCourse struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type CRMConflictSession struct {
+	SessionID string            `json:"session_id"`
+	Course    CRMConflictCourse `json:"course"`
+	StartAt   string            `json:"start_at"`
+	EndAt     string            `json:"end_at"`
+}
+
+type StudentScheduleConflictError struct {
+	Message string                            `json:"message"`
+	Details CRMStudentScheduleConflictDetails `json:"details"`
+}
+
+func (e *StudentScheduleConflictError) Error() string {
+	if e == nil {
+		return ""
+	}
+	payload, err := json.Marshal(e)
+	if err != nil {
+		return e.Message
+	}
+	return string(payload)
 }
 
 func (s *ReconcileV2Service) queryDesiredStudentsV2(ctx context.Context, snapshotID pgtype.UUID, filter crmtypes.CourseFilter) ([]reconcileDesiredStudent, []string, error) {
@@ -176,7 +231,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 	}
 	defer tx.Rollback(ctx)
 
-	desiredIDs, _, syncSkipped, err := s.reconcileDesiredStudentIDs(ctx, tx, desired)
+	desiredIDs, studentNames, syncSkipped, err := s.reconcileDesiredStudentIDs(ctx, tx, desired)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +324,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		}
 	}
 
+	qtx := sqldb.New(tx)
 	for wcode, pgid := range finalDesired {
 		if !pgid.Valid {
 			continue
@@ -277,10 +333,14 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		if _, ok := currentSet[uid]; ok {
 			continue
 		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO course_students (course_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			courseID, pgid,
-		); err != nil {
+		if s.scheduling == nil {
+			return nil, fmt.Errorf("add student %s: scheduling service not configured", wcode)
+		}
+		if err := s.scheduling.AddCourseStudentTx(ctx, tx, qtx, courseID, pgid, scheduling.CourseStudentStatusEnrolled); err != nil {
+			var scheduleErr *scheduling.Err
+			if errors.As(err, &scheduleErr) {
+				return nil, s.newStudentScheduleConflictError(ctx, tx, courseID, pgid, wcode, studentNames[wcode], scheduleErr)
+			}
 			return nil, fmt.Errorf("add student %s: %w", wcode, err)
 		}
 		added++
@@ -705,6 +765,102 @@ func (s *ReconcileV2Service) PreviewCountForFilter(ctx context.Context, filter c
 	return count, nil
 }
 
+func (s *ReconcileV2Service) newStudentScheduleConflictError(ctx context.Context, db sqldb.DBTX, targetCourseID, studentID pgtype.UUID, wcode, fullName string, scheduleErr *scheduling.Err) error {
+	studentIDStr := uuidStringOrEmpty(studentID)
+	if fullName == "" && len(scheduleErr.Details.ConflictingStudents) > 0 {
+		fullName = scheduleErr.Details.ConflictingStudents[0].FullName
+	}
+	if fullName == "" {
+		fullName = wcode
+	}
+
+	targetCourse := loadCRMConflictCourse(ctx, db, targetCourseID)
+	conflicts := make([]CRMConflictSession, 0, len(scheduleErr.Details.Conflicts))
+	for _, conflict := range scheduleErr.Details.Conflicts {
+		conflictCourseID, err := parsePgUUID(conflict.CourseID)
+		course := CRMConflictCourse{ID: conflict.CourseID}
+		if err == nil {
+			course = loadCRMConflictCourse(ctx, db, conflictCourseID)
+		}
+		conflicts = append(conflicts, CRMConflictSession{
+			SessionID: conflict.SessionID,
+			Course:    course,
+			StartAt:   conflict.StartAt,
+			EndAt:     conflict.EndAt,
+		})
+	}
+
+	message := fmt.Sprintf("Student schedule conflict: %s (%s) cannot be added to %s", fullName, wcode, targetCourse.displayName())
+	if len(conflicts) > 0 {
+		first := conflicts[0]
+		message = fmt.Sprintf("%s because they already have %s at %s", message, first.Course.displayName(), formatCRMConflictRange(first.StartAt, first.EndAt))
+	}
+
+	return &StudentScheduleConflictError{
+		Message: message,
+		Details: CRMStudentScheduleConflictDetails{
+			Kind: "crm_student_schedule_conflict",
+			Student: CRMConflictStudent{
+				ID:       studentIDStr,
+				WCode:    wcode,
+				FullName: fullName,
+			},
+			TargetCourse:  targetCourse,
+			Conflicts:     conflicts,
+			ScheduleError: scheduleErr.Details,
+		},
+	}
+}
+
+func loadCRMConflictCourse(ctx context.Context, db sqldb.DBTX, courseID pgtype.UUID) CRMConflictCourse {
+	id := uuidStringOrEmpty(courseID)
+	out := CRMConflictCourse{ID: id}
+	row := db.QueryRow(ctx, `SELECT code, name FROM courses WHERE id = $1`, courseID)
+	_ = row.Scan(&out.Code, &out.Name)
+	return out
+}
+
+func (c CRMConflictCourse) displayName() string {
+	switch {
+	case c.Code != "" && c.Name != "":
+		return c.Code + " · " + c.Name
+	case c.Code != "":
+		return c.Code
+	case c.Name != "":
+		return c.Name
+	default:
+		return c.ID
+	}
+}
+
+func parsePgUUID(value string) (pgtype.UUID, error) {
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return pgtype.UUID{Bytes: parsed, Valid: true}, nil
+}
+
+func uuidStringOrEmpty(value pgtype.UUID) string {
+	if !value.Valid {
+		return ""
+	}
+	parsed, err := uuid.FromBytes(value.Bytes[:])
+	if err != nil {
+		return ""
+	}
+	return parsed.String()
+}
+
+func formatCRMConflictRange(startAt, endAt string) string {
+	start, startErr := time.Parse(time.RFC3339Nano, startAt)
+	end, endErr := time.Parse(time.RFC3339Nano, endAt)
+	if startErr != nil || endErr != nil {
+		return strings.TrimSpace(startAt + " - " + endAt)
+	}
+	return start.UTC().Format("2006-01-02 15:04") + "-" + end.UTC().Format("15:04") + " UTC"
+}
+
 func (s *ReconcileV2Service) GetCourseFilterState(ctx context.Context, courseID pgtype.UUID) (enabled bool, locked bool, filterJSON []byte, err error) {
 	err = s.db.QueryRow(ctx,
 		`SELECT crm_filter_enabled, crm_roster_locked, COALESCE(crm_filter,'{}'::jsonb) FROM courses WHERE id=$1`,
@@ -925,6 +1081,10 @@ func CourseReconcileJobHandler(reconcileV2 *ReconcileV2Service, worker *queue.Qu
 		case queue.JobTypeCourseReconcileApply:
 			result, err := reconcileV2.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
 			if err != nil {
+				var conflictErr *StudentScheduleConflictError
+				if errors.As(err, &conflictErr) {
+					return conflictErr
+				}
 				return fmt.Errorf("apply reconcile: %w", err)
 			}
 			resultJSON, _ := json.Marshal(result)

@@ -39,6 +39,7 @@ type UploadResponse struct {
 	Status     string `json:"status"`
 	SnapshotID string `json:"snapshot_id,omitempty"`
 	Message    string `json:"message"`
+	Details    any    `json:"details,omitempty"`
 }
 
 // StartUploadAsync starts an async upload pipeline.
@@ -114,8 +115,9 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 	}
 
 	message := fmt.Sprintf("Job %s is %s", jobType, status)
+	var details any
 	if status == "failed" && lastError != "" {
-		message = lastError
+		message, details = parseCRMJobError(lastError)
 	}
 
 	if jobType == string(queue.JobTypeImportSnapshot) {
@@ -154,7 +156,7 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 				`, snapshotID).Scan(&failedJobType, &failedJobError)
 
 				if failedJobError != "" {
-					message = failedJobError
+					message, details = parseCRMJobError(failedJobError)
 				} else {
 					message = fmt.Sprintf("Downstream CRM job failed (%s)", failedJobType)
 				}
@@ -175,7 +177,26 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 		JobID:   jobID,
 		Status:  status,
 		Message: message,
+		Details: details,
 	}, nil
+}
+
+func parseCRMJobError(raw string) (string, any) {
+	var structured struct {
+		Message string          `json:"message"`
+		Details json.RawMessage `json:"details"`
+	}
+	if err := json.Unmarshal([]byte(raw), &structured); err != nil || structured.Message == "" {
+		return raw, nil
+	}
+	if len(structured.Details) == 0 {
+		return structured.Message, nil
+	}
+	var details any
+	if err := json.Unmarshal(structured.Details, &details); err != nil {
+		return structured.Message, nil
+	}
+	return structured.Message, details
 }
 
 // EnqueueReconciler is implemented by reconcile.ReconcileV2Service to enqueue

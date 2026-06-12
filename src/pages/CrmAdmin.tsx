@@ -17,11 +17,36 @@ type UploadJobStatusResponse = {
   job_id: string;
   status: string;
   message?: string;
+  details?: CRMStudentScheduleConflictDetails | Record<string, unknown> | null;
 };
 
 type BusyRangeConflict = {
   studentWCode: string | null;
+  studentName?: string | null;
+  targetCourse?: string | null;
+  conflictingCourse?: string | null;
+  conflictTime?: string | null;
   detail: string;
+};
+
+type CRMStudentScheduleConflictDetails = {
+  kind: "crm_student_schedule_conflict";
+  student?: {
+    wcode?: string;
+    full_name?: string;
+  };
+  target_course?: {
+    code?: string;
+    name?: string;
+  };
+  conflicts?: Array<{
+    course?: {
+      code?: string;
+      name?: string;
+    };
+    start_at?: string;
+    end_at?: string;
+  }>;
 };
 
 function formatBytes(bytes: number): string {
@@ -50,7 +75,36 @@ function isActive(status: string): boolean {
   return ["importing", "queued", "running"].includes(status);
 }
 
-function parseBusyRangeConflict(message?: string): BusyRangeConflict | null {
+function courseLabel(course?: { code?: string; name?: string } | null): string | null {
+  if (!course) return null;
+  if (course.code && course.name) return `${course.code} · ${course.name}`;
+  return course.code || course.name || null;
+}
+
+function formatConflictTime(startAt?: string, endAt?: string): string | null {
+  if (!startAt || !endAt) return null;
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const date = start.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return `${date}, ${startTime}-${endTime}`;
+}
+
+function parseBusyRangeConflict(message?: string, details?: UploadJobStatusResponse["details"]): BusyRangeConflict | null {
+  if (details && typeof details === "object" && "kind" in details && details.kind === "crm_student_schedule_conflict") {
+    const conflictDetails = details as CRMStudentScheduleConflictDetails;
+    const firstConflict = conflictDetails.conflicts?.[0];
+    return {
+      studentWCode: conflictDetails.student?.wcode ?? null,
+      studentName: conflictDetails.student?.full_name ?? null,
+      targetCourse: courseLabel(conflictDetails.target_course),
+      conflictingCourse: courseLabel(firstConflict?.course),
+      conflictTime: formatConflictTime(firstConflict?.start_at, firstConflict?.end_at),
+      detail: message ?? "Student schedule conflict",
+    };
+  }
   if (!message) return null;
   const normalized = message.toLowerCase();
   const hasBusyRangeSignal =
@@ -171,7 +225,7 @@ export default function CrmAdmin() {
   const isFailed = job?.status === "failed";
   const isSucceeded = job?.status === "succeeded";
   const showSpinner = uploading || running;
-  const busyRangeConflict = isFailed ? parseBusyRangeConflict(job?.message) : null;
+  const busyRangeConflict = isFailed ? parseBusyRangeConflict(job?.message, job?.details) : null;
 
   return (
     <div className="max-w-2xl">
@@ -445,12 +499,18 @@ export default function CrmAdmin() {
                       Roster update conflict detected
                     </p>
                     <p className="mt-1 text-xs text-red-700">
-                      {busyRangeConflict.studentWCode
-                        ? `Student ${busyRangeConflict.studentWCode} already has an overlapping scheduled time.`
-                        : "A student already has an overlapping scheduled time."}
+                      {busyRangeConflict.studentName || busyRangeConflict.studentWCode
+                        ? `${busyRangeConflict.studentName ?? "Student"}${busyRangeConflict.studentWCode ? ` (${busyRangeConflict.studentWCode})` : ""} cannot be added${busyRangeConflict.targetCourse ? ` to ${busyRangeConflict.targetCourse}` : ""}.`
+                        : "A student cannot be added because they already have an overlapping scheduled time."}
                     </p>
+                    {(busyRangeConflict.conflictingCourse || busyRangeConflict.conflictTime) && (
+                      <p className="mt-1 text-xs text-red-700">
+                        Conflicts with {busyRangeConflict.conflictingCourse ?? "another course"}
+                        {busyRangeConflict.conflictTime ? ` at ${busyRangeConflict.conflictTime}` : ""}.
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-red-700">
-                      Check the student schedule and adjust overlapping sessions before retrying the CRM import.
+                      Check the student schedule or course roster before retrying the CRM import.
                     </p>
                   </div>
                   <details className="text-xs">

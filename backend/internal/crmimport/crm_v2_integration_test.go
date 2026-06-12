@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,8 @@ import (
 	"warwick-institute/internal/crmimport/reconcile"
 	"warwick-institute/internal/crmimport/xlsx"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 // ============================================================================
@@ -964,6 +967,118 @@ func TestReconcileApply_AddsStudentsFromSnapshot(t *testing.T) {
 	}
 	if !lastApplied.Valid || lastApplied.Bytes != snapshotID.Bytes {
 		t.Fatal("expected crm_last_applied_snapshot_id to be set")
+	}
+}
+
+func TestReconcileApply_StudentScheduleConflictIncludesStudentAndCourseDetails(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	rows := []xlsx.Row{
+		{WCode: "W250042", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Conflict", LastName: "Student"},
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	filter := crmtypes.CourseFilter{
+		CycleLabels:              []string{"Cycle A"},
+		CycleBlankMode:           crmtypes.BlankModeAny,
+		CourseNameBlankMode:      crmtypes.BlankModeAny,
+		AcademicLevelBlankMode:   crmtypes.BlankModeAny,
+		SecondarySchoolBlankMode: crmtypes.BlankModeAny,
+		TeachersBlankMode:        crmtypes.BlankModeAny,
+	}
+	targetCourseID := createTestCourse(t, ctx, dbpool, "C-V2-CONFLICT-A-"+suffix, "Target CRM Course", filter)
+	conflictCourseID := createTestCourse(t, ctx, dbpool, "C-V2-CONFLICT-B-"+suffix, "Existing Course", filter)
+
+	q := sqldb.New(dbpool)
+	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{
+		Wcode:    "W250042",
+		FullName: "Conflict Student",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: conflictCourseID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	teacherA, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "crm-conflict-teacher-a-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherB, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "crm-conflict-teacher-b-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomA, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "CRM-conflict-A-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomB, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "CRM-conflict-B-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, teacherID := range []pgtype.UUID{teacherA, teacherB} {
+		if _, err := q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC), Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulingSvc, err := scheduling.NewService(dbpool, "Asia/Bangkok", seriesSvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
+		CourseID:  conflictCourseID,
+		RoomID:    roomB.ID,
+		TeacherID: teacherB,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
+		CourseID:  targetCourseID,
+		RoomID:    roomA.ID,
+		TeacherID: teacherA,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 10, 30, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 11, 30, 0, 0, time.UTC), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reconcileSvc := reconcile.NewReconcileV2Service(dbpool, schedulingSvc)
+	_, err = reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, targetCourseID, filter)
+	if err == nil {
+		t.Fatal("expected student schedule conflict")
+	}
+	var conflictErr *reconcile.StudentScheduleConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected StudentScheduleConflictError, got %T: %v", err, err)
+	}
+	if conflictErr.Details.Student.WCode != "W250042" {
+		t.Fatalf("expected conflicting W-code W250042, got %q", conflictErr.Details.Student.WCode)
+	}
+	if len(conflictErr.Details.Conflicts) == 0 {
+		t.Fatalf("expected conflicting course details, got %+v", conflictErr.Details)
+	}
+	if conflictErr.Details.TargetCourse.Code == "" || conflictErr.Details.Conflicts[0].Course.Code == "" {
+		t.Fatalf("expected target and conflicting course details, got %+v", conflictErr.Details)
 	}
 }
 

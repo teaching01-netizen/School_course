@@ -18,6 +18,8 @@ import (
 	"warwick-institute/internal/httpapi"
 	"warwick-institute/internal/logging"
 	"warwick-institute/internal/pg"
+	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 func main() {
@@ -57,7 +59,17 @@ func main() {
 		os.Exit(1)
 	}
 	syncSvc := crmimport.NewStudentSyncService(dbpool)
-	reconcileV2Svc := reconcile.NewReconcileV2Service(dbpool)
+	seriesSvc, err := series.NewService(dbpool, cfg.InstituteTZ)
+	if err != nil {
+		log.Error("init series service", "error", err)
+		os.Exit(1)
+	}
+	schedulingSvc, err := scheduling.NewService(dbpool, cfg.InstituteTZ, seriesSvc)
+	if err != nil {
+		log.Error("init scheduling service", "error", err)
+		os.Exit(1)
+	}
+	reconcileV2Svc := reconcile.NewReconcileV2Service(dbpool, schedulingSvc)
 
 	// Start the CRM v2 queue worker.
 	queueStore := queue.NewPostgresQueueStore(dbpool)
