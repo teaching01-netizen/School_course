@@ -26,6 +26,7 @@ import (
 	"warwick-institute/internal/auth"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpdeps"
+	sessionsroutes "warwick-institute/internal/httpapi/sessionshttp"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 )
@@ -117,20 +118,22 @@ func (f fakeAuth) RequireUser(_ context.Context, _ *http.Request) (auth.User, er
 }
 
 func (fakeAuth) HandleLogin(_ http.ResponseWriter, _ *http.Request) error  { return nil }
-func (fakeAuth) HandleLogout(_ http.ResponseWriter, _ *http.Request) error { return nil }	// ---------------------------------------------------------------------------
+func (fakeAuth) HandleLogout(_ http.ResponseWriter, _ *http.Request) error { return nil }
+
+// ---------------------------------------------------------------------------
 // Test fixture setup
 // ---------------------------------------------------------------------------
 
 type testFixture struct {
-	server          *httptest.Server
-	q               *sqldb.Queries
-	dbpool          *pgxpool.Pool
-	adminID         uuid.UUID
-	courseID        pgtype.UUID
-	courseIDStr     string
-	teacherID       pgtype.UUID
-	roomID          pgtype.UUID
-	schedulingSvc   *scheduling.Service
+	server        *httptest.Server
+	q             *sqldb.Queries
+	dbpool        *pgxpool.Pool
+	adminID       uuid.UUID
+	courseID      pgtype.UUID
+	courseIDStr   string
+	teacherID     pgtype.UUID
+	roomID        pgtype.UUID
+	schedulingSvc *scheduling.Service
 }
 
 func setupTestServer(t *testing.T) *testFixture {
@@ -188,6 +191,7 @@ func setupTestServer(t *testing.T) *testFixture {
 
 	mux := http.NewServeMux()
 	Register(mux, deps)
+	sessionsroutes.Register(mux, deps)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -421,9 +425,10 @@ func TestDraftStudent_ConvertNonDraft_ReturnsError(t *testing.T) {
 	}
 }
 
-// TestDraftStudent_BlockedByPreflight_WhenBusyRangeExists verifies that the draft
-// endpoint returns 409 when the student has an overlapping busy range from another course.
-func TestDraftStudent_BlockedByPreflight_WhenBusyRangeExists(t *testing.T) {
+// TestStudentAddEndpoints_BlockedByPreflight_WhenBusyRangeExists verifies that
+// roster and attendance mutations return structured 409 details when the student
+// has an overlapping busy range from another course.
+func TestStudentAddEndpoints_BlockedByPreflight_WhenBusyRangeExists(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
 
@@ -499,7 +504,7 @@ func TestDraftStudent_BlockedByPreflight_WhenBusyRangeExists(t *testing.T) {
 	// Create a session in course A (the target course) at 10:30-11:30.
 	// Uses the fixture's room — this does NOT overlap with course B's session (different room).
 	// This gives the draft endpoint time bounds to check preflight against.
-	_, err = fx.schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
+	sessionA, err := fx.schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
 		CourseID:  fx.courseID,
 		RoomID:    fx.roomID,
 		TeacherID: fx.teacherID,
@@ -546,5 +551,41 @@ func TestDraftStudent_BlockedByPreflight_WhenBusyRangeExists(t *testing.T) {
 	firstConflict := conflictingStudents[0].(map[string]any)
 	if firstConflict["student_id"] != studentIDStr {
 		t.Fatalf("expected conflicting student_id %q, got %q", studentIDStr, firstConflict["student_id"])
+	}
+
+	manualResp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses/"+fx.courseIDStr+"/students",
+		map[string]string{"student_id": studentIDStr},
+	)
+	if manualResp.StatusCode != http.StatusConflict {
+		t.Fatalf("manual add: expected 409 due to preflight conflict, got %d", manualResp.StatusCode)
+	}
+	var manualErr map[string]any
+	parseResponse(t, manualResp, &manualErr)
+	manualDetails, ok := manualErr["details"].(map[string]any)
+	if !ok {
+		t.Fatal("manual add: expected details in error response")
+	}
+	if manualDetails["kind"] != "student_overlap" {
+		t.Fatalf("manual add: expected kind 'student_overlap', got %q", manualDetails["kind"])
+	}
+
+	sessionIDStr, err := uuidString(sessionA.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	includeResp := doRequest(t, fx.server.URL, "PUT", "/api/v1/sessions/"+sessionIDStr+"/attendance",
+		map[string]string{"student_id": studentIDStr, "status": "included"},
+	)
+	if includeResp.StatusCode != http.StatusConflict {
+		t.Fatalf("attendance include: expected 409 due to preflight conflict, got %d", includeResp.StatusCode)
+	}
+	var includeErr map[string]any
+	parseResponse(t, includeResp, &includeErr)
+	includeDetails, ok := includeErr["details"].(map[string]any)
+	if !ok {
+		t.Fatal("attendance include: expected details in error response")
+	}
+	if includeDetails["kind"] != "student_overlap" {
+		t.Fatalf("attendance include: expected kind 'student_overlap', got %q", includeDetails["kind"])
 	}
 }

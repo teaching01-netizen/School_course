@@ -4,6 +4,7 @@ import Modal from "./Modal";
 import CrmFilterPanel from "./crm/CrmFilterPanel";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { formatConflictToastMessage } from "../utils/conflictErrors";
 
 
 export type Student = { id: string; wcode: string; full_name: string; notes: string; status?: string };
@@ -85,11 +86,7 @@ export function AttendeeSection({
       closeDraftModal();
       onRosterChanged();
     } catch (err) {
-      if (err instanceof ApiRequestError) {
-        setDraftError(err.message);
-      } else {
-        setDraftError(err instanceof Error ? err.message : "Failed to add draft");
-      }
+      setDraftError(formatConflictToastMessage(err, "Failed to add draft"));
     } finally {
       setDraftAdding(false);
     }

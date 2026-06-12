@@ -59,6 +59,13 @@ type PreflightResult struct {
 	Status string `json:"status"` // available|provisional
 }
 
+type CourseStudentStatus string
+
+const (
+	CourseStudentStatusEnrolled CourseStudentStatus = "enrolled"
+	CourseStudentStatusDraft    CourseStudentStatus = "draft"
+)
+
 func (s *Service) Preflight(ctx context.Context, p PreflightParams) (PreflightResult, *Err, error) {
 	if !p.StartAt.Valid || !p.EndAt.Valid || !p.EndAt.Time.After(p.StartAt.Time) {
 		return PreflightResult{}, nil, fmt.Errorf("invalid time range")
@@ -85,6 +92,99 @@ func (s *Service) Preflight(ctx context.Context, p PreflightParams) (PreflightRe
 		status = "provisional"
 	}
 	return PreflightResult{Status: status}, nil, nil
+}
+
+func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, studentID pgtype.UUID, status CourseStudentStatus) error {
+	alreadyRostered, err := courseStudentExists(ctx, tx, courseID, studentID)
+	if err != nil {
+		return err
+	}
+	if alreadyRostered {
+		return nil
+	}
+
+	preflightIn, ok, err := s.courseStudentPreflightInput(ctx, tx, courseID, studentID, nil)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
+			return se
+		}
+	}
+
+	switch status {
+	case CourseStudentStatusEnrolled:
+		err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+			return qsp.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: courseID, StudentID: studentID})
+		})
+	case CourseStudentStatusDraft:
+		err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+			return qsp.CourseStudentAddDraft(ctx, sqldb.CourseStudentAddDraftParams{CourseID: courseID, StudentID: studentID})
+		})
+	default:
+		err = fmt.Errorf("unknown course student status %q", status)
+	}
+	if err != nil {
+		if ok {
+			if se := s.explainStudentDBErrByRepreflight(ctx, err, tx, preflightIn); se != nil {
+				return se
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) UpsertSessionAttendanceTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID, status string) error {
+	if status == "included" {
+		preflightIn, ok, err := s.sessionIncludedStudentPreflightInput(ctx, qtx, sessionID, studentID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
+				return se
+			}
+		}
+
+		if err := withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+			return qsp.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{SessionID: sessionID, StudentID: studentID, Status: status})
+		}); err != nil {
+			if ok {
+				if se := s.explainStudentDBErrByRepreflight(ctx, err, tx, preflightIn); se != nil {
+					return se
+				}
+			}
+			return err
+		}
+		return nil
+	}
+
+	return qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{SessionID: sessionID, StudentID: studentID, Status: status})
+}
+
+func withSavepoint(ctx context.Context, tx pgx.Tx, fn func(qsp *sqldb.Queries) error) error {
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := fn(sqldb.New(sp)); err != nil {
+		_ = sp.Rollback(ctx)
+		return err
+	}
+	return sp.Commit(ctx)
+}
+
+func courseStudentExists(ctx context.Context, db sqldb.DBTX, courseID, studentID pgtype.UUID) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM course_students
+			WHERE course_id = $1 AND student_id = $2
+		)
+	`, courseID, studentID).Scan(&exists)
+	return exists, err
 }
 
 type PreflightSeriesParams struct {
@@ -1198,6 +1298,124 @@ func (s *Service) _explainFromDBErrByRepreflight(ctx context.Context, err error,
 		}
 	}
 	return nil
+}
+
+func (s *Service) courseStudentPreflightInput(ctx context.Context, db sqldb.DBTX, courseID, studentID pgtype.UUID, ignoreSession *pgtype.UUID) (preflightInput, bool, error) {
+	var minStart, maxEnd pgtype.Timestamptz
+	if err := db.QueryRow(ctx, `
+		SELECT MIN(start_at), MAX(end_at) FROM sessions
+		WHERE course_id = $1 AND deleted_at IS NULL
+	`, courseID).Scan(&minStart, &maxEnd); err != nil {
+		return preflightInput{}, false, err
+	}
+	if !minStart.Valid || !maxEnd.Valid {
+		return preflightInput{}, false, nil
+	}
+
+	courseIDStr, err := uuidString(courseID)
+	if err != nil {
+		return preflightInput{}, false, err
+	}
+	studentIDs := []pgtype.UUID{studentID}
+	return preflightInput{
+		CourseID:      courseID,
+		StartUTC:      minStart.Time.UTC(),
+		EndUTC:        maxEnd.Time.UTC(),
+		StudentIDs:    &studentIDs,
+		IgnoreSession: ignoreSession,
+		Requested: ConflictRequested{
+			StartAt:  minStart.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:    maxEnd.Time.UTC().Format(time.RFC3339Nano),
+			CourseID: courseIDStr,
+		},
+	}, true, nil
+}
+
+func (s *Service) sessionIncludedStudentPreflightInput(ctx context.Context, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID) (preflightInput, bool, error) {
+	session, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return preflightInput{}, false, err
+	}
+	if !session.StartAt.Valid || !session.EndAt.Valid {
+		return preflightInput{}, false, nil
+	}
+
+	courseIDStr, err := uuidString(session.CourseID)
+	if err != nil {
+		return preflightInput{}, false, err
+	}
+	roomIDStr, err := uuidStringPtr(session.RoomID)
+	if err != nil {
+		return preflightInput{}, false, err
+	}
+	teacherIDStr, err := uuidString(session.TeacherID)
+	if err != nil {
+		return preflightInput{}, false, err
+	}
+	var seriesIDStr *string
+	if session.SeriesID.Valid {
+		v, err := uuidString(session.SeriesID)
+		if err != nil {
+			return preflightInput{}, false, err
+		}
+		seriesIDStr = &v
+	}
+
+	studentIDs := []pgtype.UUID{studentID}
+	return preflightInput{
+		CourseID:      session.CourseID,
+		StartUTC:      session.StartAt.Time.UTC(),
+		EndUTC:        session.EndAt.Time.UTC(),
+		StudentIDs:    &studentIDs,
+		IgnoreSession: &sessionID,
+		Requested: ConflictRequested{
+			StartAt:   session.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:     session.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			CourseID:  courseIDStr,
+			RoomID:    roomIDStr,
+			TeacherID: teacherIDStr,
+			SeriesID:  seriesIDStr,
+		},
+	}, true, nil
+}
+
+func (s *Service) preflightStudentOverlap(ctx context.Context, db sqldb.DBTX, in preflightInput) *Err {
+	if in.StudentIDs == nil || len(*in.StudentIDs) == 0 {
+		return nil
+	}
+	conflicts, err := s.overlappingSessionsByStudents(ctx, db, *in.StudentIDs, in.StartUTC, in.EndUTC, in.IgnoreSession, in.IgnoreSeries)
+	if err != nil {
+		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindStudentOverlap, Conflicts: nil, Requested: in.Requested}}
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+	sessionIDs := make([]string, len(conflicts))
+	for i, c := range conflicts {
+		sessionIDs[i] = c.SessionID
+	}
+	conflictingStudents, _ := s.conflictingStudentsForOverlap(ctx, db, sessionIDs, *in.StudentIDs, in.CourseID)
+	return &Err{
+		Code:    "schedule_conflict",
+		Message: "Schedule conflict",
+		Details: ConflictDetails{
+			Kind:                ConflictKindStudentOverlap,
+			Conflicts:           conflicts,
+			ConflictingStudents: conflictingStudents,
+			Requested:           in.Requested,
+		},
+	}
+}
+
+func (s *Service) explainStudentDBErrByRepreflight(ctx context.Context, err error, db sqldb.DBTX, candidate preflightInput) *Err {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return nil
+	}
+	if pgErr.Code != "23P01" && pgErr.Code != "23514" {
+		return nil
+	}
+	return s.preflightStudentOverlap(ctx, db, candidate)
 }
 
 func (s *Service) FindAvailableSlots(ctx context.Context, p FindAvailableSlotsParams) (FindAvailableSlotsResult, error) {

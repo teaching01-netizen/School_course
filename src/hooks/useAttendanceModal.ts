@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { apiJson } from "../api/client";
 import type { Session, Student, AttendanceOverride } from "../types";
+import { formatConflictToastMessage } from "../utils/conflictErrors";
 
 export interface UseAttendanceModalReturn {
   session: Session | null;
@@ -90,7 +91,7 @@ export function useAttendanceModal(
       addToast("success", `Included ${st.wcode}`);
       setIncludeWcode("");
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to include student");
+      addToast("error", formatConflictToastMessage(err, "Failed to include student"));
     } finally {
       setIncludeAdding(false);
     }

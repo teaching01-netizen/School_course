@@ -1,6 +1,7 @@
 package courseshttp
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -51,21 +52,21 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type courseDTO struct {
-		ID                string `json:"id"`
-		CourseNo          int64  `json:"course_no"`
-		Code              string `json:"code"`
-		Name              string `json:"name"`
-		Year              any    `json:"year"`
-		TeacherID         any    `json:"teacher_id"`
-		TeacherName       string `json:"teacher_name"`
-		SubjectID         any    `json:"subject_id"`
-		SubjectCode       string `json:"subject_code"`
-		SubjectName       string `json:"subject_name"`
-		Hour              any    `json:"hour"`
-		StudentCount      any    `json:"student_count"`
-		CourseType        any    `json:"course_type"`
-		LegacyCourseID    any    `json:"legacy_course_id"`
-		LegacyLastSyncedAt any   `json:"legacy_last_synced_at"`
+		ID                 string `json:"id"`
+		CourseNo           int64  `json:"course_no"`
+		Code               string `json:"code"`
+		Name               string `json:"name"`
+		Year               any    `json:"year"`
+		TeacherID          any    `json:"teacher_id"`
+		TeacherName        string `json:"teacher_name"`
+		SubjectID          any    `json:"subject_id"`
+		SubjectCode        string `json:"subject_code"`
+		SubjectName        string `json:"subject_name"`
+		Hour               any    `json:"hour"`
+		StudentCount       any    `json:"student_count"`
+		CourseType         any    `json:"course_type"`
+		LegacyCourseID     any    `json:"legacy_course_id"`
+		LegacyLastSyncedAt any    `json:"legacy_last_synced_at"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -339,7 +340,12 @@ func (s *server) handleCourseStudentsAdd(w http.ResponseWriter, r *http.Request)
 
 	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.CourseStudentAdd(r.Context(), sqldb.CourseStudentAddParams{CourseID: courseID, StudentID: studentID}); err != nil {
+		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusEnrolled); err != nil {
+			var se *scheduling.Err
+			if errors.As(err, &se) {
+				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -438,71 +444,17 @@ func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Run preflight checking this student's busy ranges against the course's existing sessions.
-	// We need to preflight with just this one student's ID.
-	studentIDs := []pgtype.UUID{studentID}
-
 	courseIDStr, _ := s.a.UUIDString(courseID)
 	studentIDStr, _ := s.a.UUIDString(studentID)
 
-	// Preflight: get time bounds from the course's sessions.
-	var minStart, maxEnd pgtype.Timestamptz
-	err = s.deps.DB.QueryRow(r.Context(), `
-		SELECT MIN(start_at), MAX(end_at) FROM sessions
-		WHERE course_id = $1 AND deleted_at IS NULL
-	`, courseID).Scan(&minStart, &maxEnd)
-	if err != nil || !minStart.Valid || !maxEnd.Valid {
-		// No sessions exist, so preflight passes automatically.
-		s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
-			qtx := s.deps.Q.WithTx(tx)
-			if err := qtx.CourseStudentAddDraft(r.Context(), sqldb.CourseStudentAddDraftParams{CourseID: courseID, StudentID: studentID}); err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
-			}
-			actorID := pgtype.UUID{Bytes: actor.ID, Valid: true}
-			if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
-				ActorUserID: actorID,
-				Action:      "course_students.add",
-				Payload:     map[string]any{"course_id": courseIDStr, "student_id": studentIDStr, "source": "draft"},
-			}); aErr != nil {
-				s.deps.Log.Error("audit insert failed", "error", aErr, "course_id", courseIDStr, "student_id", studentIDStr)
-			}
-			return http.StatusOK, map[string]any{"student_id": studentIDStr, "status": "draft"}, nil
-		})
-		return
-	}
-
-	// Build conflict requested struct.
-	startStr, _ := s.a.TimeString(minStart)
-	endStr, _ := s.a.TimeString(maxEnd)
-	requested := scheduling.ConflictRequested{
-		StartAt:  startStr,
-		EndAt:    endStr,
-		CourseID: courseIDStr,
-	}
-
-	result, se, err := s.deps.Scheduling.Preflight(r.Context(), scheduling.PreflightParams{
-		CourseID:   courseID,
-		StartAt:    minStart,
-		EndAt:      maxEnd,
-		StudentIDs: &studentIDs,
-		Requested:  requested,
-	})
-	_ = result
-	if err != nil {
-		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-		return
-	}
-	if se != nil {
-		s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
-		return
-	}
-
-	// Preflight passed — add as draft.
 	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.CourseStudentAddDraft(r.Context(), sqldb.CourseStudentAddDraftParams{CourseID: courseID, StudentID: studentID}); err != nil {
+		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusDraft); err != nil {
+			var se *scheduling.Err
+			if errors.As(err, &se) {
+				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err

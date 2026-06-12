@@ -625,11 +625,12 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 
 	s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.SessionAttendanceUpsert(r.Context(), sqldb.SessionAttendanceUpsertParams{
-			SessionID: sessionID,
-			StudentID: studentID,
-			Status:    body.Status,
-		}); err != nil {
+		if err := s.deps.Scheduling.UpsertSessionAttendanceTx(r.Context(), tx, qtx, sessionID, studentID, body.Status); err != nil {
+			var se *scheduling.Err
+			if errors.As(err, &se) {
+				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err

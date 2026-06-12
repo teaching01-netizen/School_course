@@ -12,6 +12,7 @@ import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
 import { parseSchedulePaste } from "@/utils/schedulePaste";
+import { formatConflictToastMessage } from "@/utils/conflictErrors";
 import { addDays, format, startOfWeek } from 'date-fns';
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -488,7 +489,7 @@ export default function CourseDetail() {
       setAddingWcode("");
       await loadRoster();
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Add failed");
+      addToast("error", formatConflictToastMessage(err, "Add failed"));
     } finally {
       setAdding(false);
     }

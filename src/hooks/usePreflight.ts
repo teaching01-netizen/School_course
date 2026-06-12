@@ -1,12 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ApiRequestError, apiJson } from "@/api/client";
 import type { ConflictDetails } from "@/types";
-
-function isConflictDetails(v: unknown): v is ConflictDetails {
-  if (!v || typeof v !== "object") return false;
-  const c = v as Record<string, unknown>;
-  return typeof c.kind === "string" && (Array.isArray(c.conflicts) || c.conflicts === null);
-}
+import { isConflictDetails } from "@/utils/conflictErrors";
 
 export type PreflightStatus = "available" | "provisional" | "blocked" | "idle";
 
