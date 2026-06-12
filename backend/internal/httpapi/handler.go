@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -15,6 +17,7 @@ import (
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/emailnotifier"
 	"warwick-institute/internal/httpapi/absenceshttp"
 	"warwick-institute/internal/httpapi/activecourseshttp"
 	"warwick-institute/internal/httpapi/adminusershttp"
@@ -24,6 +27,7 @@ import (
 	"warwick-institute/internal/httpapi/courselevelshttp"
 	"warwick-institute/internal/httpapi/courseshttp"
 	"warwick-institute/internal/httpapi/crmhttp"
+	"warwick-institute/internal/httpapi/emailnotifierhttp"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/httpapi/roomshttp"
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
@@ -111,7 +115,44 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		deps.CircuitBreaker = smartsms.NewCircuitBreaker(db, "mock")
 	}
 
+	var emailProvider emailnotifier.EmailProvider
+	if cfg.EmailWebhookURL != "" {
+		emailProvider = emailnotifier.NewGASWebhookProvider(cfg.EmailWebhookURL, cfg.EmailWebhookSecret, log)
+	} else {
+		emailProvider = emailnotifier.NewLogProvider(log)
+	}
+	deps.EmailTemplateStore = emailnotifier.NewSQLTemplateStore(db)
+	deps.EmailWorkflowStore = emailnotifier.NewSQLWorkflowStore(db)
+	deps.EmailService = emailnotifier.NewServiceWithDeliveryClaimer(emailProvider, deps.EmailWorkflowStore)
+	deps.InstituteName = cfg.InstituteName
+	deps.SitInQuery = func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error) {
+		loc, effectiveTZ := emailnotifier.EffectiveLocation(instituteTZ)
+		today := time.Now().In(loc).Format("2006-01-02")
+		dbRows, dbErr := q.QueryTodaySitIns(ctx, today, effectiveTZ)
+		if dbErr != nil {
+			return nil, dbErr
+		}
+		result := make([]emailnotifier.SitInReminderRow, len(dbRows))
+		for i, r := range dbRows {
+			result[i] = emailnotifier.SitInReminderRow{
+				StudentName:      r.StudentName,
+				StudentNickname:  r.StudentNickname,
+				CourseCode:       r.CourseCode,
+				CourseName:       r.CourseName,
+				SitInCourseCode:  r.SitInCourseCode,
+				SitInCourseName:  r.SitInCourseName,
+				TeacherName:      r.TeacherName,
+				TeacherEmail:     r.TeacherEmail,
+				AbsenceDateRange: r.AbsenceDateRange,
+				StartAt:          r.StartAt,
+				EndAt:            r.EndAt,
+			}
+		}
+		return result, nil
+	}
+
 	absenceshttp.Register(mux, deps)
+	emailnotifierhttp.Register(mux, deps)
 	activecourseshttp.Register(mux, deps)
 	courselevelshttp.Register(mux, deps)
 	corehttp.Register(mux, deps)

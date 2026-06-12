@@ -45,6 +45,7 @@ const configNavItems = [
   { path: '/course-levels', label: 'Course Levels' },
   { path: '/admin/operations', label: 'Operations' },
   { path: '/leave-policy', label: 'Leave Policy' },
+  { path: '/email-reminders', label: 'Email Reminders' },
 ];
 
 const absenceSubItems: { path: string; label: string; adminOnly?: boolean }[] = [

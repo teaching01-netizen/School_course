@@ -1,6 +1,7 @@
 package httpdeps
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -9,6 +10,7 @@ import (
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/emailnotifier"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/ratelimit"
@@ -42,4 +44,11 @@ type Deps struct {
 	LegacySyncURL        string
 	LegacySyncUsername   string
 	LegacySyncPassword   string
+
+	EmailTemplateStore emailnotifier.TemplateStore
+	EmailWorkflowStore emailnotifier.WorkflowStore
+	EmailService       *emailnotifier.Service
+	InstituteName      string
+
+	SitInQuery func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error)
 }

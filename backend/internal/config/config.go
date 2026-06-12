@@ -7,12 +7,13 @@ import (
 )
 
 type Config struct {
-	Addr         string
-	DatabaseURL  string
-	AuthPepper  string
-	StaticDir   string
-	LogLevel     string
-	InstituteTZ  string
+	Addr          string
+	DatabaseURL   string
+	AuthPepper    string
+	StaticDir     string
+	LogLevel      string
+	InstituteTZ   string
+	InstituteName string
 
 	CRMBaseURL  string
 	CRMUsername string
@@ -22,13 +23,15 @@ type Config struct {
 	LegacySyncUsername string
 	LegacySyncPassword string
 
-	SMSServiceBaseURL string
+	SMSServiceBaseURL  string
 	SMSServiceUsername string
 	SMSServicePassword string
 
-	OTPHMACKey    string
-	OTPSMSProvider string
-	AppOrigin     string
+	OTPHMACKey         string
+	OTPSMSProvider     string
+	AppOrigin          string
+	EmailWebhookURL    string
+	EmailWebhookSecret string
 }
 
 func FromEnv() (Config, error) {
@@ -39,6 +42,7 @@ func FromEnv() (Config, error) {
 	cfg.StaticDir = envOr("STATIC_DIR", "../dist")
 	cfg.LogLevel = envOr("LOG_LEVEL", "info")
 	cfg.InstituteTZ = envOr("INSTITUTE_TZ", "Asia/Bangkok")
+	cfg.InstituteName = envOr("INSTITUTE_NAME", "Warwick Institute")
 	cfg.CRMBaseURL = envOr("CRM_BASE_URL", "")
 	cfg.CRMUsername = os.Getenv("CRM_USERNAME")
 	cfg.CRMPassword = os.Getenv("CRM_PASSWORD")
@@ -52,6 +56,8 @@ func FromEnv() (Config, error) {
 	cfg.OTPHMACKey = os.Getenv("OTP_HMAC_KEY")
 	cfg.OTPSMSProvider = strings.ToLower(strings.TrimSpace(os.Getenv("OTP_SMS_PROVIDER")))
 	cfg.AppOrigin = strings.TrimSpace(os.Getenv("APP_ORIGIN"))
+	cfg.EmailWebhookURL = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_URL"))
+	cfg.EmailWebhookSecret = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_SECRET"))
 
 	if cfg.OTPSMSProvider == "" {
 		if cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
