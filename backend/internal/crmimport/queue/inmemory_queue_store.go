@@ -30,7 +30,7 @@ func NewInMemoryQueueStore() *InMemoryQueueStore {
 	}
 }
 
-// ClaimJob finds the first eligible (queued or expired-running) job and claims it.
+// ClaimJob finds the first eligible (queued, retry, or expired-running) job and claims it.
 func (s *InMemoryQueueStore) ClaimJob(ctx context.Context, workerID string, leaseDur time.Duration) (JobRow, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -41,7 +41,7 @@ func (s *InMemoryQueueStore) ClaimJob(ctx context.Context, workerID string, leas
 
 	for id, j := range s.jobs {
 		switch j.row.Status {
-		case "queued":
+		case "queued", "retry":
 			if !j.row.RunAfter.After(now) {
 				if earliestID == uuid.Nil || j.row.CreatedAt.Before(earliestTime) {
 					earliestID = id
@@ -67,7 +67,7 @@ func (s *InMemoryQueueStore) ClaimJob(ctx context.Context, workerID string, leas
 	now2 := time.Now()
 
 	attemptIncrement := 0
-	if j.row.Status == "running" {
+	if j.row.Status == "running" || j.row.Status == "retry" {
 		attemptIncrement = 1
 	}
 

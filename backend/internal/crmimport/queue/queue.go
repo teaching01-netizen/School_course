@@ -91,7 +91,7 @@ func (s *PostgresQueueStore) ClaimJob(ctx context.Context, workerID string, leas
 	err := s.db.QueryRow(ctx, `
 		WITH eligible AS (
 			SELECT id FROM crm_jobs
-			WHERE (status = 'queued' AND run_after <= now())
+			WHERE (status IN ('queued', 'retry') AND run_after <= now())
 			   OR (status = 'running' AND locked_until < now())
 			ORDER BY created_at ASC
 			LIMIT 1
@@ -102,7 +102,7 @@ func (s *PostgresQueueStore) ClaimJob(ctx context.Context, workerID string, leas
 		    locked_by = $1,
 		    locked_until = now() + $2::interval,
 		    heartbeat_at = now(),
-		    attempt = CASE WHEN j.status = 'running' THEN j.attempt + 1 ELSE j.attempt END,
+		    attempt = CASE WHEN j.status IN ('running', 'retry') THEN j.attempt + 1 ELSE j.attempt END,
 		    updated_at = now()
 		FROM eligible e
 		WHERE j.id = e.id
@@ -236,16 +236,16 @@ func (s *PostgresQueueStore) Listen(ctx context.Context, ch chan<- struct{}) {
 
 // QueueWorker manages the in-process queue loop with lease + heartbeat safety.
 type QueueWorker struct {
-	log        *slog.Logger
-	store      QueueStore
-	notifier   JobNotifier
-	workerID   string
-	handlers   map[JobType]JobHandler
+	log      *slog.Logger
+	store    QueueStore
+	notifier JobNotifier
+	workerID string
+	handlers map[JobType]JobHandler
 
-	mu         sync.Mutex
-	running    bool
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
+	mu      sync.Mutex
+	running bool
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 
 	leaseDur   time.Duration
 	hbInterval time.Duration

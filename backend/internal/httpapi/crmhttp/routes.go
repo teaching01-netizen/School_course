@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -30,6 +31,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 	mux.HandleFunc("GET /api/v1/courses/{id}/crm-filter", s.handleCourseFilterGet)
 	mux.HandleFunc("PUT /api/v1/courses/{id}/crm-filter", s.handleCourseFilterPut)
+	mux.HandleFunc("GET /api/v1/courses/{id}/crm-filter/jobs/{jobID}", s.handleCourseFilterJobStatus)
 	mux.HandleFunc("POST /api/v1/courses/{id}/crm-filter/preview", s.handleCourseFilterPreview)
 	mux.HandleFunc("POST /api/v1/courses/{id}/crm-filter/lock", s.handleCourseFilterLockToggle)
 }
@@ -181,7 +183,8 @@ func (s *server) handleCourseFilterPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deps.CRMReconcileV2.SetCourseFilterAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Enabled, string(body.Filter)); err != nil {
+	jobID, queued, err := s.deps.CRMReconcileV2.SetCourseFilterAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Enabled, string(body.Filter))
+	if err != nil {
 		s.deps.Log.Error("set course filter failed", "error", err)
 		var enqueueErr *reconcile.EnqueueApplyJobError
 		if errors.As(err, &enqueueErr) {
@@ -192,7 +195,12 @@ func (s *server) handleCourseFilterPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true}
+	if queued {
+		resp["job_id"] = jobID.String()
+		resp["status"] = "queued"
+	}
+	s.a.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *server) handleCourseFilterLockToggle(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +225,8 @@ func (s *server) handleCourseFilterLockToggle(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := s.deps.CRMReconcileV2.SetRosterLockAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Locked); err != nil {
+	jobID, queued, err := s.deps.CRMReconcileV2.SetRosterLockAndEnqueueApply(r.Context(), s.deps.CRMWorker, courseID, body.Locked)
+	if err != nil {
 		s.deps.Log.Error("set roster lock failed", "error", err)
 		var enqueueErr *reconcile.EnqueueApplyJobError
 		if errors.As(err, &enqueueErr) {
@@ -228,7 +237,107 @@ func (s *server) handleCourseFilterLockToggle(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true}
+	if queued {
+		resp["job_id"] = jobID.String()
+		resp["status"] = "queued"
+	}
+	s.a.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (s *server) handleCourseFilterJobStatus(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	courseID, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
+		return
+	}
+	jobID, err := uuid.Parse(r.PathValue("jobID"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_job_id", "Invalid job ID")
+		return
+	}
+
+	var status, jobType string
+	var lastError string
+	var result []byte
+	err = s.deps.DB.QueryRow(r.Context(), `
+		SELECT status::text, job_type::text, COALESCE(last_error, ''), COALESCE(result, '{}'::jsonb)
+		FROM crm_jobs
+		WHERE id = $1
+		  AND payload->>'course_id' = $2
+		  AND job_type IN ('course_reconcile_apply', 'course_reconcile_diff')
+	`, jobID, uuidString(courseID)).Scan(&status, &jobType, &lastError, &result)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Job not found")
+		return
+	}
+
+	message := "Course CRM reconcile job is " + status
+	var details any
+	if status == "succeeded" {
+		message = "Course CRM reconcile completed"
+	} else if lastError != "" {
+		message, details = parseCRMJobError(lastError)
+		if isCRMStudentScheduleConflictDetails(details) {
+			status = "failed"
+		}
+	}
+	resp := map[string]any{
+		"job_id":   jobID.String(),
+		"status":   status,
+		"job_type": jobType,
+		"message":  message,
+	}
+	if details != nil {
+		resp["details"] = details
+	}
+	if len(result) > 0 && string(result) != "{}" {
+		resp["result"] = json.RawMessage(result)
+	}
+	s.a.WriteJSON(w, http.StatusOK, resp)
+}
+
+func uuidString(id pgtype.UUID) string {
+	parsed, err := uuid.FromBytes(id.Bytes[:])
+	if err != nil {
+		return ""
+	}
+	return parsed.String()
+}
+
+func parseCRMJobError(raw string) (string, any) {
+	candidate := strings.TrimSpace(raw)
+	if !strings.HasPrefix(candidate, "{") {
+		if idx := strings.Index(candidate, "{"); idx >= 0 {
+			candidate = candidate[idx:]
+		}
+	}
+	var structured struct {
+		Message string          `json:"message"`
+		Details json.RawMessage `json:"details"`
+	}
+	if err := json.Unmarshal([]byte(candidate), &structured); err != nil || structured.Message == "" {
+		return raw, nil
+	}
+	if len(structured.Details) == 0 {
+		return structured.Message, nil
+	}
+	var details any
+	if err := json.Unmarshal(structured.Details, &details); err != nil {
+		return structured.Message, nil
+	}
+	return structured.Message, details
+}
+
+func isCRMStudentScheduleConflictDetails(details any) bool {
+	detailsMap, ok := details.(map[string]any)
+	if !ok {
+		return false
+	}
+	return detailsMap["kind"] == "crm_student_schedule_conflict"
 }
 
 func (s *server) handleCourseFilterPreview(w http.ResponseWriter, r *http.Request) {

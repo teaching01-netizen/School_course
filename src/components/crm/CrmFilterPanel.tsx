@@ -41,12 +41,80 @@ type CrmFilterResponse = {
   filter: CourseFilter;
 };
 
+type CourseFilterMutationResponse = {
+  ok: boolean;
+  job_id?: string;
+  status?: string;
+};
+
+type CRMStudentScheduleConflictDetails = {
+  kind: "crm_student_schedule_conflict";
+  student?: {
+    wcode?: string;
+    full_name?: string;
+  };
+  target_course?: {
+    code?: string;
+    name?: string;
+  };
+  conflicts?: Array<{
+    course?: {
+      code?: string;
+      name?: string;
+    };
+    start_at?: string;
+    end_at?: string;
+  }>;
+};
+
+type CourseReconcileJobStatus = {
+  job_id: string;
+  status: string;
+  message?: string;
+  details?: CRMStudentScheduleConflictDetails | Record<string, unknown> | null;
+};
+
 type Props = {
   courseId: string;
   isAdmin: boolean;
   onRosterChanged: () => void;
   embeddedInModal?: boolean;
 };
+
+function isActiveJob(status?: string): boolean {
+  return status === "queued" || status === "running" || status === "retry";
+}
+
+function courseLabel(course?: { code?: string; name?: string } | null): string | null {
+  if (!course) return null;
+  if (course.code && course.name) return `${course.code} · ${course.name}`;
+  return course.code || course.name || null;
+}
+
+function formatConflictTime(startAt?: string, endAt?: string): string | null {
+  if (!startAt || !endAt) return null;
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const date = start.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return `${date}, ${startTime}-${endTime}`;
+}
+
+function getCRMConflictDetails(details?: CourseReconcileJobStatus["details"]): CRMStudentScheduleConflictDetails | null {
+  if (!details || typeof details !== "object") return null;
+  if ("kind" in details && details.kind === "crm_student_schedule_conflict") {
+    return details as CRMStudentScheduleConflictDetails;
+  }
+  if ("details" in details && details.details && typeof details.details === "object") {
+    const nested = details.details as Record<string, unknown>;
+    if (nested.kind === "crm_student_schedule_conflict") {
+      return nested as CRMStudentScheduleConflictDetails;
+    }
+  }
+  return null;
+}
 
 function MultiSelect<T extends string>({
   label,
@@ -149,6 +217,8 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   const [options, setOptions] = useState<CrmOptions | null>(null);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [reconcileJobID, setReconcileJobID] = useState<string | null>(null);
+  const [reconcileJob, setReconcileJob] = useState<CourseReconcileJobStatus | null>(null);
 
   const loadCrmFilter = useCallback(async () => {
     try {
@@ -199,15 +269,56 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
     return () => clearTimeout(t);
   }, [filter, computePreview]);
 
+  const pollReconcileJob = useCallback(async (jobId: string) => {
+    try {
+      const res = await apiJson<CourseReconcileJobStatus>(
+        `/api/v1/courses/${courseId}/crm-filter/jobs/${jobId}`,
+        { method: "GET" },
+      );
+      setReconcileJob(res);
+      if (!isActiveJob(res.status)) {
+        setReconcileJobID(null);
+        if (res.status === "succeeded") {
+          addToast("success", "CRM reconcile completed");
+          onRosterChanged();
+        } else if (res.status === "failed") {
+          addToast("error", res.message ?? "CRM reconcile failed");
+        }
+      }
+    } catch (err: any) {
+      setReconcileJobID(null);
+      setReconcileJob({
+        job_id: jobId,
+        status: "failed",
+        message: err?.message ?? "Failed to load CRM reconcile status",
+      });
+    }
+  }, [addToast, courseId, onRosterChanged]);
+
+  useEffect(() => {
+    if (!reconcileJobID) return;
+    void pollReconcileJob(reconcileJobID);
+    const t = setInterval(() => void pollReconcileJob(reconcileJobID), 1500);
+    return () => clearInterval(t);
+  }, [pollReconcileJob, reconcileJobID]);
+
   const saveFilter = async () => {
     try {
       setSaving(true);
-      await apiJson(`/api/v1/courses/${courseId}/crm-filter`, {
+      const res = await apiJson<CourseFilterMutationResponse>(`/api/v1/courses/${courseId}/crm-filter`, {
         method: "PUT",
         body: JSON.stringify({ enabled, filter }),
       });
-      addToast("success", enabled ? "CRM filter enabled — reconcile queued" : "CRM filter disabled");
-      onRosterChanged();
+      if (res.job_id) {
+        setReconcileJob({ job_id: res.job_id, status: res.status ?? "queued", message: "CRM reconcile queued" });
+        setReconcileJobID(res.job_id);
+        addToast("info", "CRM filter saved — reconcile queued");
+      } else {
+        setReconcileJob(null);
+        setReconcileJobID(null);
+        addToast("success", enabled ? "CRM filter saved" : "CRM filter disabled");
+        onRosterChanged();
+      }
     } catch (err: any) {
       addToast("error", err?.message ?? "Failed to save filter");
     } finally {
@@ -218,16 +329,22 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   const toggleLock = async () => {
     try {
       const newLocked = !locked;
-      await apiJson(`/api/v1/courses/${courseId}/crm-filter/lock`, {
+      const res = await apiJson<CourseFilterMutationResponse>(`/api/v1/courses/${courseId}/crm-filter/lock`, {
         method: "POST",
         body: JSON.stringify({ locked: newLocked }),
       });
       setLocked(newLocked);
-      addToast(
-        "success",
-        newLocked ? "Roster locked — won't auto-update on future uploads" : "Roster unlocked — reconciling…",
-      );
-      if (!newLocked) {
+      if (res.job_id) {
+        setReconcileJob({ job_id: res.job_id, status: res.status ?? "queued", message: "CRM reconcile queued" });
+        setReconcileJobID(res.job_id);
+        addToast("info", "Roster unlocked — reconcile queued");
+      } else {
+        setReconcileJob(null);
+        setReconcileJobID(null);
+        addToast(
+          "success",
+          newLocked ? "Roster locked — won't auto-update on future uploads" : "Roster unlocked",
+        );
         onRosterChanged();
       }
     } catch (err: any) {
@@ -237,6 +354,13 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
 
   if (!loaded) return null;
   if (!isAdmin) return null;
+
+  const conflictDetails = reconcileJob?.status === "failed" ? getCRMConflictDetails(reconcileJob.details) : null;
+  const firstConflict = conflictDetails?.conflicts?.[0];
+  const conflictStudent = conflictDetails?.student?.full_name || conflictDetails?.student?.wcode;
+  const conflictTarget = courseLabel(conflictDetails?.target_course);
+  const conflictingCourse = courseLabel(firstConflict?.course);
+  const conflictTime = formatConflictTime(firstConflict?.start_at, firstConflict?.end_at);
 
   return (
     <div className={embeddedInModal ? "" : "border border-gray-200 rounded-sm p-4 mb-6"}>
@@ -256,6 +380,45 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
       {locked && (
         <div className="bg-amber-50 border border-amber-200 rounded-sm px-3 py-2 text-xs text-amber-800 mb-3">
           Roster is locked — won't auto-update on future uploads
+        </div>
+      )}
+
+      {reconcileJob && (
+        <div
+          className={`mb-3 rounded-sm border px-3 py-2 text-xs ${
+            reconcileJob.status === "failed"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : reconcileJob.status === "succeeded"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-blue-200 bg-blue-50 text-blue-800"
+          }`}
+        >
+          <div className="font-semibold">
+            {isActiveJob(reconcileJob.status)
+              ? "CRM reconcile running"
+              : reconcileJob.status === "succeeded"
+                ? "CRM reconcile complete"
+                : "CRM reconcile failed"}
+          </div>
+          {conflictDetails ? (
+            <div className="mt-1 space-y-1">
+              <p>
+                {conflictStudent ?? "Student"} cannot be added{conflictTarget ? ` to ${conflictTarget}` : ""}.
+              </p>
+              {(conflictingCourse || conflictTime) && (
+                <p>
+                  Conflicts with {conflictingCourse ?? "another course"}
+                  {conflictTime ? ` at ${conflictTime}` : ""}.
+                </p>
+              )}
+              <details>
+                <summary className="cursor-pointer">Technical details</summary>
+                <p className="mt-1 font-mono break-all">{reconcileJob.message}</p>
+              </details>
+            </div>
+          ) : reconcileJob.message ? (
+            <p className="mt-1 break-words">{reconcileJob.message}</p>
+          ) : null}
         </div>
       )}
 

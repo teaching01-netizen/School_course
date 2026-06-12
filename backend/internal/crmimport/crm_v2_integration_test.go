@@ -187,6 +187,15 @@ func createTestCourse(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool, c
 	return course.ID
 }
 
+func uuidStringFromPg(t *testing.T, id pgtype.UUID) string {
+	t.Helper()
+	parsed, err := uuid.FromBytes(id.Bytes[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed.String()
+}
+
 // ============================================================================
 // Queue tests
 // ============================================================================
@@ -265,6 +274,40 @@ func TestQueue_EnqueueAndClaim(t *testing.T) {
 	}
 	if status != "succeeded" {
 		t.Fatalf("expected status 'succeeded', got %q", status)
+	}
+}
+
+func TestQueue_RetryJobIsClaimableAfterBackoff(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	queueStore := queue.NewPostgresQueueStore(dbpool)
+	worker := queue.NewQueueWorker(tLogger, queueStore, "test-worker")
+
+	payload := StudentSyncPayload{SnapshotID: uuid.New()}
+	jobID, err := worker.EnqueueJob(ctx, queue.JobTypeStudentSync, payload, "")
+	if err != nil {
+		t.Fatalf("EnqueueJob: %v", err)
+	}
+	if err := queueStore.RetryJob(ctx, jobID, "temporary failure", -time.Second); err != nil {
+		t.Fatalf("RetryJob: %v", err)
+	}
+
+	job, ok := worker.ClaimNextJob(ctx)
+	if !ok {
+		t.Fatal("expected retry job to be claimable after run_after")
+	}
+	if job.ID != jobID {
+		t.Fatalf("expected job ID %s, got %s", jobID, job.ID)
+	}
+	if job.Attempt != 1 {
+		t.Fatalf("expected retry claim to increment attempt to 1, got %d", job.Attempt)
 	}
 }
 
@@ -574,6 +617,57 @@ func TestUploadJobStatus_ShowsRetryingStudentScheduleConflict(t *testing.T) {
 	}
 	if details["kind"] != "crm_student_schedule_conflict" {
 		t.Fatalf("expected crm_student_schedule_conflict details, got %#v", details["kind"])
+	}
+}
+
+func TestSetCourseFilterAndEnqueueApplyReturnsJobID(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := crmtypes.CourseFilter{CourseNameValues: []string{"SAT"}}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W250001", CourseName: "SAT", CycleLabel: "Cycle A", FirstName: "Jane", LastName: "Student"},
+	})
+	courseID := createTestCourse(t, ctx, dbpool, "SAT-001", "SAT", filter)
+	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	worker := queue.NewQueueWorker(tLogger, queue.NewPostgresQueueStore(dbpool), "test-worker")
+	filterJSON, err := json.Marshal(filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jobID, queued, err := reconcileSvc.SetCourseFilterAndEnqueueApply(ctx, worker, courseID, true, string(filterJSON))
+	if err != nil {
+		t.Fatalf("SetCourseFilterAndEnqueueApply: %v", err)
+	}
+	if !queued {
+		t.Fatal("expected course filter save to queue reconcile job")
+	}
+	if jobID == uuid.Nil {
+		t.Fatal("expected queued reconcile job ID")
+	}
+
+	var status string
+	var payloadSnapshotID string
+	err = dbpool.QueryRow(ctx, `
+		SELECT status::text, payload->>'snapshot_id'
+		FROM crm_jobs
+		WHERE id = $1
+	`, jobID).Scan(&status, &payloadSnapshotID)
+	if err != nil {
+		t.Fatalf("query queued job: %v", err)
+	}
+	if status != "queued" {
+		t.Fatalf("expected queued job, got %q", status)
+	}
+	if payloadSnapshotID != uuidStringFromPg(t, snapshotID) {
+		t.Fatalf("expected snapshot %s, got %s", uuidStringFromPg(t, snapshotID), payloadSnapshotID)
 	}
 }
 

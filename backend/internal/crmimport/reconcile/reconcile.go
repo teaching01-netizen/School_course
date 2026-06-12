@@ -890,7 +890,7 @@ func (s *ReconcileV2Service) UpdateCourseFilter(ctx context.Context, courseID pg
 	return err
 }
 
-func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, enabled bool, filterJSON string) error {
+func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, enabled bool, filterJSON string) (uuid.UUID, bool, error) {
 	_, err := s.db.Exec(ctx, `
 		UPDATE courses
 		SET crm_filter_enabled = $2,
@@ -901,32 +901,32 @@ func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context,
 		WHERE id = $1
 	`, courseID, enabled, filterJSON)
 	if err != nil {
-		return fmt.Errorf("update course filter: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("update course filter: %w", err)
 	}
 
 	if !enabled {
-		return nil
+		return uuid.UUID{}, false, nil
 	}
 
 	return s.enqueueApplyIfEnabledAndUnlocked(ctx, worker, courseID)
 }
 
-func (s *ReconcileV2Service) SetRosterLockAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, locked bool) error {
+func (s *ReconcileV2Service) SetRosterLockAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, locked bool) (uuid.UUID, bool, error) {
 	_, err := s.db.Exec(ctx, `UPDATE courses SET crm_roster_locked = $2 WHERE id = $1`, courseID, locked)
 	if err != nil {
-		return fmt.Errorf("update roster lock: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("update roster lock: %w", err)
 	}
 
 	if locked {
-		return nil
+		return uuid.UUID{}, false, nil
 	}
 
 	return s.enqueueApplyIfEnabledAndUnlocked(ctx, worker, courseID)
 }
 
-func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID) error {
+func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID) (uuid.UUID, bool, error) {
 	if worker == nil {
-		return nil
+		return uuid.UUID{}, false, nil
 	}
 
 	var enabled bool
@@ -938,11 +938,11 @@ func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Contex
 		WHERE id = $1
 	`, courseID).Scan(&enabled, &locked, &filterVersion)
 	if err != nil {
-		return fmt.Errorf("load course reconcile state: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("load course reconcile state: %w", err)
 	}
 
 	if !enabled || locked {
-		return nil
+		return uuid.UUID{}, false, nil
 	}
 
 	var snapshotID pgtype.UUID
@@ -951,19 +951,19 @@ func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Contex
 		FROM crm_state
 		WHERE singleton = true
 	`).Scan(&snapshotID); err != nil {
-		return fmt.Errorf("load active snapshot: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("load active snapshot: %w", err)
 	}
 	if !snapshotID.Valid {
-		return nil
+		return uuid.UUID{}, false, nil
 	}
 
 	snapshotUUID, err := uuid.FromBytes(snapshotID.Bytes[:])
 	if err != nil {
-		return fmt.Errorf("parse snapshot id: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("parse snapshot id: %w", err)
 	}
 	courseUUID, err := uuid.FromBytes(courseID.Bytes[:])
 	if err != nil {
-		return fmt.Errorf("parse course id: %w", err)
+		return uuid.UUID{}, false, fmt.Errorf("parse course id: %w", err)
 	}
 
 	payload := crmtypes.CourseReconcilePayload{
@@ -972,10 +972,11 @@ func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Contex
 		ExpectedFilterVersion: filterVersion,
 	}
 	uniqueKey := fmt.Sprintf("reconcile-apply-%s-%s", snapshotUUID.String(), courseUUID.String())
-	if _, err := worker.EnqueueJob(ctx, queue.JobTypeCourseReconcileApply, payload, uniqueKey); err != nil {
-		return &EnqueueApplyJobError{Err: err}
+	jobID, err := worker.EnqueueJob(ctx, queue.JobTypeCourseReconcileApply, payload, uniqueKey)
+	if err != nil {
+		return uuid.UUID{}, false, &EnqueueApplyJobError{Err: err}
 	}
-	return nil
+	return jobID, true, nil
 }
 
 // buildSnapshotFilterConditions builds SQL WHERE conditions and args from a CourseFilter.
