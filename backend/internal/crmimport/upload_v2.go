@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -182,11 +183,17 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 }
 
 func parseCRMJobError(raw string) (string, any) {
+	candidate := strings.TrimSpace(raw)
+	if !strings.HasPrefix(candidate, "{") {
+		if idx := strings.Index(candidate, "{"); idx >= 0 {
+			candidate = candidate[idx:]
+		}
+	}
 	var structured struct {
 		Message string          `json:"message"`
 		Details json.RawMessage `json:"details"`
 	}
-	if err := json.Unmarshal([]byte(raw), &structured); err != nil || structured.Message == "" {
+	if err := json.Unmarshal([]byte(candidate), &structured); err != nil || structured.Message == "" {
 		return raw, nil
 	}
 	if len(structured.Details) == 0 {

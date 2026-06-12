@@ -1082,6 +1082,22 @@ func TestReconcileApply_StudentScheduleConflictIncludesStudentAndCourseDetails(t
 	}
 }
 
+func TestParseCRMJobError_ExtractsPrefixedStructuredConflict(t *testing.T) {
+	raw := `apply reconcile: {"message":"Student schedule conflict: Jane (W250001) cannot be added to SAT","details":{"kind":"crm_student_schedule_conflict","student":{"wcode":"W250001","full_name":"Jane"},"target_course":{"code":"SAT"},"conflicts":[{"course":{"code":"ALG"},"start_at":"2026-05-20T10:00:00Z","end_at":"2026-05-20T11:00:00Z"}]}}`
+
+	message, details := parseCRMJobError(raw)
+	if !strings.Contains(message, "Student schedule conflict") {
+		t.Fatalf("expected readable conflict message, got %q", message)
+	}
+	detailsMap, ok := details.(map[string]any)
+	if !ok {
+		t.Fatalf("expected parsed details map, got %T", details)
+	}
+	if detailsMap["kind"] != "crm_student_schedule_conflict" {
+		t.Fatalf("expected crm conflict kind, got %q", detailsMap["kind"])
+	}
+}
+
 func TestReconcileApply_RemovesExtraStudents(t *testing.T) {
 	databaseURL := requireTestDBV2(t)
 	migrateUpV2(t, databaseURL)

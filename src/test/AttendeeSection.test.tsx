@@ -34,7 +34,7 @@ const defaultProps = {
   adding: false,
   onRosterChanged: vi.fn(),
   onSetAddingWcode: vi.fn(),
-  onAddStudentByWcode: vi.fn().mockResolvedValue(undefined),
+  onAddStudentByWcode: vi.fn().mockResolvedValue({ ok: true }),
   onRemoveStudent: vi.fn().mockResolvedValue(undefined),
 };
 
@@ -63,6 +63,27 @@ describe("AttendeeSection", () => {
 
       expect(screen.getByText("Add by W-code")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("e.g. W250389")).toBeInTheDocument();
+    });
+
+    it("keeps manual modal open and shows conflict message when add fails", async () => {
+      const user = userEvent.setup();
+      const onAddStudentByWcode = vi.fn().mockResolvedValue({
+        ok: false,
+        error: "Student scheduling conflict: Alice conflict at 20 May, 10:30-11:30",
+      });
+      renderWithProviders(
+        <AttendeeSection
+          {...defaultProps}
+          addingWcode="W250389"
+          onAddStudentByWcode={onAddStudentByWcode}
+        />,
+      );
+
+      await user.click(screen.getByText("Add Manual"));
+      await user.click(screen.getByRole("button", { name: "Add" }));
+
+      expect(await screen.findByText(/Student scheduling conflict: Alice/)).toBeInTheDocument();
+      expect(screen.getByText("Add Student Manually")).toBeInTheDocument();
     });
 
     it('opens CRM filter modal when "Add from Sage" is clicked', async () => {

@@ -92,9 +92,23 @@ function formatConflictTime(startAt?: string, endAt?: string): string | null {
   return `${date}, ${startTime}-${endTime}`;
 }
 
-function parseBusyRangeConflict(message?: string, details?: UploadJobStatusResponse["details"]): BusyRangeConflict | null {
-  if (details && typeof details === "object" && "kind" in details && details.kind === "crm_student_schedule_conflict") {
-    const conflictDetails = details as CRMStudentScheduleConflictDetails;
+function getCRMConflictDetails(details?: UploadJobStatusResponse["details"]): CRMStudentScheduleConflictDetails | null {
+  if (!details || typeof details !== "object") return null;
+  if ("kind" in details && details.kind === "crm_student_schedule_conflict") {
+    return details as CRMStudentScheduleConflictDetails;
+  }
+  if ("details" in details && details.details && typeof details.details === "object") {
+    const nested = details.details as Record<string, unknown>;
+    if (nested.kind === "crm_student_schedule_conflict") {
+      return nested as CRMStudentScheduleConflictDetails;
+    }
+  }
+  return null;
+}
+
+export function parseBusyRangeConflict(message?: string, details?: UploadJobStatusResponse["details"]): BusyRangeConflict | null {
+  const conflictDetails = getCRMConflictDetails(details);
+  if (conflictDetails) {
     const firstConflict = conflictDetails.conflicts?.[0];
     return {
       studentWCode: conflictDetails.student?.wcode ?? null,

@@ -8,6 +8,7 @@ import { formatConflictToastMessage } from "../utils/conflictErrors";
 
 
 export type Student = { id: string; wcode: string; full_name: string; notes: string; status?: string };
+export type AddStudentResult = { ok: true } | { ok: false; error: string };
 
 type Props = {
   courseId: string;
@@ -20,7 +21,7 @@ type Props = {
   adding: boolean;
   onRosterChanged: () => void;
   onSetAddingWcode: (v: string) => void;
-  onAddStudentByWcode: () => Promise<void>;
+  onAddStudentByWcode: () => Promise<AddStudentResult>;
   onRemoveStudent: (studentId: string) => Promise<void>;
 };
 
@@ -39,6 +40,7 @@ export function AttendeeSection({
   onRemoveStudent,
 }: Props) {
   const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [draftWcode, setDraftWcode] = useState("");
   const [draftAdding, setDraftAdding] = useState(false);
@@ -49,12 +51,23 @@ export function AttendeeSection({
   const openSageModal = () => setSageModalOpen(true);
   const closeSageModal = () => setSageModalOpen(false);
 
-  const openManualModal = () => setManualModalOpen(true);
-  const closeManualModal = () => setManualModalOpen(false);
+  const openManualModal = () => {
+    setManualModalOpen(true);
+    setManualError(null);
+  };
+  const closeManualModal = () => {
+    setManualModalOpen(false);
+    setManualError(null);
+  };
 
   const handleManualAdd = async () => {
-    await onAddStudentByWcode();
-    closeManualModal();
+    setManualError(null);
+    const result = await onAddStudentByWcode();
+    if (result.ok) {
+      closeManualModal();
+    } else {
+      setManualError(result.error);
+    }
   };
 
   const handleSageSaved = () => {
@@ -278,6 +291,9 @@ export function AttendeeSection({
               >
                 Cancel
               </button>
+              {manualError && (
+                <span className="text-xs text-red-600 mr-2">{manualError}</span>
+              )}
               <button
                 onClick={() => void handleManualAdd()}
                 disabled={adding || !addingWcode.trim()}
@@ -292,7 +308,10 @@ export function AttendeeSection({
             <label className="block text-xs text-gray-500 mb-1">Add by W-code</label>
             <input
               value={addingWcode}
-              onChange={(e) => onSetAddingWcode(e.target.value)}
+              onChange={(e) => {
+                setManualError(null);
+                onSetAddingWcode(e.target.value);
+              }}
               placeholder="e.g. W250389"
               autoFocus
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"

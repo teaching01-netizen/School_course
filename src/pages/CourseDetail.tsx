@@ -477,9 +477,9 @@ export default function CourseDetail() {
   };
 
   const addStudentByWcode = async () => {
-    if (!id) return;
+    if (!id) return { ok: false as const, error: "Missing course" };
     const w = addingWcode.trim();
-    if (!w) return;
+    if (!w) return { ok: false as const, error: "Enter a W-code" };
     try {
       setAdding(true);
       // Find student by wcode via existing student lookup endpoint.
@@ -488,8 +488,11 @@ export default function CourseDetail() {
       addToast("success", "Added student");
       setAddingWcode("");
       await loadRoster();
+      return { ok: true as const };
     } catch (err) {
-      addToast("error", formatConflictToastMessage(err, "Add failed"));
+      const message = formatConflictToastMessage(err, "Add failed");
+      addToast("error", message);
+      return { ok: false as const, error: message };
     } finally {
       setAdding(false);
     }
