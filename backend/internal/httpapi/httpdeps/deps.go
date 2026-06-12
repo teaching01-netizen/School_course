@@ -14,6 +14,7 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/ratelimit"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/users"
@@ -31,19 +32,20 @@ type Deps struct {
 	AdminUsers  *users.AdminProvisioningService
 	InstituteTZ string
 
-	CRMUploadV2     *crmimport.UploadV2Service
-	CRMReconcileV2  *reconcile.ReconcileV2Service
-	CRMWorker       *queue.QueueWorker
+	CRMUploadV2    *crmimport.UploadV2Service
+	CRMReconcileV2 *reconcile.ReconcileV2Service
+	CRMWorker      *queue.QueueWorker
 
-	SMS                  smartsms.SMSProvider
-	OTPSender            smartsms.OTPProvider
-	OTP                  *otp.Service
-	RateLimiter          *ratelimit.Store
-	CircuitBreaker       *smartsms.CircuitBreaker
-	AppOrigin            string
-	LegacySyncURL        string
-	LegacySyncUsername   string
-	LegacySyncPassword   string
+	SMS                smartsms.SMSProvider
+	OTPSender          smartsms.OTPProvider
+	OTP                *otp.Service
+	RateLimiter        *ratelimit.Store
+	Realtime           *realtime.Hub
+	CircuitBreaker     *smartsms.CircuitBreaker
+	AppOrigin          string
+	LegacySyncURL      string
+	LegacySyncUsername string
+	LegacySyncPassword string
 
 	EmailTemplateStore emailnotifier.TemplateStore
 	EmailWorkflowStore emailnotifier.WorkflowStore

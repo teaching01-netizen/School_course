@@ -167,6 +167,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
 	}
+	var createdID string
 	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
@@ -494,10 +495,14 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 
 		resp := managedAbsenceResponse(managed)
 		resp["status"] = "pending"
+		if id, ok := resp["id"].(string); ok {
+			createdID = id
+		}
 		return http.StatusCreated, resp, nil
 	}) {
 		return
 	}
+	s.publishAbsenceChanged(createdID)
 }
 
 func (s *server) handleAbsenceList(w http.ResponseWriter, r *http.Request) {

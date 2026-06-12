@@ -254,6 +254,7 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	absenceID := r.PathValue("id")
 	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		nowKey := "parent-verification:wcode:"
 		var phone string
@@ -454,6 +455,7 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 	}) {
 		return
 	}
+	s.publishAbsenceChanged(absenceID)
 }
 
 func (s *server) handleParentVerificationVerify(w http.ResponseWriter, r *http.Request) {

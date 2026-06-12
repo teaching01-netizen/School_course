@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import { useRealtime } from "../../hooks/useRealtime";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../../types";
 import EmptyState from "../ui/EmptyState";
 import Button from "../ui/Button";
@@ -127,6 +128,15 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
       setLoading((prev) => ({ ...prev, [status]: false }));
     }
   };
+
+  useRealtime(
+    ["absent:all"],
+    () => {
+      void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
+      if (showCancelled) void loadCancelled(0);
+    },
+    { debounceMs: 500 }
+  );
 
   useEffect(() => {
     const init = async () => {

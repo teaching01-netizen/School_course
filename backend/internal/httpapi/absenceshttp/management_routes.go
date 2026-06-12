@@ -1,6 +1,7 @@
 package absenceshttp
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/realtime"
 )
 
 type calendarSitInStudentDTO struct {
@@ -261,6 +263,32 @@ func validAbsenceStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func (s *server) publishAbsenceChanges(ids []string) {
+	if s.deps.Realtime == nil || len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		s.deps.Realtime.Publish("absent:all", realtime.Event{Type: "absence.updated", ID: id})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	stats, err := s.deps.Q.AbsenceStatsGet(ctx)
+	if err != nil {
+		if s.deps.Log != nil {
+			s.deps.Log.Error("realtime absence stats refresh failed", "error", err)
+		}
+		return
+	}
+	s.deps.Realtime.Publish("absent:stats", realtime.Event{Type: "absent.stats.updated", Payload: stats})
+}
+
+func (s *server) publishAbsenceChanged(id string) {
+	s.publishAbsenceChanges([]string{id})
 }
 
 func validTransition(from, to string) bool {
@@ -666,7 +694,8 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	adminID := actorID(user.ID)
-	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	absenceID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		current, err := qtx.ManagedAbsenceGet(r.Context(), id)
 		if err != nil {
@@ -733,7 +762,9 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 			}
 		}
 		return http.StatusOK, map[string]any{"status": body.Status, "version": version}, nil
-	})
+	}) {
+		s.publishAbsenceChanged(absenceID)
+	}
 }
 
 func (s *server) handleAbsenceNotesUpdate(w http.ResponseWriter, r *http.Request) {
@@ -763,7 +794,8 @@ func (s *server) handleAbsenceNotesUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	adminID := actorID(user.ID)
-	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	absenceID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		version, err := qtx.AbsenceNotesUpdate(r.Context(), id, strings.TrimSpace(body.Notes), *body.ExpectedVersion)
 		if err != nil {
@@ -786,7 +818,9 @@ func (s *server) handleAbsenceNotesUpdate(w http.ResponseWriter, r *http.Request
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]any{"version": version, "admin_notes": strings.TrimSpace(body.Notes)}, nil
-	})
+	}) {
+		s.publishAbsenceChanged(absenceID)
+	}
 }
 
 func parseUUIDs(s *server, values []string) ([]pgtype.UUID, error) {
@@ -863,7 +897,8 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	adminID := actorID(user.ID)
-	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	absenceID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		current, err := qtx.ManagedAbsenceGet(r.Context(), id)
 		if err != nil {
@@ -950,7 +985,9 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]any{"version": version, "sit_in_method": method}, nil
-	})
+	}) {
+		s.publishAbsenceChanged(absenceID)
+	}
 }
 
 func (s *server) handleSitInCandidates(w http.ResponseWriter, r *http.Request) {
@@ -1080,6 +1117,7 @@ func (s *server) handleBatchStatus(w http.ResponseWriter, r *http.Request) {
 		"failed":          failed,
 		"total_processed": len(results),
 	})
+	s.publishAbsenceChanges(succeeded)
 }
 
 func (s *server) handleAbsenceDashboard(w http.ResponseWriter, r *http.Request) {
@@ -1382,7 +1420,8 @@ func (s *server) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adminID := actorID(user.ID)
-	s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	absenceID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		current, err := qtx.ManagedAbsenceGet(r.Context(), id)
 		if err != nil {
@@ -1418,5 +1457,7 @@ func (s *server) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]string{"status": "deleted"}, nil
-	})
+	}) {
+		s.publishAbsenceChanged(absenceID)
+	}
 }

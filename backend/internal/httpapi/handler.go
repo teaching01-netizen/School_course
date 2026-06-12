@@ -29,6 +29,7 @@ import (
 	"warwick-institute/internal/httpapi/crmhttp"
 	"warwick-institute/internal/httpapi/emailnotifierhttp"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/httpapi/realtimehttp"
 	"warwick-institute/internal/httpapi/roomshttp"
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
 	"warwick-institute/internal/httpapi/schedulinghttp"
@@ -41,6 +42,7 @@ import (
 	"warwick-institute/internal/httpapi/usershttp"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/ratelimit"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 	"warwick-institute/internal/smartsms"
@@ -80,6 +82,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		CRMReconcileV2:     reconcileV2,
 		CRMWorker:          worker,
 		RateLimiter:        ratelimit.NewStore(db),
+		Realtime:           realtime.NewHub(),
 		AppOrigin:          cfg.AppOrigin,
 		LegacySyncURL:      cfg.LegacySyncURL,
 		LegacySyncUsername: cfg.LegacySyncUsername,
@@ -171,6 +174,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	serieshttp.Register(mux, deps)
 	availabilityhttp.Register(mux, deps)
 	crmhttp.Register(mux, deps)
+	realtimehttp.Register(mux, deps)
 
 	// Static SPA (filesystem, not embedded): serve index.html fallback for client-side routing.
 	staticDir := cfg.StaticDir

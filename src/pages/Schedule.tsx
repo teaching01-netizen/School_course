@@ -24,6 +24,7 @@ import { useCreateSession } from "../hooks/useCreateSession";
 import { useEditSession } from "../hooks/useEditSession";
 import { useAttendanceModal } from "../hooks/useAttendanceModal";
 import { usePreflight } from "../hooks/usePreflight";
+import { useRealtime } from "../hooks/useRealtime";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "../utils/preflight";
 import { useFormValidation } from "../hooks/useFormValidation";
 import TypeaheadSelect from "../components/TypeaheadSelect";
@@ -71,6 +72,8 @@ export default function Schedule() {
       setLoading(false);
     }
   }, [startDate, endDate, startTime, endTime, zone, addToast]);
+
+  useRealtime(["sessions:all"], () => void load(), { debounceMs: 500 });
 
   // --- Create Session hook ---
   const create = useCreateSession(load, addToast, zone);

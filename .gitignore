@@ -7,9 +7,29 @@
 # local tools
 .tools/
 
+# agent / IDE tooling
+.deepseek/
+.opencode/
+.orchestration/
+.planning/
+.swarm/
+.understand/
+.understand-anything/
+agent/
+
 # deps / builds
 node_modules/
 dist/
+
+# design artifacts / screenshots
+artifacts/
+
+# dev scripts
+scripts/
+
+# planning / specs
+specs/
+copy/
 
 # Go build outputs
 backend/bin/

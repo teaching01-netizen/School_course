@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useEffect, useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { apiJson } from "../api/client";
+import { useRealtime, type RealtimeEvent } from "../hooks/useRealtime";
 import type { AbsenceStats } from "../types";
 
 const navGroups = [
@@ -80,12 +81,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
     };
     void refreshStats();
-    const pollID = window.setInterval(() => void refreshStats(), 60_000);
     return () => {
       active = false;
-      window.clearInterval(pollID);
     };
   }, [user?.role]);
+
+  useRealtime<AbsenceStats>(
+    ["absent:stats"],
+    (event: RealtimeEvent<AbsenceStats>) => {
+      if (event.type !== "absent.stats.updated" || !event.payload) return;
+      setPendingAbsences(event.payload.pending_count);
+    },
+    { enabled: user?.role === "Admin" }
+  );
 
   const handleLogout = async () => {
     try {

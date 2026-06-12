@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { CheckCircle, Clock, RotateCcw, XCircle, PenLine } from "lucide-react";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { useRealtime } from "../hooks/useRealtime";
 import type { Course, ManagedAbsence } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
@@ -123,6 +124,14 @@ export default function AbsenceDetail() {
   }, [addToast, id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useRealtime(
+    ["absent:all"],
+    (event) => {
+      if (event.id === id) void load();
+    },
+    { debounceMs: 500 }
+  );
 
   useEffect(() => {
     if (!overrideOpen || overrideMethod !== "physical" || !courseID) return;

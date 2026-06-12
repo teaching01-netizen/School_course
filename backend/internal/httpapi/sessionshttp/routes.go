@@ -3,6 +3,7 @@ package sessionshttp
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
 
@@ -38,6 +40,63 @@ type server struct {
 	a    httpadapter.Adapter
 }
 
+type sessionDTO struct {
+	ID        string  `json:"id"`
+	SeriesID  *string `json:"series_id"`
+	CourseID  string  `json:"course_id"`
+	RoomID    *string `json:"room_id"`
+	TeacherID string  `json:"teacher_id"`
+	StartAt   string  `json:"start_at"`
+	EndAt     string  `json:"end_at"`
+	Version   int32   `json:"version"`
+}
+
+func (s *server) publishSessionUpdated(id string) {
+	if s.deps.Realtime == nil || id == "" {
+		return
+	}
+	s.deps.Realtime.Publish("sessions:all", realtime.Event{Type: "session.updated", ID: id})
+}
+
+func (s *server) sessionDTOFromFields(w http.ResponseWriter, id, seriesID, courseID, roomID, teacherID pgtype.UUID, startAt, endAt pgtype.Timestamptz, version int32) (sessionDTO, bool) {
+	sid, err := s.a.UUIDString(id)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return sessionDTO{}, false
+	}
+	cid, err := s.a.UUIDString(courseID)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return sessionDTO{}, false
+	}
+	var rid *string
+	if roomID.Valid {
+		v, err := s.a.UUIDString(roomID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return sessionDTO{}, false
+		}
+		rid = &v
+	}
+	tid, err := s.a.UUIDString(teacherID)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return sessionDTO{}, false
+	}
+	startS, _ := s.a.TimeString(startAt)
+	endS, _ := s.a.TimeString(endAt)
+	var seriesIDOut *string
+	if seriesID.Valid {
+		v, err := s.a.UUIDString(seriesID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return sessionDTO{}, false
+		}
+		seriesIDOut = &v
+	}
+	return sessionDTO{ID: sid, SeriesID: seriesIDOut, CourseID: cid, RoomID: rid, TeacherID: tid, StartAt: startS, EndAt: endS, Version: version}, true
+}
+
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
@@ -52,6 +111,41 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 func (s *server) handleSessionsListByRange(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.a.MustUser(w, r); !ok {
+		return
+	}
+
+	if idsRaw := strings.TrimSpace(r.URL.Query().Get("ids")); idsRaw != "" {
+		values := strings.Split(idsRaw, ",")
+		if len(values) > 100 {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_ids", "No more than 100 session IDs can be requested")
+			return
+		}
+		out := make([]sessionDTO, 0, len(values))
+		for _, raw := range values {
+			id, err := s.a.ParseUUID(strings.TrimSpace(raw))
+			if err != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_ids", "Invalid session ID")
+				return
+			}
+			row, err := s.deps.Q.SessionGetByID(r.Context(), id)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					continue
+				}
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return
+			}
+			if row.DeletedAt.Valid {
+				continue
+			}
+			dto, ok := s.sessionDTOFromFields(w, row.ID, row.SeriesID, row.CourseID, row.RoomID, row.TeacherID, row.StartAt, row.EndAt, row.Version)
+			if !ok {
+				return
+			}
+			out = append(out, dto)
+		}
+		s.a.WriteJSON(w, http.StatusOK, out)
 		return
 	}
 
@@ -85,54 +179,13 @@ func (s *server) handleSessionsListByRange(w http.ResponseWriter, r *http.Reques
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	type sessionDTO struct {
-		ID        string  `json:"id"`
-		SeriesID  *string `json:"series_id"`
-		CourseID  string  `json:"course_id"`
-		RoomID    *string `json:"room_id"`
-		TeacherID string  `json:"teacher_id"`
-		StartAt   string  `json:"start_at"`
-		EndAt     string  `json:"end_at"`
-		Version   int32   `json:"version"`
-	}
 	out := make([]sessionDTO, 0, len(items))
 	for _, ss := range items {
-		sid, err := s.a.UUIDString(ss.ID)
-		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		dto, ok := s.sessionDTOFromFields(w, ss.ID, ss.SeriesID, ss.CourseID, ss.RoomID, ss.TeacherID, ss.StartAt, ss.EndAt, ss.Version)
+		if !ok {
 			return
 		}
-		cid, err := s.a.UUIDString(ss.CourseID)
-		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-			return
-		}
-		var rid *string
-		if ss.RoomID.Valid {
-			v, err := s.a.UUIDString(ss.RoomID)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return
-			}
-			rid = &v
-		}
-		tid, err := s.a.UUIDString(ss.TeacherID)
-		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-			return
-		}
-		startS, _ := s.a.TimeString(ss.StartAt)
-		endS, _ := s.a.TimeString(ss.EndAt)
-		var seriesID *string
-		if ss.SeriesID.Valid {
-			v, err := s.a.UUIDString(ss.SeriesID)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return
-			}
-			seriesID = &v
-		}
-		out = append(out, sessionDTO{ID: sid, SeriesID: seriesID, CourseID: cid, RoomID: rid, TeacherID: tid, StartAt: startS, EndAt: endS, Version: ss.Version})
+		out = append(out, dto)
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }
@@ -210,7 +263,8 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 		seriesID = &tmp
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var createdID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := s.deps.Scheduling.CreateSessionTx(r.Context(), tx, qtx, scheduling.CreateSessionParams{
 			SeriesID:  seriesID,
@@ -235,6 +289,7 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		createdID = idStr
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
@@ -244,7 +299,9 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "session_id", idStr)
 		}
 		return http.StatusCreated, map[string]any{"id": idStr}, nil
-	})
+	}) {
+		s.publishSessionUpdated(createdID)
+	}
 }
 
 func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
@@ -294,13 +351,14 @@ func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	deletedID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if _, err := qtx.SessionHardDelete(r.Context(), sqldb.SessionHardDeleteParams{ID: id, Version: *body.ExpectedVersion}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"message": "session already deleted or version mismatch"})
-			return 0, nil, err
-		}
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"message": "session already deleted or version mismatch"})
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -314,7 +372,9 @@ func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "session_id", r.PathValue("id"))
 		}
 		return http.StatusOK, map[string]any{"ok": true}, nil
-	})
+	}) {
+		s.publishSessionUpdated(deletedID)
+	}
 }
 
 func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Request) {
@@ -437,7 +497,8 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var updatedID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := s.deps.Scheduling.EditOccurrenceTimeTx(r.Context(), tx, qtx, scheduling.EditOccurrenceParams{
 			SessionID:       id,
@@ -463,6 +524,7 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		updatedID = sid
 
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
@@ -493,7 +555,9 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 			dto["series_id"] = mustUUIDStringOrEmpty(s.a, updated.SeriesID)
 		}
 		return http.StatusOK, map[string]any{"session": dto}, nil
-	})
+	}) {
+		s.publishSessionUpdated(updatedID)
+	}
 }
 
 func (s *server) handleSessionAttendanceList(w http.ResponseWriter, r *http.Request) {

@@ -48,6 +48,7 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 	if !s.requestOriginAllowed(w, r) {
 		return
 	}
+	createdIDs := []string{}
 	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
@@ -206,12 +207,14 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			dto.MissedSessions = s.sessionDTO(record.missed)
 			dto.SitIns = s.sessionDTO(record.sessions)
 			out = append(out, dto)
+			createdIDs = append(createdIDs, dto.ID)
 		}
 
 		return http.StatusCreated, batchAbsenceCreateResponse{Items: out}, nil
 	}) {
 		return
 	}
+	s.publishAbsenceChanges(createdIDs)
 }
 
 func (s *server) createAbsenceRecordTx(

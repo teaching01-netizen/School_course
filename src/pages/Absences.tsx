@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2 } from "lucide-react";
 import { apiJson, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { useRealtime } from "../hooks/useRealtime";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
 import PageHeading from "../components/ui/PageHeading";
 import SearchInput from "../components/ui/SearchInput";
@@ -189,6 +190,8 @@ export default function Absences() {
       setLoading(false);
     }
   }, [addToast, requestQuery]);
+
+  useRealtime(["absent:all"], () => void load(), { debounceMs: 500 });
 
   useEffect(() => {
     void load();

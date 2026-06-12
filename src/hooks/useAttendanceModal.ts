@@ -27,24 +27,28 @@ export function useAttendanceModal(
   const [includeWcode, setIncludeWcode] = useState("");
   const [includeAdding, setIncludeAdding] = useState(false);
 
+  const loadAttendanceState = useCallback(async (sess: Session) => {
+    const [rosterData, overridesData] = await Promise.all([
+      apiJson<Student[]>(`/api/v1/courses/${sess.course_id}/students`, { method: "GET" }),
+      apiJson<AttendanceOverride[]>(`/api/v1/sessions/${sess.id}/attendance`, { method: "GET" }),
+    ]);
+    const rosterIds = new Set(rosterData.map((s) => s.id));
+    const missing = overridesData.map((o) => o.student_id).filter((sid) => !rosterIds.has(sid));
+    const extra = missing.length
+      ? await Promise.all(missing.map((sid) => apiJson<Student>(`/api/v1/students/${sid}`, { method: "GET" })))
+      : [];
+    const merged = [...rosterData, ...extra].filter(
+      (value, index, array) => array.findIndex((candidate) => candidate.id === value.id) === index,
+    );
+    setRoster(merged);
+    setOverrides(overridesData);
+  }, []);
+
   const openAttendance = useCallback(async (sess: Session) => {
     try {
       setLoading(true);
       setSession(sess);
-      const [rosterData, overridesData] = await Promise.all([
-        apiJson<Student[]>(`/api/v1/courses/${sess.course_id}/students`, { method: "GET" }),
-        apiJson<AttendanceOverride[]>(`/api/v1/sessions/${sess.id}/attendance`, { method: "GET" }),
-      ]);
-      const rosterIds = new Set(rosterData.map((s) => s.id));
-      const missing = overridesData.map((o) => o.student_id).filter((sid) => !rosterIds.has(sid));
-      const extra = missing.length
-        ? await Promise.all(missing.map((sid) => apiJson<Student>(`/api/v1/students/${sid}`, { method: "GET" })))
-        : [];
-      const merged = [...rosterData, ...extra].filter(
-        (v, idx, arr) => arr.findIndex((x) => x.id === v.id) === idx,
-      );
-      setRoster(merged);
-      setOverrides(overridesData);
+      await loadAttendanceState(sess);
       setIncludeWcode("");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load attendance");
@@ -52,7 +56,7 @@ export function useAttendanceModal(
     } finally {
       setLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, loadAttendanceState]);
 
   const closeAttendance = useCallback(() => {
     setSession(null);
@@ -66,16 +70,14 @@ export function useAttendanceModal(
       method: "PUT",
       body: JSON.stringify({ student_id: studentId, status }),
     });
-    const next = await apiJson<AttendanceOverride[]>(`/api/v1/sessions/${session.id}/attendance`, { method: "GET" });
-    setOverrides(next);
-  }, [session?.id]);
+    await loadAttendanceState(session);
+  }, [session, loadAttendanceState]);
 
   const deleteAttendance = useCallback(async (studentId: string) => {
     if (!session) return;
     await apiJson(`/api/v1/sessions/${session.id}/attendance/${studentId}`, { method: "DELETE" });
-    const next = await apiJson<AttendanceOverride[]>(`/api/v1/sessions/${session.id}/attendance`, { method: "GET" });
-    setOverrides(next);
-  }, [session?.id]);
+    await loadAttendanceState(session);
+  }, [session, loadAttendanceState]);
 
   const addIncludedByWcode = useCallback(async () => {
     if (!session) return;

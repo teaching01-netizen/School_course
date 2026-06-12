@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { useRealtime } from "../hooks/useRealtime";
 import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief, CalendarSitInStudent } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
@@ -194,6 +195,8 @@ export default function OperationsCalendar() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useRealtime(["sessions:all", "absent:all"], () => void loadData(), { debounceMs: 500 });
 
   const goPrevWeek = () => setWeekStart((prev) => addDays(prev, -7));
   const goNextWeek = () => setWeekStart((prev) => addDays(prev, 7));

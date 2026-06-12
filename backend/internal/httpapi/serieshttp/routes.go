@@ -12,6 +12,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
 
@@ -64,6 +65,13 @@ func buildStaleEditPayloadSeries(a httpadapter.Adapter, r *http.Request, ser sql
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
+}
+
+func (s *server) publishSessionsChanged(id string) {
+	if s.deps.Realtime == nil || id == "" {
+		return
+	}
+	s.deps.Realtime.Publish("sessions:all", realtime.Event{Type: "sessions.updated", ID: id})
 }
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
@@ -162,7 +170,8 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var changedID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		res, err := s.deps.Scheduling.CreateSeriesAndMaterializeTx(r.Context(), tx, qtx, scheduling.CreateSeriesParams{
 			CourseID:        courseID,
@@ -190,6 +199,7 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		changedID = seriesID
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
@@ -202,7 +212,9 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 			"series_id":      seriesID,
 			"sessions_added": res.SessionsAdded,
 		}, nil
-	})
+	}) {
+		s.publishSessionsChanged(changedID)
+	}
 }
 
 func (s *server) handleSeriesGet(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +369,8 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 		endDate = &d
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var changedID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		res, err := s.deps.Scheduling.SplitThisAndFutureTx(r.Context(), tx, qtx, scheduling.SplitSeriesParams{
 			SeriesID:        id,
@@ -393,6 +406,7 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		changedID = newID
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
@@ -402,7 +416,9 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "series_id", r.PathValue("id"))
 		}
 		return http.StatusOK, map[string]any{"old_series_id": oldID, "new_series_id": newID, "new_sessions_added": res.NewSessionsAdded}, nil
-	})
+	}) {
+		s.publishSessionsChanged(changedID)
+	}
 }
 
 func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
@@ -473,7 +489,8 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 		pivot = &d
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var changedID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		res, err := s.deps.Scheduling.CancelSeriesTx(r.Context(), tx, qtx, scheduling.CancelSeriesParams{
 			SeriesID:        id,
@@ -505,6 +522,7 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		changedID = seriesID
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
@@ -519,7 +537,9 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			"canceled_from_utc": res.CanceledFromUTC.UTC().Format(time.RFC3339Nano),
 			"sessions_canceled": res.SessionsCanceled,
 		}, nil
-	})
+	}) {
+		s.publishSessionsChanged(changedID)
+	}
 }
 
 func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) {
@@ -626,7 +646,8 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var changedID string
+	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		res, err := s.deps.Scheduling.EditEntireSeriesFutureOnlyTx(r.Context(), tx, qtx, scheduling.EditEntireSeriesParams{
 			SeriesID:        id,
@@ -664,6 +685,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		changedID = seriesID
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
@@ -677,5 +699,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			"sessions_canceled": res.SessionsCanceled,
 			"sessions_added":    res.SessionsAdded,
 		}, nil
-	})
+	}) {
+		s.publishSessionsChanged(changedID)
+	}
 }
