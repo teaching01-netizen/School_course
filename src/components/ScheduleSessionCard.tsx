@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { format } from 'date-fns';
 
 type Session = { id: string; course_id: string; room_id: string | null; start_at: string; end_at: string };
-type Course = { id: string; code: string; name: string; teacher_name?: string; subject_code?: string; subject_name?: string; student_count?: number | null };
+type Course = { id: string; code: string; name: string; teacher_name?: string | null; subject_code?: string | null; subject_name?: string | null; student_count?: number | null };
 type Room = { id: string; name: string; capacity: number | null };
 
 interface ScheduleSessionCardProps {

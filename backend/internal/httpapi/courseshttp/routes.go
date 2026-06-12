@@ -592,24 +592,12 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
 		return
 	}
-	item, err := s.deps.Q.CourseGetByID(r.Context(), id)
+	item, err := s.deps.Q.CourseGetFull(r.Context(), id)
 	if err != nil {
-		s.deps.Log.Error("course_get_by_id failed", "error", err, "course_id", r.PathValue("id"))
+		s.deps.Log.Error("course_get_full failed", "error", err, "course_id", r.PathValue("id"))
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return
-	}
-	// Fetch legacy fields separately since CourseGetByID doesn't include them.
-	var legacyCourseID any = nil
-	var legacyLastSyncedAt any = nil
-	var legacyCID pgtype.Text
-	var legacyLastSynced pgtype.Timestamptz
-	_ = s.deps.DB.QueryRow(r.Context(), `SELECT legacy_course_id, legacy_last_synced_at FROM courses WHERE id = $1`, id).Scan(&legacyCID, &legacyLastSynced)
-	if legacyCID.Valid {
-		legacyCourseID = legacyCID.String
-	}
-	if legacyLastSynced.Valid {
-		legacyLastSyncedAt, _ = s.a.TimeString(legacyLastSynced)
 	}
 
 	cid, err := s.a.UUIDString(item.ID)
@@ -618,11 +606,61 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
+
+	var teacherID any = nil
+	if item.TeacherID.Valid {
+		tid, err := s.a.UUIDString(item.TeacherID)
+		if err == nil {
+			teacherID = tid
+		}
+	}
+	var subjectID any = nil
+	if item.SubjectID.Valid {
+		sid, err := s.a.UUIDString(item.SubjectID)
+		if err == nil {
+			subjectID = sid
+		}
+	}
+	var legacyCourseID any = nil
+	if item.LegacyCourseID.Valid {
+		legacyCourseID = item.LegacyCourseID.String
+	}
+	var legacyLastSyncedAt any = nil
+	if item.LegacyLastSyncedAt.Valid {
+		legacyLastSyncedAt, _ = s.a.TimeString(item.LegacyLastSyncedAt)
+	}
+	var year any = nil
+	if item.Year.Valid {
+		year = item.Year.Int16
+	}
+	var hour any = nil
+	if item.Hour.Valid {
+		hour = item.Hour.Int32
+	}
+	var studentCount any = nil
+	if item.StudentCount.Valid {
+		studentCount = item.StudentCount.Int32
+	}
+	var courseType any = nil
+	if item.CourseType.Valid {
+		courseType = item.CourseType.String
+	}
+
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":                   cid,
-		"code":                 item.Code,
-		"name":                 item.Name,
-		"legacy_course_id":     legacyCourseID,
+		"id":                    cid,
+		"course_no":             item.CourseNo,
+		"code":                  item.Code,
+		"name":                  item.Name,
+		"year":                  year,
+		"teacher_id":            teacherID,
+		"teacher_name":          item.TeacherName,
+		"subject_id":            subjectID,
+		"subject_code":          item.SubjectCode,
+		"subject_name":          item.SubjectName,
+		"hour":                  hour,
+		"student_count":         studentCount,
+		"course_type":           courseType,
+		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
 	})
 }
@@ -638,8 +676,9 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Code           string `json:"code"`
-		Name           string `json:"name"`
+		Code           string  `json:"code"`
+		Name           string  `json:"name"`
+		TeacherID      *string `json:"teacher_id"`
 		LegacyCourseID *string `json:"legacy_course_id"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
@@ -648,36 +687,106 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		item, err := qtx.CourseUpdate(r.Context(), sqldb.CourseUpdateParams{ID: id, Code: body.Code, Name: body.Name})
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
+
+		var item sqldb.CourseOverviewRow
+		var updateErr error
+		if body.TeacherID != nil {
+			// teacher_id explicitly provided → update it (null allowed to clear).
+			tid, parseErr := s.a.ParseUUID(*body.TeacherID)
+			if parseErr != nil {
+				// If empty string or invalid UUID, treat as null.
+				tid = pgtype.UUID{Valid: false}
+			}
+			item, updateErr = qtx.CourseUpdateFull(r.Context(), sqldb.CourseUpdateFullParams{
+				ID:        id,
+				Code:      body.Code,
+				Name:      body.Name,
+				TeacherID: tid,
+			})
+		} else {
+			// teacher_id not provided → preserve existing value via original sqlc update.
+			var sqlcItem sqldb.CourseUpdateRow
+			sqlcItem, updateErr = qtx.CourseUpdate(r.Context(), sqldb.CourseUpdateParams{ID: id, Code: body.Code, Name: body.Name})
+			if updateErr == nil {
+				// Fetch the full row to build the rich response.
+				item, updateErr = qtx.CourseGetFull(r.Context(), id)
+				if updateErr == nil {
+					// Re-override code+name from the sqlc update result (authoritative).
+					item.Code = sqlcItem.Code
+					item.Name = sqlcItem.Name
+				}
+			}
 		}
+		if updateErr != nil {
+			status, code, msg := s.a.ClassifyDBErr(updateErr)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, updateErr
+		}
+
+		// Update legacy_course_id separately.
+		if err := qtx.CourseUpdateLegacyLink(r.Context(), id, pgtype.Text{String: strPtrOr(body.LegacyCourseID, ""), Valid: body.LegacyCourseID != nil}); err != nil {
+			s.deps.Log.Error("legacy_course_id update failed", "error", err, "course_id", item.ID)
+		}
+
 		cid, err := s.a.UUIDString(item.ID)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
-		// Update legacy_course_id separately (not part of sqlc-generated CourseUpdate).
-		if err := qtx.CourseUpdateLegacyLink(r.Context(), id, pgtype.Text{String: strPtrOr(body.LegacyCourseID, ""), Valid: body.LegacyCourseID != nil}); err != nil {
-			s.deps.Log.Error("legacy_course_id update failed", "error", err, "course_id", cid)
+
+		var teacherID any = nil
+		if item.TeacherID.Valid {
+			tid, err := s.a.UUIDString(item.TeacherID)
+			if err == nil {
+				teacherID = tid
+			}
 		}
-		// Read back legacy fields for response.
+		var subjectID any = nil
+		if item.SubjectID.Valid {
+			sid, err := s.a.UUIDString(item.SubjectID)
+			if err == nil {
+				subjectID = sid
+			}
+		}
 		var legacyCourseID any = nil
+		if item.LegacyCourseID.Valid {
+			legacyCourseID = item.LegacyCourseID.String
+		}
 		var legacyLastSyncedAt any = nil
-		if body.LegacyCourseID != nil {
-			legacyCourseID = *body.LegacyCourseID
+		if item.LegacyLastSyncedAt.Valid {
+			legacyLastSyncedAt, _ = s.a.TimeString(item.LegacyLastSyncedAt)
 		}
-		var legacyLastSynced pgtype.Timestamptz
-		_ = s.deps.DB.QueryRow(r.Context(), `SELECT legacy_last_synced_at FROM courses WHERE id = $1`, id).Scan(&legacyLastSynced)
-		if legacyLastSynced.Valid {
-			legacyLastSyncedAt, _ = s.a.TimeString(legacyLastSynced)
+		var year any = nil
+		if item.Year.Valid {
+			year = item.Year.Int16
 		}
+		var hour any = nil
+		if item.Hour.Valid {
+			hour = item.Hour.Int32
+		}
+		var studentCount any = nil
+		if item.StudentCount.Valid {
+			studentCount = item.StudentCount.Int32
+		}
+		var courseType any = nil
+		if item.CourseType.Valid {
+			courseType = item.CourseType.String
+		}
+
 		return http.StatusOK, map[string]any{
 			"id":                    cid,
+			"course_no":             item.CourseNo,
 			"code":                  item.Code,
 			"name":                  item.Name,
+			"year":                  year,
+			"teacher_id":            teacherID,
+			"teacher_name":          item.TeacherName,
+			"subject_id":            subjectID,
+			"subject_code":          item.SubjectCode,
+			"subject_name":          item.SubjectName,
+			"hour":                  hour,
+			"student_count":         studentCount,
+			"course_type":           courseType,
 			"legacy_course_id":      legacyCourseID,
 			"legacy_last_synced_at": legacyLastSyncedAt,
 		}, nil

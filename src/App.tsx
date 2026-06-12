@@ -18,7 +18,6 @@ import Classrooms from './pages/Classrooms';
 import Users from './pages/Users';
 import Schedule from './pages/Schedule';
 import Summary from './pages/Summary';
-import CourseEdit from './pages/CourseEdit';
 import Availability from './pages/Availability';
 import Reports from './pages/Reports';
 import Logs from './pages/Logs';
@@ -62,7 +61,6 @@ function App() {
               <Route path="/courses" element={<Courses />} />
               <Route path="/courses/create" element={<CourseCreate />} />
               <Route path="/courses/:id" element={<CourseDetail />} />
-              <Route path="/courses/:id/edit" element={<CourseEdit />} />
               <Route path="/students" element={<Students />} />
               <Route path="/students/:wcode" element={<StudentProfile />} />
               <Route path="/teachers" element={<Teachers />} />

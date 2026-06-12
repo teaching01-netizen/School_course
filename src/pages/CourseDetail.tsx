@@ -190,6 +190,11 @@ export default function CourseDetail() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editCode, setEditCode] = useState("");
+  const [editTeacherId, setEditTeacherId] = useState("");
+  const [courseEditSaving, setCourseEditSaving] = useState(false);
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
   const today = useMemo(() => new Date(), []);
@@ -397,6 +402,47 @@ export default function CourseDetail() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const startEditing = () => {
+    if (!course) return;
+    setEditCode(course.code);
+    setEditName(course.name);
+    setEditTeacherId(course.teacher_id ?? "");
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditCode("");
+    setEditName("");
+    setEditTeacherId("");
+  };
+
+  const submitCourseEdit = async () => {
+    if (!id || !course) return;
+    if (!editCode.trim() || !editName.trim()) {
+      addToast("error", "Code and name are required");
+      return;
+    }
+    try {
+      setCourseEditSaving(true);
+      const updated = await apiJson<Course>(`/api/v1/courses/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          code: editCode.trim(),
+          name: editName.trim(),
+          teacher_id: editTeacherId || null,
+        }),
+      });
+      setCourse(updated);
+      addToast("success", "Course updated");
+      setIsEditing(false);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setCourseEditSaving(false);
+    }
+  };
 
   const onDelete = async () => {
     if (!id) return;
@@ -712,19 +758,80 @@ export default function CourseDetail() {
           Course <span className="text-gray-400">#{course.code}</span>
         </PageHeading>
         <div className="flex gap-2">
-          <Link to={`/courses/${course.id}/edit`} className="px-3 py-1.5 text-sm bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm">
-            Edit
-          </Link>
-          <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)} loading={deleting}>
-            {deleting ? "Deleting..." : "Delete"}
-          </Button>
+          {isEditing ? (
+            <>
+              <Button variant="secondary" size="md" onClick={cancelEditing}>Cancel</Button>
+              <Button variant="primary" size="md" onClick={submitCourseEdit} loading={courseEditSaving}>
+                {courseEditSaving ? "Saving…" : "Save"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" size="md" onClick={startEditing}>Edit</Button>
+              <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)} loading={deleting}>
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="border-b border-gray-200 pb-3 mb-6">
-        <div className="text-sm text-gray-700">{course.name}</div>
-        <div className="text-xs text-gray-400 font-mono">{course.id}</div>
-      </div>
+      {isEditing ? (
+        <div className="border-b border-gray-200 pb-4 mb-6 space-y-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Code</label>
+              <input
+                type="text"
+                value={editCode}
+                onChange={(e) => setEditCode(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Name</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Teacher</label>
+            <TypeaheadSelect
+              value={editTeacherId}
+              onChange={setEditTeacherId}
+              options={teacherOptions}
+              placeholder="Select teacher…"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="border-b border-gray-200 pb-3 mb-6">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-gray-700 font-medium">{course.name}</span>
+            {course.teacher_name && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
+                {course.teacher_name}
+              </span>
+            )}
+            {course.subject_name && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-green-50 text-green-700 border border-green-200">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 3l5-2 5 2v1l-5 2-5-2V3zm0 3l5 2 5-2" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
+                {course.subject_name}
+              </span>
+            )}
+            {course.course_type && (
+              <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-sm border ${course.course_type === 'Private' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                {course.course_type}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mb-8">
         <div className="flex items-end justify-between gap-3 mb-3">
@@ -859,7 +966,7 @@ export default function CourseDetail() {
               ) : (
                 sessions.map((s) => {
                   const mins = minutesBetween(s.start_at, s.end_at);
-                  const dateLabel = utcISOToZoneDate(s.start_at, zone) ?? s.start_at.slice(0, 10);
+                  const dateLabel = formatUTCToZone(s.start_at, zone, "EEE d MMM yy") ?? s.start_at.slice(0, 10);
                   const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
                   const end = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
                   const isEditing = editingSessionId === s.id;
