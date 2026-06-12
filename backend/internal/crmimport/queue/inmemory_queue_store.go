@@ -96,6 +96,8 @@ func (s *InMemoryQueueStore) CompleteJob(ctx context.Context, jobID uuid.UUID, s
 	j.row.HeartbeatAt = nil
 	if errMsg != "" {
 		j.row.LastError = &errMsg
+	} else {
+		j.row.LastError = nil
 	}
 	return nil
 }

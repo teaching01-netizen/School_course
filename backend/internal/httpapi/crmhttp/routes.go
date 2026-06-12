@@ -275,18 +275,24 @@ func (s *server) handleCourseFilterJobStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	s.a.WriteJSON(w, http.StatusOK, buildCourseFilterJobStatusResponse(jobID.String(), status, jobType, lastError, result))
+}
+
+func buildCourseFilterJobStatusResponse(jobID, status, jobType, lastError string, result []byte) map[string]any {
 	message := "Course CRM reconcile job is " + status
 	var details any
-	if status == "succeeded" {
-		message = "Course CRM reconcile completed"
-	} else if lastError != "" {
+	if lastError != "" {
 		message, details = parseCRMJobError(lastError)
 		if isCRMStudentScheduleConflictDetails(details) {
 			status = "failed"
 		}
 	}
+	if status == "succeeded" {
+		message = "Course CRM reconcile completed"
+		details = nil
+	}
 	resp := map[string]any{
-		"job_id":   jobID.String(),
+		"job_id":   jobID,
 		"status":   status,
 		"job_type": jobType,
 		"message":  message,
@@ -297,7 +303,7 @@ func (s *server) handleCourseFilterJobStatus(w http.ResponseWriter, r *http.Requ
 	if len(result) > 0 && string(result) != "{}" {
 		resp["result"] = json.RawMessage(result)
 	}
-	s.a.WriteJSON(w, http.StatusOK, resp)
+	return resp
 }
 
 func uuidString(id pgtype.UUID) string {

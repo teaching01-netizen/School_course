@@ -1084,7 +1084,7 @@ func CourseReconcileJobHandler(reconcileV2 *ReconcileV2Service, worker *queue.Qu
 			if err != nil {
 				var conflictErr *StudentScheduleConflictError
 				if errors.As(err, &conflictErr) {
-					return conflictErr
+					return queue.MarkNonRetryable(conflictErr)
 				}
 				return fmt.Errorf("apply reconcile: %w", err)
 			}

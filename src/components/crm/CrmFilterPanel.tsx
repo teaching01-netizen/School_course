@@ -219,6 +219,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   const [saving, setSaving] = useState(false);
   const [reconcileJobID, setReconcileJobID] = useState<string | null>(null);
   const [reconcileJob, setReconcileJob] = useState<CourseReconcileJobStatus | null>(null);
+  const reconcileActive = isActiveJob(reconcileJob?.status);
 
   const loadCrmFilter = useCallback(async () => {
     try {
@@ -303,6 +304,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   }, [pollReconcileJob, reconcileJobID]);
 
   const saveFilter = async () => {
+    if (reconcileActive) return;
     try {
       setSaving(true);
       const res = await apiJson<CourseFilterMutationResponse>(`/api/v1/courses/${courseId}/crm-filter`, {
@@ -327,6 +329,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   };
 
   const toggleLock = async () => {
+    if (reconcileActive) return;
     try {
       const newLocked = !locked;
       const res = await apiJson<CourseFilterMutationResponse>(`/api/v1/courses/${courseId}/crm-filter/lock`, {
@@ -501,6 +504,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
             <button
               type="button"
               onClick={toggleLock}
+              disabled={reconcileActive}
               className={`px-3 py-1 text-xs rounded-sm border ${
                 locked
                   ? "border-green-600 text-green-700 hover:bg-green-50"
@@ -512,7 +516,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
           )}
           <button
             onClick={saveFilter}
-            disabled={saving}
+            disabled={saving || reconcileActive}
             className="px-3 py-1 text-xs rounded-sm bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save filter"}

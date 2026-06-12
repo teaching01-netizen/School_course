@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -60,6 +61,39 @@ type JobRow struct {
 
 // JobHandler is the function signature for processing a claimed job.
 type JobHandler func(ctx context.Context, job JobRow) error
+
+type nonRetryable interface {
+	NonRetryable() bool
+}
+
+type nonRetryableError struct {
+	err error
+}
+
+func (e nonRetryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e nonRetryableError) Unwrap() error {
+	return e.err
+}
+
+func (e nonRetryableError) NonRetryable() bool {
+	return true
+}
+
+// MarkNonRetryable marks deterministic business failures that should not be retried.
+func MarkNonRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return nonRetryableError{err: err}
+}
+
+func isNonRetryable(err error) bool {
+	var marker nonRetryable
+	return errors.As(err, &marker) && marker.NonRetryable()
+}
 
 // QueueStore defines the storage operations the queue worker needs.
 type QueueStore interface {
@@ -128,7 +162,7 @@ func (s *PostgresQueueStore) CompleteJob(ctx context.Context, jobID uuid.UUID, s
 		     locked_by = NULL,
 		     locked_until = NULL,
 		     heartbeat_at = NULL,
-		     last_error = CASE WHEN $2 = '' THEN last_error ELSE $2 END,
+		     last_error = NULLIF($2, ''),
 		     updated_at = now()
 		 WHERE id = $3`,
 		status, errMsg, jobID,
@@ -392,7 +426,7 @@ func (w *QueueWorker) RunJob(ctx context.Context, job JobRow) {
 
 	if err != nil {
 		log.Error("job failed", "error", err)
-		if job.Attempt >= job.MaxAttempts {
+		if isNonRetryable(err) || job.Attempt >= job.MaxAttempts {
 			if err := w.store.CompleteJob(context.Background(), job.ID, "failed", err.Error()); err != nil {
 				log.Error("failed to complete job", "job_id", job.ID, "status", "failed", "error", err)
 			}
