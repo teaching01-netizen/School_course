@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/crmimport"
+	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
@@ -35,6 +36,7 @@ type Deps struct {
 	CRMUploadV2    *crmimport.UploadV2Service
 	CRMReconcileV2 *reconcile.ReconcileV2Service
 	CRMWorker      *queue.QueueWorker
+	CrossStudy     *crossstudy.Store
 
 	SMS                smartsms.SMSProvider
 	OTPSender          smartsms.OTPProvider

@@ -24,6 +24,7 @@ import Logs from './pages/Logs';
 import SlotFinder from './pages/SlotFinder';
 import CrmAdmin from './pages/CrmAdmin';
 import CrmConflicts from './pages/CrmConflicts';
+import CrossStudyPage from './pages/CrossStudyPage';
 import CourseLevels from './pages/CourseLevels';
 import AbsenceForm from './pages/AbsenceForm';
 import Absences from './pages/Absences';
@@ -85,6 +86,7 @@ function App() {
               <Route path="/course-levels" element={<CourseLevels />} />
               <Route path="/crm" element={<CrmAdmin />} />
               <Route path="/crm/conflicts" element={<CrmConflicts />} />
+              <Route path="/crm/cross-study" element={<CrossStudyPage />} />
               <Route path="/admin/absence-settings" element={<AbsenceSettings />} />
               <Route path="/absences/calendar" element={<OperationsCalendar />} />
               <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />

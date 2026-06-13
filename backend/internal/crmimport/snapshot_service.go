@@ -54,6 +54,7 @@ func (s *SnapshotService) PopulateRows(ctx context.Context, snapshotID pgtype.UU
 			"first_name", "last_name", "nickname", "secondary_school", "academic_level",
 			"mobile_phone", "hours", "teachers_raw", "primary_email",
 			"parent_name", "parent_phone", "parent_email", "order_quote_updated_at",
+			"extra_note",
 		},
 		pgx.CopyFromRows(rowCopies(snapshotID, rows)),
 	)
@@ -97,6 +98,7 @@ func rowCopies(snapshotID pgtype.UUID, rows []xlsx.Row) [][]any {
 			nullIfEmpty(r.ParentPhone),
 			nullIfEmpty(r.ParentEmail),
 			updated,
+			r.ExtraNote,
 		}
 	}
 	return sources

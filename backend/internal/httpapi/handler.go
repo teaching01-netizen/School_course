@@ -14,6 +14,7 @@ import (
 	"warwick-institute/internal/auth"
 	"warwick-institute/internal/config"
 	"warwick-institute/internal/crmimport"
+	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
@@ -190,7 +191,10 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	audithttp.Register(mux, deps)
 	serieshttp.Register(mux, deps)
 	availabilityhttp.Register(mux, deps)
+	crossStudyStore := crossstudy.NewStore(db)
+	deps.CrossStudy = crossStudyStore
 	crmhttp.Register(mux, deps)
+	crmhttp.RegisterCrossStudy(mux, deps)
 	realtimehttp.Register(mux, deps)
 
 	// Static SPA (filesystem, not embedded): serve index.html fallback for client-side routing.

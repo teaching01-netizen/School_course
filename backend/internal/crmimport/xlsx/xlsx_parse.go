@@ -32,6 +32,7 @@ type Row struct {
 	ParentPhone         string
 	ParentEmail         string
 	OrderQuoteUpdatedAt *time.Time
+	ExtraNote           string
 }
 
 // Hash returns a deterministic hash for deduplication within a single upload.
@@ -41,6 +42,7 @@ func (r Row) Hash() string {
 		strings.TrimSpace(r.CourseName),
 		strings.TrimSpace(r.CycleLabel),
 		strings.TrimSpace(r.TeachersRaw),
+		strings.TrimSpace(r.ExtraNote),
 	}
 	if r.Hours != nil {
 		parts = append(parts, fmt.Sprintf("hours=%d", *r.Hours))
@@ -197,6 +199,7 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 			ParentPhone:         cleanPhoneSuffix(get("phoneparent")),
 			ParentEmail:         get("emailparent"),
 			OrderQuoteUpdatedAt: updatedAtPtr,
+			ExtraNote:           get("Extra note"),
 		}
 		out = append(out, r)
 	}

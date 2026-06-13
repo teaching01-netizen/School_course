@@ -136,7 +136,7 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 				FROM crm_jobs
 				WHERE id <> $1
 				  AND payload->>'snapshot_id' = $2
-				  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+				  AND job_type::text IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff', 'cross_study_process')
 			`, jobID, snapshotID).Scan(&failedCount, &activeCount, &succeededCount, &totalCount)
 			if err != nil {
 				return nil, fmt.Errorf("query downstream job states: %w", err)
@@ -149,7 +149,7 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 				WHERE payload->>'snapshot_id' = $1
 				  AND status IN ('failed', 'retry', 'running')
 				  AND COALESCE(last_error, '') <> ''
-				  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+				  AND job_type::text IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff', 'cross_study_process')
 				ORDER BY updated_at DESC
 				LIMIT 1
 			`, snapshotID).Scan(&conflictJobError)
@@ -177,7 +177,7 @@ func (s *UploadV2Service) GetUploadJobStatus(ctx context.Context, jobID string) 
 					FROM crm_jobs
 					WHERE payload->>'snapshot_id' = $1
 					  AND status = 'failed'
-					  AND job_type IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff')
+					  AND job_type::text IN ('student_sync', 'course_reconcile_apply', 'course_reconcile_diff', 'cross_study_process')
 					ORDER BY updated_at DESC
 					LIMIT 1
 				`, snapshotID).Scan(&failedJobType, &failedJobError)
@@ -246,8 +246,13 @@ type EnqueueReconciler interface {
 	EnqueueReconcileJobsForSnapshot(ctx context.Context, snapshotID pgtype.UUID, worker *queue.QueueWorker) error
 }
 
+// CrossStudyChecker checks if cross-study processing should be enqueued.
+type CrossStudyChecker interface {
+	HasAnyAssignment(ctx context.Context) (bool, error)
+}
+
 // ImportSnapshotJobHandler returns a handler for the import_snapshot job type.
-func ImportSnapshotJobHandler(snapshotSvc *SnapshotService, syncSvc *StudentSyncService, reconcileV2 EnqueueReconciler, worker *queue.QueueWorker) queue.JobHandler {
+func ImportSnapshotJobHandler(snapshotSvc *SnapshotService, syncSvc *StudentSyncService, reconcileV2 EnqueueReconciler, worker *queue.QueueWorker, crossStudyCheck CrossStudyChecker) queue.JobHandler {
 	return func(ctx context.Context, job queue.JobRow) error {
 		var payload ImportSnapshotPayload
 		if err := json.Unmarshal(job.Payload, &payload); err != nil {
@@ -314,6 +319,19 @@ func ImportSnapshotJobHandler(snapshotSvc *SnapshotService, syncSvc *StudentSync
 		syncPayload := StudentSyncPayload{SnapshotID: snapshotUUID}
 		if _, err := worker.EnqueueJob(ctx, queue.JobTypeStudentSync, syncPayload, fmt.Sprintf("student-sync-%s", snapshotUUID.String())); err != nil {
 			return fmt.Errorf("enqueue student sync: %w", err)
+		}
+
+		if crossStudyCheck != nil {
+			hasAny, csErr := crossStudyCheck.HasAnyAssignment(ctx)
+			if csErr != nil {
+				return fmt.Errorf("check cross study assignments: %w", csErr)
+			}
+			if hasAny {
+				csPayload := CrossStudyProcessPayload{SnapshotID: snapshotUUID}
+				if _, err := worker.EnqueueJob(ctx, queue.JobTypeCrossStudyProcess, csPayload, fmt.Sprintf("cross-study-%s", snapshotUUID.String())); err != nil {
+					return fmt.Errorf("enqueue cross study process: %w", err)
+				}
+			}
 		}
 
 		if err := reconcileV2.EnqueueReconcileJobsForSnapshot(ctx, snapshotID, worker); err != nil {

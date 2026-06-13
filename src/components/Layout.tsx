@@ -43,6 +43,7 @@ const navGroups = [
 const adminNavItems = [
   { path: '/crm', label: 'CRM' },
   { path: '/crm/conflicts', label: 'Conflicts' },
+  { path: '/crm/cross-study', label: 'Cross-Study' },
 ];
 
 const configNavItems = [

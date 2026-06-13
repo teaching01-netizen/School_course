@@ -39,3 +39,7 @@ const (
 	OverrideInclude OverrideAction = "include"
 	OverrideExclude OverrideAction = "exclude"
 )
+
+type CrossStudyProcessPayload struct {
+	SnapshotID uuid.UUID `json:"snapshot_id"`
+}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +14,7 @@ import (
 
 	"warwick-institute/internal/config"
 	"warwick-institute/internal/crmimport"
+	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	"warwick-institute/internal/devseed"
@@ -75,15 +78,20 @@ func main() {
 	queueStore := queue.NewPostgresQueueStore(dbpool)
 	worker := queue.NewQueueWorker(log, queueStore, "crm-worker-main")
 
+	crossStudyStore := crossstudy.NewStore(dbpool)
+	crossStudyProc := crossstudy.NewProcessor(dbpool, crossStudyStore, log)
+
 	// Register job handlers.
 	worker.RegisterHandler(queue.JobTypeImportSnapshot,
-		crmimport.ImportSnapshotJobHandler(snapshotSvc, syncSvc, reconcileV2Svc, worker))
+		crmimport.ImportSnapshotJobHandler(snapshotSvc, syncSvc, reconcileV2Svc, worker, crossStudyStore))
 	worker.RegisterHandler(queue.JobTypeStudentSync,
 		crmimport.StudentSyncJobHandler(syncSvc))
 	worker.RegisterHandler(queue.JobTypeCourseReconcileApply,
 		reconcile.CourseReconcileJobHandler(reconcileV2Svc, worker))
 	worker.RegisterHandler(queue.JobTypeCourseReconcileDiff,
 		reconcile.CourseReconcileJobHandler(reconcileV2Svc, worker))
+	worker.RegisterHandler(queue.JobTypeCrossStudyProcess,
+		crossStudyJobHandler(crossStudyProc))
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	worker.Start(workerCtx)
@@ -127,4 +135,14 @@ func main() {
 
 	workerCancel()
 	worker.Stop()
+}
+
+func crossStudyJobHandler(proc *crossstudy.Processor) queue.JobHandler {
+	return func(ctx context.Context, job queue.JobRow) error {
+		var payload crmimport.CrossStudyProcessPayload
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return fmt.Errorf("unmarshal cross-study payload: %w", err)
+		}
+		return proc.ProcessSnapshot(ctx, payload.SnapshotID)
+	}
 }

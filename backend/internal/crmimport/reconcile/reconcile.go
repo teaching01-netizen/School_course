@@ -633,7 +633,21 @@ func (s *ReconcileV2Service) ApproveReview(ctx context.Context, courseID pgtype.
 	}
 
 	_, err = worker.EnqueueJob(ctx, queue.JobTypeCourseReconcileApply, payload, uniqueKey)
-	return err
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(ctx, `
+		UPDATE courses
+		SET crm_pending_review_snapshot_id = NULL,
+		    crm_pending_review_summary = NULL,
+		    updated_at = now()
+		WHERE id = $1
+	`, courseID); err != nil {
+		return fmt.Errorf("clear pending review: %w", err)
+	}
+
+	return nil
 }
 
 func (s *ReconcileV2Service) RejectReview(ctx context.Context, courseID pgtype.UUID) error {
@@ -1140,10 +1154,10 @@ func (s *ReconcileV2Service) ListReconcileConflicts(ctx context.Context) ([]Reco
 	var items []ReconcileConflictItem
 	for rows.Next() {
 		var (
-			jobID                       pgtype.UUID
-			lastError                   string
-			createdAt                   time.Time
-			courseID                    pgtype.UUID
+			jobID                               pgtype.UUID
+			lastError                           string
+			createdAt                           time.Time
+			courseID                            pgtype.UUID
 			courseCode, courseName, subjectName string
 		)
 		if err := rows.Scan(
@@ -1186,9 +1200,9 @@ func (item *ReconcileConflictItem) parseFromErrorBody(raw string) error {
 	}
 	var envelope struct {
 		Details struct {
-			Student        CRMConflictStudent          `json:"student"`
-			Conflicts      []CRMConflictSession        `json:"conflicts"`
-	TargetSessions []CRMConflictTargetSession `json:"target_sessions"`
+			Student        CRMConflictStudent         `json:"student"`
+			Conflicts      []CRMConflictSession       `json:"conflicts"`
+			TargetSessions []CRMConflictTargetSession `json:"target_sessions"`
 		} `json:"details"`
 	}
 	if err := json.Unmarshal([]byte(candidate), &envelope); err != nil {

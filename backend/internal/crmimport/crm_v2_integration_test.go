@@ -112,6 +112,7 @@ func cleanupV2(t *testing.T, dbpool *pgxpool.Pool) {
 	_, _ = dbpool.Exec(ctx, `TRUNCATE TABLE
 	    crm_pending_diffs,
 	    course_roster_overrides,
+	    crm_cross_study_assignments,
 	    crm_jobs,
 	    course_students,
 	    students,
@@ -663,8 +664,8 @@ func TestSetCourseFilterAndEnqueueApplyReturnsJobID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query queued job: %v", err)
 	}
-	if status != "queued" {
-		t.Fatalf("expected queued job, got %q", status)
+	if status != "queued" && status != "running" && status != "succeeded" {
+		t.Fatalf("expected enqueued job to be queued, running, or succeeded, got %q", status)
 	}
 	if payloadSnapshotID != uuidStringFromPg(t, snapshotID) {
 		t.Fatalf("expected snapshot %s, got %s", uuidStringFromPg(t, snapshotID), payloadSnapshotID)

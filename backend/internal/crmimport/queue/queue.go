@@ -28,6 +28,7 @@ const (
 	JobTypeStudentSync          JobType = "student_sync"
 	JobTypeCourseReconcileApply JobType = "course_reconcile_apply"
 	JobTypeCourseReconcileDiff  JobType = "course_reconcile_diff"
+	JobTypeCrossStudyProcess    JobType = "cross_study_process"
 )
 
 // JobStatus represents the lifecycle state of a queue job.
