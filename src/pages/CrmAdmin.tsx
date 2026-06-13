@@ -10,6 +10,11 @@ import {
   type CRMStudentScheduleConflictDetails,
 } from "../utils/crmConflict";
 import {
+  CRMConflictResolutionPanel,
+  type BusyRangeConflict,
+  type ResolveConflictResponse,
+} from "../components/crm/CRMConflictResolutionPanel";
+import {
   Upload,
   FileSpreadsheet,
   CheckCircle2,
@@ -27,14 +32,7 @@ type UploadJobStatusResponse = {
   details?: CRMStudentScheduleConflictDetails | Record<string, unknown> | null;
 };
 
-type BusyRangeConflict = {
-  studentWCode: string | null;
-  studentName?: string | null;
-  targetCourse?: string | null;
-  conflictingCourse?: string | null;
-  conflictTime?: string | null;
-  detail: string;
-};
+
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -75,8 +73,10 @@ export function parseBusyRangeConflict(message?: string, details?: UploadJobStat
       studentWCode,
       studentName,
       targetCourse,
+      targetCourseID: conflictDetails.target_course?.id ?? null,
       conflictingCourse,
       conflictTime,
+      targetSessions: conflictDetails.target_sessions ?? [],
       detail: formatCRMConflictTechnicalDetail(message, studentName, studentWCode, targetCourse, conflictingCourse, conflictTime),
     };
   }
@@ -194,6 +194,19 @@ export default function CrmAdmin() {
   const resetStatus = () => {
     setJob(null);
     setJobID(null);
+  };
+
+  const handleConflictResolved = (response: ResolveConflictResponse) => {
+    setJob((current) => current ? {
+      ...current,
+      job_id: response.job_id ?? current.job_id,
+      status: response.status,
+      message: response.job_id ? "CRM conflict resolved — reconcile queued" : "CRM conflict resolved",
+    } : current);
+    if (response.job_id) {
+      setJobID(response.job_id);
+      void poll(response.job_id);
+    }
   };
 
   const running = isActive(job?.status ?? "");
@@ -488,6 +501,10 @@ export default function CrmAdmin() {
                       Check the student schedule or course roster before retrying the CRM import.
                     </p>
                   </div>
+                  <CRMConflictResolutionPanel
+                    conflict={busyRangeConflict}
+                    onResolved={handleConflictResolved}
+                  />
                   <details className="text-xs">
                     <summary className="cursor-pointer text-red-700 hover:text-red-800">
                       Technical details

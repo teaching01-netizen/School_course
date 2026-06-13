@@ -40,7 +40,10 @@ const navGroups = [
   },
 ];
 
-const adminNavItems = [{ path: '/crm', label: 'CRM' }];
+const adminNavItems = [
+  { path: '/crm', label: 'CRM' },
+  { path: '/crm/conflicts', label: 'Conflicts' },
+];
 
 const configNavItems = [
   { path: '/course-levels', label: 'Course Levels' },

@@ -8,6 +8,7 @@ export type CRMConflictCourse = {
 export type CRMStudentScheduleConflictDetails = {
   kind: "crm_student_schedule_conflict";
   student?: {
+    id?: string;
     wcode?: string;
     full_name?: string;
   };
@@ -16,6 +17,12 @@ export type CRMStudentScheduleConflictDetails = {
     course?: CRMConflictCourse;
     start_at?: string;
     end_at?: string;
+  }>;
+  target_sessions?: Array<{
+    session_id?: string;
+    start_at?: string;
+    end_at?: string;
+    label?: string;
   }>;
 };
 

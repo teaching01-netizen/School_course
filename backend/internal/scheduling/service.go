@@ -1308,13 +1308,20 @@ func (s *Service) courseStudentPreflightInputs(ctx context.Context, db sqldb.DBT
 		return nil, err
 	}
 	rows, err := db.Query(ctx, `
-		SELECT start_at, end_at
-		FROM sessions
-		WHERE course_id = $1
-		  AND deleted_at IS NULL
-		  AND ($2::uuid IS NULL OR id <> $2)
-		ORDER BY start_at ASC
-	`, courseID, ignoreUUID(ignoreSession))
+		SELECT s.start_at, s.end_at
+		FROM sessions s
+		WHERE s.course_id = $1
+		  AND s.deleted_at IS NULL
+		  AND ($2::uuid IS NULL OR s.id <> $2)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM session_attendance sa
+			WHERE sa.session_id = s.id
+			  AND sa.student_id = $3
+			  AND sa.status = 'excluded'
+		  )
+		ORDER BY s.start_at ASC
+	`, courseID, ignoreUUID(ignoreSession), studentID)
 	if err != nil {
 		return nil, err
 	}

@@ -6,10 +6,17 @@ describe("CrmAdmin conflict parsing", () => {
     const parsed = parseBusyRangeConflict("Student schedule conflict", {
       kind: "crm_student_schedule_conflict",
       student: { wcode: "W250001", full_name: "Jane Student" },
-      target_course: { code: "SAT", name: "SAT Math Course", subject_name: "SAT Math" },
+      target_course: { id: "course-1", code: "SAT", name: "SAT Math Course", subject_name: "SAT Math" },
       conflicts: [
         {
           course: { code: "ALG", name: "Algebra Course", subject_name: "Algebra" },
+          start_at: "2026-05-20T10:00:00Z",
+          end_at: "2026-05-20T11:00:00Z",
+        },
+      ],
+      target_sessions: [
+        {
+          session_id: "session-1",
           start_at: "2026-05-20T10:00:00Z",
           end_at: "2026-05-20T11:00:00Z",
         },
@@ -19,8 +26,10 @@ describe("CrmAdmin conflict parsing", () => {
     expect(parsed?.studentWCode).toBe("W250001");
     expect(parsed?.studentName).toBe("Jane Student");
     expect(parsed?.targetCourse).toBe("SAT Math");
+    expect(parsed?.targetCourseID).toBe("course-1");
     expect(parsed?.conflictingCourse).toBe("Algebra");
     expect(parsed?.conflictTime).toBe("20 May, 17:00-18:00");
+    expect(parsed?.targetSessions?.[0]?.session_id).toBe("session-1");
     expect(parsed?.detail).toBe(
       "Student schedule conflict: Jane Student (W250001) cannot be added to SAT Math because they already have Algebra at 20 May, 17:00-18:00",
     );

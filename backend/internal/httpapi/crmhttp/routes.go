@@ -25,6 +25,8 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 	mux.HandleFunc("POST /api/v1/crm/upload", s.handleUploadV2)
 	mux.HandleFunc("GET /api/v1/crm/upload/{jobID}", s.handleUploadJobStatus)
+	mux.HandleFunc("POST /api/v1/crm/students/{wcode}/resolve-conflict", s.handleResolveStudentScheduleConflict)
+	mux.HandleFunc("GET /api/v1/crm/conflicts", s.handleListReconcileConflicts)
 
 	mux.HandleFunc("GET /api/v1/crm/cycles", s.handleCyclesList)
 	mux.HandleFunc("GET /api/v1/crm/options", s.handleCrmOptions)
@@ -243,6 +245,90 @@ func (s *server) handleCourseFilterLockToggle(w http.ResponseWriter, r *http.Req
 		resp["status"] = "queued"
 	}
 	s.a.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (s *server) handleResolveStudentScheduleConflict(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	if s.deps.CRMReconcileV2 == nil {
+		s.a.WriteErr(w, http.StatusServiceUnavailable, "not_configured", "CRM reconcile not configured")
+		return
+	}
+
+	var body struct {
+		CourseID           string   `json:"course_id"`
+		ExcludedSessionIDs []string `json:"excluded_session_ids"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+
+	courseID, err := s.a.ParseUUID(body.CourseID)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course ID")
+		return
+	}
+	sessionIDs := make([]pgtype.UUID, 0, len(body.ExcludedSessionIDs))
+	for _, raw := range body.ExcludedSessionIDs {
+		sessionID, err := s.a.ParseUUID(raw)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_session_id", "Invalid session ID")
+			return
+		}
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+
+	result, err := s.deps.CRMReconcileV2.ResolveStudentScheduleConflictAndEnqueue(
+		r.Context(),
+		s.deps.CRMWorker,
+		r.PathValue("wcode"),
+		courseID,
+		sessionIDs,
+	)
+	if err != nil {
+		var validationErr *reconcile.ResolveConflictValidationError
+		if errors.As(err, &validationErr) {
+			switch validationErr.Code {
+			case "student_not_found", "course_not_found":
+				s.a.WriteErr(w, http.StatusNotFound, validationErr.Code, validationErr.Error())
+			case "invalid_sessions_for_course":
+				s.a.WriteErr(w, http.StatusConflict, validationErr.Code, validationErr.Error())
+			default:
+				s.a.WriteErr(w, http.StatusBadRequest, validationErr.Code, validationErr.Error())
+			}
+			return
+		}
+		var enqueueErr *reconcile.EnqueueApplyJobError
+		if errors.As(err, &enqueueErr) {
+			s.a.WriteErr(w, http.StatusInternalServerError, "enqueue_error", "Failed to enqueue apply job")
+			return
+		}
+		s.deps.Log.Error("resolve CRM schedule conflict failed", "error", err)
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+
+	s.a.WriteJSON(w, http.StatusOK, result)
+}
+
+func (s *server) handleListReconcileConflicts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	if s.deps.CRMReconcileV2 == nil {
+		s.a.WriteJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	conflicts, err := s.deps.CRMReconcileV2.ListReconcileConflicts(r.Context())
+	if err != nil {
+		s.deps.Log.Error("list CRM conflicts failed", "error", err)
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	s.a.WriteJSON(w, http.StatusOK, conflicts)
 }
 
 func (s *server) handleCourseFilterJobStatus(w http.ResponseWriter, r *http.Request) {

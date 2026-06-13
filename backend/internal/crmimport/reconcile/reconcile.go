@@ -71,11 +71,12 @@ func NewReconcileV2Service(db *pgxpool.Pool, schedulingSvc ...*scheduling.Servic
 }
 
 type CRMStudentScheduleConflictDetails struct {
-	Kind          string                     `json:"kind"`
-	Student       CRMConflictStudent         `json:"student"`
-	TargetCourse  CRMConflictCourse          `json:"target_course"`
-	Conflicts     []CRMConflictSession       `json:"conflicts"`
-	ScheduleError scheduling.ConflictDetails `json:"schedule_error"`
+	Kind           string                     `json:"kind"`
+	Student        CRMConflictStudent         `json:"student"`
+	TargetCourse   CRMConflictCourse          `json:"target_course"`
+	Conflicts      []CRMConflictSession       `json:"conflicts"`
+	TargetSessions []CRMConflictTargetSession `json:"target_sessions,omitempty"`
+	ScheduleError  scheduling.ConflictDetails `json:"schedule_error"`
 }
 
 type CRMConflictStudent struct {
@@ -98,10 +99,46 @@ type CRMConflictSession struct {
 	EndAt     string            `json:"end_at"`
 }
 
+type CRMConflictTargetSession struct {
+	SessionID string `json:"session_id"`
+	StartAt   string `json:"start_at"`
+	EndAt     string `json:"end_at"`
+	Label     string `json:"label,omitempty"`
+}
+
 type StudentScheduleConflictError struct {
 	Message string                            `json:"message"`
 	Details CRMStudentScheduleConflictDetails `json:"details"`
 }
+
+type ReconcileConflictItem struct {
+	JobID          string                     `json:"job_id"`
+	Course         CRMConflictCourse          `json:"course"`
+	Student        CRMConflictStudent         `json:"student"`
+	Conflicts      []CRMConflictSession       `json:"conflicts"`
+	TargetSessions []CRMConflictTargetSession `json:"target_sessions,omitempty"`
+	CreatedAt      string                     `json:"created_at"`
+}
+
+type ResolveConflictResult struct {
+	OK     bool   `json:"ok"`
+	JobID  string `json:"job_id,omitempty"`
+	Status string `json:"status"`
+}
+
+type ResolveConflictValidationError struct {
+	Code string
+	Err  error
+}
+
+func (e *ResolveConflictValidationError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *ResolveConflictValidationError) Unwrap() error { return e.Err }
 
 func (e *StudentScheduleConflictError) Error() string {
 	if e == nil {
@@ -776,6 +813,7 @@ func (s *ReconcileV2Service) newStudentScheduleConflictError(ctx context.Context
 	}
 
 	targetCourse := loadCRMConflictCourse(ctx, db, targetCourseID)
+	targetSessions := loadCRMConflictTargetSessions(ctx, db, targetCourseID, studentID)
 	conflicts := make([]CRMConflictSession, 0, len(scheduleErr.Details.Conflicts))
 	for _, conflict := range scheduleErr.Details.Conflicts {
 		conflictCourseID, err := parsePgUUID(conflict.CourseID)
@@ -806,11 +844,60 @@ func (s *ReconcileV2Service) newStudentScheduleConflictError(ctx context.Context
 				WCode:    wcode,
 				FullName: fullName,
 			},
-			TargetCourse:  targetCourse,
-			Conflicts:     conflicts,
-			ScheduleError: scheduleErr.Details,
+			TargetCourse:   targetCourse,
+			Conflicts:      conflicts,
+			TargetSessions: targetSessions,
+			ScheduleError:  scheduleErr.Details,
 		},
 	}
+}
+
+func loadCRMConflictTargetSessions(ctx context.Context, db sqldb.DBTX, targetCourseID, studentID pgtype.UUID) []CRMConflictTargetSession {
+	rows, err := db.Query(ctx, `
+		SELECT DISTINCT s.id, s.start_at, s.end_at
+		FROM sessions s
+		JOIN student_busy_ranges sbr
+		  ON sbr.student_id = $2
+		 AND sbr.deleted_at IS NULL
+		 AND sbr.time_range && s.time_range
+		WHERE s.course_id = $1
+		  AND s.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM session_attendance sa
+			WHERE sa.session_id = s.id
+			  AND sa.student_id = $2
+			  AND sa.status = 'excluded'
+		  )
+		ORDER BY s.start_at ASC
+	`, targetCourseID, studentID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	out := []CRMConflictTargetSession{}
+	for rows.Next() {
+		var sessionID pgtype.UUID
+		var startAt, endAt pgtype.Timestamptz
+		if err := rows.Scan(&sessionID, &startAt, &endAt); err != nil {
+			return nil
+		}
+		start := ""
+		end := ""
+		if startAt.Valid {
+			start = startAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		if endAt.Valid {
+			end = endAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		out = append(out, CRMConflictTargetSession{
+			SessionID: uuidStringOrEmpty(sessionID),
+			StartAt:   start,
+			EndAt:     end,
+		})
+	}
+	return out
 }
 
 func loadCRMConflictCourse(ctx context.Context, db sqldb.DBTX, courseID pgtype.UUID) CRMConflictCourse {
@@ -928,6 +1015,189 @@ func (s *ReconcileV2Service) SetRosterLockAndEnqueueApply(ctx context.Context, w
 	}
 
 	return s.enqueueApplyIfEnabledAndUnlocked(ctx, worker, courseID)
+}
+
+func (s *ReconcileV2Service) ResolveStudentScheduleConflictAndEnqueue(ctx context.Context, worker *queue.QueueWorker, wcode string, courseID pgtype.UUID, excludedSessionIDs []pgtype.UUID) (*ResolveConflictResult, error) {
+	wcode = strings.TrimSpace(wcode)
+	if wcode == "" {
+		return nil, &ResolveConflictValidationError{Code: "bad_wcode", Err: fmt.Errorf("missing student wcode")}
+	}
+
+	uniqueSessions := make([]pgtype.UUID, 0, len(excludedSessionIDs))
+	seen := map[string]bool{}
+	for _, sessionID := range excludedSessionIDs {
+		if !sessionID.Valid {
+			return nil, &ResolveConflictValidationError{Code: "bad_session_id", Err: fmt.Errorf("invalid session id")}
+		}
+		key := uuidStringOrEmpty(sessionID)
+		if key == "" {
+			return nil, &ResolveConflictValidationError{Code: "bad_session_id", Err: fmt.Errorf("invalid session id")}
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		uniqueSessions = append(uniqueSessions, sessionID)
+	}
+	if len(uniqueSessions) == 0 {
+		return nil, &ResolveConflictValidationError{Code: "no_sessions_selected", Err: fmt.Errorf("no sessions selected")}
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin resolve conflict tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := sqldb.New(tx)
+	student, err := qtx.StudentGetByWCode(ctx, wcode)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &ResolveConflictValidationError{Code: "student_not_found", Err: fmt.Errorf("student not found")}
+		}
+		return nil, fmt.Errorf("load student: %w", err)
+	}
+
+	if _, err := qtx.CourseGetByID(ctx, courseID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &ResolveConflictValidationError{Code: "course_not_found", Err: fmt.Errorf("course not found")}
+		}
+		return nil, fmt.Errorf("load course: %w", err)
+	}
+
+	validRows, err := tx.Query(ctx, `
+		SELECT id
+		FROM sessions
+		WHERE course_id = $1
+		  AND deleted_at IS NULL
+		  AND id = ANY($2::uuid[])
+	`, courseID, uniqueSessions)
+	if err != nil {
+		return nil, fmt.Errorf("validate sessions: %w", err)
+	}
+	validSessionIDs := map[string]bool{}
+	for validRows.Next() {
+		var sessionID pgtype.UUID
+		if err := validRows.Scan(&sessionID); err != nil {
+			validRows.Close()
+			return nil, fmt.Errorf("scan valid sessions: %w", err)
+		}
+		validSessionIDs[uuidStringOrEmpty(sessionID)] = true
+	}
+	validRows.Close()
+	if len(validSessionIDs) != len(uniqueSessions) {
+		return nil, &ResolveConflictValidationError{Code: "invalid_sessions_for_course", Err: fmt.Errorf("one or more sessions do not belong to the course")}
+	}
+
+	for _, sessionID := range uniqueSessions {
+		if err := qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{
+			SessionID: sessionID,
+			StudentID: student.ID,
+			Status:    "excluded",
+		}); err != nil {
+			return nil, fmt.Errorf("upsert session exclusion: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit resolve conflict tx: %w", err)
+	}
+
+	jobID, queued, err := s.enqueueApplyIfEnabledAndUnlocked(ctx, worker, courseID)
+	if err != nil {
+		return nil, err
+	}
+	if !queued {
+		return &ResolveConflictResult{OK: true, Status: "not_queued"}, nil
+	}
+	return &ResolveConflictResult{OK: true, JobID: jobID.String(), Status: "queued"}, nil
+}
+
+func (s *ReconcileV2Service) ListReconcileConflicts(ctx context.Context) ([]ReconcileConflictItem, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT cj.id, cj.last_error, cj.created_at,
+		       c.id, c.code, c.name, COALESCE(s.name, '')
+		FROM crm_jobs cj
+		JOIN courses c ON c.id = (cj.payload->>'course_id')::uuid
+		LEFT JOIN subjects s ON s.id = c.subject_id
+		WHERE cj.job_type = 'course_reconcile_apply'
+		  AND cj.status = 'failed'
+		  AND cj.last_error LIKE '%crm_student_schedule_conflict%'
+		  AND NOT EXISTS (
+			SELECT 1 FROM crm_jobs cj2
+			WHERE cj2.job_type = 'course_reconcile_apply'
+			  AND cj2.status = 'succeeded'
+			  AND cj2.payload->>'course_id' = cj.payload->>'course_id'
+			  AND cj2.created_at > cj.created_at
+		  )
+		ORDER BY cj.created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query reconcile conflicts: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ReconcileConflictItem
+	for rows.Next() {
+		var (
+			jobID                       pgtype.UUID
+			lastError                   string
+			createdAt                   time.Time
+			courseID                    pgtype.UUID
+			courseCode, courseName, subjectName string
+		)
+		if err := rows.Scan(
+			&jobID, &lastError, &createdAt,
+			&courseID, &courseCode, &courseName, &subjectName,
+		); err != nil {
+			return nil, fmt.Errorf("scan conflict row: %w", err)
+		}
+
+		item := ReconcileConflictItem{
+			JobID: uuidStringOrEmpty(jobID),
+			Course: CRMConflictCourse{
+				ID:          uuidStringOrEmpty(courseID),
+				Code:        courseCode,
+				Name:        courseName,
+				SubjectName: subjectName,
+			},
+			CreatedAt: createdAt.UTC().Format(time.RFC3339Nano),
+		}
+
+		if err := item.parseFromErrorBody(lastError); err != nil {
+			continue
+		}
+
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []ReconcileConflictItem{}
+	}
+	return items, nil
+}
+
+func (item *ReconcileConflictItem) parseFromErrorBody(raw string) error {
+	candidate := strings.TrimSpace(raw)
+	if idx := strings.Index(candidate, "{"); idx >= 0 {
+		candidate = candidate[idx:]
+	}
+	var envelope struct {
+		Details struct {
+			Student        CRMConflictStudent          `json:"student"`
+			Conflicts      []CRMConflictSession        `json:"conflicts"`
+			TargetSessions []CRMConflictTargetSession  `json:"target_sessions,omitempty"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal([]byte(candidate), &envelope); err != nil {
+		return err
+	}
+	item.Student = envelope.Details.Student
+	item.Conflicts = envelope.Details.Conflicts
+	item.TargetSessions = envelope.Details.TargetSessions
+	return nil
 }
 
 func (s *ReconcileV2Service) enqueueApplyIfEnabledAndUnlocked(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID) (uuid.UUID, bool, error) {
