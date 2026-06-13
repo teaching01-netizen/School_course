@@ -53,12 +53,12 @@ function arrangeApi(jobStatus: "failed" | "succeeded" | "running") {
         return {
           job_id: "job-1",
           status: "failed",
-          message: "Student schedule conflict: Jane cannot be added to SAT",
+          message: "Student schedule conflict: Jane cannot be added to SAT Math",
           details: {
             kind: "crm_student_schedule_conflict",
             student: { wcode: "W250001", full_name: "Jane" },
-            target_course: { code: "SAT" },
-            conflicts: [{ course: { code: "ALG" }, start_at: "2026-05-20T10:00:00Z", end_at: "2026-05-20T11:00:00Z" }],
+            target_course: { code: "SAT", name: "SAT Math Course", subject_name: "SAT Math" },
+            conflicts: [{ course: { code: "ALG", name: "Algebra Course", subject_name: "Algebra" }, start_at: "2026-05-20T10:00:00Z", end_at: "2026-05-20T11:00:00Z" }],
           },
         };
       }
@@ -87,9 +87,9 @@ describe("CrmFilterPanel reconcile status", () => {
     await user.click(saveButton);
 
     expect(await screen.findByText("CRM reconcile failed")).toBeInTheDocument();
-    expect(screen.getByText(/^Jane cannot be added to SAT\.$/)).toBeInTheDocument();
-    expect(screen.getByText("Conflicts with ALG at 20 May, 17:00-18:00.")).toBeInTheDocument();
-    expect(screen.getByText("Student schedule conflict: Jane (W250001) cannot be added to SAT because they already have ALG at 20 May, 17:00-18:00")).toBeInTheDocument();
+    expect(screen.getByText(/^Jane cannot be added to SAT Math\.$/)).toBeInTheDocument();
+    expect(screen.getByText("Conflicts with Algebra at 20 May, 17:00-18:00.")).toBeInTheDocument();
+    expect(screen.getByText("Student schedule conflict: Jane (W250001) cannot be added to SAT Math because they already have Algebra at 20 May, 17:00-18:00")).toBeInTheDocument();
     expect(onRosterChanged).not.toHaveBeenCalled();
   });
 

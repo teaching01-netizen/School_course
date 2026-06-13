@@ -1,4 +1,6 @@
 export type CRMConflictCourse = {
+  id?: string;
+  subject_name?: string;
   code?: string;
   name?: string;
 };
@@ -19,8 +21,7 @@ export type CRMStudentScheduleConflictDetails = {
 
 export function crmCourseLabel(course?: CRMConflictCourse | null): string | null {
   if (!course) return null;
-  if (course.code && course.name) return `${course.code} · ${course.name}`;
-  return course.code || course.name || null;
+  return course.subject_name || course.name || course.code || null;
 }
 
 export function formatCRMConflictTime(startAt?: string, endAt?: string): string | null {

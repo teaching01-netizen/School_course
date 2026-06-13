@@ -85,9 +85,10 @@ type CRMConflictStudent struct {
 }
 
 type CRMConflictCourse struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	SubjectName string `json:"subject_name,omitempty"`
 }
 
 type CRMConflictSession struct {
@@ -815,19 +816,24 @@ func (s *ReconcileV2Service) newStudentScheduleConflictError(ctx context.Context
 func loadCRMConflictCourse(ctx context.Context, db sqldb.DBTX, courseID pgtype.UUID) CRMConflictCourse {
 	id := uuidStringOrEmpty(courseID)
 	out := CRMConflictCourse{ID: id}
-	row := db.QueryRow(ctx, `SELECT code, name FROM courses WHERE id = $1`, courseID)
-	_ = row.Scan(&out.Code, &out.Name)
+	row := db.QueryRow(ctx, `
+		SELECT c.code, c.name, COALESCE(s.name, '')
+		FROM courses c
+		LEFT JOIN subjects s ON s.id = c.subject_id
+		WHERE c.id = $1
+	`, courseID)
+	_ = row.Scan(&out.Code, &out.Name, &out.SubjectName)
 	return out
 }
 
 func (c CRMConflictCourse) displayName() string {
 	switch {
-	case c.Code != "" && c.Name != "":
-		return c.Code + " · " + c.Name
-	case c.Code != "":
-		return c.Code
+	case c.SubjectName != "":
+		return c.SubjectName
 	case c.Name != "":
 		return c.Name
+	case c.Code != "":
+		return c.Code
 	default:
 		return c.ID
 	}
