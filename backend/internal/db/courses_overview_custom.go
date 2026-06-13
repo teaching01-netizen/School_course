@@ -8,22 +8,22 @@ import (
 )
 
 type CourseOverviewRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	CourseNo          int64              `json:"course_no"`
-	Code              string             `json:"code"`
-	Name              string             `json:"name"`
-	Year              pgtype.Int2        `json:"year"`
-	TeacherID         pgtype.UUID        `json:"teacher_id"`
-	TeacherName       string             `json:"teacher_name"`
-	SubjectID         pgtype.UUID        `json:"subject_id"`
-	SubjectCode       string             `json:"subject_code"`
-	SubjectName       string             `json:"subject_name"`
-	Hour              pgtype.Int4        `json:"hour"`
-	StudentCount      pgtype.Int4        `json:"student_count"`
-	CourseType        pgtype.Text        `json:"course_type"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	LegacyCourseID    pgtype.Text        `json:"legacy_course_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	CourseNo           int64              `json:"course_no"`
+	Code               string             `json:"code"`
+	Name               string             `json:"name"`
+	Year               pgtype.Int2        `json:"year"`
+	TeacherID          pgtype.UUID        `json:"teacher_id"`
+	TeacherName        string             `json:"teacher_name"`
+	SubjectID          pgtype.UUID        `json:"subject_id"`
+	SubjectCode        string             `json:"subject_code"`
+	SubjectName        string             `json:"subject_name"`
+	Hour               pgtype.Int4        `json:"hour"`
+	StudentCount       pgtype.Int4        `json:"student_count"`
+	CourseType         pgtype.Text        `json:"course_type"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LegacyCourseID     pgtype.Text        `json:"legacy_course_id"`
 	LegacyLastSyncedAt pgtype.Timestamptz `json:"legacy_last_synced_at"`
 }
 
@@ -116,11 +116,16 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 	var err error
 	query := `
 		SELECT c.id, c.course_no, c.code, c.name, c.year, c.teacher_id, COALESCE(u.username, ''), c.subject_id, COALESCE(s.code, ''), COALESCE(s.name, ''),
-		       c.hour, c.student_count, c.course_type, c.created_at, c.updated_at,
+		       c.hour, COALESCE(roster.student_count, 0)::int4, c.course_type, c.created_at, c.updated_at,
 		       c.legacy_course_id, c.legacy_last_synced_at
 		FROM courses c
 		LEFT JOIN users u ON u.id = c.teacher_id
 		LEFT JOIN subjects s ON s.id = c.subject_id
+		LEFT JOIN (
+			SELECT course_id, COUNT(*) FILTER (WHERE status = 'enrolled') AS student_count
+			FROM course_students
+			GROUP BY course_id
+		) roster ON roster.course_id = c.id
 		ORDER BY c.course_no DESC
 	`
 	if p.IncludeArchived {
