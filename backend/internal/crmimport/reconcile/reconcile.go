@@ -1188,7 +1188,7 @@ func (item *ReconcileConflictItem) parseFromErrorBody(raw string) error {
 		Details struct {
 			Student        CRMConflictStudent          `json:"student"`
 			Conflicts      []CRMConflictSession        `json:"conflicts"`
-			TargetSessions []CRMConflictTargetSession  `json:"target_sessions,omitempty"`
+	TargetSessions []CRMConflictTargetSession `json:"target_sessions"`
 		} `json:"details"`
 	}
 	if err := json.Unmarshal([]byte(candidate), &envelope); err != nil {

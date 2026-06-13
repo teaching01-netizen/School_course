@@ -5,7 +5,7 @@ import {
   formatCRMConflictTime,
   type CRMStudentScheduleConflictDetails,
 } from "../../utils/crmConflict";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Loader2 } from "lucide-react";
 
 export type BusyRangeConflict = {
   studentWCode: string | null;
@@ -43,12 +43,13 @@ export function CRMConflictResolutionPanel({
     setSelectedIDs(targetSessions.map((session) => session.session_id).filter((id): id is string => !!id));
   }, [targetSessions]);
 
-  if (!conflict.studentWCode || !conflict.targetCourseID || targetSessions.length === 0) {
+  if (!conflict.studentWCode || !conflict.targetCourseID) {
     return null;
   }
 
   const studentWCode = conflict.studentWCode;
   const targetCourseID = conflict.targetCourseID;
+  const noSessions = targetSessions.length === 0;
   const selectedSet = new Set(selectedIDs);
   const selectedError = submitAttempted && selectedIDs.length === 0;
 
@@ -99,6 +100,14 @@ export function CRMConflictResolutionPanel({
 
       <fieldset className="mt-3 space-y-2">
         <legend className="text-xs font-medium text-amber-900">Target course sessions to exclude</legend>
+        {noSessions && (
+          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs text-blue-800">
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>
+              No sessions available for exclusion. The conflict data may be stale or the course schedule may have changed since this conflict was detected.
+            </span>
+          </div>
+        )}
         {targetSessions.map((session, index) => {
           const sessionID = session.session_id;
           if (!sessionID) return null;
@@ -134,7 +143,7 @@ export function CRMConflictResolutionPanel({
       <div className="mt-3 flex justify-end">
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || noSessions}
           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
