@@ -109,11 +109,11 @@ func newPool(t *testing.T, databaseURL string) *pgxpool.Pool {
 // ---------------------------------------------------------------------------
 
 type fakeAuth struct {
-	user auth.User
+	user auth.AuthenticatedUser
 	err  error
 }
 
-func (f fakeAuth) RequireUser(_ context.Context, _ *http.Request) (auth.User, error) {
+func (f fakeAuth) RequireUser(_ context.Context, _ *http.Request) (auth.AuthenticatedUser, error) {
 	return f.user, f.err
 }
 
@@ -173,7 +173,7 @@ func setupTestServer(t *testing.T) *testFixture {
 	}
 
 	fa := fakeAuth{
-		user: auth.User{
+		user: auth.AuthenticatedUser{
 			ID:       adminID,
 			Username: "admin",
 			Role:     "Admin",

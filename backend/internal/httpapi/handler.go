@@ -49,12 +49,29 @@ import (
 	"warwick-institute/internal/users"
 )
 
+type rateLimitAdapter struct {
+	store *ratelimit.Store
+}
+
+func (a *rateLimitAdapter) Allow(ctx context.Context, key string, limit int, window time.Duration) (auth.RateLimitResult, error) {
+	result, err := a.store.Allow(ctx, key, limit, window)
+	if err != nil {
+		return auth.RateLimitResult{}, err
+	}
+	return auth.RateLimitResult{Allowed: result.Allowed, Remaining: result.Remaining}, nil
+}
+
 func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker) http.Handler {
 	mux := http.NewServeMux()
 
-	authSvc := auth.NewService(db, auth.Config{
-		Pepper: cfg.AuthPepper,
-	})
+	hasher := auth.NewArgon2PasswordHasher(cfg.AuthPepper)
+	sessionStore := auth.NewPGSessionStore(db, log)
+	userStore := auth.NewPGUserStore(db)
+
+	rlStore := ratelimit.NewStore(db)
+	loginLimiter := auth.NewDBLoginRateLimiter(&rateLimitAdapter{store: rlStore})
+
+	authSvc := auth.NewService(hasher, sessionStore, loginLimiter, userStore, log)
 	q := sqldb.New(db)
 	adminUsersSvc := users.NewAdminProvisioningService(
 		users.SQLCAdminUserStore{Q: q},

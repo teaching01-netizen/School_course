@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import { apiJson } from "@/api/client";
 import { useToast } from "@/hooks/useToast";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useCourseStudents } from "@/hooks/useCourseStudents";
 import type { User } from "@/types";
 import PageHeading from "@/components/ui/PageHeading";
 import SearchInput from "@/components/ui/SearchInput";
@@ -11,6 +12,8 @@ import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import Modal from "@/components/Modal";
+import StudentStatusBadge from "@/components/StudentStatusBadge";
+import CourseAttendeeRow from "@/components/CourseAttendeeRow";
 
 export default function Courses() {
   type CourseRow = {
@@ -41,6 +44,9 @@ export default function Courses() {
   const [deleting, setDeleting] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const { cache, loading: studentsLoading, errors: studentsErrors, fetchStudents } = useCourseStudents();
 
   const { data: courses, loading, error, refetch } = useApiQuery<CourseRow[]>("/api/v1/courses");
 
@@ -98,6 +104,19 @@ export default function Courses() {
       const next = new Set(prev);
       if (checked) next.add(id);
       else next.delete(id);
+      return next;
+    });
+  }
+
+  function handleToggleExpand(courseId: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseId)) {
+        next.delete(courseId);
+      } else {
+        next.add(courseId);
+        void fetchStudents(courseId);
+      }
       return next;
     });
   }
@@ -205,6 +224,7 @@ export default function Courses() {
                   onChange={(event) => handleSelectAll(event.target.checked)}
                 />
               </th>
+              <th className="w-8 px-2"></th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700">C-ID</th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700">C-Code</th>
               <th className="text-left py-2 px-2 font-semibold text-gray-700">Year</th>
@@ -219,50 +239,80 @@ export default function Courses() {
           </thead>
           <tbody>
             {filtered.map((course) => (
-              <tr key={course.id} className="border-b border-gray-200 hover:bg-gray-50">
-                <td className="py-3 px-2">
-                  <input
-                    aria-label={`Select ${course.code}`}
-                    type="checkbox"
-                    checked={selected.has(course.id)}
-                    onChange={(event) => handleSelectRow(course.id, event.target.checked)}
-                  />
-                </td>
-                <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.course_no}</td>
-                <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.code}</td>
-                <td className="py-3 px-2">{course.year ?? "—"}</td>
-                <td className="py-3 px-2">{course.teacher_name || "—"}</td>
-                <td className="py-3 px-2">
-                  {course.subject_code ? `[${course.subject_code}] ` : ""}
-                  {course.subject_name || "—"}
-                </td>
-                <td className="py-3 px-2">{course.hour ?? "—"}</td>
-                <td className="py-3 px-2">{course.student_count ?? "—"}</td>
-                <td className="py-3 px-2">{course.course_type ?? "—"}</td>
-                <td className="py-3 px-2">
-                  {course.legacy_course_id ? (
-                    <a
-                      href={`https://warwick.azurewebsites.net/Admin/Courses/Detail?id=${course.legacy_course_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 underline text-xs"
-                      title="Linked to old system"
+              <Fragment key={course.id}>
+                <tr className="border-b border-gray-200 hover:bg-gray-50">
+                  <td className="py-3 px-2">
+                    <input
+                      aria-label={`Select ${course.code}`}
+                      type="checkbox"
+                      checked={selected.has(course.id)}
+                      onChange={(event) => handleSelectRow(course.id, event.target.checked)}
+                    />
+                  </td>
+                  <td className="w-8 py-3 px-1">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleExpand(course.id)}
+                      className="flex items-center justify-center h-6 w-6 rounded-sm text-gray-400 hover:text-gray-700 hover:bg-gray-200 cursor-pointer"
+                      aria-label={expandedIds.has(course.id) ? "Collapse attendees" : "Expand attendees"}
+                      aria-expanded={expandedIds.has(course.id)}
                     >
-                      ⚡
-                    </a>
-                  ) : (
-                    <span className="text-gray-300">—</span>
-                  )}
-                </td>
-                <td className="py-3 px-2">
-                  <Link
-                    to={`/courses/${course.id}`}
-                    className="px-3 py-1 text-xs bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm inline-block"
-                  >
-                    detail
-                  </Link>
-                </td>
-              </tr>
+                      <ChevronRight
+                        className={`h-4 w-4 transition-transform duration-150 ${
+                          expandedIds.has(course.id) ? "rotate-90" : ""
+                        }`}
+                      />
+                    </button>
+                  </td>
+                  <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.course_no}</td>
+                  <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.code}</td>
+                  <td className="py-3 px-2">{course.year ?? "—"}</td>
+                  <td className="py-3 px-2">{course.teacher_name || "—"}</td>
+                  <td className="py-3 px-2">
+                    {course.subject_code ? `[${course.subject_code}] ` : ""}
+                    {course.subject_name || "—"}
+                  </td>
+                  <td className="py-3 px-2">{course.hour ?? "—"}</td>
+                  <td className="py-3 px-2">
+                    <StudentStatusBadge count={course.student_count} />
+                  </td>
+                  <td className="py-3 px-2">{course.course_type ?? "—"}</td>
+                  <td className="py-3 px-2">
+                    {course.legacy_course_id ? (
+                      <a
+                        href={`https://warwick.azurewebsites.net/Admin/Courses/Detail?id=${course.legacy_course_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 underline text-xs"
+                        title="Linked to old system"
+                      >
+                        ⚡
+                      </a>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-2">
+                    <Link
+                      to={`/courses/${course.id}`}
+                      className="px-3 py-1 text-xs bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm inline-block"
+                    >
+                      detail
+                    </Link>
+                  </td>
+                </tr>
+                {expandedIds.has(course.id) && (
+                  <tr className="border-b border-gray-200">
+                    <td colSpan={12} className="p-0">
+                      <CourseAttendeeRow
+                        students={cache[course.id] ?? []}
+                        loading={!!studentsLoading[course.id]}
+                        error={studentsErrors[course.id] ?? null}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

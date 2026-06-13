@@ -15,11 +15,11 @@ import (
 )
 
 type fakeAuth struct {
-	user auth.User
+	user auth.AuthenticatedUser
 	err  error
 }
 
-func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.User, error) {
+func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error) {
 	return f.user, f.err
 }
 
@@ -29,7 +29,7 @@ func (fakeAuth) HandleLogout(w http.ResponseWriter, r *http.Request) error { ret
 func TestRegister_GetSessions_BadStart_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "t", Role: "Teacher"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "t", Role: "Teacher"}},
 	})
 
 	req := httptest.NewRequest("GET", "/api/v1/sessions", nil)
@@ -53,7 +53,7 @@ func TestRegister_GetSessions_BadStart_Returns400(t *testing.T) {
 func TestRegister_PostSessions_TeacherForbidden_Returns403(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "t", Role: "Teacher"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "t", Role: "Teacher"}},
 	})
 
 	req := httptest.NewRequest("POST", "/api/v1/sessions", strings.NewReader(`{}`))
@@ -77,7 +77,7 @@ func TestRegister_PostSessions_TeacherForbidden_Returns403(t *testing.T) {
 func TestRegister_PatchSession_BadID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/sessions/not-a-uuid", nil)

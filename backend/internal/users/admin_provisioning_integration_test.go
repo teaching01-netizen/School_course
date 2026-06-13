@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -114,7 +115,11 @@ func TestAdminProvisioning_ResetInvalidatesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	authSvc := auth.NewService(dbpool, auth.Config{Pepper: "test-pepper"})
+	authHasher := auth.NewArgon2PasswordHasher("test-pepper")
+	authSessionStore := auth.NewPGSessionStore(dbpool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	authUserStore := auth.NewPGUserStore(dbpool)
+	authLimiter := auth.NewInMemoryLoginRateLimiter()
+	authSvc := auth.NewService(authHasher, authSessionStore, authLimiter, authUserStore, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	loginReq := httptest.NewRequest("POST", "/api/v1/login", strings.NewReader(`{"username":"`+username+`","password":"`+initialPassword+`"}`))
 	loginReq.Header.Set("Content-Type", "application/json")

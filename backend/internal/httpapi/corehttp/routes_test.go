@@ -14,11 +14,11 @@ import (
 )
 
 type fakeAuth struct {
-	user auth.User
+	user auth.AuthenticatedUser
 	err  error
 }
 
-func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.User, error) {
+func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error) {
 	return f.user, f.err
 }
 
@@ -28,7 +28,7 @@ func (fakeAuth) HandleLogout(w http.ResponseWriter, r *http.Request) error { ret
 func TestRegister_GetMetaTime_ReturnsInstituteTZAndServerNow(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth:        fakeAuth{user: auth.User{ID: uuid.New(), Username: "u", Role: "Teacher"}},
+		Auth:        fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "u", Role: "Teacher"}},
 		InstituteTZ: "Asia/Bangkok",
 	})
 

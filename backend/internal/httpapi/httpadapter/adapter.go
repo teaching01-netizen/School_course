@@ -25,10 +25,17 @@ import (
 	"warwick-institute/internal/scheduling"
 )
 
+// AuthService is the full auth interface (login + logout + session validation).
 type AuthService interface {
-	RequireUser(ctx context.Context, r *http.Request) (auth.User, error)
+	SessionValidator
 	HandleLogin(w http.ResponseWriter, r *http.Request) error
 	HandleLogout(w http.ResponseWriter, r *http.Request) error
+}
+
+// SessionValidator is the read-only session validation interface.
+// HTTP packages should depend on this when they only need MustUser/MustAdmin.
+type SessionValidator interface {
+	RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error)
 }
 
 type Adapter struct {
@@ -60,27 +67,27 @@ func (a Adapter) WriteErrDetails(w http.ResponseWriter, status int, code string,
 	a.WriteJSON(w, status, apiError{Code: code, Message: message, Details: details})
 }
 
-func (a Adapter) MustUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
+func (a Adapter) MustUser(w http.ResponseWriter, r *http.Request) (auth.AuthenticatedUser, bool) {
 	if a.auth == nil {
 		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-		return auth.User{}, false
+		return auth.AuthenticatedUser{}, false
 	}
 	u, err := a.auth.RequireUser(r.Context(), r)
 	if err != nil {
 		a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Not signed in")
-		return auth.User{}, false
+		return auth.AuthenticatedUser{}, false
 	}
 	return u, true
 }
 
-func (a Adapter) MustAdmin(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
+func (a Adapter) MustAdmin(w http.ResponseWriter, r *http.Request) (auth.AuthenticatedUser, bool) {
 	u, ok := a.MustUser(w, r)
 	if !ok {
-		return auth.User{}, false
+		return auth.AuthenticatedUser{}, false
 	}
 	if u.Role != "Admin" {
 		a.WriteErr(w, http.StatusForbidden, "forbidden", "Admin only")
-		return auth.User{}, false
+		return auth.AuthenticatedUser{}, false
 	}
 	return u, true
 }

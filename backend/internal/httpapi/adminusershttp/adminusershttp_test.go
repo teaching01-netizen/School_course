@@ -16,11 +16,11 @@ import (
 )
 
 type fakeAuth struct {
-	user auth.User
+	user auth.AuthenticatedUser
 	err  error
 }
 
-func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.User, error) {
+func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error) {
 	return f.user, f.err
 }
 func (fakeAuth) HandleLogin(w http.ResponseWriter, r *http.Request) error  { return nil }
@@ -29,7 +29,7 @@ func (fakeAuth) HandleLogout(w http.ResponseWriter, r *http.Request) error { ret
 func TestHandleAdminUsersCreate_RequiresIdempotencyKey(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth:       fakeAuth{user: auth.User{ID: uuid.New(), Username: "admin", Role: "Admin"}},
+		Auth:       fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "admin", Role: "Admin"}},
 		AdminUsers: &users.AdminProvisioningService{},
 	})
 

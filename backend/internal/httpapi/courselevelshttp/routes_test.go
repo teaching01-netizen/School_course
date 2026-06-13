@@ -15,11 +15,11 @@ import (
 )
 
 type fakeAuth struct {
-	user auth.User
+	user auth.AuthenticatedUser
 	err  error
 }
 
-func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.User, error) {
+func (f fakeAuth) RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error) {
 	return f.user, f.err
 }
 
@@ -29,7 +29,7 @@ func (fakeAuth) HandleLogout(w http.ResponseWriter, r *http.Request) error { ret
 func TestRegister_PutLevel_BadID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT", "/api/v1/admin/courses/not-a-uuid/level",
@@ -54,7 +54,7 @@ func TestRegister_PutLevel_BadID_Returns400(t *testing.T) {
 func TestRegister_PutLevel_NegativeLevel_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT",
@@ -80,7 +80,7 @@ func TestRegister_PutLevel_NegativeLevel_Returns400(t *testing.T) {
 func TestRegister_PutLevel_StringLevel_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT",
@@ -205,7 +205,7 @@ func TestRegister_GetLevels_Unauthenticated_Returns401(t *testing.T) {
 func TestRegister_PutRootCourseGroup_BadID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT", "/api/v1/admin/courses/not-a-uuid/root-course-group",
@@ -230,7 +230,7 @@ func TestRegister_PutRootCourseGroup_BadID_Returns400(t *testing.T) {
 func TestRegister_PutRootCourseGroup_BadJSON_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT",
@@ -256,7 +256,7 @@ func TestRegister_PutRootCourseGroup_BadJSON_Returns400(t *testing.T) {
 func TestRegister_PutRootCourseGroup_BadGroupID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	courseID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -314,7 +314,7 @@ func TestRegister_GetRootCourseGroups_Unauthenticated_Returns401(t *testing.T) {
 func TestRegister_PostRootCourseGroups_BadJSON_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("POST", "/api/v1/admin/root-course-groups",
@@ -339,7 +339,7 @@ func TestRegister_PostRootCourseGroups_BadJSON_Returns400(t *testing.T) {
 func TestRegister_PostRootCourseGroups_MissingFields_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("POST", "/api/v1/admin/root-course-groups",
@@ -364,7 +364,7 @@ func TestRegister_PostRootCourseGroups_MissingFields_Returns400(t *testing.T) {
 func TestRegister_PutRootCourseGroups_BadID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("PUT", "/api/v1/admin/root-course-groups/not-a-uuid",
@@ -389,7 +389,7 @@ func TestRegister_PutRootCourseGroups_BadID_Returns400(t *testing.T) {
 func TestRegister_DeleteRootCourseGroup_BadID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
-		Auth: fakeAuth{user: auth.User{ID: uuid.New(), Username: "a", Role: "Admin"}},
+		Auth: fakeAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Username: "a", Role: "Admin"}},
 	})
 
 	req := httptest.NewRequest("DELETE", "/api/v1/admin/root-course-groups/not-a-uuid", nil)

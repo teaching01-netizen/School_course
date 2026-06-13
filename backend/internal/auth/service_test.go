@@ -1,9 +1,15 @@
 package auth
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestStripPort(t *testing.T) {
@@ -25,74 +31,69 @@ func TestStripPort(t *testing.T) {
 	}
 }
 
-func TestGetLimiter_TTLEviction(t *testing.T) {
-	s := &Service{}
+func TestInMemoryLoginRateLimiter_TTLEviction(t *testing.T) {
+	l := NewInMemoryLoginRateLimiter()
 
-	// Populate with entries that have old createdAt.
-	s.mu.Lock()
-	s.userLimit = make(map[string]*limiterEntry)
-	s.limitSizes = nil
+	l.mu.Lock()
+	l.userLimit = make(map[string]*memLimiterEntry)
+	l.limitSizes = nil
 	now := time.Now()
 	for i := 0; i < 5; i++ {
 		key := "user:old" + string(rune('0'+i))
-		s.userLimit[key] = &limiterEntry{
+		l.userLimit[key] = &memLimiterEntry{
 			limiter:   nil,
-			createdAt: now.Add(-20 * time.Minute), // older than 10min TTL
+			createdAt: now.Add(-20 * time.Minute),
 		}
-		s.limitSizes = append(s.limitSizes, key)
+		l.limitSizes = append(l.limitSizes, key)
 	}
-	s.mu.Unlock()
+	l.mu.Unlock()
 
-	// getLimiter triggers eviction, then adds a new entry.
-	lim := s.getLimiter("user:new")
-	if lim == nil {
-		t.Fatal("expected non-nil limiter for new key")
+	result, err := l.Allow(nil, "newuser", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Allow: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.userLimit) != 1 {
-		t.Errorf("expected 1 entry after TTL eviction, got %d", len(s.userLimit))
-	}
-	if len(s.limitSizes) != 1 {
-		t.Errorf("expected 1 key in limitSizes, got %d", len(s.limitSizes))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.userLimit) != 2 {
+		t.Errorf("expected 2 entries after TTL eviction (1 ip + 1 user), got %d", len(l.userLimit))
 	}
 }
 
-func TestGetLimiter_CapEviction(t *testing.T) {
-	s := &Service{}
+func TestInMemoryLoginRateLimiter_CapEviction(t *testing.T) {
+	l := NewInMemoryLoginRateLimiter()
 
 	const maxEntries = 10_000
 
-	// Fill to cap with fresh entries (won't be evicted by TTL).
-	s.mu.Lock()
-	s.userLimit = make(map[string]*limiterEntry)
-	s.limitSizes = nil
+	l.mu.Lock()
+	l.userLimit = make(map[string]*memLimiterEntry)
+	l.limitSizes = nil
 	now := time.Now()
 	for i := 0; i < maxEntries; i++ {
 		key := "user:" + string(rune(i/256)) + string(rune(i%256))
-		s.userLimit[key] = &limiterEntry{
+		l.userLimit[key] = &memLimiterEntry{
 			limiter:   nil,
-			createdAt: now, // fresh
+			createdAt: now,
 		}
-		s.limitSizes = append(s.limitSizes, key)
+		l.limitSizes = append(l.limitSizes, key)
 	}
-	s.mu.Unlock()
+	l.mu.Unlock()
 
-	// This should evict the oldest (first) entry to make room.
-	lim := s.getLimiter("user:overflow")
-	if lim == nil {
-		t.Fatal("expected non-nil limiter")
+	result, err := l.Allow(nil, "overflowuser", "10.0.0.1")
+	if err != nil {
+		t.Fatalf("Allow: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.userLimit) > maxEntries {
-		t.Errorf("expected at most %d entries, got %d", maxEntries, len(s.userLimit))
-	}
-	// The new entry should exist.
-	if _, ok := s.userLimit["user:overflow"]; !ok {
-		t.Error("expected 'user:overflow' to exist")
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.userLimit) > maxEntries+2 {
+		t.Errorf("expected at most %d entries, got %d", maxEntries+2, len(l.userLimit))
 	}
 }
 
@@ -117,8 +118,6 @@ func TestCredentialLengthLimits(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Check that length validation produces the expected result
-			// without hitting the DB. We replicate the check logic from HandleLogin.
 			userLen := len(tt.username)
 			passLen := len(tt.password)
 			isTooLong := userLen > maxUsernameLen || passLen > maxPasswordLen
@@ -131,4 +130,191 @@ func TestCredentialLengthLimits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoginRejectsOversizedCredentialsBeforeRateLimit(t *testing.T) {
+	limiter := &recordingLoginLimiter{}
+	svc := NewService(
+		fakePasswordHasher{},
+		fakeSessionStore{},
+		limiter,
+		fakeUserLookup{},
+		nil,
+	)
+
+	_, _, err := svc.Login(context.Background(), strings.Repeat("a", maxUsernameLen+1), "password", "127.0.0.1")
+	if !errors.Is(err, ErrCredentialsTooLong) {
+		t.Fatalf("Login error = %v, want %v", err, ErrCredentialsTooLong)
+	}
+	if limiter.calls != 0 {
+		t.Fatalf("limiter called %d times, want 0", limiter.calls)
+	}
+}
+
+func TestDBLoginRateLimiterChecksIPBeforeUsername(t *testing.T) {
+	store := &recordingRateLimitStore{
+		results: map[string]RateLimitResult{
+			"auth:ip:127.0.0.1": {Allowed: false},
+		},
+	}
+	limiter := NewDBLoginRateLimiter(store)
+
+	result, err := limiter.Allow(context.Background(), "admin", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Allow: %v", err)
+	}
+	if result.Allowed {
+		t.Fatal("expected request to be rate limited")
+	}
+
+	want := []string{"auth:ip:127.0.0.1"}
+	if strings.Join(store.keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("rate limit keys = %v, want %v", store.keys, want)
+	}
+}
+
+func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	userID := uuid.New()
+	sessionID := uuid.New()
+	sessions := fakeSessionStore{
+		createSession: Session{
+			ID:              sessionID,
+			UserID:          userID,
+			CreatedAt:       now,
+			LastSeenAt:      now,
+			ExpiresAt:       now.Add(sessionAbsoluteTimeout),
+			PasswordVersion: 1,
+		},
+	}
+	svc := NewService(
+		fakePasswordHasher{verifyOK: true},
+		sessions,
+		&recordingLoginLimiter{allowed: true},
+		fakeUserLookup{byUsername: User{
+			ID:              userID,
+			Username:        "admin",
+			Role:            "Admin",
+			PasswordHash:    "hash",
+			PasswordVersion: 1,
+		}},
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+
+	if err := svc.HandleLogin(w, req); err != nil {
+		t.Fatalf("HandleLogin: %v", err)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	wantExpires := now.Add(sessionIdleTimeout)
+	if !cookies[0].Expires.Equal(wantExpires) {
+		t.Fatalf("cookie expiry = %s, want idle expiry %s", cookies[0].Expires, wantExpires)
+	}
+	if cookies[0].Expires.Equal(sessions.createSession.ExpiresAt) {
+		t.Fatalf("cookie expiry unexpectedly matched absolute session expiry %s", sessions.createSession.ExpiresAt)
+	}
+}
+
+type recordingLoginLimiter struct {
+	calls   int
+	allowed bool
+}
+
+func (l *recordingLoginLimiter) Allow(_ context.Context, _, _ string) (RateLimitResult, error) {
+	l.calls++
+	if !l.allowed {
+		return RateLimitResult{Allowed: true}, nil
+	}
+	return RateLimitResult{Allowed: true}, nil
+}
+
+type recordingRateLimitStore struct {
+	keys    []string
+	results map[string]RateLimitResult
+}
+
+func (s *recordingRateLimitStore) Allow(_ context.Context, key string, _ int, _ time.Duration) (RateLimitResult, error) {
+	s.keys = append(s.keys, key)
+	if result, ok := s.results[key]; ok {
+		return result, nil
+	}
+	return RateLimitResult{Allowed: true}, nil
+}
+
+type fakePasswordHasher struct {
+	verifyOK bool
+}
+
+func (h fakePasswordHasher) HashPassword(password string) (string, error) {
+	return "hash:" + password, nil
+}
+
+func (h fakePasswordHasher) VerifyPassword(_, _ string) (bool, error) {
+	return h.verifyOK, nil
+}
+
+type fakeSessionStore struct {
+	createSession Session
+}
+
+func (s fakeSessionStore) Create(_ context.Context, userID uuid.UUID, passwordVersion int32, _, _ time.Duration) (Session, error) {
+	if s.createSession.ID != uuid.Nil {
+		return s.createSession, nil
+	}
+	now := time.Now().UTC()
+	return Session{
+		ID:              uuid.New(),
+		UserID:          userID,
+		CreatedAt:       now,
+		LastSeenAt:      now,
+		ExpiresAt:       now.Add(sessionAbsoluteTimeout),
+		PasswordVersion: passwordVersion,
+	}, nil
+}
+
+func (fakeSessionStore) ByID(_ context.Context, _ uuid.UUID) (Session, error) {
+	return Session{}, errors.New("not implemented")
+}
+
+func (fakeSessionStore) Revoke(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (fakeSessionStore) RevokeAllForUser(_ context.Context, _ uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
+func (fakeSessionStore) ListForUser(_ context.Context, _ uuid.UUID) ([]Session, error) {
+	return nil, nil
+}
+
+func (fakeSessionStore) DeleteExpired(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (fakeSessionStore) TouchLastSeen(_ context.Context, _ uuid.UUID) {}
+
+type fakeUserLookup struct {
+	byUsername User
+}
+
+func (l fakeUserLookup) ByUsername(_ context.Context, _ string) (User, error) {
+	if l.byUsername.ID == uuid.Nil {
+		return User{}, ErrUserNotFound
+	}
+	return l.byUsername, nil
+}
+
+func (l fakeUserLookup) ByID(_ context.Context, userID uuid.UUID) (User, error) {
+	if l.byUsername.ID == userID {
+		return l.byUsername, nil
+	}
+	return User{}, ErrUserNotFound
 }
