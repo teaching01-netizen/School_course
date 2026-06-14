@@ -104,6 +104,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/sessions", s.handleSessionsCreate)
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.handleSessionsDelete)
 	mux.HandleFunc("PATCH /api/v1/sessions/{id}", s.handleSessionEditOccurrence)
+	mux.HandleFunc("POST /api/v1/sessions/bulk-update", s.handleSessionsBulkUpdate)
 	mux.HandleFunc("GET /api/v1/sessions/{id}/attendance", s.handleSessionAttendanceList)
 	mux.HandleFunc("PUT /api/v1/sessions/{id}/attendance", s.handleSessionAttendanceUpsert)
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}/attendance/{student_id}", s.handleSessionAttendanceDelete)
@@ -558,6 +559,151 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 	}) {
 		s.publishSessionUpdated(updatedID)
 	}
+}
+
+func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+
+	var body struct {
+		Updates []struct {
+			ID              string   `json:"id"`
+			ExpectedVersion int32    `json:"expected_version"`
+			TeacherID       *string  `json:"teacher_id"`
+			RoomID          **string `json:"room_id"`
+			StartAt         *string  `json:"start_at"`
+			EndAt           *string  `json:"end_at"`
+		} `json:"updates"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+
+	if len(body.Updates) == 0 {
+		s.a.WriteErr(w, http.StatusBadRequest, "no_updates", "No updates provided")
+		return
+	}
+
+	if len(body.Updates) > 100 {
+		s.a.WriteErr(w, http.StatusBadRequest, "too_many", "Max 100 updates per request")
+		return
+	}
+
+	type bulkResult struct {
+		ID      string         `json:"id"`
+		Status  string         `json:"status"`
+		Session map[string]any `json:"session,omitempty"`
+		Error   string         `json:"error,omitempty"`
+		Details any            `json:"details,omitempty"`
+	}
+
+	results := make([]bulkResult, 0, len(body.Updates))
+
+	for _, upd := range body.Updates {
+		id, err := s.a.ParseUUID(upd.ID)
+		if err != nil {
+			results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid session ID"})
+			continue
+		}
+
+		var teacherIDPtr *pgtype.UUID
+		if upd.TeacherID != nil && *upd.TeacherID != "" {
+			parsed, err := s.a.ParseUUID(*upd.TeacherID)
+			if err != nil {
+				results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid teacher_id"})
+				continue
+			}
+			teacherIDPtr = &parsed
+		}
+
+		var roomIDPtr *pgtype.UUID
+		if upd.RoomID != nil {
+			if *upd.RoomID == nil {
+				cleared := pgtype.UUID{}
+				roomIDPtr = &cleared
+			} else if **upd.RoomID != "" {
+				parsed, err := s.a.ParseUUID(**upd.RoomID)
+				if err != nil {
+					results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid room_id"})
+					continue
+				}
+				roomIDPtr = &parsed
+			}
+		}
+
+		var startAtPtr *pgtype.Timestamptz
+		if upd.StartAt != nil {
+			parsed, err := s.a.ParseTimestamptz(*upd.StartAt)
+			if err != nil {
+				results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid start_at"})
+				continue
+			}
+			startAtPtr = &parsed
+		}
+
+		var endAtPtr *pgtype.Timestamptz
+		if upd.EndAt != nil {
+			parsed, err := s.a.ParseTimestamptz(*upd.EndAt)
+			if err != nil {
+				results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid end_at"})
+				continue
+			}
+			endAtPtr = &parsed
+		}
+
+		item, err := s.deps.Scheduling.EditOccurrenceTime(r.Context(), scheduling.EditOccurrenceParams{
+			SessionID:       id,
+			StartAt:         startAtPtr,
+			EndAt:           endAtPtr,
+			CourseID:        nil,
+			RoomID:          roomIDPtr,
+			TeacherID:       teacherIDPtr,
+			ExpectedVersion: upd.ExpectedVersion,
+		})
+		if err != nil {
+			var se *scheduling.Err
+			if errors.As(err, &se) {
+				results = append(results, bulkResult{ID: upd.ID, Status: "conflict", Error: se.Message, Details: se.Details})
+				continue
+			}
+			if strings.Contains(err.Error(), "stale_edit") {
+				results = append(results, bulkResult{ID: upd.ID, Status: "stale_edit", Error: err.Error()})
+				continue
+			}
+			results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: err.Error()})
+			continue
+		}
+
+		updated, err := s.deps.Q.SessionGetByID(r.Context(), id)
+		if err != nil {
+			slug, _ := s.a.UUIDString(item.SessionID)
+			results = append(results, bulkResult{ID: upd.ID, Status: "updated", Session: map[string]any{"id": slug}})
+			s.publishSessionUpdated(slug)
+			continue
+		}
+
+		sid, _ := s.a.UUIDString(updated.ID)
+		dto := map[string]any{
+			"id":         sid,
+			"series_id":  nil,
+			"course_id":  mustUUIDStringOrEmpty(s.a, updated.CourseID),
+			"room_id":    uuidOrNull(s.a, updated.RoomID),
+			"teacher_id": mustUUIDStringOrEmpty(s.a, updated.TeacherID),
+			"start_at":   updated.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			"end_at":     updated.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			"version":    updated.Version,
+		}
+		if updated.SeriesID.Valid {
+			dto["series_id"] = mustUUIDStringOrEmpty(s.a, updated.SeriesID)
+		}
+
+		results = append(results, bulkResult{ID: upd.ID, Status: "updated", Session: dto})
+		s.publishSessionUpdated(sid)
+	}
+
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
 func (s *server) handleSessionAttendanceList(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
-import TypeaheadSelect from "../components/TypeaheadSelect";
+import TypeaheadSelect, { type TypeaheadOption } from "../components/TypeaheadSelect";
 import MultiTeacherSelect from "../components/MultiTeacherSelect";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
@@ -233,9 +233,11 @@ export default function CourseDetail() {
   const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
 
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string });
+  const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string, teacher_id: "" as string });
   const editPreflight = usePreflight();
   const [editSaving, setEditSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
 
   const getEditSession = () => sessions.find((s) => s.id === editingSessionId) ?? null;
 
@@ -244,13 +246,13 @@ export default function CourseDetail() {
     const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
     const end = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
     setEditingSessionId(s.id);
-    setEditForm({ date, begin, end, room_id: s.room_id ?? "" });
+    setEditForm({ date, begin, end, room_id: s.room_id ?? "", teacher_id: s.teacher_id });
     editPreflight.reset();
   };
 
   const cancelEditSession = () => {
     setEditingSessionId(null);
-    setEditForm({ date: "", begin: "", end: "", room_id: "" });
+    setEditForm({ date: "", begin: "", end: "", room_id: "", teacher_id: "" });
     editPreflight.reset();
   };
 
@@ -274,11 +276,11 @@ export default function CourseDetail() {
       session_id: s.id,
       course_id: s.course_id,
       room_id: editForm.room_id || null,
-      teacher_id: s.teacher_id,
+      teacher_id: editForm.teacher_id || s.teacher_id,
       start_at: startISO,
       end_at: endISO,
     });
-  }, [editingSessionId, sessions, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id]);
+  }, [editingSessionId, sessions, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id, editForm.teacher_id]);
 
   const submitEditSession = async () => {
     const s = getEditSession();
@@ -305,7 +307,7 @@ export default function CourseDetail() {
           expected_version: s.version,
           course_id: s.course_id,
           room_id: editForm.room_id ? editForm.room_id : null,
-          teacher_id: s.teacher_id,
+          teacher_id: editForm.teacher_id || s.teacher_id,
           start_at: startISO,
           end_at: endISO,
         }),
@@ -345,6 +347,23 @@ export default function CourseDetail() {
     })();
     void loadCrmFilter();
   }, [addToast, id]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === sessions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sessions.map((s) => s.id)));
+    }
+  };
 
   const loadLookups = async () => {
     try {
@@ -950,6 +969,15 @@ export default function CourseDetail() {
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <thead className="bg-gray-50">
               <tr className="border-b border-gray-200">
+                <th className="w-10 py-2 px-1 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === sessions.length && sessions.length > 0}
+                    ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < sessions.length; }}
+                    onChange={toggleSelectAll}
+                    className="accent-gray-900"
+                  />
+                </th>
                 <th className="text-left py-2 px-3 font-semibold text-gray-700">Date</th>
                 <th className="text-left py-2 px-3 font-semibold text-gray-700">Begin</th>
                 <th className="text-left py-2 px-3 font-semibold text-gray-700">End</th>
@@ -961,13 +989,13 @@ export default function CourseDetail() {
             <tbody>
               {sessionsLoading ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <LoadingSkeleton type="table" lines={3} />
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState message="No sessions in range" />
                   </td>
                 </tr>
@@ -981,6 +1009,14 @@ export default function CourseDetail() {
                   return (
                     <Fragment key={s.id}>
                       <tr className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="w-10 py-2 px-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(s.id)}
+                            onChange={() => toggleSelect(s.id)}
+                            className="accent-gray-900"
+                          />
+                        </td>
                         <td className="py-2 px-3">
                           {isEditing ? (
                             <Input type="date" size="sm" value={editForm.date} onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))} />
@@ -1023,23 +1059,35 @@ export default function CourseDetail() {
                         </td>
                         <td className="py-2 px-3">
                           {isEditing ? (
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={submitEditSession}
-                                disabled={editSaving || isSaveDisabled({ status: editPreflight.status, loading: editPreflight.loading }) || !editPreflight.status}
-                                loading={editPreflight.loading || editSaving}
-                              >
-                                {editSaving ? "Saving…" : getSaveButtonLabel({ status: editPreflight.status, loading: editPreflight.loading }, "Save", editPreflight.details)}
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={cancelEditSession} disabled={editSaving}>
-                                Cancel
-                              </Button>
-                              <PreflightBadge status={editPreflight.status} details={editPreflight.details} loading={editPreflight.loading} />
+                            <div className="flex flex-col gap-2">
+                              <Select size="sm" value={editForm.teacher_id} onChange={(e) => setEditForm((p) => ({ ...p, teacher_id: e.target.value }))}>
+                                {teachers.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.username}
+                                  </option>
+                                ))}
+                              </Select>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={submitEditSession}
+                                  disabled={editSaving || isSaveDisabled({ status: editPreflight.status, loading: editPreflight.loading }) || !editPreflight.status}
+                                  loading={editPreflight.loading || editSaving}
+                                >
+                                  {editSaving ? "Saving…" : getSaveButtonLabel({ status: editPreflight.status, loading: editPreflight.loading }, "Save", editPreflight.details)}
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={cancelEditSession} disabled={editSaving}>
+                                  Cancel
+                                </Button>
+                                <PreflightBadge status={editPreflight.status} details={editPreflight.details} loading={editPreflight.loading} />
+                              </div>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                                {teacherById.get(s.teacher_id) ?? "—"}
+                              </span>
                               <Button variant="ghost" size="sm" onClick={() => openEditSession(s)}>
                                 Edit
                               </Button>
@@ -1054,8 +1102,8 @@ export default function CourseDetail() {
                         </td>
                       </tr>
                       {isEditing && editPreflight.details && (
-                        <tr className="border-b border-gray-100 bg-red-50/40">
-                          <td className="py-2 px-3" colSpan={6}>
+                          <tr className="border-b border-gray-100 bg-red-50/40">
+                          <td className="py-2 px-3" colSpan={7}>
                             <PreflightIndicator
                               preflight={editPreflight}
                               coursesById={course ? new Map([[course.id, course]]) : new Map()}
@@ -1078,7 +1126,31 @@ export default function CourseDetail() {
           </table></div>
         </div>
         )}
+
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 mt-3 mb-2">
+            <span className="text-sm text-gray-600 font-medium">{selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""} selected</span>
+            <Button variant="primary" size="sm" onClick={() => setBulkEditOpen(true)} disabled={selectedIds.size > 100}>
+              Edit Selected
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        )}
       </div>
+
+      {bulkEditOpen && (
+        <BulkEditModal
+          sessions={sessions.filter((s) => selectedIds.has(s.id))}
+          rooms={rooms}
+          teachers={teachers}
+          teacherOptions={teacherOptions}
+          zone={zone}
+          onClose={() => setBulkEditOpen(false)}
+          onSaved={async () => { setSelectedIds(new Set()); await loadSessions(); }}
+        />
+      )}
 
       {createOpen && (
         <Modal
@@ -1477,5 +1549,215 @@ export default function CourseDetail() {
         onCancel={() => setConfirmRemoveStudent(null)}
       />
     </div>
+  );
+}
+
+type BulkEditRow = {
+  sessionId: string;
+  version: number;
+  date: string;
+  begin: string;
+  end: string;
+  teacher_id: string;
+  room_id: string;
+  status: 'pending' | 'updated' | 'conflict' | 'stale_edit' | 'error';
+  error?: string;
+};
+
+function BulkEditModal({
+  sessions,
+  rooms,
+  teachers,
+  teacherOptions,
+  zone,
+  onClose,
+  onSaved,
+}: {
+  sessions: Session[];
+  rooms: Room[];
+  teachers: User[];
+  teacherOptions: TypeaheadOption[];
+  zone: string;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { addToast } = useToast();
+  const [rows, setRows] = useState<BulkEditRow[]>(() =>
+    sessions.map((s) => ({
+      sessionId: s.id,
+      version: s.version,
+      date: utcISOToZoneDate(s.start_at, zone) ?? s.start_at.slice(0, 10),
+      begin: formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16),
+      end: formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16),
+      teacher_id: s.teacher_id,
+      room_id: s.room_id ?? "",
+      status: 'pending' as const,
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+
+  const updateField = (sessionId: string, field: keyof Omit<BulkEditRow, 'sessionId' | 'version' | 'status' | 'error'>, value: string) => {
+    setRows((prev) =>
+      prev.map((r) => (r.sessionId === sessionId ? { ...r, [field]: value, status: 'pending' as const, error: undefined } : r))
+    );
+  };
+
+  const rowDuration = (r: BulkEditRow): string => {
+    const startISO = zoneLocalInputToUTCISO(`${r.date}T${r.begin}`, zone);
+    const endISO = zoneLocalInputToUTCISO(`${r.date}T${r.end}`, zone);
+    if (!startISO || !endISO) return "—";
+    const mins = minutesBetween(startISO, endISO);
+    if (mins == null || mins <= 0) return "—";
+    return fmtDuration(mins);
+  };
+
+  const hasDurationError = (r: BulkEditRow): boolean => {
+    const startISO = zoneLocalInputToUTCISO(`${r.date}T${r.begin}`, zone);
+    const endISO = zoneLocalInputToUTCISO(`${r.date}T${r.end}`, zone);
+    if (!startISO || !endISO) return true;
+    return endISO <= startISO;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updates = rows.map((r) => ({
+        id: r.sessionId,
+        expected_version: r.version,
+        teacher_id: r.teacher_id,
+        room_id: r.room_id || null,
+        start_at: zoneLocalInputToUTCISO(`${r.date}T${r.begin}`, zone),
+        end_at: zoneLocalInputToUTCISO(`${r.date}T${r.end}`, zone),
+      }));
+
+      const res = await apiJson<{ results: Array<{ id: string; status: string; error?: string; session?: any }> }>(
+        '/api/v1/sessions/bulk-update',
+        { method: 'POST', body: JSON.stringify({ updates }) }
+      );
+
+      const statusMap = new Map(res.results.map((r) => [r.id, r]));
+      setRows((prev) =>
+        prev.map((r) => {
+          const result = statusMap.get(r.sessionId);
+          if (!result) return { ...r, status: 'error' as const, error: 'No result returned' };
+          return { ...r, status: result.status as BulkEditRow['status'], error: result.error };
+        })
+      );
+
+      const updated = res.results.filter((r) => r.status === 'updated').length;
+      const conflicts = res.results.filter((r) => r.status === 'conflict' || r.status === 'stale_edit').length;
+      const errors = res.results.filter((r) => r.status === 'error').length;
+
+      if (updated > 0) addToast('success', `Updated ${updated} session${updated !== 1 ? 's' : ''}`);
+      if (conflicts > 0) addToast('warning', `${conflicts} session${conflicts !== 1 ? 's' : ''} had conflicts`);
+      if (errors > 0) addToast('error', `${errors} session${errors !== 1 ? 's' : ''} failed`);
+
+      if (errors === 0 && conflicts === 0 && updated > 0) {
+        onClose();
+        await onSaved();
+      }
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Bulk update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canSave = rows.every((r) => !hasDurationError(r)) && !saving;
+
+  return (
+    <Modal
+      title={`Bulk Edit (${sessions.length} session${sessions.length !== 1 ? 's' : ''})`}
+      onClose={onClose}
+      size="full"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={!canSave} loading={saving}>
+            {saving ? "Saving…" : "Save All"}
+          </Button>
+        </>
+      }
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px] border border-gray-200">
+          <thead className="bg-gray-50">
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">#</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Dur</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
+              <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-4 text-center text-gray-400">No sessions selected</td>
+              </tr>
+            ) : (
+              rows.map((r) => {
+                const durStr = rowDuration(r);
+                const hasError = hasDurationError(r);
+                return (
+                  <tr key={r.sessionId} className={`border-b border-gray-100 hover:bg-gray-50 ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
+                    <td className="py-1.5 px-2 font-mono text-xs text-gray-400">{rows.indexOf(r) + 1}</td>
+                    <td className="py-1.5 px-2">
+                      <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                    </td>
+                    <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-gray-700'}`}>
+                      {hasError ? "Invalid" : durStr}
+                    </td>
+                    <td className="py-1.5 px-2 min-w-[120px]">
+                      <select
+                        value={r.room_id}
+                        onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)}
+                        className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded-sm"
+                      >
+                        <option value="">[NOT SET]</option>
+                        {rooms.map((room) => (
+                          <option key={room.id} value={room.id}>{room.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="py-1.5 px-2 min-w-[160px]">
+                      <TypeaheadSelect
+                        value={r.teacher_id}
+                        onChange={(v) => updateField(r.sessionId, 'teacher_id', v)}
+                        options={teacherOptions}
+                        placeholder="Search teacher…"
+                      />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-sm text-[11px] font-medium ${
+                        r.status === 'pending' ? 'text-gray-400' :
+                        r.status === 'updated' ? 'bg-green-100 text-green-700' :
+                        r.status === 'conflict' || r.status === 'stale_edit' ? 'bg-red-100 text-red-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {r.status === 'pending' ? 'Ready' :
+                         r.status === 'updated' ? 'Saved' :
+                         r.status === 'conflict' ? 'Conflict' :
+                         r.status === 'stale_edit' ? 'Stale' :
+                         'Error'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
   );
 }
