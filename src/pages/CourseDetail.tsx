@@ -422,8 +422,8 @@ export default function CourseDetail() {
 
   const submitCourseEdit = async () => {
     if (!id || !course) return;
-    if (!editCode.trim() || !editName.trim()) {
-      addToast("error", "Code and name are required");
+    if (!editCode.trim()) {
+      addToast("error", "Code is required");
       return;
     }
     try {
@@ -787,12 +787,9 @@ export default function CourseDetail() {
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Code</label>
-              <input
-                type="text"
-                value={editCode}
-                onChange={(e) => setEditCode(e.target.value)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
-              />
+              <div className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-sm mt-0.5 bg-gray-50 text-gray-500">
+                {editCode}
+              </div>
             </div>
             <div className="flex-1">
               <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Name</label>
