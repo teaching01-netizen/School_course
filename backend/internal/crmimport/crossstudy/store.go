@@ -466,6 +466,36 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		}
 	}
 
+	// Clear stale exclude overrides owned by this assignment before rebuilding.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM course_roster_overrides
+		WHERE cross_study_assignment_id = $1
+		  AND action = 'exclude'::override_action
+		  AND override_source = 'cross_study'
+	`, assignmentID); err != nil {
+		return fmt.Errorf("delete stale exclude overrides: %w", err)
+	}
+
+	// Exclude student from courses whose CRM filter matches the CRM course name
+	// but are not destination courses for this assignment.
+	if input.CRMCourseName != "" {
+		srcIDs, err := s.coursesMatchingCRMCourseName(ctx, tx, input.CRMCourseName)
+		if err != nil {
+			return fmt.Errorf("find courses matching CRM course name: %w", err)
+		}
+		for _, srcID := range srcIDs {
+			if courseInDestinations(srcID, input.DestCourseAID, input.DestCourseBID) {
+				continue
+			}
+			if err := s.upsertCrossStudyOverride(ctx, tx, srcID, studentID, userID, assignmentID, "exclude"); err != nil {
+				return fmt.Errorf("insert source exclude override: %w", err)
+			}
+			if err := s.ExcludeStudent(ctx, tx, srcID, studentID); err != nil {
+				return fmt.Errorf("remove from source course_students: %w", err)
+			}
+		}
+	}
+
 	// Apply immediate roster effect so preflight sees correct enrollment.
 	if hasExistingAssignment {
 		oldDestCreated := map[uuid.UUID]bool{
@@ -574,6 +604,8 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 
 	_ = asgnCourseID
 	_ = assignedCourseEnrollmentCreated
+	_ = srcCourseID
+	_ = sourceCourseEnrollmentRemoved
 
 	// Restore roster: remove destination courses only when cross-study created them.
 	destCreated := map[uuid.UUID]bool{
@@ -598,18 +630,38 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 			}
 		}
 	}
-	if !courseInDestinations(srcCourseID, destCourseAID, destCourseBID) {
-		excludedByOtherAssignment, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, srcCourseID, assignmentID)
+	// Restore all source courses that were excluded by this cross-study assignment.
+	excludeRows, err := tx.Query(ctx, `
+		SELECT course_id FROM course_roster_overrides
+		WHERE cross_study_assignment_id = $1
+		  AND action = 'exclude'::override_action
+		  AND override_source = 'cross_study'
+		  AND deleted_at IS NULL
+	`, assignmentID)
+	if err != nil {
+		return fmt.Errorf("query excluded courses: %w", err)
+	}
+	var excludedCourseIDs []uuid.UUID
+	for excludeRows.Next() {
+		var cid uuid.UUID
+		if err := excludeRows.Scan(&cid); err != nil {
+			excludeRows.Close()
+			return fmt.Errorf("scan excluded course: %w", err)
+		}
+		excludedCourseIDs = append(excludedCourseIDs, cid)
+	}
+	excludeRows.Close()
+
+	for _, courseID := range excludedCourseIDs {
+		required, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, courseID, assignmentID)
 		if err != nil {
 			return fmt.Errorf("check source course exclusion: %w", err)
 		}
-		if !excludedByOtherAssignment && sourceCourseEnrollmentRemoved {
-			if err := s.IncludeStudent(ctx, tx, srcCourseID, studentID); err != nil {
+		if !required {
+			if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
 				return fmt.Errorf("restore to source course_students: %w", err)
 			}
-		}
-		if !excludedByOtherAssignment {
-			if err := s.deleteCrossStudyOverride(ctx, tx, srcCourseID, studentID, "exclude"); err != nil {
+			if err := s.deleteCrossStudyOverride(ctx, tx, courseID, studentID, "exclude"); err != nil {
 				return fmt.Errorf("delete exclude override: %w", err)
 			}
 		}
@@ -639,17 +691,43 @@ func (s *Store) crossStudyExcludesSourceCourse(ctx context.Context, tx pgx.Tx, s
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM crm_cross_study_assignments a
-			JOIN students s ON s.wcode = a.wcode
-			WHERE s.id = $1
-			  AND a.source_course_id = $2
-			  AND a.dest_course_a_id <> a.source_course_id
-			  AND a.dest_course_b_id <> a.source_course_id
-			  AND a.id <> $3
-			  AND a.deleted_at IS NULL
+			FROM course_roster_overrides
+			WHERE student_id = $1
+			  AND course_id = $2
+			  AND action = 'exclude'
+			  AND override_source = 'cross_study'
+			  AND cross_study_assignment_id <> $3
+			  AND deleted_at IS NULL
 		)
 	`, studentID, courseID, exceptAssignmentID).Scan(&exists)
 	return exists, err
+}
+
+func (s *Store) coursesMatchingCRMCourseName(ctx context.Context, tx pgx.Tx, crmCourseName string) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT c.id
+		FROM courses c
+		WHERE c.crm_filter_enabled = true
+		  AND c.crm_filter IS NOT NULL
+		  AND EXISTS (
+		    SELECT 1
+		    FROM jsonb_array_elements_text(c.crm_filter->'course_name_values') AS cv
+		    WHERE cv = $1
+		  )
+	`, crmCourseName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ListAssignmentsWithCourseInfo returns all non-deleted assignments with student and course names.
