@@ -51,22 +51,52 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
+
+	courseIDs := make([]pgtype.UUID, len(items))
+	for i, c := range items {
+		courseIDs[i] = c.ID
+	}
+	// Batch-fetch teachers from course_teachers.
+	type teacherEntry struct {
+		CourseID string `db:"course_id"`
+		ID       string `db:"id"`
+		Username string `db:"username"`
+	}
+	var teacherRows []teacherEntry
+	if len(courseIDs) > 0 {
+		trows, tErr := s.deps.DB.Query(r.Context(), `SELECT ct.course_id::text, u.id::text, u.username FROM course_teachers ct JOIN users u ON u.id = ct.teacher_id WHERE ct.course_id = ANY($1) ORDER BY u.username`, courseIDs)
+		if tErr == nil {
+			for trows.Next() {
+				var te teacherEntry
+				if err := trows.Scan(&te.CourseID, &te.ID, &te.Username); err == nil {
+					teacherRows = append(teacherRows, te)
+				}
+			}
+			trows.Close()
+		}
+	}
+	teachersByCourse := make(map[string][]map[string]any, len(items))
+	for _, te := range teacherRows {
+		teachersByCourse[te.CourseID] = append(teachersByCourse[te.CourseID], map[string]any{"id": te.ID, "username": te.Username})
+	}
+
 	type courseDTO struct {
-		ID                 string `json:"id"`
-		CourseNo           int64  `json:"course_no"`
-		Code               string `json:"code"`
-		Name               string `json:"name"`
-		Year               any    `json:"year"`
-		TeacherID          any    `json:"teacher_id"`
-		TeacherName        string `json:"teacher_name"`
-		SubjectID          any    `json:"subject_id"`
-		SubjectCode        string `json:"subject_code"`
-		SubjectName        string `json:"subject_name"`
-		Hour               any    `json:"hour"`
-		StudentCount       any    `json:"student_count"`
-		CourseType         any    `json:"course_type"`
-		LegacyCourseID     any    `json:"legacy_course_id"`
-		LegacyLastSyncedAt any    `json:"legacy_last_synced_at"`
+		ID                 string           `json:"id"`
+		CourseNo           int64            `json:"course_no"`
+		Code               string           `json:"code"`
+		Name               string           `json:"name"`
+		Year               any              `json:"year"`
+		TeacherID          any              `json:"teacher_id"`
+		TeacherName        string           `json:"teacher_name"`
+		SubjectID          any              `json:"subject_id"`
+		SubjectCode        string           `json:"subject_code"`
+		SubjectName        string           `json:"subject_name"`
+		Hour               any              `json:"hour"`
+		StudentCount       any              `json:"student_count"`
+		CourseType         any              `json:"course_type"`
+		LegacyCourseID     any              `json:"legacy_course_id"`
+		LegacyLastSyncedAt any              `json:"legacy_last_synced_at"`
+		Teachers           []map[string]any `json:"teachers"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -107,8 +137,9 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.LegacyLastSyncedAt.Valid {
 			legacyLastSyncedAt, _ = s.a.TimeString(c.LegacyLastSyncedAt)
 		}
+		cid := id
 		out = append(out, courseDTO{
-			ID:                 id,
+			ID:                 cid,
 			CourseNo:           c.CourseNo,
 			Code:               c.Code,
 			Name:               c.Name,
@@ -123,6 +154,7 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			CourseType:         courseType,
 			LegacyCourseID:     legacyCourseID,
 			LegacyLastSyncedAt: legacyLastSyncedAt,
+			Teachers:           teachersByCourse[cid],
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)

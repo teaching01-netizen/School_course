@@ -31,6 +31,7 @@ export default function Courses() {
     student_count: number | null;
     course_type: string | null;
     legacy_course_id?: string | null;
+    teachers?: { id: string; username: string }[];
   };
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -79,13 +80,15 @@ export default function Courses() {
       data = data.filter((c) => {
         const subjectLabel = `${c.subject_code} ${c.subject_name}`.toLowerCase();
         const teacherLabel = (c.teacher_name ?? "").toLowerCase();
+        const allTeacherLabels = (c.teachers ?? []).map((t) => t.username.toLowerCase()).join(" ");
         return (
           String(c.course_no).includes(q) ||
           c.id.toLowerCase().includes(q) ||
           c.code.toLowerCase().includes(q) ||
           (c.name ?? "").toLowerCase().includes(q) ||
           subjectLabel.includes(q) ||
-          teacherLabel.includes(q)
+          teacherLabel.includes(q) ||
+          allTeacherLabels.includes(q)
         );
       });
     }
@@ -267,7 +270,15 @@ export default function Courses() {
                   <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.course_no}</td>
                   <td className="py-3 px-2 font-mono text-xs text-gray-700">{course.code}</td>
                   <td className="py-3 px-2">{course.year ?? "—"}</td>
-                  <td className="py-3 px-2">{course.teacher_name || "—"}</td>
+                  <td className="py-3 px-2">
+                    {(course.teachers ?? []).length > 0
+                      ? (course.teachers ?? []).map((t) => (
+                          <span key={t.id} className="inline-block mr-1 mb-0.5 px-1.5 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-sm">
+                            {t.username}
+                          </span>
+                        ))
+                      : course.teacher_name || "—"}
+                  </td>
                   <td className="py-3 px-2">
                     {course.subject_code ? `[${course.subject_code}] ` : ""}
                     {course.subject_name || "—"}
