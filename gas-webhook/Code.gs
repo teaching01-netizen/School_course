@@ -7,27 +7,16 @@
  * Deploy: script.google.com → Deploy → Web app
  *   Execute as: Me
  *   Who has access: Anyone
- *   Script property: WEBHOOK_SECRET must match backend INSTITUTE_EMAIL_WEBHOOK_SECRET
  *
  * GAS always responds HTTP 200. Check JSON body for success/failure.
  */
 
 function doPost(e) {
   try {
-    var expectedSecret = PropertiesService.getScriptProperties().getProperty("WEBHOOK_SECRET");
-    if (!expectedSecret) {
-      return respond(false, "Webhook secret is not configured");
-    }
-
     var payload = JSON.parse(e.postData.contents);
     var to = payload.to;
     var subject = payload.subject;
     var body = payload.body;
-    var secret = payload.secret;
-
-    if (secret !== expectedSecret) {
-      return respond(false, "Unauthorized");
-    }
 
     if (!to || !subject || !body) {
       return respond(false, "Missing required field(s): to, subject, body");

@@ -94,17 +94,17 @@ func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqld
 			result := make([]emailnotifier.SitInReminderRow, len(dbRows))
 			for i, r := range dbRows {
 				result[i] = emailnotifier.SitInReminderRow{
-					StudentName:      r.StudentName,
-					StudentNickname:  r.StudentNickname,
-					CourseCode:       r.CourseCode,
-					CourseName:       r.CourseName,
-					SitInCourseCode:  r.SitInCourseCode,
-					SitInCourseName:  r.SitInCourseName,
-					TeacherName:      r.TeacherName,
-					TeacherEmail:     r.TeacherEmail,
-					AbsenceDateRange: r.AbsenceDateRange,
-					StartAt:          r.StartAt,
-					EndAt:            r.EndAt,
+					StudentName:        r.StudentName,
+					StudentNickname:    r.StudentNickname,
+					WCode:              r.WCode,
+					CourseName:         r.CourseName,
+					SitInCourseName:    r.SitInCourseName,
+					TeacherName:        r.TeacherName,
+					TeacherEmail:       r.TeacherEmail,
+					AbsenceDateRange:   r.AbsenceDateRange,
+					MissedSessionsInfo: r.MissedSessionsInfo,
+					StartAt:            r.StartAt,
+					EndAt:              r.EndAt,
 				}
 			}
 			return result, nil

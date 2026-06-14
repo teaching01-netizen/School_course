@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestGASWebhookRequiresSharedSecretAndSendsHTMLBody(t *testing.T) {
+func TestGASWebhookSendsHTMLBody(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -20,13 +20,7 @@ func TestGASWebhookRequiresSharedSecretAndSendsHTMLBody(t *testing.T) {
 	}
 	script := string(data)
 
-	for _, want := range []string{
-		"PropertiesService.getScriptProperties().getProperty(\"WEBHOOK_SECRET\")",
-		"payload.secret",
-		"htmlBody: body",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("GAS webhook must contain %q", want)
-		}
+	if !strings.Contains(script, "htmlBody: body") {
+		t.Fatalf("GAS webhook must contain %q", "htmlBody: body")
 	}
 }

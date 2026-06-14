@@ -192,9 +192,7 @@ func (s *server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	sampleValues := map[string]string{
 		"{{student_name}}":       "John Doe",
 		"{{student_nickname}}":   "John",
-		"{{course_code}}":        "SAT-M-01",
 		"{{course_name}}":        "SAT Math Intermediate",
-		"{{sit_in_course_code}}": "SAT-M-02",
 		"{{sit_in_course_name}}": "SAT Math Advanced",
 		"{{sit_in_date}}":        time.Now().Format("Mon 2 Jan 2006"),
 		"{{sit_in_time}}":        "09:00 - 10:30",

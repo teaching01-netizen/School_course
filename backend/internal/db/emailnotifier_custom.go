@@ -6,17 +6,19 @@ import (
 )
 
 type TodaySitInRow struct {
-	StudentName      string
-	StudentNickname  string
-	CourseCode       string
-	CourseName       string
-	SitInCourseCode  string
-	SitInCourseName  string
-	StartAt          time.Time
-	EndAt            time.Time
-	TeacherName      string
-	TeacherEmail     string
-	AbsenceDateRange string
+	StudentName         string
+	StudentNickname     string
+	WCode               string
+	CourseCode          string
+	CourseName          string
+	SitInCourseCode     string
+	SitInCourseName     string
+	StartAt             time.Time
+	EndAt               time.Time
+	TeacherName         string
+	TeacherEmail        string
+	AbsenceDateRange    string
+	MissedSessionsInfo  string
 }
 
 func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ string) ([]TodaySitInRow, error) {
@@ -24,6 +26,7 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 		SELECT
 			COALESCE(st.full_name, sa.wcode),
 			COALESCE(st.nickname, st.full_name, sa.wcode),
+			sa.wcode,
 			c.code,
 			c.name,
 			sit_c.code,
@@ -32,7 +35,8 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 			ses.end_at,
 			COALESCE(u.username, ''),
 			COALESCE(u.email, ''),
-			sa.date_from::text || ' - ' || sa.date_to::text
+			sa.date_from::text || ' - ' || sa.date_to::text,
+			COALESCE(missed.missed_sessions_info, '')
 		FROM student_absences sa
 		JOIN absence_sit_ins asi ON asi.absence_id = sa.id
 		JOIN sessions ses ON ses.id = asi.session_id
@@ -40,6 +44,16 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 		JOIN courses sit_c ON sit_c.id = COALESCE(sa.sit_in_course_id, ses.course_id)
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN users u ON u.id = ses.teacher_id
+		LEFT JOIN LATERAL (
+			SELECT string_agg(
+				(missed_ses.start_at AT TIME ZONE $2)::text || '|' || (missed_ses.end_at AT TIME ZONE $2)::text,
+				E'\n' ORDER BY missed_ses.start_at
+			) AS missed_sessions_info
+			FROM absence_missed_sessions ams
+			JOIN sessions missed_ses ON missed_ses.id = ams.session_id
+			WHERE ams.absence_id = sa.id
+			  AND missed_ses.deleted_at IS NULL
+		) missed ON true
 		WHERE sa.status NOT IN ('cancelled')
 		  AND sa.sit_in_method = 'physical'
 		  AND ses.deleted_at IS NULL
@@ -57,6 +71,7 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 		if err := rows.Scan(
 			&d.StudentName,
 			&d.StudentNickname,
+			&d.WCode,
 			&d.CourseCode,
 			&d.CourseName,
 			&d.SitInCourseCode,
@@ -66,6 +81,7 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 			&d.TeacherName,
 			&d.TeacherEmail,
 			&d.AbsenceDateRange,
+			&d.MissedSessionsInfo,
 		); err != nil {
 			return nil, err
 		}

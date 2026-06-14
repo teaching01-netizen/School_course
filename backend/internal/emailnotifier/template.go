@@ -25,9 +25,7 @@ func (t Template) Render(values map[string]string) (subject, body string) {
 var DefaultPlaceholders = []PlaceholderInfo{
 	{Token: "{{student_name}}", Description: "Student's full name"},
 	{Token: "{{student_nickname}}", Description: "Student's nickname"},
-	{Token: "{{course_code}}", Description: "Missed course code"},
 	{Token: "{{course_name}}", Description: "Missed course name"},
-	{Token: "{{sit_in_course_code}}", Description: "Sit-in course code"},
 	{Token: "{{sit_in_course_name}}", Description: "Sit-in course name"},
 	{Token: "{{sit_in_date}}", Description: "Sit-in session date"},
 	{Token: "{{sit_in_time}}", Description: "Sit-in session time range"},

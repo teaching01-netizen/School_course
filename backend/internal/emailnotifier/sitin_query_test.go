@@ -7,20 +7,24 @@ import (
 
 func TestBuildSitInTableEscapesCellContent(t *testing.T) {
 	table := BuildSitInTable([]SitInReminderData{{
-		StudentName:     `<script>alert("x")</script>`,
-		StudentNickname: `Nick & Co`,
-		CourseName:      `Math <Advanced>`,
-		CourseCode:      `SAT&1`,
+		StudentNickname:    `Nick & Co`,
+		WCode:              `W250&lt;1`,
+		CourseName:         `Math <Advanced>`,
+		SitInCourseName:    `SAT & Physics&gt;`,
+		SitInDate:          `Mon 1 Jan 2026`,
+		SitInTime:          `08:00 - 09:30`,
+		MissedSessionsInfo: `Missed & Info&gt;`,
 	}})
 
 	if strings.Contains(table, `<script>`) {
 		t.Fatalf("table contains raw script tag: %s", table)
 	}
 	for _, want := range []string{
-		`&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;`,
 		`Nick &amp; Co`,
+		`W250&amp;lt;1`,
 		`Math &lt;Advanced&gt;`,
-		`SAT&amp;1`,
+		`SAT &amp; Physics&amp;gt;`,
+		`Missed &amp; Info&amp;gt;`,
 	} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("table missing escaped content %q: %s", want, table)

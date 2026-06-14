@@ -8,53 +8,76 @@ import (
 )
 
 type SitInReminderData struct {
-	StudentName      string
-	StudentNickname  string
-	CourseCode       string
-	CourseName       string
-	SitInCourseCode  string
-	SitInCourseName  string
-	SitInDate        string
-	SitInTime        string
-	TeacherName      string
-	TeacherEmail     string
-	AbsenceDateRange string
+	StudentName        string
+	StudentNickname    string
+	WCode              string
+	CourseName         string
+	SitInCourseName    string
+	SitInDate          string
+	SitInTime          string
+	TeacherName        string
+	TeacherEmail       string
+	AbsenceDateRange   string
+	MissedSessionsInfo string
 }
 
 type SitInReminderRow struct {
-	StudentName      string
-	StudentNickname  string
-	CourseCode       string
-	CourseName       string
-	SitInCourseCode  string
-	SitInCourseName  string
-	TeacherName      string
-	TeacherEmail     string
-	AbsenceDateRange string
-	StartAt          time.Time
-	EndAt            time.Time
+	StudentName        string
+	StudentNickname    string
+	WCode              string
+	CourseName         string
+	SitInCourseName    string
+	TeacherName        string
+	TeacherEmail       string
+	AbsenceDateRange   string
+	MissedSessionsInfo string
+	StartAt            time.Time
+	EndAt              time.Time
 }
 
 func BuildReminderData(rows []SitInReminderRow, instituteTZ string) []SitInReminderData {
 	loc, _ := EffectiveLocation(instituteTZ)
 	results := make([]SitInReminderData, 0, len(rows))
 	for _, r := range rows {
+		missed := formatMissedSessions(r.MissedSessionsInfo, loc)
 		d := SitInReminderData{
-			StudentName:      r.StudentName,
-			StudentNickname:  r.StudentNickname,
-			CourseCode:       r.CourseCode,
-			CourseName:       r.CourseName,
-			SitInCourseCode:  r.SitInCourseCode,
-			SitInCourseName:  r.SitInCourseName,
-			TeacherName:      r.TeacherName,
-			TeacherEmail:     r.TeacherEmail,
-			AbsenceDateRange: r.AbsenceDateRange,
-			SitInDate:        r.StartAt.In(loc).Format("Mon 2 Jan 2006"),
-			SitInTime:        r.StartAt.In(loc).Format("15:04") + " - " + r.EndAt.In(loc).Format("15:04"),
+			StudentName:        r.StudentName,
+			StudentNickname:    r.StudentNickname,
+			WCode:              r.WCode,
+			CourseName:         r.CourseName,
+			SitInCourseName:    r.SitInCourseName,
+			TeacherName:        r.TeacherName,
+			TeacherEmail:       r.TeacherEmail,
+			AbsenceDateRange:   r.AbsenceDateRange,
+			MissedSessionsInfo: missed,
+			SitInDate:          r.StartAt.In(loc).Format("Mon 2 Jan 2006"),
+			SitInTime:          r.StartAt.In(loc).Format("15:04") + " - " + r.EndAt.In(loc).Format("15:04"),
 		}
 		results = append(results, d)
 	}
 	return results
+}
+
+func formatMissedSessions(raw string, loc *time.Location) string {
+	if raw == "" {
+		return ""
+	}
+	lines := strings.Split(raw, "\n")
+	formatted := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		start, err1 := time.ParseInLocation("2006-01-02 15:04:05", parts[0], loc)
+		end, err2 := time.ParseInLocation("2006-01-02 15:04:05", parts[1], loc)
+		if err1 != nil || err2 != nil {
+			formatted = append(formatted, line)
+			continue
+		}
+		formatted = append(formatted, start.Format("Mon 2 Jan 2006 15:04")+" - "+end.Format("15:04"))
+	}
+	return strings.Join(formatted, "\n")
 }
 
 func EffectiveLocation(instituteTZ string) (*time.Location, string) {
@@ -73,22 +96,18 @@ func BuildSitInTable(data []SitInReminderData) string {
 	var b strings.Builder
 	b.WriteString(`<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:13px">`)
 	b.WriteString(`<thead><tr style="background:#f3f4f6;text-align:left">`)
-	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Student</th>`)
+	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">WCode</th>`)
 	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Nickname</th>`)
 	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Missed Course</th>`)
 	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Sit-in Course</th>`)
-	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Time</th>`)
-	b.WriteString(`<th style="padding:8px;border:1px solid #d1d5db">Absence Range</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, d := range data {
 		b.WriteString(`<tr style="vertical-align:top">`)
-		writeTd(&b, d.StudentName)
+		writeTd(&b, d.WCode)
 		writeTd(&b, d.StudentNickname)
-		writeTd(&b, joinNonEmpty([]string{d.CourseName, d.CourseCode}, " — "))
-		writeTd(&b, joinNonEmpty([]string{d.SitInCourseName, d.SitInCourseCode}, " — "))
-		writeTd(&b, d.SitInDate+"  "+d.SitInTime)
-		writeTd(&b, d.AbsenceDateRange)
+		writeTd(&b, d.CourseName+"\n"+d.MissedSessionsInfo)
+		writeTd(&b, d.SitInCourseName+"\n"+d.SitInDate+" "+d.SitInTime)
 		b.WriteString(`</tr>`)
 	}
 
@@ -117,7 +136,6 @@ func BuildPlaceholderValues(data []SitInReminderData, instituteName string) map[
 	first := data[0]
 	sitInDates := make([]string, 0, len(data))
 	sitInTimes := make([]string, 0, len(data))
-	sitInCourses := make([]string, 0, len(data))
 	sitInCourseNames := make([]string, 0, len(data))
 	studentNames := make([]string, 0, len(data))
 
@@ -125,7 +143,6 @@ func BuildPlaceholderValues(data []SitInReminderData, instituteName string) map[
 		studentNames = append(studentNames, d.StudentName)
 		sitInDates = append(sitInDates, d.SitInDate)
 		sitInTimes = append(sitInTimes, d.SitInTime)
-		sitInCourses = append(sitInCourses, d.SitInCourseCode)
 		sitInCourseNames = append(sitInCourseNames, d.SitInCourseName)
 	}
 
@@ -137,9 +154,7 @@ func BuildPlaceholderValues(data []SitInReminderData, instituteName string) map[
 	return map[string]string{
 		"{{student_name}}":       joinNonEmpty(studentNames, ", "),
 		"{{student_nickname}}":   first.StudentNickname,
-		"{{course_code}}":        first.CourseCode,
 		"{{course_name}}":        first.CourseName,
-		"{{sit_in_course_code}}": joinNonEmpty(sitInCourses, ", "),
 		"{{sit_in_course_name}}": joinNonEmpty(sitInCourseNames, ", "),
 		"{{sit_in_date}}":        joinNonEmpty(sitInDates, ", "),
 		"{{sit_in_time}}":        joinNonEmpty(sitInTimes, ", "),
