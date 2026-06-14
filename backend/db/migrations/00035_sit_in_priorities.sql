@@ -1,6 +1,6 @@
 -- +goose Up
 
-CREATE TABLE sit_in_priorities (
+CREATE TABLE IF NOT EXISTS sit_in_priorities (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     root_course_group_id uuid NOT NULL REFERENCES root_course_groups(id) ON DELETE CASCADE,
     sit_in_rule_id uuid NOT NULL REFERENCES sit_in_rules(id),
@@ -12,8 +12,8 @@ CREATE TABLE sit_in_priorities (
     UNIQUE(root_course_group_id, priority_level)
 );
 
-CREATE INDEX idx_sit_in_priorities_root_group ON sit_in_priorities(root_course_group_id);
-CREATE INDEX idx_sit_in_priorities_rule ON sit_in_priorities(sit_in_rule_id);
+CREATE INDEX IF NOT EXISTS idx_sit_in_priorities_root_group ON sit_in_priorities(root_course_group_id);
+CREATE INDEX IF NOT EXISTS idx_sit_in_priorities_rule ON sit_in_priorities(sit_in_rule_id);
 
 -- +goose Down
 

@@ -1,6 +1,6 @@
 -- +goose Up
 
-CREATE TABLE email_templates (
+CREATE TABLE IF NOT EXISTS email_templates (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text NOT NULL,
     subject    text NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE email_templates (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE email_workflows (
+CREATE TABLE IF NOT EXISTS email_workflows (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name                text NOT NULL,
     enabled             boolean NOT NULL DEFAULT false,

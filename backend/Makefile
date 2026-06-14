@@ -1,4 +1,4 @@
-.PHONY: dev build test lint fmt migrate-up migrate-down migrate-status sqlc tools
+.PHONY: dev build test lint fmt migrate-up migrate-down migrate-status migrate-validate sqlc tools
 
 dev:
 	export $$(grep -v '^\s*#' ../.env 2>/dev/null | grep -v '^\s*$$' | sed 's/[[:space:]]*#.*//' | xargs) 2>/dev/null; \
@@ -31,6 +31,9 @@ migrate-down:
 
 migrate-status:
 	go run ./cmd/migrate status
+
+migrate-validate:
+	bash ../scripts/validate-migrations.sh
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate

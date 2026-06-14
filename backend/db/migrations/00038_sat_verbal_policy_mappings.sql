@@ -1,6 +1,6 @@
 -- +goose Up
 
-CREATE TABLE sat_verbal_policy_mappings (
+CREATE TABLE IF NOT EXISTS sat_verbal_policy_mappings (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     rule_id text NOT NULL,
     course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
@@ -13,7 +13,7 @@ CREATE TABLE sat_verbal_policy_mappings (
     UNIQUE(course_id)
 );
 
-CREATE INDEX idx_sat_verbal_policy_mappings_course_active
+CREATE INDEX IF NOT EXISTS idx_sat_verbal_policy_mappings_course_active
     ON sat_verbal_policy_mappings(course_id)
     WHERE active;
 

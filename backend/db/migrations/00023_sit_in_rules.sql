@@ -1,6 +1,6 @@
 -- +goose Up
 
-CREATE TABLE sit_in_rules (
+CREATE TABLE IF NOT EXISTS sit_in_rules (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name text UNIQUE NOT NULL,
     type text NOT NULL CHECK (type IN ('level_ladder', 'cross_section', 'any_day_except_last', 'rank_chain', 'teacher_case_by_case')),
@@ -12,9 +12,9 @@ CREATE TABLE sit_in_rules (
 
 ALTER TABLE root_course_groups ADD COLUMN sit_in_rule_id uuid REFERENCES sit_in_rules(id);
 
-CREATE INDEX idx_root_course_groups_sit_in_rule ON root_course_groups(sit_in_rule_id);
-CREATE INDEX idx_sit_in_rules_type ON sit_in_rules(type);
-CREATE INDEX idx_sit_in_rules_name ON sit_in_rules(name);
+CREATE INDEX IF NOT EXISTS idx_root_course_groups_sit_in_rule ON root_course_groups(sit_in_rule_id);
+CREATE INDEX IF NOT EXISTS idx_sit_in_rules_type ON sit_in_rules(type);
+CREATE INDEX IF NOT EXISTS idx_sit_in_rules_name ON sit_in_rules(name);
 
 INSERT INTO sit_in_rules (id, name, type, predicate, description) VALUES
 ('a0000000-0000-0000-0000-000000000001', 'Level Ladder', 'level_ladder', '{"level_1_action": "zoom", "non_max_direction": "sit_higher", "max_direction": "sit_lower", "min_level_for_sit_lower": 2}', 'Level 1 students zoom, higher levels sit up or down based on level'),
