@@ -413,10 +413,10 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	serverNow := time.Now().UTC()
-	if existing.EndAt.Valid && existing.EndAt.Time.UTC().Before(serverNow) {
+	startOfToday := time.Now().UTC().Truncate(24 * time.Hour)
+	if existing.EndAt.Valid && existing.EndAt.Time.UTC().Before(startOfToday) {
 		s.a.WriteErrDetails(w, http.StatusConflict, "past_session_immutable", "Past sessions are immutable", map[string]any{
-			"server_now": serverNow.Format(time.RFC3339Nano),
+			"server_now": startOfToday.Format(time.RFC3339Nano),
 			"end_at":     existing.EndAt.Time.UTC().Format(time.RFC3339Nano),
 		})
 		return
