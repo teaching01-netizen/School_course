@@ -600,8 +600,8 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByText(/1st Priority: Another Rank 3 section/)).toBeInTheDocument();
-    expect(screen.queryByText(/3rd Priority: Rank 4 Reading or Writing/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see other times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
@@ -609,12 +609,12 @@ describe("AbsenceForm", () => {
         expect.anything(),
       );
     });
-    expect(await screen.findByText(/3rd Priority: Rank 4 Reading or Writing/)).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Reading Rank 4/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /see previous times/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see previous times/i }));
-    expect(await screen.findByText(/1st Priority: Another Rank 3 section/)).toBeInTheDocument();
-    expect(screen.queryByText(/3rd Priority: Rank 4 Reading or Writing/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
   }, 30000);
 
@@ -685,13 +685,12 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByText(/1st Priority: Same Writing Beginner lesson/)).toBeInTheDocument();
     expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
     expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
     expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-    expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {
@@ -916,7 +915,7 @@ describe("AbsenceForm", () => {
     expect(await screen.findAllByRole("combobox")).toHaveLength(2);
 
     await user.click(screen.getAllByRole("button", { name: /see other times/i })[0]);
-    expect(await screen.findByText(/2nd Priority: SAT Verbal Writing Rank 5/)).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
   }, 30000);
 
   it("renders SAT Verbal same-number choices from per-missed-session sit-in results", async () => {

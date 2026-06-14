@@ -1219,19 +1219,7 @@ export default function AbsenceForm() {
                                                     return (
                                                       <div className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
                                                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                                          <div className="min-w-0">
-                                                            <div className="mb-1 flex items-center gap-2">
-                                                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-wi-amber-bg)] px-1.5 text-[11px] font-semibold text-[var(--color-wi-amber)] ring-1 ring-[var(--color-wi-amber)]/30">
-                                                                {currentLevel}
-                                                              </span>
-                                                              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-amber)]">
-                                                                {priorityOrdinal(currentLevel)} choice
-                                                              </span>
-                                                            </div>
-                                                            <p className="text-sm font-semibold leading-5 text-[var(--color-wi-text)]">
-                                                              {currentPriorities.length === 1 ? currentPriority.label : `${priorityOrdinal(currentLevel)} Priority`}
-                                                            </p>
-                                                          </div>
+
                                                           {(hasPreviousPriority || hasMorePriorities) && (
                                                             <div className="inline-flex w-full shrink-0 overflow-hidden rounded-full border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-0.5 sm:w-fit">
                                                               {hasPreviousPriority && (

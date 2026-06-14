@@ -51,6 +51,7 @@ const configNavItems = [
   { path: '/admin/operations', label: 'Operations' },
   { path: '/leave-policy', label: 'Leave Policy' },
   { path: '/email-reminders', label: 'Email Reminders' },
+  { path: '/admin/sit-in-test', label: 'Sit-in Test' },
 ];
 
 const absenceSubItems: { path: string; label: string; adminOnly?: boolean }[] = [

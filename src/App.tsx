@@ -35,6 +35,7 @@ import OperationsCalendar from './pages/OperationsCalendar';
 import OperationsHub from './pages/operations/OperationsHub';
 import LeavePolicy from './pages/LeavePolicy';
 import EmailReminders from './pages/EmailReminders';
+import SitInTestPage from './pages/SitInTestPage';
 
 function AppLayout() {
   return (
@@ -93,6 +94,7 @@ function App() {
               <Route path="/admin/operations" element={<OperationsHub />} />
               <Route path="/leave-policy" element={<LeavePolicy />} />
               <Route path="/email-reminders" element={<EmailReminders />} />
+              <Route path="/admin/sit-in-test" element={<SitInTestPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
