@@ -78,6 +78,37 @@ func (s *Store) deleteCrossStudyOverride(ctx context.Context, tx pgx.Tx, courseI
 	return err
 }
 
+func (s *Store) deleteCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx, assignmentID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		DELETE FROM session_attendance
+		WHERE override_source = 'cross_study'
+		  AND cross_study_assignment_id = $1
+	`, assignmentID)
+	return err
+}
+
+func (s *Store) insertCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx, assignmentID, studentID uuid.UUID, input SaveAssignmentInput) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO session_attendance
+			(session_id, student_id, status, override_source, cross_study_assignment_id)
+		SELECT s.id, $1, 'included', 'cross_study', $2
+		FROM sessions s
+		WHERE s.deleted_at IS NULL
+		  AND (
+		    (
+		      s.course_id = $3
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($4::smallint[])
+		    )
+		    OR (
+		      s.course_id = $5
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($6::smallint[])
+		    )
+		  )
+		ON CONFLICT (session_id, student_id) DO NOTHING
+	`, studentID, assignmentID, input.DestCourseAID, input.DestCourseAWeekdays, input.DestCourseBID, input.DestCourseBWeekdays)
+	return err
+}
+
 func destinationCourses(input SaveAssignmentInput) []uuid.UUID {
 	if input.DestCourseAID == input.DestCourseBID {
 		return []uuid.UUID{input.DestCourseAID}
@@ -87,6 +118,49 @@ func destinationCourses(input SaveAssignmentInput) []uuid.UUID {
 
 func courseInDestinations(courseID, destAID, destBID uuid.UUID) bool {
 	return courseID == destAID || courseID == destBID
+}
+
+func normalizeWeekdays(values []int16) []int16 {
+	if len(values) == 0 {
+		return []int16{1, 2, 3, 4, 5, 6, 7}
+	}
+	seen := map[int16]bool{}
+	out := make([]int16, 0, len(values))
+	for _, value := range values {
+		if value < 1 || value > 7 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return []int16{1, 2, 3, 4, 5, 6, 7}
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j] < out[i] {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
+}
+
+func weekdaysAreAll(values []int16) bool {
+	values = normalizeWeekdays(values)
+	if len(values) != 7 {
+		return false
+	}
+	for i, value := range values {
+		if value != int16(i+1) {
+			return false
+		}
+	}
+	return true
+}
+
+func assignmentUsesFullCourseEnrollment(input SaveAssignmentInput) bool {
+	return weekdaysAreAll(input.DestCourseAWeekdays) && weekdaysAreAll(input.DestCourseBWeekdays)
 }
 
 // LookupStudent finds a student and their latest CRM row.
@@ -147,6 +221,7 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 
 	assignRow := s.db.QueryRow(ctx, `
 		SELECT a.id, a.dest_course_a_id, a.dest_course_b_id, a.assigned_course_id,
+		       a.dest_course_a_weekdays, a.dest_course_b_weekdays,
 		       a.status, a.extra_note_snapshot, a.source_valid, a.updated_at
 		FROM crm_cross_study_assignments a
 		WHERE a.wcode = $1 AND a.deleted_at IS NULL
@@ -154,18 +229,21 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 	`, wcode)
 
 	var aID, dcaID, dcbID, acID uuid.UUID
+	var destAWeekdays, destBWeekdays []int16
 	var status, noteSnap string
 	var srcValid bool
 	var updatedAt time.Time
-	err = assignRow.Scan(&aID, &dcaID, &dcbID, &acID, &status, &noteSnap, &srcValid, &updatedAt)
+	err = assignRow.Scan(&aID, &dcaID, &dcbID, &acID, &destAWeekdays, &destBWeekdays, &status, &noteSnap, &srcValid, &updatedAt)
 	if err == nil {
 		dto := &AssignmentDTO{
-			ID:                aID.String(),
-			AssignedCourseID:  acID.String(),
-			Status:            status,
-			ExtraNoteSnapshot: noteSnap,
-			SourceValid:       srcValid,
-			UpdatedAt:         updatedAt.Format(time.RFC3339),
+			ID:                  aID.String(),
+			DestCourseAWeekdays: normalizeWeekdays(destAWeekdays),
+			DestCourseBWeekdays: normalizeWeekdays(destBWeekdays),
+			AssignedCourseID:    acID.String(),
+			Status:              status,
+			ExtraNoteSnapshot:   noteSnap,
+			SourceValid:         srcValid,
+			UpdatedAt:           updatedAt.Format(time.RFC3339),
 		}
 
 		dto.DestCourseA = lookupCourseRef(ctx, s.db, dcaID)
@@ -195,6 +273,9 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	if input.AssignedCourseID != input.DestCourseAID && input.AssignedCourseID != input.DestCourseBID {
 		return fmt.Errorf("assigned_course_id must be one of dest_course_a_id or dest_course_b_id")
 	}
+	input.DestCourseAWeekdays = normalizeWeekdays(input.DestCourseAWeekdays)
+	input.DestCourseBWeekdays = normalizeWeekdays(input.DestCourseBWeekdays)
+	usesFullCourseEnrollment := assignmentUsesFullCourseEnrollment(input)
 
 	noteHash := hashExtraNote(input.ExtraNoteText)
 
@@ -268,6 +349,10 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			destCourseBEnrollmentCreated = existingDestCourseBEnrollmentCreated
 		}
 	}
+	if !usesFullCourseEnrollment {
+		destCourseAEnrollmentCreated = false
+		destCourseBEnrollmentCreated = false
+	}
 	assignedCourseEnrollmentCreated := false
 	switch input.AssignedCourseID {
 	case input.DestCourseAID:
@@ -295,9 +380,11 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			    crm_xlsx_row_number_snapshot = NULLIF($9, 0),
 			    extra_note_snapshot = $10,
 			    extra_note_hash = $11,
-			    assigned_course_enrollment_created = $12,
-			    dest_course_a_enrollment_created = $13,
-			    dest_course_b_enrollment_created = $14,
+			    dest_course_a_weekdays = $12,
+			    dest_course_b_weekdays = $13,
+			    assigned_course_enrollment_created = $14,
+			    dest_course_a_enrollment_created = $15,
+			    dest_course_b_enrollment_created = $16,
 			    source_course_enrollment_removed = false,
 			    source_valid = true,
 			    status = 'pending',
@@ -307,7 +394,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		`, assignmentID, input.SnapshotID, storageSourceCourseID,
 			input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID,
 			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
-			input.ExtraNoteText, noteHash, assignedCourseEnrollmentCreated,
+			input.ExtraNoteText, noteHash, input.DestCourseAWeekdays,
+			input.DestCourseBWeekdays, assignedCourseEnrollmentCreated,
 			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated)
 	} else {
 		err = tx.QueryRow(ctx, `
@@ -315,12 +403,14 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 				(snapshot_id, wcode, source_course_id, dest_course_a_id, dest_course_b_id,
 				 assigned_course_id, crm_course_name_snapshot, crm_row_hash_snapshot,
 				 crm_xlsx_row_number_snapshot, extra_note_snapshot, extra_note_hash,
+				 dest_course_a_weekdays,
+				 dest_course_b_weekdays,
 				 assigned_course_enrollment_created,
 				 dest_course_a_enrollment_created,
 				 dest_course_b_enrollment_created,
 				 source_course_enrollment_removed,
 				 source_valid, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10, $11, $12, $13, $14, false, true, 'pending')
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10, $11, $12, $13, $14, $15, $16, false, true, 'pending')
 			ON CONFLICT (wcode, source_course_id) DO UPDATE SET
 				dest_course_a_id = EXCLUDED.dest_course_a_id,
 				dest_course_b_id = EXCLUDED.dest_course_b_id,
@@ -330,6 +420,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 				crm_xlsx_row_number_snapshot = EXCLUDED.crm_xlsx_row_number_snapshot,
 				extra_note_snapshot = EXCLUDED.extra_note_snapshot,
 				extra_note_hash = EXCLUDED.extra_note_hash,
+				dest_course_a_weekdays = EXCLUDED.dest_course_a_weekdays,
+				dest_course_b_weekdays = EXCLUDED.dest_course_b_weekdays,
 				assigned_course_enrollment_created = EXCLUDED.assigned_course_enrollment_created,
 				dest_course_a_enrollment_created = EXCLUDED.dest_course_a_enrollment_created,
 				dest_course_b_enrollment_created = EXCLUDED.dest_course_b_enrollment_created,
@@ -343,7 +435,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		`, input.SnapshotID, input.WCode, storageSourceCourseID,
 			input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID,
 			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
-			input.ExtraNoteText, noteHash, assignedCourseEnrollmentCreated,
+			input.ExtraNoteText, noteHash, input.DestCourseAWeekdays,
+			input.DestCourseBWeekdays, assignedCourseEnrollmentCreated,
 			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated).Scan(&assignmentID)
 	}
 	if err != nil {
@@ -367,9 +460,15 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		}
 	}
 
-	for _, courseID := range destinationCourses(input) {
-		if err := s.upsertCrossStudyOverride(ctx, tx, courseID, studentID, userID, assignmentID, "include"); err != nil {
-			return fmt.Errorf("insert include override: %w", err)
+	if err := s.deleteCrossStudySessionAttendance(ctx, tx, assignmentID); err != nil {
+		return fmt.Errorf("delete stale scoped session attendance: %w", err)
+	}
+
+	if usesFullCourseEnrollment {
+		for _, courseID := range destinationCourses(input) {
+			if err := s.upsertCrossStudyOverride(ctx, tx, courseID, studentID, userID, assignmentID, "include"); err != nil {
+				return fmt.Errorf("insert include override: %w", err)
+			}
 		}
 	}
 
@@ -382,7 +481,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			oldDestCreated[existingDestCourseBID] = existingDestCourseBEnrollmentCreated
 		}
 		for oldCourseID, created := range oldDestCreated {
-			if courseInDestinations(oldCourseID, input.DestCourseAID, input.DestCourseBID) {
+			if usesFullCourseEnrollment && courseInDestinations(oldCourseID, input.DestCourseAID, input.DestCourseBID) {
 				continue
 			}
 			required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, oldCourseID, assignmentID)
@@ -401,9 +500,15 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			}
 		}
 	}
-	for _, courseID := range destinationCourses(input) {
-		if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
-			return fmt.Errorf("include in destination course_students: %w", err)
+	if usesFullCourseEnrollment {
+		for _, courseID := range destinationCourses(input) {
+			if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
+				return fmt.Errorf("include in destination course_students: %w", err)
+			}
+		}
+	} else {
+		if err := s.insertCrossStudySessionAttendance(ctx, tx, assignmentID, studentID, input); err != nil {
+			return fmt.Errorf("insert scoped session attendance: %w", err)
 		}
 	}
 
@@ -470,6 +575,10 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("lookup student for override cleanup: %w", err)
 	}
 
+	if err := s.deleteCrossStudySessionAttendance(ctx, tx, assignmentID); err != nil {
+		return fmt.Errorf("delete scoped session attendance: %w", err)
+	}
+
 	_ = asgnCourseID
 	_ = assignedCourseEnrollmentCreated
 
@@ -524,7 +633,10 @@ func (s *Store) crossStudyRequiresCourse(ctx context.Context, tx pgx.Tx, student
 			FROM crm_cross_study_assignments a
 			JOIN students s ON s.wcode = a.wcode
 			WHERE s.id = $1
-			  AND (a.dest_course_a_id = $2 OR a.dest_course_b_id = $2)
+			  AND (
+			    (a.dest_course_a_id = $2 AND a.dest_course_a_weekdays = ARRAY[1,2,3,4,5,6,7]::smallint[])
+			    OR (a.dest_course_b_id = $2 AND a.dest_course_b_weekdays = ARRAY[1,2,3,4,5,6,7]::smallint[])
+			  )
 			  AND a.id <> $3
 			  AND a.deleted_at IS NULL
 		)

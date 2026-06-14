@@ -715,6 +715,127 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	}
 }
 
+func TestCrossStudy_RosterEffect_WeekdayScopeUsesSessionAttendanceOnly(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	sourceID := createTestCourseSimple(t, ctx, dbpool, "CS-WEEKDAY-SRC", "Weekday Source")
+	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-WEEKDAY-DST-A", "Weekday Writing")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-WEEKDAY-DST-B", "Weekday Reading")
+	teacherID := createTestUser(t, ctx, dbpool)
+
+	sessions := map[string]uuid.UUID{}
+	for label, spec := range map[string]struct {
+		courseID uuid.UUID
+		startAt  string
+		endAt    string
+	}{
+		"writing_tue": {destAID, "2026-06-16T09:00:00+07:00", "2026-06-16T10:00:00+07:00"},
+		"writing_wed": {destAID, "2026-06-17T09:00:00+07:00", "2026-06-17T10:00:00+07:00"},
+		"reading_sat": {destBID, "2026-06-20T09:00:00+07:00", "2026-06-20T10:00:00+07:00"},
+		"reading_sun": {destBID, "2026-06-21T09:00:00+07:00", "2026-06-21T10:00:00+07:00"},
+	} {
+		id := uuid.New()
+		if _, err := dbpool.Exec(ctx, `
+			INSERT INTO sessions (id, course_id, teacher_id, start_at, end_at)
+			VALUES ($1, $2, $3, $4, $5)
+		`, id, spec.courseID, teacherID, spec.startAt, spec.endAt); err != nil {
+			t.Fatalf("create %s session: %v", label, err)
+		}
+		sessions[label] = id
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{
+			WCode:      "W260203",
+			CourseName: "Weekday Source",
+			CycleLabel: "Cycle A",
+			ExtraNote:  "Tue Writing & Sat Reading",
+		},
+	})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260203", "Weekday Scope Student")
+
+	store := crossstudy.NewStore(dbpool)
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:               "W260203",
+		SourceCourseID:      sourceID,
+		SnapshotID:          uuidFromPG(t, snapshotID),
+		DestCourseAID:       destAID,
+		DestCourseBID:       destBID,
+		DestCourseAWeekdays: []int16{2},
+		DestCourseBWeekdays: []int16{6},
+		AssignedCourseID:    destAID,
+		ExtraNoteText:       "Tue Writing & Sat Reading",
+	}, teacherID); err != nil {
+		t.Fatalf("SaveAssignment failed: %v", err)
+	}
+
+	var courseEnrollmentCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM course_students
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		  AND course_id IN ($1, $2)
+	`, destAID, destBID).Scan(&courseEnrollmentCount); err != nil {
+		t.Fatalf("count destination course_students: %v", err)
+	}
+	if courseEnrollmentCount != 0 {
+		t.Fatalf("expected scoped assignment to avoid full-course enrollment, got %d course_students rows", courseEnrollmentCount)
+	}
+
+	expectedIncluded := map[uuid.UUID]bool{
+		sessions["writing_tue"]: true,
+		sessions["reading_sat"]: true,
+	}
+	rows, err := dbpool.Query(ctx, `
+		SELECT session_id
+		FROM session_attendance
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		  AND status = 'included'
+		  AND override_source = 'cross_study'
+	`)
+	if err != nil {
+		t.Fatalf("query session attendance: %v", err)
+	}
+	defer rows.Close()
+
+	actualIncluded := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var sessionID uuid.UUID
+		if err := rows.Scan(&sessionID); err != nil {
+			t.Fatalf("scan session attendance: %v", err)
+		}
+		actualIncluded[sessionID] = true
+	}
+	for sessionID := range expectedIncluded {
+		if !actualIncluded[sessionID] {
+			t.Fatalf("expected scoped session %s to be included, got %#v", sessionID, actualIncluded)
+		}
+	}
+	if len(actualIncluded) != len(expectedIncluded) {
+		t.Fatalf("expected only scoped sessions included, got %#v", actualIncluded)
+	}
+
+	var activeBusyRanges int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM student_busy_ranges
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		  AND deleted_at IS NULL
+	`).Scan(&activeBusyRanges); err != nil {
+		t.Fatalf("count active busy ranges: %v", err)
+	}
+	if activeBusyRanges != 2 {
+		t.Fatalf("expected 2 active busy ranges for scoped sessions, got %d", activeBusyRanges)
+	}
+}
+
 // TestCrossStudy_RosterEffect_AssignedIsSource verifies that when assigned course
 // equals source course, no exclude happens and the student stays in the source roster.
 func TestCrossStudy_RosterEffect_AssignedIsSource(t *testing.T) {

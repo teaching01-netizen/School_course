@@ -87,15 +87,17 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 	}
 
 	var body struct {
-		WCode            string `json:"wcode"`
-		SnapshotID       string `json:"snapshot_id"`
-		CRMCourseName    string `json:"crm_course_name"`
-		CRMRowHash       string `json:"crm_row_hash"`
-		CRMXLSXRowNumber int32  `json:"crm_xlsx_row_number"`
-		DestCourseAID    string `json:"dest_course_a_id"`
-		DestCourseBID    string `json:"dest_course_b_id"`
-		AssignedCourseID string `json:"assigned_course_id"`
-		ExtraNoteText    string `json:"extra_note_text"`
+		WCode               string  `json:"wcode"`
+		SnapshotID          string  `json:"snapshot_id"`
+		CRMCourseName       string  `json:"crm_course_name"`
+		CRMRowHash          string  `json:"crm_row_hash"`
+		CRMXLSXRowNumber    int32   `json:"crm_xlsx_row_number"`
+		DestCourseAID       string  `json:"dest_course_a_id"`
+		DestCourseBID       string  `json:"dest_course_b_id"`
+		DestCourseAWeekdays []int16 `json:"dest_course_a_weekdays"`
+		DestCourseBWeekdays []int16 `json:"dest_course_b_weekdays"`
+		AssignedCourseID    string  `json:"assigned_course_id"`
+		ExtraNoteText       string  `json:"extra_note_text"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		return
@@ -126,17 +128,29 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_input", "invalid assigned_course_id")
 		return
 	}
+	destAWeekdays, ok := normalizeWeekdays(body.DestCourseAWeekdays)
+	if !ok {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_input", "invalid dest_course_a_weekdays")
+		return
+	}
+	destBWeekdays, ok := normalizeWeekdays(body.DestCourseBWeekdays)
+	if !ok {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_input", "invalid dest_course_b_weekdays")
+		return
+	}
 
 	input := crossstudy.SaveAssignmentInput{
-		WCode:            body.WCode,
-		SnapshotID:       snapshotID,
-		CRMCourseName:    body.CRMCourseName,
-		CRMRowHash:       body.CRMRowHash,
-		CRMXLSXRowNumber: body.CRMXLSXRowNumber,
-		DestCourseAID:    destAID,
-		DestCourseBID:    destBID,
-		AssignedCourseID: assignedID,
-		ExtraNoteText:    body.ExtraNoteText,
+		WCode:               body.WCode,
+		SnapshotID:          snapshotID,
+		CRMCourseName:       body.CRMCourseName,
+		CRMRowHash:          body.CRMRowHash,
+		CRMXLSXRowNumber:    body.CRMXLSXRowNumber,
+		DestCourseAID:       destAID,
+		DestCourseBID:       destBID,
+		DestCourseAWeekdays: destAWeekdays,
+		DestCourseBWeekdays: destBWeekdays,
+		AssignedCourseID:    assignedID,
+		ExtraNoteText:       body.ExtraNoteText,
 	}
 
 	if err := s.cs.SaveAssignment(r.Context(), input, au.ID); err != nil {
@@ -146,6 +160,32 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func normalizeWeekdays(input []int16) ([]int16, bool) {
+	if len(input) == 0 {
+		return []int16{1, 2, 3, 4, 5, 6, 7}, true
+	}
+	seen := map[int16]bool{}
+	out := make([]int16, 0, len(input))
+	for _, day := range input {
+		if day < 1 || day > 7 {
+			return nil, false
+		}
+		if seen[day] {
+			continue
+		}
+		seen[day] = true
+		out = append(out, day)
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j] < out[i] {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out, true
 }
 
 func (s *crossStudyServer) handleAssignmentDelete(w http.ResponseWriter, r *http.Request) {

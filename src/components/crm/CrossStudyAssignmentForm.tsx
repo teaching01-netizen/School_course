@@ -14,16 +14,76 @@ type Props = {
   onSaved: () => void;
 };
 
+const weekdays = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 7, label: "Sun" },
+];
+
+function toggleWeekday(values: number[], day: number) {
+  return values.includes(day)
+    ? values.filter((value) => value !== day)
+    : [...values, day].sort((a, b) => a - b);
+}
+
+function WeekdaySelector({
+  label,
+  values,
+  onChange,
+}: {
+  label: "Course A" | "Course B";
+  values: number[];
+  onChange: (values: number[]) => void;
+}) {
+  return (
+    <fieldset className="mt-2">
+      <legend className="mb-1 text-xs font-medium text-gray-600">Attend sessions</legend>
+      <div className="grid grid-cols-4 gap-1 sm:grid-cols-7">
+        {weekdays.map((day) => {
+          const checked = values.includes(day.value);
+          return (
+            <label
+              key={day.value}
+              className={`flex min-h-10 cursor-pointer items-center justify-center rounded-sm border px-2 text-xs font-medium ${
+                checked
+                  ? "border-blue-500 bg-blue-50 text-blue-700"
+                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={checked}
+                aria-label={`${label} ${day.label}`}
+                onChange={() => onChange(toggleWeekday(values, day.value))}
+              />
+              {day.label}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 export default function CrossStudyAssignmentForm({ student, crmRow, currentAssignment, courses, onSaved }: Props) {
   const { addToast } = useToast();
 
   const [destA, setDestA] = useState(currentAssignment?.dest_course_a?.id ?? "");
   const [destB, setDestB] = useState(currentAssignment?.dest_course_b?.id ?? "");
+  const [destAWeekdays, setDestAWeekdays] = useState(currentAssignment?.dest_course_a_weekdays ?? []);
+  const [destBWeekdays, setDestBWeekdays] = useState(currentAssignment?.dest_course_b_weekdays ?? []);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDestA(currentAssignment?.dest_course_a?.id ?? "");
     setDestB(currentAssignment?.dest_course_b?.id ?? "");
+    setDestAWeekdays(currentAssignment?.dest_course_a_weekdays ?? []);
+    setDestBWeekdays(currentAssignment?.dest_course_b_weekdays ?? []);
   }, [currentAssignment]);
 
   const courseOptions = useMemo(
@@ -39,7 +99,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
   const courseA = useMemo(() => courses.find((c) => c.id === destA) ?? null, [courses, destA]);
   const courseB = useMemo(() => courses.find((c) => c.id === destB) ?? null, [courses, destB]);
 
-  const canSave = destA && destB;
+  const canSave = destA && destB && destAWeekdays.length > 0 && destBWeekdays.length > 0;
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -57,6 +117,8 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
           crm_xlsx_row_number: crmRow?.xlsx_row_number ?? 0,
           dest_course_a_id: destA,
           dest_course_b_id: destB,
+          dest_course_a_weekdays: destAWeekdays,
+          dest_course_b_weekdays: destBWeekdays,
           assigned_course_id: destA,
           extra_note_text: crmRow?.extra_note ?? "",
         }),
@@ -105,6 +167,9 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
                 {courseA.code} &middot; {courseA.subject_name || "No subject"}
               </div>
             )}
+            {destA && (
+              <WeekdaySelector label="Course A" values={destAWeekdays} onChange={setDestAWeekdays} />
+            )}
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Course B</label>
@@ -119,8 +184,16 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
                 {courseB.code} &middot; {courseB.subject_name || "No subject"}
               </div>
             )}
+            {destB && (
+              <WeekdaySelector label="Course B" values={destBWeekdays} onChange={setDestBWeekdays} />
+            )}
           </div>
         </div>
+        {destA && destB && (!destAWeekdays.length || !destBWeekdays.length) && (
+          <div className="rounded-sm border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+            Choose at least one attendance day for each destination course before saving.
+          </div>
+        )}
       </div>
 
       {/* Assignment summary */}
@@ -131,6 +204,9 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
             <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course A: {courseA.name}
+              <span className="text-gray-500 ml-1">
+                ({weekdays.filter((day) => destAWeekdays.includes(day.value)).map((day) => day.label).join(", ") || "choose days"})
+              </span>
               <span className="text-gray-400 ml-1">&middot; {courseA.subject_name}</span>
             </span>
           </div>
@@ -138,6 +214,9 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
             <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course B: {courseB.name}
+              <span className="text-gray-500 ml-1">
+                ({weekdays.filter((day) => destBWeekdays.includes(day.value)).map((day) => day.label).join(", ") || "choose days"})
+              </span>
               <span className="text-gray-400 ml-1">&middot; {courseB.subject_name}</span>
             </span>
           </div>

@@ -57,6 +57,8 @@ const currentAssignmentWithDestinations: AssignmentDTO = {
   id: "assignment-id",
   dest_course_a: courses[2],
   dest_course_b: courses[3],
+  dest_course_a_weekdays: [2],
+  dest_course_b_weekdays: [6],
   assigned_course_id: "course-a-id",
   status: "active",
   extra_note_snapshot: crmRowWithoutMappedSource.extra_note,
@@ -102,7 +104,15 @@ describe("CrossStudyAssignmentForm", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /save assignment/i }));
 
-    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        mockApiJson.mock.calls.some(
+          ([url, options]) =>
+            url === "/api/v1/cross-study/assignments" &&
+            (options as { method?: string } | undefined)?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
     expect(mockApiJson).toHaveBeenCalledWith("/api/v1/cross-study/assignments", {
       method: "PUT",
       body: JSON.stringify({
@@ -113,6 +123,62 @@ describe("CrossStudyAssignmentForm", () => {
         crm_xlsx_row_number: 12,
         dest_course_a_id: "course-a-id",
         dest_course_b_id: "course-b-id",
+        dest_course_a_weekdays: [2],
+        dest_course_b_weekdays: [6],
+        assigned_course_id: "course-a-id",
+        extra_note_text: crmRowWithoutMappedSource.extra_note,
+      }),
+    });
+  });
+
+  it("lets staff scope each destination course to different weekdays", async () => {
+    const mockApiJson = vi.mocked(apiJson);
+    mockApiJson.mockResolvedValueOnce({ ok: true });
+
+    render(
+      <CrossStudyAssignmentForm
+        student={student}
+        crmRow={crmRowWithoutMappedSource}
+        currentAssignment={null}
+        courses={courses}
+        onSaved={vi.fn()}
+      />,
+      { wrapper },
+    );
+
+    const [courseAInput, courseBInput] = screen.getAllByRole("combobox");
+    await userEvent.click(courseAInput);
+    await userEvent.type(courseAInput, "Writing");
+    await userEvent.click(screen.getByRole("option", { name: /writing beginner/i }));
+    await userEvent.click(courseBInput);
+    await userEvent.type(courseBInput, "Reading");
+    await userEvent.click(screen.getByRole("option", { name: /reading beginner/i }));
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /course a.*tue/i }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /course b.*sat/i }));
+    await userEvent.click(screen.getByRole("button", { name: /save assignment/i }));
+
+    await waitFor(() =>
+      expect(
+        mockApiJson.mock.calls.some(
+          ([url, options]) =>
+            url === "/api/v1/cross-study/assignments" &&
+            (options as { method?: string } | undefined)?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/cross-study/assignments", {
+      method: "PUT",
+      body: JSON.stringify({
+        wcode: "W260032",
+        snapshot_id: "b8cd8dcf-fb6b-4f51-b681-d9f9270eac74",
+        crm_course_name: "SAT Verbal Beginner (Section 1) Cash Card",
+        crm_row_hash: "crm-row-hash-1",
+        crm_xlsx_row_number: 12,
+        dest_course_a_id: "course-a-id",
+        dest_course_b_id: "course-b-id",
+        dest_course_a_weekdays: [2],
+        dest_course_b_weekdays: [6],
         assigned_course_id: "course-a-id",
         extra_note_text: crmRowWithoutMappedSource.extra_note,
       }),

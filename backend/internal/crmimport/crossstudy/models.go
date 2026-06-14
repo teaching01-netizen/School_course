@@ -24,6 +24,8 @@ type Assignment struct {
 	SourceCourseID                  uuid.UUID
 	DestCourseAID                   uuid.UUID
 	DestCourseBID                   uuid.UUID
+	DestCourseAWeekdays             []int16
+	DestCourseBWeekdays             []int16
 	AssignedCourseID                uuid.UUID
 	CRMCourseNameSnapshot           string
 	CRMRowHashSnapshot              string
@@ -41,16 +43,18 @@ type Assignment struct {
 }
 
 type SaveAssignmentInput struct {
-	WCode            string
-	SourceCourseID   uuid.UUID // Deprecated: retained for older internal callers; new saves use destination courses only.
-	SnapshotID       uuid.UUID
-	CRMCourseName    string
-	CRMRowHash       string
-	CRMXLSXRowNumber int32
-	DestCourseAID    uuid.UUID
-	DestCourseBID    uuid.UUID
-	AssignedCourseID uuid.UUID
-	ExtraNoteText    string
+	WCode               string
+	SourceCourseID      uuid.UUID // Deprecated: retained for older internal callers; new saves use destination courses only.
+	SnapshotID          uuid.UUID
+	CRMCourseName       string
+	CRMRowHash          string
+	CRMXLSXRowNumber    int32
+	DestCourseAID       uuid.UUID
+	DestCourseBID       uuid.UUID
+	DestCourseAWeekdays []int16
+	DestCourseBWeekdays []int16
+	AssignedCourseID    uuid.UUID
+	ExtraNoteText       string
 }
 
 type AssignmentSummary struct {
@@ -99,14 +103,16 @@ type CourseRef struct {
 }
 
 type AssignmentDTO struct {
-	ID                string     `json:"id"`
-	DestCourseA       *CourseRef `json:"dest_course_a"`
-	DestCourseB       *CourseRef `json:"dest_course_b"`
-	AssignedCourseID  string     `json:"assigned_course_id"`
-	Status            string     `json:"status"`
-	ExtraNoteSnapshot string     `json:"extra_note_snapshot"`
-	SourceValid       bool       `json:"source_valid"`
-	UpdatedAt         string     `json:"updated_at"`
+	ID                  string     `json:"id"`
+	DestCourseA         *CourseRef `json:"dest_course_a"`
+	DestCourseB         *CourseRef `json:"dest_course_b"`
+	DestCourseAWeekdays []int16    `json:"dest_course_a_weekdays"`
+	DestCourseBWeekdays []int16    `json:"dest_course_b_weekdays"`
+	AssignedCourseID    string     `json:"assigned_course_id"`
+	Status              string     `json:"status"`
+	ExtraNoteSnapshot   string     `json:"extra_note_snapshot"`
+	SourceValid         bool       `json:"source_valid"`
+	UpdatedAt           string     `json:"updated_at"`
 }
 
 type AssignmentChange struct {

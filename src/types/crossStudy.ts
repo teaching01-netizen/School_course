@@ -25,6 +25,8 @@ export interface AssignmentDTO {
   id: string;
   dest_course_a: CourseRef | null;
   dest_course_b: CourseRef | null;
+  dest_course_a_weekdays: number[];
+  dest_course_b_weekdays: number[];
   assigned_course_id: string;
   status: string;
   extra_note_snapshot: string;
@@ -64,6 +66,8 @@ export interface SaveAssignmentInput {
   crm_xlsx_row_number: number;
   dest_course_a_id: string;
   dest_course_b_id: string;
+  dest_course_a_weekdays: number[];
+  dest_course_b_weekdays: number[];
   assigned_course_id: string;
   extra_note_text: string;
 }
