@@ -82,7 +82,7 @@ func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqld
 	return EmailDeps{
 		TemplateStore: templateStore,
 		WorkflowStore: workflowStore,
-		Service:       emailnotifier.NewServiceWithDeliveryClaimer(emailProvider, workflowStore),
+		Service:       emailnotifier.NewServiceWithDeliveryTracker(emailProvider, workflowStore),
 		InstituteName: cfg.InstituteName,
 		SitInQuery: func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error) {
 			loc, effectiveTZ := emailnotifier.EffectiveLocation(instituteTZ)

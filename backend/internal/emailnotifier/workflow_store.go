@@ -2,6 +2,7 @@ package emailnotifier
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,7 +30,9 @@ type WorkflowStore interface {
 	DeleteWorkflow(ctx context.Context, id string) error
 	RecordSend(ctx context.Context, id string, count int) error
 	ListEnabledWorkflows(ctx context.Context) ([]EmailWorkflow, error)
-	ClaimEmailDelivery(ctx context.Context, workflowID, localDate, recipient string) (bool, error)
+	BeginEmailDelivery(ctx context.Context, workflowID, localDate, recipient string) (bool, error)
+	MarkEmailDeliveryAccepted(ctx context.Context, workflowID, localDate, recipient string) error
+	MarkEmailDeliveryFailed(ctx context.Context, workflowID, localDate, recipient, reason string) error
 }
 
 type sqlWorkflowStore struct {
@@ -187,14 +190,78 @@ func (s *sqlWorkflowStore) RecordSend(ctx context.Context, id string, count int)
 	return err
 }
 
-func (s *sqlWorkflowStore) ClaimEmailDelivery(ctx context.Context, workflowID, localDate, recipient string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO email_delivery_claims (workflow_id, local_date, recipient_email)
-		VALUES ($1, $2::date, lower(btrim($3)))
-		ON CONFLICT (workflow_id, local_date, recipient_email) DO NOTHING
-	`, workflowID, localDate, recipient)
+func (s *sqlWorkflowStore) BeginEmailDelivery(ctx context.Context, workflowID, localDate, recipient string) (bool, error) {
+	var shouldSend bool
+	err := s.pool.QueryRow(ctx, `
+		WITH delivery AS (
+			INSERT INTO email_delivery_claims (
+				workflow_id,
+				local_date,
+				recipient_email,
+				status,
+				attempt_count,
+				sending_at,
+				last_error,
+				updated_at
+			)
+			VALUES ($1, $2::date, lower(btrim($3)), 'sending', 1, now(), NULL, now())
+			ON CONFLICT (workflow_id, local_date, recipient_email) DO UPDATE
+			SET status = 'sending',
+				attempt_count = email_delivery_claims.attempt_count + 1,
+				sending_at = now(),
+				last_error = NULL,
+				updated_at = now()
+			WHERE email_delivery_claims.status IN ('pending', 'failed')
+				OR (
+					email_delivery_claims.status = 'sending'
+					AND email_delivery_claims.sending_at < now() - interval '10 minutes'
+				)
+			RETURNING 1
+		)
+		SELECT EXISTS(SELECT 1 FROM delivery)
+	`, workflowID, localDate, recipient).Scan(&shouldSend)
 	if err != nil {
 		return false, err
 	}
-	return tag.RowsAffected() == 1, nil
+	return shouldSend, nil
+}
+
+func (s *sqlWorkflowStore) MarkEmailDeliveryAccepted(ctx context.Context, workflowID, localDate, recipient string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE email_delivery_claims
+		SET status = 'accepted',
+			accepted_at = now(),
+			last_error = NULL,
+			updated_at = now()
+		WHERE workflow_id = $1
+			AND local_date = $2::date
+			AND recipient_email = lower(btrim($3))
+	`, workflowID, localDate, recipient)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delivery row missing for %s on %s", recipient, localDate)
+	}
+	return nil
+}
+
+func (s *sqlWorkflowStore) MarkEmailDeliveryFailed(ctx context.Context, workflowID, localDate, recipient, reason string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE email_delivery_claims
+		SET status = 'failed',
+			failed_at = now(),
+			last_error = left($4, 2000),
+			updated_at = now()
+		WHERE workflow_id = $1
+			AND local_date = $2::date
+			AND recipient_email = lower(btrim($3))
+	`, workflowID, localDate, recipient, reason)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delivery row missing for %s on %s", recipient, localDate)
+	}
+	return nil
 }

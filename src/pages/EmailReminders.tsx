@@ -65,6 +65,23 @@ function EmailChipInput({ value, onChange }: { value: string[]; onChange: (v: st
   );
 }
 
+export function validateEmailTemplateForm({
+  name,
+  subject,
+  body,
+  requireName,
+}: {
+  name?: string;
+  subject: string;
+  body: string;
+  requireName: boolean;
+}): string | null {
+  if (requireName && !name?.trim()) return "Template name is required";
+  if (!subject.trim()) return "Subject line is required";
+  if (!body.trim()) return "Email body is required";
+  return null;
+}
+
 // ─── Template card ──────────────────────────────────────────────────
 
 function TemplateCard({
@@ -87,7 +104,9 @@ function TemplateCard({
           <button onClick={onDelete} className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5">Delete</button>
         </div>
       </div>
-      <p className="text-xs text-gray-500 truncate">{tmpl.subject}</p>
+      <p className={`text-xs truncate ${tmpl.subject.trim() ? "text-gray-500" : "text-red-500"}`}>
+        {tmpl.subject.trim() || "Missing subject"}
+      </p>
       <p className="text-xs text-gray-400 line-clamp-2">{tmpl.body.slice(0, 120)}</p>
       <div className="text-[10px] text-gray-400 mt-auto pt-1 border-t border-gray-100">
         {(workflowCounts[tmpl.id] ?? 0)} workflow(s)
@@ -256,13 +275,19 @@ export default function EmailReminders() {
   };
 
   const saveTemplate = async () => {
-    if (!formName.trim()) { addToast("error", "Template name is required"); return; }
+    const validationError = validateEmailTemplateForm({
+      name: formName,
+      subject: formSubject,
+      body: formBody,
+      requireName: true,
+    });
+    if (validationError) { addToast("error", validationError); return; }
     try {
       if (templateModal?.mode === "create") {
-        await templateApi.createTemplate({ name: formName, subject: formSubject, body: formBody });
+        await templateApi.createTemplate({ name: formName.trim(), subject: formSubject.trim(), body: formBody.trim() });
         addToast("success", "Template created");
       } else if (templateModal?.mode === "edit") {
-        await templateApi.updateTemplate(templateModal.id, { name: formName, subject: formSubject, body: formBody });
+        await templateApi.updateTemplate(templateModal.id, { name: formName.trim(), subject: formSubject.trim(), body: formBody.trim() });
         addToast("success", "Template updated");
       }
       setTemplateModal(null);
@@ -284,8 +309,14 @@ export default function EmailReminders() {
   };
 
   const openPreview = async () => {
+    const validationError = validateEmailTemplateForm({
+      subject: formSubject,
+      body: formBody,
+      requireName: false,
+    });
+    if (validationError) { addToast("error", validationError); return; }
     try {
-      const result = await templateApi.previewTemplate(formSubject, formBody);
+      const result = await templateApi.previewTemplate(formSubject.trim(), formBody.trim());
       setPreviewOpen(result);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Preview failed");

@@ -2,8 +2,10 @@ package emailnotifierhttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +15,40 @@ import (
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/idempotency"
 )
+
+var errTemplateValidation = errors.New("template validation failed")
+
+func validateTemplateFields(name, subject, body string) (string, string, string, error) {
+	name = strings.TrimSpace(name)
+	subject = strings.TrimSpace(subject)
+	body = strings.TrimSpace(body)
+	if name == "" {
+		return "", "", "", fmt.Errorf("%w: name is required", errTemplateValidation)
+	}
+	if subject == "" {
+		return "", "", "", fmt.Errorf("%w: subject is required", errTemplateValidation)
+	}
+	if body == "" {
+		return "", "", "", fmt.Errorf("%w: body is required", errTemplateValidation)
+	}
+	return name, subject, body, nil
+}
+
+func validateTemplateContent(subject, body string) (string, string, error) {
+	subject = strings.TrimSpace(subject)
+	body = strings.TrimSpace(body)
+	if subject == "" {
+		return "", "", fmt.Errorf("%w: subject is required", errTemplateValidation)
+	}
+	if body == "" {
+		return "", "", fmt.Errorf("%w: body is required", errTemplateValidation)
+	}
+	return subject, body, nil
+}
+
+func templateValidationMessage(err error) string {
+	return strings.TrimPrefix(err.Error(), errTemplateValidation.Error()+": ")
+}
 
 type server struct {
 	deps httpdeps.Deps
@@ -74,11 +110,14 @@ func (s *server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		return
 	}
-	if body.Name == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "validation", "name is required")
-		return
+	name, subject, templateBody, err := validateTemplateFields(body.Name, body.Subject, body.Body)
+	if err != nil {
+		if errors.Is(err, errTemplateValidation) {
+			s.a.WriteErr(w, http.StatusBadRequest, "validation", templateValidationMessage(err))
+			return
+		}
 	}
-	tmpl, err := s.deps.EmailTemplateStore.CreateTemplate(r.Context(), body.Name, body.Subject, body.Body)
+	tmpl, err := s.deps.EmailTemplateStore.CreateTemplate(r.Context(), name, subject, templateBody)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -132,6 +171,16 @@ func (s *server) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.Body != nil {
 		tmpl.Body = *body.Body
 	}
+	name, subject, templateBody, err := validateTemplateFields(tmpl.Name, tmpl.Subject, tmpl.Body)
+	if err != nil {
+		if errors.Is(err, errTemplateValidation) {
+			s.a.WriteErr(w, http.StatusBadRequest, "validation", templateValidationMessage(err))
+			return
+		}
+	}
+	tmpl.Name = name
+	tmpl.Subject = subject
+	tmpl.Body = templateBody
 
 	updated, err := s.deps.EmailTemplateStore.UpdateTemplate(r.Context(), tmpl.ID, tmpl.Name, tmpl.Subject, tmpl.Body)
 	if err != nil {
@@ -202,7 +251,15 @@ func (s *server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		"{{today_date}}":         time.Now().Format("Mon 2 Jan 2006"),
 	}
 
-	tmpl := emailnotifier.Template{Subject: body.Subject, Body: body.Body}
+	subject, templateBody, err := validateTemplateContent(body.Subject, body.Body)
+	if err != nil {
+		if errors.Is(err, errTemplateValidation) {
+			s.a.WriteErr(w, http.StatusBadRequest, "validation", templateValidationMessage(err))
+			return
+		}
+	}
+
+	tmpl := emailnotifier.Template{Subject: subject, Body: templateBody}
 	subject, bodyText := tmpl.Render(sampleValues)
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]string{
@@ -458,13 +515,13 @@ func (s *server) handleSendAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := emailnotifier.SendAllEnabledWorkflows(r.Context(), emailnotifier.SendAllDeps{
-		WorkflowStore:  s.deps.EmailWorkflowStore,
-		TemplateStore:  s.deps.EmailTemplateStore,
-		Service:        s.svc,
-		InstituteTZ:    s.deps.InstituteTZ,
-		InstituteName:  s.deps.InstituteName,
-		Log:            s.deps.Log,
-		SitInQuery:     s.deps.SitInQuery,
+		WorkflowStore: s.deps.EmailWorkflowStore,
+		TemplateStore: s.deps.EmailTemplateStore,
+		Service:       s.svc,
+		InstituteTZ:   s.deps.InstituteTZ,
+		InstituteName: s.deps.InstituteName,
+		Log:           s.deps.Log,
+		SitInQuery:    s.deps.SitInQuery,
 	})
 
 	msg := emailnotifier.SendResultMessage(result.TotalSent, result.TotalFailed, result.TotalSkipped)
