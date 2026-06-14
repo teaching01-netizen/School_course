@@ -146,6 +146,7 @@ export default function StepCoverVerification({
         disabled={!canSend}
         onClick={() => void handleSend()}
         parentPhoneMissing={parentMissing}
+        cooldownDuration={150}
       />
 
       {lastSentAt && !isSending && (

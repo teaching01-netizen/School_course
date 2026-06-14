@@ -100,15 +100,92 @@ function maskPhone(phone?: string | null): string {
   return `${digits.slice(0, 3)} *** ${digits.slice(-3)}`;
 }
 
+function isDayGroupSelected(group: DayRangeGroup<{ id: string; start_at: string; end_at: string; date?: string }>, selected: Set<string>): boolean {
+  return group.items.every((session) => selected.has(session.id));
+}
+
 function countSelectedSessions(groups: SubjectSessions[], selected: Set<string>): number {
   return groups.reduce(
-    (total, group) => total + group.sessions.filter((session) => selected.has(session.id)).length,
+    (total, group) => total + groupByDay(group.sessions).filter((sessionGroup) => isDayGroupSelected(sessionGroup, selected)).length,
     0,
   );
 }
 
 function getStudentDisplayName(lookup: StudentLookupResponse | null) {
   return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
+}
+
+const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
+const MERGED_SESSION_ID_SEPARATOR = "|";
+
+type TimeRanged = { id?: string; start_at: string; end_at: string; date?: string };
+
+type MergedDayRange = {
+  date: string;
+  start_at: string;
+  end_at: string;
+};
+
+type DayRangeGroup<T extends TimeRanged> = MergedDayRange & {
+  id: string;
+  items: T[];
+};
+
+function instituteDateKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: INSTITUTE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function dayKey(item: TimeRanged): string {
+  return item.date ?? instituteDateKey(item.start_at);
+}
+
+function mergeRanges(ranges: TimeRanged[]): { start_at: string; end_at: string } {
+  let start = ranges[0].start_at;
+  let end = ranges[0].end_at;
+  for (const r of ranges) {
+    if (new Date(r.start_at).getTime() < new Date(start).getTime()) start = r.start_at;
+    if (new Date(r.end_at).getTime() > new Date(end).getTime()) end = r.end_at;
+  }
+  return { start_at: start, end_at: end };
+}
+
+function sortByStart<T extends TimeRanged>(items: T[]): T[] {
+  return items.slice().sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+}
+
+function groupByDay<T extends TimeRanged>(items: T[]): DayRangeGroup<T>[] {
+  const byDay = new Map<string, T[]>();
+  for (const item of sortByStart(items)) {
+    const key = dayKey(item);
+    byDay.set(key, [...(byDay.get(key) ?? []), item]);
+  }
+  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, dayItems]) => {
+    const sorted = sortByStart(dayItems);
+    const merged = mergeRanges(sorted);
+    const id = sorted.map((item) => item.id ?? `${item.start_at}-${item.end_at}`).join(MERGED_SESSION_ID_SEPARATOR);
+    return { id, date, start_at: merged.start_at, end_at: merged.end_at, items: sorted };
+  });
+}
+
+function mergedSessionValue(items: Array<{ id: string }>): string {
+  return items.map((item) => item.id).join(MERGED_SESSION_ID_SEPARATOR);
+}
+
+function splitMergedSessionValue(value: string | undefined): string[] {
+  return (value ?? "").split(MERGED_SESSION_ID_SEPARATOR).filter(Boolean);
+}
+
+function uniqueValues(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
@@ -214,9 +291,16 @@ function availableSessionsForMissedSession(
   priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
   missedSessionId: string,
 ) {
+  return availableSessionsForMissedSessions(priority, [missedSessionId]);
+}
+
+function availableSessionsForMissedSessions(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionIds: string[],
+) {
   const available = priority.available_sessions ?? [];
   if (!available.some((session) => session.missed_session_id)) return available;
-  return available.filter((session) => session.missed_session_id === missedSessionId);
+  return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
 }
 
 function unavailableSessionsForMissedSession(
@@ -232,9 +316,16 @@ function rootAvailableSessionsForMissedSession(
   sitIn: SubjectSessions["sit_in"],
   missedSessionId: string,
 ) {
+  return rootAvailableSessionsForMissedSessions(sitIn, [missedSessionId]);
+}
+
+function rootAvailableSessionsForMissedSessions(
+  sitIn: SubjectSessions["sit_in"],
+  missedSessionIds: string[],
+) {
   const available = sitIn?.available_sessions ?? [];
   if (!available.some((session) => session.missed_session_id)) return available;
-  return available.filter((session) => session.missed_session_id === missedSessionId);
+  return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
 }
 
 function hasServerPriorityReveal(group: SubjectSessions): boolean {
@@ -297,19 +388,19 @@ function getReviewSitInLabel(
   if (sitIn.sit_in_method === "zoom") return "Zoom";
   if (sitIn.sit_in_method === "teacher_case") return "To arrange";
   if (sitIn.sit_in_method !== "physical") return "To arrange";
-  const sitInSessionId = sitInSelections[missedSession.id];
-  if (!sitInSessionId) return "Not yet selected";
+  const sitInSessionIds = splitMergedSessionValue(sitInSelections[missedSession.id]);
+  if (sitInSessionIds.length === 0) return "Not yet selected";
   const priorities = sitIn.priorities ?? [];
   const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
-  const rootMatch = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).find((s) => s.id === sitInSessionId);
-  if (rootMatch) {
-    return getSitInSessionLabel(rootMatch, sitIn.sit_in_course, groupLabel, allSubjects);
+  const rootMatches = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).filter((s) => sitInSessionIds.includes(s.id));
+  if (rootMatches.length > 0) {
+    return getSitInSessionGroupLabel(rootMatches, sitIn.sit_in_course, groupLabel, allSubjects);
   }
   for (const p of priorities) {
     const available = availableSessionsForMissedSession(p, missedSession.id);
-    const match = available.find((s) => s.id === sitInSessionId);
-    if (match) {
-      return getSitInSessionLabel(match, p.sit_in_course, groupLabel, allSubjects);
+    const matches = available.filter((s) => sitInSessionIds.includes(s.id));
+    if (matches.length > 0) {
+      return getSitInSessionGroupLabel(matches, p.sit_in_course, groupLabel, allSubjects);
     }
   }
   return "Make-up class selected";
@@ -332,7 +423,30 @@ function getSitInSessionLabel(
     session.course_code?.trim() ||
     fallbackSubjectName ||
     sitInCourse?.code?.trim();
-  return `${className} — ${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+  return `${className} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+}
+
+function getSitInSessionGroupLabel(
+  sessions: SitInAvailableSession[],
+  sitInCourse: SitInCourse,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+) {
+  if (sessions.length === 1) return getSitInSessionLabel(sessions[0], sitInCourse, fallbackSubjectName, allSubjects);
+  const first = sessions[0];
+  const className =
+    resolveSitInSubjectName(sitInCourse, allSubjects) ||
+    sitInCourse?.name?.trim() ||
+    first.class_name?.trim() ||
+    first.subject_name?.trim() ||
+    first.course_name?.trim() ||
+    sitInCourse?.subject_code?.trim() ||
+    first.subject_code?.trim() ||
+    first.course_code?.trim() ||
+    fallbackSubjectName ||
+    sitInCourse?.code?.trim();
+  const range = groupByDay(sessions)[0];
+  return `${className} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }
 
 function selectedSitInCourseIDForGroup(
@@ -357,10 +471,10 @@ function selectedSitInCourseIDForGroup(
       if (courseID) courseIDs.add(courseID);
       continue;
     }
-    const sitInSessionID = sitInSelections[missedSessionID];
-    if (!sitInSessionID) continue;
+    const sitInSessionIDs = splitMergedSessionValue(sitInSelections[missedSessionID]);
+    if (sitInSessionIDs.length === 0) continue;
     for (const priority of priorities) {
-      const hasSession = (priority.available_sessions ?? []).some((session) => session.id === sitInSessionID);
+      const hasSession = (priority.available_sessions ?? []).some((session) => sitInSessionIDs.includes(session.id));
       const courseID = priority.sit_in_course?.id?.trim();
       if (hasSession && courseID) {
         courseIDs.add(courseID);
@@ -386,7 +500,7 @@ function getAbsenceSessionDateLabels(absence: ManagedAbsence) {
   const sessions = absence.missed_sessions ?? [];
   const dates = new Set<string>();
   for (const session of sessions) {
-    if (session.start_at) dates.add(session.start_at.slice(0, 10));
+    if (session.start_at) dates.add(dayKey(session));
   }
   const labels = [...dates].sort().map((date) => formatDate(date));
   if (labels.length > 0) return labels.join(", ");
@@ -401,9 +515,10 @@ function formatBatchSitInSummary(absence: ManagedAbsence) {
   const method = absence.sit_in_method?.trim();
   if (method === "zoom") return "Zoom";
   const sessions = absence.sit_ins ?? [];
-  const sessionLabels = sessions
-    .filter((session) => session.start_at)
-    .map((session) => `${formatDate(session.start_at.slice(0, 10))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`);
+  const sessionLabels = (() => {
+    const withTimes = sessions.filter((session) => session.start_at);
+    return groupByDay(withTimes).map((group) => `${formatDate(group.date)} ${formatTime(group.start_at)}-${formatTime(group.end_at)}`);
+  })();
   if (method !== "physical") {
     return sessionLabels.length > 0 ? `To arrange (${sessionLabels.join(", ")})` : "To arrange";
   }
@@ -612,25 +727,34 @@ export default function AbsenceForm() {
     );
   };
 
-  const handleSessionToggle = (sessionId: string) => {
+  const handleSessionGroupToggle = (sessionIds: string[]) => {
     setSelectedSessionIds((current) => {
-      if (current.has(sessionId)) {
+      const selected = sessionIds.every((sessionId) => current.has(sessionId));
+      if (selected) {
         const next = new Set(current);
-        next.delete(sessionId);
-        setSitInSelections((cs) => { const n = { ...cs }; delete n[sessionId]; return n; });
+        for (const sessionId of sessionIds) next.delete(sessionId);
+        setSitInSelections((cs) => {
+          const n = { ...cs };
+          for (const sessionId of sessionIds) delete n[sessionId];
+          return n;
+        });
         return next;
       }
-      if (current.size >= maxSessions) return current;
+      if (selectedSessionCount >= maxSessions) return current;
       const next = new Set(current);
-      next.add(sessionId);
+      for (const sessionId of sessionIds) next.add(sessionId);
       return next;
     });
   };
 
-  const handleSitInSelect = (sessionId: string, sitInSessionId: string) => {
+  const handleSitInSelectForSessions = (sessionIds: string[], sitInSessionId: string) => {
     setSitInSelections((current) => {
-      if (!sitInSessionId) { const n = { ...current }; delete n[sessionId]; return n; }
-      return { ...current, [sessionId]: sitInSessionId };
+      const next = { ...current };
+      for (const sessionId of sessionIds) {
+        if (!sitInSessionId) delete next[sessionId];
+        else next[sessionId] = sitInSessionId;
+      }
+      return next;
     });
   };
 
@@ -720,7 +844,7 @@ export default function AbsenceForm() {
         return null;
       }
       const selectedSessIds = selectedGroupSessions.map((session) => session.id);
-      const sitInSessionIds = selectedSessIds.map((id) => sitInSelections[id]).filter((id): id is string => !!id);
+      const sitInSessionIds = uniqueValues(selectedSessIds.flatMap((id) => splitMergedSessionValue(sitInSelections[id])));
       const sitInMethod = group.sit_in?.sit_in_method;
       const payload: AbsenceBatchCreateItem = {
         subject_id: group.subject_id, course_id: group.course_id,
@@ -1014,17 +1138,20 @@ export default function AbsenceForm() {
                         ) : (
                           <div className="space-y-4">
                             {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
-                              const selectedCount = group.sessions.filter((s) => selectedSessionIds.has(s.id)).length;
+                              const sessionGroups = groupByDay(group.sessions);
+                              const selectedCount = sessionGroups.filter((sessionGroup) => isDayGroupSelected(sessionGroup, selectedSessionIds)).length;
                               const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
                               return (
                                 <div key={group.course_id} className="rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm">
                                   <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
-                                    <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({group.sessions.length} classes)</span>
+                                    <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">{selectedCount} selected</span>
                                   </div>
                                   <div className="space-y-2 p-4">
-                                    {group.sessions.map((session) => {
-                                      const selected = selectedSessionIds.has(session.id);
+                                    {sessionGroups.map((dayGroup) => {
+                                      const session = dayGroup.items[0];
+                                      const sessionIds = dayGroup.items.map((item) => item.id);
+                                      const selected = isDayGroupSelected(dayGroup, selectedSessionIds);
                                       const currentSitIn = sitInSelections[session.id] || "";
                                       const sessionGroup = groupWithSitInForMissedSession(group, session.id);
                                       const baseSitIn = sessionGroup.sit_in;
@@ -1037,28 +1164,28 @@ export default function AbsenceForm() {
                                         ? requestedLevel : baseLevel;
                                       const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
-                                      const sitInAvailable = sitIn?.available_sessions ?? [];
+                                      const sitInAvailable = rootAvailableSessionsForMissedSessions(sitIn, sessionIds);
                                       const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
                                       const currentPriorities = hasPriorities ? prioritiesForLevel(priorityGroup, currentLevel) : [];
                                       const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
-                                        <div key={session.id} className={clsx(
+                                        <div key={dayGroup.id} className={clsx(
                                           "rounded-lg border px-4 py-3 transition-colors",
                                           selected ? "border-[var(--color-wi-primary)]/30 bg-[var(--color-wi-primary)]/5" : "border-[var(--color-wi-border)] bg-white",
                                         )}>
                                           <div className="flex items-center gap-3">
                                             <input
                                               type="checkbox"
-                                              id={`session-${session.id}`}
+                                              id={`session-${dayGroup.id}`}
                                               checked={selected}
                                               disabled={!selected && atMaxSessions}
-                                              onChange={() => handleSessionToggle(session.id)}
+                                              onChange={() => handleSessionGroupToggle(sessionIds)}
                                               className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                             />
-                                            <label htmlFor={`session-${session.id}`} className="min-w-0 cursor-pointer flex-1">
+                                            <label htmlFor={`session-${dayGroup.id}`} className="min-w-0 cursor-pointer flex-1">
                                               <span className="text-sm font-semibold text-[var(--color-wi-text)]">
-                                                {formatDate(session.date)} {formatTime(session.start_at)}-{formatTime(session.end_at)}
+                                                {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}-{formatTime(dayGroup.end_at)}
                                               </span>
                                             </label>
                                           </div>
@@ -1076,7 +1203,7 @@ export default function AbsenceForm() {
                                                       : previousPriorityLevel(priorityGroup, currentLevel) !== null;
                                                     const revealingPriority = revealingPrioritySessionIds.has(session.id);
                                                     const currentPriorityAvailable = currentPriorities.flatMap(p =>
-                                                      availableSessionsForMissedSession(p, session.id));
+                                                      availableSessionsForMissedSessions(p, sessionIds));
                                                     const currentPriorityUnavailable = currentPriorities.flatMap(p =>
                                                       unavailableSessionsForMissedSession(p, session.id).map((u) => ({ ...u, sitInCourse: p.sit_in_course })));
 
@@ -1169,14 +1296,14 @@ export default function AbsenceForm() {
                                                           <select
                                                             id={`sit-in-${session.id}`}
                                                             value={currentSitIn}
-                                                            onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                            onChange={(e) => handleSitInSelectForSessions(sessionIds, e.target.value)}
                                                             className="mt-1.5 w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                                                           >
                                                             <option value="">Not yet selected</option>
                                                             {currentPriorities.flatMap(p =>
-                                                              availableSessionsForMissedSession(p, session.id).map(c => (
-                                                                <option key={`${p.sit_in_course?.id ?? "course"}:${c.id}`} value={c.id}>
-                                                                  {getSitInSessionLabel(c, p.sit_in_course, groupLabel, sessions)}
+                                                              groupByDay(availableSessionsForMissedSessions(p, sessionIds)).map((optionGroup) => (
+                                                                <option key={`${p.sit_in_course?.id ?? "course"}:${optionGroup.id}`} value={mergedSessionValue(optionGroup.items)}>
+                                                                  {getSitInSessionGroupLabel(optionGroup.items, p.sit_in_course, groupLabel, sessions)}
                                                                 </option>
                                                               ))
                                                             )}
@@ -1195,13 +1322,13 @@ export default function AbsenceForm() {
                                                         <span className="text-[var(--color-wi-text)] font-medium">Make-up class:</span>
                                                         <select
                                                           value={currentSitIn}
-                                                          onChange={(e) => handleSitInSelect(session.id, e.target.value)}
+                                                          onChange={(e) => handleSitInSelectForSessions(sessionIds, e.target.value)}
                                                           className="w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                                                         >
                                                           <option value="">— Not yet —</option>
-                                                          {sitInAvailable.map(c => (
-                                                            <option key={c.id} value={c.id}>
-                                                              {getSitInSessionLabel(c, sitIn?.sit_in_course, groupLabel, sessions)}
+                                                          {groupByDay(sitInAvailable).map((optionGroup) => (
+                                                            <option key={optionGroup.id} value={mergedSessionValue(optionGroup.items)}>
+                                                              {getSitInSessionGroupLabel(optionGroup.items, sitIn?.sit_in_course, groupLabel, sessions)}
                                                             </option>
                                                           ))}
                                                         </select>
@@ -1318,11 +1445,11 @@ export default function AbsenceForm() {
                           return (
                             <div key={group.course_id}>
                               <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>
-                              {selectedSessions.map((s) => (
-                                <p key={s.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
-                                  {formatDate(s.date)} {formatTime(s.start_at)}–{formatTime(s.end_at)}
+                              {groupByDay(selectedSessions).map((dayGroup) => (
+                                <p key={dayGroup.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
+                                  {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}–{formatTime(dayGroup.end_at)}
                                   <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
-                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(s, group, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
+                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(dayGroup.items[0], group, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
                                 </p>
                               ))}
                             </div>

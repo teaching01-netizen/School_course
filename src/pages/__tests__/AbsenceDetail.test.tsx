@@ -156,8 +156,76 @@ describe("Absence detail", () => {
     const summarySection = summary.closest("section");
     expect(summarySection).not.toBeNull();
 
-    expect(within(summarySection as HTMLElement).getByText(/1 Jun 2026\s+8 Jun 2026/)).toBeInTheDocument();
+    expect(within(summarySection as HTMLElement).getByText(/1 Jun 2026 \d{2}:\d{2}-\d{2}:\d{2}\s+8 Jun 2026 \d{2}:\d{2}-\d{2}:\d{2}/)).toBeInTheDocument();
     expect(within(summarySection as HTMLElement).queryByText(/31 May 2026 - 30 Jun 2026/)).not.toBeInTheDocument();
+  });
+
+  it("groups missed and sit-in sessions by the Bangkok calendar day", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...DETAIL,
+      missed_sessions: [
+        {
+          id: "ms-1",
+          session_id: "missed-1",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          room_name: null,
+          start_at: "2026-06-01T17:30:00Z",
+          end_at: "2026-06-01T18:15:00Z",
+        },
+        {
+          id: "ms-2",
+          session_id: "missed-2",
+          course_id: "course-1",
+          course_code: "MATH-201",
+          course_name: "Algebra II",
+          room_name: null,
+          start_at: "2026-06-02T02:00:00Z",
+          end_at: "2026-06-02T03:00:00Z",
+        },
+      ],
+      sit_ins: [
+        {
+          id: "si-1",
+          session_id: "sit-1",
+          course_id: "sit-1",
+          course_code: "MATH-301",
+          course_name: "Calculus III",
+          room_name: "Room 201",
+          start_at: "2026-06-01T17:30:00Z",
+          end_at: "2026-06-01T18:15:00Z",
+        },
+        {
+          id: "si-2",
+          session_id: "sit-2",
+          course_id: "sit-1",
+          course_code: "MATH-301",
+          course_name: "Calculus III",
+          room_name: "Room 201",
+          start_at: "2026-06-02T02:00:00Z",
+          end_at: "2026-06-02T03:00:00Z",
+        },
+      ],
+    });
+    renderDetail();
+
+    const summary = await screen.findByRole("heading", { name: /absence summary/i });
+    const summarySection = summary.closest("section");
+    expect(summarySection).not.toBeNull();
+    const summaryText = summarySection?.textContent ?? "";
+    expect(summaryText.match(/2 Jun 2026/g)).toHaveLength(1);
+    expect(summaryText).toContain("00:30-10:00");
+    expect(summaryText).not.toContain("1 Jun 2026");
+
+    const sitInPlan = screen.getByRole("heading", { name: /sit-in plan/i });
+    const sitInSection = sitInPlan.closest("section");
+    expect(sitInSection).not.toBeNull();
+    const sitInText = sitInSection?.textContent ?? "";
+    expect(sitInText.match(/2 Jun 2026/g)).toHaveLength(1);
+    expect(sitInText).toContain("00:30");
+    expect(sitInText).toContain("10:00");
+    expect(sitInText).not.toContain("1 Jun 2026");
   });
 
   it("shows free-text reason without old category separators", async () => {

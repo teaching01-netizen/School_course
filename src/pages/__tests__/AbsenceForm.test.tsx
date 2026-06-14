@@ -363,6 +363,118 @@ describe("AbsenceForm", () => {
     expect(parsedBody.items[1]).toMatchObject({ course_id: "c-phys301", date_from: "2026-06-02", date_to: "2026-06-02" });
   });
 
+  it("merges same-day absence sessions into one selectable row and submits all missed session IDs", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Mathematics",
+          sessions: [
+            { id: "s1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false },
+            { id: "s2", start_at: "2026-06-02T10:45:00+07:00", end_at: "2026-06-02T12:00:00+07:00", date: "2026-06-02", already_absent: false },
+          ],
+          sit_in: { sit_in_method: "zoom" },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+
+    const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
+      (cb) => cb.getAttribute("id")?.startsWith("session-"),
+    );
+    expect(sessionCheckboxes).toHaveLength(1);
+    expect(screen.getByText(/2 Jun 2026 09:00-12:00/)).toBeInTheDocument();
+
+    await user.click(sessionCheckboxes[0]);
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    expect(screen.getByText("Review your absence")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+
+    const batchCall = await waitFor(() => {
+      const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const parsedBody = JSON.parse(String(batchCall[1]?.body)) as {
+      items: Array<{ missed_session_ids: string[]; date_from: string; date_to: string }>;
+    };
+    expect(parsedBody.items[0]).toMatchObject({
+      date_from: "2026-06-02",
+      date_to: "2026-06-02",
+      missed_session_ids: ["s1", "s2"],
+    });
+  }, 30000);
+
+  it("merges same-day physical sit-in options and submits all sit-in session IDs", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Mathematics",
+          sessions: [
+            { id: "s1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
+            available_sessions: [
+              { id: "as1", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00", course_name: "Calculus III" },
+              { id: "as2", start_at: "2026-06-04T14:45:00+07:00", end_at: "2026-06-04T16:30:00+07:00", course_name: "Calculus III" },
+            ],
+          },
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    const makeUpOptions = screen.getAllByRole("option").filter((option) => option.getAttribute("value"));
+    expect(makeUpOptions).toHaveLength(1);
+    expect(makeUpOptions[0]).toHaveTextContent(/Calculus III.*4 Jun 2026 13:00-16:30/);
+
+    await user.selectOptions(makeUpSelect, makeUpOptions[0].getAttribute("value")!);
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+
+    const batchCall = await waitFor(() => {
+      const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const parsedBody = JSON.parse(String(batchCall[1]?.body)) as {
+      items: Array<{ sit_in_course_id: string; sit_in_session_ids: string[] }>;
+    };
+    expect(parsedBody.items[0]).toMatchObject({
+      sit_in_course_id: "c-math301",
+      sit_in_session_ids: ["as1", "as2"],
+    });
+  }, 30000);
+
   it("submits the selected priority sit-in course for SAT Verbal priority options", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
@@ -864,10 +976,10 @@ describe("AbsenceForm", () => {
 
     const selects = await screen.findAllByRole("combobox");
     expect(selects).toHaveLength(2);
-    expect(within(selects[0]).getByRole("option", { name: /Sun, 21 Jun 2026/ })).toBeInTheDocument();
-    expect(within(selects[0]).queryByRole("option", { name: /Sun, 28 Jun 2026/ })).not.toBeInTheDocument();
-    expect(within(selects[1]).getByRole("option", { name: /Sun, 28 Jun 2026/ })).toBeInTheDocument();
-    expect(within(selects[1]).queryByRole("option", { name: /Sun, 21 Jun 2026/ })).not.toBeInTheDocument();
+    expect(within(selects[0]).getByRole("option", { name: /Mon, 22 Jun 2026/ })).toBeInTheDocument();
+    expect(within(selects[0]).queryByRole("option", { name: /Mon, 29 Jun 2026/ })).not.toBeInTheDocument();
+    expect(within(selects[1]).getByRole("option", { name: /Mon, 29 Jun 2026/ })).toBeInTheDocument();
+    expect(within(selects[1]).queryByRole("option", { name: /Mon, 22 Jun 2026/ })).not.toBeInTheDocument();
   }, 30000);
 
   it("shows the current priority sit-in target in the header and dropdown", async () => {

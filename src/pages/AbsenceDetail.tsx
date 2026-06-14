@@ -19,16 +19,57 @@ type CandidateSession = {
   capacity_warning?: boolean;
 };
 
+const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
+
+type TimeRanged = { start_at: string; end_at: string };
+
+type DayRangeGroup<T extends TimeRanged> = {
+  date: string;
+  start_at: string;
+  end_at: string;
+  items: T[];
+};
+
 function displayDate(value: string): string {
   return new Date(value + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function displayDateTime(value: string): string {
-  return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: INSTITUTE_TIME_ZONE });
 }
 
-function displayDateFromDateTime(value: string): string {
-  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+function displayTime(value: string): string {
+  return new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: INSTITUTE_TIME_ZONE });
+}
+
+function instituteDateKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: INSTITUTE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function groupByInstituteDay<T extends TimeRanged>(items: T[]): DayRangeGroup<T>[] {
+  const byDay = new Map<string, T[]>();
+  for (const item of items.slice().sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())) {
+    const day = instituteDateKey(item.start_at);
+    byDay.set(day, [...(byDay.get(day) ?? []), item]);
+  }
+  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, dayItems]) => {
+    let start = dayItems[0].start_at;
+    let end = dayItems[0].end_at;
+    for (const item of dayItems) {
+      if (new Date(item.start_at).getTime() < new Date(start).getTime()) start = item.start_at;
+      if (new Date(item.end_at).getTime() > new Date(end).getTime()) end = item.end_at;
+    }
+    return { date, start_at: start, end_at: end, items: dayItems };
+  });
 }
 
 function titleCase(value: string): string {
@@ -46,12 +87,13 @@ function daysBetween(a: string, b: string): number {
 }
 
 function displayAbsenceDates(absence: ManagedAbsence): string {
-  const missedDateLabels = [...new Set((absence.missed_sessions ?? [])
+  const sessions = (absence.missed_sessions ?? [])
     .slice()
-    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
-    .map((session) => displayDateFromDateTime(session.start_at)))];
-  if (missedDateLabels.length > 0) {
-    return missedDateLabels.join("\n");
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+  if (sessions.length > 0) {
+    return groupByInstituteDay(sessions)
+      .map((group) => `${displayDate(group.date)} ${displayTime(group.start_at)}-${displayTime(group.end_at)}`)
+      .join("\n");
   }
   if (absence.date_from === absence.date_to) {
     return displayDate(absence.date_from);
@@ -291,12 +333,26 @@ export default function AbsenceDetail() {
             </div>
             {absence.sit_ins?.length ? (
               <div className="space-y-2">
-                {absence.sit_ins.map((session) => (
-                  <div key={session.id} className="flex items-center justify-between rounded-sm border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
-                    <span>{displayDateTime(session.start_at)} &ndash; {new Date(session.end_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
-                    <span className="text-gray-500">{session.room_name ?? "No room"}</span>
-                  </div>
-                ))}
+                {(() => {
+                  return groupByInstituteDay(absence.sit_ins).map((group) => {
+                    if (group.items.length > 1) {
+                      const rooms = [...new Set(group.items.map((s) => s.room_name ?? "No room"))].join(", ");
+                      return (
+                        <div key={group.start_at} className="flex items-center justify-between rounded-sm border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+                          <span>{displayDate(group.date)} {displayTime(group.start_at)} &ndash; {displayTime(group.end_at)}</span>
+                          <span className="text-gray-500">{rooms}</span>
+                        </div>
+                      );
+                    }
+                    const s = group.items[0];
+                    return (
+                      <div key={s.id} className="flex items-center justify-between rounded-sm border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+                        <span>{displayDateTime(s.start_at)} &ndash; {displayTime(s.end_at)}</span>
+                        <span className="text-gray-500">{s.room_name ?? "No room"}</span>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             ) : <p className="text-sm text-gray-500">No physical sit-in sessions assigned.</p>}
             {absence.sit_in_method === "zoom" ? (
