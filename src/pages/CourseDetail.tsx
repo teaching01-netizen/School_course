@@ -232,6 +232,7 @@ export default function CourseDetail() {
     return m;
   }, [rooms]);
   const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
+  const cohortOptions = useMemo(() => cohorts.map((c) => ({ value: c.name, label: c.name })), [cohorts]);
 
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string });
@@ -820,18 +821,12 @@ export default function CourseDetail() {
           </div>
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Cohort</label>
-            <input
-              list="cohorts-list"
+            <TypeaheadSelect
               value={editCohortName}
-              onChange={(e) => setEditCohortName(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
-              placeholder="None (type to search or create)…"
+              onChange={setEditCohortName}
+              options={cohortOptions}
+              placeholder="None"
             />
-            <datalist id="cohorts-list">
-              {cohorts.map(c => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
           </div>
         </div>
       ) : (

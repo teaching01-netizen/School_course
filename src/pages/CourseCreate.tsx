@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
@@ -9,6 +9,7 @@ import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
 import FormField from "../components/ui/FormField";
 import FormErrorSummary from "../components/ui/FormErrorSummary";
+import TypeaheadSelect from "../components/TypeaheadSelect";
 
 type Teacher = { id: string; username: string; role: "Admin" | "Teacher" };
 type Subject = { id: string; code: string; name: string };
@@ -42,6 +43,7 @@ export default function CourseCreate() {
 
   const formValues = { year, teacherID, subjectID, hour, studentCount };
   const { errors, validate, validateAll, touched, touch } = useFormValidation(schema, formValues);
+  const cohortOptions = useMemo(() => cohorts.map((c) => ({ value: c.name, label: c.name })), [cohorts]);
 
   useEffect(() => {
     (async () => {
@@ -154,18 +156,12 @@ export default function CourseCreate() {
         </FormField>
 
         <FormField name="cohortName" label="Cohort">
-          <input
-            list="cohorts-list"
+          <TypeaheadSelect
             value={cohortName}
-            onChange={(e) => setCohortName(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            placeholder="None (type to search or create)…"
+            onChange={setCohortName}
+            options={cohortOptions}
+            placeholder="None"
           />
-          <datalist id="cohorts-list">
-            {cohorts.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
         </FormField>
 
         <div className="flex gap-3 mt-6">
