@@ -484,24 +484,11 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			return fmt.Errorf("find courses matching CRM course name: %w", err)
 		}
 
-		// Expand destination set with cohort-sibling courses so co-teaching
-		// partners are not treated as source courses to exclude.
 		expandedDests := map[uuid.UUID]bool{
 			input.DestCourseAID: true,
 		}
 		if input.DestCourseBID != input.DestCourseAID {
 			expandedDests[input.DestCourseBID] = true
-		}
-		for destID := range expandedDests {
-			var cohortID uuid.UUID
-			if err := tx.QueryRow(ctx, `SELECT cohort_id FROM courses WHERE id = $1`, destID).Scan(&cohortID); err == nil && cohortID != uuid.Nil {
-				siblings, err := s.coursesByCohort(ctx, tx, cohortID)
-				if err == nil {
-					for _, sid := range siblings {
-						expandedDests[sid] = true
-					}
-				}
-			}
 		}
 
 		for _, srcID := range srcIDs {
@@ -736,23 +723,6 @@ func (s *Store) coursesMatchingCRMCourseName(ctx context.Context, tx pgx.Tx, crm
 		    WHERE cv = $1
 		  )
 	`, crmCourseName)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-func (s *Store) coursesByCohort(ctx context.Context, tx pgx.Tx, cohortID uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := tx.Query(ctx, `SELECT id FROM courses WHERE cohort_id = $1 AND deleted_at IS NULL`, cohortID)
 	if err != nil {
 		return nil, err
 	}

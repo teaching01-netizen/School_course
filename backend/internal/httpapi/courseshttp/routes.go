@@ -30,7 +30,6 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/courses/{id}", s.handleCoursesGet)
 	mux.HandleFunc("PUT /api/v1/courses/{id}", s.handleCoursesUpdate)
 	mux.HandleFunc("DELETE /api/v1/courses/{id}", s.handleCoursesDelete)
-	mux.HandleFunc("GET /api/v1/admin/course-cohorts", s.handleCourseCohortsList)
 	mux.HandleFunc("GET /api/v1/courses/{id}/students", s.handleCourseStudentsList)
 	mux.HandleFunc("POST /api/v1/courses/{id}/students", s.handleCourseStudentsAdd)
 	mux.HandleFunc("DELETE /api/v1/courses/{id}/students/{student_id}", s.handleCourseStudentsRemove)
@@ -68,8 +67,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		CourseType         any    `json:"course_type"`
 		LegacyCourseID     any    `json:"legacy_course_id"`
 		LegacyLastSyncedAt any    `json:"legacy_last_synced_at"`
-		CohortID           any    `json:"cohort_id"`
-		CohortName         any    `json:"cohort_name"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -110,14 +107,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.LegacyLastSyncedAt.Valid {
 			legacyLastSyncedAt, _ = s.a.TimeString(c.LegacyLastSyncedAt)
 		}
-		var cohortID any = nil
-		if c.CohortID.Valid {
-			cohortID, _ = s.a.UUIDString(c.CohortID)
-		}
-		var cohortName any = nil
-		if c.CohortName != "" {
-			cohortName = c.CohortName
-		}
 		out = append(out, courseDTO{
 			ID:                 id,
 			CourseNo:           c.CourseNo,
@@ -134,8 +123,6 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			CourseType:         courseType,
 			LegacyCourseID:     legacyCourseID,
 			LegacyLastSyncedAt: legacyLastSyncedAt,
-			CohortID:           cohortID,
-			CohortName:         cohortName,
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -217,13 +204,13 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		Code string `json:"code"`
 		Name string `json:"name"`
 
-		Year         int16   `json:"year"`
-		TeacherID    string  `json:"teacher_id"`
-		SubjectID    string  `json:"subject_id"`
-		Hour         int32   `json:"hour"`
-		StudentCount int32   `json:"student_count"`
-		CourseType   string  `json:"course_type"`
-		CohortName   *string `json:"cohort_name"`
+		Year         int16    `json:"year"`
+		TeacherID    string   `json:"teacher_id"`
+		SubjectID    string   `json:"subject_id"`
+		Hour         int32    `json:"hour"`
+		StudentCount int32    `json:"student_count"`
+		CourseType   string   `json:"course_type"`
+		TeacherIDs   []string `json:"teacher_ids"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -257,12 +244,13 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err
 			}
-			if body.CohortName != nil && *body.CohortName != "" {
-				cohortID, cerr := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
-				if cerr != nil {
-					s.deps.Log.Error("cohort create on course create failed", "error", cerr)
-				} else if _, uerr := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, item.ID); uerr != nil {
-					s.deps.Log.Error("cohort assign on course create failed", "error", uerr, "course_id", item.ID)
+			// Insert course_teachers from teacher_ids.
+			for _, tid := range body.TeacherIDs {
+				pid, parseErr := s.a.ParseUUID(tid)
+				if parseErr == nil {
+					if _, ierr := tx.Exec(r.Context(), `INSERT INTO course_teachers (course_id, teacher_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, item.ID, pid); ierr != nil {
+						s.deps.Log.Error("course_teachers insert failed", "error", ierr, "course_id", item.ID, "teacher_id", tid)
+					}
 				}
 			}
 			id, err := s.a.UUIDString(item.ID)
@@ -283,12 +271,13 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if body.CohortName != nil && *body.CohortName != "" {
-			cohortID, cerr := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
-			if cerr != nil {
-				s.deps.Log.Error("cohort create on course create failed", "error", cerr)
-			} else if _, uerr := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, item.ID); uerr != nil {
-				s.deps.Log.Error("cohort assign on course create failed", "error", uerr, "course_id", item.ID)
+		// Insert course_teachers from teacher_ids.
+		for _, tid := range body.TeacherIDs {
+			pid, parseErr := s.a.ParseUUID(tid)
+			if parseErr == nil {
+				if _, ierr := tx.Exec(r.Context(), `INSERT INTO course_teachers (course_id, teacher_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, item.ID, pid); ierr != nil {
+					s.deps.Log.Error("course_teachers insert failed", "error", ierr, "course_id", item.ID, "teacher_id", tid)
+				}
 			}
 		}
 		id, err := s.a.UUIDString(item.ID)
@@ -627,13 +616,19 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 	if item.CourseType.Valid {
 		courseType = item.CourseType.String
 	}
-	var cohortID any = nil
-	if item.CohortID.Valid {
-		cohortID, _ = s.a.UUIDString(item.CohortID)
-	}
-	var cohortName any = nil
-	if item.CohortName != "" {
-		cohortName = item.CohortName
+	// Fetch course_teachers for the response.
+	var teachers []map[string]any
+	{
+		trows, tErr := s.deps.DB.Query(r.Context(), `SELECT u.id::text, u.username FROM course_teachers ct JOIN users u ON u.id = ct.teacher_id WHERE ct.course_id = $1 ORDER BY u.username`, id)
+		if tErr == nil {
+			for trows.Next() {
+				var tid, tname string
+				if err := trows.Scan(&tid, &tname); err == nil {
+					teachers = append(teachers, map[string]any{"id": tid, "username": tname})
+				}
+			}
+			trows.Close()
+		}
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
@@ -652,8 +647,7 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		"course_type":           courseType,
 		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
-		"cohort_id":             cohortID,
-		"cohort_name":           cohortName,
+		"teachers":              teachers,
 	})
 }
 
@@ -668,11 +662,11 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Code           string  `json:"code"`
-		Name           string  `json:"name"`
-		TeacherID      *string `json:"teacher_id"`
-		LegacyCourseID *string `json:"legacy_course_id"`
-		CohortName     *string `json:"cohort_name"`
+		Code           string   `json:"code"`
+		Name           string   `json:"name"`
+		TeacherID      *string  `json:"teacher_id"`
+		LegacyCourseID *string  `json:"legacy_course_id"`
+		TeacherIDs     []string `json:"teacher_ids"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -721,23 +715,30 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Error("legacy_course_id update failed", "error", err, "course_id", item.ID)
 		}
 
-		// Update cohort assignment (find-or-create by name).
-		if body.CohortName != nil {
-			if *body.CohortName == "" {
-				// Empty string → clear cohort_id.
-				if _, err := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = NULL, updated_at = now() WHERE id = $1`, id); err != nil {
-					s.deps.Log.Error("cohort clear failed", "error", err, "course_id", item.ID)
-				}
-			} else {
-				cohortID, err := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
-				if err != nil {
-					s.deps.Log.Error("cohort find-or-create failed", "error", err, "course_id", item.ID)
-				} else if _, err := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, id); err != nil {
-					s.deps.Log.Error("cohort assign failed", "error", err, "course_id", item.ID)
+		// Update teacher_ids: replace all course_teachers entries.
+		if body.TeacherIDs != nil {
+			if _, err := tx.Exec(r.Context(), `DELETE FROM course_teachers WHERE course_id = $1`, id); err != nil {
+				s.deps.Log.Error("course_teachers delete failed", "error", err, "course_id", item.ID)
+			}
+			for _, tid := range body.TeacherIDs {
+				pid, parseErr := s.a.ParseUUID(tid)
+				if parseErr == nil {
+					if _, ierr := tx.Exec(r.Context(), `INSERT INTO course_teachers (course_id, teacher_id) VALUES ($1, $2)`, id, pid); ierr != nil {
+						s.deps.Log.Error("course_teachers insert failed", "error", ierr, "course_id", item.ID, "teacher_id", tid)
+					}
 				}
 			}
-			// Re-read cohort fields into item for the response.
-			_ = tx.QueryRow(r.Context(), `SELECT c.cohort_id, COALESCE(ch.name, '') FROM courses c LEFT JOIN course_cohorts ch ON ch.id = c.cohort_id WHERE c.id = $1`, id).Scan(&item.CohortID, &item.CohortName)
+			// Set primary teacher to first in list, or null if empty.
+			if len(body.TeacherIDs) > 0 {
+				pid, parseErr := s.a.ParseUUID(body.TeacherIDs[0])
+				if parseErr == nil {
+					_, _ = tx.Exec(r.Context(), `UPDATE courses SET teacher_id = $1, updated_at = now() WHERE id = $2`, pid, id)
+				}
+			} else {
+				_, _ = tx.Exec(r.Context(), `UPDATE courses SET teacher_id = NULL, updated_at = now() WHERE id = $1`, id)
+			}
+			// Re-read full course to get updated teacher info.
+			item, _ = qtx.CourseGetFull(r.Context(), id)
 		}
 
 		cid, err := s.a.UUIDString(item.ID)
@@ -784,15 +785,6 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		if item.CourseType.Valid {
 			courseType = item.CourseType.String
 		}
-		var cohortID any = nil
-		if item.CohortID.Valid {
-			cohortID, _ = s.a.UUIDString(item.CohortID)
-		}
-		var cohortName any = nil
-		if item.CohortName != "" {
-			cohortName = item.CohortName
-		}
-
 		return http.StatusOK, map[string]any{
 			"id":                    cid,
 			"course_no":             item.CourseNo,
@@ -809,8 +801,6 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			"course_type":           courseType,
 			"legacy_course_id":      legacyCourseID,
 			"legacy_last_synced_at": legacyLastSyncedAt,
-			"cohort_id":             cohortID,
-			"cohort_name":           cohortName,
 		}, nil
 	})
 }
@@ -838,32 +828,6 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 	}) {
 		s.deps.Log.Error("course_delete: idempotent tx failed", "course_id", r.PathValue("id"))
 	}
-}
-
-func (s *server) handleCourseCohortsList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.a.MustUser(w, r); !ok {
-		return
-	}
-	items, err := s.deps.Q.CourseCohortList(r.Context())
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-	type cohortDTO struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	out := make([]cohortDTO, 0, len(items))
-	for _, c := range items {
-		id, err := s.a.UUIDString(c.ID)
-		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-			return
-		}
-		out = append(out, cohortDTO{ID: id, Name: c.Name})
-	}
-	s.a.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {

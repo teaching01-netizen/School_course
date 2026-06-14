@@ -396,12 +396,11 @@ type StudentEnrolledCourseV2 struct {
 	Level             pgtype.Int2 `json:"level"`
 	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
 	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
-	CohortID          pgtype.UUID `json:"cohort_id"`
 }
 
 func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, studentID pgtype.UUID, subjectID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id, c.cohort_id
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM course_students cs
 		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
@@ -416,7 +415,7 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 	var out []StudentEnrolledCourseV2
 	for rows.Next() {
 		var r StudentEnrolledCourseV2
-		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.CohortID); err != nil {
+		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -429,7 +428,7 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 
 func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, studentID pgtype.UUID, rootCourseGroupID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id, c.cohort_id
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
 		FROM course_students cs
 		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
@@ -446,37 +445,7 @@ func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, s
 	var out []StudentEnrolledCourseV2
 	for rows.Next() {
 		var r StudentEnrolledCourseV2
-		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.CohortID); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (q *Queries) StudentEnrolledCoursesByCohort(ctx context.Context, studentID pgtype.UUID, cohortID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
-	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id, c.cohort_id
-		FROM course_students cs
-		JOIN courses c ON c.id = cs.course_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE cs.student_id = $1
-		  AND c.cohort_id = $2
-		  AND cs.status = 'enrolled'
-		ORDER BY c.level ASC NULLS LAST
-	`, studentID, cohortID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []StudentEnrolledCourseV2
-	for rows.Next() {
-		var r StudentEnrolledCourseV2
-		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.CohortID); err != nil {
+		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

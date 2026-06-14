@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
 import TypeaheadSelect from "../components/TypeaheadSelect";
+import MultiTeacherSelect from "../components/MultiTeacherSelect";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
@@ -191,12 +192,10 @@ export default function CourseDetail() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
-  const [cohorts, setCohorts] = useState<{id: string; name: string}[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
-  const [editTeacherId, setEditTeacherId] = useState("");
-  const [editCohortName, setEditCohortName] = useState("");
+  const [editTeacherIds, setEditTeacherIds] = useState<string[]>([]);
   const [courseEditSaving, setCourseEditSaving] = useState(false);
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
@@ -232,7 +231,6 @@ export default function CourseDetail() {
     return m;
   }, [rooms]);
   const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
-  const cohortOptions = useMemo(() => cohorts.map((c) => ({ value: c.name, label: c.name })), [cohorts]);
 
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string });
@@ -350,14 +348,12 @@ export default function CourseDetail() {
 
   const loadLookups = async () => {
     try {
-      const [r, t, ch] = await Promise.all([
+      const [r, t] = await Promise.all([
         apiJson<Room[]>("/api/v1/rooms", { method: "GET" }),
         apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" }),
-        apiJson<{id: string; name: string}[]>("/api/v1/admin/course-cohorts", { method: "GET" }),
       ]);
       setRooms(r);
       setTeachers(t);
-      setCohorts(ch);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load lookups");
     }
@@ -413,8 +409,7 @@ export default function CourseDetail() {
     if (!course) return;
     setEditCode(course.code);
     setEditName(course.name);
-    setEditTeacherId(course.teacher_id ?? "");
-    setEditCohortName(course.cohort_name ?? "");
+    setEditTeacherIds((course.teachers ?? []).map((t) => t.id));
     setIsEditing(true);
   };
 
@@ -422,8 +417,7 @@ export default function CourseDetail() {
     setIsEditing(false);
     setEditCode("");
     setEditName("");
-    setEditTeacherId("");
-    setEditCohortName("");
+    setEditTeacherIds([]);
   };
 
   const submitCourseEdit = async () => {
@@ -439,8 +433,8 @@ export default function CourseDetail() {
         body: JSON.stringify({
           code: editCode.trim(),
           name: editName.trim(),
-          teacher_id: editTeacherId || null,
-          cohort_name: editCohortName,
+          teacher_id: editTeacherIds[0] || null,
+          teacher_ids: editTeacherIds,
         }),
       });
       setCourse(updated);
@@ -811,21 +805,12 @@ export default function CourseDetail() {
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Teacher</label>
-            <TypeaheadSelect
-              value={editTeacherId}
-              onChange={setEditTeacherId}
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Teacher(s)</label>
+            <MultiTeacherSelect
+              value={editTeacherIds}
+              onChange={setEditTeacherIds}
               options={teacherOptions}
-              placeholder="Select teacher…"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Cohort</label>
-            <TypeaheadSelect
-              value={editCohortName}
-              onChange={setEditCohortName}
-              options={cohortOptions}
-              placeholder="None"
+              placeholder="Select teachers…"
             />
           </div>
         </div>
@@ -833,7 +818,12 @@ export default function CourseDetail() {
         <div className="border-b border-gray-200 pb-3 mb-6">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-sm text-gray-700 font-medium">{course.name}</span>
-            {course.teacher_name && (
+            {course.teachers?.length ? course.teachers.map(t => (
+              <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
+                {t.username}
+              </span>
+            )) : course.teacher_name && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
                 {course.teacher_name}
@@ -848,11 +838,6 @@ export default function CourseDetail() {
             {course.course_type && (
               <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-sm border ${course.course_type === 'Private' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                 {course.course_type}
-              </span>
-            )}
-            {course.cohort_name && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-orange-50 text-orange-700 border border-orange-200">
-                Cohort: {course.cohort_name}
               </span>
             )}
           </div>

@@ -9,15 +9,14 @@ import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
 import FormField from "../components/ui/FormField";
 import FormErrorSummary from "../components/ui/FormErrorSummary";
-import TypeaheadSelect from "../components/TypeaheadSelect";
+import MultiTeacherSelect from "../components/MultiTeacherSelect";
 
 type Teacher = { id: string; username: string; role: "Admin" | "Teacher" };
 type Subject = { id: string; code: string; name: string };
-type Cohort = { id: string; name: string };
 
 const schema = {
   year: [{ type: "required" as const, message: "Year is required" }],
-  teacherID: [{ type: "required" as const, message: "Teacher is required" }],
+  teacherID: [{ type: "required" as const, message: "At least one teacher is required" }],
   subjectID: [{ type: "required" as const, message: "Subject is required" }],
   hour: [{ type: "required" as const, message: "Hour is required" }],
   studentCount: [{ type: "min" as const, value: 1, message: "Student count must be at least 1" }],
@@ -28,35 +27,31 @@ export default function CourseCreate() {
   const { addToast } = useToast();
 
   const [year, setYear] = useState(() => String(new Date().getFullYear() % 100));
-  const [teacherID, setTeacherID] = useState("");
+  const [teacherIDs, setTeacherIDs] = useState<string[]>([]);
   const [subjectID, setSubjectID] = useState("");
   const [hour, setHour] = useState(0);
   const [studentCount, setStudentCount] = useState(0);
   const [courseType, setCourseType] = useState<"Private" | "Group">("Private");
-  const [cohortName, setCohortName] = useState("");
 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const formValues = { year, teacherID, subjectID, hour, studentCount };
+  const formValues = { year, teacherID: teacherIDs[0] || "", subjectID, hour, studentCount };
   const { errors, validate, validateAll, touched, touch } = useFormValidation(schema, formValues);
-  const cohortOptions = useMemo(() => cohorts.map((c) => ({ value: c.name, label: c.name })), [cohorts]);
+  const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
 
   useEffect(() => {
     (async () => {
       try {
         setLoadingOptions(true);
-        const [t, s, c] = await Promise.all([
+        const [t, s] = await Promise.all([
           apiJson<Teacher[]>("/api/v1/users?role=Teacher", { method: "GET" }),
           apiJson<Subject[]>("/api/v1/subjects", { method: "GET" }),
-          apiJson<Cohort[]>("/api/v1/admin/course-cohorts", { method: "GET" }),
         ]);
         setTeachers(t);
         setSubjects(s);
-        setCohorts(c);
       } catch {
         // Non-blocking: the page still renders with empty option lists.
       } finally {
@@ -74,12 +69,12 @@ export default function CourseCreate() {
         method: "POST",
         body: JSON.stringify({
           year: Number.parseInt(year, 10),
-          teacher_id: teacherID,
+          teacher_id: teacherIDs[0] || "",
+          teacher_ids: teacherIDs,
           subject_id: subjectID,
           hour,
           student_count: studentCount,
           course_type: courseType,
-          cohort_name: cohortName || null,
         }),
       });
       addToast("success", "Course created");
@@ -103,20 +98,12 @@ export default function CourseCreate() {
         </FormField>
 
         <FormField name="teacherID" label="Teacher" error={errors.teacherID} touched={touched.teacherID} required>
-          <Select
-            size="md"
-            value={teacherID}
-            onChange={(e) => setTeacherID(e.target.value)}
-            disabled={loadingOptions}
-            onBlur={() => { touch("teacherID"); validate("teacherID"); }}
-          >
-            <option value="">-- Select Teacher --</option>
-            {teachers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.username}
-              </option>
-            ))}
-          </Select>
+          <MultiTeacherSelect
+            value={teacherIDs}
+            onChange={setTeacherIDs}
+            options={teacherOptions}
+            placeholder="Select teachers…"
+          />
         </FormField>
 
         <FormField name="subjectID" label="Subject" error={errors.subjectID} touched={touched.subjectID} required>
@@ -153,15 +140,6 @@ export default function CourseCreate() {
             <option value="Private">Private</option>
             <option value="Group">Group</option>
           </Select>
-        </FormField>
-
-        <FormField name="cohortName" label="Cohort">
-          <TypeaheadSelect
-            value={cohortName}
-            onChange={setCohortName}
-            options={cohortOptions}
-            placeholder="None"
-          />
         </FormField>
 
         <div className="flex gap-3 mt-6">

@@ -138,8 +138,7 @@ export type Course = {
   deleted_at?: string | null;
   legacy_course_id?: string | null;
   legacy_last_synced_at?: string | null;
-  cohort_id?: string | null;
-  cohort_name?: string | null;
+  teachers?: { id: string; username: string }[];
 };
 export type Room = { id: string; name: string; capacity: number | null };
 export type User = { id: string; username: string; role: "Admin" | "Teacher" };
