@@ -16,6 +16,7 @@ SET status = 'accepted',
 WHERE status = 'accepted'
   AND accepted_at IS NULL;
 
+-- +goose StatementBegin
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -28,6 +29,7 @@ BEGIN
       CHECK (status IN ('pending', 'sending', 'accepted', 'failed'));
   END IF;
 END $$;
+-- +goose StatementEnd
 
 CREATE INDEX IF NOT EXISTS idx_email_delivery_claims_status
   ON email_delivery_claims (status, sending_at);

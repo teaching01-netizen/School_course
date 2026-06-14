@@ -95,6 +95,8 @@ func TestEmailDeliveryStatusMigrationAddsDeliveryLedgerState(t *testing.T) {
 		"ADD COLUMN IF NOT EXISTS accepted_at timestamptz NULL",
 		"ADD COLUMN IF NOT EXISTS failed_at timestamptz NULL",
 		"ADD COLUMN IF NOT EXISTS last_error text NULL",
+		"-- +goose StatementBegin DO $$",
+		"END $$; -- +goose StatementEnd",
 		"CHECK (status IN ('pending', 'sending', 'accepted', 'failed'))",
 	} {
 		if !strings.Contains(compact, want) {
