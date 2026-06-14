@@ -1595,11 +1595,38 @@ function BulkEditModal({
     }))
   );
   const [saving, setSaving] = useState(false);
+  const [editMode, setEditMode] = useState<'per-row' | 'fill-all'>('per-row');
+  const [fillValues, setFillValues] = useState<Partial<Pick<BulkEditRow, 'date' | 'begin' | 'end' | 'teacher_id' | 'room_id'>>>({});
 
   const updateField = (sessionId: string, field: keyof Omit<BulkEditRow, 'sessionId' | 'version' | 'status' | 'error'>, value: string) => {
     setRows((prev) =>
       prev.map((r) => (r.sessionId === sessionId ? { ...r, [field]: value, status: 'pending' as const, error: undefined } : r))
     );
+  };
+
+  const mergeRow = (r: BulkEditRow): BulkEditRow => {
+    if (editMode !== 'fill-all') return r;
+    return {
+      ...r,
+      ...(fillValues.date !== undefined ? { date: fillValues.date } : {}),
+      ...(fillValues.begin !== undefined ? { begin: fillValues.begin } : {}),
+      ...(fillValues.end !== undefined ? { end: fillValues.end } : {}),
+      ...(fillValues.teacher_id !== undefined ? { teacher_id: fillValues.teacher_id } : {}),
+      ...(fillValues.room_id !== undefined ? { room_id: fillValues.room_id } : {}),
+    };
+  };
+
+  const switchMode = (mode: 'per-row' | 'fill-all') => {
+    setEditMode(mode);
+    setFillValues({});
+    setRows((prev) => prev.map((r) => ({ ...r, status: 'pending' as const, error: undefined })));
+  };
+
+  const handleFillChange = (field: keyof typeof fillValues, value: string | undefined) => {
+    setFillValues((prev) => ({ ...prev, [field]: value }));
+    if (!saving) {
+      setRows((prev) => prev.map((r) => ({ ...r, status: 'pending' as const, error: undefined })));
+    }
   };
 
   const rowDuration = (r: BulkEditRow): string => {
@@ -1621,7 +1648,8 @@ function BulkEditModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updates = rows.map((r) => ({
+      const baseRows = editMode === 'fill-all' ? rows.map(mergeRow) : rows;
+      const updates = baseRows.map((r) => ({
         id: r.sessionId,
         expected_version: r.version,
         teacher_id: r.teacher_id,
@@ -1663,7 +1691,8 @@ function BulkEditModal({
     }
   };
 
-  const canSave = rows.every((r) => !hasDurationError(r)) && !saving;
+  const effectiveRows = editMode === 'fill-all' ? rows.map(mergeRow) : rows;
+  const canSave = effectiveRows.every((r) => !hasDurationError(r)) && !saving;
 
   return (
     <Modal
@@ -1679,6 +1708,55 @@ function BulkEditModal({
         </>
       }
     >
+      <div className="flex gap-1 mb-3">
+        <button
+          onClick={() => switchMode('per-row')}
+          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'per-row' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+        >
+          Row Edit
+        </button>
+        <button
+          onClick={() => switchMode('fill-all')}
+          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'fill-all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+        >
+          Apply to All
+        </button>
+      </div>
+
+      {editMode === 'fill-all' && (
+        <div className="border border-blue-200 rounded-sm p-3 mb-3 bg-blue-50">
+          <div className="text-xs font-semibold text-blue-700 mb-2">Apply to all — only filled fields override each session</div>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="text-[10px] text-gray-500 block mb-0.5">Date</label>
+              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 block mb-0.5">Begin</label>
+              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 block mb-0.5">End</label>
+              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 block mb-0.5">Classroom</label>
+              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
+                <option value="__keep__">[KEEP ORIGINAL]</option>
+                <option value="">[NOT SET]</option>
+                {rooms.map((room) => (
+                  <option key={room.id} value={room.id}>{room.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-[160px]">
+              <label className="text-[10px] text-gray-500 block mb-0.5">Teacher</label>
+              <TypeaheadSelect value={fillValues.teacher_id ?? ''} onChange={(v) => handleFillChange('teacher_id', v || undefined)} options={teacherOptions} placeholder="Set teacher for all…" />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-[13px] border border-gray-200">
           <thead className="bg-gray-50">
@@ -1700,42 +1778,59 @@ function BulkEditModal({
               </tr>
             ) : (
               rows.map((r) => {
-                const durStr = rowDuration(r);
-                const hasError = hasDurationError(r);
+                const eff = editMode === 'fill-all' ? mergeRow(r) : r;
+                const durStr = rowDuration(eff);
+                const hasError = hasDurationError(eff);
+                const isFillMode = editMode === 'fill-all';
                 return (
                   <tr key={r.sessionId} className={`border-b border-gray-100 hover:bg-gray-50 ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
                     <td className="py-1.5 px-2 font-mono text-xs text-gray-400">{rows.indexOf(r) + 1}</td>
                     <td className="py-1.5 px-2">
-                      <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      {isFillMode ? (
+                        <span className={`text-xs ${fillValues.date !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.date}</span>
+                      ) : (
+                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      )}
                     </td>
                     <td className="py-1.5 px-2">
-                      <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      {isFillMode ? (
+                        <span className={`text-xs ${fillValues.begin !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.begin}</span>
+                      ) : (
+                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      )}
                     </td>
                     <td className="py-1.5 px-2">
-                      <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      {isFillMode ? (
+                        <span className={`text-xs ${fillValues.end !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.end}</span>
+                      ) : (
+                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                      )}
                     </td>
                     <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-gray-700'}`}>
                       {hasError ? "Invalid" : durStr}
                     </td>
                     <td className="py-1.5 px-2 min-w-[120px]">
-                      <select
-                        value={r.room_id}
-                        onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)}
-                        className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded-sm"
-                      >
-                        <option value="">[NOT SET]</option>
-                        {rooms.map((room) => (
-                          <option key={room.id} value={room.id}>{room.name}</option>
-                        ))}
-                      </select>
+                      {isFillMode ? (
+                        <span className={`text-xs ${fillValues.room_id !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>
+                          {rooms.find((rm) => rm.id === eff.room_id)?.name ?? '[NOT SET]'}
+                        </span>
+                      ) : (
+                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
+                          <option value="">[NOT SET]</option>
+                          {rooms.map((room) => (
+                            <option key={room.id} value={room.id}>{room.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="py-1.5 px-2 min-w-[160px]">
-                      <TypeaheadSelect
-                        value={r.teacher_id}
-                        onChange={(v) => updateField(r.sessionId, 'teacher_id', v)}
-                        options={teacherOptions}
-                        placeholder="Search teacher…"
-                      />
+                      {isFillMode ? (
+                        <span className={`text-xs ${fillValues.teacher_id !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>
+                          {teacherOptions.find((t) => t.id === eff.teacher_id)?.label ?? eff.teacher_id}
+                        </span>
+                      ) : (
+                        <TypeaheadSelect value={r.teacher_id} onChange={(v) => updateField(r.sessionId, 'teacher_id', v)} options={teacherOptions} placeholder="Search teacher…" />
+                      )}
                     </td>
                     <td className="py-1.5 px-2">
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded-sm text-[11px] font-medium ${
