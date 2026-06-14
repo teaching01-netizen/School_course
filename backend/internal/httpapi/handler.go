@@ -62,7 +62,57 @@ func (a *rateLimitAdapter) Allow(ctx context.Context, key string, limit int, win
 	return auth.RateLimitResult{Allowed: result.Allowed, Remaining: result.Remaining}, nil
 }
 
-func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker) http.Handler {
+type EmailDeps struct {
+	TemplateStore emailnotifier.TemplateStore
+	WorkflowStore emailnotifier.WorkflowStore
+	Service       *emailnotifier.Service
+	InstituteName string
+	SitInQuery    func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error)
+}
+
+func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqldb.Queries) EmailDeps {
+	var emailProvider emailnotifier.EmailProvider
+	if cfg.EmailWebhookURL != "" {
+		emailProvider = emailnotifier.NewGASWebhookProvider(cfg.EmailWebhookURL, cfg.EmailWebhookSecret, log)
+	} else {
+		emailProvider = emailnotifier.NewLogProvider(log)
+	}
+	templateStore := emailnotifier.NewSQLTemplateStore(db)
+	workflowStore := emailnotifier.NewSQLWorkflowStore(db)
+	return EmailDeps{
+		TemplateStore: templateStore,
+		WorkflowStore: workflowStore,
+		Service:       emailnotifier.NewServiceWithDeliveryClaimer(emailProvider, workflowStore),
+		InstituteName: cfg.InstituteName,
+		SitInQuery: func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error) {
+			loc, effectiveTZ := emailnotifier.EffectiveLocation(instituteTZ)
+			today := time.Now().In(loc).Format("2006-01-02")
+			dbRows, dbErr := q.QueryTodaySitIns(ctx, today, effectiveTZ)
+			if dbErr != nil {
+				return nil, dbErr
+			}
+			result := make([]emailnotifier.SitInReminderRow, len(dbRows))
+			for i, r := range dbRows {
+				result[i] = emailnotifier.SitInReminderRow{
+					StudentName:      r.StudentName,
+					StudentNickname:  r.StudentNickname,
+					CourseCode:       r.CourseCode,
+					CourseName:       r.CourseName,
+					SitInCourseCode:  r.SitInCourseCode,
+					SitInCourseName:  r.SitInCourseName,
+					TeacherName:      r.TeacherName,
+					TeacherEmail:     r.TeacherEmail,
+					AbsenceDateRange: r.AbsenceDateRange,
+					StartAt:          r.StartAt,
+					EndAt:            r.EndAt,
+				}
+			}
+			return result, nil
+		},
+	}
+}
+
+func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps) http.Handler {
 	mux := http.NewServeMux()
 
 	hasher := auth.NewArgon2PasswordHasher(cfg.AuthPepper)
@@ -136,41 +186,11 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		deps.CircuitBreaker = smartsms.NewCircuitBreaker(db, "mock")
 	}
 
-	var emailProvider emailnotifier.EmailProvider
-	if cfg.EmailWebhookURL != "" {
-		emailProvider = emailnotifier.NewGASWebhookProvider(cfg.EmailWebhookURL, cfg.EmailWebhookSecret, log)
-	} else {
-		emailProvider = emailnotifier.NewLogProvider(log)
-	}
-	deps.EmailTemplateStore = emailnotifier.NewSQLTemplateStore(db)
-	deps.EmailWorkflowStore = emailnotifier.NewSQLWorkflowStore(db)
-	deps.EmailService = emailnotifier.NewServiceWithDeliveryClaimer(emailProvider, deps.EmailWorkflowStore)
-	deps.InstituteName = cfg.InstituteName
-	deps.SitInQuery = func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error) {
-		loc, effectiveTZ := emailnotifier.EffectiveLocation(instituteTZ)
-		today := time.Now().In(loc).Format("2006-01-02")
-		dbRows, dbErr := q.QueryTodaySitIns(ctx, today, effectiveTZ)
-		if dbErr != nil {
-			return nil, dbErr
-		}
-		result := make([]emailnotifier.SitInReminderRow, len(dbRows))
-		for i, r := range dbRows {
-			result[i] = emailnotifier.SitInReminderRow{
-				StudentName:      r.StudentName,
-				StudentNickname:  r.StudentNickname,
-				CourseCode:       r.CourseCode,
-				CourseName:       r.CourseName,
-				SitInCourseCode:  r.SitInCourseCode,
-				SitInCourseName:  r.SitInCourseName,
-				TeacherName:      r.TeacherName,
-				TeacherEmail:     r.TeacherEmail,
-				AbsenceDateRange: r.AbsenceDateRange,
-				StartAt:          r.StartAt,
-				EndAt:            r.EndAt,
-			}
-		}
-		return result, nil
-	}
+	deps.EmailTemplateStore = emailDeps.TemplateStore
+	deps.EmailWorkflowStore = emailDeps.WorkflowStore
+	deps.EmailService = emailDeps.Service
+	deps.InstituteName = emailDeps.InstituteName
+	deps.SitInQuery = emailDeps.SitInQuery
 
 	absenceshttp.Register(mux, deps)
 	emailnotifierhttp.Register(mux, deps)

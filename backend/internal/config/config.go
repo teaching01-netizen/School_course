@@ -32,6 +32,8 @@ type Config struct {
 	AppOrigin          string
 	EmailWebhookURL    string
 	EmailWebhookSecret string
+	EmailReminderEnabled bool
+	EmailReminderTime    string
 }
 
 func FromEnv() (Config, error) {
@@ -58,6 +60,8 @@ func FromEnv() (Config, error) {
 	cfg.AppOrigin = strings.TrimSpace(os.Getenv("APP_ORIGIN"))
 	cfg.EmailWebhookURL = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_URL"))
 	cfg.EmailWebhookSecret = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_SECRET"))
+	cfg.EmailReminderEnabled = os.Getenv("EMAIL_REMINDER_ENABLED") == "true"
+	cfg.EmailReminderTime = envOr("EMAIL_REMINDER_TIME", "08:00")
 
 	if cfg.OTPSMSProvider == "" {
 		if cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {

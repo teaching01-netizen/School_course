@@ -28,6 +28,8 @@ type Assignment struct {
 	ExtraNoteSnapshot               string
 	ExtraNoteHash                   string
 	AssignedCourseEnrollmentCreated bool
+	DestCourseAEnrollmentCreated    bool
+	DestCourseBEnrollmentCreated    bool
 	SourceCourseEnrollmentRemoved   bool
 	SourceValid                     bool
 	Status                          string

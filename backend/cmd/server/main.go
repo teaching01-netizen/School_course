@@ -17,7 +17,10 @@ import (
 	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
+	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/devseed"
+	"warwick-institute/internal/emailnotifier"
+	"warwick-institute/internal/emailreminder"
 	"warwick-institute/internal/httpapi"
 	"warwick-institute/internal/logging"
 	"warwick-institute/internal/pg"
@@ -102,14 +105,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	q := sqldb.New(dbpool)
+	emailDeps := httpapi.NewEmailDeps(log, cfg, dbpool, q)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker),
+		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+
+	scheduler := emailreminder.New(log, emailreminder.Config{
+		Enabled: cfg.EmailReminderEnabled,
+		Time:    cfg.EmailReminderTime,
+	}, cfg.InstituteTZ, func(ctx context.Context) error {
+		emailnotifier.SendAllEnabledWorkflows(ctx, emailnotifier.SendAllDeps{
+			WorkflowStore:  emailDeps.WorkflowStore,
+			TemplateStore:  emailDeps.TemplateStore,
+			Service:        emailDeps.Service,
+			InstituteTZ:    cfg.InstituteTZ,
+			InstituteName:  cfg.InstituteName,
+			Log:            log,
+			SitInQuery:     emailDeps.SitInQuery,
+		})
+		return nil
+	})
+	scheduler.Start(context.Background())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -128,6 +151,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	scheduler.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -459,32 +459,18 @@ func (s *server) handleSendAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflows, err := s.deps.EmailWorkflowStore.ListEnabledWorkflows(r.Context())
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
+	result := emailnotifier.SendAllEnabledWorkflows(r.Context(), emailnotifier.SendAllDeps{
+		WorkflowStore:  s.deps.EmailWorkflowStore,
+		TemplateStore:  s.deps.EmailTemplateStore,
+		Service:        s.svc,
+		InstituteTZ:    s.deps.InstituteTZ,
+		InstituteName:  s.deps.InstituteName,
+		Log:            s.deps.Log,
+		SitInQuery:     s.deps.SitInQuery,
+	})
 
-	totalSent := 0
-	totalFailed := 0
-	totalSkipped := 0
-	for _, wf := range workflows {
-		res := s.sendWorkflowInner(r.Context(), wf.ID)
-		totalSent += res.Sent
-		totalFailed += res.Failed
-		totalSkipped += res.Skipped
-	}
-
-	msg := fmt.Sprintf("Sent %d, failed %d, skipped %d across %d workflow(s)", totalSent, totalFailed, totalSkipped, len(workflows))
-	if totalSent == 0 && totalFailed > 0 {
-		msg = fmt.Sprintf("All %d workflow(s) failed", len(workflows))
-	} else if totalSent == 0 && totalSkipped > 0 {
-		msg = "Reminders already sent for today"
-	} else if totalSent == 0 {
-		msg = "No reminders needed today"
-	}
-	s.a.WriteJSON(w, http.StatusOK, sendResponse{Sent: totalSent, Failed: totalFailed, Skipped: totalSkipped, Message: msg})
+	msg := emailnotifier.SendResultMessage(result.TotalSent, result.TotalFailed, result.TotalSkipped)
+	s.a.WriteJSON(w, http.StatusOK, sendResponse{Sent: result.TotalSent, Failed: result.TotalFailed, Skipped: result.TotalSkipped, Message: msg})
 }
 
 func (s *server) sendWorkflowInner(ctx context.Context, workflowID string) sendResponse {

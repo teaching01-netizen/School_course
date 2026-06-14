@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS crm_cross_study_assignments (
   extra_note_snapshot text NOT NULL DEFAULT '',
   extra_note_hash     text NOT NULL DEFAULT '',
   assigned_course_enrollment_created boolean NOT NULL DEFAULT false,
+  dest_course_a_enrollment_created boolean NOT NULL DEFAULT false,
+  dest_course_b_enrollment_created boolean NOT NULL DEFAULT false,
   source_course_enrollment_removed boolean NOT NULL DEFAULT false,
   source_valid        boolean NOT NULL DEFAULT true,
   status              text NOT NULL DEFAULT 'active'
@@ -27,6 +29,12 @@ CREATE TABLE IF NOT EXISTS crm_cross_study_assignments (
 
 ALTER TABLE IF EXISTS crm_cross_study_assignments
   ADD COLUMN IF NOT EXISTS assigned_course_enrollment_created boolean NOT NULL DEFAULT false;
+
+ALTER TABLE IF EXISTS crm_cross_study_assignments
+  ADD COLUMN IF NOT EXISTS dest_course_a_enrollment_created boolean NOT NULL DEFAULT false;
+
+ALTER TABLE IF EXISTS crm_cross_study_assignments
+  ADD COLUMN IF NOT EXISTS dest_course_b_enrollment_created boolean NOT NULL DEFAULT false;
 
 ALTER TABLE IF EXISTS crm_cross_study_assignments
   ADD COLUMN IF NOT EXISTS source_course_enrollment_removed boolean NOT NULL DEFAULT false;

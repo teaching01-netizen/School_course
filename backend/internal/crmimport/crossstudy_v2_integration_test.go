@@ -197,8 +197,79 @@ func TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count overrides: %v", err)
 	}
-	if overrideCount != 2 {
-		t.Fatalf("expected 2 cross_study overrides, got %d", overrideCount)
+	if overrideCount != 3 {
+		t.Fatalf("expected 3 cross_study overrides, got %d", overrideCount)
+	}
+}
+
+func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	sourceCourseID := createTestCourseSimple(t, ctx, dbpool, "CS-BOTH-SRC", "CrossStudy Both Source")
+	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-BOTH-DST-A", "CrossStudy Both Writing")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-BOTH-DST-B", "CrossStudy Both Reading")
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{
+			WCode:      "W260202",
+			CourseName: "CrossStudy Both Source",
+			CycleLabel: "Cycle A",
+			ExtraNote:  "เรียนไขว้ Sec.1&Sec.2 Tue Writing & Sat Reading",
+		},
+	})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260202", "Both Destinations Student")
+
+	userID := createTestUser(t, ctx, dbpool)
+	store := crossstudy.NewStore(dbpool)
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:            "W260202",
+		SourceCourseID:   sourceCourseID,
+		SnapshotID:       uuidFromPG(t, snapshotID),
+		DestCourseAID:    destAID,
+		DestCourseBID:    destBID,
+		AssignedCourseID: destAID,
+		ExtraNoteText:    "เรียนไขว้ Sec.1&Sec.2 Tue Writing & Sat Reading",
+	}, userID); err != nil {
+		t.Fatalf("SaveAssignment failed: %v", err)
+	}
+
+	for label, courseID := range map[string]uuid.UUID{
+		"Course A": destAID,
+		"Course B": destBID,
+	} {
+		var enrolled int
+		if err := dbpool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM course_students
+			WHERE course_id = $1
+			  AND student_id = (SELECT id FROM students WHERE wcode = 'W260202')
+		`, courseID).Scan(&enrolled); err != nil {
+			t.Fatalf("count %s enrollment: %v", label, err)
+		}
+		if enrolled != 1 {
+			t.Fatalf("expected student enrolled in %s destination course, got %d rows", label, enrolled)
+		}
+	}
+
+	var includeOverrides int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM course_roster_overrides
+		WHERE override_source = 'cross_study'
+		  AND action = 'include'
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260202')
+		  AND course_id IN ($1, $2)
+	`, destAID, destBID).Scan(&includeOverrides); err != nil {
+		t.Fatalf("count include overrides: %v", err)
+	}
+	if includeOverrides != 2 {
+		t.Fatalf("expected include overrides for both destination courses, got %d", includeOverrides)
 	}
 }
 
@@ -557,7 +628,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 		t.Fatalf("expected 0 in source course_students after save (excluded), got %d", csCount)
 	}
 
-	// Assert 3: student is NOT in destB course_students
+	// Assert 3: student is also in Course B because cross-study assigns both destination courses.
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
 		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
@@ -565,8 +636,8 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("check course_students destB after save: %v", err)
 	}
-	if csCount != 0 {
-		t.Fatalf("expected 0 in destB course_students after save, got %d", csCount)
+	if csCount != 1 {
+		t.Fatalf("expected 1 in destB course_students after save, got %d", csCount)
 	}
 
 	// Assert 4: student has busy ranges for the assigned course's session (trigger-fired)
@@ -1069,8 +1140,8 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	`).Scan(&overrideCount); err != nil {
 		t.Fatalf("count cross-study overrides after delete: %v", err)
 	}
-	if overrideCount != 2 {
-		t.Fatalf("expected 2 cross-study overrides for remaining assignment, got %d", overrideCount)
+	if overrideCount != 3 {
+		t.Fatalf("expected 3 cross-study overrides for remaining assignment, got %d", overrideCount)
 	}
 
 	var remainingAssigned int

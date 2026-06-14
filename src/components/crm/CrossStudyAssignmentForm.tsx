@@ -19,13 +19,11 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
 
   const [destA, setDestA] = useState(currentAssignment?.dest_course_a?.id ?? "");
   const [destB, setDestB] = useState(currentAssignment?.dest_course_b?.id ?? "");
-  const [assigned, setAssigned] = useState(currentAssignment?.assigned_course_id ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDestA(currentAssignment?.dest_course_a?.id ?? "");
     setDestB(currentAssignment?.dest_course_b?.id ?? "");
-    setAssigned(currentAssignment?.assigned_course_id ?? "");
   }, [currentAssignment]);
 
   const courseOptions = useMemo(
@@ -41,7 +39,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
   const courseA = useMemo(() => courses.find((c) => c.id === destA) ?? null, [courses, destA]);
   const courseB = useMemo(() => courses.find((c) => c.id === destB) ?? null, [courses, destB]);
 
-  const canSave = destA && destB && assigned && assigned !== "";
+  const canSave = destA && destB;
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -58,7 +56,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
           snapshot_id: snapshotId,
           dest_course_a_id: destA,
           dest_course_b_id: destB,
-          assigned_course_id: assigned,
+          assigned_course_id: destA,
           extra_note_text: crmRow?.extra_note ?? "",
         }),
       });
@@ -97,10 +95,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
             <label className="block text-xs text-gray-500 mb-1">Course A</label>
             <TypeaheadSelect
               value={destA}
-              onChange={(v) => {
-                setDestA(v);
-                if (assigned && assigned !== v) setAssigned("");
-              }}
+              onChange={setDestA}
               options={courseOptions}
               placeholder="Search course…"
             />
@@ -114,10 +109,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
             <label className="block text-xs text-gray-500 mb-1">Course B</label>
             <TypeaheadSelect
               value={destB}
-              onChange={(v) => {
-                setDestB(v);
-                if (assigned && assigned !== v) setAssigned("");
-              }}
+              onChange={setDestB}
               options={courseOptions}
               placeholder="Search course…"
             />
@@ -130,24 +122,24 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
         </div>
       </div>
 
-      {/* Radio selectors */}
+      {/* Assignment summary */}
       {courseA && courseB && (
         <div className="bg-gray-50 rounded-sm p-3 space-y-2">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign student to</div>
-          <label className="flex items-center gap-2 p-2 rounded-sm hover:bg-white cursor-pointer">
-            <input type="radio" name="assigned" checked={assigned === destA} onChange={() => setAssigned(destA)} />
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign student to both</div>
+          <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
+            <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course A: {courseA.name}
               <span className="text-gray-400 ml-1">&middot; {courseA.subject_name}</span>
             </span>
-          </label>
-          <label className="flex items-center gap-2 p-2 rounded-sm hover:bg-white cursor-pointer">
-            <input type="radio" name="assigned" checked={assigned === destB} onChange={() => setAssigned(destB)} />
+          </div>
+          <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
+            <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course B: {courseB.name}
               <span className="text-gray-400 ml-1">&middot; {courseB.subject_name}</span>
             </span>
-          </label>
+          </div>
         </div>
       )}
 
