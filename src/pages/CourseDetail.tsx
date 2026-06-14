@@ -422,6 +422,7 @@ export default function CourseDetail() {
     setEditCode("");
     setEditName("");
     setEditTeacherId("");
+    setEditCohortName("");
   };
 
   const submitCourseEdit = async () => {
@@ -438,7 +439,7 @@ export default function CourseDetail() {
           code: editCode.trim(),
           name: editName.trim(),
           teacher_id: editTeacherId || null,
-          cohort_name: editCohortName || null,
+          cohort_name: editCohortName,
         }),
       });
       setCourse(updated);

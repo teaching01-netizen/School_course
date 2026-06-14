@@ -12,6 +12,7 @@ import FormErrorSummary from "../components/ui/FormErrorSummary";
 
 type Teacher = { id: string; username: string; role: "Admin" | "Teacher" };
 type Subject = { id: string; code: string; name: string };
+type Cohort = { id: string; name: string };
 
 const schema = {
   year: [{ type: "required" as const, message: "Year is required" }],
@@ -31,9 +32,11 @@ export default function CourseCreate() {
   const [hour, setHour] = useState(0);
   const [studentCount, setStudentCount] = useState(0);
   const [courseType, setCourseType] = useState<"Private" | "Group">("Private");
+  const [cohortName, setCohortName] = useState("");
 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,12 +47,14 @@ export default function CourseCreate() {
     (async () => {
       try {
         setLoadingOptions(true);
-        const [t, s] = await Promise.all([
+        const [t, s, c] = await Promise.all([
           apiJson<Teacher[]>("/api/v1/users?role=Teacher", { method: "GET" }),
           apiJson<Subject[]>("/api/v1/subjects", { method: "GET" }),
+          apiJson<Cohort[]>("/api/v1/admin/course-cohorts", { method: "GET" }),
         ]);
         setTeachers(t);
         setSubjects(s);
+        setCohorts(c);
       } catch {
         // Non-blocking: the page still renders with empty option lists.
       } finally {
@@ -72,6 +77,7 @@ export default function CourseCreate() {
           hour,
           student_count: studentCount,
           course_type: courseType,
+          cohort_name: cohortName || null,
         }),
       });
       addToast("success", "Course created");
@@ -145,6 +151,21 @@ export default function CourseCreate() {
             <option value="Private">Private</option>
             <option value="Group">Group</option>
           </Select>
+        </FormField>
+
+        <FormField name="cohortName" label="Cohort">
+          <input
+            list="cohorts-list"
+            value={cohortName}
+            onChange={(e) => setCohortName(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            placeholder="None (type to search or create)…"
+          />
+          <datalist id="cohorts-list">
+            {cohorts.map((c) => (
+              <option key={c.id} value={c.name} />
+            ))}
+          </datalist>
         </FormField>
 
         <div className="flex gap-3 mt-6">

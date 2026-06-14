@@ -217,12 +217,13 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		Code string `json:"code"`
 		Name string `json:"name"`
 
-		Year         int16  `json:"year"`
-		TeacherID    string `json:"teacher_id"`
-		SubjectID    string `json:"subject_id"`
-		Hour         int32  `json:"hour"`
-		StudentCount int32  `json:"student_count"`
-		CourseType   string `json:"course_type"`
+		Year         int16   `json:"year"`
+		TeacherID    string  `json:"teacher_id"`
+		SubjectID    string  `json:"subject_id"`
+		Hour         int32   `json:"hour"`
+		StudentCount int32   `json:"student_count"`
+		CourseType   string  `json:"course_type"`
+		CohortName   *string `json:"cohort_name"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -256,6 +257,14 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err
 			}
+			if body.CohortName != nil && *body.CohortName != "" {
+				cohortID, cerr := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
+				if cerr != nil {
+					s.deps.Log.Error("cohort create on course create failed", "error", cerr)
+				} else if _, uerr := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, item.ID); uerr != nil {
+					s.deps.Log.Error("cohort assign on course create failed", "error", uerr, "course_id", item.ID)
+				}
+			}
 			id, err := s.a.UUIDString(item.ID)
 			if err != nil {
 				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
@@ -273,6 +282,14 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
+		}
+		if body.CohortName != nil && *body.CohortName != "" {
+			cohortID, cerr := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
+			if cerr != nil {
+				s.deps.Log.Error("cohort create on course create failed", "error", cerr)
+			} else if _, uerr := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, item.ID); uerr != nil {
+				s.deps.Log.Error("cohort assign on course create failed", "error", uerr, "course_id", item.ID)
+			}
 		}
 		id, err := s.a.UUIDString(item.ID)
 		if err != nil {
