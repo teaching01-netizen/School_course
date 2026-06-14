@@ -21,6 +21,7 @@ export interface StudentInfo {
 
 export interface AssignmentDTO {
   id: string;
+  source_course: CourseRef | null;
   dest_course_a: CourseRef | null;
   dest_course_b: CourseRef | null;
   assigned_course_id: string;

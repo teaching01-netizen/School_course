@@ -140,7 +140,14 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     throw await readApiError(res);
   }
-  return (await res.json()) as T;
+  if (res.status === 204 || res.status === 205) {
+    return undefined as T;
+  }
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export async function downloadApiFile(path: string): Promise<void> {

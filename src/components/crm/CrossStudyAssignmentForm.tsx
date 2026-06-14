@@ -17,14 +17,18 @@ type Props = {
 export default function CrossStudyAssignmentForm({ student, crmRow, currentAssignment, courses, onSaved }: Props) {
   const { addToast } = useToast();
 
+  const [sourceCourse, setSourceCourse] = useState(
+    currentAssignment?.source_course?.id ?? crmRow?.course_id ?? "",
+  );
   const [destA, setDestA] = useState(currentAssignment?.dest_course_a?.id ?? "");
   const [destB, setDestB] = useState(currentAssignment?.dest_course_b?.id ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    setSourceCourse(currentAssignment?.source_course?.id ?? crmRow?.course_id ?? "");
     setDestA(currentAssignment?.dest_course_a?.id ?? "");
     setDestB(currentAssignment?.dest_course_b?.id ?? "");
-  }, [currentAssignment]);
+  }, [crmRow?.course_id, currentAssignment]);
 
   const courseOptions = useMemo(
     () =>
@@ -36,23 +40,26 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
     [courses],
   );
 
+  const sourceCourseOption = useMemo(
+    () => courses.find((c) => c.id === sourceCourse) ?? null,
+    [courses, sourceCourse],
+  );
   const courseA = useMemo(() => courses.find((c) => c.id === destA) ?? null, [courses, destA]);
   const courseB = useMemo(() => courses.find((c) => c.id === destB) ?? null, [courses, destB]);
 
-  const canSave = destA && destB;
+  const canSave = sourceCourse && destA && destB;
 
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      const sourceCourseId = crmRow?.course_id || currentAssignment?.dest_course_a?.id || "";
       const snapshotId = crmRow?.snapshot_id || "";
 
       await apiJson("/api/v1/cross-study/assignments", {
         method: "PUT",
         body: JSON.stringify({
           wcode: student.wcode,
-          source_course_id: sourceCourseId,
+          source_course_id: sourceCourse,
           snapshot_id: snapshotId,
           dest_course_a_id: destA,
           dest_course_b_id: destB,
@@ -85,6 +92,32 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
 
   return (
     <div className="space-y-4">
+      {/* Staff-owned source mapping */}
+      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          Staff assignment mapping
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Source course to treat this row as
+          </label>
+          <TypeaheadSelect
+            value={sourceCourse}
+            onChange={setSourceCourse}
+            options={courseOptions}
+            placeholder="Search source course..."
+          />
+          <div className="mt-1 text-xs text-gray-400">
+            CRM source text: {crmRow?.course_name || "No CRM source course"}
+          </div>
+          {!sourceCourse && (
+            <div className="mt-2 rounded-sm border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+              Choose the source course before saving. This mapping applies only to {student.wcode} and this CRM snapshot row.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Course A/B selectors */}
       <div className="bg-gray-50 rounded-sm p-3 space-y-3">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -126,6 +159,15 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
       {courseA && courseB && (
         <div className="bg-gray-50 rounded-sm p-3 space-y-2">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign student to both</div>
+          <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
+            <span className="text-xs font-semibold text-gray-700">Source</span>
+            <span className="text-sm">
+              Treat row as: {sourceCourseOption?.name ?? "Choose source course"}
+              {sourceCourseOption?.subject_name && (
+                <span className="text-gray-400 ml-1">&middot; {sourceCourseOption.subject_name}</span>
+              )}
+            </span>
+          </div>
           <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
             <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">

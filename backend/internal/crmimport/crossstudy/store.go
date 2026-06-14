@@ -139,18 +139,18 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 	}
 
 	assignRow := s.db.QueryRow(ctx, `
-		SELECT a.id, a.dest_course_a_id, a.dest_course_b_id, a.assigned_course_id,
+		SELECT a.id, a.source_course_id, a.dest_course_a_id, a.dest_course_b_id, a.assigned_course_id,
 		       a.status, a.extra_note_snapshot, a.source_valid, a.updated_at
 		FROM crm_cross_study_assignments a
 		WHERE a.wcode = $1 AND a.deleted_at IS NULL
 		ORDER BY a.updated_at DESC LIMIT 1
 	`, wcode)
 
-	var aID, dcaID, dcbID, acID uuid.UUID
+	var aID, srcID, dcaID, dcbID, acID uuid.UUID
 	var status, noteSnap string
 	var srcValid bool
 	var updatedAt time.Time
-	err = assignRow.Scan(&aID, &dcaID, &dcbID, &acID, &status, &noteSnap, &srcValid, &updatedAt)
+	err = assignRow.Scan(&aID, &srcID, &dcaID, &dcbID, &acID, &status, &noteSnap, &srcValid, &updatedAt)
 	if err == nil {
 		dto := &AssignmentDTO{
 			ID:                aID.String(),
@@ -161,6 +161,7 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 			UpdatedAt:         updatedAt.Format(time.RFC3339),
 		}
 
+		dto.SourceCourse = lookupCourseRef(ctx, s.db, srcID)
 		dto.DestCourseA = lookupCourseRef(ctx, s.db, dcaID)
 		dto.DestCourseB = lookupCourseRef(ctx, s.db, dcbID)
 		resp.CurrentAssignment = dto

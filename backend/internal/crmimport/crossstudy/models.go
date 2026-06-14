@@ -88,6 +88,7 @@ type CourseRef struct {
 
 type AssignmentDTO struct {
 	ID                string     `json:"id"`
+	SourceCourse      *CourseRef `json:"source_course"`
 	DestCourseA       *CourseRef `json:"dest_course_a"`
 	DestCourseB       *CourseRef `json:"dest_course_b"`
 	AssignedCourseID  string     `json:"assigned_course_id"`
