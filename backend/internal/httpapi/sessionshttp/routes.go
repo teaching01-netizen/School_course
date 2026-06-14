@@ -406,20 +406,11 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Stale edit detection + past-session immutability check (read-only, outside tx).
+	// Stale edit detection (read-only, outside tx).
 	existing, err := s.deps.Q.SessionGetByID(r.Context(), id)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-
-	startOfToday := time.Now().UTC().Truncate(24 * time.Hour)
-	if existing.EndAt.Valid && existing.EndAt.Time.UTC().Before(startOfToday) {
-		s.a.WriteErrDetails(w, http.StatusConflict, "past_session_immutable", "Past sessions are immutable", map[string]any{
-			"server_now": startOfToday.Format(time.RFC3339Nano),
-			"end_at":     existing.EndAt.Time.UTC().Format(time.RFC3339Nano),
-		})
 		return
 	}
 

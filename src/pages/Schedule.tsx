@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { clampDateRange } from "../utils/time";
-import { utcISOToZoneDate, zoneLocalInputToUTCISO } from "../utils/timezone";
+import { utcISOToZoneDate, utcISOToZoneLocalInput, zoneLocalInputToUTCISO } from "../utils/timezone";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import Select from "../components/ui/Select";
@@ -29,6 +29,7 @@ import { validateSeriesPreflight, type SeriesPreflightForm } from "../utils/pref
 import { useFormValidation } from "../hooks/useFormValidation";
 import TypeaheadSelect from "../components/TypeaheadSelect";
 import {
+  localDateTimeToUTCISO,
   yyyyMmDd,
   type Session,
   type StaleEditDetails,
@@ -79,6 +80,16 @@ export default function Schedule() {
   const create = useCreateSession(load, addToast, zone);
   // --- Edit Session hook ---
   const edit = useEditSession(load, addToast, zone);
+  const [inlineEditSession, setInlineEditSession] = useState<Session | null>(null);
+  const [inlineEditForm, setInlineEditForm] = useState({
+    course_id: "",
+    room_id: "",
+    teacher_id: "",
+    start_local: "",
+    end_local: "",
+  });
+  const [inlineSaving, setInlineSaving] = useState(false);
+  const inlinePreflight = usePreflight();
   // --- Attendance modal hook ---
   const attendance = useAttendanceModal(addToast);
 
@@ -193,6 +204,110 @@ export default function Schedule() {
   // --- Cancel occurrence ---
   const cancelOccurrence = (sess: Session) => {
     setConfirmCancelOccurrence({ session: sess });
+  };
+
+  const openInlineEdit = (sess: Session) => {
+    setInlineEditSession(sess);
+    setInlineEditForm({
+      course_id: sess.course_id,
+      room_id: sess.room_id ?? "",
+      teacher_id: sess.teacher_id,
+      start_local: utcISOToZoneLocalInput(sess.start_at, zone) ?? "",
+      end_local: utcISOToZoneLocalInput(sess.end_at, zone) ?? "",
+    });
+    inlinePreflight.reset();
+  };
+
+  const closeInlineEdit = () => {
+    setInlineEditSession(null);
+    setInlineEditForm({ course_id: "", room_id: "", teacher_id: "", start_local: "", end_local: "" });
+    inlinePreflight.reset();
+  };
+
+  useEffect(() => {
+    if (!inlineEditSession) {
+      inlinePreflight.reset();
+      return;
+    }
+    if (!inlineEditForm.course_id || !inlineEditForm.teacher_id || !inlineEditForm.start_local || !inlineEditForm.end_local) {
+      inlinePreflight.reset();
+      return;
+    }
+    const startISO = localDateTimeToUTCISO(inlineEditForm.start_local, zone);
+    const endISO = localDateTimeToUTCISO(inlineEditForm.end_local, zone);
+    if (!startISO || !endISO || endISO <= startISO) {
+      inlinePreflight.reset();
+      return;
+    }
+    void inlinePreflight.check({
+      session_id: inlineEditSession.id,
+      course_id: inlineEditForm.course_id,
+      room_id: inlineEditForm.room_id || null,
+      teacher_id: inlineEditForm.teacher_id,
+      start_at: startISO,
+      end_at: endISO,
+    });
+  }, [
+    inlineEditSession?.id,
+    inlineEditForm.course_id,
+    inlineEditForm.room_id,
+    inlineEditForm.teacher_id,
+    inlineEditForm.start_local,
+    inlineEditForm.end_local,
+    zone,
+  ]);
+
+  const submitInlineEdit = async () => {
+    if (!inlineEditSession) return;
+    if (inlinePreflight.status !== "available" && inlinePreflight.status !== "provisional") return;
+    const startISO = localDateTimeToUTCISO(inlineEditForm.start_local, zone);
+    const endISO = localDateTimeToUTCISO(inlineEditForm.end_local, zone);
+    if (!startISO || !endISO || endISO <= startISO) {
+      addToast("error", "Invalid start/end time");
+      return;
+    }
+    setInlineSaving(true);
+    try {
+      await apiJson(`/api/v1/sessions/${inlineEditSession.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_version: inlineEditSession.version,
+          course_id: inlineEditForm.course_id,
+          room_id: inlineEditForm.room_id || null,
+          teacher_id: inlineEditForm.teacher_id,
+          start_at: startISO,
+          end_at: endISO,
+        }),
+      });
+      addToast("success", "Updated session");
+      closeInlineEdit();
+      await load();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.code === "stale_edit") {
+          addToast("error", "Stale edit: reloaded latest session. Please review and save again.");
+          const reloaded = await apiJson<Session[]>(`/api/v1/sessions?ids=${inlineEditSession.id}`, { method: "GET" });
+          const updated = reloaded[0];
+          if (updated) {
+            setInlineEditSession(updated);
+            setInlineEditForm({
+              course_id: updated.course_id,
+              room_id: updated.room_id ?? "",
+              teacher_id: updated.teacher_id,
+              start_local: utcISOToZoneLocalInput(updated.start_at, zone) ?? "",
+              end_local: utcISOToZoneLocalInput(updated.end_at, zone) ?? "",
+            });
+          }
+          await load();
+          return;
+        }
+        addToast("error", `${err.code}: ${err.message}`);
+        return;
+      }
+      addToast("error", err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setInlineSaving(false);
+    }
   };
 
   const handleConfirmCancelOccurrence = async () => {
@@ -614,10 +729,12 @@ export default function Schedule() {
                         const course = courseById.get(s.course_id);
                         const room = s.room_id ? roomById.get(s.room_id) : null;
                         const teacher = teacherById.get(s.teacher_id);
+                        const isInlineEditing = inlineEditSession?.id === s.id;
+                        const inlineLabel = course ? `${course.code} — ${course.name}` : s.course_id;
                         return (
                           <div key={s.id} className="w-full text-left border border-gray-200 rounded-sm px-2 py-2 hover:bg-gray-50">
                             <div className="text-xs font-mono text-gray-600">{s.start_at.slice(11, 16)}–{s.end_at.slice(11, 16)} UTC</div>
-                            <div className="text-sm text-gray-900 font-semibold">{course ? `${course.code} — ${course.name}` : s.course_id}</div>
+                            <div className="text-sm text-gray-900 font-semibold">{inlineLabel}</div>
                             <div className="text-xs text-gray-600">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? teacher.username : s.teacher_id}</div>
                             <SessionActions
                               session={s} cancelingId={cancelingId}
@@ -628,6 +745,41 @@ export default function Schedule() {
                               onEditSeriesEntire={(sess) => void openEditSeriesEntire(sess)}
                               onCancelSeries={(sess) => void openCancelSeries(sess)}
                             />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="mt-1"
+                              aria-label={`Inline edit session ${inlineLabel}`}
+                              onClick={() => openInlineEdit(s)}
+                            >
+                              Inline Edit
+                            </Button>
+                            {isInlineEditing && (
+                              <form aria-label={`Inline edit session ${inlineLabel}`} className="mt-3 space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
+                                <SessionOccurrenceForm
+                                  form={inlineEditForm}
+                                  setForm={setInlineEditForm}
+                                  courseOptions={courseOptions}
+                                  teacherOptions={teacherOptions}
+                                  rooms={rooms}
+                                  prefix={`inline-${s.id}-`}
+                                />
+                                <PreflightIndicator preflight={inlinePreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
+                                  requiredFields={[
+                                    { label: "Course", value: inlineEditForm.course_id },
+                                    { label: "Teacher", value: inlineEditForm.teacher_id },
+                                    { label: "Start", value: inlineEditForm.start_local },
+                                    { label: "End", value: inlineEditForm.end_local },
+                                  ]}
+                                />
+                                <div className="flex justify-end gap-2">
+                                  <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
+                                  <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || isSaveDisabled({ status: inlinePreflight.status, loading: inlinePreflight.loading })} loading={inlinePreflight.loading || inlineSaving}>
+                                    {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
+                                  </Button>
+                                </div>
+                              </form>
+                            )}
                           </div>
                         );
                       })
@@ -651,26 +803,63 @@ export default function Schedule() {
             </tr>
           </thead>
           <tbody>
-            {sessions.map((s) => (
-              <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.start_at}</td>
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.end_at}</td>
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{courseById.get(s.course_id)?.code ?? s.course_id}</td>
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{teacherById.get(s.teacher_id)?.username ?? s.teacher_id}</td>
-                <td className="py-2 px-2 text-right">
-                  <SessionActions
-                    session={s} cancelingId={cancelingId}
-                    onAttendance={(sess) => void attendance.openAttendance(sess)}
-                    onEdit={(sess) => edit.openModal(sess)}
-                    onCancel={cancelOccurrence}
-                    onEditSeriesTandF={(sess) => void openEditSeriesThisAndFuture(sess)}
-                    onEditSeriesEntire={(sess) => void openEditSeriesEntire(sess)}
-                    onCancelSeries={(sess) => void openCancelSeries(sess)}
-                  />
-                </td>
-              </tr>
-            ))}
+            {sessions.map((s) => {
+              const label = courseById.get(s.course_id)?.code ?? s.course_id;
+              const isInlineEditing = inlineEditSession?.id === s.id;
+              return (
+                <Fragment key={s.id}>
+                  <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.start_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.end_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{label}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{teacherById.get(s.teacher_id)?.username ?? s.teacher_id}</td>
+                    <td className="py-2 px-2 text-right">
+                      <SessionActions
+                        session={s} cancelingId={cancelingId}
+                        onAttendance={(sess) => void attendance.openAttendance(sess)}
+                        onEdit={(sess) => edit.openModal(sess)}
+                        onCancel={cancelOccurrence}
+                        onEditSeriesTandF={(sess) => void openEditSeriesThisAndFuture(sess)}
+                        onEditSeriesEntire={(sess) => void openEditSeriesEntire(sess)}
+                        onCancelSeries={(sess) => void openCancelSeries(sess)}
+                      />
+                      <Button variant="ghost" size="sm" aria-label={`Inline edit session ${label}`} onClick={() => openInlineEdit(s)}>Inline Edit</Button>
+                    </td>
+                  </tr>
+                  {isInlineEditing && (
+                    <tr key={`${s.id}-inline`} className="border-b border-gray-200 bg-gray-50">
+                      <td colSpan={6} className="px-3 py-3">
+                        <form aria-label={`Inline edit session ${label}`} className="space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
+                          <SessionOccurrenceForm
+                            form={inlineEditForm}
+                            setForm={setInlineEditForm}
+                            courseOptions={courseOptions}
+                            teacherOptions={teacherOptions}
+                            rooms={rooms}
+                            prefix={`inline-${s.id}-table-`}
+                          />
+                          <PreflightIndicator preflight={inlinePreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
+                            requiredFields={[
+                              { label: "Course", value: inlineEditForm.course_id },
+                              { label: "Teacher", value: inlineEditForm.teacher_id },
+                              { label: "Start", value: inlineEditForm.start_local },
+                              { label: "End", value: inlineEditForm.end_local },
+                            ]}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
+                            <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || isSaveDisabled({ status: inlinePreflight.status, loading: inlinePreflight.loading })} loading={inlinePreflight.loading || inlineSaving}>
+                              {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
+                            </Button>
+                          </div>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table></div>
       )}

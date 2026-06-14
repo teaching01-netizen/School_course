@@ -13,7 +13,7 @@ import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
 import { parseSchedulePaste } from "@/utils/schedulePaste";
-import { formatConflictToastMessage } from "@/utils/conflictErrors";
+import { isConflictDetails, formatConflictToastMessage } from "@/utils/conflictErrors";
 import { addDays, format, startOfWeek } from 'date-fns';
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
@@ -31,6 +31,8 @@ import {
   type Room,
   type User,
   type Student,
+  type ConflictDetails,
+  conflictKindLabel,
 } from "@/types";
 
 function extractLegacyCourseId(url: string): string | null {
@@ -519,6 +521,20 @@ export default function CourseDetail() {
     }
   };
 
+  type PasteRowPreflight = {
+    rowNumber: number;
+    date: string;
+    begin: string;
+    end: string;
+    duration: string;
+    classroom: string;
+    status: "available" | "provisional" | "blocked";
+    conflict?: ConflictDetails;
+    startISO: string | null;
+    endISO: string | null;
+    roomID: string | null;
+  };
+
   const [createOpen, setCreateOpen] = useState(false);
   const [createTab, setCreateTab] = useState<"series" | "session" | "paste">("series");
 
@@ -533,6 +549,7 @@ export default function CourseDetail() {
   const [pasteText, setPasteText] = useState("");
   const [pasteTeacherId, setPasteTeacherId] = useState("");
   const [creatingPaste, setCreatingPaste] = useState(false);
+  const [pastePreflights, setPastePreflights] = useState<PasteRowPreflight[] | null>(null);
   const parsedPaste = useMemo(() => parseSchedulePaste(pasteText), [pasteText]);
   const roomIdByPastedName = useMemo(() => {
     const map = new Map<string, string>();
@@ -653,24 +670,57 @@ export default function CourseDetail() {
     if (!id || !pasteTeacherId || parsedPaste.rows.length === 0 || parsedPaste.errors.length > 0) return;
     try {
       setCreatingPaste(true);
-      for (const row of parsedPaste.rows) {
+
+      const rows = parsedPaste.rows.map((row) => {
         const startISO = zoneLocalInputToUTCISO(`${row.date}T${row.begin}`, zone);
         const endISO = zoneLocalInputToUTCISO(`${row.date}T${row.end}`, zone);
-        if (!startISO || !endISO || endISO <= startISO) {
-          throw new Error(`Invalid time on pasted row ${row.rowNumber}`);
-        }
         const roomID = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) ?? null : null;
-        await apiJson("/api/v1/sessions", {
-          method: "POST",
-          body: JSON.stringify({
-            course_id: id,
-            room_id: roomID,
-            teacher_id: pasteTeacherId,
-            start_at: startISO,
-            end_at: endISO,
-          }),
-        });
+        return { ...row, startISO, endISO, roomID };
+      });
+
+      const invalidTime = rows.find((r) => !r.startISO || !r.endISO || r.endISO! <= r.startISO!);
+      if (invalidTime) {
+        addToast("error", `Invalid time on pasted row ${invalidTime.rowNumber}`);
+        return;
       }
+
+      const results = await Promise.allSettled(
+        rows.map(async (row) => {
+          const preflightRes = await apiJson<{ status: "available" | "provisional" }>("/api/v1/scheduling/preflight", {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: null,
+              course_id: id,
+              room_id: row.roomID,
+              teacher_id: pasteTeacherId,
+              start_at: row.startISO,
+              end_at: row.endISO,
+            }),
+          });
+          return { ...row, status: preflightRes.status as "available" | "provisional" };
+        })
+      );
+
+      const preflights: PasteRowPreflight[] = results.map((r, i) => {
+        const row = rows[i];
+        if (r.status === "fulfilled") {
+          return { ...row, status: r.value.status };
+        }
+        const err = r.reason;
+        if (err instanceof ApiRequestError && isConflictDetails(err.details)) {
+          return { ...row, status: "blocked" as const, conflict: err.details };
+        }
+        throw err;
+      });
+
+      const blocked = preflights.filter((p) => p.status === "blocked");
+      if (blocked.length > 0) {
+        setPastePreflights(preflights);
+        return;
+      }
+
+      await createSessionsFromPreflights(preflights);
+
       addToast("success", `Created ${parsedPaste.rows.length} sessions`);
       setCreateOpen(false);
       setPasteText("");
@@ -681,6 +731,44 @@ export default function CourseDetail() {
         return;
       }
       addToast("error", err instanceof Error ? err.message : "Create pasted sessions failed");
+    } finally {
+      setCreatingPaste(false);
+    }
+  };
+
+  const createSessionsFromPreflights = async (preflights: PasteRowPreflight[]) => {
+    for (const pf of preflights) {
+      if (pf.status === "blocked") continue;
+      await apiJson("/api/v1/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          course_id: id,
+          room_id: pf.roomID,
+          teacher_id: pasteTeacherId,
+          start_at: pf.startISO,
+          end_at: pf.endISO,
+        }),
+      });
+    }
+  };
+
+  const createNonConflictingSessions = async () => {
+    if (!pastePreflights) return;
+    try {
+      setCreatingPaste(true);
+      const available = pastePreflights.filter((p) => p.status !== "blocked");
+      await createSessionsFromPreflights(available);
+      addToast("success", `Created ${available.length} session${available.length !== 1 ? "s" : ""}`);
+      setPastePreflights(null);
+      setPasteText("");
+      setCreateOpen(false);
+      await loadSessions();
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.details) {
+        addToast("error", `${err.code ?? "error"}: ${err.message}`);
+        return;
+      }
+      addToast("error", err instanceof Error ? err.message : "Create failed");
     } finally {
       setCreatingPaste(false);
     }
@@ -1509,6 +1597,86 @@ export default function CourseDetail() {
                 />
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {pastePreflights !== null && (
+        <Modal
+          title="Schedule Conflicts"
+          onClose={() => setPastePreflights(null)}
+          maxWidth="max-w-3xl"
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setPastePreflights(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={createNonConflictingSessions}
+                disabled={creatingPaste || pastePreflights.filter((p) => p.status !== "blocked").length === 0}
+                loading={creatingPaste}
+              >
+                Add {pastePreflights.filter((p) => p.status !== "blocked").length} available session{pastePreflights.filter((p) => p.status !== "blocked").length !== 1 ? "s" : ""}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              {pastePreflights.filter((p) => p.status === "blocked").length} of {pastePreflights.length} pasted session{pastePreflights.length !== 1 ? "s" : ""} {" "}
+              {pastePreflights.filter((p) => p.status === "blocked").length === 1 ? "has" : "have"} scheduling conflicts.
+            </p>
+            <div className="border border-gray-200 rounded-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead className="bg-gray-50">
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pastePreflights.map((pf) => (
+                      <tr key={pf.rowNumber} className="border-b border-gray-100">
+                        <td className="py-2 px-2 font-mono">{pf.date}</td>
+                        <td className="py-2 px-2 font-mono">{pf.begin}</td>
+                        <td className="py-2 px-2 font-mono">{pf.end}</td>
+                        <td className="py-2 px-2">
+                          {pf.classroom ? (
+                            <span>{pf.classroom}</span>
+                          ) : (
+                            <span className="text-gray-400">[NOT SET]</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2">
+                          {pf.status === "blocked" ? (
+                            <span className="inline-flex items-center gap-1 text-red-700">
+                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-700 text-white text-[8px] font-bold leading-none">✕</span>
+                              <span>{conflictKindLabel(pf.conflict!.kind).label}</span>
+                            </span>
+                          ) : pf.status === "provisional" ? (
+                            <span className="inline-flex items-center gap-1 text-amber-700">
+                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold leading-none">◷</span>
+                              <span>Provisional</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-green-700">
+                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-green-700 text-white text-[8px] font-bold leading-none">✓</span>
+                              <span>Available</span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </Modal>
       )}
