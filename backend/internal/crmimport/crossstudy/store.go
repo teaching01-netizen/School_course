@@ -349,10 +349,6 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			destCourseBEnrollmentCreated = existingDestCourseBEnrollmentCreated
 		}
 	}
-	if !usesFullCourseEnrollment {
-		destCourseAEnrollmentCreated = false
-		destCourseBEnrollmentCreated = false
-	}
 	assignedCourseEnrollmentCreated := false
 	switch input.AssignedCourseID {
 	case input.DestCourseAID:
@@ -464,11 +460,9 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		return fmt.Errorf("delete stale scoped session attendance: %w", err)
 	}
 
-	if usesFullCourseEnrollment {
-		for _, courseID := range destinationCourses(input) {
-			if err := s.upsertCrossStudyOverride(ctx, tx, courseID, studentID, userID, assignmentID, "include"); err != nil {
-				return fmt.Errorf("insert include override: %w", err)
-			}
+	for _, courseID := range destinationCourses(input) {
+		if err := s.upsertCrossStudyOverride(ctx, tx, courseID, studentID, userID, assignmentID, "include"); err != nil {
+			return fmt.Errorf("insert include override: %w", err)
 		}
 	}
 
@@ -481,7 +475,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			oldDestCreated[existingDestCourseBID] = existingDestCourseBEnrollmentCreated
 		}
 		for oldCourseID, created := range oldDestCreated {
-			if usesFullCourseEnrollment && courseInDestinations(oldCourseID, input.DestCourseAID, input.DestCourseBID) {
+			if courseInDestinations(oldCourseID, input.DestCourseAID, input.DestCourseBID) {
 				continue
 			}
 			required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, oldCourseID, assignmentID)
@@ -500,13 +494,12 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			}
 		}
 	}
-	if usesFullCourseEnrollment {
-		for _, courseID := range destinationCourses(input) {
-			if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
-				return fmt.Errorf("include in destination course_students: %w", err)
-			}
+	for _, courseID := range destinationCourses(input) {
+		if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
+			return fmt.Errorf("include in destination course_students: %w", err)
 		}
-	} else {
+	}
+	if !usesFullCourseEnrollment {
 		if err := s.insertCrossStudySessionAttendance(ctx, tx, assignmentID, studentID, input); err != nil {
 			return fmt.Errorf("insert scoped session attendance: %w", err)
 		}
@@ -633,10 +626,7 @@ func (s *Store) crossStudyRequiresCourse(ctx context.Context, tx pgx.Tx, student
 			FROM crm_cross_study_assignments a
 			JOIN students s ON s.wcode = a.wcode
 			WHERE s.id = $1
-			  AND (
-			    (a.dest_course_a_id = $2 AND a.dest_course_a_weekdays = ARRAY[1,2,3,4,5,6,7]::smallint[])
-			    OR (a.dest_course_b_id = $2 AND a.dest_course_b_weekdays = ARRAY[1,2,3,4,5,6,7]::smallint[])
-			  )
+			  AND (a.dest_course_a_id = $2 OR a.dest_course_b_id = $2)
 			  AND a.id <> $3
 			  AND a.deleted_at IS NULL
 		)

@@ -715,7 +715,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	}
 }
 
-func TestCrossStudy_RosterEffect_WeekdayScopeUsesSessionAttendanceOnly(t *testing.T) {
+func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAttendance(t *testing.T) {
 	databaseURL := requireDB(t)
 	migrateUpV2(t, databaseURL)
 	dbpool := newPoolV2(t, databaseURL)
@@ -785,8 +785,8 @@ func TestCrossStudy_RosterEffect_WeekdayScopeUsesSessionAttendanceOnly(t *testin
 	`, destAID, destBID).Scan(&courseEnrollmentCount); err != nil {
 		t.Fatalf("count destination course_students: %v", err)
 	}
-	if courseEnrollmentCount != 0 {
-		t.Fatalf("expected scoped assignment to avoid full-course enrollment, got %d course_students rows", courseEnrollmentCount)
+	if courseEnrollmentCount != 2 {
+		t.Fatalf("expected student enrolled in both destination courses, got %d course_students rows", courseEnrollmentCount)
 	}
 
 	expectedIncluded := map[uuid.UUID]bool{
@@ -831,8 +831,9 @@ func TestCrossStudy_RosterEffect_WeekdayScopeUsesSessionAttendanceOnly(t *testin
 	`).Scan(&activeBusyRanges); err != nil {
 		t.Fatalf("count active busy ranges: %v", err)
 	}
-	if activeBusyRanges != 2 {
-		t.Fatalf("expected 2 active busy ranges for scoped sessions, got %d", activeBusyRanges)
+	// 2 course_students entries × 2 sessions each (all sessions in each course via trigger) = 4
+	if activeBusyRanges != 4 {
+		t.Fatalf("expected 4 active busy ranges (all sessions in both courses via course_students trigger), got %d", activeBusyRanges)
 	}
 }
 
