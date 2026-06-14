@@ -16,8 +16,13 @@ WHERE wcode = $1;
 -- name: StudentList :many
 SELECT id, wcode, full_name, notes, created_at, updated_at
 FROM students
+WHERE (wcode ILIKE '%' || $3 || '%' OR full_name ILIKE '%' || $3 || '%' OR $3 = '')
 ORDER BY wcode ASC
 LIMIT $1 OFFSET $2;
+
+-- name: StudentListCount :one
+SELECT count(*) FROM students
+WHERE (wcode ILIKE '%' || $1 || '%' OR full_name ILIKE '%' || $1 || '%' OR $1 = '');
 
 -- name: StudentUpdate :one
 UPDATE students

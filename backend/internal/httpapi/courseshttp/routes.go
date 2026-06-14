@@ -30,6 +30,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/courses/{id}", s.handleCoursesGet)
 	mux.HandleFunc("PUT /api/v1/courses/{id}", s.handleCoursesUpdate)
 	mux.HandleFunc("DELETE /api/v1/courses/{id}", s.handleCoursesDelete)
+	mux.HandleFunc("GET /api/v1/admin/course-cohorts", s.handleCourseCohortsList)
 	mux.HandleFunc("GET /api/v1/courses/{id}/students", s.handleCourseStudentsList)
 	mux.HandleFunc("POST /api/v1/courses/{id}/students", s.handleCourseStudentsAdd)
 	mux.HandleFunc("DELETE /api/v1/courses/{id}/students/{student_id}", s.handleCourseStudentsRemove)
@@ -67,6 +68,8 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		CourseType         any    `json:"course_type"`
 		LegacyCourseID     any    `json:"legacy_course_id"`
 		LegacyLastSyncedAt any    `json:"legacy_last_synced_at"`
+		CohortID           any    `json:"cohort_id"`
+		CohortName         any    `json:"cohort_name"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, c := range items {
@@ -107,6 +110,14 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.LegacyLastSyncedAt.Valid {
 			legacyLastSyncedAt, _ = s.a.TimeString(c.LegacyLastSyncedAt)
 		}
+		var cohortID any = nil
+		if c.CohortID.Valid {
+			cohortID, _ = s.a.UUIDString(c.CohortID)
+		}
+		var cohortName any = nil
+		if c.CohortName.Valid {
+			cohortName = c.CohortName.String
+		}
 		out = append(out, courseDTO{
 			ID:                 id,
 			CourseNo:           c.CourseNo,
@@ -123,6 +134,8 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			CourseType:         courseType,
 			LegacyCourseID:     legacyCourseID,
 			LegacyLastSyncedAt: legacyLastSyncedAt,
+			CohortID:           cohortID,
+			CohortName:         cohortName,
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -597,6 +610,14 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 	if item.CourseType.Valid {
 		courseType = item.CourseType.String
 	}
+	var cohortID any = nil
+	if item.CohortID.Valid {
+		cohortID, _ = s.a.UUIDString(item.CohortID)
+	}
+	var cohortName any = nil
+	if item.CohortName.Valid {
+		cohortName = item.CohortName.String
+	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"id":                    cid,
@@ -614,6 +635,8 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		"course_type":           courseType,
 		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
+		"cohort_id":             cohortID,
+		"cohort_name":           cohortName,
 	})
 }
 
@@ -632,6 +655,7 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		Name           string  `json:"name"`
 		TeacherID      *string `json:"teacher_id"`
 		LegacyCourseID *string `json:"legacy_course_id"`
+		CohortName     *string `json:"cohort_name"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -680,6 +704,25 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Error("legacy_course_id update failed", "error", err, "course_id", item.ID)
 		}
 
+		// Update cohort assignment (find-or-create by name).
+		if body.CohortName != nil {
+			if *body.CohortName == "" {
+				// Empty string → clear cohort_id.
+				if _, err := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = NULL, updated_at = now() WHERE id = $1`, id); err != nil {
+					s.deps.Log.Error("cohort clear failed", "error", err, "course_id", item.ID)
+				}
+			} else {
+				cohortID, err := qtx.CourseCohortFindOrCreate(r.Context(), *body.CohortName)
+				if err != nil {
+					s.deps.Log.Error("cohort find-or-create failed", "error", err, "course_id", item.ID)
+				} else if _, err := tx.Exec(r.Context(), `UPDATE courses SET cohort_id = $1, updated_at = now() WHERE id = $2`, cohortID, id); err != nil {
+					s.deps.Log.Error("cohort assign failed", "error", err, "course_id", item.ID)
+				}
+			}
+			// Re-read cohort fields into item for the response.
+			_ = tx.QueryRow(r.Context(), `SELECT c.cohort_id, COALESCE(ch.name, '') FROM courses c LEFT JOIN course_cohorts ch ON ch.id = c.cohort_id WHERE c.id = $1`, id).Scan(&item.CohortID, &item.CohortName)
+		}
+
 		cid, err := s.a.UUIDString(item.ID)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
@@ -724,6 +767,14 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		if item.CourseType.Valid {
 			courseType = item.CourseType.String
 		}
+		var cohortID any = nil
+		if item.CohortID.Valid {
+			cohortID, _ = s.a.UUIDString(item.CohortID)
+		}
+		var cohortName any = nil
+		if item.CohortName.Valid {
+			cohortName = item.CohortName.String
+		}
 
 		return http.StatusOK, map[string]any{
 			"id":                    cid,
@@ -741,6 +792,8 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			"course_type":           courseType,
 			"legacy_course_id":      legacyCourseID,
 			"legacy_last_synced_at": legacyLastSyncedAt,
+			"cohort_id":             cohortID,
+			"cohort_name":           cohortName,
 		}, nil
 	})
 }
@@ -768,6 +821,32 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 	}) {
 		s.deps.Log.Error("course_delete: idempotent tx failed", "course_id", r.PathValue("id"))
 	}
+}
+
+func (s *server) handleCourseCohortsList(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustUser(w, r); !ok {
+		return
+	}
+	items, err := s.deps.Q.CourseCohortList(r.Context())
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	type cohortDTO struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	out := make([]cohortDTO, 0, len(items))
+	for _, c := range items {
+		id, err := s.a.UUIDString(c.ID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		out = append(out, cohortDTO{ID: id, Name: c.Name})
+	}
+	s.a.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {

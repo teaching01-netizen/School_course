@@ -323,6 +323,29 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 
+	// Also expand by cohort: merge in cohort-sibling courses so they
+	// appear as valid sit-in targets.
+	for _, c := range enrolled {
+		if c.CourseID == courseID && c.CohortID.Valid {
+			cohortEnrolled, err := q.StudentEnrolledCoursesByCohort(ctx, student.ID, c.CohortID)
+			if err != nil {
+				return nil, fmt.Errorf("cohort enrollment lookup: %w", err)
+			}
+			if len(cohortEnrolled) > 0 {
+				seen := make(map[pgtype.UUID]bool, len(enrolled))
+				for _, e := range enrolled {
+					seen[e.CourseID] = true
+				}
+				for _, ce := range cohortEnrolled {
+					if !seen[ce.CourseID] {
+						enrolled = append(enrolled, ce)
+					}
+				}
+			}
+			break
+		}
+	}
+
 	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, satVerbalAfterPriority); err != nil {
 		return nil, err
 	} else if mapped != nil {
@@ -596,6 +619,28 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 			}
 			if len(rootEnrolled) > 0 {
 				enrolled = rootEnrolled
+			}
+			break
+		}
+	}
+
+	// Expand by cohort: merge in cohort-sibling courses.
+	for _, c := range enrolled {
+		if c.CohortID.Valid {
+			cohortEnrolled, err := q.StudentEnrolledCoursesByCohort(ctx, student.ID, c.CohortID)
+			if err != nil {
+				return nil, fmt.Errorf("cohort enrollment lookup: %w", err)
+			}
+			if len(cohortEnrolled) > 0 {
+				seen := make(map[pgtype.UUID]bool, len(enrolled))
+				for _, e := range enrolled {
+					seen[e.CourseID] = true
+				}
+				for _, ce := range cohortEnrolled {
+					if !seen[ce.CourseID] {
+						enrolled = append(enrolled, ce)
+					}
+				}
 			}
 			break
 		}

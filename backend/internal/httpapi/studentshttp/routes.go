@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
@@ -43,12 +44,27 @@ func (s *server) handleStudentsList(w http.ResponseWriter, r *http.Request) {
 			offset = int32(n)
 		}
 	}
-	items, err := s.deps.Q.StudentList(r.Context(), sqldb.StudentListParams{Limit: limit, Offset: offset})
+	search := r.URL.Query().Get("q")
+	searchParam := pgtype.Text{String: search, Valid: true}
+
+	items, err := s.deps.Q.StudentList(r.Context(), sqldb.StudentListParams{
+		Limit:   limit,
+		Offset:  offset,
+		Column3: searchParam,
+	})
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
+
+	totalCount, err := s.deps.Q.StudentListCount(r.Context(), searchParam)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+
 	type studentDTO struct {
 		ID       string `json:"id"`
 		Wcode    string `json:"wcode"`
@@ -64,7 +80,12 @@ func (s *server) handleStudentsList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, studentDTO{ID: sid, Wcode: st.Wcode, FullName: st.FullName, Notes: st.Notes})
 	}
-	s.a.WriteJSON(w, http.StatusOK, out)
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"items":       out,
+		"total_count": totalCount,
+		"offset":      offset,
+		"limit":       limit,
+	})
 }
 
 func (s *server) handleStudentsCreate(w http.ResponseWriter, r *http.Request) {

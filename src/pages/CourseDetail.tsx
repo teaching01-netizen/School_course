@@ -191,10 +191,12 @@ export default function CourseDetail() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
+  const [cohorts, setCohorts] = useState<{id: string; name: string}[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
   const [editTeacherId, setEditTeacherId] = useState("");
+  const [editCohortName, setEditCohortName] = useState("");
   const [courseEditSaving, setCourseEditSaving] = useState(false);
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
@@ -347,12 +349,14 @@ export default function CourseDetail() {
 
   const loadLookups = async () => {
     try {
-      const [r, t] = await Promise.all([
+      const [r, t, ch] = await Promise.all([
         apiJson<Room[]>("/api/v1/rooms", { method: "GET" }),
         apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" }),
+        apiJson<{id: string; name: string}[]>("/api/v1/admin/course-cohorts", { method: "GET" }),
       ]);
       setRooms(r);
       setTeachers(t);
+      setCohorts(ch);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load lookups");
     }
@@ -409,6 +413,7 @@ export default function CourseDetail() {
     setEditCode(course.code);
     setEditName(course.name);
     setEditTeacherId(course.teacher_id ?? "");
+    setEditCohortName(course.cohort_name ?? "");
     setIsEditing(true);
   };
 
@@ -433,6 +438,7 @@ export default function CourseDetail() {
           code: editCode.trim(),
           name: editName.trim(),
           teacher_id: editTeacherId || null,
+          cohort_name: editCohortName || null,
         }),
       });
       setCourse(updated);
@@ -811,6 +817,21 @@ export default function CourseDetail() {
               placeholder="Select teacher…"
             />
           </div>
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Cohort</label>
+            <input
+              list="cohorts-list"
+              value={editCohortName}
+              onChange={(e) => setEditCohortName(e.target.value)}
+              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
+              placeholder="None (type to search or create)…"
+            />
+            <datalist id="cohorts-list">
+              {cohorts.map(c => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </div>
         </div>
       ) : (
         <div className="border-b border-gray-200 pb-3 mb-6">
@@ -831,6 +852,11 @@ export default function CourseDetail() {
             {course.course_type && (
               <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-sm border ${course.course_type === 'Private' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                 {course.course_type}
+              </span>
+            )}
+            {course.cohort_name && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-orange-50 text-orange-700 border border-orange-200">
+                Cohort: {course.cohort_name}
               </span>
             )}
           </div>
