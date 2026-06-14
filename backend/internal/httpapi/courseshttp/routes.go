@@ -115,8 +115,8 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			cohortID, _ = s.a.UUIDString(c.CohortID)
 		}
 		var cohortName any = nil
-		if c.CohortName.Valid {
-			cohortName = c.CohortName.String
+		if c.CohortName != "" {
+			cohortName = c.CohortName
 		}
 		out = append(out, courseDTO{
 			ID:                 id,
@@ -615,8 +615,8 @@ func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
 		cohortID, _ = s.a.UUIDString(item.CohortID)
 	}
 	var cohortName any = nil
-	if item.CohortName.Valid {
-		cohortName = item.CohortName.String
+	if item.CohortName != "" {
+		cohortName = item.CohortName
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
@@ -772,8 +772,8 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			cohortID, _ = s.a.UUIDString(item.CohortID)
 		}
 		var cohortName any = nil
-		if item.CohortName.Valid {
-			cohortName = item.CohortName.String
+		if item.CohortName != "" {
+			cohortName = item.CohortName
 		}
 
 		return http.StatusOK, map[string]any{
