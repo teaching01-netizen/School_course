@@ -45,6 +45,8 @@ const student: StudentInfo = {
 
 const crmRowWithoutMappedSource: CrmRowInfo = {
   snapshot_id: "b8cd8dcf-fb6b-4f51-b681-d9f9270eac74",
+  row_hash: "crm-row-hash-1",
+  xlsx_row_number: 12,
   course_name: "SAT Verbal Beginner (Section 1) Cash Card",
   course_id: "",
   extra_note: "New Student - Summer Cash Card 2026 / เรียนไขว้ Sec.1&Sec.2 Tue Writing & Sat Reading",
@@ -53,7 +55,6 @@ const crmRowWithoutMappedSource: CrmRowInfo = {
 
 const currentAssignmentWithDestinations: AssignmentDTO = {
   id: "assignment-id",
-  source_course: null,
   dest_course_a: courses[2],
   dest_course_b: courses[3],
   assigned_course_id: "course-a-id",
@@ -63,22 +64,12 @@ const currentAssignmentWithDestinations: AssignmentDTO = {
   updated_at: "2026-06-14T03:21:34Z",
 };
 
-const crmRowWithMappedSource: CrmRowInfo = {
-  ...crmRowWithoutMappedSource,
-  course_id: "source-course-id",
-};
-
-const currentAssignmentWithMappedSource: AssignmentDTO = {
-  ...currentAssignmentWithDestinations,
-  source_course: courses[0],
-};
-
 function wrapper({ children }: { children: React.ReactNode }) {
   return <ToastProvider>{children}</ToastProvider>;
 }
 
 describe("CrossStudyAssignmentForm", () => {
-  it("requires an editable source course before saving even when destinations are selected", () => {
+  it("does not render a source course selector because staff only chooses destination courses", () => {
     render(
       <CrossStudyAssignmentForm
         student={student}
@@ -90,39 +81,36 @@ describe("CrossStudyAssignmentForm", () => {
       { wrapper },
     );
 
-    expect(screen.getByRole("button", { name: /save assignment/i })).toBeDisabled();
-    expect(screen.getByText(/choose the source course before saving/i)).toBeInTheDocument();
+    expect(screen.queryByText(/source course to treat this row as/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save assignment/i })).toBeEnabled();
   });
 
-  it("saves the staff-edited source course instead of the auto-matched source", async () => {
-    const user = userEvent.setup();
+  it("saves only destination courses even when the CRM source course is not mapped", async () => {
     const mockApiJson = vi.mocked(apiJson);
     mockApiJson.mockResolvedValueOnce({ ok: true });
 
     render(
       <CrossStudyAssignmentForm
         student={student}
-        crmRow={crmRowWithMappedSource}
-        currentAssignment={currentAssignmentWithMappedSource}
+        crmRow={crmRowWithoutMappedSource}
+        currentAssignment={currentAssignmentWithDestinations}
         courses={courses}
         onSaved={vi.fn()}
       />,
       { wrapper },
     );
 
-    const sourceInput = screen.getAllByRole("combobox")[0];
-    await user.click(sourceInput);
-    await user.type(sourceInput, "Manual");
-    await user.click(screen.getByRole("option", { name: /manual trusted source course/i }));
-    await user.click(screen.getByRole("button", { name: /save assignment/i }));
+    await userEvent.click(screen.getByRole("button", { name: /save assignment/i }));
 
     await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(1));
     expect(mockApiJson).toHaveBeenCalledWith("/api/v1/cross-study/assignments", {
       method: "PUT",
       body: JSON.stringify({
         wcode: "W260032",
-        source_course_id: "manual-source-course-id",
         snapshot_id: "b8cd8dcf-fb6b-4f51-b681-d9f9270eac74",
+        crm_course_name: "SAT Verbal Beginner (Section 1) Cash Card",
+        crm_row_hash: "crm-row-hash-1",
+        crm_xlsx_row_number: 12,
         dest_course_a_id: "course-a-id",
         dest_course_b_id: "course-b-id",
         assigned_course_id: "course-a-id",

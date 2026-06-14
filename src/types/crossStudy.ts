@@ -7,6 +7,8 @@ export interface CourseRef {
 
 export interface CrmRowInfo {
   snapshot_id: string;
+  row_hash: string;
+  xlsx_row_number: number;
   course_name: string;
   course_id: string;
   extra_note: string;
@@ -21,7 +23,6 @@ export interface StudentInfo {
 
 export interface AssignmentDTO {
   id: string;
-  source_course: CourseRef | null;
   dest_course_a: CourseRef | null;
   dest_course_b: CourseRef | null;
   assigned_course_id: string;
@@ -41,10 +42,10 @@ export interface AssignmentSummary {
   id: string;
   wcode: string;
   full_name: string;
-  source_course_name: string;
-  source_course_id: string;
-  assigned_course_name: string;
-  assigned_course_id: string;
+  dest_course_a_name: string;
+  dest_course_a_id: string;
+  dest_course_b_name: string;
+  dest_course_b_id: string;
   status: string;
   updated_at: string;
 }
@@ -52,12 +53,15 @@ export interface AssignmentSummary {
 export interface AssignmentListResponse {
   assignments: AssignmentSummary[];
   total: number;
+  review_count: number;
 }
 
 export interface SaveAssignmentInput {
   wcode: string;
-  source_course_id: string;
   snapshot_id: string;
+  crm_course_name: string;
+  crm_row_hash: string;
+  crm_xlsx_row_number: number;
   dest_course_a_id: string;
   dest_course_b_id: string;
   assigned_course_id: string;

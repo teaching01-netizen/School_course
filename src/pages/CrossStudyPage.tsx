@@ -14,6 +14,7 @@ export default function CrossStudyPage() {
   const [courses, setCourses] = useState<{ id: string; code: string; name: string; subject_name: string }[]>([]);
   const [lastSearchedWcode, setLastSearchedWcode] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
 
   const loadCourses = useCallback(async () => {
     try {
@@ -52,12 +53,26 @@ export default function CrossStudyPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <PageHeading>Cross-Study (เรียนไขว้) Assignment</PageHeading>
+      <div className="flex items-center gap-3">
+        <PageHeading>Cross-Study (เรียนไขว้) Assignment</PageHeading>
+        {reviewCount > 0 && (
+          <span
+            aria-label={`${reviewCount} cross-study assignments need review`}
+            className="inline-flex min-w-6 items-center justify-center rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800"
+          >
+            {reviewCount}
+          </span>
+        )}
+      </div>
 
       {/* Master list */}
       <section className="border border-gray-200 rounded-sm p-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">All Cross-Study Assignments</h2>
-        <CrossStudyAssignmentList refreshKey={refreshKey} onSelectWCode={handleSearch} />
+        <CrossStudyAssignmentList
+          refreshKey={refreshKey}
+          onSelectWCode={handleSearch}
+          onReviewCountChange={setReviewCount}
+        />
       </section>
 
       {/* Separator */}

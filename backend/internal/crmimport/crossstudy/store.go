@@ -107,7 +107,7 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 	}
 
 	row := s.db.QueryRow(ctx, `
-		SELECT cr.snapshot_id, cr.course_name, cr.extra_note, cs.created_at
+		SELECT cr.snapshot_id, cr.row_hash, cr.xlsx_row_number, cr.course_name, cr.extra_note, cs.created_at
 		FROM crm_rows cr
 		JOIN crm_state cs ON cr.snapshot_id = cs.active_snapshot_id
 		WHERE cr.wcode = $1 AND cs.singleton = true
@@ -117,7 +117,14 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 
 	var snapID uuid.UUID
 	var importedAt time.Time
-	err = row.Scan(&snapID, &resp.CRMRow.CourseName, &resp.CRMRow.ExtraNote, &importedAt)
+	err = row.Scan(
+		&snapID,
+		&resp.CRMRow.RowHash,
+		&resp.CRMRow.XLSXRowNumber,
+		&resp.CRMRow.CourseName,
+		&resp.CRMRow.ExtraNote,
+		&importedAt,
+	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			resp.CRMRow = nil
@@ -139,18 +146,18 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 	}
 
 	assignRow := s.db.QueryRow(ctx, `
-		SELECT a.id, a.source_course_id, a.dest_course_a_id, a.dest_course_b_id, a.assigned_course_id,
+		SELECT a.id, a.dest_course_a_id, a.dest_course_b_id, a.assigned_course_id,
 		       a.status, a.extra_note_snapshot, a.source_valid, a.updated_at
 		FROM crm_cross_study_assignments a
 		WHERE a.wcode = $1 AND a.deleted_at IS NULL
 		ORDER BY a.updated_at DESC LIMIT 1
 	`, wcode)
 
-	var aID, srcID, dcaID, dcbID, acID uuid.UUID
+	var aID, dcaID, dcbID, acID uuid.UUID
 	var status, noteSnap string
 	var srcValid bool
 	var updatedAt time.Time
-	err = assignRow.Scan(&aID, &srcID, &dcaID, &dcbID, &acID, &status, &noteSnap, &srcValid, &updatedAt)
+	err = assignRow.Scan(&aID, &dcaID, &dcbID, &acID, &status, &noteSnap, &srcValid, &updatedAt)
 	if err == nil {
 		dto := &AssignmentDTO{
 			ID:                aID.String(),
@@ -161,7 +168,6 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 			UpdatedAt:         updatedAt.Format(time.RFC3339),
 		}
 
-		dto.SourceCourse = lookupCourseRef(ctx, s.db, srcID)
 		dto.DestCourseA = lookupCourseRef(ctx, s.db, dcaID)
 		dto.DestCourseB = lookupCourseRef(ctx, s.db, dcbID)
 		resp.CurrentAssignment = dto
@@ -205,6 +211,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	defer tx.Rollback(ctx)
 
 	var existingAssignmentID uuid.UUID
+	var existingSourceCourseID uuid.UUID
 	var existingDestCourseAID uuid.UUID
 	var existingDestCourseBID uuid.UUID
 	var existingAssignedCourseID uuid.UUID
@@ -215,18 +222,22 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	hasExistingAssignment := false
 	err = tx.QueryRow(ctx, `
 		SELECT id, dest_course_a_id, dest_course_b_id, assigned_course_id,
+		       source_course_id,
 		       assigned_course_enrollment_created,
 		       dest_course_a_enrollment_created,
 		       dest_course_b_enrollment_created,
 		       source_course_enrollment_removed
 		FROM crm_cross_study_assignments
-		WHERE wcode = $1 AND source_course_id = $2 AND deleted_at IS NULL
+		WHERE wcode = $1 AND deleted_at IS NULL
+		ORDER BY updated_at DESC
+		LIMIT 1
 		FOR UPDATE
-	`, input.WCode, input.SourceCourseID).Scan(
+	`, input.WCode).Scan(
 		&existingAssignmentID,
 		&existingDestCourseAID,
 		&existingDestCourseBID,
 		&existingAssignedCourseID,
+		&existingSourceCourseID,
 		&existingAssignedCourseEnrollmentCreated,
 		&existingDestCourseAEnrollmentCreated,
 		&existingDestCourseBEnrollmentCreated,
@@ -236,6 +247,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		return fmt.Errorf("load existing assignment: %w", err)
 	}
 	hasExistingAssignment = err == nil
+	storageSourceCourseID := input.DestCourseAID
 
 	destAAlreadyEnrolled, err := s.courseStudentExists(ctx, tx, input.DestCourseAID, studentID)
 	if err != nil {
@@ -269,52 +281,88 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	}
 
 	var assignmentID uuid.UUID
-	err = tx.QueryRow(ctx, `
-		INSERT INTO crm_cross_study_assignments
-			(snapshot_id, wcode, source_course_id, dest_course_a_id, dest_course_b_id,
-			 assigned_course_id, extra_note_snapshot, extra_note_hash,
-			 assigned_course_enrollment_created,
-			 dest_course_a_enrollment_created,
-			 dest_course_b_enrollment_created,
-			 source_course_enrollment_removed,
-			 source_valid, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, true, 'pending')
-		ON CONFLICT (wcode, source_course_id) DO UPDATE SET
-			dest_course_a_id = EXCLUDED.dest_course_a_id,
-			dest_course_b_id = EXCLUDED.dest_course_b_id,
-			assigned_course_id = EXCLUDED.assigned_course_id,
-			extra_note_snapshot = EXCLUDED.extra_note_snapshot,
-			extra_note_hash = EXCLUDED.extra_note_hash,
-			assigned_course_enrollment_created = EXCLUDED.assigned_course_enrollment_created,
-			dest_course_a_enrollment_created = EXCLUDED.dest_course_a_enrollment_created,
-			dest_course_b_enrollment_created = EXCLUDED.dest_course_b_enrollment_created,
-			source_course_enrollment_removed = EXCLUDED.source_course_enrollment_removed,
-			source_valid = true,
-			status = 'pending',
-			snapshot_id = EXCLUDED.snapshot_id,
-			deleted_at = NULL,
-			updated_at = now()
-		RETURNING id
-	`, input.SnapshotID, input.WCode, input.SourceCourseID,
-		input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID,
-		input.ExtraNoteText, noteHash, assignedCourseEnrollmentCreated,
-		destCourseAEnrollmentCreated, destCourseBEnrollmentCreated).Scan(&assignmentID)
+	if hasExistingAssignment {
+		assignmentID = existingAssignmentID
+		_, err = tx.Exec(ctx, `
+			UPDATE crm_cross_study_assignments
+			SET snapshot_id = $2,
+			    source_course_id = $3,
+			    dest_course_a_id = $4,
+			    dest_course_b_id = $5,
+			    assigned_course_id = $6,
+			    crm_course_name_snapshot = $7,
+			    crm_row_hash_snapshot = $8,
+			    crm_xlsx_row_number_snapshot = NULLIF($9, 0),
+			    extra_note_snapshot = $10,
+			    extra_note_hash = $11,
+			    assigned_course_enrollment_created = $12,
+			    dest_course_a_enrollment_created = $13,
+			    dest_course_b_enrollment_created = $14,
+			    source_course_enrollment_removed = false,
+			    source_valid = true,
+			    status = 'pending',
+			    deleted_at = NULL,
+			    updated_at = now()
+			WHERE id = $1
+		`, assignmentID, input.SnapshotID, storageSourceCourseID,
+			input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID,
+			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
+			input.ExtraNoteText, noteHash, assignedCourseEnrollmentCreated,
+			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated)
+	} else {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO crm_cross_study_assignments
+				(snapshot_id, wcode, source_course_id, dest_course_a_id, dest_course_b_id,
+				 assigned_course_id, crm_course_name_snapshot, crm_row_hash_snapshot,
+				 crm_xlsx_row_number_snapshot, extra_note_snapshot, extra_note_hash,
+				 assigned_course_enrollment_created,
+				 dest_course_a_enrollment_created,
+				 dest_course_b_enrollment_created,
+				 source_course_enrollment_removed,
+				 source_valid, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10, $11, $12, $13, $14, false, true, 'pending')
+			ON CONFLICT (wcode, source_course_id) DO UPDATE SET
+				dest_course_a_id = EXCLUDED.dest_course_a_id,
+				dest_course_b_id = EXCLUDED.dest_course_b_id,
+				assigned_course_id = EXCLUDED.assigned_course_id,
+				crm_course_name_snapshot = EXCLUDED.crm_course_name_snapshot,
+				crm_row_hash_snapshot = EXCLUDED.crm_row_hash_snapshot,
+				crm_xlsx_row_number_snapshot = EXCLUDED.crm_xlsx_row_number_snapshot,
+				extra_note_snapshot = EXCLUDED.extra_note_snapshot,
+				extra_note_hash = EXCLUDED.extra_note_hash,
+				assigned_course_enrollment_created = EXCLUDED.assigned_course_enrollment_created,
+				dest_course_a_enrollment_created = EXCLUDED.dest_course_a_enrollment_created,
+				dest_course_b_enrollment_created = EXCLUDED.dest_course_b_enrollment_created,
+				source_course_enrollment_removed = false,
+				source_valid = true,
+				status = 'pending',
+				snapshot_id = EXCLUDED.snapshot_id,
+				deleted_at = NULL,
+				updated_at = now()
+			RETURNING id
+		`, input.SnapshotID, input.WCode, storageSourceCourseID,
+			input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID,
+			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
+			input.ExtraNoteText, noteHash, assignedCourseEnrollmentCreated,
+			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated).Scan(&assignmentID)
+	}
 	if err != nil {
 		return fmt.Errorf("upsert assignment: %w", err)
 	}
 
-	if !courseInDestinations(input.SourceCourseID, input.DestCourseAID, input.DestCourseBID) {
-		if err := s.upsertCrossStudyOverride(ctx, tx, input.SourceCourseID, studentID, userID, assignmentID, "exclude"); err != nil {
-			return fmt.Errorf("insert exclude override: %w", err)
-		}
-	} else if hasExistingAssignment && !courseInDestinations(input.SourceCourseID, existingDestCourseAID, existingDestCourseBID) {
-		excludedByOtherAssignment, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, input.SourceCourseID, assignmentID)
+	if hasExistingAssignment && !courseInDestinations(existingSourceCourseID, input.DestCourseAID, input.DestCourseBID) {
+		excludedByOtherAssignment, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, existingSourceCourseID, assignmentID)
 		if err != nil {
-			return fmt.Errorf("check stale source exclusion: %w", err)
+			return fmt.Errorf("check legacy source exclusion: %w", err)
 		}
 		if !excludedByOtherAssignment {
-			if err := s.deleteCrossStudyOverride(ctx, tx, input.SourceCourseID, studentID, "exclude"); err != nil {
-				return fmt.Errorf("delete stale source override: %w", err)
+			if existingSourceCourseEnrollmentRemoved {
+				if err := s.IncludeStudent(ctx, tx, existingSourceCourseID, studentID); err != nil {
+					return fmt.Errorf("restore legacy source course_students: %w", err)
+				}
+			}
+			if err := s.deleteCrossStudyOverride(ctx, tx, existingSourceCourseID, studentID, "exclude"); err != nil {
+				return fmt.Errorf("delete legacy source override: %w", err)
 			}
 		}
 	}
@@ -353,26 +401,6 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			}
 		}
 	}
-	sourceCourseEnrollmentRemoved := false
-	if !courseInDestinations(input.SourceCourseID, input.DestCourseAID, input.DestCourseBID) {
-		sourceCourseEnrollmentRemoved = hasExistingAssignment && existingSourceCourseEnrollmentRemoved
-		required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, input.SourceCourseID, assignmentID)
-		if err != nil {
-			return fmt.Errorf("check source course ownership: %w", err)
-		}
-		if !required {
-			sourceEnrolled, err := s.courseStudentExists(ctx, tx, input.SourceCourseID, studentID)
-			if err != nil {
-				return fmt.Errorf("check source enrollment: %w", err)
-			}
-			sourceCourseEnrollmentRemoved = sourceCourseEnrollmentRemoved || sourceEnrolled
-			if sourceEnrolled {
-				if err := s.ExcludeStudent(ctx, tx, input.SourceCourseID, studentID); err != nil {
-					return fmt.Errorf("exclude from source course_students: %w", err)
-				}
-			}
-		}
-	}
 	for _, courseID := range destinationCourses(input) {
 		if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
 			return fmt.Errorf("include in destination course_students: %w", err)
@@ -389,7 +417,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		WHERE id = $1
 	`, assignmentID, assignedCourseEnrollmentCreated,
 		destCourseAEnrollmentCreated, destCourseBEnrollmentCreated,
-		sourceCourseEnrollmentRemoved); err != nil {
+		false); err != nil {
 		return fmt.Errorf("update assignment roster ownership: %w", err)
 	}
 
@@ -453,9 +481,6 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		destCreated[destCourseBID] = destCourseBEnrollmentCreated
 	}
 	for courseID, created := range destCreated {
-		if courseID == srcCourseID {
-			continue
-		}
 		required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, courseID, assignmentID)
 		if err != nil {
 			return fmt.Errorf("check destination course ownership: %w", err)
@@ -544,12 +569,12 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 
 	query := fmt.Sprintf(`
 		SELECT a.id, a.wcode, COALESCE(s.full_name, '') AS full_name,
-		       COALESCE(src.name, '') AS source_course_name, a.source_course_id,
-		       COALESCE(dest.name, '') AS assigned_course_name, a.assigned_course_id,
+		       COALESCE(dest_a.name, '') AS dest_course_a_name, a.dest_course_a_id,
+		       COALESCE(dest_b.name, '') AS dest_course_b_name, a.dest_course_b_id,
 		       a.status, a.updated_at
 		FROM crm_cross_study_assignments a
-		LEFT JOIN courses src ON src.id = a.source_course_id
-		LEFT JOIN courses dest ON dest.id = a.assigned_course_id
+		LEFT JOIN courses dest_a ON dest_a.id = a.dest_course_a_id
+		LEFT JOIN courses dest_b ON dest_b.id = a.dest_course_b_id
 		LEFT JOIN students s ON s.wcode = a.wcode
 		WHERE %s
 		ORDER BY a.updated_at DESC
@@ -566,15 +591,31 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 		var item AssignmentSummary
 		var updatedAt time.Time
 		if err := rows.Scan(&item.ID, &item.WCode, &item.FullName,
-			&item.SourceCourseName, &item.SourceCourseID,
-			&item.AssignedCourseName, &item.AssignedCourseID,
+			&item.DestCourseAName, &item.DestCourseAID,
+			&item.DestCourseBName, &item.DestCourseBID,
 			&item.Status, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan assignment: %w", err)
 		}
+		item.SourceCourseName = item.DestCourseAName
+		item.SourceCourseID = item.DestCourseAID
+		item.AssignedCourseName = item.DestCourseAName
+		item.AssignedCourseID = item.DestCourseAID
 		item.UpdatedAt = updatedAt.Format(time.RFC3339)
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// CountReviewNeeded returns assignments that need staff reconnect review.
+func (s *Store) CountReviewNeeded(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM crm_cross_study_assignments
+		WHERE deleted_at IS NULL
+		  AND status IN ('notes_changed', 'orphaned')
+	`).Scan(&count)
+	return count, err
 }
 
 // HasAnyAssignment returns true if any non-deleted cross-study assignments exist.
@@ -587,11 +628,29 @@ func (s *Store) HasAnyAssignment(ctx context.Context) (bool, error) {
 // LoadPendingChanges loads all assignments that need status re-check for a given snapshot.
 func (s *Store) LoadPendingChanges(ctx context.Context, snapshotID uuid.UUID) ([]AssignmentChange, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT a.id, a.wcode, COALESCE(cr.extra_note, '') AS current_note,
+		SELECT a.id, a.wcode,
+		       COALESCE(cr.extra_note, '') AS current_note,
 		       COALESCE(cr.course_name, '') AS current_course,
-		       a.extra_note_hash
+		       a.crm_course_name_snapshot,
+		       a.extra_note_hash,
+		       a.crm_row_hash_snapshot,
+		       COALESCE(a.crm_xlsx_row_number_snapshot, 0)
 		FROM crm_cross_study_assignments a
-		LEFT JOIN crm_rows cr ON cr.wcode = a.wcode AND cr.snapshot_id = $1
+		LEFT JOIN LATERAL (
+			SELECT cr.extra_note, cr.course_name
+			FROM crm_rows cr
+			WHERE cr.snapshot_id = $1
+			  AND cr.wcode = a.wcode
+			ORDER BY
+			  CASE
+			    WHEN cr.row_hash = a.crm_row_hash_snapshot THEN 0
+			    WHEN a.crm_xlsx_row_number_snapshot IS NOT NULL
+			      AND cr.xlsx_row_number = a.crm_xlsx_row_number_snapshot THEN 1
+			    ELSE 2
+			  END,
+			  cr.xlsx_row_number ASC
+			LIMIT 1
+		) cr ON true
 		WHERE a.deleted_at IS NULL
 	`, snapshotID)
 	if err != nil {
@@ -602,7 +661,16 @@ func (s *Store) LoadPendingChanges(ctx context.Context, snapshotID uuid.UUID) ([
 	var out []AssignmentChange
 	for rows.Next() {
 		var ch AssignmentChange
-		if err := rows.Scan(&ch.ID, &ch.WCode, &ch.CurrentNote, &ch.CurrentCourseName, &ch.StoredHash); err != nil {
+		if err := rows.Scan(
+			&ch.ID,
+			&ch.WCode,
+			&ch.CurrentNote,
+			&ch.CurrentCourseName,
+			&ch.StoredCourseName,
+			&ch.StoredExtraNoteHash,
+			&ch.StoredRowHash,
+			&ch.StoredXLSXRowNumber,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, ch)

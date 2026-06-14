@@ -21,14 +21,14 @@ export default function CrossStudyStatusBadge({ status, extraNoteSnapshot, curre
         {cfg.icon} Status: {cfg.label}
       </div>
       {status === "active" && (
-        <div className="opacity-75">Extra note unchanged &middot; Source course present in latest snapshot</div>
+        <div className="opacity-75">CRM course and extra note unchanged in the latest snapshot</div>
       )}
       {sourceValid === false && status !== "orphaned" && (
-        <div className="mt-1">Source course could not be verified in the latest snapshot.</div>
+        <div className="mt-1">CRM row could not be verified in the latest snapshot.</div>
       )}
       {status === "notes_changed" && extraNoteSnapshot !== undefined && currentNote !== undefined && (
         <div className="space-y-0.5">
-          <div>Extra note changed since last save:</div>
+          <div>CRM course or extra note changed since last save:</div>
           <div className="font-mono">Was: &ldquo;{extraNoteSnapshot}&rdquo;</div>
           <div className="font-mono">Now: &ldquo;{currentNote}&rdquo;</div>
           <div className="mt-1">Review and re-save if assignment should change.</div>
@@ -36,8 +36,8 @@ export default function CrossStudyStatusBadge({ status, extraNoteSnapshot, curre
       )}
       {status === "orphaned" && (
         <div>
-          <div>Source course no longer appears in the latest CRM snapshot.</div>
-          <div className="mt-1">The student may have been moved to a different course.</div>
+          <div>CRM row no longer appears in the latest snapshot.</div>
+          <div className="mt-1">The student may have been moved to a different row or course.</div>
           <div>Review and re-assign or remove this assignment.</div>
         </div>
       )}

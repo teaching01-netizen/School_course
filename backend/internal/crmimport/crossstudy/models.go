@@ -25,6 +25,9 @@ type Assignment struct {
 	DestCourseAID                   uuid.UUID
 	DestCourseBID                   uuid.UUID
 	AssignedCourseID                uuid.UUID
+	CRMCourseNameSnapshot           string
+	CRMRowHashSnapshot              string
+	CRMXLSXRowNumberSnapshot        int32
 	ExtraNoteSnapshot               string
 	ExtraNoteHash                   string
 	AssignedCourseEnrollmentCreated bool
@@ -39,8 +42,11 @@ type Assignment struct {
 
 type SaveAssignmentInput struct {
 	WCode            string
-	SourceCourseID   uuid.UUID
+	SourceCourseID   uuid.UUID // Deprecated: retained for older internal callers; new saves use destination courses only.
 	SnapshotID       uuid.UUID
+	CRMCourseName    string
+	CRMRowHash       string
+	CRMXLSXRowNumber int32
 	DestCourseAID    uuid.UUID
 	DestCourseBID    uuid.UUID
 	AssignedCourseID uuid.UUID
@@ -51,10 +57,14 @@ type AssignmentSummary struct {
 	ID                 string `json:"id"`
 	WCode              string `json:"wcode"`
 	FullName           string `json:"full_name"`
-	SourceCourseName   string `json:"source_course_name"`
-	SourceCourseID     string `json:"source_course_id"`
-	AssignedCourseName string `json:"assigned_course_name"`
-	AssignedCourseID   string `json:"assigned_course_id"`
+	SourceCourseName   string `json:"source_course_name,omitempty"`   // Deprecated: destination A for compatibility.
+	SourceCourseID     string `json:"source_course_id,omitempty"`     // Deprecated: destination A for compatibility.
+	AssignedCourseName string `json:"assigned_course_name,omitempty"` // Deprecated: destination A for compatibility.
+	AssignedCourseID   string `json:"assigned_course_id,omitempty"`   // Deprecated: destination A for compatibility.
+	DestCourseAName    string `json:"dest_course_a_name"`
+	DestCourseAID      string `json:"dest_course_a_id"`
+	DestCourseBName    string `json:"dest_course_b_name"`
+	DestCourseBID      string `json:"dest_course_b_id"`
 	Status             string `json:"status"`
 	UpdatedAt          string `json:"updated_at"`
 }
@@ -72,11 +82,13 @@ type StudentInfo struct {
 }
 
 type CRMRowInfo struct {
-	SnapshotID string `json:"snapshot_id"`
-	CourseName string `json:"course_name"`
-	CourseID   string `json:"course_id"`
-	ExtraNote  string `json:"extra_note"`
-	ImportedAt string `json:"imported_at"`
+	SnapshotID    string `json:"snapshot_id"`
+	RowHash       string `json:"row_hash"`
+	XLSXRowNumber int32  `json:"xlsx_row_number"`
+	CourseName    string `json:"course_name"`
+	CourseID      string `json:"course_id"`
+	ExtraNote     string `json:"extra_note"`
+	ImportedAt    string `json:"imported_at"`
 }
 
 type CourseRef struct {
@@ -88,7 +100,6 @@ type CourseRef struct {
 
 type AssignmentDTO struct {
 	ID                string     `json:"id"`
-	SourceCourse      *CourseRef `json:"source_course"`
 	DestCourseA       *CourseRef `json:"dest_course_a"`
 	DestCourseB       *CourseRef `json:"dest_course_b"`
 	AssignedCourseID  string     `json:"assigned_course_id"`
@@ -99,11 +110,14 @@ type AssignmentDTO struct {
 }
 
 type AssignmentChange struct {
-	ID                uuid.UUID
-	WCode             string
-	CurrentNote       string
-	CurrentCourseName string
-	StoredHash        string
+	ID                  uuid.UUID
+	WCode               string
+	CurrentNote         string
+	CurrentCourseName   string
+	StoredCourseName    string
+	StoredExtraNoteHash string
+	StoredRowHash       string
+	StoredXLSXRowNumber int32
 }
 
 func hashExtraNote(text string) string {

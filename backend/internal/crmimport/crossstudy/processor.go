@@ -46,7 +46,7 @@ func (p *Processor) ProcessSnapshot(ctx context.Context, snapshotID uuid.UUID) e
 		}
 
 		currentHash := hashExtraNote(ch.CurrentNote)
-		if currentHash != ch.StoredHash {
+		if currentHash != ch.StoredExtraNoteHash || ch.CurrentCourseName != ch.StoredCourseName {
 			if err := p.store.UpdateStatus(ctx, ch.ID, string(StatusNotesChanged), true); err != nil {
 				p.logger.Error("update status to notes_changed", "assignment_id", ch.ID, "error", err)
 			}

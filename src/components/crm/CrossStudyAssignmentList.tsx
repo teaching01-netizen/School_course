@@ -5,6 +5,7 @@ import { apiJson } from "../../api/client";
 type Props = {
   refreshKey: number;
   onSelectWCode: (wcode: string) => void;
+  onReviewCountChange?: (count: number) => void;
 };
 
 const statusOptions = [
@@ -15,7 +16,7 @@ const statusOptions = [
   { value: "pending", label: "⏳ Pending" },
 ];
 
-export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode }: Props) {
+export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, onReviewCountChange }: Props) {
   const [assignments, setAssignments] = useState<AssignmentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
@@ -31,12 +32,14 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode }: 
         `/api/v1/cross-study/assignments?${params.toString()}`,
       );
       setAssignments(res.assignments);
+      onReviewCountChange?.(res.review_count);
     } catch {
       setAssignments([]);
+      onReviewCountChange?.(0);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, searchQuery]);
+  }, [onReviewCountChange, statusFilter, searchQuery]);
 
   useEffect(() => {
     load();
@@ -102,8 +105,8 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode }: 
               <tr className="border-b border-gray-200">
                 <th className="text-left py-2 px-2 font-semibold text-gray-700">WCode</th>
                 <th className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Source Course</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Assigned To</th>
+                <th className="text-left py-2 px-2 font-semibold text-gray-700">Course A</th>
+                <th className="text-left py-2 px-2 font-semibold text-gray-700">Course B</th>
                 <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
               </tr>
             </thead>
@@ -116,10 +119,12 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode }: 
                 >
                   <td className="py-2 px-2 font-mono text-blue-600">{a.wcode}</td>
                   <td className="py-2 px-2">{a.full_name}</td>
-                  <td className="py-2 px-2 text-gray-600 max-w-48 truncate" title={a.source_course_name}>
-                    {a.source_course_name}
+                  <td className="py-2 px-2 text-gray-600 max-w-48 truncate" title={a.dest_course_a_name}>
+                    {a.dest_course_a_name}
                   </td>
-                  <td className="py-2 px-2 text-gray-600">{a.assigned_course_name}</td>
+                  <td className="py-2 px-2 text-gray-600 max-w-48 truncate" title={a.dest_course_b_name}>
+                    {a.dest_course_b_name}
+                  </td>
                   <td className="py-2 px-2">{statusBadge(a.status)}</td>
                 </tr>
               ))}

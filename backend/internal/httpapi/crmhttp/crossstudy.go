@@ -64,12 +64,19 @@ func (s *crossStudyServer) handleAssignmentList(w http.ResponseWriter, r *http.R
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
+	reviewCount, err := s.cs.CountReviewNeeded(r.Context())
+	if err != nil {
+		s.deps.Log.Error("cross-study review count failed", "error", err)
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
 	if items == nil {
 		items = []crossstudy.AssignmentSummary{}
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
-		"assignments": items,
-		"total":       len(items),
+		"assignments":  items,
+		"total":        len(items),
+		"review_count": reviewCount,
 	})
 }
 
@@ -81,8 +88,10 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 
 	var body struct {
 		WCode            string `json:"wcode"`
-		SourceCourseID   string `json:"source_course_id"`
 		SnapshotID       string `json:"snapshot_id"`
+		CRMCourseName    string `json:"crm_course_name"`
+		CRMRowHash       string `json:"crm_row_hash"`
+		CRMXLSXRowNumber int32  `json:"crm_xlsx_row_number"`
 		DestCourseAID    string `json:"dest_course_a_id"`
 		DestCourseBID    string `json:"dest_course_b_id"`
 		AssignedCourseID string `json:"assigned_course_id"`
@@ -97,11 +106,6 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	sourceCourseID, err := uuid.Parse(body.SourceCourseID)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_input", "invalid source_course_id")
-		return
-	}
 	snapshotID, err := uuid.Parse(body.SnapshotID)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_input", "invalid snapshot_id")
@@ -125,8 +129,10 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 
 	input := crossstudy.SaveAssignmentInput{
 		WCode:            body.WCode,
-		SourceCourseID:   sourceCourseID,
 		SnapshotID:       snapshotID,
+		CRMCourseName:    body.CRMCourseName,
+		CRMRowHash:       body.CRMRowHash,
+		CRMXLSXRowNumber: body.CRMXLSXRowNumber,
 		DestCourseAID:    destAID,
 		DestCourseBID:    destBID,
 		AssignedCourseID: assignedID,
