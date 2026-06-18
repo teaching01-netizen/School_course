@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
-import { ExternalLink, Calendar } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import type { TeacherDashboardResponse, TeacherDashboardSession } from '../../types';
+import DayTimeline from './DayTimeline';
 import MetricCards from './MetricCards';
 import CourseDashboardCard from './CourseDashboardCard';
 import TeacherDashboardTable from './TeacherDashboardTable';
@@ -10,6 +10,7 @@ import TeacherDashboardTable from './TeacherDashboardTable';
 type DashboardViewProps = {
   data: TeacherDashboardResponse;
   weekStart: Date;
+  onBackToToday?: () => void;
 };
 
 type CourseGroup = {
@@ -62,57 +63,16 @@ function computeScheduleSummary(sessions: TeacherDashboardSession[]): string {
   return `${days.join('/')} ${first.startTime}–${first.endTime}`;
 }
 
-function TodayRow({ session }: { session: TeacherDashboardSession }) {
-  const absCount = (session.absent_students ?? []).length;
-  const sitInCount = (session.sit_in_visitors ?? []).length;
-  const displayName = session.subject_name ?? session.course_name;
-
-  const isAbsences = absCount > 0;
-  const isSitInsOnly = !isAbsences && sitInCount > 0;
-
-  let dotColor: string;
-  let statusText: string;
-  if (isAbsences) {
-    dotColor = 'bg-red-500';
-    statusText = `${absCount} absent`;
-  } else if (isSitInsOnly) {
-    dotColor = 'bg-amber-500';
-    statusText = `${sitInCount} sit-in`;
-  } else {
-    dotColor = 'bg-green-500';
-    statusText = 'All clear';
-  }
-
-  return (
-    <div className="flex items-center gap-2 py-1">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
-      <span className="text-[13px] text-gray-700 min-w-0">
-        {format(new Date(session.start_at), 'HH:mm')}–{format(new Date(session.end_at), 'HH:mm')}
-        {' · '}
-        <span className="font-medium">{displayName}</span>
-        {' · '}
-        <span className={
-          isAbsences ? 'text-red-600' : isSitInsOnly ? 'text-amber-600' : 'text-green-600'
-        }>
-          {statusText}
-        </span>
-      </span>
-      {isAbsences && session.absent_students?.[0] ? (
-        <Link
-          to={`/absences/${session.absent_students[0].absence_id}`}
-          className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
-        >
-          View <ExternalLink className="inline h-3 w-3" />
-        </Link>
-      ) : null}
-    </div>
-  );
-}
-
-export default function DashboardView({ data, weekStart }: DashboardViewProps) {
+export default function DashboardView({ data, weekStart, onBackToToday }: DashboardViewProps) {
   const [showGrid, setShowGrid] = useState(false);
 
-  const todayDateStr = useMemo(() => yyyyMmDd(new Date()), []);
+  const today = useMemo(() => new Date(), []);
+  const todayDateStr = useMemo(() => yyyyMmDd(today), [today]);
+
+  const isCurrentWeek = useMemo(() => {
+    const todayWeekStart = yyyyMmDd(new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7)));
+    return yyyyMmDd(weekStart) === todayWeekStart;
+  }, [weekStart, todayDateStr, today]);
 
   const todaySessions = useMemo(() => {
     return data.sessions.filter((s) => {
@@ -166,29 +126,32 @@ export default function DashboardView({ data, weekStart }: DashboardViewProps) {
 
   return (
     <>
+      {/* Date context header */}
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-[13px] text-gray-600">
+          <span className="font-semibold text-gray-900">{format(today, 'EEE, d MMM yyyy')}</span>
+        </p>
+        {!isCurrentWeek && onBackToToday ? (
+          <button
+            type="button"
+            onClick={onBackToToday}
+            className="text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
+          >
+            Back to Today
+          </button>
+        ) : null}
+      </div>
+
       <MetricCards
         todaySessionCount={todaySessions.length}
         needAttention={needAttention}
         totalAbsences={todayAbsences}
       />
 
-      {/* Today section */}
-      {todaySessions.length > 0 ? (
-        <div className="mb-4 rounded border border-gray-200 bg-white px-4 py-2.5">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-            Today
-          </p>
-          <div className="divide-y divide-gray-50">
-            {todaySessions.map((s) => (
-              <TodayRow key={s.id} session={s} />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4 rounded border border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-400">
-          No sessions today.
-        </div>
-      )}
+      {/* Day timeline */}
+      <div className="mb-4">
+        <DayTimeline sessions={todaySessions} />
+      </div>
 
       {/* Course cards */}
       {courseGroups.length === 0 ? (

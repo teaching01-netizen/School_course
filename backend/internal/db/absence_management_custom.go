@@ -315,14 +315,17 @@ func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenc
 }
 
 type SitInStudentRow struct {
-	AbsenceID        pgtype.UUID
-	SessionID        pgtype.UUID
-	Wcode            string
-	Nickname         pgtype.Text
-	StudentName      pgtype.Text
-	FromCourseCode   string
-	FromCourseName   pgtype.Text
-	FromSubjectName  pgtype.Text
+	AbsenceID              pgtype.UUID
+	SessionID              pgtype.UUID
+	Wcode                  string
+	Nickname               pgtype.Text
+	StudentName            pgtype.Text
+	FromCourseCode         string
+	FromCourseName         pgtype.Text
+	FromSubjectName        pgtype.Text
+	SessionStartAt         pgtype.Timestamptz
+	SessionEndAt           pgtype.Timestamptz
+	AbsentCourseSubjectName pgtype.Text
 }
 
 type AbsentStudentRow struct {
@@ -331,6 +334,7 @@ type AbsentStudentRow struct {
 	Nickname    pgtype.Text
 	StudentName pgtype.Text
 	AbsenceID   pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
 }
 
 type AbsenceCountRow struct {
@@ -346,7 +350,8 @@ func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []p
 		SELECT ams.session_id, sa.wcode,
 		       st.nickname,
 		       COALESCE(st.full_name, '') AS student_name,
-		       sa.id AS absence_id
+		       sa.id AS absence_id,
+		       sa.created_at
 		FROM absence_missed_sessions ams
 		JOIN student_absences sa ON sa.id = ams.absence_id AND sa.status <> 'cancelled'
 		LEFT JOIN students st ON st.wcode = sa.wcode
@@ -360,7 +365,7 @@ func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []p
 	var out []AbsentStudentRow
 	for rows.Next() {
 		var r AbsentStudentRow
-		if err := rows.Scan(&r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.AbsenceID); err != nil {
+		if err := rows.Scan(&r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.AbsenceID, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -404,12 +409,17 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 		       COALESCE(st.full_name, '') AS student_name,
 		       c.code AS from_course_code,
 		       COALESCE(c.name, '') AS from_course_name,
-		       COALESCE(sub.name, '') AS from_subject_name
+		       COALESCE(sub.name, '') AS from_subject_name,
+		       sess.start_at, sess.end_at,
+		       COALESCE(absent_sub.name, '') AS absent_subject_name
 		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN courses c ON c.id = sa.sit_in_course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
+		LEFT JOIN courses absent_c ON absent_c.id = sa.course_id
+		LEFT JOIN subjects absent_sub ON absent_sub.id = absent_c.subject_id
 		WHERE asi.session_id = ANY($1::uuid[])
 		ORDER BY asi.session_id, sa.wcode
 	`, sessionIDs)
@@ -420,7 +430,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 	var out []SitInStudentRow
 	for rows.Next() {
 		var r SitInStudentRow
-		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName, &r.FromSubjectName); err != nil {
+		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName, &r.FromSubjectName, &r.SessionStartAt, &r.SessionEndAt, &r.AbsentCourseSubjectName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

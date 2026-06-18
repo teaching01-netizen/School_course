@@ -147,7 +147,7 @@ export default function AbsenceDashboard() {
               <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
             </div>
           ) : data ? (
-            <DashboardView data={data} weekStart={weekStart} />
+            <DashboardView data={data} weekStart={weekStart} onBackToToday={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} />
           ) : loading ? (
             <LoadingSkeleton type="table" lines={8} />
           ) : null}

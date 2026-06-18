@@ -1,3 +1,4 @@
+import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import type { TeacherDashboardSession, TeacherDashboardSitInVisitor, AbsentStudent } from '../../types';
@@ -22,6 +23,18 @@ function dedupAbsences(absences: AbsentStudent[]): AbsentStudent[] {
     seen.add(a.absence_id);
     return true;
   });
+}
+
+function relativeTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffDays === 0) return `Today ${format(d, 'HH:mm')}`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7 && now.getDay() >= d.getDay()) return format(d, 'EEE');
+  return format(d, 'd MMM');
 }
 
 function dedupSitIns(visitors: TeacherDashboardSitInVisitor[]): TeacherDashboardSitInVisitor[] {
@@ -64,11 +77,14 @@ export default function CourseDashboardCard({ course }: CourseDashboardCardProps
           <div className="divide-y divide-gray-50">
             {allAbsences.slice(0, 8).map((s) => (
               <div key={s.absence_id} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-1.5 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="truncate text-[13px] text-gray-800">
                     {s.nickname ?? s.student_name ?? s.wcode}
                   </span>
                   <span className="shrink-0 text-[11px] text-gray-400">({s.wcode})</span>
+                  {s.created_at ? (
+                    <span className="shrink-0 text-[11px] text-gray-400">{relativeTime(s.created_at)}</span>
+                  ) : null}
                 </div>
                 <Link
                   to={`/absences/${s.absence_id}`}
@@ -94,23 +110,31 @@ export default function CourseDashboardCard({ course }: CourseDashboardCardProps
           </p>
           <div className="divide-y divide-gray-50">
             {allSitIns.map((v) => {
-              const fromLabel = v.from_subject_name ?? v.from_course_code;
+              const absentLabel = v.absent_subject_name ?? v.from_course_code;
+              const timeStr = v.session_start_at
+                ? `${format(new Date(v.session_start_at), 'EEE HH:mm')}–${format(new Date(v.session_end_at), 'HH:mm')}`
+                : null;
               return (
-                <div key={`${v.absence_id}-${v.wcode}`} className="flex items-center justify-between py-1">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="truncate text-[13px] text-gray-800">
-                      {v.nickname ?? v.student_name ?? v.wcode}
-                    </span>
-                    <span className="shrink-0 text-[11px] text-amber-600">
-                      from {fromLabel}
-                    </span>
+                <div key={`${v.absence_id}-${v.wcode}`} className="py-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate text-[13px] text-gray-800">
+                        {v.nickname ?? v.student_name ?? v.wcode}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-amber-600">
+                        absent from {absentLabel}
+                      </span>
+                    </div>
+                    <Link
+                      to={`/absences/${v.absence_id}`}
+                      className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
+                    >
+                      View <ExternalLink className="inline h-3 w-3" />
+                    </Link>
                   </div>
-                  <Link
-                    to={`/absences/${v.absence_id}`}
-                    className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
-                  >
-                    View <ExternalLink className="inline h-3 w-3" />
-                  </Link>
+                  {timeStr ? (
+                    <p className="text-[11px] text-gray-400 pl-0">{timeStr}</p>
+                  ) : null}
                 </div>
               );
             })}

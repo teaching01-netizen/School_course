@@ -27,12 +27,15 @@ type teacherInfoDTO struct {
 }
 
 type sitInVisitorDTO struct {
-	Wcode            string  `json:"wcode"`
-	Nickname         *string `json:"nickname"`
-	StudentName      *string `json:"student_name"`
-	FromCourseCode   string  `json:"from_course_code"`
-	FromSubjectName  *string `json:"from_subject_name"`
-	AbsenceID        string  `json:"absence_id"`
+	Wcode               string  `json:"wcode"`
+	Nickname            *string `json:"nickname"`
+	StudentName         *string `json:"student_name"`
+	FromCourseCode      string  `json:"from_course_code"`
+	FromSubjectName     *string `json:"from_subject_name"`
+	AbsenceID           string  `json:"absence_id"`
+	SessionStartAt      string  `json:"session_start_at"`
+	SessionEndAt        string  `json:"session_end_at"`
+	AbsentSubjectName   *string `json:"absent_subject_name"`
 }
 
 type absentStudentDTO struct {
@@ -40,6 +43,7 @@ type absentStudentDTO struct {
 	Nickname    *string `json:"nickname"`
 	StudentName *string `json:"student_name"`
 	AbsenceID   string  `json:"absence_id"`
+	CreatedAt   *string `json:"created_at"`
 }
 
 type sessionDTO struct {
@@ -155,11 +159,17 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if ar.Nickname.Valid {
 			nick = &ar.Nickname.String
 		}
+		var createdAt *string
+		if ar.CreatedAt.Valid {
+			cts := ar.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+			createdAt = &cts
+		}
 		absentStudentsBySession[sid] = append(absentStudentsBySession[sid], absentStudentDTO{
 			Wcode:       ar.Wcode,
 			Nickname:    nick,
 			StudentName: name,
 			AbsenceID:   aid,
+			CreatedAt:   createdAt,
 		})
 	}
 
@@ -185,13 +195,22 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if sr.FromSubjectName.Valid {
 			fromSubjectName = &sr.FromSubjectName.String
 		}
+		var absentSubjectName *string
+		if sr.AbsentCourseSubjectName.Valid {
+			absentSubjectName = &sr.AbsentCourseSubjectName.String
+		}
+		startS, _ := s.a.TimeString(sr.SessionStartAt)
+		endS, _ := s.a.TimeString(sr.SessionEndAt)
 		sitInsBySession[sid] = append(sitInsBySession[sid], sitInVisitorDTO{
-			Wcode:            sr.Wcode,
-			Nickname:         nick,
-			StudentName:      name,
-			FromCourseCode:   sr.FromCourseCode,
-			FromSubjectName:  fromSubjectName,
-			AbsenceID:        aid,
+			Wcode:             sr.Wcode,
+			Nickname:          nick,
+			StudentName:       name,
+			FromCourseCode:    sr.FromCourseCode,
+			FromSubjectName:   fromSubjectName,
+			AbsenceID:         aid,
+			SessionStartAt:    startS,
+			SessionEndAt:      endS,
+			AbsentSubjectName: absentSubjectName,
 		})
 	}
 

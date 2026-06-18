@@ -650,6 +650,9 @@ export type TeacherDashboardSitInVisitor = {
   from_course_code: string;
   from_subject_name: string | null;
   absence_id: string;
+  session_start_at: string;
+  session_end_at: string;
+  absent_subject_name: string | null;
 };
 
 export type AbsentStudent = {
@@ -657,6 +660,7 @@ export type AbsentStudent = {
   nickname: string | null;
   student_name: string | null;
   absence_id: string;
+  created_at: string | null;
 };
 
 export type TeacherDashboardSession = {
