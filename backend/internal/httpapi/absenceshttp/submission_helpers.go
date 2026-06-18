@@ -84,22 +84,37 @@ func (e *sessionTimingError) Error() string {
 
 func validateSessionTiming(settings absenceFormSettings, now time.Time, sessions []sessionTimingInfo) *sessionTimingError {
 	for _, session := range sessions {
-		if settings.MinHoursBeforeSession > 0 && session.StartAt.Valid {
-			cutoff := now.Add(time.Duration(settings.MinHoursBeforeSession) * time.Hour)
-			if cutoff.After(session.StartAt.Time) {
-				return &sessionTimingError{
-					code:    "too_close_to_session",
-					message: fmt.Sprintf("Must request at least %d %s before class", settings.MinHoursBeforeSession, pluralizeHour(settings.MinHoursBeforeSession)),
-				}
+		if timingErr := sessionTimingPolicyError(settings, now, session); timingErr != nil {
+			return timingErr
+		}
+	}
+	return nil
+}
+
+func sessionAllowedByTimingPolicy(settings absenceFormSettings, now time.Time, session sessionTimingInfo) bool {
+	return sessionTimingPolicyError(settings, now, session) == nil
+}
+
+func sessionTimingPolicyError(settings absenceFormSettings, now time.Time, session sessionTimingInfo) *sessionTimingError {
+	sessionStarted := session.StartAt.Valid && !now.Before(session.StartAt.Time)
+	if settings.MaxHoursAfterSession > 0 && session.EndAt.Valid {
+		deadline := session.EndAt.Time.Add(time.Duration(settings.MaxHoursAfterSession) * time.Hour)
+		if now.After(deadline) {
+			return &sessionTimingError{
+				code:    "grace_period_expired",
+				message: fmt.Sprintf("Request period ended %d %s after class", settings.MaxHoursAfterSession, pluralizeHour(settings.MaxHoursAfterSession)),
 			}
 		}
-		if settings.MaxHoursAfterSession > 0 && session.EndAt.Valid {
-			deadline := session.EndAt.Time.Add(time.Duration(settings.MaxHoursAfterSession) * time.Hour)
-			if now.After(deadline) {
-				return &sessionTimingError{
-					code:    "grace_period_expired",
-					message: fmt.Sprintf("Request period ended %d %s after class", settings.MaxHoursAfterSession, pluralizeHour(settings.MaxHoursAfterSession)),
-				}
+		if sessionStarted {
+			return nil
+		}
+	}
+	if settings.MinHoursBeforeSession > 0 && session.StartAt.Valid {
+		cutoff := now.Add(time.Duration(settings.MinHoursBeforeSession) * time.Hour)
+		if cutoff.After(session.StartAt.Time) {
+			return &sessionTimingError{
+				code:    "too_close_to_session",
+				message: fmt.Sprintf("Must request at least %d %s before class", settings.MinHoursBeforeSession, pluralizeHour(settings.MinHoursBeforeSession)),
 			}
 		}
 	}

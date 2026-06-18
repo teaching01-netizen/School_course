@@ -37,6 +37,24 @@ type sessionRow struct {
 	SubjectName string
 }
 
+func sessionsInRangeSelectSQL() string {
+	return `
+		SELECT sess.id, sess.start_at, sess.end_at,
+		       c.id, c.code, c.name,
+		       sub.id, sub.code, sub.name
+		FROM sessions sess
+		JOIN courses c ON c.id = sess.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
+		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN students st ON st.id = cs.student_id
+		WHERE st.wcode = $1
+		  AND sess.start_at >= $2
+		  AND sess.start_at < $3
+		  AND sess.deleted_at IS NULL
+		ORDER BY sub.code, sess.start_at
+	`
+}
+
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
@@ -835,19 +853,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		SubjectName string
 	}
 
-	rows, err := s.deps.DB.Query(r.Context(), `
-		SELECT sess.id, sess.start_at, sess.end_at,
-		       c.id, c.code, c.name,
-		       sub.id, sub.code, sub.name
-		FROM sessions sess
-		JOIN courses c ON c.id = sess.course_id
-		JOIN subjects sub ON sub.id = c.subject_id
-		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
-		JOIN students st ON st.id = cs.student_id
-		WHERE st.wcode = $1
-		  AND sess.deleted_at IS NULL
-		ORDER BY sub.code, sess.start_at
-	`, wcode)
+	rows, err := s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -855,6 +861,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	now := time.Now()
 	var sessions []sessionRow
 	for rows.Next() {
 		var dbRow sessionDBRow
@@ -882,6 +889,9 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		if !dbRow.StartAt.Valid || !dbRow.EndAt.Valid {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 			return
+		}
+		if !sessionAllowedByTimingPolicy(settings.Form, now, sessionTimingInfo{StartAt: dbRow.StartAt, EndAt: dbRow.EndAt}) {
+			continue
 		}
 		row := sessionRow{
 			ID:          sessionID,

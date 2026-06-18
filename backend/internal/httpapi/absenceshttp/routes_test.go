@@ -190,6 +190,19 @@ func TestValidateSessionTimingRejectsExpiredGracePeriod(t *testing.T) {
 	}
 }
 
+func TestValidateSessionTimingAllowsEndedSessionInsideGracePeriodWhenBeforeCutoffEnabled(t *testing.T) {
+	now := time.Date(2026, 6, 18, 9, 30, 0, 0, time.UTC)
+	settings := absenceFormSettings{MinHoursBeforeSession: 2, MaxHoursAfterSession: 1}
+	sessions := []sessionTimingInfo{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 18, 8, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC), Valid: true},
+	}}
+
+	if err := validateSessionTiming(settings, now, sessions); err != nil {
+		t.Fatalf("ended session inside configured grace period = %v, want allowed", err)
+	}
+}
+
 func TestValidateSessionTimingDisabledPoliciesAllowPastAndNearSessions(t *testing.T) {
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 	settings := absenceFormSettings{}
@@ -200,6 +213,45 @@ func TestValidateSessionTimingDisabledPoliciesAllowPastAndNearSessions(t *testin
 
 	if err := validateSessionTiming(settings, now, sessions); err != nil {
 		t.Fatalf("disabled timing policies = %v, want allowed", err)
+	}
+}
+
+func TestSessionAllowedByTimingPolicyFiltersLookupSessions(t *testing.T) {
+	now := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	settings := absenceFormSettings{MinHoursBeforeSession: 2, MaxHoursAfterSession: 1}
+
+	allowed := sessionTimingInfo{
+		StartAt: pgtype.Timestamptz{Time: now.Add(2*time.Hour + time.Minute), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: now.Add(4 * time.Hour), Valid: true},
+	}
+	tooClose := sessionTimingInfo{
+		StartAt: pgtype.Timestamptz{Time: now.Add(90 * time.Minute), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: now.Add(3 * time.Hour), Valid: true},
+	}
+	expired := sessionTimingInfo{
+		StartAt: pgtype.Timestamptz{Time: now.Add(-3 * time.Hour), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: now.Add(-61 * time.Minute), Valid: true},
+	}
+
+	if !sessionAllowedByTimingPolicy(settings, now, allowed) {
+		t.Fatalf("session outside cutoff windows should remain visible")
+	}
+	if sessionAllowedByTimingPolicy(settings, now, tooClose) {
+		t.Fatalf("session inside the pre-session cutoff should be filtered")
+	}
+	if sessionAllowedByTimingPolicy(settings, now, expired) {
+		t.Fatalf("session after the post-session grace period should be filtered")
+	}
+}
+
+func TestSessionsInRangeQueryAppliesRequestedDateBounds(t *testing.T) {
+	sql := sessionsInRangeSelectSQL()
+
+	if !strings.Contains(sql, "sess.start_at >= $2") {
+		t.Fatalf("sessions-in-range query should apply date_from bound, SQL: %s", sql)
+	}
+	if !strings.Contains(sql, "sess.start_at < $3") {
+		t.Fatalf("sessions-in-range query should apply exclusive date_to bound, SQL: %s", sql)
 	}
 }
 

@@ -31,6 +31,7 @@ export function useApiQuery<T>(url: string | null, deps?: unknown[]): UseApiQuer
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setData(null);
 
     apiJson<T>(url)
       .then((result) => {

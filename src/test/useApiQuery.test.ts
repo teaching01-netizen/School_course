@@ -89,6 +89,23 @@ describe("useApiQuery", () => {
     await waitFor(() => expect(result.current.data).toEqual(data2));
   });
 
+  it("clears stale data when a new url fails", async () => {
+    const data1 = [{ id: "1" }];
+    const err = new ApiRequestError("Server down", { status: 500 });
+    mockApiJson.mockResolvedValueOnce(data1).mockRejectedValueOnce(err);
+
+    const { result, rerender } = renderHook(({ url }) => useApiQuery(url), {
+      initialProps: { url: "/api/v1/a" },
+    });
+
+    await waitFor(() => expect(result.current.data).toEqual(data1));
+
+    rerender({ url: "/api/v1/b" });
+
+    await waitFor(() => expect(result.current.error).toBe(err));
+    expect(result.current.data).toBeNull();
+  });
+
   it("does not call apiJson after unmount", async () => {
     mockApiJson.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve([{ id: "1" }]), 100)));
 
