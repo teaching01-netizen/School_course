@@ -10,7 +10,7 @@ function tooltipContent(session: TeacherDashboardSession): string {
   const absStudents = session.absent_students ?? [];
 
   if (absStudents.length > 0) {
-    const names = absStudents.slice(0, 5).map((s) => s.student_name ?? s.wcode);
+    const names = absStudents.slice(0, 5).map((s) => s.nickname ?? s.student_name ?? s.wcode);
     const label = names.join(', ');
     const remaining = absStudents.length - 5;
     parts.push(`Absent: ${label}${remaining > 0 ? ` …and ${remaining} more` : ''}`);
@@ -18,7 +18,7 @@ function tooltipContent(session: TeacherDashboardSession): string {
 
   const sitInVisitors = session.sit_in_visitors ?? [];
   if (sitInVisitors.length > 0) {
-    const names = sitInVisitors.slice(0, 3).map((v) => `${v.student_name ?? v.wcode} (from ${v.from_course_code})`);
+    const names = sitInVisitors.slice(0, 3).map((v) => `${v.nickname ?? v.student_name ?? v.wcode} (from ${v.from_subject_name ?? v.from_course_code})`);
     const label = names.join(', ');
     const remaining = sitInVisitors.length - 3;
     parts.push(`Sit-in: ${label}${remaining > 0 ? ` …and ${remaining} more` : ''}`);

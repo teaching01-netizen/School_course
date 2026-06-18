@@ -27,14 +27,17 @@ type teacherInfoDTO struct {
 }
 
 type sitInVisitorDTO struct {
-	Wcode          string  `json:"wcode"`
-	StudentName    *string `json:"student_name"`
-	FromCourseCode string  `json:"from_course_code"`
-	AbsenceID      string  `json:"absence_id"`
+	Wcode            string  `json:"wcode"`
+	Nickname         *string `json:"nickname"`
+	StudentName      *string `json:"student_name"`
+	FromCourseCode   string  `json:"from_course_code"`
+	FromSubjectName  *string `json:"from_subject_name"`
+	AbsenceID        string  `json:"absence_id"`
 }
 
 type absentStudentDTO struct {
 	Wcode       string  `json:"wcode"`
+	Nickname    *string `json:"nickname"`
 	StudentName *string `json:"student_name"`
 	AbsenceID   string  `json:"absence_id"`
 }
@@ -148,8 +151,13 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if ar.StudentName.Valid {
 			name = &ar.StudentName.String
 		}
+		var nick *string
+		if ar.Nickname.Valid {
+			nick = &ar.Nickname.String
+		}
 		absentStudentsBySession[sid] = append(absentStudentsBySession[sid], absentStudentDTO{
 			Wcode:       ar.Wcode,
+			Nickname:    nick,
 			StudentName: name,
 			AbsenceID:   aid,
 		})
@@ -169,11 +177,21 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if sr.StudentName.Valid {
 			name = &sr.StudentName.String
 		}
+		var nick *string
+		if sr.Nickname.Valid {
+			nick = &sr.Nickname.String
+		}
+		var fromSubjectName *string
+		if sr.FromSubjectName.Valid {
+			fromSubjectName = &sr.FromSubjectName.String
+		}
 		sitInsBySession[sid] = append(sitInsBySession[sid], sitInVisitorDTO{
-			Wcode:          sr.Wcode,
-			StudentName:    name,
-			FromCourseCode: sr.FromCourseCode,
-			AbsenceID:      aid,
+			Wcode:            sr.Wcode,
+			Nickname:         nick,
+			StudentName:      name,
+			FromCourseCode:   sr.FromCourseCode,
+			FromSubjectName:  fromSubjectName,
+			AbsenceID:        aid,
 		})
 	}
 

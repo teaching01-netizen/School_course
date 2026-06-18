@@ -645,13 +645,16 @@ export interface ToastMessage {
 
 export type TeacherDashboardSitInVisitor = {
   wcode: string;
+  nickname: string | null;
   student_name: string | null;
   from_course_code: string;
+  from_subject_name: string | null;
   absence_id: string;
 };
 
 export type AbsentStudent = {
   wcode: string;
+  nickname: string | null;
   student_name: string | null;
   absence_id: string;
 };

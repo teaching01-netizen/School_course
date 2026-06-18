@@ -66,7 +66,7 @@ export default function CourseDashboardCard({ course }: CourseDashboardCardProps
               <div key={s.absence_id} className="flex items-center justify-between py-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate text-[13px] text-gray-800">
-                    {s.student_name ?? s.wcode}
+                    {s.nickname ?? s.student_name ?? s.wcode}
                   </span>
                   <span className="shrink-0 text-[11px] text-gray-400">({s.wcode})</span>
                 </div>
@@ -93,18 +93,27 @@ export default function CourseDashboardCard({ course }: CourseDashboardCardProps
             {allSitIns.length} sit-in {allSitIns.length === 1 ? 'visitor' : 'visitors'} this week
           </p>
           <div className="divide-y divide-gray-50">
-            {allSitIns.map((v) => (
-              <div key={`${v.absence_id}-${v.wcode}`} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="truncate text-[13px] text-gray-800">
-                    {v.student_name ?? v.wcode}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-amber-600">
-                    from {v.from_course_code}
-                  </span>
+            {allSitIns.map((v) => {
+              const fromLabel = v.from_subject_name ?? v.from_course_code;
+              return (
+                <div key={`${v.absence_id}-${v.wcode}`} className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate text-[13px] text-gray-800">
+                      {v.nickname ?? v.student_name ?? v.wcode}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-amber-600">
+                      from {fromLabel}
+                    </span>
+                  </div>
+                  <Link
+                    to={`/absences/${v.absence_id}`}
+                    className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
+                  >
+                    View <ExternalLink className="inline h-3 w-3" />
+                  </Link>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}

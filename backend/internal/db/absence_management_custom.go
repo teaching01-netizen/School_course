@@ -315,18 +315,20 @@ func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenc
 }
 
 type SitInStudentRow struct {
-	AbsenceID      pgtype.UUID
-	SessionID      pgtype.UUID
-	Wcode          string
-	Nickname       pgtype.Text
-	StudentName    pgtype.Text
-	FromCourseCode string
-	FromCourseName pgtype.Text
+	AbsenceID        pgtype.UUID
+	SessionID        pgtype.UUID
+	Wcode            string
+	Nickname         pgtype.Text
+	StudentName      pgtype.Text
+	FromCourseCode   string
+	FromCourseName   pgtype.Text
+	FromSubjectName  pgtype.Text
 }
 
 type AbsentStudentRow struct {
 	SessionID   pgtype.UUID
 	Wcode       string
+	Nickname    pgtype.Text
 	StudentName pgtype.Text
 	AbsenceID   pgtype.UUID
 }
@@ -342,6 +344,7 @@ func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []p
 	}
 	rows, err := q.db.Query(ctx, `
 		SELECT ams.session_id, sa.wcode,
+		       st.nickname,
 		       COALESCE(st.full_name, '') AS student_name,
 		       sa.id AS absence_id
 		FROM absence_missed_sessions ams
@@ -357,7 +360,7 @@ func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []p
 	var out []AbsentStudentRow
 	for rows.Next() {
 		var r AbsentStudentRow
-		if err := rows.Scan(&r.SessionID, &r.Wcode, &r.StudentName, &r.AbsenceID); err != nil {
+		if err := rows.Scan(&r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.AbsenceID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -400,11 +403,13 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 		       st.nickname,
 		       COALESCE(st.full_name, '') AS student_name,
 		       c.code AS from_course_code,
-		       COALESCE(c.name, '') AS from_course_name
+		       COALESCE(c.name, '') AS from_course_name,
+		       COALESCE(sub.name, '') AS from_subject_name
 		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
 		LEFT JOIN students st ON st.wcode = sa.wcode
 		LEFT JOIN courses c ON c.id = sa.sit_in_course_id
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		WHERE asi.session_id = ANY($1::uuid[])
 		ORDER BY asi.session_id, sa.wcode
 	`, sessionIDs)
@@ -415,7 +420,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 	var out []SitInStudentRow
 	for rows.Next() {
 		var r SitInStudentRow
-		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName); err != nil {
+		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName, &r.FromSubjectName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
