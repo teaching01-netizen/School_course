@@ -82,3 +82,64 @@ func (q *Queries) TeacherSessionsInRange(ctx context.Context, teacherID uuid.UUI
 	}
 	return out, rows.Err()
 }
+
+type PendingAbsenceRequestRow struct {
+	ID             pgtype.UUID
+	Wcode          string
+	StudentName    pgtype.Text
+	Nickname       pgtype.Text
+	CourseCode     string
+	CourseName     string
+	SubjectName    pgtype.Text
+	DateFrom       pgtype.Date
+	DateTo         pgtype.Date
+	Reason         pgtype.Text
+	ReasonCategory pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) TeacherPendingAbsenceRequests(ctx context.Context, teacherID uuid.UUID) ([]PendingAbsenceRequestRow, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT sa.id, sa.wcode,
+		       COALESCE(st.full_name, sa.student_name) AS student_name,
+		       COALESCE(st.nickname, sa.student_nickname) AS nickname,
+		       c.code, c.name,
+		       sub.name,
+		       sa.date_from, sa.date_to,
+		       sa.reason, sa.reason_category,
+		       sa.created_at
+		FROM student_absences sa
+		JOIN courses c ON c.id = sa.course_id
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN students st ON st.wcode = sa.wcode
+		WHERE sa.status = 'pending'
+		  AND EXISTS (
+		    SELECT 1 FROM sessions sess
+		    WHERE sess.course_id = sa.course_id
+		      AND sess.teacher_id = $1
+		      AND sess.deleted_at IS NULL
+		  )
+		ORDER BY sa.created_at DESC
+	`, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PendingAbsenceRequestRow
+	for rows.Next() {
+		var item PendingAbsenceRequestRow
+		if err := rows.Scan(
+			&item.ID, &item.Wcode,
+			&item.StudentName, &item.Nickname,
+			&item.CourseCode, &item.CourseName,
+			&item.SubjectName,
+			&item.DateFrom, &item.DateTo,
+			&item.Reason, &item.ReasonCategory,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}

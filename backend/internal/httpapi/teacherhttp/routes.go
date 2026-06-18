@@ -66,12 +66,28 @@ type weeklySummaryDTO struct {
 	TotalSitIns   int `json:"total_sit_ins"`
 }
 
+type pendingAbsenceRequestDTO struct {
+	ID             string  `json:"id"`
+	Wcode          string  `json:"wcode"`
+	StudentName    *string `json:"student_name"`
+	Nickname       *string `json:"nickname"`
+	CourseCode     string  `json:"course_code"`
+	CourseName     string  `json:"course_name"`
+	SubjectName    *string `json:"subject_name"`
+	DateFrom       string  `json:"date_from"`
+	DateTo         string  `json:"date_to"`
+	Reason         *string `json:"reason"`
+	ReasonCategory *string `json:"reason_category"`
+	CreatedAt      string  `json:"created_at"`
+}
+
 type dashboardResponse struct {
-	WeekStart string           `json:"week_start"`
-	WeekEnd   string           `json:"week_end"`
-	Teacher   teacherInfoDTO   `json:"teacher"`
-	Sessions  []sessionDTO     `json:"sessions"`
-	Summary   weeklySummaryDTO `json:"summary"`
+	WeekStart              string                      `json:"week_start"`
+	WeekEnd                string                      `json:"week_end"`
+	Teacher                teacherInfoDTO              `json:"teacher"`
+	Sessions               []sessionDTO                `json:"sessions"`
+	Summary                weeklySummaryDTO            `json:"summary"`
+	PendingAbsenceRequests []pendingAbsenceRequestDTO  `json:"pending_absence_requests"`
 }
 
 func getMonday(t time.Time) time.Time {
@@ -110,16 +126,29 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	weekStart := getMonday(now)
-	if weekStartRaw := r.URL.Query().Get("week_start"); weekStartRaw != "" {
-		parsed, err := time.Parse("2006-01-02", weekStartRaw)
+
+	var rangeStart, rangeEnd time.Time
+
+	if monthStartRaw := r.URL.Query().Get("month_start"); monthStartRaw != "" {
+		parsed, err := time.Parse("2006-01-02", monthStartRaw)
 		if err == nil {
-			weekStart = getMonday(parsed)
+			rangeStart = time.Date(parsed.Year(), parsed.Month(), 1, 0, 0, 0, 0, time.UTC)
+			rangeEnd = rangeStart.AddDate(0, 1, 0)
 		}
 	}
-	weekEnd := weekStart.AddDate(0, 0, 6)
 
-	rows, err := s.deps.Q.TeacherSessionsInRange(r.Context(), teacherID, weekStart, weekEnd.Add(24*time.Hour))
+	if rangeStart.IsZero() {
+		rangeStart = getMonday(now)
+		if weekStartRaw := r.URL.Query().Get("week_start"); weekStartRaw != "" {
+			parsed, err := time.Parse("2006-01-02", weekStartRaw)
+			if err == nil {
+				rangeStart = getMonday(parsed)
+			}
+		}
+		rangeEnd = rangeStart.AddDate(0, 0, 7)
+	}
+
+	rows, err := s.deps.Q.TeacherSessionsInRange(r.Context(), teacherID, rangeStart, rangeEnd)
 	if err != nil {
 		s.deps.Log.Error("failed to fetch teacher sessions", "error", err)
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Failed to load sessions")
@@ -272,6 +301,53 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	pendingRows, err := s.deps.Q.TeacherPendingAbsenceRequests(r.Context(), teacherID)
+	if err != nil {
+		s.deps.Log.Error("failed to fetch pending absence requests", "error", err)
+	}
+
+	pendingRequests := make([]pendingAbsenceRequestDTO, 0, len(pendingRows))
+	for _, pr := range pendingRows {
+		id, err := s.a.UUIDString(pr.ID)
+		if err != nil {
+			continue
+		}
+		var name *string
+		if pr.StudentName.Valid {
+			name = &pr.StudentName.String
+		}
+		var nick *string
+		if pr.Nickname.Valid {
+			nick = &pr.Nickname.String
+		}
+		var subjectName *string
+		if pr.SubjectName.Valid {
+			subjectName = &pr.SubjectName.String
+		}
+		var reason *string
+		if pr.Reason.Valid {
+			reason = &pr.Reason.String
+		}
+		var reasonCat *string
+		if pr.ReasonCategory.Valid {
+			reasonCat = &pr.ReasonCategory.String
+		}
+		pendingRequests = append(pendingRequests, pendingAbsenceRequestDTO{
+			ID:             id,
+			Wcode:          pr.Wcode,
+			StudentName:    name,
+			Nickname:       nick,
+			CourseCode:     pr.CourseCode,
+			CourseName:     pr.CourseName,
+			SubjectName:    subjectName,
+			DateFrom:       pr.DateFrom.Time.Format("2006-01-02"),
+			DateTo:         pr.DateTo.Time.Format("2006-01-02"),
+			Reason:         reason,
+			ReasonCategory: reasonCat,
+			CreatedAt:      pr.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		})
+	}
+
 	teacherInfo := teacherInfoDTO{
 		ID:       teacherID.String(),
 		Username: teacherUsername,
@@ -281,15 +357,16 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := dashboardResponse{
-		WeekStart: weekStart.Format("2006-01-02"),
-		WeekEnd:   weekEnd.Format("2006-01-02"),
-		Teacher:   teacherInfo,
-		Sessions:  sessions,
+		WeekStart:              rangeStart.Format("2006-01-02"),
+		WeekEnd:                rangeEnd.Add(-24*time.Hour).Format("2006-01-02"),
+		Teacher:                teacherInfo,
+		Sessions:               sessions,
 		Summary: weeklySummaryDTO{
 			TotalSessions: len(sessions),
 			TotalAbsences: totalAbsences,
 			TotalSitIns:   totalSitIns,
 		},
+		PendingAbsenceRequests: pendingRequests,
 	}
 
 	s.a.WriteJSON(w, http.StatusOK, resp)

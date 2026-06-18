@@ -14,7 +14,10 @@ vi.mock("@/api/client", async () => {
 
 const TEACHERS = [{ id: "teacher-1", username: "Teacher One", role: "Teacher" }];
 
-function dashboardResponse(courseCode: string) {
+function dashboardResponse(courseCode: string, monthStart: string) {
+  const day = `${monthStart.slice(0, 8)}15`;
+  const sessionStart = `${day}T09:00:00Z`;
+  const sessionEnd = `${day}T10:00:00Z`;
   return {
     week_start: "2026-06-15",
     week_end: "2026-06-21",
@@ -26,14 +29,15 @@ function dashboardResponse(courseCode: string) {
         course_code: courseCode,
         course_name: "Algebra",
         subject_name: "Mathematics",
-        start_at: "2026-06-15T09:00:00Z",
-        end_at: "2026-06-15T10:00:00Z",
+        start_at: sessionStart,
+        end_at: sessionEnd,
         room_name: "Room A",
         absent_count: 2,
         sit_in_visitors: [],
       },
     ],
     summary: { total_sessions: 1, total_absences: 2, total_sit_ins: 0 },
+    pending_absence_requests: [],
   };
 }
 
@@ -54,7 +58,10 @@ beforeEach(() => {
 it("loads teachers and fetches the selected teacher dashboard", async () => {
   mockApiJson.mockImplementation(async (url: string) => {
     if (url === "/api/v1/users?role=Teacher") return TEACHERS;
-    if (url.includes("/api/v1/teacher/dashboard")) return dashboardResponse("MATH101");
+    if (url.includes("/api/v1/teacher/dashboard")) {
+      const monthStart = new URLSearchParams(url.split("?")[1]).get("month_start") ?? "2026-06-01";
+      return dashboardResponse("MATH101", monthStart);
+    }
     throw new Error(`Unmocked API call: ${url}`);
   });
 
@@ -65,7 +72,7 @@ it("loads teachers and fetches the selected teacher dashboard", async () => {
 
   await screen.findByText("Mathematics");
   expect(mockApiJson).toHaveBeenCalledWith(
-    expect.stringMatching(/\/api\/v1\/teacher\/dashboard\?week_start=\d{4}-\d{2}-\d{2}&teacher_id=teacher-1/),
+    expect.stringMatching(/\/api\/v1\/teacher\/dashboard\?month_start=\d{4}-\d{2}-\d{2}&teacher_id=teacher-1/),
   );
 });
 
@@ -74,12 +81,13 @@ it("retries a failed dashboard request without showing stale sessions", async ()
   mockApiJson.mockImplementation(async (url: string) => {
     if (url === "/api/v1/users?role=Teacher") return TEACHERS;
     if (url.includes("/api/v1/teacher/dashboard")) {
+      const monthStart = new URLSearchParams(url.split("?")[1]).get("month_start") ?? "2026-06-01";
       const dashboardCalls = mockApiJson.mock.calls.filter(([calledUrl]) =>
         String(calledUrl).includes("/api/v1/teacher/dashboard"),
       ).length;
-      if (dashboardCalls === 1) return dashboardResponse("MATH101");
+      if (dashboardCalls === 1) return dashboardResponse("MATH101", monthStart);
       if (dashboardCalls === 2) throw new ApiRequestError("Server down", { status: 500 });
-      return dashboardResponse("MATH102");
+      return dashboardResponse("MATH102", monthStart);
     }
     throw new Error(`Unmocked API call: ${url}`);
   });
@@ -89,7 +97,7 @@ it("retries a failed dashboard request without showing stale sessions", async ()
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
   await screen.findByText("Mathematics");
 
-  await user.click(screen.getByRole("button", { name: /next week/i }));
+  await user.click(screen.getByRole("button", { name: /next month/i }));
 
   await screen.findByText(/failed to load dashboard: server down/i);
   expect(screen.queryByText("Mathematics")).not.toBeInTheDocument();

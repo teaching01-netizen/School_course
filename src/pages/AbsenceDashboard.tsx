@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { useEffect, useRef, useState } from 'react';
+import { subMonths, addMonths } from 'date-fns';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useRealtime } from '../hooks/useRealtime';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
-import WeekNavigator from '../components/teacher/WeekNavigator';
 import DashboardView from '../components/teacher/DashboardView';
 import Button from '../components/ui/Button';
 import PageHeading from '../components/ui/PageHeading';
@@ -23,19 +22,18 @@ function yyyyMmDd(d: Date): string {
 export default function AbsenceDashboard() {
   const { addToast } = useToast();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [viewDate, setViewDate] = useState(() => new Date());
 
   const teachersQuery = useApiQuery<Teacher[]>('/api/v1/users?role=Teacher', []);
   const teachers = teachersQuery.data ?? [];
   const teachersLoading = teachersQuery.loading;
 
   const teacherDashboardPath = selectedTeacherId
-    ? `/api/v1/teacher/dashboard?week_start=${yyyyMmDd(weekStart)}&teacher_id=${selectedTeacherId}`
+    ? `/api/v1/teacher/dashboard?month_start=${yyyyMmDd(viewDate)}&teacher_id=${selectedTeacherId}`
     : null;
 
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(teacherDashboardPath, [teacherDashboardPath]);
 
-  // Real-time subscription: refetch on live attendance events
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
   const rtChannels = selectedTeacherId
@@ -59,24 +57,10 @@ export default function AbsenceDashboard() {
     }
   }, [teachersQuery.error, addToast]);
 
-  const selectedTeacher = useMemo(
-    () => teachers.find((t) => t.id === selectedTeacherId),
-    [teachers, selectedTeacherId],
-  );
-
-  const subtitle = useMemo(() => {
-    if (!data || !selectedTeacherId) return null;
-    const weekEnd = addDays(weekStart, 6);
-    return `${selectedTeacher?.username ?? selectedTeacherId} · ${format(weekStart, 'd MMM')} – ${format(weekEnd, 'd MMM yyyy')}`;
-  }, [data, weekStart, selectedTeacher, selectedTeacherId]);
-
   return (
     <div>
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <PageHeading>Teacher Dashboard</PageHeading>
-        </div>
-        {selectedTeacherId ? <WeekNavigator weekStart={weekStart} onChange={setWeekStart} /> : null}
+      <div className="mb-4 flex items-start justify-between">
+        <PageHeading>Teacher Dashboard</PageHeading>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -139,15 +123,19 @@ export default function AbsenceDashboard() {
         )
       ) : (
         <div>
-          {subtitle ? <p className="mb-4 text-sm text-gray-500">{subtitle}</p> : null}
-
           {error && !loading ? (
             <div className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               Failed to load dashboard: {error.message}
               <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
             </div>
           ) : data ? (
-            <DashboardView data={data} weekStart={weekStart} onBackToToday={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} />
+            <DashboardView
+              data={data}
+              viewDate={viewDate}
+              onPrevMonth={() => setViewDate((d) => subMonths(d, 1))}
+              onNextMonth={() => setViewDate((d) => addMonths(d, 1))}
+              onToday={() => setViewDate(new Date())}
+            />
           ) : loading ? (
             <LoadingSkeleton type="table" lines={8} />
           ) : null}

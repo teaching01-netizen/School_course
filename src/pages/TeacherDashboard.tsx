@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { useEffect, useRef, useState } from 'react';
+import { subMonths, addMonths } from 'date-fns';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useRealtime } from '../hooks/useRealtime';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
-import WeekNavigator from '../components/teacher/WeekNavigator';
 import DashboardView from '../components/teacher/DashboardView';
 import PageHeading from '../components/ui/PageHeading';
 import LoadingSkeleton from '../components/ui/LoadingSkeleton';
@@ -18,9 +17,9 @@ function yyyyMmDd(d: Date): string {
 
 export default function TeacherDashboard() {
   const { addToast } = useToast();
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [viewDate, setViewDate] = useState(() => new Date());
 
-  const apiPath = `/api/v1/teacher/dashboard?week_start=${yyyyMmDd(weekStart)}`;
+  const apiPath = `/api/v1/teacher/dashboard?month_start=${yyyyMmDd(viewDate)}`;
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(apiPath, [apiPath]);
 
   // Real-time subscription: refetch on live attendance events
@@ -38,22 +37,12 @@ export default function TeacherDashboard() {
     }
   }, [error, addToast]);
 
-  const subtitle = useMemo(() => {
-    if (!data) return null;
-    const weekEnd = addDays(weekStart, 6);
-    return `${data.teacher.username} · ${format(weekStart, 'd MMM')} – ${format(weekEnd, 'd MMM yyyy')}`;
-  }, [data, weekStart]);
-
   if (loading && !data) return <LoadingSkeleton type="table" lines={10} />;
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <PageHeading>Dashboard</PageHeading>
-          {subtitle ? <p className="text-sm text-gray-500">{subtitle}</p> : null}
-        </div>
-        <WeekNavigator weekStart={weekStart} onChange={setWeekStart} />
+      <div className="mb-4">
+        <PageHeading>Dashboard</PageHeading>
       </div>
 
       {error && !loading ? (
@@ -62,7 +51,13 @@ export default function TeacherDashboard() {
           <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
         </div>
       ) : data ? (
-        <DashboardView data={data} weekStart={weekStart} onBackToToday={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} />
+        <DashboardView
+          data={data}
+          viewDate={viewDate}
+          onPrevMonth={() => setViewDate((d) => subMonths(d, 1))}
+          onNextMonth={() => setViewDate((d) => addMonths(d, 1))}
+          onToday={() => setViewDate(new Date())}
+        />
       ) : loading ? (
         <LoadingSkeleton type="table" lines={8} />
       ) : null}

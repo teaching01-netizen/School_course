@@ -677,6 +677,21 @@ export type TeacherDashboardSession = {
   sit_in_visitors: TeacherDashboardSitInVisitor[];
 };
 
+export type PendingAbsenceRequest = {
+  id: string;
+  wcode: string;
+  student_name: string | null;
+  nickname: string | null;
+  course_code: string;
+  course_name: string;
+  subject_name: string | null;
+  date_from: string;
+  date_to: string;
+  reason: string | null;
+  reason_category: string | null;
+  created_at: string;
+};
+
 export type TeacherDashboardResponse = {
   week_start: string;
   week_end: string;
@@ -687,6 +702,7 @@ export type TeacherDashboardResponse = {
     total_absences: number;
     total_sit_ins: number;
   };
+  pending_absence_requests: PendingAbsenceRequest[];
 };
 
 // === Shared helper functions ===

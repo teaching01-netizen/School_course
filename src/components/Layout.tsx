@@ -228,6 +228,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                                     {pendingAbsences}
                                   </span>
                                 ) : null}
+                                {rest.path === '/absences/dashboard' && pendingAbsences > 0 ? (
+                                  <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                    {pendingAbsences}
+                                  </span>
+                                ) : null}
                               </Link>
                             );
                           })}
