@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, format, startOfWeek } from 'date-fns';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useRealtime } from '../hooks/useRealtime';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
 import WeekNavigator from '../components/teacher/WeekNavigator';
-import DashboardView, { type DashboardTab } from '../components/teacher/DashboardView';
+import DashboardView from '../components/teacher/DashboardView';
 import PageHeading from '../components/ui/PageHeading';
 import LoadingSkeleton from '../components/ui/LoadingSkeleton';
 
@@ -17,11 +18,19 @@ function yyyyMmDd(d: Date): string {
 
 export default function TeacherDashboard() {
   const { addToast } = useToast();
-  const [tab, setTab] = useState<DashboardTab>('schedule');
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
 
   const apiPath = `/api/v1/teacher/dashboard?week_start=${yyyyMmDd(weekStart)}`;
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(apiPath, [apiPath]);
+
+  // Real-time subscription: refetch on live attendance events
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useRealtime(
+    ['teacher_dashboard'],
+    () => { void refetchRef.current(); },
+    { debounceMs: 2000 },
+  );
 
   useEffect(() => {
     if (error) {
@@ -53,7 +62,7 @@ export default function TeacherDashboard() {
           <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
         </div>
       ) : data ? (
-        <DashboardView data={data} weekStart={weekStart} activeTab={tab} onTabChange={setTab} />
+        <DashboardView data={data} weekStart={weekStart} />
       ) : loading ? (
         <LoadingSkeleton type="table" lines={8} />
       ) : null}

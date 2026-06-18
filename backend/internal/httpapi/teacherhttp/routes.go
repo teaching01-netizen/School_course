@@ -33,17 +33,24 @@ type sitInVisitorDTO struct {
 	AbsenceID      string  `json:"absence_id"`
 }
 
+type absentStudentDTO struct {
+	Wcode       string  `json:"wcode"`
+	StudentName *string `json:"student_name"`
+	AbsenceID   string  `json:"absence_id"`
+}
+
 type sessionDTO struct {
-	ID            string            `json:"id"`
-	CourseID      string            `json:"course_id"`
-	CourseCode    string            `json:"course_code"`
-	CourseName    string            `json:"course_name"`
-	SubjectName   *string           `json:"subject_name"`
-	StartAt       string            `json:"start_at"`
-	EndAt         string            `json:"end_at"`
-	RoomName      *string           `json:"room_name"`
-	AbsentCount   int               `json:"absent_count"`
-	SitInVisitors []sitInVisitorDTO `json:"sit_in_visitors"`
+	ID            string             `json:"id"`
+	CourseID      string             `json:"course_id"`
+	CourseCode    string             `json:"course_code"`
+	CourseName    string             `json:"course_name"`
+	SubjectName   *string            `json:"subject_name"`
+	StartAt       string             `json:"start_at"`
+	EndAt         string             `json:"end_at"`
+	RoomName      *string            `json:"room_name"`
+	AbsentCount   int                `json:"absent_count"`
+	AbsentStudents []absentStudentDTO `json:"absent_students"`
+	SitInVisitors []sitInVisitorDTO  `json:"sit_in_visitors"`
 }
 
 type weeklySummaryDTO struct {
@@ -117,14 +124,35 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		sessionIDs = append(sessionIDs, row.ID)
 	}
 
+	absentStudentRows, err := s.deps.Q.AbsentStudentsBySessionIDs(r.Context(), sessionIDs)
+	if err != nil {
+		s.deps.Log.Error("failed to fetch absent students", "error", err)
+	}
+
 	sitInRows, err := s.deps.Q.SitInsBySessionIDs(r.Context(), sessionIDs)
 	if err != nil {
 		s.deps.Log.Error("failed to fetch sit-in data", "error", err)
 	}
 
-	absenceCountRows, err := s.deps.Q.AbsenceCountBySessionIDs(r.Context(), sessionIDs)
-	if err != nil {
-		s.deps.Log.Error("failed to fetch absence counts", "error", err)
+	absentStudentsBySession := make(map[string][]absentStudentDTO)
+	for _, ar := range absentStudentRows {
+		sid, err := s.a.UUIDString(ar.SessionID)
+		if err != nil {
+			continue
+		}
+		aid, err := s.a.UUIDString(ar.AbsenceID)
+		if err != nil {
+			continue
+		}
+		var name *string
+		if ar.StudentName.Valid {
+			name = &ar.StudentName.String
+		}
+		absentStudentsBySession[sid] = append(absentStudentsBySession[sid], absentStudentDTO{
+			Wcode:       ar.Wcode,
+			StudentName: name,
+			AbsenceID:   aid,
+		})
 	}
 
 	sitInsBySession := make(map[string][]sitInVisitorDTO)
@@ -147,15 +175,6 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			FromCourseCode: sr.FromCourseCode,
 			AbsenceID:      aid,
 		})
-	}
-
-	absenceCountBySession := make(map[string]int32)
-	for _, ar := range absenceCountRows {
-		sid, err := s.a.UUIDString(ar.SessionID)
-		if err != nil {
-			continue
-		}
-		absenceCountBySession[sid] = ar.Count
 	}
 
 	var teacherUsername string
@@ -188,12 +207,16 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		startS, _ := s.a.TimeString(row.StartAt)
 		endS, _ := s.a.TimeString(row.EndAt)
 
-		absentCount := int(absenceCountBySession[sid])
+		absStudents := absentStudentsBySession[sid]
+		if absStudents == nil {
+			absStudents = []absentStudentDTO{}
+		}
 		visitors := sitInsBySession[sid]
 		if visitors == nil {
 			visitors = []sitInVisitorDTO{}
 		}
 
+		absentCount := len(absStudents)
 		totalAbsences += absentCount
 		totalSitIns += len(visitors)
 
@@ -207,8 +230,8 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			EndAt:         endS,
 			RoomName:      roomName,
 			AbsentCount:   absentCount,
+			AbsentStudents: absStudents,
 			SitInVisitors: visitors,
-
 		})
 	}
 

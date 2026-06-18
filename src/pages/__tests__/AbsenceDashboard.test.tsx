@@ -63,7 +63,7 @@ it("loads teachers and fetches the selected teacher dashboard", async () => {
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
 
-  await screen.findByText("MATH101");
+  await screen.findByText("Mathematics");
   expect(mockApiJson).toHaveBeenCalledWith(
     expect.stringMatching(/\/api\/v1\/teacher\/dashboard\?week_start=\d{4}-\d{2}-\d{2}&teacher_id=teacher-1/),
   );
@@ -87,16 +87,16 @@ it("retries a failed dashboard request without showing stale sessions", async ()
   renderDashboard();
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
-  await screen.findByText("MATH101");
+  await screen.findByText("Mathematics");
 
   await user.click(screen.getByRole("button", { name: /next week/i }));
 
   await screen.findByText(/failed to load dashboard: server down/i);
-  expect(screen.queryByText("MATH101")).not.toBeInTheDocument();
+  expect(screen.queryByText("Mathematics")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /retry/i }));
 
-  await screen.findByText("MATH102");
+  await screen.findByText("Mathematics");
   await waitFor(() => {
     expect(screen.queryByText(/failed to load dashboard/i)).not.toBeInTheDocument();
   });

@@ -324,9 +324,45 @@ type SitInStudentRow struct {
 	FromCourseName pgtype.Text
 }
 
+type AbsentStudentRow struct {
+	SessionID   pgtype.UUID
+	Wcode       string
+	StudentName pgtype.Text
+	AbsenceID   pgtype.UUID
+}
+
 type AbsenceCountRow struct {
 	SessionID pgtype.UUID
 	Count     int32
+}
+
+func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UUID) ([]AbsentStudentRow, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT ams.session_id, sa.wcode,
+		       COALESCE(st.full_name, '') AS student_name,
+		       sa.id AS absence_id
+		FROM absence_missed_sessions ams
+		JOIN student_absences sa ON sa.id = ams.absence_id AND sa.status <> 'cancelled'
+		LEFT JOIN students st ON st.wcode = sa.wcode
+		WHERE ams.session_id = ANY($1::uuid[])
+		ORDER BY ams.session_id, st.full_name
+	`, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AbsentStudentRow
+	for rows.Next() {
+		var r AbsentStudentRow
+		if err := rows.Scan(&r.SessionID, &r.Wcode, &r.StudentName, &r.AbsenceID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (q *Queries) AbsenceCountBySessionIDs(ctx context.Context, sessionIDs []pgtype.UUID) ([]AbsenceCountRow, error) {

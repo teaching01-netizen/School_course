@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, format, startOfWeek } from 'date-fns';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useRealtime } from '../hooks/useRealtime';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
 import WeekNavigator from '../components/teacher/WeekNavigator';
-import DashboardView, { type DashboardTab } from '../components/teacher/DashboardView';
+import DashboardView from '../components/teacher/DashboardView';
 import Button from '../components/ui/Button';
 import PageHeading from '../components/ui/PageHeading';
 import LoadingSkeleton from '../components/ui/LoadingSkeleton';
@@ -22,7 +23,6 @@ function yyyyMmDd(d: Date): string {
 export default function AbsenceDashboard() {
   const { addToast } = useToast();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
-  const [tab, setTab] = useState<DashboardTab>('schedule');
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
 
   const teachersQuery = useApiQuery<Teacher[]>('/api/v1/users?role=Teacher', []);
@@ -34,6 +34,18 @@ export default function AbsenceDashboard() {
     : null;
 
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(teacherDashboardPath, [teacherDashboardPath]);
+
+  // Real-time subscription: refetch on live attendance events
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  const rtChannels = selectedTeacherId
+    ? ['teacher_dashboard', `teacher_dashboard:${selectedTeacherId}`]
+    : [];
+  useRealtime(
+    rtChannels,
+    () => { void refetchRef.current(); },
+    { enabled: selectedTeacherId != null, debounceMs: 2000 },
+  );
 
   useEffect(() => {
     if (error) {
@@ -77,7 +89,6 @@ export default function AbsenceDashboard() {
             value={selectedTeacherId ?? ''}
             onChange={(e) => {
               setSelectedTeacherId(e.target.value || null);
-              setTab('schedule');
             }}
             className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm bg-white min-w-[200px]"
           >
@@ -136,7 +147,7 @@ export default function AbsenceDashboard() {
               <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
             </div>
           ) : data ? (
-            <DashboardView data={data} weekStart={weekStart} activeTab={tab} onTabChange={setTab} />
+            <DashboardView data={data} weekStart={weekStart} />
           ) : loading ? (
             <LoadingSkeleton type="table" lines={8} />
           ) : null}
