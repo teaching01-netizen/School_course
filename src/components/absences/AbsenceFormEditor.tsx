@@ -55,6 +55,34 @@ export function AbsenceFormEditor({
                 }
               />
             </label>
+            <label className="text-sm text-gray-700">
+              Minimum hours before session
+              <input
+                aria-label="Minimum hours before session"
+                className={inputClass}
+                min={0}
+                max={168}
+                type="number"
+                value={settings.form.min_hours_before_session}
+                onChange={(e) =>
+                  onChange({ ...settings, form: { ...settings.form, min_hours_before_session: Number(e.target.value) } })
+                }
+              />
+            </label>
+            <label className="text-sm text-gray-700">
+              Maximum hours after session
+              <input
+                aria-label="Maximum hours after session"
+                className={inputClass}
+                min={0}
+                max={168}
+                type="number"
+                value={settings.form.max_hours_after_session}
+                onChange={(e) =>
+                  onChange({ ...settings, form: { ...settings.form, max_hours_after_session: Number(e.target.value) } })
+                }
+              />
+            </label>
             <div className="space-y-3 pt-6 text-sm">
               <label className="flex gap-2">
                 <input

@@ -91,7 +91,8 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 	// migration step.
 	if _, err := tx.Exec(ctx, `
 		ALTER TABLE students
-			ADD COLUMN IF NOT EXISTS email text NULL,
+			ADD COLUMN IF NOT EXISTS email_crm text NULL,
+			ADD COLUMN IF NOT EXISTS email_system text NULL,
 			ADD COLUMN IF NOT EXISTS nickname text NULL
 	`); err != nil {
 		return 0, fmt.Errorf("ensure students contact columns: %w", err)
@@ -115,7 +116,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 				wcode text NOT NULL,
 				full_name text NOT NULL,
 				nickname text NOT NULL DEFAULT '',
-				email text NOT NULL DEFAULT '',
+				email_crm text NOT NULL DEFAULT '',
 				student_phone text NOT NULL DEFAULT '',
 				parent_phone text NOT NULL DEFAULT ''
 			) ON COMMIT DROP
@@ -126,7 +127,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		copyCount, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{"_sync_students"},
-			[]string{"wcode", "full_name", "nickname", "email", "student_phone", "parent_phone"},
+			[]string{"wcode", "full_name", "nickname", "email_crm", "student_phone", "parent_phone"},
 			pgx.CopyFromRows(studentCopies(batch)),
 		)
 		if err != nil {
@@ -135,12 +136,12 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		_ = copyCount
 
 		res, err := tx.Exec(ctx, `
-			INSERT INTO students (wcode, full_name, notes, nickname, email, student_phone, parent_phone)
-			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.email, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
+			INSERT INTO students (wcode, full_name, notes, nickname, email_crm, student_phone, parent_phone)
+			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.email_crm, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
 			ON CONFLICT (wcode) DO UPDATE
 			SET full_name = EXCLUDED.full_name,
 			    nickname = CASE WHEN NULLIF(EXCLUDED.nickname, '') IS NOT NULL THEN EXCLUDED.nickname ELSE students.nickname END,
-			    email = CASE WHEN NULLIF(EXCLUDED.email, '') IS NOT NULL THEN EXCLUDED.email ELSE students.email END,
+			    email_crm = CASE WHEN NULLIF(EXCLUDED.email_crm, '') IS NOT NULL THEN EXCLUDED.email_crm ELSE students.email_crm END,
 			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL THEN EXCLUDED.student_phone ELSE students.student_phone END,
 			    parent_phone = CASE WHEN NULLIF(EXCLUDED.parent_phone, '') IS NOT NULL THEN EXCLUDED.parent_phone ELSE students.parent_phone END,
 			    updated_at = now()

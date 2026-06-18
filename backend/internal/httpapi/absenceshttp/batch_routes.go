@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,7 @@ type batchAbsenceCreateItem struct {
 
 type batchAbsenceCreateRequest struct {
 	Wcode             string                   `json:"wcode"`
+	Email             *string                  `json:"email"`
 	ReasonCategory    *string                  `json:"reason_category"`
 	Reason            *string                  `json:"reason"`
 	VerificationToken *string                  `json:"verification_token"`
@@ -148,15 +150,37 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 
 		var studentPhone pgtype.Text
 		var studentEmail pgtype.Text
+		var studentEmailCRM pgtype.Text
+		var studentEmailSystem pgtype.Text
 		var studentNickname pgtype.Text
+		studentEmailSourceLoaded := false
 		var successSMSRecipients []string
 		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 			studentPhone = contactRows[0].StudentPhone
 			studentEmail = contactRows[0].Email
+			studentEmailCRM = contactRows[0].EmailCRM
+			studentEmailSystem = contactRows[0].EmailSystem
 			studentNickname = contactRows[0].Nickname
+			studentEmailSourceLoaded = true
 			successSMSRecipients = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		} else if contactErr != nil && s.deps.Log != nil {
 			s.deps.Log.Error("failed to load absence contact phones", "wcode", body.Wcode, "error", contactErr)
+		}
+
+		if clientStudentEmailProvided(body.Email) && !studentEmailSourceLoaded {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_email", "Could not verify student email status")
+			return 0, nil, fmt.Errorf("student email source unavailable")
+		}
+		// If the form provided an email and the student has no stored email,
+		// use it for this absence and persist it as the system email.
+		if resolvedEmail, shouldPersist, emailErr := resolveClientStudentEmail(body.Email, studentEmailCRM, studentEmailSystem); emailErr != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_email", "Enter a valid email address")
+			return 0, nil, emailErr
+		} else if shouldPersist {
+			studentEmail = resolvedEmail
+			if err := qtx.StudentSetSystemEmail(r.Context(), body.Wcode, resolvedEmail.String); err != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to persist system email", "wcode", body.Wcode, "error", err)
+			}
 		}
 
 		created := make([]createdAbsenceRecord, 0, len(body.Items))
@@ -293,6 +317,21 @@ func (s *server) createAbsenceRecordTx(
 		return createdAbsenceRecord{}, false
 	}
 
+	totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)
+	if totalErr != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
+		return createdAbsenceRecord{}, false
+	}
+	existingAbsences, absErr := qtx.StudentAbsenceCountForCourse(r.Context(), wcode, course.CourseID)
+	if absErr != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
+		return createdAbsenceRecord{}, false
+	}
+	if projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsences, 1) {
+		s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
+		return createdAbsenceRecord{}, false
+	}
+
 	row, err := qtx.AbsenceCreate(r.Context(), sqldb.AbsenceCreateParams{
 		Wcode:         wcode,
 		CourseID:      course.CourseID,
@@ -361,6 +400,16 @@ func (s *server) createAbsenceRecordTx(
 		}
 		if count != len(missedUUIDs) {
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
+			return createdAbsenceRecord{}, false
+		}
+		timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), row.ID, missedUUIDs)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return createdAbsenceRecord{}, false
+		}
+		if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)
 			return createdAbsenceRecord{}, false
 		}
 		if err := qtx.AbsenceMissedSessionsCreate(r.Context(), row.ID, missedUUIDs); err != nil {

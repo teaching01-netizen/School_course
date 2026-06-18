@@ -37,6 +37,7 @@ import (
 	"warwick-institute/internal/httpapi/serieshttp"
 	"warwick-institute/internal/httpapi/sessionshttp"
 	"warwick-institute/internal/httpapi/sitinruleshttp"
+	"warwick-institute/internal/httpapi/teacherhttp"
 	"warwick-institute/internal/httpapi/staffabsencehttp"
 	"warwick-institute/internal/httpapi/studentshttp"
 	"warwick-institute/internal/httpapi/subjectshttp"
@@ -211,6 +212,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	audithttp.Register(mux, deps)
 	serieshttp.Register(mux, deps)
 	availabilityhttp.Register(mux, deps)
+	teacherhttp.Register(mux, deps)
 	crossStudyStore := crossstudy.NewStore(db)
 	deps.CrossStudy = crossStudyStore
 	crmhttp.Register(mux, deps)

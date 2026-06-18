@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { apiJson, newIdempotencyKey } from "@/api/client";
+import { apiJson, newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import StepIndicator from "@/components/absences/StepIndicator";
 import SubjectCard from "@/components/absences/SubjectCard";
@@ -58,6 +58,8 @@ const DEFAULT_ADMIN_CONTACT: AdminContactSettings = {
 const DEFAULT_CONFIG: AbsenceFormConfig = {
   form: {
     max_date_range_days: 30,
+    min_hours_before_session: 0,
+    max_hours_after_session: 0,
     require_reason: false,
     reason_categories: [],
     allow_free_text_reason: true,
@@ -551,6 +553,7 @@ export default function AbsenceForm() {
   const [lookup, setLookup] = useState<StudentLookupResponse | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [collectedEmail, setCollectedEmail] = useState("");
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
@@ -577,7 +580,8 @@ export default function AbsenceForm() {
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
   const atMaxSessions = selectedSessionCount >= maxSessions;
-  const canProceedFromVerify = !!lookup && verificationSatisfied;
+  const emailSatisfied = !!(lookup?.email_crm?.trim() || lookup?.email_system?.trim() || collectedEmail.trim());
+  const canProceedFromVerify = !!lookup && emailSatisfied && verificationSatisfied;
   const studentDisplayName = getStudentDisplayName(lookup);
   const sessionLookupWindow = useMemo(() => {
     const today = new Date();
@@ -647,9 +651,9 @@ export default function AbsenceForm() {
 
   useEffect(() => {
     if (!lookup) return;
-    const snapshot = { step, lookup, lookupInput, selectedSubjectIds, reason, selectedSessionIds: [...selectedSessionIds], sitInSelections, sitInPriorityLevels, sitInPriorityHistory };
+    const snapshot = { step, lookup, lookupInput, collectedEmail, selectedSubjectIds, reason, selectedSessionIds: [...selectedSessionIds], sitInSelections, sitInPriorityLevels, sitInPriorityHistory };
     try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot)); } catch { }
-  }, [lookup, lookupInput, selectedSubjectIds, reason, selectedSessionIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, step]);
+  }, [lookup, lookupInput, collectedEmail, selectedSubjectIds, reason, selectedSessionIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, step]);
 
   useEffect(() => {
     try {
@@ -657,12 +661,13 @@ export default function AbsenceForm() {
       if (!raw) return;
       const parsed = JSON.parse(raw) as Partial<{
         step: StepIndex; lookup: StudentLookupResponse; lookupInput: string;
-        selectedSubjectIds: string[]; reason: string; selectedSessionIds: string[];
+        collectedEmail: string; selectedSubjectIds: string[]; reason: string; selectedSessionIds: string[];
         sitInSelections: Record<string, string>; sitInPriorityLevels: Record<string, number>;
         sitInPriorityHistory: Record<string, Record<number, SubjectSessions>>;
       }>;
       if (parsed.lookup) setLookup(parsed.lookup);
       if (typeof parsed.lookupInput === "string") setLookupInput(parsed.lookupInput);
+      if (typeof parsed.collectedEmail === "string") setCollectedEmail(parsed.collectedEmail);
       if (Array.isArray(parsed.selectedSubjectIds)) setSelectedSubjectIds(parsed.selectedSubjectIds);
       if (typeof parsed.reason === "string") setReason(parsed.reason);
       if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
@@ -711,6 +716,7 @@ export default function AbsenceForm() {
       setLookup(response);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
+      setCollectedEmail("");
       verification.clearStoredToken();
       verification.setCode("");
       setVerificationSatisfied(false);
@@ -834,6 +840,7 @@ export default function AbsenceForm() {
     const payloads: AbsenceBatchCreateItem[] = [];
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
+      if (group.absence_rate_exceeded) continue;
       const selectedGroupSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
       if (selectedGroupSessions.length === 0) continue;
       const selectedDates = [...new Set(selectedGroupSessions.map((session) => session.date))].sort();
@@ -879,6 +886,7 @@ export default function AbsenceForm() {
         headers: { "Idempotency-Key": submissionIdempotencyKey.current },
         body: JSON.stringify({
           wcode: lookup.wcode,
+          email: collectedEmail.trim() || undefined,
           reason: reason.trim(),
           verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
           items: payloads,
@@ -889,7 +897,11 @@ export default function AbsenceForm() {
       verification.setCode("");
       try { window.sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch { }
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "Could not submit your absence");
+      if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
+        setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
+      } else {
+        setSubmissionError(error instanceof Error ? error.message : "Could not submit your absence");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1063,6 +1075,38 @@ export default function AbsenceForm() {
                             <span className="text-xs text-[var(--color-wi-amber)] whitespace-nowrap">No parent phone</span>
                           )}
                         </div>
+
+                        {lookup.email_crm?.trim() ? (
+                          <div className="mt-3 flex items-center gap-2 text-xs">
+                            <span className="text-[var(--color-wi-text-light)]">Email:</span>
+                            <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_crm}</span>
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">CRM</span>
+                          </div>
+                        ) : lookup.email_system?.trim() ? (
+                          <div className="mt-3 flex items-center gap-2 text-xs">
+                            <span className="text-[var(--color-wi-text-light)]">Email:</span>
+                            <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_system}</span>
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">System</span>
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-1.5">
+                            <label htmlFor="student-email" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
+                              Your email address <span className="text-[var(--color-wi-red)]">*</span>
+                            </label>
+                            <input
+                              id="student-email"
+                              type="email"
+                              className="min-h-[40px] w-full rounded-lg border border-[var(--color-wi-border)] bg-white px-3.5 text-sm text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                              placeholder="e.g. student@example.com"
+                              value={collectedEmail}
+                              onChange={(e) => setCollectedEmail(e.target.value)}
+                            />
+                            {!collectedEmail.trim() && (
+                              <p className="text-xs text-[var(--color-wi-amber)]">An email is required so we can contact you about your absence.</p>
+                            )}
+                          </div>
+                        )}
+
                         <div className="border-t border-[var(--color-wi-border)] mt-4 pt-4">
                           <StepCoverVerification
                             wcode={lookup.wcode}
@@ -1147,6 +1191,16 @@ export default function AbsenceForm() {
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">{selectedCount} selected</span>
                                   </div>
+                                  {group.absence_rate_exceeded ? (
+                                    <div className="p-4">
+                                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                                        <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                        </svg>
+                                        <span>You have reached the maximum absences allowed for this course.</span>
+                                      </div>
+                                    </div>
+                                  ) : (
                                   <div className="space-y-2 p-4">
                                     {sessionGroups.map((dayGroup) => {
                                       const session = dayGroup.items[0];
@@ -1348,6 +1402,7 @@ export default function AbsenceForm() {
                                       );
                                     })}
                                   </div>
+                                )}
                                 </div>
                               );
                             })}

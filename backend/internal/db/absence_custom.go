@@ -14,7 +14,9 @@ type StudentSubjectRow struct {
 	FullName       string      `json:"full_name"`
 	StudentPhone   pgtype.Text `json:"student_phone"`
 	ParentPhone    pgtype.Text `json:"parent_phone"`
-	Email          pgtype.Text `json:"email"`
+	Email          pgtype.Text `json:"email"`       // resolved = COALESCE(email_crm, email_system)
+	EmailCRM       pgtype.Text `json:"email_crm"`
+	EmailSystem    pgtype.Text `json:"email_system"`
 	Nickname       pgtype.Text `json:"nickname"`
 	SubjectID      pgtype.UUID `json:"subject_id"`
 	SubjectCode    string      `json:"subject_code"`
@@ -24,7 +26,9 @@ type StudentSubjectRow struct {
 
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone, s.email, s.nickname,
+		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
+		       COALESCE(s.email_crm, s.email_system) AS email,
+		       s.email_crm, s.email_system, s.nickname,
 		       sub.id, sub.code, sub.name,
 		       MIN(c.id::text)::uuid AS active_course_id
 		FROM students s
@@ -32,7 +36,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		JOIN courses c ON c.id = cs.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		WHERE s.wcode = $1
-		GROUP BY s.id, s.wcode, s.full_name, sub.id, sub.code, sub.name
+		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
 	`, wcode)
 	if err != nil {
@@ -43,7 +47,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.Nickname, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -679,5 +683,32 @@ func (q *Queries) RootCourseGroupDelete(ctx context.Context, id pgtype.UUID) err
 	_, err := q.db.Exec(ctx, `
 		DELETE FROM root_course_groups WHERE id = $1
 	`, id)
+	return err
+}
+
+func (q *Queries) CourseSessionCount(ctx context.Context, courseID pgtype.UUID) (int32, error) {
+	var count int32
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)::int4 FROM sessions
+		WHERE course_id = $1 AND deleted_at IS NULL
+	`, courseID).Scan(&count)
+	return count, err
+}
+
+func (q *Queries) StudentAbsenceCountForCourse(ctx context.Context, wcode string, courseID pgtype.UUID) (int32, error) {
+	var count int32
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)::int4 FROM student_absences
+		WHERE wcode = $1 AND course_id = $2 AND status != 'cancelled'
+	`, wcode, courseID).Scan(&count)
+	return count, err
+}
+
+func (q *Queries) StudentSetSystemEmail(ctx context.Context, wcode string, email string) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE students
+		SET email_system = $2, updated_at = now()
+		WHERE wcode = $1
+	`, wcode, email)
 	return err
 }

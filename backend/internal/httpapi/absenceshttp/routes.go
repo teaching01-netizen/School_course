@@ -173,6 +173,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 
 		var body struct {
 			Wcode             string   `json:"wcode"`
+			Email             *string  `json:"email"`
 			SubjectID         string   `json:"subject_id"`
 			CourseID          string   `json:"course_id"`
 			DateFrom          string   `json:"date_from"`
@@ -288,17 +289,54 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 
+		totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)
+		if totalErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
+			return 0, nil, totalErr
+		}
+		existingAbsences, absErr := qtx.StudentAbsenceCountForCourse(r.Context(), body.Wcode, course.CourseID)
+		if absErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
+			return 0, nil, absErr
+		}
+		if projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsences, 1) {
+			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
+			return 0, nil, fmt.Errorf("absence limit exceeded for course %s", course.CourseID)
+		}
+
 		var studentPhone pgtype.Text
 		var studentEmail pgtype.Text
+		var studentEmailCRM pgtype.Text
+		var studentEmailSystem pgtype.Text
 		var studentNickname pgtype.Text
+		studentEmailSourceLoaded := false
 		var successSMSRecipients []string
 		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 			studentPhone = contactRows[0].StudentPhone
 			studentEmail = contactRows[0].Email
+			studentEmailCRM = contactRows[0].EmailCRM
+			studentEmailSystem = contactRows[0].EmailSystem
 			studentNickname = contactRows[0].Nickname
+			studentEmailSourceLoaded = true
 			successSMSRecipients = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		} else if contactErr != nil && s.deps.Log != nil {
 			s.deps.Log.Error("failed to load absence contact phones", "wcode", body.Wcode, "error", contactErr)
+		}
+
+		if clientStudentEmailProvided(body.Email) && !studentEmailSourceLoaded {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_email", "Could not verify student email status")
+			return 0, nil, fmt.Errorf("student email source unavailable")
+		}
+		// If the form provided an email and the student has no stored email,
+		// use it for this absence and persist it as the system email.
+		if resolvedEmail, shouldPersist, emailErr := resolveClientStudentEmail(body.Email, studentEmailCRM, studentEmailSystem); emailErr != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_email", "Enter a valid email address")
+			return 0, nil, emailErr
+		} else if shouldPersist {
+			studentEmail = resolvedEmail
+			if err := qtx.StudentSetSystemEmail(r.Context(), body.Wcode, resolvedEmail.String); err != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to persist system email", "wcode", body.Wcode, "error", err)
+			}
 		}
 
 		requireVerification := settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp
@@ -424,6 +462,16 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			if count != len(missedUUIDs) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 				return 0, nil, fmt.Errorf("invalid missed sessions")
+			}
+			timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), item.ID, missedUUIDs)
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+			if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)
+				return 0, nil, timingErr
 			}
 			if err := qtx.AbsenceMissedSessionsCreate(r.Context(), item.ID, missedUUIDs); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
@@ -660,6 +708,11 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 		"student_id":   studentID,
 		"wcode":        rows[0].Wcode,
 		"full_name":    rows[0].FullName,
+		"display_name": stringPtrIfValid(rows[0].Nickname),
+		"nickname":     stringPtrIfValid(rows[0].Nickname),
+		"email":        stringPtrIfValid(rows[0].Email),
+		"email_crm":    stringPtrIfValid(rows[0].EmailCRM),
+		"email_system": stringPtrIfValid(rows[0].EmailSystem),
 		"parent_phone": stringPtrIfValid(rows[0].ParentPhone),
 		"subjects":     subjects,
 	})
@@ -942,14 +995,15 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
 	}
 	type courseResponse struct {
-		SubjectID   string               `json:"subject_id"`
-		SubjectCode string               `json:"subject_code"`
-		SubjectName string               `json:"subject_name"`
-		CourseID    string               `json:"course_id"`
-		CourseCode  string               `json:"course_code"`
-		CourseName  string               `json:"course_name"`
-		Sessions    []sessionResponse    `json:"sessions"`
-		SitIn       *courseSitInResponse `json:"sit_in,omitempty"`
+		SubjectID           string               `json:"subject_id"`
+		SubjectCode         string               `json:"subject_code"`
+		SubjectName         string               `json:"subject_name"`
+		CourseID            string               `json:"course_id"`
+		CourseCode          string               `json:"course_code"`
+		CourseName          string               `json:"course_name"`
+		Sessions            []sessionResponse    `json:"sessions"`
+		SitIn               *courseSitInResponse `json:"sit_in,omitempty"`
+		AbsenceRateExceeded bool                 `json:"absence_rate_exceeded"`
 	}
 
 	courses := make([]courseResponse, 0, len(courseOrder))
@@ -997,15 +1051,31 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		absenceRateExceeded := false
+		if cErr == nil {
+			total, totalErr := s.deps.Q.CourseSessionCount(r.Context(), courseID)
+			if totalErr != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to count course sessions", "course_id", g.CourseID, "error", totalErr)
+			}
+			existing, absErr := s.deps.Q.StudentAbsenceCountForCourse(r.Context(), wcode, courseID)
+			if absErr != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to count student absences", "course_id", g.CourseID, "error", absErr)
+			}
+			if totalErr == nil && absErr == nil {
+				absenceRateExceeded = projectedAbsenceRecordLimitExceeded(total, existing, 1)
+			}
+		}
+
 		courses = append(courses, courseResponse{
-			SubjectID:   g.SubjectID,
-			SubjectCode: g.SubjectCode,
-			SubjectName: g.SubjectName,
-			CourseID:    g.CourseID,
-			CourseCode:  g.CourseCode,
-			CourseName:  g.CourseName,
-			Sessions:    sessionsResp,
-			SitIn:       sitIn,
+			SubjectID:           g.SubjectID,
+			SubjectCode:         g.SubjectCode,
+			SubjectName:         g.SubjectName,
+			CourseID:            g.CourseID,
+			CourseCode:          g.CourseCode,
+			CourseName:          g.CourseName,
+			Sessions:            sessionsResp,
+			SitIn:               sitIn,
+			AbsenceRateExceeded: absenceRateExceeded,
 		})
 	}
 

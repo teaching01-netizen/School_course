@@ -296,6 +296,8 @@ export type AdminContactSettings = {
 export type AbsenceSettings = {
   form: {
     max_date_range_days: number;
+    min_hours_before_session: number;
+    max_hours_after_session: number;
     require_reason: boolean;
     reason_categories: ReasonCategory[];
     allow_free_text_reason: boolean;
@@ -335,6 +337,9 @@ export type StudentLookupResponse = {
   full_name: string;
   display_name?: string | null;
   nickname?: string | null;
+  email?: string | null;
+  email_crm?: string | null;
+  email_system?: string | null;
   parent_phone?: string | null;
   subjects: StudentLookupSubject[];
 };
@@ -530,6 +535,7 @@ export type SubjectSessions = {
   course_name: string;
   sessions: SessionInSubject[];
   sit_in?: SitInInfo;
+  absence_rate_exceeded?: boolean;
 };
 
 export type SessionsInRangeResponse = {
@@ -634,6 +640,40 @@ export interface ToastMessage {
   type: ToastType;
   message: string;
 }
+
+// === Teacher Dashboard types ===
+
+export type TeacherDashboardSitInVisitor = {
+  wcode: string;
+  student_name: string | null;
+  from_course_code: string;
+  absence_id: string;
+};
+
+export type TeacherDashboardSession = {
+  id: string;
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  subject_name: string | null;
+  start_at: string;
+  end_at: string;
+  room_name: string | null;
+  absent_count: number;
+  sit_in_visitors: TeacherDashboardSitInVisitor[];
+};
+
+export type TeacherDashboardResponse = {
+  week_start: string;
+  week_end: string;
+  teacher: { id: string; username: string };
+  sessions: TeacherDashboardSession[];
+  summary: {
+    total_sessions: number;
+    total_absences: number;
+    total_sit_ins: number;
+  };
+};
 
 // === Shared helper functions ===
 

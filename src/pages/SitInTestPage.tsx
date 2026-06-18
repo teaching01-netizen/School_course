@@ -513,6 +513,21 @@ export default function SitInTestPage() {
           <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-4">
             <p className="text-sm font-semibold text-gray-800">{lookupName || lookup.full_name}</p>
             <p className="text-xs font-mono text-gray-500 mt-0.5">{lookup.wcode}</p>
+            {lookup.email_crm?.trim() ? (
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="text-[var(--color-wi-text-light)]">Email:</span>
+                <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_crm}</span>
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">CRM</span>
+              </div>
+            ) : lookup.email_system?.trim() ? (
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="text-[var(--color-wi-text-light)]">Email:</span>
+                <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_system}</span>
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">System</span>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">No email on file</p>
+            )}
           </div>
         )}
       </section>

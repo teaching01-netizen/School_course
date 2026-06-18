@@ -75,7 +75,7 @@ const absenceStudentNicknameExprPlaceholder = "__STUDENT_NICKNAME_EXPR__"
 
 const managedAbsenceListQueryTemplate = `
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
-		       COALESCE(sa.student_email, st.email), __STUDENT_NICKNAME_EXPR__,
+		       COALESCE(sa.student_email, COALESCE(st.email_crm, st.email_system)), __STUDENT_NICKNAME_EXPR__,
 		       sa.student_phone,
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
@@ -103,7 +103,7 @@ const managedAbsenceListQueryTemplate = `
 
 const managedAbsenceGetQueryTemplate = `
 		SELECT sa.id, sa.wcode, COALESCE(sa.student_name, st.full_name),
-		       COALESCE(sa.student_email, st.email), __STUDENT_NICKNAME_EXPR__,
+		       COALESCE(sa.student_email, COALESCE(st.email_crm, st.email_system)), __STUDENT_NICKNAME_EXPR__,
 		       sa.student_phone,
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
@@ -324,6 +324,37 @@ type SitInStudentRow struct {
 	FromCourseName pgtype.Text
 }
 
+type AbsenceCountRow struct {
+	SessionID pgtype.UUID
+	Count     int32
+}
+
+func (q *Queries) AbsenceCountBySessionIDs(ctx context.Context, sessionIDs []pgtype.UUID) ([]AbsenceCountRow, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT ams.session_id, COUNT(DISTINCT ams.absence_id)::int4
+		FROM absence_missed_sessions ams
+		JOIN student_absences sa ON sa.id = ams.absence_id AND sa.status <> 'cancelled'
+		WHERE ams.session_id = ANY($1::uuid[])
+		GROUP BY ams.session_id
+	`, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AbsenceCountRow
+	for rows.Next() {
+		var r AbsenceCountRow
+		if err := rows.Scan(&r.SessionID, &r.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UUID) ([]SitInStudentRow, error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil
@@ -540,6 +571,39 @@ func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.
 		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
 	`, absenceID, sessionIDs).Scan(&count)
 	return count, err
+}
+
+type MissedSessionTimingRow struct {
+	ID      pgtype.UUID
+	StartAt pgtype.Timestamptz
+	EndAt   pgtype.Timestamptz
+}
+
+func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) ([]MissedSessionTimingRow, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT sess.id, sess.start_at, sess.end_at
+		FROM sessions sess
+		JOIN student_absences sa ON sa.id = $1
+		WHERE sess.id = ANY($2::uuid[])
+		  AND sess.course_id = sa.course_id
+		  AND sess.deleted_at IS NULL
+		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
+		ORDER BY sess.start_at ASC
+	`, absenceID, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]MissedSessionTimingRow, 0, len(sessionIDs))
+	for rows.Next() {
+		var item MissedSessionTimingRow
+		if err := rows.Scan(&item.ID, &item.StartAt, &item.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {

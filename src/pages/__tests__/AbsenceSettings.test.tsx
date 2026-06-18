@@ -13,6 +13,8 @@ vi.mock("@/api/client", async () => {
 const SETTINGS = {
   form: {
     max_date_range_days: 30,
+    min_hours_before_session: 0,
+    max_hours_after_session: 0,
     require_reason: true,
     reason_categories: [{ value: "medical", label: "Medical" }],
     allow_free_text_reason: true,
@@ -48,6 +50,37 @@ describe("Absence settings", () => {
         expect.objectContaining({ method: "PUT", body: expect.stringContaining('"max_date_range_days":45') }),
       );
     });
+  });
+
+  it("saves session request timing windows", async () => {
+    mockApiJson.mockResolvedValueOnce(SETTINGS).mockResolvedValueOnce(SETTINGS);
+    render(<ToastProvider><AbsenceSettings /></ToastProvider>);
+    const user = userEvent.setup();
+
+    const minHours = await screen.findByLabelText(/minimum hours before session/i);
+    await user.clear(minHours);
+    await user.type(minHours, "2");
+    const maxHours = screen.getByLabelText(/maximum hours after session/i);
+    await user.clear(maxHours);
+    await user.type(maxHours, "24");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/admin/absence-settings",
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining('"min_hours_before_session":2'),
+        }),
+      );
+    });
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/absence-settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"max_hours_after_session":24'),
+      }),
+    );
   });
 
   it("keeps the success SMS template after saving settings", async () => {

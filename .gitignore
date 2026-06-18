@@ -8,6 +8,7 @@
 .tools/
 
 # agent / IDE tooling
+.codeboarding/
 .deepseek/
 .opencode/
 .orchestration/

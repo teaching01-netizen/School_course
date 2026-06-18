@@ -36,6 +36,7 @@ import OperationsHub from './pages/operations/OperationsHub';
 import LeavePolicy from './pages/LeavePolicy';
 import EmailReminders from './pages/EmailReminders';
 import SitInTestPage from './pages/SitInTestPage';
+import TeacherDashboard from './pages/TeacherDashboard';
 
 function AppLayout() {
   return (
@@ -43,6 +44,12 @@ function AppLayout() {
       <Outlet />
     </Layout>
   );
+}
+
+function IndexRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'Teacher') return <Navigate to="/teacher-dashboard" replace />;
+  return <Home />;
 }
 
 function RequireAuth() {
@@ -61,7 +68,8 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/absence" element={<AbsenceForm />} />
             <Route element={<RequireAuth />}>
-              <Route path="/" element={<Home />} />
+              <Route path="/" element={<IndexRoute />} />
+              <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
               <Route path="/courses" element={<Courses />} />
               <Route path="/courses/create" element={<CourseCreate />} />
               <Route path="/courses/:id" element={<CourseDetail />} />
