@@ -22,12 +22,8 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
       {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/15" onClick={onClose} />
 
-      {/* Sheet */}
-      <div className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] flex-col rounded-t-lg bg-white shadow-lg">
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2 pb-1">
-          <div className="h-1 w-8 rounded-full bg-gray-300" />
-        </div>
+      {/* Modal */}
+      <div className="fixed inset-0 m-auto z-50 flex max-h-[70vh] w-[92vw] max-w-[560px] flex-col rounded-lg bg-white shadow-lg">
 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
