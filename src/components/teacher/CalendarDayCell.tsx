@@ -13,8 +13,8 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
   const hasAbsences = sessions.some((s) => (s.absent_students?.length ?? 0) > 0);
   const hasVisitors = !hasAbsences && sessions.some((s) => (s.sit_in_visitors?.length ?? 0) > 0);
 
-  const displaySessions = sessions.slice(0, 2);
-  const overflow = sessions.length - 2;
+  const displaySessions = sessions.slice(0, 3);
+  const overflow = sessions.length - 3;
 
   let cellAccent: string;
   if (hasAbsences) {
@@ -31,7 +31,7 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-start gap-0.5 rounded-sm border px-1.5 py-1.5 text-left transition-colors ${
+      className={`flex flex-col items-start gap-1 rounded-sm border px-2 py-2 text-left transition-colors ${
         isSelected
           ? 'border-[var(--color-wi-primary)] ring-1 ring-[var(--color-wi-primary)]'
           : isToday
@@ -40,10 +40,10 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
       } ${
         isCurrentMonth ? 'bg-white' : 'bg-gray-50'
       } ${cellAccent} ${isCurrentMonth ? 'hover:border-gray-400' : 'hover:border-gray-300'}`}
-      style={{ minHeight: 52 }}
+      style={{ minHeight: 76 }}
     >
-      <span className={`text-[11px] tabular-nums leading-none ${
-        isToday ? 'flex h-4 w-4 items-center justify-center rounded-sm bg-gray-900 font-bold text-white' : isCurrentMonth ? 'font-medium text-gray-900' : 'text-gray-300'
+      <span className={`text-[13px] tabular-nums leading-none ${
+        isToday ? 'flex h-5 w-5 items-center justify-center rounded-sm bg-gray-900 font-bold text-white' : isCurrentMonth ? 'font-medium text-gray-900' : 'text-gray-300'
       }`}>
         {date.getDate()}
       </span>
@@ -53,11 +53,11 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
         return (
           <span
             key={s.id}
-            className={`inline-flex h-[18px] w-full items-center gap-0.5 overflow-hidden rounded-sm px-1 text-[10px] leading-none ${
+            className={`inline-flex h-[20px] w-full items-center gap-1 overflow-hidden rounded-sm px-1.5 text-[11px] leading-none ${
               a ? 'bg-red-50 text-red-700' : v ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
             }`}
           >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            <span className={`h-2 w-2 shrink-0 rounded-full ${
               a ? 'bg-red-500' : v ? 'bg-amber-500' : 'bg-green-500'
             }`} />
             <span className="truncate">{s.subject_name ?? s.course_name}</span>

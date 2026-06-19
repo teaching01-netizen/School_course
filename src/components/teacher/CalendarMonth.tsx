@@ -81,7 +81,7 @@ export default function CalendarMonth({
   return (
     <div>
       {/* Header */}
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -91,7 +91,7 @@ export default function CalendarMonth({
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <h2 className="text-[14px] font-bold text-gray-900">{monthLabel}</h2>
+          <h2 className="text-[16px] font-bold text-gray-900">{monthLabel}</h2>
           <button
             type="button"
             aria-label="Next month"
@@ -112,18 +112,18 @@ export default function CalendarMonth({
       </div>
 
       {/* Day name row */}
-      <div className="mb-1 grid grid-cols-7 gap-px">
+      <div className="mb-1.5 grid grid-cols-7 gap-0.5">
         {DAY_NAMES.map((d) => (
-          <div key={d} className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          <div key={d} className="py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">
             {d}
           </div>
         ))}
       </div>
 
       {/* Week rows */}
-      <div className="space-y-px">
+      <div className="space-y-0.5">
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 gap-px">
+          <div key={wi} className="grid grid-cols-7 gap-0.5">
             {week.map((day) => {
               const key = yyyyMmDd(day);
               const daySessions = sessionsByDay.get(key) ?? [];
