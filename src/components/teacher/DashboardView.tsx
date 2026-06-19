@@ -5,7 +5,6 @@ import type { TeacherDashboardResponse } from '../../types';
 import CalendarMonth from './CalendarMonth';
 import WeekSummary from './WeekSummary';
 import DayPanel from './DayPanel';
-import PendingAbsenceTable from './PendingAbsenceTable';
 import AbsenceRequestTable from './AbsenceRequestTable';
 
 type DashboardViewProps = {
@@ -58,21 +57,8 @@ export default function DashboardView({ data, viewDate, onPrevMonth, onNextMonth
     (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
   );
 
-  const pendingCount = data.pending_absence_requests?.length ?? 0;
-
   return (
     <div className="space-y-5">
-      {/* Pending summary banner */}
-      {pendingCount > 0 ? (
-        <a
-          href="#pending-requests"
-          className="flex items-center justify-between rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm no-underline hover:border-amber-300"
-        >
-          <span className="font-medium text-amber-800">{pendingCount} pending {pendingCount === 1 ? 'request' : 'requests'}</span>
-          <span className="text-amber-600 text-xs">Review →</span>
-        </a>
-      ) : null}
-
       {/* Mode tabs */}
       <div className="flex gap-4 text-sm border-b border-gray-100" aria-label="Dashboard view mode">
         <button
@@ -202,22 +188,8 @@ export default function DashboardView({ data, viewDate, onPrevMonth, onNextMonth
           </div>
         </>
       ) : (
-        <AbsenceRequestTable sessions={data.sessions} pendingRequests={data.pending_absence_requests} />
+        <AbsenceRequestTable sessions={data.sessions} />
       )}
-
-      {/* Pending Absence Requests */}
-      <div className="h-px bg-gray-100" />
-      <div id="pending-requests">
-        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-          Pending Requests
-          {pendingCount > 0 ? (
-            <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-              {pendingCount}
-            </span>
-          ) : null}
-        </h4>
-        <PendingAbsenceTable requests={data.pending_absence_requests} />
-      </div>
 
       {/* Bottom spacer */}
       <div className="h-4" />
