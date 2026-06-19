@@ -26,24 +26,33 @@ const (
 // Service orchestrates authentication operations.
 // It delegates to injected interfaces for persistence, hashing, and rate limiting.
 type Service struct {
-	hasher   PasswordHasher
-	sessions SessionStore
-	limiter  LoginRateLimiter
-	users    UserLookup
-	log      *slog.Logger
+	hasher       PasswordHasher
+	sessions     SessionStore
+	limiter      LoginRateLimiter
+	users        UserLookup
+	log          *slog.Logger
+	cookieSecure bool
 }
 
 func NewService(hasher PasswordHasher, sessions SessionStore, limiter LoginRateLimiter, users UserLookup, log *slog.Logger) *Service {
+	return NewServiceWithCookieSecure(hasher, sessions, limiter, users, log, true)
+}
+
+func NewServiceWithCookieSecure(hasher PasswordHasher, sessions SessionStore, limiter LoginRateLimiter, users UserLookup, log *slog.Logger, cookieSecure bool) *Service {
 	return &Service{
-		hasher:   hasher,
-		sessions: sessions,
-		limiter:  limiter,
-		users:    users,
-		log:      log,
+		hasher:       hasher,
+		sessions:     sessions,
+		limiter:      limiter,
+		users:        users,
+		log:          log,
+		cookieSecure: cookieSecure,
 	}
 }
 
 func (s *Service) sessionCookieName() string {
+	if !s.cookieSecure {
+		return "warwick_session"
+	}
 	return "__Host-warwick_session"
 }
 
@@ -210,7 +219,7 @@ func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) error {
 		Value:    sess.ID.String(),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   s.cookieSecure,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  sess.LastSeenAt.Add(sessionIdleTimeout),
 	})
@@ -235,7 +244,7 @@ func (s *Service) HandleLogout(w http.ResponseWriter, r *http.Request) error {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   s.cookieSecure,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})

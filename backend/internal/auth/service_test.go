@@ -220,6 +220,49 @@ func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
 	if cookies[0].Expires.Equal(sessions.createSession.ExpiresAt) {
 		t.Fatalf("cookie expiry unexpectedly matched absolute session expiry %s", sessions.createSession.ExpiresAt)
 	}
+	if !cookies[0].Secure {
+		t.Fatal("cookie Secure = false, want true by default")
+	}
+	if cookies[0].Name != "__Host-warwick_session" {
+		t.Fatalf("cookie name = %q, want __Host-warwick_session", cookies[0].Name)
+	}
+}
+
+func TestHandleLoginCanDisableSecureCookieForLocalHTTP(t *testing.T) {
+	userID := uuid.New()
+	svc := NewServiceWithCookieSecure(
+		fakePasswordHasher{verifyOK: true},
+		fakeSessionStore{},
+		&recordingLoginLimiter{allowed: true},
+		fakeUserLookup{byUsername: User{
+			ID:              userID,
+			Username:        "admin",
+			Role:            "Admin",
+			PasswordHash:    "hash",
+			PasswordVersion: 1,
+		}},
+		nil,
+		false,
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+
+	if err := svc.HandleLogin(w, req); err != nil {
+		t.Fatalf("HandleLogin: %v", err)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if cookies[0].Secure {
+		t.Fatal("cookie Secure = true, want false for local HTTP override")
+	}
+	if cookies[0].Name != "warwick_session" {
+		t.Fatalf("cookie name = %q, want warwick_session for local HTTP override", cookies[0].Name)
+	}
 }
 
 type recordingLoginLimiter struct {

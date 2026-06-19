@@ -57,7 +57,6 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
 
   const check = useCallback(async (params: PreflightParams) => {
     const thisCheckId = ++checkIdRef.current;
-    console.debug("[usePreflight] check:start", { endpoint, thisCheckId, params });
     safe.setLoading(true);
     safe.setStatus("idle");
     safe.setDetails(null);
@@ -103,19 +102,10 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
       });
 
       if (thisCheckId !== checkIdRef.current) return;
-      console.debug("[usePreflight] check:success", { endpoint, thisCheckId, status: res.status, occurrences_planned: res.occurrences_planned ?? null });
       safe.setStatus(res.status);
       safe.setOccurrencesPlanned(res.occurrences_planned ?? null);
     } catch (err) {
       if (thisCheckId !== checkIdRef.current) return;
-      console.debug("[usePreflight] check:error", {
-        endpoint,
-        thisCheckId,
-        isApiRequestError: err instanceof ApiRequestError,
-        status: err instanceof ApiRequestError ? err.status : undefined,
-        code: err instanceof ApiRequestError ? err.code : undefined,
-        details: err instanceof ApiRequestError ? err.details : undefined,
-      });
       safe.setStatus("blocked");
       if (err instanceof ApiRequestError) {
         safe.setError(err);
@@ -126,7 +116,6 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
       }
     } finally {
       if (thisCheckId !== checkIdRef.current) return;
-      console.debug("[usePreflight] check:done", { endpoint, thisCheckId });
       safe.setLoading(false);
     }
   }, [endpoint]);

@@ -24,7 +24,7 @@ Environment:
 - `DATABASE_URL` (required)
 - `AUTH_PEPPER` (required; long random secret)
 - `OTP_HMAC_KEY` (required for direct `go run`; `make dev` provides a local fallback)
-- `COOKIE_SECURE` (`false` for local http; set `true` in prod)
+- `COOKIE_SECURE` (optional; defaults to `true`; set `false` only for local http; local mode uses a non-`__Host-` cookie name)
 - `INSTITUTE_TZ` (optional; default `Asia/Bangkok`)
 
 ## Railway / Docker deploy
@@ -50,7 +50,6 @@ A `railway.toml` at repo root defines the build/deploy config:
 | `DATABASE_URL` | Auto-injected by Railway Postgres plugin |
 | `AUTH_PEPPER` | `openssl rand -base64 48` (Railway secret) |
 | `OTP_HMAC_KEY` | `openssl rand -base64 32` (Railway secret) |
-| `COOKIE_SECURE` | `true` |
 | `ADDR` | `:8080` (Railway default) |
 
 ### Optional env vars
@@ -59,6 +58,7 @@ A `railway.toml` at repo root defines the build/deploy config:
 |---|---|---|
 | `INSTITUTE_TZ` | `Asia/Bangkok` | Institute timezone |
 | `LOG_LEVEL` | `info` | |
+| `COOKIE_SECURE` | `true` | Set `false` only for local http |
 | `ADMIN_USERNAME` | — | Creates admin on first start |
 | `ADMIN_PASSWORD` | — | Pair with ADMIN_USERNAME |
 | `APP_ORIGIN` | — | Railway domain for CSRF checks, e.g. `https://your-project.up.railway.app` |

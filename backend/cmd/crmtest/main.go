@@ -82,7 +82,7 @@ func main() {
 		log.Error("login failed", "err", err)
 		os.Exit(1)
 	}
-	fmt.Printf("OK (SID=%s, took=%v)\n", client.SID(), time.Since(loginStart).Round(time.Millisecond))
+	fmt.Printf("OK (took=%v)\n", time.Since(loginStart).Round(time.Millisecond))
 
 	if *stepLogin {
 		fmt.Println("\nStep-login mode: skipping download.")

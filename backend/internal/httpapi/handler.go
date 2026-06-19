@@ -37,10 +37,10 @@ import (
 	"warwick-institute/internal/httpapi/serieshttp"
 	"warwick-institute/internal/httpapi/sessionshttp"
 	"warwick-institute/internal/httpapi/sitinruleshttp"
-	"warwick-institute/internal/httpapi/teacherhttp"
 	"warwick-institute/internal/httpapi/staffabsencehttp"
 	"warwick-institute/internal/httpapi/studentshttp"
 	"warwick-institute/internal/httpapi/subjectshttp"
+	"warwick-institute/internal/httpapi/teacherhttp"
 	"warwick-institute/internal/httpapi/usershttp"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/ratelimit"
@@ -123,7 +123,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	rlStore := ratelimit.NewStore(db)
 	loginLimiter := auth.NewDBLoginRateLimiter(&rateLimitAdapter{store: rlStore})
 
-	authSvc := auth.NewService(hasher, sessionStore, loginLimiter, userStore, log)
+	authSvc := auth.NewServiceWithCookieSecure(hasher, sessionStore, loginLimiter, userStore, log, cfg.CookieSecure)
 	q := sqldb.New(db)
 	adminUsersSvc := users.NewAdminProvisioningService(
 		users.SQLCAdminUserStore{Q: q},

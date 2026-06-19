@@ -902,7 +902,7 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 	result, err := scraper.SyncCourse(r.Context(), courseID, legacyCourseID.String)
 	if err != nil {
 		s.deps.Log.Error("legacy sync failed", "error", err, "course_id", r.PathValue("id"), "legacy_course_id", legacyCourseID.String)
-		s.a.WriteErr(w, http.StatusInternalServerError, "sync_failed", "Legacy sync failed: "+err.Error())
+		s.a.WriteErr(w, http.StatusInternalServerError, "sync_failed", "Legacy sync failed")
 		return
 	}
 

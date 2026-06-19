@@ -10,6 +10,7 @@ type Config struct {
 	Addr          string
 	DatabaseURL   string
 	AuthPepper    string
+	CookieSecure  bool
 	StaticDir     string
 	LogLevel      string
 	InstituteTZ   string
@@ -27,11 +28,11 @@ type Config struct {
 	SMSServiceUsername string
 	SMSServicePassword string
 
-	OTPHMACKey         string
-	OTPSMSProvider     string
-	AppOrigin          string
-	EmailWebhookURL    string
-	EmailWebhookSecret string
+	OTPHMACKey           string
+	OTPSMSProvider       string
+	AppOrigin            string
+	EmailWebhookURL      string
+	EmailWebhookSecret   string
 	EmailReminderEnabled bool
 	EmailReminderTime    string
 }
@@ -41,6 +42,7 @@ func FromEnv() (Config, error) {
 	cfg.Addr = envOr("ADDR", ":8080")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.AuthPepper = os.Getenv("AUTH_PEPPER")
+	cfg.CookieSecure = envBoolOr("COOKIE_SECURE", true)
 	cfg.StaticDir = envOr("STATIC_DIR", "../dist")
 	cfg.LogLevel = envOr("LOG_LEVEL", "info")
 	cfg.InstituteTZ = envOr("INSTITUTE_TZ", "Asia/Bangkok")
@@ -89,4 +91,18 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envBoolOr(key string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

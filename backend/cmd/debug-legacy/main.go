@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,9 @@ import (
 )
 
 func main() {
+	output := flag.String("output", "", "optional path to save fetched legacy HTML")
+	flag.Parse()
+
 	baseURL := envOr("LEGACY_SYNC_URL", "https://warwick.azurewebsites.net")
 	username := os.Getenv("LEGACY_SYNC_USERNAME")
 	password := os.Getenv("LEGACY_SYNC_PASSWORD")
@@ -38,9 +42,13 @@ func main() {
 	}
 	fmt.Printf("Fetched %d bytes\n", len(html))
 
-	// Save raw HTML for inspection
-	os.WriteFile("/tmp/debug_schedule.html", []byte(html), 0644)
-	fmt.Println("Saved /tmp/debug_schedule.html")
+	if *output != "" {
+		if err := os.WriteFile(*output, []byte(html), 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "Save output: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Saved %s\n", *output)
+	}
 
 	// Check for table with class "table"
 	if strings.Contains(html, `<table class="table"`) || strings.Contains(html, `<table class="table">`) {

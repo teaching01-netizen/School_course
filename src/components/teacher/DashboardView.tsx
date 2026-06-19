@@ -6,7 +6,7 @@ import CalendarMonth from './CalendarMonth';
 import WeekSummary from './WeekSummary';
 import DayPanel from './DayPanel';
 import PendingAbsenceTable from './PendingAbsenceTable';
-import SessionTable from './SessionTable';
+import AbsenceRequestTable from './AbsenceRequestTable';
 
 type DashboardViewProps = {
   data: TeacherDashboardResponse;
@@ -202,7 +202,7 @@ export default function DashboardView({ data, viewDate, onPrevMonth, onNextMonth
           </div>
         </>
       ) : (
-        <SessionTable sessions={data.sessions} />
+        <AbsenceRequestTable sessions={data.sessions} pendingRequests={data.pending_absence_requests} />
       )}
 
       {/* Pending Absence Requests */}

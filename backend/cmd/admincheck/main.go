@@ -82,17 +82,7 @@ func main() {
 
 	ok, verr := auth.VerifyPassword(password, pepper, passwordHash)
 	if verr != nil {
-		prefix := passwordHash
-		if len(prefix) > 80 {
-			prefix = prefix[:80] + "..."
-		}
-		parts := strings.Split(passwordHash, "$")
-		raw := passwordHash
-		if len(raw) > 200 {
-			raw = raw[:200] + "..."
-		}
-		log.Error("verify failed", "err", verr, "password_hash_prefix", prefix, "password_hash_len", len(passwordHash))
-		log.Error("password hash debug", "dollar_count", strings.Count(passwordHash, "$"), "parts_len", len(parts), "password_hash_quoted", fmt.Sprintf("%q", raw))
+		log.Error("verify failed", "err", verr)
 		os.Exit(1)
 	}
 

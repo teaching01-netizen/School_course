@@ -7,7 +7,7 @@ type StoredOtpState = {
 
 function readStoredOtp(storageKey: string): StoredOtpState | null {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = window.sessionStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredOtpState>;
     if (typeof parsed.token !== "string" || !parsed.token) return null;
@@ -23,10 +23,10 @@ function readStoredOtp(storageKey: string): StoredOtpState | null {
 function writeStoredOtp(storageKey: string, value: StoredOtpState | null) {
   try {
     if (!value) {
-      window.localStorage.removeItem(storageKey);
+      window.sessionStorage.removeItem(storageKey);
       return;
     }
-    window.localStorage.setItem(storageKey, JSON.stringify(value));
+    window.sessionStorage.setItem(storageKey, JSON.stringify(value));
   } catch {
     // ignore storage failures
   }
