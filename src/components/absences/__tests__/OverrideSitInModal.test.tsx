@@ -14,6 +14,33 @@ vi.mock("@/api/client", async () => {
 describe("OverrideSitInModal", () => {
   beforeEach(() => { mockApiJson.mockReset(); });
 
+  it("does not show code - name fallback in course dropdown when subject_name is missing", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        { id: "course-1", code: "MATH-201", name: "Algebra II", subject_name: null },
+      ]);
+
+    render(
+      <ToastProvider>
+        <OverrideSitInModal
+          absenceId="abs-1"
+          version={1}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/courses/public",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    expect(screen.queryByRole("option", { name: "MATH-201 - Algebra II" })).not.toBeInTheDocument();
+  });
+
   it("shows confirmation without SMS preview when preview fetch fails, still allows Send/Skip", async () => {
     mockApiJson
       .mockResolvedValueOnce([])
