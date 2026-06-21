@@ -81,17 +81,19 @@ func (q *Queries) CourseGetByID(ctx context.Context, id pgtype.UUID) (CourseGetB
 }
 
 const courseListActive = `-- name: CourseListActive :many
-SELECT id, code, name, created_at, updated_at
-FROM courses
-ORDER BY code ASC
+SELECT c.id, c.code, c.name, COALESCE(s.name, '') AS subject_name, c.created_at, c.updated_at
+FROM courses c
+LEFT JOIN subjects s ON s.id = c.subject_id
+ORDER BY c.code ASC
 `
 
 type CourseListActiveRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Code      string             `json:"code"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID          pgtype.UUID        `json:"id"`
+	Code        string             `json:"code"`
+	Name        string             `json:"name"`
+	SubjectName string             `json:"subject_name"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) CourseListActive(ctx context.Context) ([]CourseListActiveRow, error) {
@@ -107,6 +109,7 @@ func (q *Queries) CourseListActive(ctx context.Context) ([]CourseListActiveRow, 
 			&i.ID,
 			&i.Code,
 			&i.Name,
+			&i.SubjectName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

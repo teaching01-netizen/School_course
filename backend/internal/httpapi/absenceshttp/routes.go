@@ -681,14 +681,15 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type courseDTO struct {
-		ID   string `json:"id"`
-		Code string `json:"code"`
-		Name string `json:"name"`
+		ID          string `json:"id"`
+		Code        string `json:"code"`
+		Name        string `json:"name"`
+		SubjectName string `json:"subject_name"`
 	}
 	out := make([]courseDTO, 0, len(items))
 	for _, it := range items {
 		id, _ := s.a.UUIDString(it.ID)
-		out = append(out, courseDTO{ID: id, Code: it.Code, Name: it.Name})
+		out = append(out, courseDTO{ID: id, Code: it.Code, Name: it.Name, SubjectName: it.SubjectName})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }

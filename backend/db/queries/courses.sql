@@ -9,9 +9,10 @@ FROM courses
 WHERE id = $1;
 
 -- name: CourseListActive :many
-SELECT id, code, name, created_at, updated_at
-FROM courses
-ORDER BY code ASC;
+SELECT c.id, c.code, c.name, COALESCE(s.name, '') AS subject_name, c.created_at, c.updated_at
+FROM courses c
+LEFT JOIN subjects s ON s.id = c.subject_id
+ORDER BY c.code ASC;
 
 -- name: CourseUpdate :one
 UPDATE courses

@@ -14,6 +14,69 @@ vi.mock("@/api/client", async () => {
 describe("OverrideSitInModal", () => {
   beforeEach(() => { mockApiJson.mockReset(); });
 
+  it("shows subject_name in course dropdown options when provided", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        { id: "course-1", code: "MATH-201", name: "Algebra II", subject_name: "SAT Verbal Reading" },
+        { id: "course-2", code: "SCI-101", name: "Physics", subject_name: "SAT Math" },
+      ])
+      .mockResolvedValueOnce([]);
+
+    render(
+      <ToastProvider>
+        <OverrideSitInModal
+          absenceId="abs-1"
+          version={1}
+          currentMethod="physical"
+          currentCourseId="course-1"
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/courses/public",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    expect(screen.getByRole("option", { name: "SAT Verbal Reading" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "SAT Math" })).toBeInTheDocument();
+  });
+
+  it("shows selected subject_name in footer when a course is selected", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        { id: "course-1", code: "MATH-201", name: "Algebra II", subject_name: "SAT Verbal Reading" },
+      ])
+      .mockResolvedValueOnce([]);
+
+    render(
+      <ToastProvider>
+        <OverrideSitInModal
+          absenceId="abs-1"
+          version={1}
+          currentMethod="physical"
+          currentCourseId="course-1"
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/courses/public",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    expect(screen.getByText("SAT Verbal Reading")).toBeInTheDocument();
+    expect(screen.queryByText("No course selected")).not.toBeInTheDocument();
+  });
+
   it("does not show code - name fallback in course dropdown when subject_name is missing", async () => {
     mockApiJson
       .mockResolvedValueOnce([
