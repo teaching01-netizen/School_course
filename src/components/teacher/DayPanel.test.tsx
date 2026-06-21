@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { StrictMode } from "react";
 import DayPanel from "./DayPanel";
@@ -204,5 +204,19 @@ describe("DayPanel", () => {
     renderPanel(sessions);
 
     expect(await screen.findByText("Reason unavailable")).toBeInTheDocument();
+  });
+
+  it("closes from Escape and the mobile-sized close control", () => {
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <DayPanel date={new Date("2026-06-20T00:00:00Z")} sessions={[]} onClose={onClose} />
+      </MemoryRouter>,
+    );
+    const close = screen.getByRole("button", { name: "Close panel" });
+    expect(close.className).toContain("h-11");
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

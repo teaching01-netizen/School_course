@@ -70,7 +70,7 @@ export default function SmsSendButton({
   sendCount,
   disabled = false,
   onClick,
-  cooldownDuration = 30,
+  cooldownDuration = 60,
   parentPhoneMissing = false,
 }: SmsSendButtonProps) {
   const [cooldown, setCooldown] = useState(0);

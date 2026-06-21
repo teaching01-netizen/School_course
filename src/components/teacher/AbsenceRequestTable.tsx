@@ -98,7 +98,32 @@ export default function AbsenceRequestTable({ sessions }: AbsenceRequestTablePro
   }
 
   return (
-    <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
+    <>
+      <div className="space-y-2 sm:hidden" data-testid="mobile-absence-list">
+      {rows.map((row) => (
+        <article key={row.id} className="rounded-sm border border-gray-200 bg-white p-3">
+          <div className="flex items-start gap-2">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
+              {initials(row.studentName)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm font-semibold text-gray-900">{row.studentName}</h3>
+              <p className="font-mono text-[11px] text-gray-500">{row.wcode}</p>
+            </div>
+            <Link to={`/teacher-dashboard/absences/${row.absenceId}`} className="inline-flex min-h-11 shrink-0 items-center px-1 text-xs font-medium text-[var(--color-wi-primary)]">
+              View →
+            </Link>
+          </div>
+          <dl className="mt-2 grid gap-2 border-t border-gray-100 pt-2 text-xs">
+            <div><dt className="font-medium text-gray-500">Course</dt><dd className="break-words text-gray-900">{row.subjectName?.trim() || row.courseName}</dd></div>
+            <div><dt className="font-medium text-gray-500">Missed</dt><dd className="break-words text-gray-900">{row.missedSubject} · {row.missedTimeLabel}</dd></div>
+            <div><dt className="font-medium text-gray-500">Sit-in</dt><dd className="break-words text-gray-900">{row.sitInSubject ? `${row.sitInSubject} · ${row.sitInTimeLabel}` : '—'}</dd></div>
+            <div><dt className="font-medium text-gray-500">Submitted</dt><dd className="text-gray-900">{row.submittedLabel}</dd></div>
+          </dl>
+        </article>
+      ))}
+      </div>
+      <div className="hidden overflow-x-auto rounded-sm border border-gray-200 bg-white sm:block">
       <table className="w-full text-sm">
         <thead className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
           <tr>
@@ -159,6 +184,7 @@ export default function AbsenceRequestTable({ sessions }: AbsenceRequestTablePro
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

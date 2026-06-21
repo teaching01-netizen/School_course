@@ -21,6 +21,8 @@ type StepCoverVerificationProps = {
   verification: VerificationStore;
   completed: boolean;
   onSatisfied: () => void;
+  onRestart: () => void;
+  onRestored: () => void;
 };
 
 function isRetryable(err: unknown): boolean {
@@ -37,6 +39,8 @@ export default function StepCoverVerification({
   verification,
   completed,
   onSatisfied,
+  onRestart,
+  onRestored,
 }: StepCoverVerificationProps) {
   const [session, setSession] = useState<ParentVerificationResponse | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -45,9 +49,44 @@ export default function StepCoverVerification({
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [lastSentAt, setLastSentAt] = useState<number | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [validationAttempt, setValidationAttempt] = useState(0);
   const autoVerifyCodeRef = useRef<string | null>(null);
 
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
+
+  useEffect(() => {
+    if (!verification.token || !wcode) {
+      setRestoreError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setRestoreError(null);
+    void apiJson<ParentVerificationResponse>(
+      `/api/v1/absences/parent-verification/${encodeURIComponent(verification.token)}`,
+      { method: "GET", signal: controller.signal },
+    )
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        if (response.wcode !== wcode || response.status === "consumed") {
+          setSession(null);
+          onRestart();
+          return;
+        }
+        setSession(response);
+        if (response.status === "verified") onRestored();
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiRequestError && (error.status === 400 || error.status === 410)) {
+          setSession(null);
+          onRestart();
+          return;
+        }
+        setRestoreError("Could not validate saved verification. Check your connection and try again.");
+      });
+    return () => controller.abort();
+  }, [verification.token, wcode, validationAttempt, onRestart, onRestored]);
 
   useEffect(() => {
     if (verified || isSending || isVerifying || !verification.token) return;
@@ -58,15 +97,19 @@ export default function StepCoverVerification({
     void handleVerify();
   }, [verification.code, verification.token, verified, isSending, isVerifying]);
 
-  async function handleSend() {
+  async function handleSend(startNewSession = false) {
     if (!wcode || !parentPhone) return;
+    if (startNewSession) {
+      onRestart();
+      setSession(null);
+    }
     setIsSending(true);
     setSendError(null);
     setVerifyError(null);
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/send", {
         method: "POST",
-        body: JSON.stringify({ wcode, ...(verification.token ? { token: verification.token } : {}) }),
+        body: JSON.stringify({ wcode, ...(!startNewSession && verification.token ? { token: verification.token } : {}) }),
       });
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
@@ -115,7 +158,18 @@ export default function StepCoverVerification({
   const canSend = !isSending && !isVerifying && !parentMissing && !verified;
 
   if (verified) {
-    return <p className="text-xs text-green-600 font-medium">✓ Verified</p>;
+    return (
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-green-600 font-medium">✓ Verified</p>
+        <button
+          type="button"
+          onClick={() => void handleSend(true)}
+          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)]"
+        >
+          Send new code
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -129,6 +183,18 @@ export default function StepCoverVerification({
 
       {sendError ? (
         <p role="alert" className="text-xs text-red-600">{sendError}</p>
+      ) : null}
+      {restoreError ? (
+        <div role="alert" className="space-y-1 text-xs text-red-600">
+          <p>{restoreError}</p>
+          <button
+            type="button"
+            onClick={() => setValidationAttempt((attempt) => attempt + 1)}
+            className="font-semibold underline underline-offset-2"
+          >
+            Retry verification check
+          </button>
+        </div>
       ) : null}
       {verifyError ? (
         <p role="alert" className="text-xs text-red-600">{verifyError}</p>
@@ -146,7 +212,6 @@ export default function StepCoverVerification({
         disabled={!canSend}
         onClick={() => void handleSend()}
         parentPhoneMissing={parentMissing}
-        cooldownDuration={150}
       />
 
       {lastSentAt && !isSending && (

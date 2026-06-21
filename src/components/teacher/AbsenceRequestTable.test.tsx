@@ -46,4 +46,14 @@ describe("AbsenceRequestTable", () => {
     expect(screen.getAllByText("Math Advanced C2/26").length).toBeGreaterThan(0);
     expect(screen.queryByText("0000000344")).not.toBeInTheDocument();
   });
+
+  it("renders a mobile card with the same core data and destination as the desktop row", () => {
+    renderTable(session);
+    const mobileList = screen.getByTestId("mobile-absence-list");
+    expect(mobileList).toHaveTextContent("Ann");
+    expect(mobileList).toHaveTextContent("W001");
+    expect(mobileList).toHaveTextContent("Mathematics");
+    expect(mobileList).toHaveTextContent("Submitted");
+    expect(mobileList.querySelector('a[href="/teacher-dashboard/absences/absence-1"]')).toBeTruthy();
+  });
 });

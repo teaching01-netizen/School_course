@@ -255,6 +255,27 @@ func TestSessionsInRangeQueryAppliesRequestedDateBounds(t *testing.T) {
 	}
 }
 
+func TestMaxSessionsLookupRangeDaysIncludesPostSessionLookback(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings absenceFormSettings
+		want     int
+	}{
+		{name: "disabled", settings: absenceFormSettings{MaxDateRangeDays: 30}, want: 30},
+		{name: "one hour crosses a calendar boundary", settings: absenceFormSettings{MaxDateRangeDays: 30, MaxHoursAfterSession: 1}, want: 31},
+		{name: "twenty five hours needs two days", settings: absenceFormSettings{MaxDateRangeDays: 30, MaxHoursAfterSession: 25}, want: 32},
+		{name: "forty eight hours needs two days", settings: absenceFormSettings{MaxDateRangeDays: 30, MaxHoursAfterSession: 48}, want: 32},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := maxSessionsLookupRangeDays(tt.settings); got != tt.want {
+				t.Fatalf("maxSessionsLookupRangeDays(%+v) = %d, want %d", tt.settings, got, tt.want)
+			}
+		})
+	}
+}
+
 func ptr(s string) *string {
 	return &s
 }
