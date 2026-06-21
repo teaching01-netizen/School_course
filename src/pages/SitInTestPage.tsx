@@ -4,6 +4,7 @@ import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
+  AbsenceFormConfig,
   SessionsInRangeResponse,
   StudentLookupResponse,
   SubjectSessions,
@@ -292,6 +293,11 @@ function dateToLocalISO(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function postSessionLookbackDays(maxHoursAfterSession: number): number {
+  if (!Number.isFinite(maxHoursAfterSession) || maxHoursAfterSession <= 0) return 0;
+  return Math.ceil(maxHoursAfterSession / 24);
+}
+
 const SIT_IN_METHOD_BADGE: Record<string, { color: string; label: string }> = {
   physical: { color: "bg-blue-100 text-blue-800", label: "Physical" },
   zoom: { color: "bg-purple-100 text-purple-800", label: "Zoom" },
@@ -315,16 +321,35 @@ export default function SitInTestPage() {
   const [priorityLevels, setPriorityLevels] = useState<Record<string, number>>({});
   const [priorityHistory, setPriorityHistory] = useState<PriorityLevelCache>({});
   const [revealingIds, setRevealingIds] = useState<Set<string>>(new Set());
+  const [maxDateRange, setMaxDateRange] = useState(30);
+  const [maxHoursAfterSession, setMaxHoursAfterSession] = useState(0);
+  const [maxSessions, setMaxSessions] = useState(10);
 
   const lookupName = lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
 
-  const maxDateRange = 30;
   const lookupWindow = useMemo(() => {
     const today = new Date();
+    const dateFrom = new Date(today);
+    dateFrom.setDate(dateFrom.getDate() - postSessionLookbackDays(maxHoursAfterSession));
     return {
-      dateFrom: dateToLocalISO(today),
+      dateFrom: dateToLocalISO(dateFrom),
       dateTo: dateToLocalISO(new Date(today.getTime() + maxDateRange * 24 * 60 * 60 * 1000)),
     };
+  }, [maxDateRange, maxHoursAfterSession]);
+
+  useEffect(() => {
+    let active = true;
+    void apiJson<AbsenceFormConfig>("/api/v1/absence-form-config", { method: "GET" })
+      .then((config) => {
+        if (!active) return;
+        setMaxDateRange(config.form.max_date_range_days);
+        setMaxHoursAfterSession(config.form.max_hours_after_session);
+        setMaxSessions(config.sit_in.max_sessions_per_absence);
+      })
+      .catch(() => {
+        // Keep the existing safe defaults when operation settings are unavailable.
+      });
+    return () => { active = false; };
   }, []);
 
   async function handleLookup() {
@@ -476,7 +501,6 @@ export default function SitInTestPage() {
     setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
   }
 
-  const maxSessions = 10;
   const selectedSessionCount = useMemo(
     () => countSelectedSessions(sessions, selectedSessionIds),
     [sessions, selectedSessionIds],
