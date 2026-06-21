@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import TeacherAbsenceDetail from "../TeacherAbsenceDetail";
 import { ToastProvider } from "../../hooks/useToast";
@@ -29,6 +30,7 @@ const detail = {
   reason_category: "medical",
   reason: "Appointment",
   status: "pending",
+  version: 1,
   missed_sessions: [{ session_id: "s-1", course_code: "MATH-201", course_name: "Algebra II", subject_name: "Mathematics", room_name: "A1", start_at: "2026-06-20T02:00:00Z", end_at: "2026-06-20T03:00:00Z" }],
   sit_in_sessions: [{ session_id: "s-2", course_code: "PHYS-201", course_name: "Physics II", subject_name: "Physics", room_name: "B1", start_at: "2026-06-22T02:00:00Z", end_at: "2026-06-22T03:00:00Z" }],
 };
@@ -62,6 +64,41 @@ describe("Teacher absence detail", () => {
     expect(screen.getAllByText("Mathematics").length).toBeGreaterThan(0);
     expect(screen.getByText("Physics")).toBeInTheDocument();
     expect(screen.queryByText(/MATH-201|PHYS-201/)).not.toBeInTheDocument();
+  });
+
+  it("opens override modal directly from teacher detail without admin endpoint call", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValueOnce([]);
+    render(
+      <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("John")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /override sit-in/i }));
+
+    expect(await screen.findByRole("heading", { name: /override sit-in/i })).toBeInTheDocument();
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/teacher/absences/abs-1",
+      { method: "GET" },
+    );
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/courses/public",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockApiJson).not.toHaveBeenCalledWith(
+      "/api/v1/absences/abs-1",
+      expect.anything(),
+    );
   });
 
   it("links back to /absences/dashboard when user is an Admin", async () => {

@@ -6,7 +6,7 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
-import type { ManagedAbsence, TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
+import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 
 const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
@@ -64,8 +64,6 @@ export default function TeacherAbsenceDetail() {
   const [detail, setDetail] = useState<TeacherAbsenceDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [overrideOpen, setOverrideOpen] = useState(false);
-  const [managedAbsence, setManagedAbsence] = useState<ManagedAbsence | null>(null);
-  const [loadingOverride, setLoadingOverride] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,16 +108,7 @@ export default function TeacherAbsenceDetail() {
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
             <Eye className="h-3.5 w-3.5" aria-hidden="true" /> Read-only
           </span>
-          <Button size="sm" variant="secondary" loading={loadingOverride} onClick={() => {
-            setLoadingOverride(true);
-            void apiJson<ManagedAbsence>(`/api/v1/absences/${id}`, { method: "GET" })
-              .then((absence) => {
-                setManagedAbsence(absence);
-                setOverrideOpen(true);
-              })
-              .catch((err) => addToast("error", err instanceof Error ? err.message : "Failed to load absence details"))
-              .finally(() => setLoadingOverride(false));
-          }}>Override Sit-in</Button>
+          <Button size="sm" variant="secondary" onClick={() => setOverrideOpen(true)}>Override Sit-in</Button>
         </div>
       </header>
 
@@ -135,13 +124,13 @@ export default function TeacherAbsenceDetail() {
         <SessionList title="Sit-in sessions assigned to you" sessions={detail.sit_in_sessions} />
       </div>
 
-      {overrideOpen && managedAbsence ? (
+      {overrideOpen ? (
         <OverrideSitInModal
-          absenceId={managedAbsence.id}
-          version={managedAbsence.version}
-          currentMethod={managedAbsence.sit_in_method}
-          currentCourseId={managedAbsence.sit_in_course_id}
-          onClose={() => { setOverrideOpen(false); setManagedAbsence(null); }}
+          absenceId={detail.id}
+          version={detail.version}
+          currentMethod={detail.sit_in_method}
+          currentCourseId={detail.sit_in_course_id}
+          onClose={() => setOverrideOpen(false)}
           onSaved={() => void load()}
         />
       ) : null}

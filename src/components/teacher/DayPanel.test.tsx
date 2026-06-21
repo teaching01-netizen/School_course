@@ -60,6 +60,7 @@ function absenceDetail(overrides: Partial<TeacherAbsenceDetail> & Pick<TeacherAb
     status: "pending",
     missed_sessions: [],
     sit_in_sessions: [],
+    version: 1,
     ...overrides,
   };
 }

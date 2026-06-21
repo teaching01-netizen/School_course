@@ -100,7 +100,7 @@ export default function OverrideSitInModal({
 
   const selectedCourseName = useMemo(() => {
     const c = courses.find((c) => c.id === courseID);
-    return c?.subject_name || (c ? `${c.code} - ${c.name}` : null);
+    return c?.subject_name ?? null;
   }, [courses, courseID]);
 
   const hasCurrentState = !!(currentMethod || currentCourseId);
@@ -324,7 +324,7 @@ export default function OverrideSitInModal({
                   >
                     {courses.map((course) => (
                       <option key={course.id} value={course.id}>
-                        {course.subject_name || `${course.code} - ${course.name}`}
+                        {course.subject_name}
                       </option>
                     ))}
                   </Select>

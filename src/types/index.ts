@@ -729,6 +729,9 @@ export type TeacherAbsenceDetail = {
   reason_category: string | null;
   reason: string | null;
   status: string;
+  version: number;
+  sit_in_method?: string | null;
+  sit_in_course_id?: string | null;
   missed_sessions: TeacherAbsenceSession[];
   sit_in_sessions: TeacherAbsenceSession[];
 };

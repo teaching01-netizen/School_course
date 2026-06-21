@@ -67,6 +67,18 @@ describe("CalendarDayCell", () => {
     expect(screen.getByText("21").className).toContain("bg-gray-900");
   });
 
+  it("renders up to 3 compact-sized mobile dots for 3 sessions", () => {
+    const sessions = [
+      { ...session, id: "s1" },
+      { ...session, id: "s2" },
+      { ...session, id: "s3" },
+    ];
+    renderCell(undefined, { sessions });
+    const cell = screen.getByRole("button");
+    const compactDots = cell.innerHTML.match(/h-1\.5 w-1\.5 rounded-full/g);
+    expect(compactDots).toHaveLength(3);
+  });
+
   it("renders a larger, darker-amber mobile dot for sit-in-only sessions", () => {
     renderCell({
       ...session,
@@ -85,6 +97,6 @@ describe("CalendarDayCell", () => {
     });
     const cell = screen.getByRole("button");
     expect(cell.innerHTML).toContain("bg-amber-600");
-    expect(cell.innerHTML).toContain("h-2 w-2 rounded-full");
+    expect(cell.innerHTML).toContain("h-1.5 w-1.5 rounded-full");
   });
 });
