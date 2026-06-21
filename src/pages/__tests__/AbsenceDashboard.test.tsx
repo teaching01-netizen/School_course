@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import AbsenceDashboard from "../AbsenceDashboard";
 import { ToastProvider } from "../../hooks/useToast";
 import { ApiRequestError } from "../../api/client";
+import { queryClient } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async () => {
@@ -53,6 +54,7 @@ function renderDashboard() {
 
 beforeEach(() => {
   mockApiJson.mockReset();
+  queryClient.clear();
 });
 
 it("loads teachers and fetches the selected teacher dashboard", async () => {
@@ -70,7 +72,7 @@ it("loads teachers and fetches the selected teacher dashboard", async () => {
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
 
-  await screen.findByText("Mathematics");
+  await screen.findByText("MATH101");
   expect(mockApiJson).toHaveBeenCalledWith(
     expect.stringMatching(/\/api\/v1\/teacher\/dashboard\?month_start=\d{4}-\d{2}-\d{2}&teacher_id=teacher-1/),
   );
@@ -86,7 +88,7 @@ it("retries a failed dashboard request without showing stale sessions", async ()
         String(calledUrl).includes("/api/v1/teacher/dashboard"),
       ).length;
       if (dashboardCalls === 1) return dashboardResponse("MATH101", monthStart);
-      if (dashboardCalls === 2) throw new ApiRequestError("Server down", { status: 500 });
+      if (dashboardCalls === 2 || dashboardCalls === 3) throw new ApiRequestError("Server down", { status: 500 });
       return dashboardResponse("MATH102", monthStart);
     }
     throw new Error(`Unmocked API call: ${url}`);
@@ -95,16 +97,16 @@ it("retries a failed dashboard request without showing stale sessions", async ()
   renderDashboard();
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
-  await screen.findByText("Mathematics");
+  await screen.findByText("MATH101");
 
   await user.click(screen.getByRole("button", { name: /next month/i }));
 
-  await screen.findByText(/failed to load dashboard: server down/i);
-  expect(screen.queryByText("Mathematics")).not.toBeInTheDocument();
+  await screen.findByText(/A server error occurred/i, {}, { timeout: 2_500 });
+  expect(screen.queryByText("MATH101")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /retry/i }));
 
-  await screen.findByText("Mathematics");
+  await screen.findByText("MATH102");
   await waitFor(() => {
     expect(screen.queryByText(/failed to load dashboard/i)).not.toBeInTheDocument();
   });

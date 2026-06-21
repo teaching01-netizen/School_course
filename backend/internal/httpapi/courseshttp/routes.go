@@ -14,12 +14,34 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/legacysync"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
 
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
+}
+
+func (s *server) publishCourseUpdated(id string) {
+	s.publishCourseUpdates([]string{id})
+}
+
+func (s *server) publishCourseUpdates(ids []string) {
+	if s.deps.Realtime == nil {
+		return
+	}
+	for _, id := range ids {
+		if id != "" {
+			s.deps.Realtime.Publish("courses:all", realtime.Event{Type: "course.updated", ID: id})
+		}
+	}
+}
+
+func (s *server) publishSessionsUpdated() {
+	if s.deps.Realtime != nil {
+		s.deps.Realtime.Publish("sessions:all", realtime.Event{Type: "sessions.updated"})
+	}
 }
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
@@ -261,7 +283,8 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
 			return
 		}
-		s.a.WithIdempotentTx(w, r, user.ID, scope, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		createdID := ""
+		if s.a.WithIdempotentTx(w, r, user.ID, scope, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 			qtx := s.deps.Q.WithTx(tx)
 			item, err := qtx.CourseCreateV2(r.Context(), sqldb.CourseCreateV2Params{
 				Year:         pgtype.Int2{Int16: body.Year, Valid: true},
@@ -290,12 +313,16 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 				return 0, nil, err
 			}
+			createdID = id
 			return http.StatusCreated, map[string]any{"id": id, "course_no": item.CourseNo, "code": item.Code}, nil
-		})
+		}) {
+			s.publishCourseUpdated(createdID)
+		}
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, scope, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	createdID := ""
+	if s.a.WithIdempotentTx(w, r, user.ID, scope, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := qtx.CourseCreate(r.Context(), sqldb.CourseCreateParams{Code: body.Code, Name: body.Name})
 		if err != nil {
@@ -317,8 +344,11 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
+		createdID = id
 		return http.StatusCreated, map[string]any{"id": id, "code": item.Code, "name": item.Name}, nil
-	})
+	}) {
+		s.publishCourseUpdated(createdID)
+	}
 }
 
 func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +419,7 @@ func (s *server) handleCourseStudentsAdd(w http.ResponseWriter, r *http.Request)
 	cid, _ := s.a.UUIDString(courseID)
 	sid, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusEnrolled); err != nil {
 			var se *scheduling.Err
@@ -408,7 +438,9 @@ func (s *server) handleCourseStudentsAdd(w http.ResponseWriter, r *http.Request)
 			Payload:     map[string]any{"course_id": cid, "student_id": sid},
 		})
 		return http.StatusOK, map[string]any{"ok": true}, nil
-	})
+	}) {
+		s.publishCourseUpdated(cid)
+	}
 }
 
 func (s *server) handleCourseStudentsRemove(w http.ResponseWriter, r *http.Request) {
@@ -438,7 +470,7 @@ func (s *server) handleCourseStudentsRemove(w http.ResponseWriter, r *http.Reque
 	cid, _ := s.a.UUIDString(courseID)
 	sid, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := qtx.CourseStudentRemove(r.Context(), sqldb.CourseStudentRemoveParams{CourseID: courseID, StudentID: studentID}); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -452,7 +484,9 @@ func (s *server) handleCourseStudentsRemove(w http.ResponseWriter, r *http.Reque
 			Payload:     map[string]any{"course_id": cid, "student_id": sid},
 		})
 		return http.StatusOK, map[string]any{"ok": true}, nil
-	})
+	}) {
+		s.publishCourseUpdated(cid)
+	}
 }
 
 func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Request) {
@@ -498,7 +532,7 @@ func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Req
 	courseIDStr, _ := s.a.UUIDString(courseID)
 	studentIDStr, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusDraft); err != nil {
 			var se *scheduling.Err
@@ -519,7 +553,9 @@ func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Req
 			s.deps.Log.Error("audit insert failed", "error", aErr, "course_id", courseIDStr, "student_id", studentIDStr)
 		}
 		return http.StatusOK, map[string]any{"student_id": studentIDStr, "status": "draft"}, nil
-	})
+	}) {
+		s.publishCourseUpdated(courseIDStr)
+	}
 }
 
 func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Request) {
@@ -549,7 +585,7 @@ func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Requ
 	cid, _ := s.a.UUIDString(courseID)
 	sid, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
 		// Only update if currently draft.
@@ -583,7 +619,9 @@ func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Requ
 			Payload:     map[string]any{"course_id": cid, "student_id": sid, "source": "manual"},
 		})
 		return http.StatusOK, map[string]any{"student_id": sid, "status": "enrolled"}, nil
-	})
+	}) {
+		s.publishCourseUpdated(cid)
+	}
 }
 
 func (s *server) handleCoursesGet(w http.ResponseWriter, r *http.Request) {
@@ -704,7 +742,7 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
-	s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
 		var item sqldb.CourseOverviewRow
@@ -834,7 +872,9 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 			"legacy_course_id":      legacyCourseID,
 			"legacy_last_synced_at": legacyLastSyncedAt,
 		}, nil
-	})
+	}) {
+		s.publishCourseUpdated(r.PathValue("id"))
+	}
 }
 
 func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
@@ -859,6 +899,8 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 		return http.StatusOK, map[string]any{"ok": true}, nil
 	}) {
 		s.deps.Log.Error("course_delete: idempotent tx failed", "course_id", r.PathValue("id"))
+	} else {
+		s.publishCourseUpdated(r.PathValue("id"))
 	}
 }
 
@@ -905,6 +947,9 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusInternalServerError, "sync_failed", "Legacy sync failed")
 		return
 	}
+	if result.SessionsCreated > 0 {
+		s.publishSessionsUpdated()
+	}
 
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"sessions_created": result.SessionsCreated,
@@ -944,6 +989,7 @@ func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request
 	}
 
 	s.deps.Log.Debug("batch deleting courses", "count", len(ids))
+	var succeededIDs []string
 	if !s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		results := qtx.CourseBatchDelete(r.Context(), ids)
@@ -958,6 +1004,7 @@ func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request
 				failed = append(failed, map[string]any{"id": idStr, "error": res.Error})
 			}
 		}
+		succeededIDs = append(succeededIDs, succeeded...)
 		return http.StatusOK, map[string]any{
 			"succeeded":       succeeded,
 			"failed":          failed,
@@ -965,6 +1012,8 @@ func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request
 		}, nil
 	}) {
 		s.deps.Log.Error("course_batch_delete: idempotent tx failed", "count", len(ids))
+	} else {
+		s.publishCourseUpdates(succeededIDs)
 	}
 }
 

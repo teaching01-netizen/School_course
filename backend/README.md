@@ -22,6 +22,7 @@ This repo is a single-deployable “modular monolith” service:
 Environment:
 
 - `DATABASE_URL` (required)
+- `REALTIME_DATABASE_URL` (required only when `DATABASE_URL` uses transaction pooling; use a direct or session-pooling endpoint)
 - `AUTH_PEPPER` (required; long random secret)
 - `OTP_HMAC_KEY` (required for direct `go run`; `make dev` provides a local fallback)
 - `COOKIE_SECURE` (optional; defaults to `true`; set `false` only for local http; local mode uses a non-`__Host-` cookie name)
@@ -65,6 +66,7 @@ A `railway.toml` at repo root defines the build/deploy config:
 | `CRM_BASE_URL` / `CRM_USERNAME` / `CRM_PASSWORD` | — | CRM integration |
 | `OTP_SMS_PROVIDER` | `mock` | `smartsms` for real SMS |
 | `SMS_SERVICE_*` | — | SmartSMS credentials |
+| `REALTIME_DATABASE_URL` | `DATABASE_URL` | Direct or session-pooling PostgreSQL endpoint used for realtime `LISTEN/NOTIFY`; required when `DATABASE_URL` uses transaction pooling (commonly port 6543) |
 
 ### Cron jobs
 

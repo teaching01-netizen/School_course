@@ -760,7 +760,7 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 	sessID, _ := s.a.UUIDString(sessionID)
 	stuID, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := s.deps.Scheduling.UpsertSessionAttendanceTx(r.Context(), tx, qtx, sessionID, studentID, body.Status); err != nil {
 			var se *scheduling.Err
@@ -779,7 +779,9 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 			Payload:     map[string]any{"session_id": sessID, "student_id": stuID, "status": body.Status},
 		})
 		return http.StatusOK, map[string]any{"ok": true}, nil
-	})
+	}) {
+		s.publishSessionUpdated(sessID)
+	}
 }
 
 func (s *server) handleSessionAttendanceDelete(w http.ResponseWriter, r *http.Request) {
@@ -800,7 +802,7 @@ func (s *server) handleSessionAttendanceDelete(w http.ResponseWriter, r *http.Re
 	sessID, _ := s.a.UUIDString(sessionID)
 	stuID, _ := s.a.UUIDString(studentID)
 
-	s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if err := qtx.SessionAttendanceDelete(r.Context(), sqldb.SessionAttendanceDeleteParams{
 			SessionID: sessionID,
@@ -817,5 +819,7 @@ func (s *server) handleSessionAttendanceDelete(w http.ResponseWriter, r *http.Re
 			Payload:     map[string]any{"session_id": sessID, "student_id": stuID},
 		})
 		return http.StatusOK, map[string]any{"ok": true}, nil
-	})
+	}) {
+		s.publishSessionUpdated(sessID)
+	}
 }

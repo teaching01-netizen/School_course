@@ -3,6 +3,8 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { ApiRequestError } from "@/api/client";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createAppQueryClient, queryClient } from "@/query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -14,6 +16,7 @@ vi.mock("@/api/client", async () => {
 describe("useApiQuery", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
+    queryClient.clear();
   });
 
   it("returns loading=true on mount", () => {
@@ -61,7 +64,7 @@ describe("useApiQuery", () => {
       await result.current.refetch();
     });
 
-    expect(result.current.data).toEqual(updated);
+    await waitFor(() => expect(result.current.data).toEqual(updated));
     expect(result.current.loading).toBe(false);
   });
 
@@ -89,10 +92,32 @@ describe("useApiQuery", () => {
     await waitFor(() => expect(result.current.data).toEqual(data2));
   });
 
+  it("distinguishes retained operational data from initial loading", async () => {
+    let resolveNext: (value: Array<{ id: string }>) => void = () => undefined;
+    mockApiJson
+      .mockResolvedValueOnce([{ id: "old" }])
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
+
+    const { result, rerender } = renderHook(({ month }) => useApiQuery(
+      `/api/v1/teacher/dashboard?month_start=${month}`,
+    ), { initialProps: { month: "2026-06-01" } });
+    await waitFor(() => expect(result.current.data).toEqual([{ id: "old" }]));
+
+    rerender({ month: "2026-07-01" });
+
+    expect(result.current.data).toEqual([{ id: "old" }]);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+
+    await act(async () => resolveNext([{ id: "new" }]));
+    await waitFor(() => expect(result.current.data).toEqual([{ id: "new" }]));
+    expect(result.current.refreshing).toBe(false);
+  });
+
   it("clears stale data when a new url fails", async () => {
     const data1 = [{ id: "1" }];
     const err = new ApiRequestError("Server down", { status: 500 });
-    mockApiJson.mockResolvedValueOnce(data1).mockRejectedValueOnce(err);
+    mockApiJson.mockResolvedValueOnce(data1).mockRejectedValue(err);
 
     const { result, rerender } = renderHook(({ url }) => useApiQuery(url), {
       initialProps: { url: "/api/v1/a" },
@@ -102,7 +127,7 @@ describe("useApiQuery", () => {
 
     rerender({ url: "/api/v1/b" });
 
-    await waitFor(() => expect(result.current.error).toBe(err));
+    await waitFor(() => expect(result.current.error).toBe(err), { timeout: 2_500 });
     expect(result.current.data).toBeNull();
   });
 
@@ -126,5 +151,19 @@ describe("useApiQuery", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.data).toEqual(data);
     expect(result.current.error).toBeNull();
+  });
+
+  it("deduplicates identical requests through the shared query cache", async () => {
+    const client = createAppQueryClient();
+    mockApiJson.mockResolvedValue([{ id: "shared" }]);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const first = renderHook(() => useApiQuery("/api/v1/subjects"), { wrapper });
+    const second = renderHook(() => useApiQuery("/api/v1/subjects"), { wrapper });
+
+    await waitFor(() => expect(first.result.current.data).toEqual([{ id: "shared" }]));
+    await waitFor(() => expect(second.result.current.data).toEqual([{ id: "shared" }]));
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
   });
 });

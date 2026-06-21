@@ -63,7 +63,7 @@ const sessions: TeacherDashboardSession[] = [
     absent_count: 0,
     absent_students: [],
     sit_in_visitors: [
-      { wcode: "STU003", nickname: null, student_name: "Charlie", from_course_code: "BIO101", from_subject_name: null, absence_id: "ab-3", session_start_at: "2026-06-17T11:00:00Z", session_end_at: "2026-06-17T12:30:00Z", absent_subject_name: null },
+      { wcode: "STU003", nickname: null, student_name: "Charlie", from_course_code: "BIO101", from_subject_name: null, absence_id: "ab-3", session_start_at: "2026-06-17T11:00:00Z", session_end_at: "2026-06-17T12:30:00Z", absent_subject_name: null, absence_date: "2026-06-16" },
     ],
   },
 ];
@@ -148,8 +148,8 @@ describe("SessionTable", () => {
     fireEvent.click(screen.getByText("2"));
     const viewLinks = screen.getAllByText("View →");
     expect(viewLinks).toHaveLength(2);
-    expect(viewLinks[0]).toHaveAttribute("href", "/absences/ab-1");
-    expect(viewLinks[1]).toHaveAttribute("href", "/absences/ab-2");
+    expect(viewLinks[0]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-1");
+    expect(viewLinks[1]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-2");
   });
 
   it("expanded sit-in detail shows visitor info", () => {
@@ -159,7 +159,7 @@ describe("SessionTable", () => {
     expect(screen.getByText("STU003")).toBeInTheDocument();
     expect(screen.getByText(/Sit-in from BIO101/)).toBeInTheDocument();
     const viewLinks = screen.getAllByText("View →");
-    expect(viewLinks[0]).toHaveAttribute("href", "/absences/ab-3");
+    expect(viewLinks[0]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-3");
   });
 
   it("clicking the same row again collapses the detail", () => {
@@ -179,6 +179,6 @@ describe("SessionTable", () => {
     // s3 (absences) collapsed, s4 (sit-ins) expanded — only sit-in View link
     const afterLinks = screen.getAllByText("View →");
     expect(afterLinks).toHaveLength(1);
-    expect(afterLinks[0]).toHaveAttribute("href", "/absences/ab-3");
+    expect(afterLinks[0]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-3");
   });
 });

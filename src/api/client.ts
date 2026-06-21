@@ -13,6 +13,7 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
     credentials: "include",
+    cache: "no-store",
     body: form,
   });
   if (!res.ok) {
@@ -134,6 +135,7 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     credentials: "include",
+    cache: "no-store",
     headers,
   });
 
@@ -151,7 +153,7 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function downloadApiFile(path: string): Promise<void> {
-  const res = await fetch(path, { method: "GET", credentials: "include" });
+  const res = await fetch(path, { method: "GET", credentials: "include", cache: "no-store" });
   if (!res.ok) {
     throw await readApiError(res);
   }

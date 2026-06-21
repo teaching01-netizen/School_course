@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import { useRealtime } from "../hooks/useRealtime";
 import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief, CalendarSitInStudent } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import SidePanel, { type AbsencePanelTab } from "../components/absences/SidePanel";
 import SitInListView from "../components/absences/SitInListView";
+import { queryKeys } from "../query/cache";
+import { useOperationalQuery } from "../query/useOperationalQuery";
 
 type CalendarShowMode = "all" | "sessions" | "absences" | "sit-ins";
 type CalendarViewMode = "week" | "month" | "list";
@@ -158,9 +158,6 @@ export default function OperationsCalendar() {
   const statusParam = searchParams.get("status") ?? "";
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [monthStart, setMonthStart] = useState(() => getMonthStart(new Date()));
-  const [sessions, setSessions] = useState<CalendarSessionBrief[]>([]);
-  const [absenceDays, setAbsenceDays] = useState<CalendarAbsenceDay[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<AbsencePanelTab>("sit-ins");
 
@@ -168,35 +165,22 @@ export default function OperationsCalendar() {
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   }, [weekStart]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      let rangeStart: Date, rangeEnd: Date;
-      if (viewMode === "month" || viewMode === "list") {
-        rangeStart = getMonthStart(monthStart);
-        rangeEnd = getMonthEnd(monthStart);
-      } else {
-        rangeStart = weekStart;
-        rangeEnd = addDays(weekStart, 6);
-      }
-      const calData = await apiJson<CalendarResponse>(
-        `/api/v1/operations/calendar?start=${yyyyMmDd(rangeStart)}&end=${yyyyMmDd(rangeEnd)}`,
-        { method: "GET" }
-      );
-      setSessions(calData.sessions);
-      setAbsenceDays(calData.absence_days);
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to load calendar data");
-    } finally {
-      setLoading(false);
-    }
-  }, [addToast, weekStart, monthStart, viewMode]);
+  const calendarRequest = useMemo(() => {
+    const rangeStart = viewMode === "month" || viewMode === "list" ? getMonthStart(monthStart) : weekStart;
+    const rangeEnd = viewMode === "month" || viewMode === "list" ? getMonthEnd(monthStart) : addDays(weekStart, 6);
+    return `/api/v1/operations/calendar?start=${yyyyMmDd(rangeStart)}&end=${yyyyMmDd(rangeEnd)}`;
+  }, [monthStart, viewMode, weekStart]);
+  const calendarQuery = useOperationalQuery<CalendarResponse>(
+    queryKeys.operationsCalendar.range(calendarRequest),
+    calendarRequest,
+  );
+  const sessions = calendarQuery.data?.sessions ?? [];
+  const absenceDays = calendarQuery.data?.absence_days ?? [];
+  const loading = calendarQuery.isPending;
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  useRealtime(["sessions:all", "absent:all"], () => void loadData(), { debounceMs: 500 });
+    if (calendarQuery.error) addToast("error", calendarQuery.error.message || "Failed to load calendar data");
+  }, [addToast, calendarQuery.error]);
 
   const goPrevWeek = () => setWeekStart((prev) => addDays(prev, -7));
   const goNextWeek = () => setWeekStart((prev) => addDays(prev, 7));

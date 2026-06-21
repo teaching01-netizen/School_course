@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AbsenceDetail from "../AbsenceDetail";
 import { ToastProvider } from "../../hooks/useToast";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
+const mockUseRealtime = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return { ...actual, apiJson: mockApiJson };
 });
+
+vi.mock("@/hooks/useRealtime", () => ({ useRealtime: mockUseRealtime }));
 
 const DETAIL = {
   id: "abs-1",
@@ -55,7 +58,27 @@ function renderDetail() {
 }
 
 describe("Absence detail", () => {
-  beforeEach(() => mockApiJson.mockReset());
+  beforeEach(() => {
+    mockApiJson.mockReset();
+    mockUseRealtime.mockReset();
+  });
+
+  it("reloads the current absence after realtime reconnect", async () => {
+    mockApiJson.mockResolvedValueOnce(DETAIL).mockResolvedValueOnce({ ...DETAIL, status: "reviewed", version: 2 });
+    renderDetail();
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+
+    const options = mockUseRealtime.mock.calls[0]?.[2] as { onReconnect?: () => void } | undefined;
+    expect(options?.onReconnect).toBeTypeOf("function");
+    await act(async () => options?.onReconnect?.());
+
+    await waitFor(() => {
+      const detailGets = mockApiJson.mock.calls.filter(([url, init]) =>
+        url === "/api/v1/absences/abs-1" && init?.method === "GET"
+      );
+      expect(detailGets).toHaveLength(2);
+    });
+  });
 
   it("shows the action context and marks a pending record reviewed", async () => {
     mockApiJson

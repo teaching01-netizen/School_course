@@ -113,8 +113,12 @@ func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqld
 	}
 }
 
-func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps) http.Handler {
+func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps, realtimeHub ...*realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
+	hub := realtime.NewHub()
+	if len(realtimeHub) > 0 && realtimeHub[0] != nil {
+		hub = realtimeHub[0]
+	}
 
 	hasher := auth.NewArgon2PasswordHasher(cfg.AuthPepper)
 	sessionStore := auth.NewPGSessionStore(db, log)
@@ -151,7 +155,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		CRMReconcileV2:     reconcileV2,
 		CRMWorker:          worker,
 		RateLimiter:        ratelimit.NewStore(db),
-		Realtime:           realtime.NewHub(),
+		Realtime:           hub,
 		AppOrigin:          cfg.AppOrigin,
 		LegacySyncURL:      cfg.LegacySyncURL,
 		LegacySyncUsername: cfg.LegacySyncUsername,

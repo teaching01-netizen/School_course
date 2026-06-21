@@ -18,3 +18,14 @@ describe("apiJson", () => {
     );
   });
 });
+
+it("bypasses the browser HTTP cache for authenticated GET requests", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })));
+
+  await apiJson("/api/v1/subjects", { method: "GET" });
+
+  expect(fetch).toHaveBeenCalledWith(
+    "/api/v1/subjects",
+    expect.objectContaining({ cache: "no-store", credentials: "include", method: "GET" }),
+  );
+});

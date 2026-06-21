@@ -1,8 +1,13 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type Event struct {
@@ -15,12 +20,17 @@ type Event struct {
 type Client struct {
 	mu     sync.Mutex
 	send   chan []byte
+	done   chan struct{}
 	hub    *Hub
 	closed bool
 }
 
 func (c *Client) Send() <-chan []byte {
 	return c.send
+}
+
+func (c *Client) Done() <-chan struct{} {
+	return c.done
 }
 
 func (c *Client) Subscribe(channel string) {
@@ -51,8 +61,6 @@ func (c *Client) trySend(data []byte) bool {
 	case c.send <- data:
 		return true
 	default:
-		c.closed = true
-		close(c.send)
 		return false
 	}
 }
@@ -65,6 +73,7 @@ func (c *Client) closeSend() {
 	}
 	c.closed = true
 	close(c.send)
+	close(c.done)
 }
 
 type Hub struct {
@@ -72,22 +81,67 @@ type Hub struct {
 	channels map[string]map[*Client]struct{}
 	clients  map[*Client]map[string]struct{}
 	buffer   int
+	closed   bool
+	originID string
+	fanout   Fanout
+	log      *slog.Logger
 }
 
 func NewHub() *Hub {
+	return newHub(uuid.NewString(), nil, nil)
+}
+
+func NewHubWithFanout(ctx context.Context, originID string, fanout Fanout, log *slog.Logger) *Hub {
+	if originID == "" {
+		originID = uuid.NewString()
+	}
+	hub := newHub(originID, fanout, log)
+	if fanout != nil {
+		go fanout.Run(ctx, hub.receiveEnvelope)
+	}
+	return hub
+}
+
+func newHub(originID string, fanout Fanout, log *slog.Logger) *Hub {
 	return &Hub{
 		channels: make(map[string]map[*Client]struct{}),
 		clients:  make(map[*Client]map[string]struct{}),
 		buffer:   16,
+		originID: originID,
+		fanout:   fanout,
+		log:      log,
 	}
 }
 
 func (h *Hub) NewClient() *Client {
-	c := &Client{send: make(chan []byte, h.buffer), hub: h}
+	c := &Client{send: make(chan []byte, h.buffer), done: make(chan struct{}), hub: h}
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		c.closeSend()
+		return c
+	}
 	h.clients[c] = make(map[string]struct{})
 	h.mu.Unlock()
 	return c
+}
+
+func (h *Hub) Close() {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return
+	}
+	h.closed = true
+	clients := make([]*Client, 0, len(h.clients))
+	for client := range h.clients {
+		clients = append(clients, client)
+	}
+	h.mu.Unlock()
+
+	for _, client := range clients {
+		client.Close()
+	}
 }
 
 func (h *Hub) Publish(channel string, event Event) {
@@ -98,20 +152,48 @@ func (h *Hub) Publish(channel string, event Event) {
 	if event.Type == "" {
 		event.Type = "message"
 	}
+	h.publishLocal(event)
+	if h.fanout == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	envelope := Envelope{
+		Version:  envelopeVersion,
+		EventID:  uuid.NewString(),
+		OriginID: h.originID,
+		Event:    event,
+	}
+	if err := h.fanout.Publish(ctx, envelope); err != nil && h.log != nil {
+		h.log.Error("realtime fanout publish failed", "event_id", envelope.EventID, "channel", channel, "error", err)
+	}
+}
+
+func (h *Hub) receiveEnvelope(envelope Envelope) {
+	if envelope.Version != envelopeVersion || envelope.OriginID == h.originID || envelope.Event.Channel == "" {
+		return
+	}
+	h.publishLocal(envelope.Event)
+}
+
+func (h *Hub) publishLocal(event Event) {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return
 	}
 
 	h.mu.RLock()
-	targets := make([]*Client, 0, len(h.channels[channel]))
-	for c := range h.channels[channel] {
+	targets := make([]*Client, 0, len(h.channels[event.Channel]))
+	for c := range h.channels[event.Channel] {
 		targets = append(targets, c)
 	}
 	h.mu.RUnlock()
 
 	for _, c := range targets {
-		_ = c.trySend(data)
+		if !c.trySend(data) {
+			c.Close()
+		}
 	}
 }
 

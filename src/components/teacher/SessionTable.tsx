@@ -1,6 +1,8 @@
 import { useState, Fragment } from 'react';
 import { Link } from 'react-router-dom';
+import { CalendarX } from 'lucide-react';
 import type { TeacherDashboardSession, AbsentStudent, TeacherDashboardSitInVisitor } from '../../types';
+import EmptyState from '../ui/EmptyState';
 
 type SessionTableProps = {
   sessions: TeacherDashboardSession[];
@@ -48,7 +50,7 @@ function AbsenceCard({ student, sessionCourse, sessionStart, sessionEnd }: {
         </p>
       </div>
       <Link
-        to={`/absences/${student.absence_id}`}
+        to={`/teacher-dashboard/absences/${student.absence_id}`}
         className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
       >
         View →
@@ -74,7 +76,7 @@ function SitInCard({ visitor }: { visitor: TeacherDashboardSitInVisitor }) {
         </p>
       </div>
       <Link
-        to={`/absences/${visitor.absence_id}`}
+        to={`/teacher-dashboard/absences/${visitor.absence_id}`}
         className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
       >
         View →
@@ -87,7 +89,12 @@ export default function SessionTable({ sessions }: SessionTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (sessions.length === 0) {
-    return <p className="text-[12px] text-gray-400">No sessions in this period.</p>;
+    return (
+      <EmptyState
+        message="No sessions in this period."
+        icon={<CalendarX className="h-10 w-10" />}
+      />
+    );
   }
 
   const sorted = [...sessions].sort(

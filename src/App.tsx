@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ToastProvider } from './hooks/useToast';
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Layout from './components/Layout';
@@ -37,6 +39,36 @@ import LeavePolicy from './pages/LeavePolicy';
 import EmailReminders from './pages/EmailReminders';
 import SitInTestPage from './pages/SitInTestPage';
 import TeacherDashboard from './pages/TeacherDashboard';
+import TeacherAbsenceDetail from './pages/TeacherAbsenceDetail';
+import { clearCacheForUserChange, queryClient } from "./query/cache";
+import { RealtimeProvider } from "./realtime/RealtimeProvider";
+import { invalidateRealtimeBackedQueries, RealtimeQueryBridge } from "./realtime/queryBridge";
+
+function AuthenticatedDataServices({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const client = useQueryClient();
+  const userID = user?.id ?? null;
+  const [cacheUserID, setCacheUserID] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cacheUserID === userID) return;
+    clearCacheForUserChange(client, cacheUserID, userID);
+    setCacheUserID(userID);
+  }, [cacheUserID, client, userID]);
+
+  const handleReconnect = useCallback(() => {
+    void invalidateRealtimeBackedQueries(client);
+  }, [client]);
+
+  if (cacheUserID !== userID) return null;
+
+  return (
+    <RealtimeProvider enabled={user != null} onReconnect={handleReconnect}>
+      <RealtimeQueryBridge />
+      {children}
+    </RealtimeProvider>
+  );
+}
 
 function AppLayout() {
   return (
@@ -61,15 +93,18 @@ function RequireAuth() {
 
 function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <AuthProvider>
+          <AuthenticatedDataServices>
+            <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/absence" element={<AbsenceForm />} />
             <Route element={<RequireAuth />}>
               <Route path="/" element={<IndexRoute />} />
               <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
+              <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
               <Route path="/courses" element={<Courses />} />
               <Route path="/courses/create" element={<CourseCreate />} />
               <Route path="/courses/:id" element={<CourseDetail />} />
@@ -106,9 +141,11 @@ function App() {
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
+            </BrowserRouter>
+          </AuthenticatedDataServices>
+        </AuthProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
 

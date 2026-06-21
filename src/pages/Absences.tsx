@@ -3,7 +3,6 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2 } from "lucide-react";
 import { apiJson, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import { useRealtime } from "../hooks/useRealtime";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
 import PageHeading from "../components/ui/PageHeading";
 import SearchInput from "../components/ui/SearchInput";
@@ -12,6 +11,8 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
+import { queryKeys } from "../query/cache";
+import { useOperationalQuery } from "../query/useOperationalQuery";
 
 const PAGE_SIZE = 25;
 const inboxDateTimeFormatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -140,9 +141,6 @@ export default function Absences() {
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [page, setPage] = useState<AbsencePage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshToken, setRefreshToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [cancelTargets, setCancelTargets] = useState<ManagedAbsence[]>([]);
@@ -178,24 +176,24 @@ export default function Absences() {
     return params.toString();
   }, [searchParams, filters.bucket, filters.offset]);
 
+  const absenceRequest = `/api/v1/absences?${requestQuery}`;
+  const absenceQuery = useOperationalQuery<AbsencePage>(queryKeys.absences.list(requestQuery), absenceRequest);
+  const page = absenceQuery.data ?? null;
+  const loading = absenceQuery.isPending;
+  const refetchAbsences = absenceQuery.refetch;
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await apiJson<AbsencePage>(`/api/v1/absences?${requestQuery}`, { method: "GET" });
-      setPage(result);
-      setSelected(new Set());
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to load absences");
-    } finally {
-      setLoading(false);
-    }
-  }, [addToast, requestQuery]);
-
-  useRealtime(["absent:all"], () => void load(), { debounceMs: 500 });
+    const result = await refetchAbsences();
+    if (result.error) return;
+    setSelected(new Set());
+  }, [refetchAbsences]);
 
   useEffect(() => {
-    void load();
-  }, [load, refreshToken]);
+    setSelected(new Set());
+  }, [requestQuery]);
+
+  useEffect(() => {
+    if (absenceQuery.error) addToast("error", absenceQuery.error.message || "Failed to load absences");
+  }, [absenceQuery.error, addToast]);
 
   function updateFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
@@ -483,7 +481,7 @@ export default function Absences() {
             <Settings className="h-4 w-4" aria-hidden="true" /> Settings
           </Link>
           <Button variant="secondary" onClick={exportCsv}><Download className="mr-1.5 h-4 w-4" />Export CSV</Button>
-          <Button variant="secondary" onClick={() => setRefreshToken((value) => value + 1)}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
+          <Button variant="secondary" onClick={() => void load()}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
         </div>
       </div>
 

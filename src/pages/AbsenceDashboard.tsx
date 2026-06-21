@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { subMonths, addMonths } from 'date-fns';
 import { useApiQuery } from '../hooks/useApiQuery';
-import { useRealtime } from '../hooks/useRealtime';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
 import DashboardView from '../components/teacher/DashboardView';
@@ -19,10 +18,40 @@ function yyyyMmDd(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function friendlyDashboardError(error: unknown): string {
+  const msg = typeof error === 'object' && error !== null && 'message' in error
+    ? String((error as { message: unknown }).message)
+    : '';
+  const statusValue = typeof error === 'object' && error !== null && 'status' in error
+    ? (error as { status?: unknown }).status
+    : undefined;
+  const status = typeof statusValue === 'number' ? statusValue : undefined;
+
+  if (status === 401 || status === 403)
+    return 'Your session may have expired. Please refresh the page and log in again.';
+  if (status === 404)
+    return 'Your dashboard data could not be found. Please contact support.';
+  if (status !== undefined && status >= 500)
+    return 'A server error occurred. Please try again in a few minutes.';
+
+  const m = msg.toLowerCase();
+  if (m.includes('timeout') || m.includes('network') || m.includes('fetch'))
+    return 'The server took too long to respond. Please check your connection and try again.';
+  if (m.includes('unauthorized') || m.includes('forbidden'))
+    return 'Your session may have expired. Please refresh the page and log in again.';
+  if (m.includes('not found'))
+    return 'Your dashboard data could not be found. Please contact support.';
+  if (m.includes('internal'))
+    return 'A server error occurred. Please try again in a few minutes.';
+
+  return 'Something went wrong while loading your dashboard. Please try again.';
+}
+
 export default function AbsenceDashboard() {
   const { addToast } = useToast();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => new Date());
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   const teachersQuery = useApiQuery<Teacher[]>('/api/v1/users?role=Teacher', []);
   const teachers = teachersQuery.data ?? [];
@@ -34,28 +63,17 @@ export default function AbsenceDashboard() {
 
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(teacherDashboardPath, [teacherDashboardPath]);
 
-  const refetchRef = useRef(refetch);
-  refetchRef.current = refetch;
-  const rtChannels = selectedTeacherId
-    ? ['teacher_dashboard', `teacher_dashboard:${selectedTeacherId}`]
-    : [];
-  useRealtime(
-    rtChannels,
-    () => { void refetchRef.current(); },
-    { enabled: selectedTeacherId != null, debounceMs: 2000 },
-  );
-
   useEffect(() => {
-    if (error) {
-      addToast('error', error.message ?? 'Failed to load dashboard');
+    if (!loading) {
+      setInitialLoadDone(true);
     }
-  }, [error, addToast]);
+  }, [loading]);
 
   useEffect(() => {
     if (teachersQuery.error) {
       addToast('error', teachersQuery.error.message ?? 'Failed to load teachers');
     }
-  }, [teachersQuery.error, addToast]);
+  }, [teachersQuery.error]);
 
   return (
     <div>
@@ -125,13 +143,14 @@ export default function AbsenceDashboard() {
         <div>
           {error && !loading ? (
             <div className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              Failed to load dashboard: {error.message}
+              {friendlyDashboardError(error)}
               <button onClick={() => void refetch()} className="ml-3 underline hover:no-underline">Retry</button>
             </div>
           ) : data ? (
             <DashboardView
               data={data}
               viewDate={viewDate}
+              loadingNewMonth={loading && initialLoadDone}
               onPrevMonth={() => setViewDate((d) => subMonths(d, 1))}
               onNextMonth={() => setViewDate((d) => addMonths(d, 1))}
               onToday={() => setViewDate(new Date())}

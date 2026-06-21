@@ -1,0 +1,54 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import TeacherAbsenceDetail from "../TeacherAbsenceDetail";
+import { ToastProvider } from "../../hooks/useToast";
+
+const mockApiJson = vi.hoisted(() => vi.fn());
+
+vi.mock("@/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
+  return { ...actual, apiJson: mockApiJson };
+});
+
+const detail = {
+  id: "abs-1",
+  wcode: "W250389",
+  student_name: "John Smith",
+  student_nickname: "John",
+  course_code: "MATH-201",
+  course_name: "Algebra II",
+  subject_name: "Mathematics",
+  date_from: "2026-06-20",
+  date_to: "2026-06-21",
+  reason_category: "medical",
+  reason: "Appointment",
+  status: "pending",
+  missed_sessions: [{ session_id: "s-1", course_code: "MATH-201", course_name: "Algebra II", room_name: "A1", start_at: "2026-06-20T02:00:00Z", end_at: "2026-06-20T03:00:00Z" }],
+  sit_in_sessions: [],
+};
+
+describe("Teacher absence detail", () => {
+  beforeEach(() => mockApiJson.mockReset());
+
+  it("loads the teacher-scoped endpoint and renders teaching-relevant data read-only", async () => {
+    mockApiJson.mockResolvedValueOnce(detail);
+    render(
+      <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("John")).toBeInTheDocument();
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/teacher/absences/abs-1", { method: "GET" });
+    expect(screen.getByText("Appointment")).toBeInTheDocument();
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back to dashboard/i })).toHaveAttribute("href", "/teacher-dashboard");
+    expect(screen.queryByRole("button", { name: /reviewed|cancel|override|save note/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/admin note|timeline/i)).not.toBeInTheDocument();
+  });
+});

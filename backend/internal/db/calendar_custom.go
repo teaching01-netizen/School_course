@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type CalendarSessionRow struct {
@@ -98,11 +98,10 @@ type PendingAbsenceRequestRow struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
-func (q *Queries) TeacherPendingAbsenceRequests(ctx context.Context, teacherID uuid.UUID) ([]PendingAbsenceRequestRow, error) {
-	rows, err := q.db.Query(ctx, `
+const teacherPendingAbsenceRequestsQueryTemplate = `
 		SELECT sa.id, sa.wcode,
 		       COALESCE(st.full_name, sa.student_name) AS student_name,
-		       COALESCE(st.nickname, sa.student_nickname) AS nickname,
+		       __STUDENT_NICKNAME_EXPR__ AS nickname,
 		       c.code, c.name,
 		       sub.name,
 		       sa.date_from, sa.date_to,
@@ -120,7 +119,14 @@ func (q *Queries) TeacherPendingAbsenceRequests(ctx context.Context, teacherID u
 		      AND sess.deleted_at IS NULL
 		  )
 		ORDER BY sa.created_at DESC
-	`, teacherID)
+`
+
+func (q *Queries) TeacherPendingAbsenceRequests(ctx context.Context, teacherID uuid.UUID) ([]PendingAbsenceRequestRow, error) {
+	hasStudentNicknameColumn, err := q.absenceStudentNicknameColumnExists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.db.Query(ctx, teacherAbsenceQuerySQL(teacherPendingAbsenceRequestsQueryTemplate, hasStudentNicknameColumn), teacherID)
 	if err != nil {
 		return nil, err
 	}

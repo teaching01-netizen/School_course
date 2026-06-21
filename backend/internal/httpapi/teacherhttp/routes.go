@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 )
@@ -19,6 +20,33 @@ type server struct {
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 	mux.HandleFunc("GET /api/v1/teacher/dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /api/v1/teacher/absences/{id}", s.handleAbsenceDetail)
+}
+
+type teacherAbsenceSessionDTO struct {
+	SessionID  string  `json:"session_id"`
+	CourseCode string  `json:"course_code"`
+	CourseName string  `json:"course_name"`
+	RoomName   *string `json:"room_name"`
+	StartAt    string  `json:"start_at"`
+	EndAt      string  `json:"end_at"`
+}
+
+type teacherAbsenceDetailDTO struct {
+	ID              string                     `json:"id"`
+	Wcode           string                     `json:"wcode"`
+	StudentName     *string                    `json:"student_name"`
+	StudentNickname *string                    `json:"student_nickname"`
+	CourseCode      string                     `json:"course_code"`
+	CourseName      string                     `json:"course_name"`
+	SubjectName     *string                    `json:"subject_name"`
+	DateFrom        string                     `json:"date_from"`
+	DateTo          string                     `json:"date_to"`
+	ReasonCategory  *string                    `json:"reason_category"`
+	Reason          *string                    `json:"reason"`
+	Status          string                     `json:"status"`
+	MissedSessions  []teacherAbsenceSessionDTO `json:"missed_sessions"`
+	SitInSessions   []teacherAbsenceSessionDTO `json:"sit_in_sessions"`
 }
 
 type teacherInfoDTO struct {
@@ -27,15 +55,16 @@ type teacherInfoDTO struct {
 }
 
 type sitInVisitorDTO struct {
-	Wcode               string  `json:"wcode"`
-	Nickname            *string `json:"nickname"`
-	StudentName         *string `json:"student_name"`
-	FromCourseCode      string  `json:"from_course_code"`
-	FromSubjectName     *string `json:"from_subject_name"`
-	AbsenceID           string  `json:"absence_id"`
-	SessionStartAt      string  `json:"session_start_at"`
-	SessionEndAt        string  `json:"session_end_at"`
-	AbsentSubjectName   *string `json:"absent_subject_name"`
+	Wcode             string  `json:"wcode"`
+	Nickname          *string `json:"nickname"`
+	StudentName       *string `json:"student_name"`
+	FromCourseCode    string  `json:"from_course_code"`
+	FromSubjectName   *string `json:"from_subject_name"`
+	AbsenceID         string  `json:"absence_id"`
+	SessionStartAt    string  `json:"session_start_at"`
+	SessionEndAt      string  `json:"session_end_at"`
+	AbsentSubjectName *string `json:"absent_subject_name"`
+	AbsenceDate       string  `json:"absence_date"`
 }
 
 type absentStudentDTO struct {
@@ -47,17 +76,17 @@ type absentStudentDTO struct {
 }
 
 type sessionDTO struct {
-	ID            string             `json:"id"`
-	CourseID      string             `json:"course_id"`
-	CourseCode    string             `json:"course_code"`
-	CourseName    string             `json:"course_name"`
-	SubjectName   *string            `json:"subject_name"`
-	StartAt       string             `json:"start_at"`
-	EndAt         string             `json:"end_at"`
-	RoomName      *string            `json:"room_name"`
-	AbsentCount   int                `json:"absent_count"`
+	ID             string             `json:"id"`
+	CourseID       string             `json:"course_id"`
+	CourseCode     string             `json:"course_code"`
+	CourseName     string             `json:"course_name"`
+	SubjectName    *string            `json:"subject_name"`
+	StartAt        string             `json:"start_at"`
+	EndAt          string             `json:"end_at"`
+	RoomName       *string            `json:"room_name"`
+	AbsentCount    int                `json:"absent_count"`
 	AbsentStudents []absentStudentDTO `json:"absent_students"`
-	SitInVisitors []sitInVisitorDTO  `json:"sit_in_visitors"`
+	SitInVisitors  []sitInVisitorDTO  `json:"sit_in_visitors"`
 }
 
 type weeklySummaryDTO struct {
@@ -82,12 +111,12 @@ type pendingAbsenceRequestDTO struct {
 }
 
 type dashboardResponse struct {
-	WeekStart              string                      `json:"week_start"`
-	WeekEnd                string                      `json:"week_end"`
-	Teacher                teacherInfoDTO              `json:"teacher"`
-	Sessions               []sessionDTO                `json:"sessions"`
-	Summary                weeklySummaryDTO            `json:"summary"`
-	PendingAbsenceRequests []pendingAbsenceRequestDTO  `json:"pending_absence_requests"`
+	WeekStart              string                     `json:"week_start"`
+	WeekEnd                string                     `json:"week_end"`
+	Teacher                teacherInfoDTO             `json:"teacher"`
+	Sessions               []sessionDTO               `json:"sessions"`
+	Summary                weeklySummaryDTO           `json:"summary"`
+	PendingAbsenceRequests []pendingAbsenceRequestDTO `json:"pending_absence_requests"`
 }
 
 func getMonday(t time.Time) time.Time {
@@ -97,6 +126,91 @@ func getMonday(t time.Time) time.Time {
 	}
 	diff := -int(weekday) + 1
 	return t.AddDate(0, 0, diff)
+}
+
+func textPointer(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
+}
+
+func (s *server) teacherAbsenceSessionsDTO(rows []sqldb.ManagedAbsenceSession) []teacherAbsenceSessionDTO {
+	out := make([]teacherAbsenceSessionDTO, 0, len(rows))
+	for _, row := range rows {
+		sessionID, err := s.a.UUIDString(row.SessionID)
+		if err != nil {
+			continue
+		}
+		out = append(out, teacherAbsenceSessionDTO{
+			SessionID: sessionID, CourseCode: row.CourseCode, CourseName: row.CourseName,
+			RoomName: textPointer(row.RoomName),
+			StartAt:  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:    row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out
+}
+
+func (s *server) handleAbsenceDetail(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustUser(w, r)
+	if !ok {
+		return
+	}
+	if user.Role != "Teacher" && user.Role != "Admin" {
+		s.a.WriteErr(w, http.StatusForbidden, "forbidden", "Access denied")
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Absence not found")
+		return
+	}
+
+	var row sqldb.TeacherAbsenceRow
+	var missed, sitIns []sqldb.ManagedAbsenceSession
+	if user.Role == "Admin" {
+		row, err = s.deps.Q.TeacherAbsenceGetAdmin(r.Context(), id)
+		if err == nil {
+			missed, err = s.deps.Q.ManagedAbsenceMissedSessions(r.Context(), id)
+		}
+		if err == nil {
+			sitIns, err = s.deps.Q.ManagedAbsenceSessions(r.Context(), id)
+		}
+	} else {
+		teacherID := pgtype.UUID{Bytes: user.ID, Valid: true}
+		row, err = s.deps.Q.TeacherAbsenceGet(r.Context(), id, teacherID)
+		if err == nil {
+			missed, err = s.deps.Q.TeacherAbsenceMissedSessions(r.Context(), id, teacherID)
+		}
+		if err == nil {
+			sitIns, err = s.deps.Q.TeacherAbsenceSitInSessions(r.Context(), id, teacherID)
+		}
+	}
+	if err != nil {
+		if sqldb.IsNoRows(err) {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Absence not found")
+			return
+		}
+		s.deps.Log.Error("failed to load teacher absence detail", "absence_id", r.PathValue("id"), "error", err)
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Failed to load absence")
+		return
+	}
+
+	absenceID, err := s.a.UUIDString(row.ID)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Failed to load absence")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	s.a.WriteJSON(w, http.StatusOK, teacherAbsenceDetailDTO{
+		ID: absenceID, Wcode: row.Wcode,
+		StudentName: textPointer(row.StudentName), StudentNickname: textPointer(row.StudentNickname),
+		CourseCode: row.CourseCode, CourseName: row.CourseName, SubjectName: textPointer(row.SubjectName),
+		DateFrom: row.DateFrom.Time.Format("2006-01-02"), DateTo: row.DateTo.Time.Format("2006-01-02"),
+		ReasonCategory: textPointer(row.ReasonCategory), Reason: textPointer(row.Reason), Status: row.Status,
+		MissedSessions: s.teacherAbsenceSessionsDTO(missed), SitInSessions: s.teacherAbsenceSessionsDTO(sitIns),
+	})
 }
 
 func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +344,10 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		startS, _ := s.a.TimeString(sr.SessionStartAt)
 		endS, _ := s.a.TimeString(sr.SessionEndAt)
+		var absenceDate string
+		if sr.AbsenceDateFrom.Valid {
+			absenceDate = sr.AbsenceDateFrom.Time.Format("2006-01-02")
+		}
 		sitInsBySession[sid] = append(sitInsBySession[sid], sitInVisitorDTO{
 			Wcode:             sr.Wcode,
 			Nickname:          nick,
@@ -240,6 +358,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			SessionStartAt:    startS,
 			SessionEndAt:      endS,
 			AbsentSubjectName: absentSubjectName,
+			AbsenceDate:       absenceDate,
 		})
 	}
 
@@ -287,17 +406,17 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		totalSitIns += len(visitors)
 
 		sessions = append(sessions, sessionDTO{
-			ID:            sid,
-			CourseID:      cid,
-			CourseCode:    row.CourseCode,
-			CourseName:    row.CourseName,
-			SubjectName:   subjectName,
-			StartAt:       startS,
-			EndAt:         endS,
-			RoomName:      roomName,
-			AbsentCount:   absentCount,
+			ID:             sid,
+			CourseID:       cid,
+			CourseCode:     row.CourseCode,
+			CourseName:     row.CourseName,
+			SubjectName:    subjectName,
+			StartAt:        startS,
+			EndAt:          endS,
+			RoomName:       roomName,
+			AbsentCount:    absentCount,
 			AbsentStudents: absStudents,
-			SitInVisitors: visitors,
+			SitInVisitors:  visitors,
 		})
 	}
 
@@ -357,10 +476,10 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := dashboardResponse{
-		WeekStart:              rangeStart.Format("2006-01-02"),
-		WeekEnd:                rangeEnd.Add(-24*time.Hour).Format("2006-01-02"),
-		Teacher:                teacherInfo,
-		Sessions:               sessions,
+		WeekStart: rangeStart.Format("2006-01-02"),
+		WeekEnd:   rangeEnd.Add(-24 * time.Hour).Format("2006-01-02"),
+		Teacher:   teacherInfo,
+		Sessions:  sessions,
 		Summary: weeklySummaryDTO{
 			TotalSessions: len(sessions),
 			TotalAbsences: totalAbsences,

@@ -24,7 +24,6 @@ import { useCreateSession } from "../hooks/useCreateSession";
 import { useEditSession } from "../hooks/useEditSession";
 import { useAttendanceModal } from "../hooks/useAttendanceModal";
 import { usePreflight } from "../hooks/usePreflight";
-import { useRealtime } from "../hooks/useRealtime";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "../utils/preflight";
 import { useFormValidation } from "../hooks/useFormValidation";
 import TypeaheadSelect from "../components/TypeaheadSelect";
@@ -34,6 +33,8 @@ import {
   type Session,
   type StaleEditDetails,
 } from "@/types";
+import { queryKeys } from "../query/cache";
+import { useOperationalQuery } from "../query/useOperationalQuery";
 
 export default function Schedule() {
   const { addToast } = useToast();
@@ -46,35 +47,41 @@ export default function Schedule() {
   const [endTime, setEndTime] = useState("23:59");
   const zone = instituteTZ ?? "Asia/Bangkok";
 
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"week" | "table">("week");
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
+  const sessionRequest = useMemo(() => {
+    const { endDate: cappedEnd, clamped } = clampDateRange(startDate, endDate);
+    const start = zoneLocalInputToUTCISO(`${startDate}T${startTime}`, zone);
+    const end = zoneLocalInputToUTCISO(`${cappedEnd}T${endTime}`, zone);
+    const url = start && end
+      ? `/api/v1/sessions?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+      : null;
+    return { url, clamped };
+  }, [endDate, endTime, startDate, startTime, zone]);
+  const sessionsQuery = useOperationalQuery<Session[]>(
+    queryKeys.sessions.list(sessionRequest.url ?? "invalid"),
+    sessionRequest.url,
+  );
+  const sessions = sessionRequest.url ? sessionsQuery.data ?? [] : [];
+  const loading = sessionRequest.url != null && sessionsQuery.isPending;
+  const refetchSessions = sessionsQuery.refetch;
   const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { endDate: cappedEnd, clamped } = clampDateRange(startDate, endDate);
-      if (clamped) addToast("info", "Date range capped to 14 days");
-      const start = zoneLocalInputToUTCISO(`${startDate}T${startTime}`, zone);
-      const end = zoneLocalInputToUTCISO(`${cappedEnd}T${endTime}`, zone);
-      if (!start || !end) {
-        addToast("error", "Invalid date/time range");
-        setSessions([]);
-        return;
-      }
-      const items = await apiJson<Session[]>(`/api/v1/sessions?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
-        method: "GET",
-      });
-      setSessions(items);
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to load sessions");
-    } finally {
-      setLoading(false);
+    if (!sessionRequest.url) {
+      addToast("error", "Invalid date/time range");
+      return;
     }
-  }, [startDate, endDate, startTime, endTime, zone, addToast]);
+    await refetchSessions();
+  }, [addToast, refetchSessions, sessionRequest.url]);
 
-  useRealtime(["sessions:all"], () => void load(), { debounceMs: 500 });
+  useEffect(() => {
+    if (sessionRequest.clamped) addToast("info", "Date range capped to 14 days");
+    if (!sessionRequest.url) addToast("error", "Invalid date/time range");
+  }, [addToast, sessionRequest.clamped, sessionRequest.url]);
+
+  useEffect(() => {
+    if (sessionsQuery.error) addToast("error", sessionsQuery.error.message || "Failed to load sessions");
+  }, [addToast, sessionsQuery.error]);
 
   // --- Create Session hook ---
   const create = useCreateSession(load, addToast, zone);
@@ -195,11 +202,6 @@ export default function Schedule() {
     for (const arr of map.values()) arr.sort((a, b) => a.start_at.localeCompare(b.start_at));
     return map;
   }, [sessions]);
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, startTime, endTime]);
 
   // --- Cancel occurrence ---
   const cancelOccurrence = (sess: Session) => {

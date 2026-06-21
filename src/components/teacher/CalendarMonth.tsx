@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   startOfMonth,
   endOfMonth,
@@ -78,6 +78,24 @@ export default function CalendarMonth({
 
   const monthLabel = format(viewDate, 'MMMM yyyy');
 
+  const [todayPulse, setTodayPulse] = useState(0);
+  const handleToday = useCallback(() => {
+    onToday();
+    setTodayPulse((c) => c + 1);
+    setTimeout(() => setTodayPulse(0), 1200);
+  }, [onToday]);
+
+  // Keyboard navigation: left/right arrows for prev/next month, T for today
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'ArrowLeft') { onPrevMonth(); e.preventDefault(); }
+      if (e.key === 'ArrowRight') { onNextMonth(); e.preventDefault(); }
+      if (e.key === 't' || e.key === 'T') { handleToday(); e.preventDefault(); }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onPrevMonth, onNextMonth, handleToday]);
+
   return (
     <div>
       {/* Header */}
@@ -104,10 +122,11 @@ export default function CalendarMonth({
         <button
           type="button"
           aria-label="Go to today"
-          onClick={onToday}
-          className="rounded-sm border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100"
+          onClick={handleToday}
+          className="flex items-center gap-1.5 rounded-sm border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-700 hover:bg-gray-100"
         >
           Today
+          <kbd className="hidden sm:inline-flex items-center rounded-sm border border-gray-300 bg-white px-1 py-0.5 text-[10px] font-mono text-gray-400">T</kbd>
         </button>
       </div>
 
@@ -135,6 +154,7 @@ export default function CalendarMonth({
                   isToday={fnsIsToday(day)}
                   isCurrentMonth={isSameMonth(day, viewDate)}
                   isSelected={selectedDay ? isSameDay(day, selectedDay) : false}
+                  todayPulse={todayPulse}
                   onClick={() => onSelectDay(day)}
                 />
               );

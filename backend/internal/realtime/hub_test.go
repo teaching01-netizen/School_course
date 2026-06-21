@@ -41,18 +41,33 @@ func TestHubDropsSlowClient(t *testing.T) {
 	hub := NewHub()
 	client := hub.NewClient()
 	client.Subscribe("sessions:all")
+	defer client.Close()
 
-	for i := 0; i < hub.buffer+1; i++ {
+	for i := 0; i < hub.buffer; i++ {
 		hub.Publish("sessions:all", Event{Type: "session.updated", ID: "session-1"})
 	}
 
 	select {
-	case _, ok := <-client.Send():
-		if !ok {
-			return
-		}
+	case <-client.Done():
+		t.Fatal("client closed before its bounded queue was full")
 	default:
-		t.Fatal("expected buffered messages before close")
+	}
+	if got := len(hub.clients); got != 1 {
+		t.Fatalf("registered clients at capacity = %d, want 1", got)
+	}
+
+	hub.Publish("sessions:all", Event{Type: "session.updated", ID: "session-overflow"})
+
+	select {
+	case <-client.Done():
+	default:
+		t.Fatal("expected overflow to close the client")
+	}
+	if got := len(hub.clients); got != 0 {
+		t.Fatalf("registered clients after overflow = %d, want 0", got)
+	}
+	if _, ok := hub.channels["sessions:all"]; ok {
+		t.Fatal("overflowed client remained in channel index")
 	}
 }
 

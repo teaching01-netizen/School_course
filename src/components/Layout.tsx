@@ -1,9 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from '../hooks/useAuth';
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { apiJson } from "../api/client";
-import { useRealtime, type RealtimeEvent } from "../hooks/useRealtime";
+import { cachePolicies, queryClient, queryKeys } from "../query/cache";
 import type { AbsenceStats } from "../types";
 
 const navGroups = [
@@ -66,39 +67,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [pendingAbsences, setPendingAbsences] = useState(0);
   const [absenceOpen, setAbsenceOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobileAbsenceOpen, setMobileAbsenceOpen] = useState(false);
-
-  useEffect(() => {
-    if (user?.role !== "Admin") {
-      setPendingAbsences(0);
-      return;
-    }
-    let active = true;
-    const refreshStats = async () => {
-      try {
-        const stats = await apiJson<AbsenceStats>("/api/v1/absences/stats", { method: "GET" });
-        if (active) setPendingAbsences(stats.pending_count);
-      } catch {
-        if (active) setPendingAbsences(0);
-      }
-    };
-    void refreshStats();
-    return () => {
-      active = false;
-    };
-  }, [user?.role]);
-
-  useRealtime<AbsenceStats>(
-    ["absent:stats"],
-    (event: RealtimeEvent<AbsenceStats>) => {
-      if (event.type !== "absent.stats.updated" || !event.payload) return;
-      setPendingAbsences(event.payload.pending_count);
-    },
-    { enabled: user?.role === "Admin" }
-  );
+  const statsQuery = useQuery<AbsenceStats>({
+    queryKey: queryKeys.absenceStats,
+    queryFn: () => apiJson<AbsenceStats>("/api/v1/absences/stats", { method: "GET" }),
+    enabled: user?.role === "Admin",
+    ...cachePolicies.operational,
+  }, queryClient);
+  const pendingAbsences = user?.role === "Admin" ? statsQuery.data?.pending_count ?? 0 : 0;
 
   const handleLogout = async () => {
     try {

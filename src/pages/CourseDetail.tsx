@@ -1232,7 +1232,6 @@ export default function CourseDetail() {
         <BulkEditModal
           sessions={sessions.filter((s) => selectedIds.has(s.id))}
           rooms={rooms}
-          teachers={teachers}
           teacherOptions={teacherOptions}
           zone={zone}
           onClose={() => setBulkEditOpen(false)}
@@ -1735,7 +1734,6 @@ type BulkEditRow = {
 function BulkEditModal({
   sessions,
   rooms,
-  teachers,
   teacherOptions,
   zone,
   onClose,
@@ -1743,7 +1741,6 @@ function BulkEditModal({
 }: {
   sessions: Session[];
   rooms: Room[];
-  teachers: User[];
   teacherOptions: TypeaheadOption[];
   zone: string;
   onClose: () => void;
@@ -1994,7 +1991,7 @@ function BulkEditModal({
                     <td className="py-1.5 px-2 min-w-[160px]">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.teacher_id !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>
-                          {teacherOptions.find((t) => t.id === eff.teacher_id)?.label ?? eff.teacher_id}
+                          {teacherOptions.find((teacher) => teacher.value === eff.teacher_id)?.label ?? eff.teacher_id}
                         </span>
                       ) : (
                         <TypeaheadSelect value={r.teacher_id} onChange={(v) => updateField(r.sessionId, 'teacher_id', v)} options={teacherOptions} placeholder="Search teacher…" />

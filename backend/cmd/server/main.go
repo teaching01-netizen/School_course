@@ -24,6 +24,7 @@ import (
 	"warwick-institute/internal/httpapi"
 	"warwick-institute/internal/logging"
 	"warwick-institute/internal/pg"
+	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 )
@@ -44,6 +45,22 @@ func main() {
 		os.Exit(1)
 	}
 	defer dbpool.Close()
+
+	realtimeDatabaseURL, err := pg.ResolveRealtimeDatabaseURL(
+		cfg.DatabaseURL,
+		cfg.RealtimeDatabaseURL,
+		os.Getenv("PGBOUNCER") != "",
+	)
+	if err != nil {
+		log.Error("realtime database config", "err", err)
+		os.Exit(1)
+	}
+	realtimeDBPool, err := pg.NewRealtimePool(context.Background(), realtimeDatabaseURL)
+	if err != nil {
+		log.Error("realtime database connect", "err", err)
+		os.Exit(1)
+	}
+	defer realtimeDBPool.Close()
 
 	// Optional dev-only admin seeding.
 	// Set ADMIN_USERNAME and ADMIN_PASSWORD to enable.
@@ -107,10 +124,25 @@ func main() {
 
 	q := sqldb.New(dbpool)
 	emailDeps := httpapi.NewEmailDeps(log, cfg, dbpool, q)
+	realtimeCtx, realtimeCancel := context.WithCancel(context.Background())
+	postgresFanout := realtime.NewPostgresFanout(realtimeDBPool, log)
+	realtimeHub := realtime.NewHubWithFanout(
+		realtimeCtx,
+		"",
+		postgresFanout,
+		log,
+	)
+	realtimeReadyCtx, realtimeReadyCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := postgresFanout.WaitReady(realtimeReadyCtx); err != nil {
+		realtimeReadyCancel()
+		log.Error("realtime database listener not ready", "err", err)
+		os.Exit(1)
+	}
+	realtimeReadyCancel()
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps),
+		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps, realtimeHub),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -122,13 +154,13 @@ func main() {
 		Time:    cfg.EmailReminderTime,
 	}, cfg.InstituteTZ, func(ctx context.Context) error {
 		emailnotifier.SendAllEnabledWorkflows(ctx, emailnotifier.SendAllDeps{
-			WorkflowStore:  emailDeps.WorkflowStore,
-			TemplateStore:  emailDeps.TemplateStore,
-			Service:        emailDeps.Service,
-			InstituteTZ:    cfg.InstituteTZ,
-			InstituteName:  cfg.InstituteName,
-			Log:            log,
-			SitInQuery:     emailDeps.SitInQuery,
+			WorkflowStore: emailDeps.WorkflowStore,
+			TemplateStore: emailDeps.TemplateStore,
+			Service:       emailDeps.Service,
+			InstituteTZ:   cfg.InstituteTZ,
+			InstituteName: cfg.InstituteName,
+			Log:           log,
+			SitInQuery:    emailDeps.SitInQuery,
 		})
 		return nil
 	})
@@ -153,6 +185,8 @@ func main() {
 	}
 
 	scheduler.Stop()
+	realtimeHub.Close()
+	realtimeCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import { apiJson } from "../api/client";
 import type { Session, Student, AttendanceOverride } from "../types";
 import { formatConflictToastMessage } from "../utils/conflictErrors";
+import { cachePolicies, queryClient, queryKeys } from "../query/cache";
+import { useRealtime } from "./useRealtime";
 
 export interface UseAttendanceModalReturn {
   session: Session | null;
@@ -30,13 +32,25 @@ export function useAttendanceModal(
 
   const loadAttendanceState = useCallback(async (sess: Session) => {
     const [rosterData, overridesData] = await Promise.all([
-      apiJson<Student[]>(`/api/v1/courses/${sess.course_id}/students`, { method: "GET" }),
-      apiJson<AttendanceOverride[]>(`/api/v1/sessions/${sess.id}/attendance`, { method: "GET" }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.courseRosters.detail(sess.course_id),
+        queryFn: () => apiJson<Student[]>(`/api/v1/courses/${sess.course_id}/students`, { method: "GET" }),
+        ...cachePolicies.semiStatic,
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.attendance.detail(sess.id),
+        queryFn: () => apiJson<AttendanceOverride[]>(`/api/v1/sessions/${sess.id}/attendance`, { method: "GET" }),
+        ...cachePolicies.operational,
+      }),
     ]);
     const rosterIds = new Set(rosterData.map((s) => s.id));
     const missing = overridesData.map((o) => o.student_id).filter((sid) => !rosterIds.has(sid));
     const extra = missing.length
-      ? await Promise.all(missing.map((sid) => apiJson<Student>(`/api/v1/students/${sid}`, { method: "GET" })))
+      ? await Promise.all(missing.map((sid) => queryClient.fetchQuery({
+          queryKey: ["students", "detail", sid],
+          queryFn: () => apiJson<Student>(`/api/v1/students/${sid}`, { method: "GET" }),
+          ...cachePolicies.semiStatic,
+        })))
       : [];
     const merged = [...rosterData, ...extra].filter(
       (value, index, array) => array.findIndex((candidate) => candidate.id === value.id) === index,
@@ -65,20 +79,50 @@ export function useAttendanceModal(
     setOverrides([]);
   }, []);
 
+  const invalidateAttendanceProjections = useCallback(async (sess: Session) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all, refetchType: "active" }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.attendance.detail(sess.id), refetchType: "none" }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.teacherDashboards.all, refetchType: "active" }),
+    ]);
+  }, []);
+
+  useRealtime(
+    ["sessions:all", "courses:all"],
+    (event) => {
+      if (!session) return;
+      if (event.channel === "sessions:all" && event.id === session.id) void loadAttendanceState(session);
+      if (event.channel === "courses:all" && event.id === session.course_id) void loadAttendanceState(session);
+    },
+    {
+      enabled: session != null,
+      debounceMs: 100,
+      onReconnect: () => {
+        if (!session) return;
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.courseRosters.detail(session.course_id), refetchType: "none" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.attendance.detail(session.id), refetchType: "none" }),
+        ]).then(() => loadAttendanceState(session));
+      },
+    },
+  );
+
   const upsertAttendance = useCallback(async (studentId: string, status: "included" | "excluded") => {
     if (!session) return;
     await apiJson(`/api/v1/sessions/${session.id}/attendance`, {
       method: "PUT",
       body: JSON.stringify({ student_id: studentId, status }),
     });
+    await invalidateAttendanceProjections(session);
     await loadAttendanceState(session);
-  }, [session, loadAttendanceState]);
+  }, [session, invalidateAttendanceProjections, loadAttendanceState]);
 
   const deleteAttendance = useCallback(async (studentId: string) => {
     if (!session) return;
     await apiJson(`/api/v1/sessions/${session.id}/attendance/${studentId}`, { method: "DELETE" });
+    await invalidateAttendanceProjections(session);
     await loadAttendanceState(session);
-  }, [session, loadAttendanceState]);
+  }, [session, invalidateAttendanceProjections, loadAttendanceState]);
 
   const addIncludedByWcode = useCallback(async () => {
     if (!session) return;

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Absences from "../Absences";
 import { ToastProvider } from "../../hooks/useToast";
+import { queryClient } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 const mockApiBlobDownload = vi.hoisted(() => vi.fn());
@@ -98,6 +99,7 @@ function renderPage(path = "/absences?status=pending") {
 describe("Absence inbox", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    queryClient.clear();
   });
 
   it("loads shareable status filters and renders a triage row", async () => {

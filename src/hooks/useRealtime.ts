@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
+import { RealtimeContext } from "@/realtime/RealtimeProvider";
 
 export type RealtimeEvent<TPayload = unknown> = {
   type: string;
@@ -10,12 +11,8 @@ export type RealtimeEvent<TPayload = unknown> = {
 type RealtimeOptions = {
   enabled?: boolean;
   debounceMs?: number;
+  onReconnect?: () => void;
 };
-
-function realtimeURL(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/v1/ws`;
-}
 
 export function useRealtime<TPayload = unknown>(
   channels: string[],
@@ -24,8 +21,12 @@ export function useRealtime<TPayload = unknown>(
 ) {
   const enabled = options.enabled ?? true;
   const debounceMs = options.debounceMs ?? 0;
+  const onReconnect = options.onReconnect;
+  const realtime = useContext(RealtimeContext);
   const onEventRef = useRef(onEvent);
+  const onReconnectRef = useRef(onReconnect);
   const debounceRef = useRef<number | null>(null);
+  const pendingEventsRef = useRef(new Map<string, RealtimeEvent<TPayload>>());
   const key = channels.join("|");
 
   useEffect(() => {
@@ -33,78 +34,40 @@ export function useRealtime<TPayload = unknown>(
   }, [onEvent]);
 
   useEffect(() => {
-    if (!enabled || channels.length === 0 || typeof WebSocket === "undefined") return;
+    onReconnectRef.current = onReconnect;
+  }, [onReconnect]);
 
-    let closed = false;
-    let socket: WebSocket | null = null;
-    let reconnectTimer: number | null = null;
-    let attempt = 0;
-
-    const clearReconnect = () => {
-      if (reconnectTimer != null) {
-        window.clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
+  useEffect(() => {
+    if (!enabled || channels.length === 0 || realtime == null) return;
 
     const handleEvent = (event: RealtimeEvent<TPayload>) => {
       if (debounceMs <= 0) {
         onEventRef.current(event);
         return;
       }
+      const eventKey = `${event.channel}\u0000${event.id ?? event.type}`;
+      pendingEventsRef.current.set(eventKey, event);
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null;
-        onEventRef.current(event);
+        const events = [...pendingEventsRef.current.values()];
+        pendingEventsRef.current.clear();
+        for (const pendingEvent of events) onEventRef.current(pendingEvent);
       }, debounceMs);
     };
 
-    const connect = () => {
-      socket = new WebSocket(realtimeURL());
-
-      socket.addEventListener("open", () => {
-        attempt = 0;
-        for (const channel of channels) {
-          socket?.send(JSON.stringify({ type: "subscribe", channel }));
-        }
-      });
-
-      socket.addEventListener("message", (message) => {
-        try {
-          handleEvent(JSON.parse(message.data) as RealtimeEvent<TPayload>);
-        } catch {
-          // Ignore malformed realtime messages; the next HTTP fetch remains authoritative.
-        }
-      });
-
-      socket.addEventListener("close", () => {
-        if (closed) return;
-        attempt += 1;
-        const delay = Math.min(2 ** Math.max(0, attempt - 1) * 1000, 30_000);
-        reconnectTimer = window.setTimeout(connect, delay);
-      });
-
-      socket.addEventListener("error", () => {
-        socket?.close();
-      });
-    };
-
-    connect();
+    const unsubscribers = channels.map((channel) => realtime.subscribe(channel, handleEvent));
+    const unsubscribeReconnect = realtime.subscribeReconnect(() => onReconnectRef.current?.());
 
     return () => {
-      closed = true;
-      clearReconnect();
+      for (const unsubscribe of unsubscribers) unsubscribe();
+      unsubscribeReconnect();
       if (debounceRef.current != null) {
         window.clearTimeout(debounceRef.current);
         debounceRef.current = null;
       }
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        for (const channel of channels) {
-          socket.send(JSON.stringify({ type: "unsubscribe", channel }));
-        }
-      }
-      socket?.close();
+      pendingEventsRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, debounceMs, key]);
+  }, [enabled, debounceMs, key, realtime]);
 }

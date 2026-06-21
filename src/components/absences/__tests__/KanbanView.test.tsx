@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import KanbanView from "../KanbanView";
 import { ToastProvider } from "../../../hooks/useToast";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
+const mockUseRealtime = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return { ...actual, apiJson: mockApiJson };
 });
+
+vi.mock("@/hooks/useRealtime", () => ({ useRealtime: mockUseRealtime }));
 
 const PENDING_ABSENCE = {
   id: "abs-1",
@@ -46,6 +49,22 @@ function renderKanban() {
 describe("KanbanView hard delete", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("reloads active columns after realtime reconnect", async () => {
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [PENDING_ABSENCE], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+    renderKanban();
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(3));
+
+    const options = mockUseRealtime.mock.calls[0]?.[2] as { onReconnect?: () => void } | undefined;
+    expect(options?.onReconnect).toBeTypeOf("function");
+    await act(async () => options?.onReconnect?.());
+
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(6));
   });
 
   it("shows delete button for pending absences", async () => {

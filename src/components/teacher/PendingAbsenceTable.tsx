@@ -47,7 +47,7 @@ export default function PendingAbsenceTable({ requests }: PendingAbsenceTablePro
                     </span>
                     <div className="min-w-0">
                       <Link
-                        to={`/absences/${req.id}`}
+                        to={`/teacher-dashboard/absences/${req.id}`}
                         className="font-medium text-[var(--color-wi-primary)] hover:underline"
                       >
                         {displayName}
@@ -70,7 +70,7 @@ export default function PendingAbsenceTable({ requests }: PendingAbsenceTablePro
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500">{submittedAgo(req.created_at)}</td>
                 <td className="px-3 py-3 text-right">
                   <Link
-                    to={`/absences/${req.id}`}
+                    to={`/teacher-dashboard/absences/${req.id}`}
                     className="inline-flex items-center rounded-sm px-2 py-1 text-xs font-medium text-[var(--color-wi-primary)] hover:bg-blue-50"
                   >
                     Review →

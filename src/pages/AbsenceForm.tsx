@@ -362,17 +362,6 @@ function prioritiesForLevel(group: SubjectSessions, level: number) {
   return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
 }
 
-function priorityOrdinal(level: number): string {
-  const mod100 = level % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${level}th`;
-  switch (level % 10) {
-    case 1: return `${level}st`;
-    case 2: return `${level}nd`;
-    case 3: return `${level}rd`;
-    default: return `${level}th`;
-  }
-}
-
 function getReviewSitInLabel(
   missedSession: { id: string },
   group: SubjectSessions,

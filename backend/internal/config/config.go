@@ -7,14 +7,15 @@ import (
 )
 
 type Config struct {
-	Addr          string
-	DatabaseURL   string
-	AuthPepper    string
-	CookieSecure  bool
-	StaticDir     string
-	LogLevel      string
-	InstituteTZ   string
-	InstituteName string
+	Addr                string
+	DatabaseURL         string
+	RealtimeDatabaseURL string
+	AuthPepper          string
+	CookieSecure        bool
+	StaticDir           string
+	LogLevel            string
+	InstituteTZ         string
+	InstituteName       string
 
 	CRMBaseURL  string
 	CRMUsername string
@@ -41,6 +42,7 @@ func FromEnv() (Config, error) {
 	var cfg Config
 	cfg.Addr = envOr("ADDR", ":8080")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
+	cfg.RealtimeDatabaseURL = strings.TrimSpace(os.Getenv("REALTIME_DATABASE_URL"))
 	cfg.AuthPepper = os.Getenv("AUTH_PEPPER")
 	cfg.CookieSecure = envBoolOr("COOKIE_SECURE", true)
 	cfg.StaticDir = envOr("STATIC_DIR", "../dist")

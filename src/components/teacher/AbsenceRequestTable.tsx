@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { CalendarX } from 'lucide-react';
 import type { TeacherDashboardSession, TeacherDashboardSitInVisitor } from '../../types';
+import EmptyState from '../ui/EmptyState';
 
 type AbsenceRequestTableProps = {
   sessions: TeacherDashboardSession[];
@@ -89,7 +91,12 @@ export default function AbsenceRequestTable({ sessions }: AbsenceRequestTablePro
   const rows = useAbsenceRows(sessions);
 
   if (rows.length === 0) {
-    return <p className="text-[12px] text-gray-400">No absence requests in this period.</p>;
+    return (
+      <EmptyState
+        message="No absence requests in this period."
+        icon={<CalendarX className="h-10 w-10" />}
+      />
+    );
   }
 
   return (
@@ -147,7 +154,7 @@ export default function AbsenceRequestTable({ sessions }: AbsenceRequestTablePro
               <td className="px-3 py-3 whitespace-nowrap text-[13px] text-gray-700">{row.submittedLabel}</td>
               <td className="px-3 py-3 text-right">
                 <Link
-                  to={`/absences/${row.absenceId}`}
+                  to={`/teacher-dashboard/absences/${row.absenceId}`}
                   className="inline-flex items-center rounded-sm px-2 py-1 text-xs font-medium text-[var(--color-wi-primary)] hover:bg-blue-50"
                 >
                   View →

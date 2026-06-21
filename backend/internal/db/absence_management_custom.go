@@ -326,6 +326,7 @@ type SitInStudentRow struct {
 	SessionStartAt         pgtype.Timestamptz
 	SessionEndAt           pgtype.Timestamptz
 	AbsentCourseSubjectName pgtype.Text
+	AbsenceDateFrom        pgtype.Date
 }
 
 type AbsentStudentRow struct {
@@ -411,7 +412,8 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 		       COALESCE(c.name, '') AS from_course_name,
 		       COALESCE(sub.name, '') AS from_subject_name,
 		       sess.start_at, sess.end_at,
-		       COALESCE(absent_sub.name, '') AS absent_subject_name
+		       COALESCE(absent_sub.name, '') AS absent_subject_name,
+		       sa.date_from
 		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
 		LEFT JOIN students st ON st.wcode = sa.wcode
@@ -430,7 +432,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 	var out []SitInStudentRow
 	for rows.Next() {
 		var r SitInStudentRow
-		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName, &r.FromSubjectName, &r.SessionStartAt, &r.SessionEndAt, &r.AbsentCourseSubjectName); err != nil {
+		if err := rows.Scan(&r.AbsenceID, &r.SessionID, &r.Wcode, &r.Nickname, &r.StudentName, &r.FromCourseCode, &r.FromCourseName, &r.FromSubjectName, &r.SessionStartAt, &r.SessionEndAt, &r.AbsentCourseSubjectName, &r.AbsenceDateFrom); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

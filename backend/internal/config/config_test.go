@@ -30,3 +30,18 @@ func TestFromEnvCookieSecureCanBeDisabled(t *testing.T) {
 		t.Fatal("CookieSecure = true, want false when COOKIE_SECURE=false")
 	}
 }
+
+func TestFromEnvReadsDedicatedRealtimeDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://primary")
+	t.Setenv("REALTIME_DATABASE_URL", "postgres://session-capable")
+	t.Setenv("AUTH_PEPPER", "pepper")
+	t.Setenv("OTP_HMAC_KEY", "otp-key")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.RealtimeDatabaseURL != "postgres://session-capable" {
+		t.Fatalf("RealtimeDatabaseURL = %q", cfg.RealtimeDatabaseURL)
+	}
+}

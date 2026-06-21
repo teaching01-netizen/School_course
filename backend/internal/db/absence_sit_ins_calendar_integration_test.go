@@ -106,6 +106,9 @@ func TestSitInsBySessionIDs(t *testing.T) {
 		if si.FromCourseCode != "COURSEB-"+suffix {
 			t.Errorf("expected from_course_code COURSEB-%s, got %s", suffix, si.FromCourseCode)
 		}
+		if !si.AbsenceDateFrom.Valid || si.AbsenceDateFrom.Time.Format("2006-01-02") != "2026-06-10" {
+			t.Errorf("expected absence_date_from 2026-06-10, got %v", si.AbsenceDateFrom)
+		}
 	})
 
 	t.Run("returns empty for sessions with no sit-ins", func(t *testing.T) {

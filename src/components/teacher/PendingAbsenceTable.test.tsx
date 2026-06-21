@@ -73,13 +73,13 @@ describe("PendingAbsenceTable", () => {
     expect(screen.getByText("Yesterday")).toBeInTheDocument();
   });
 
-  it("each row links to /absences/:id", () => {
+  it("each row links to the teacher read-only detail", () => {
     wrap(<PendingAbsenceTable requests={sampleRequests} />);
     const links = screen.getAllByRole("link");
-    const absenceLinks = links.filter((l) => l.getAttribute("href")?.startsWith("/absences/"));
+    const absenceLinks = links.filter((l) => l.getAttribute("href")?.startsWith("/teacher-dashboard/absences/"));
     expect(absenceLinks).toHaveLength(4);
-    expect(absenceLinks[0]).toHaveAttribute("href", "/absences/ab-1");
-    expect(absenceLinks[2]).toHaveAttribute("href", "/absences/ab-2");
+    expect(absenceLinks[0]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-1");
+    expect(absenceLinks[2]).toHaveAttribute("href", "/teacher-dashboard/absences/ab-2");
   });
 
   it("renders initials in avatar circle from display name", () => {

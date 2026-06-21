@@ -135,7 +135,13 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
       void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
       if (showCancelled) void loadCancelled(0);
     },
-    { debounceMs: 500 }
+    {
+      debounceMs: 500,
+      onReconnect: () => {
+        void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
+        if (showCancelled) void loadCancelled(0);
+      },
+    }
   );
 
   useEffect(() => {

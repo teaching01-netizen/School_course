@@ -172,7 +172,7 @@ export default function AbsenceDetail() {
     (event) => {
       if (event.id === id) void load();
     },
-    { debounceMs: 500 }
+    { debounceMs: 500, onReconnect: () => { void load(); } }
   );
 
   useEffect(() => {
