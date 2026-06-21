@@ -72,7 +72,7 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
               a ? 'bg-red-500' : v ? 'bg-amber-500' : 'bg-green-500'
             }`} />
             <span className="shrink-0 tabular-nums text-[10px] opacity-70">{shortTime(s.start_at)}</span>
-            <span className="truncate">{s.course_code}</span>
+            <span className="truncate">{s.subject_name?.trim() || s.course_name}</span>
             {a ? <span className="tabular-nums">{s.absent_students!.length}</span> : null}
             {v ? <span className="tabular-nums">{s.sit_in_visitors!.length}</span> : null}
           </span>
