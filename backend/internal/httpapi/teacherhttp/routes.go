@@ -24,12 +24,13 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 }
 
 type teacherAbsenceSessionDTO struct {
-	SessionID  string  `json:"session_id"`
-	CourseCode string  `json:"course_code"`
-	CourseName string  `json:"course_name"`
-	RoomName   *string `json:"room_name"`
-	StartAt    string  `json:"start_at"`
-	EndAt      string  `json:"end_at"`
+	SessionID   string  `json:"session_id"`
+	CourseCode  string  `json:"course_code"`
+	CourseName  string  `json:"course_name"`
+	SubjectName *string `json:"subject_name"`
+	RoomName    *string `json:"room_name"`
+	StartAt     string  `json:"start_at"`
+	EndAt       string  `json:"end_at"`
 }
 
 type teacherAbsenceDetailDTO struct {
@@ -144,9 +145,10 @@ func (s *server) teacherAbsenceSessionsDTO(rows []sqldb.ManagedAbsenceSession) [
 		}
 		out = append(out, teacherAbsenceSessionDTO{
 			SessionID: sessionID, CourseCode: row.CourseCode, CourseName: row.CourseName,
-			RoomName: textPointer(row.RoomName),
-			StartAt:  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:    row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			SubjectName: textPointer(row.SubjectName),
+			RoomName:    textPointer(row.RoomName),
+			StartAt:     row.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:       row.EndAt.Time.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	return out

@@ -35,7 +35,6 @@ type AbsenceRow = {
   id: string;
   studentName: string;
   wcode: string;
-  courseCode: string;
   courseName: string;
   subjectName: string | null;
   submittedLabel: string;
@@ -67,7 +66,6 @@ function useAbsenceRows(sessions: TeacherDashboardSession[]): AbsenceRow[] {
           id: `abs-${a.absence_id}`,
           studentName: a.nickname ?? a.student_name ?? a.wcode,
           wcode: a.wcode,
-          courseCode: s.course_code,
           courseName: s.course_name,
           subjectName: s.subject_name,
           submittedLabel: formatSubmitted(createdAt),
@@ -126,12 +124,9 @@ export default function AbsenceRequestTable({ sessions }: AbsenceRequestTablePro
               </td>
               <td className="px-3 py-3 font-mono text-xs text-gray-500">{row.wcode}</td>
               <td className="px-3 py-3">
-                <div className="max-w-[120px] truncate font-medium text-gray-900" title={`${row.courseCode} — ${row.courseName}`}>
-                  {row.courseCode}
+                <div className="max-w-[120px] truncate font-medium text-gray-900" title={row.subjectName?.trim() || row.courseName}>
+                  {row.subjectName?.trim() || row.courseName}
                 </div>
-                {row.subjectName ? (
-                  <div className="text-xs text-gray-500">{row.subjectName}</div>
-                ) : null}
               </td>
               <td className="px-3 py-3">
                 <div className="max-w-[160px] truncate font-medium text-gray-900" title={row.missedSubject ?? ''}>

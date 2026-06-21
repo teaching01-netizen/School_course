@@ -112,6 +112,28 @@ describe("DayPanel", () => {
     expect(screen.getAllByText("Reason:")).toHaveLength(2);
   });
 
+  it("never falls back to a course code for a sit-in origin", async () => {
+    mockApiJson.mockResolvedValue(absenceDetail({ id: "ab-2", reason: "Family trip" }));
+    renderPanel([{
+      ...baseSession,
+      sit_in_visitors: [{
+        wcode: "W260207",
+        nickname: "Nut",
+        student_name: null,
+        from_course_code: "ENG201",
+        from_subject_name: null,
+        absence_id: "ab-2",
+        session_start_at: "2026-06-20T08:00:00Z",
+        session_end_at: "2026-06-20T09:00:00Z",
+        absent_subject_name: null,
+        absence_date: "2026-06-19",
+      }],
+    }]);
+
+    expect(await screen.findByText(/sit-in from Subject unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/ENG201/)).not.toBeInTheDocument();
+  });
+
   it("leaves loading state after a successful request in StrictMode", async () => {
     const sessions: TeacherDashboardSession[] = [
       {

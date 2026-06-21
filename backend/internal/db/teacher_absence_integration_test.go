@@ -56,6 +56,13 @@ func TestTeacherAbsenceDetailScopesAccessAndSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	subject, err := q.SubjectCreate(ctx, SubjectCreateParams{Code: "TDET-SUBJ-" + suffix, Name: "Teacher detail subject " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subject.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: "WTDET-" + suffix, FullName: "Scoped Student", Notes: ""})
 	if err != nil {
@@ -76,6 +83,9 @@ func TestTeacherAbsenceDetailScopesAccessAndSessions(t *testing.T) {
 	if err := q.AbsenceMissedSessionsCreate(ctx, absence.ID, []pgtype.UUID{sessionA, sessionB}); err != nil {
 		t.Fatal(err)
 	}
+	if err := q.AbsenceSitInsCreate(ctx, absence.ID, []pgtype.UUID{sessionA}); err != nil {
+		t.Fatal(err)
+	}
 
 	row, err := q.TeacherAbsenceGet(ctx, absence.ID, teacherA)
 	if err != nil {
@@ -91,6 +101,16 @@ func TestTeacherAbsenceDetailScopesAccessAndSessions(t *testing.T) {
 	}
 	if len(missed) != 1 || missed[0].SessionID.Bytes != sessionA.Bytes {
 		t.Fatalf("expected only teacher A session, got %+v", missed)
+	}
+	if !missed[0].SubjectName.Valid || missed[0].SubjectName.String != subject.Name {
+		t.Fatalf("missed session subject = %v, want %q", missed[0].SubjectName, subject.Name)
+	}
+	sitIns, err := q.TeacherAbsenceSitInSessions(ctx, absence.ID, teacherA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sitIns) != 1 || !sitIns[0].SubjectName.Valid || sitIns[0].SubjectName.String != subject.Name {
+		t.Fatalf("sit-in session subject = %+v, want %q", sitIns, subject.Name)
 	}
 
 	outsider, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "teacher-detail-outsider-" + suffix, Role: "Teacher", PasswordHash: "x"})

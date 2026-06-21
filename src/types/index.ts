@@ -710,6 +710,7 @@ export type TeacherAbsenceSession = {
   session_id: string;
   course_code: string;
   course_name: string;
+  subject_name: string | null;
   room_name: string | null;
   start_at: string;
   end_at: string;

@@ -91,12 +91,13 @@ func (q *Queries) teacherAbsenceSessions(ctx context.Context, relation string, a
 	// relation is selected exclusively by the two callers above, never from request input.
 	rows, err := q.db.Query(ctx, `
 		SELECT rel.absence_id, rel.id, sess.id, sess.course_id,
-		       c.code, c.name, room.name, sess.start_at, sess.end_at
+		       c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at
 		FROM `+relation+` rel
 		JOIN sessions sess ON sess.id = rel.session_id
 		  AND sess.deleted_at IS NULL
 		  AND sess.teacher_id = $2
 		JOIN courses c ON c.id = sess.course_id
+		LEFT JOIN subjects subj ON subj.id = c.subject_id
 		LEFT JOIN rooms room ON room.id = sess.room_id
 		WHERE rel.absence_id = $1
 		ORDER BY sess.start_at ASC
@@ -108,7 +109,7 @@ func (q *Queries) teacherAbsenceSessions(ctx context.Context, relation string, a
 	out := make([]ManagedAbsenceSession, 0)
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
 			return nil, err
 		}
 		out = append(out, session)

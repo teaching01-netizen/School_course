@@ -29,7 +29,7 @@ function dashboardResponse(courseCode: string, monthStart: string) {
         course_id: "course-1",
         course_code: courseCode,
         course_name: "Algebra",
-        subject_name: "Mathematics",
+        subject_name: courseCode === "MATH102" ? "Mathematics II" : "Mathematics I",
         start_at: sessionStart,
         end_at: sessionEnd,
         room_name: "Room A",
@@ -72,7 +72,7 @@ it("loads teachers and fetches the selected teacher dashboard", async () => {
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
 
-  await screen.findByText("MATH101");
+  await screen.findByText("Mathematics I");
   expect(mockApiJson).toHaveBeenCalledWith(
     expect.stringMatching(/\/api\/v1\/teacher\/dashboard\?month_start=\d{4}-\d{2}-\d{2}&teacher_id=teacher-1/),
   );
@@ -97,16 +97,16 @@ it("retries a failed dashboard request without showing stale sessions", async ()
   renderDashboard();
 
   await user.click(await screen.findByRole("button", { name: /view dashboard/i }));
-  await screen.findByText("MATH101");
+  await screen.findByText("Mathematics I");
 
   await user.click(screen.getByRole("button", { name: /next month/i }));
 
   await screen.findByText(/A server error occurred/i, {}, { timeout: 2_500 });
-  expect(screen.queryByText("MATH101")).not.toBeInTheDocument();
+  expect(screen.queryByText("Mathematics I")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /retry/i }));
 
-  await screen.findByText("MATH102");
+  await screen.findByText("Mathematics II");
   await waitFor(() => {
     expect(screen.queryByText(/failed to load dashboard/i)).not.toBeInTheDocument();
   });

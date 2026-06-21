@@ -24,8 +24,8 @@ const detail = {
   reason_category: "medical",
   reason: "Appointment",
   status: "pending",
-  missed_sessions: [{ session_id: "s-1", course_code: "MATH-201", course_name: "Algebra II", room_name: "A1", start_at: "2026-06-20T02:00:00Z", end_at: "2026-06-20T03:00:00Z" }],
-  sit_in_sessions: [],
+  missed_sessions: [{ session_id: "s-1", course_code: "MATH-201", course_name: "Algebra II", subject_name: "Mathematics", room_name: "A1", start_at: "2026-06-20T02:00:00Z", end_at: "2026-06-20T03:00:00Z" }],
+  sit_in_sessions: [{ session_id: "s-2", course_code: "PHYS-201", course_name: "Physics II", subject_name: "Physics", room_name: "B1", start_at: "2026-06-22T02:00:00Z", end_at: "2026-06-22T03:00:00Z" }],
 };
 
 describe("Teacher absence detail", () => {
@@ -50,5 +50,8 @@ describe("Teacher absence detail", () => {
     expect(screen.getByRole("link", { name: /back to dashboard/i })).toHaveAttribute("href", "/teacher-dashboard");
     expect(screen.queryByRole("button", { name: /reviewed|cancel|override|save note/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/admin note|timeline/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Mathematics").length).toBeGreaterThan(0);
+    expect(screen.getByText("Physics")).toBeInTheDocument();
+    expect(screen.queryByText(/MATH-201|PHYS-201/)).not.toBeInTheDocument();
   });
 });

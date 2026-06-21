@@ -35,7 +35,7 @@ function SessionList({ title, sessions }: { title: string; sessions: TeacherAbse
         <ul className="mt-3 divide-y divide-gray-100">
           {sessions.map((session) => (
             <li key={session.session_id} className="py-3 first:pt-0 last:pb-0">
-              <p className="font-medium text-gray-900">{session.course_code} — {session.course_name}</p>
+              <p className="font-medium text-gray-900">{session.subject_name?.trim() || session.course_name}</p>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
                 <CalendarDays className="h-4 w-4" aria-hidden="true" />
                 {formatSession(session.start_at)}
@@ -106,7 +106,7 @@ export default function TeacherAbsenceDetail() {
       </header>
 
       <section className="grid gap-4 rounded-sm border border-gray-200 bg-white p-5 sm:grid-cols-2">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Course</p><p className="mt-1 font-medium text-gray-900">{detail.course_code} — {detail.course_name}</p>{detail.subject_name ? <p className="text-sm text-gray-500">{detail.subject_name}</p> : null}</div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subject</p><p className="mt-1 font-medium text-gray-900">{detail.subject_name?.trim() || detail.course_name}</p></div>
         <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Absence dates</p><p className="mt-1 font-medium text-gray-900">{formatDate(detail.date_from)}{detail.date_from === detail.date_to ? "" : ` – ${formatDate(detail.date_to)}`}</p></div>
         <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reason category</p><p className="mt-1 text-gray-900">{detail.reason_category ? titleCase(detail.reason_category) : "Not provided"}</p></div>
         <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reason</p><p className="mt-1 whitespace-pre-wrap text-gray-900">{detail.reason ?? "Not provided"}</p></div>

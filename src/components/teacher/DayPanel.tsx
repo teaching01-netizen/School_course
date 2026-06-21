@@ -220,7 +220,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                                   {v.nickname ?? v.student_name ?? v.wcode}
                                 </span>
                                 <span className="shrink-0 text-[11px] text-amber-600">
-                                  sit-in from {v.absent_subject_name ?? v.from_course_code}
+                                  sit-in from {v.absent_subject_name?.trim() || v.from_subject_name?.trim() || 'Subject unavailable'}
                                   {v.absence_date ? ` · ${format(parseISO(v.absence_date), 'd MMM')}` : ''}
                                 </span>
                               </div>
