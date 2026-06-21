@@ -99,22 +99,22 @@ export default function CalendarMonth({
   return (
     <div>
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
             aria-label="Previous month"
             onClick={onPrevMonth}
-            className="flex h-6 w-6 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100 sm:h-6 sm:w-6"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <h2 className="text-[16px] font-bold text-gray-900">{monthLabel}</h2>
+          <h2 className="whitespace-nowrap text-[14px] font-bold text-gray-900 sm:text-[16px]">{monthLabel}</h2>
           <button
             type="button"
             aria-label="Next month"
             onClick={onNextMonth}
-            className="flex h-6 w-6 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100 sm:h-6 sm:w-6"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
@@ -123,18 +123,34 @@ export default function CalendarMonth({
           type="button"
           aria-label="Go to today"
           onClick={handleToday}
-          className="flex items-center gap-1.5 rounded-sm border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-700 hover:bg-gray-100"
+          className="flex min-h-11 items-center gap-1.5 rounded-sm border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-700 hover:bg-gray-100 sm:min-h-0"
         >
           Today
           <kbd className="hidden sm:inline-flex items-center rounded-sm border border-gray-300 bg-white px-1 py-0.5 text-[10px] font-mono text-gray-400">T</kbd>
         </button>
       </div>
 
+      {/* Color legend */}
+      <div className="mb-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-red-500" />
+          Has absences
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          Has sit-ins
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-green-500" />
+          All OK
+        </span>
+      </div>
+
       {/* Day name row */}
       <div className="mb-1.5 grid grid-cols-7 gap-0.5">
         {DAY_NAMES.map((d) => (
-          <div key={d} className="py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-            {d}
+          <div key={d} className="py-1.5 text-center text-[10px] font-semibold uppercase tracking-normal text-gray-500 sm:text-[11px] sm:tracking-wider">
+            <span className="sm:hidden">{d.slice(0, 1)}</span><span className="hidden sm:inline">{d}</span>
           </div>
         ))}
       </div>

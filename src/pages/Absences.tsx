@@ -11,6 +11,7 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
+import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 import { queryKeys } from "../query/cache";
 import { useOperationalQuery } from "../query/useOperationalQuery";
 
@@ -152,6 +153,7 @@ export default function Absences() {
   const [batchFailed, setBatchFailed] = useState<Array<{ id: string; error: string }>>([]);
   const [deleteTarget, setDeleteTarget] = useState<ManagedAbsence | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState<ManagedAbsence | null>(null);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
   const statusParam = searchParams.get("status") ?? "";
@@ -623,6 +625,7 @@ export default function Absences() {
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <Button size="sm" variant="ghost" onClick={() => setOverrideTarget(absence)}>Override</Button>
                       {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
                       <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
                     </div>
@@ -700,6 +703,17 @@ export default function Absences() {
           </p>
           <p className="text-sm text-red-600 font-medium">Warning: All associated data will be lost.</p>
         </Modal>
+      ) : null}
+
+      {overrideTarget ? (
+        <OverrideSitInModal
+          absenceId={overrideTarget.id}
+          version={overrideTarget.version}
+          currentMethod={overrideTarget.sit_in_method}
+          currentCourseId={overrideTarget.sit_in_course_id}
+          onClose={() => setOverrideTarget(null)}
+          onSaved={() => void load()}
+        />
       ) : null}
     </div>
   );

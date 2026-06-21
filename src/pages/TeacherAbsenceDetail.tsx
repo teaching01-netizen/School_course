@@ -3,8 +3,11 @@ import { ArrowLeft, CalendarDays, Eye, MapPin } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
+import Button from "../components/ui/Button";
+import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
-import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
+import type { ManagedAbsence, TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
+import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 
 const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
 
@@ -55,9 +58,14 @@ function SessionList({ title, sessions }: { title: string; sessions: TeacherAbse
 
 export default function TeacherAbsenceDetail() {
   const { id = "" } = useParams();
+  const { user } = useAuth();
   const { addToast } = useToast();
+  const backTo = user?.role === 'Admin' ? '/absences/dashboard' : '/teacher-dashboard';
   const [detail, setDetail] = useState<TeacherAbsenceDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [managedAbsence, setManagedAbsence] = useState<ManagedAbsence | null>(null);
+  const [loadingOverride, setLoadingOverride] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,7 +87,7 @@ export default function TeacherAbsenceDetail() {
       <div className="rounded-sm border border-gray-200 bg-white p-6">
         <h1 className="text-lg font-semibold text-gray-900">Absence not available</h1>
         <p className="mt-2 text-sm text-gray-600">This request does not exist or is not assigned to one of your courses.</p>
-        <Link to="/teacher-dashboard" className="mt-4 inline-flex text-sm font-medium text-[var(--color-wi-primary)]">Back to dashboard</Link>
+        <Link to={backTo} className="mt-4 inline-flex text-sm font-medium text-[var(--color-wi-primary)]">Back to dashboard</Link>
       </div>
     );
   }
@@ -87,7 +95,7 @@ export default function TeacherAbsenceDetail() {
   const displayName = detail.student_nickname ?? detail.student_name ?? detail.wcode;
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link to="/teacher-dashboard" className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-wi-primary)] hover:underline">
+      <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-wi-primary)] hover:underline">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to dashboard
       </Link>
 
@@ -102,6 +110,16 @@ export default function TeacherAbsenceDetail() {
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
             <Eye className="h-3.5 w-3.5" aria-hidden="true" /> Read-only
           </span>
+          <Button size="sm" variant="secondary" loading={loadingOverride} onClick={() => {
+            setLoadingOverride(true);
+            void apiJson<ManagedAbsence>(`/api/v1/absences/${id}`, { method: "GET" })
+              .then((absence) => {
+                setManagedAbsence(absence);
+                setOverrideOpen(true);
+              })
+              .catch((err) => addToast("error", err instanceof Error ? err.message : "Failed to load absence details"))
+              .finally(() => setLoadingOverride(false));
+          }}>Override Sit-in</Button>
         </div>
       </header>
 
@@ -116,6 +134,17 @@ export default function TeacherAbsenceDetail() {
         <SessionList title="Missed sessions assigned to you" sessions={detail.missed_sessions} />
         <SessionList title="Sit-in sessions assigned to you" sessions={detail.sit_in_sessions} />
       </div>
+
+      {overrideOpen && managedAbsence ? (
+        <OverrideSitInModal
+          absenceId={managedAbsence.id}
+          version={managedAbsence.version}
+          currentMethod={managedAbsence.sit_in_method}
+          currentCourseId={managedAbsence.sit_in_course_id}
+          onClose={() => { setOverrideOpen(false); setManagedAbsence(null); }}
+          onSaved={() => void load()}
+        />
+      ) : null}
     </div>
   );
 }

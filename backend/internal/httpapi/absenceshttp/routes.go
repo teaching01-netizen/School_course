@@ -55,6 +55,14 @@ func sessionsInRangeSelectSQL() string {
 	`
 }
 
+func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
+	lookbackDays := 0
+	if settings.MaxHoursAfterSession > 0 {
+		lookbackDays = (settings.MaxHoursAfterSession + 23) / 24
+	}
+	return settings.MaxDateRangeDays + lookbackDays
+}
+
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
@@ -808,9 +816,10 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	days := int(dateTo.Sub(dateFrom).Hours() / 24)
-	if days > settings.Form.MaxDateRangeDays {
+	maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
+	if days > maxLookupRangeDays {
 		s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
-			fmt.Sprintf("Date range must be %d days or less", settings.Form.MaxDateRangeDays))
+			fmt.Sprintf("Date range must be %d days or less", maxLookupRangeDays))
 		return
 	}
 

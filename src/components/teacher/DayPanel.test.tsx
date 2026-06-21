@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { StrictMode } from "react";
 import DayPanel from "./DayPanel";
@@ -204,5 +204,61 @@ describe("DayPanel", () => {
     renderPanel(sessions);
 
     expect(await screen.findByText("Reason unavailable")).toBeInTheDocument();
+  });
+
+  it("closes from Escape and the mobile-sized close control", () => {
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <DayPanel date={new Date("2026-06-20T00:00:00Z")} sessions={[]} onClose={onClose} />
+      </MemoryRouter>,
+    );
+    const close = screen.getByRole("button", { name: "Close panel" });
+    expect(close.className).toContain("h-11");
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a green indicator when a session has no absences and no sit-ins", () => {
+    renderPanel([baseSession]);
+    expect(screen.getByText("No absences — No sit-ins")).toBeInTheDocument();
+  });
+
+  it("does NOT show the green indicator when a session has absences", () => {
+    renderPanel([{
+      ...baseSession,
+      absent_students: [
+        { wcode: "W260114", nickname: "Titan", student_name: null, absence_id: "ab-1", created_at: "2026-06-20T01:00:00Z" },
+      ],
+    }]);
+    mockApiJson.mockResolvedValue(absenceDetail({ id: "ab-1", reason: null }));
+    expect(screen.queryByText("No absences — No sit-ins")).not.toBeInTheDocument();
+  });
+
+  it("does NOT show the green indicator when a session has sit-in visitors", () => {
+    renderPanel([{
+      ...baseSession,
+      sit_in_visitors: [{
+        wcode: "W260207",
+        nickname: "Nut",
+        student_name: null,
+        from_course_code: "ENG201",
+        from_subject_name: null,
+        absence_id: "ab-2",
+        session_start_at: baseSession.start_at,
+        session_end_at: baseSession.end_at,
+        absent_subject_name: null,
+        absence_date: "2026-06-19",
+      }],
+    }]);
+    mockApiJson.mockResolvedValue(absenceDetail({ id: "ab-2", reason: "Family trip" }));
+    expect(screen.queryByText("No absences — No sit-ins")).not.toBeInTheDocument();
+  });
+
+  it("no longer renders View Course or Take Attendance buttons", () => {
+    renderPanel([baseSession]);
+    expect(screen.queryByText("View Course")).not.toBeInTheDocument();
+    expect(screen.queryByText("Take Attendance")).not.toBeInTheDocument();
   });
 });

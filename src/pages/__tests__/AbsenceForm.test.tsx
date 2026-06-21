@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AbsenceForm from "../AbsenceForm";
 import { renderWithProviders, createMockSessionsInRange } from "./helpers";
+import { ApiRequestError } from "@/api/client";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -18,6 +19,9 @@ vi.mock("react-router-dom", () => ({
 }));
 
 const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
+const LEGACY_VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
+const STUDENT_RESUME_STORAGE_KEY = "warwick-absence-form-student-v1";
+const VERIFICATION_STORAGE_KEY = "warwick-absence-parent-verification-v1";
 
 const MOCK_CONFIG = {
   form: {
@@ -137,6 +141,7 @@ function installHappyPathMocks(overrides?: {
   sessions?: unknown;
   send?: unknown;
   verify?: unknown;
+  verificationStatus?: unknown;
   submission?: unknown;
   config?: unknown;
 }) {
@@ -145,7 +150,10 @@ function installHappyPathMocks(overrides?: {
     if (path.includes("absence-form-config")) return overrides?.config ?? MOCK_CONFIG;
     if (path.includes("student-lookup")) return overrides?.student ?? MOCK_STUDENT;
     if (path.includes("sessions-in-range")) return overrides?.sessions ?? MOCK_SESSIONS;
-    if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+    if (path.includes("/parent-verification/") && init?.method === "GET") {
+      if (overrides?.verificationStatus instanceof Error) throw overrides.verificationStatus;
+      return overrides?.verificationStatus ?? OTP_SEND_RESPONSE;
+    }
     if (path.endsWith("/parent-verification/send")) return overrides?.send ?? OTP_SEND_RESPONSE;
     if (path.endsWith("/parent-verification/verify")) return overrides?.verify ?? OTP_VERIFY_RESPONSE;
     if (path.endsWith("/absences/batch") && init?.method === "POST") {
@@ -230,6 +238,161 @@ describe("AbsenceForm", () => {
     expect(screen.getByText("Find your profile")).toBeInTheDocument();
   });
 
+  it("discards the legacy absence draft instead of restoring critical selections", async () => {
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      step: 2,
+      lookup: MOCK_STUDENT,
+      lookupInput: MOCK_STUDENT.wcode,
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: ["session-1"],
+      sitInSelections: { "session-1": "sit-in-1" },
+      sitInPriorityLevels: { "session-1": 2 },
+      reason: "Stale reason",
+    }));
+    window.sessionStorage.setItem(LEGACY_VERIFICATION_STORAGE_KEY, JSON.stringify({ token: "legacy-token" }));
+
+    renderAbsenceForm();
+
+    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(screen.queryByText("Review your absence")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Stale reason")).not.toBeInTheDocument();
+    await waitFor(() => expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull());
+    expect(window.sessionStorage.getItem(LEGACY_VERIFICATION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("removes a malformed student resume record", async () => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, "{malformed");
+
+    renderAbsenceForm();
+
+    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    await waitFor(() => expect(window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY)).toBeNull());
+  });
+
+  it("starts a new OTP session without reusing a verified token", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      send: { ...OTP_SEND_RESPONSE, token: "otp-token-new" },
+      verify: { ...OTP_VERIFY_RESPONSE, token: "otp-token-new" },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+
+    expect(await screen.findByText("✓ Verified")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /send new code/i }));
+
+    await waitFor(() => {
+      const sendCalls = mockApiJson.mock.calls.filter(([url]) => String(url).endsWith("/parent-verification/send"));
+      expect(sendCalls).toHaveLength(2);
+      expect(JSON.parse(String(sendCalls[1][1]?.body))).toEqual({ wcode: MOCK_STUDENT.wcode });
+    });
+    expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toContain("otp-token-new");
+
+    const codeInput = (await screen.findAllByRole("textbox", { hidden: true })).find(
+      el => el.getAttribute("inputMode") === "numeric" || el.getAttribute("aria-label") === "Enter the code",
+    )!;
+    await user.type(codeInput, "654321");
+    await waitFor(() => {
+      const verifyCalls = mockApiJson.mock.calls.filter(([url]) => String(url).endsWith("/parent-verification/verify"));
+      expect(JSON.parse(String(verifyCalls.at(-1)?.[1]?.body))).toEqual({
+        token: "otp-token-new",
+        code: "654321",
+      });
+    });
+    expect(await screen.findByText("Courses & classes")).toBeInTheDocument();
+  });
+
+  it("resumes only the student identifier and refetches the authoritative lookup", async () => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({
+      wcode: MOCK_STUDENT.wcode,
+      collectedEmail: "student@example.com",
+    }));
+
+    renderAbsenceForm();
+
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(mockApiJson).toHaveBeenCalledWith(
+      `/api/v1/absences/student-lookup?wcode=${MOCK_STUDENT.wcode}`,
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(screen.getByDisplayValue("student@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(false);
+  });
+
+  it("revalidates a stored verified token without restoring the classes step", async () => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({ wcode: MOCK_STUDENT.wcode }));
+    window.sessionStorage.setItem(VERIFICATION_STORAGE_KEY, JSON.stringify({
+      token: "stored-verified-token",
+      expiresAt: Date.now() + 60_000,
+    }));
+
+    renderAbsenceForm({
+      verificationStatus: { ...OTP_VERIFY_RESPONSE, token: "stored-verified-token" },
+    });
+
+    expect(await screen.findByText("✓ Verified")).toBeInTheDocument();
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/parent-verification/stored-verified-token",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send new code/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["consumed", { ...OTP_VERIFY_RESPONSE, token: "stored-token", status: "consumed" as const }],
+    ["student mismatch", { ...OTP_VERIFY_RESPONSE, token: "stored-token", wcode: "W999999" }],
+  ])("clears a stored token when its server status is %s", async (_label, verificationStatus) => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({ wcode: MOCK_STUDENT.wcode }));
+    window.sessionStorage.setItem(VERIFICATION_STORAGE_KEY, JSON.stringify({
+      token: "stored-token",
+      expiresAt: Date.now() + 60_000,
+    }));
+
+    renderAbsenceForm({ verificationStatus });
+
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    await waitFor(() => expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toBeNull());
+    expect(screen.getByRole("button", { name: /^send code$/i })).toBeInTheDocument();
+    expect(screen.queryByText("✓ Verified")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["expired", new ApiRequestError("Verification token expired", { code: "otp_expired", status: 410 })],
+    ["invalid", new ApiRequestError("Invalid verification token", { code: "bad_token", status: 400 })],
+  ])("clears a stored %s token after server revalidation", async (_label, verificationError) => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({ wcode: MOCK_STUDENT.wcode }));
+    window.sessionStorage.setItem(VERIFICATION_STORAGE_KEY, JSON.stringify({
+      token: "stored-token",
+      expiresAt: Date.now() + 60_000,
+    }));
+
+    renderAbsenceForm({ verificationStatus: verificationError });
+
+    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    await waitFor(() => expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toBeNull());
+    expect(screen.getByRole("button", { name: /^send code$/i })).toBeInTheDocument();
+  });
+
+  it("does not trust a stored token when server revalidation is temporarily unavailable", async () => {
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({ wcode: MOCK_STUDENT.wcode }));
+    window.sessionStorage.setItem(VERIFICATION_STORAGE_KEY, JSON.stringify({
+      token: "stored-token",
+      expiresAt: Date.now() + 60_000,
+    }));
+
+    renderAbsenceForm({ verificationStatus: new TypeError("Network unavailable") });
+
+    expect(await screen.findByText(/could not validate saved verification/i)).toBeInTheDocument();
+    expect(screen.queryByText("✓ Verified")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry verification check/i })).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toContain("stored-token");
+  });
+
   it("normalizes a lowercase w-code before searching", async () => {
     const user = userEvent.setup();
     renderAbsenceForm();
@@ -296,6 +459,64 @@ describe("AbsenceForm", () => {
         body: expect.stringContaining('"items":['),
       }),
     );
+  }, 30000);
+
+  it("includes sessions from the previous two calendar days when the post-session window is 48 hours", async () => {
+    const user = userEvent.setup();
+    const today = new Date();
+    const expectedFrom = new Date(today);
+    expectedFrom.setDate(expectedFrom.getDate() - 2);
+    const expectedTo = new Date(today);
+    expectedTo.setDate(expectedTo.getDate() + MOCK_CONFIG.form.max_date_range_days);
+    const localDate = (date: Date) => [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    renderAbsenceForm({
+      config: {
+        ...MOCK_CONFIG,
+        form: { ...MOCK_CONFIG.form, max_hours_after_session: 48 },
+      },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
+    const sessionsUrl = new URL(String(sessionsCall?.[0]), "https://example.test");
+    expect(sessionsUrl.searchParams.get("date_from")).toBe(localDate(expectedFrom));
+    expect(sessionsUrl.searchParams.get("date_to")).toBe(localDate(expectedTo));
+  }, 30000);
+
+  it("keeps active edits in memory and refetches sessions when returning from Review", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm();
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Keep this active edit");
+    const subjectCheckbox = (await screen.findAllByRole("checkbox")).find(
+      checkbox => checkbox.getAttribute("id")?.startsWith("subject-"),
+    )!;
+    await user.click(subjectCheckbox);
+    const sessionCheckbox = await findSessionCheckbox();
+    await user.click(sessionCheckbox);
+    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+
+    const callsBeforeReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length;
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+
+    expect(await screen.findByDisplayValue("Keep this active edit")).toBeInTheDocument();
+    expect(subjectCheckbox).toBeChecked();
+    expect(sessionCheckbox).toBeChecked();
+    await waitFor(() => {
+      const callsAfterReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length;
+      expect(callsAfterReturn).toBeGreaterThan(callsBeforeReturn);
+    });
   }, 30000);
 
   it("submits selected sessions across more than one day in a single batch", async () => {

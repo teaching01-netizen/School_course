@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { ExternalLink, X } from 'lucide-react';
+import { CheckCircle, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiJson } from '../../api/client';
 import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherDashboardSession } from '../../types';
@@ -127,7 +127,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
         role="dialog"
         aria-modal="true"
         aria-label={`Session details for ${format(date, 'EEEE, d MMMM yyyy')}`}
-        className="fixed inset-0 m-auto z-50 flex max-h-[70vh] w-[92vw] max-w-[560px] flex-col rounded-lg bg-white shadow-lg"
+        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-white shadow-lg sm:inset-0 sm:m-auto sm:max-h-[70vh] sm:w-[92vw] sm:max-w-[560px] sm:rounded-lg"
       >
 
         {/* Header */}
@@ -146,7 +146,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
             type="button"
             data-panel-close
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-sm text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="flex h-11 w-11 items-center justify-center rounded-sm text-gray-400 hover:bg-gray-100 hover:text-gray-600 sm:h-7 sm:w-7"
             aria-label="Close panel"
           >
             <X className="h-4 w-4" />
@@ -170,7 +170,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                   <div key={s.id} className="rounded-sm border border-gray-200 bg-white px-3 py-2.5">
                     {/* Session header */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-baseline gap-1.5">
+                      <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-1.5">
                         <span className="text-[12px] font-semibold text-gray-900 tabular-nums">
                           {format(start, 'HH:mm')}–{format(end, 'HH:mm')}
                         </span>
@@ -178,11 +178,19 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     </div>
 
+                    {/* Green state indicator */}
+                    {absences.length === 0 && visitors.length === 0 ? (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-green-600">
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                        No absences — No sit-ins
+                      </div>
+                    ) : null}
+
                     {/* Absences */}
                     {absences.length > 0 ? (
                       <div className="mt-1.5 space-y-1">
                         {absences.map((a) => (
-                          <div key={a.absence_id} className="flex items-center justify-between py-0.5">
+                          <div key={a.absence_id} className="flex flex-col gap-1 py-0.5 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
@@ -199,7 +207,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                             </div>
                             <Link
                               to={`/teacher-dashboard/absences/${a.absence_id}`}
-                              className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
+                              className="inline-flex min-h-11 shrink-0 items-center text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline sm:min-h-0"
                             >
                               View <ExternalLink className="inline h-2.5 w-2.5" />
                             </Link>
@@ -212,7 +220,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                     {visitors.length > 0 ? (
                       <div className="mt-1.5 space-y-1">
                         {visitors.map((v) => (
-                          <div key={`${v.absence_id}-${v.wcode}`} className="flex items-center justify-between py-0.5">
+                          <div key={`${v.absence_id}-${v.wcode}`} className="flex flex-col gap-1 py-0.5 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
@@ -231,7 +239,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                             </div>
                             <Link
                               to={`/teacher-dashboard/absences/${v.absence_id}`}
-                              className="shrink-0 text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline"
+                              className="inline-flex min-h-11 shrink-0 items-center text-[12px] font-medium text-[var(--color-wi-primary)] hover:underline sm:min-h-0"
                             >
                               View <ExternalLink className="inline h-2.5 w-2.5" />
                             </Link>
@@ -240,21 +248,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     ) : null}
 
-                    {/* Actions */}
-                    <div className="mt-2 flex items-center gap-2 border-t border-gray-50 pt-2">
-                      <Link
-                        to={`/courses/${s.course_id}`}
-                        className="rounded-sm border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
-                      >
-                        View Course
-                      </Link>
-                      <Link
-                        to={`/attendance?session=${s.id}`}
-                        className="rounded-sm bg-[var(--color-wi-primary)] px-2.5 py-1 text-[11px] font-medium text-white"
-                      >
-                        Take Attendance
-                      </Link>
-                    </div>
+
                   </div>
                 );
               })}

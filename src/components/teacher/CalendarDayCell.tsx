@@ -24,6 +24,9 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
 
   const displaySessions = sessions.slice(0, 3);
   const overflow = sessions.length - 3;
+  const statusLabel = sessions.length === 0
+    ? 'No sessions'
+    : `${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}, ${totalAbsences} ${totalAbsences === 1 ? 'absence' : 'absences'}, ${totalSitIns} ${totalSitIns === 1 ? 'sit-in' : 'sit-ins'}`;
 
   let cellAccent: string;
   if (hasAbsences) {
@@ -40,6 +43,7 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
     <button
       type="button"
       onClick={onClick}
+      aria-label={`${date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}. ${statusLabel}`}
       className={`flex flex-col items-start gap-1 rounded-sm border px-2 py-2 text-left transition-all duration-75 ${
         isSelected
           ? 'border-[var(--color-wi-primary)] ring-1 ring-[var(--color-wi-primary)]'
@@ -58,6 +62,15 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
       }`}>
         {date.getDate()}
       </span>
+      <span className="mt-auto flex min-h-3 w-full items-center justify-center gap-0.5 sm:hidden" aria-hidden="true">
+        {displaySessions.map((s) => {
+          const a = (s.absent_students?.length ?? 0) > 0;
+          const v = !a && (s.sit_in_visitors?.length ?? 0) > 0;
+          return <span key={s.id} className={`h-2 w-2 rounded-full ${a ? 'bg-red-500' : v ? 'bg-amber-600' : 'bg-green-500'}`} />;
+        })}
+        {overflow > 0 ? <span className="text-[8px] leading-none text-gray-500">+{overflow}</span> : null}
+      </span>
+      <div className="hidden sm:contents">
       {displaySessions.map((s) => {
         const a = (s.absent_students?.length ?? 0) > 0;
         const v = !a && (s.sit_in_visitors?.length ?? 0) > 0;
@@ -104,6 +117,7 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
           ) : null}
         </div>
       ) : null}
+      </div>
     </button>
   );
 }

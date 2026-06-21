@@ -39,8 +39,10 @@ type AbsenceBatchCreateResponse = {
   items: ManagedAbsence[];
 };
 
-const SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
-const VERIFICATION_STORAGE_KEY = `${SESSION_STORAGE_KEY}:parent-verification`;
+const LEGACY_SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
+const LEGACY_VERIFICATION_STORAGE_KEY = `${LEGACY_SESSION_STORAGE_KEY}:parent-verification`;
+const STUDENT_RESUME_STORAGE_KEY = "warwick-absence-form-student-v1";
+const VERIFICATION_STORAGE_KEY = "warwick-absence-parent-verification-v1";
 
 const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,
@@ -80,6 +82,11 @@ function dateToLocalISO(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function postSessionLookbackDays(maxHoursAfterSession: number): number {
+  if (!Number.isFinite(maxHoursAfterSession) || maxHoursAfterSession <= 0) return 0;
+  return Math.ceil(maxHoursAfterSession / 24);
 }
 
 function daysBetween(from: string, to: string): number {
@@ -574,11 +581,13 @@ export default function AbsenceForm() {
   const studentDisplayName = getStudentDisplayName(lookup);
   const sessionLookupWindow = useMemo(() => {
     const today = new Date();
+    const dateFrom = new Date(today);
+    dateFrom.setDate(dateFrom.getDate() - postSessionLookbackDays(config.form.max_hours_after_session));
     return {
-      dateFrom: dateToLocalISO(today),
+      dateFrom: dateToLocalISO(dateFrom),
       dateTo: dateToLocalISO(new Date(today.getTime() + config.form.max_date_range_days * 24 * 60 * 60 * 1000)),
     };
-  }, [config.form.max_date_range_days]);
+  }, [config.form.max_date_range_days, config.form.max_hours_after_session]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -639,33 +648,45 @@ export default function AbsenceForm() {
   }, [step, lookup, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo]);
 
   useEffect(() => {
-    if (!lookup) return;
-    const snapshot = { step, lookup, lookupInput, collectedEmail, selectedSubjectIds, reason, selectedSessionIds: [...selectedSessionIds], sitInSelections, sitInPriorityLevels, sitInPriorityHistory };
-    try { window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot)); } catch { }
-  }, [lookup, lookupInput, collectedEmail, selectedSubjectIds, reason, selectedSessionIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, step]);
+    let active = true;
+    try {
+      window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+      window.sessionStorage.removeItem(LEGACY_VERIFICATION_STORAGE_KEY);
+      const raw = window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY);
+      if (!raw) return () => { active = false; };
+      const parsed = JSON.parse(raw) as Partial<{ wcode: string; collectedEmail: string }>;
+      const cleaned = normalizeLookupWcode(typeof parsed.wcode === "string" ? parsed.wcode : "");
+      if (!cleaned) {
+        window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY);
+        return () => { active = false; };
+      }
+      setLookupInput(cleaned);
+      if (typeof parsed.collectedEmail === "string") setCollectedEmail(parsed.collectedEmail);
+      setLookupLoading(true);
+      void apiJson<StudentLookupResponse>(
+        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`,
+        { method: "GET" },
+      )
+        .then((response) => { if (active) setLookup(response); })
+        .catch((error: unknown) => {
+          if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
+        })
+        .finally(() => { if (active) setLookupLoading(false); });
+    } catch {
+      try { window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY); } catch { }
+    }
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
+    if (!lookup) return;
     try {
-      const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Partial<{
-        step: StepIndex; lookup: StudentLookupResponse; lookupInput: string;
-        collectedEmail: string; selectedSubjectIds: string[]; reason: string; selectedSessionIds: string[];
-        sitInSelections: Record<string, string>; sitInPriorityLevels: Record<string, number>;
-        sitInPriorityHistory: Record<string, Record<number, SubjectSessions>>;
-      }>;
-      if (parsed.lookup) setLookup(parsed.lookup);
-      if (typeof parsed.lookupInput === "string") setLookupInput(parsed.lookupInput);
-      if (typeof parsed.collectedEmail === "string") setCollectedEmail(parsed.collectedEmail);
-      if (Array.isArray(parsed.selectedSubjectIds)) setSelectedSubjectIds(parsed.selectedSubjectIds);
-      if (typeof parsed.reason === "string") setReason(parsed.reason);
-      if (Array.isArray(parsed.selectedSessionIds)) setSelectedSessionIds(new Set(parsed.selectedSessionIds));
-      if (parsed.sitInSelections) setSitInSelections(parsed.sitInSelections);
-      if (parsed.sitInPriorityLevels) setSitInPriorityLevels(parsed.sitInPriorityLevels);
-      if (parsed.sitInPriorityHistory) setSitInPriorityHistory(parsed.sitInPriorityHistory);
-      if (typeof parsed.step === "number") setStep(parsed.step as StepIndex);
+      window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({
+        wcode: lookup.wcode,
+        collectedEmail,
+      }));
     } catch { }
-  }, []);
+  }, [lookup, collectedEmail]);
 
   useEffect(() => {
     if (!verification.token) {
@@ -685,6 +706,18 @@ export default function AbsenceForm() {
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
     setStep(1);
+  }, []);
+
+  const handleVerificationRestart = useCallback(() => {
+    verification.clearStoredToken();
+    verification.setCode("");
+    setVerificationSatisfied(false);
+    setVerificationBlocked(false);
+  }, [verification.clearStoredToken, verification.setCode]);
+
+  const handleVerificationRestored = useCallback(() => {
+    setVerificationSatisfied(true);
+    setVerificationBlocked(false);
   }, []);
 
   const handleLookup = async () => {
@@ -884,7 +917,11 @@ export default function AbsenceForm() {
       setFinalResults(response.items);
       verification.clearStoredToken();
       verification.setCode("");
-      try { window.sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch { }
+      try {
+        window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+        window.sessionStorage.removeItem(LEGACY_VERIFICATION_STORAGE_KEY);
+        window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY);
+      } catch { }
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
@@ -1105,6 +1142,8 @@ export default function AbsenceForm() {
                             verification={verification}
                             completed={verificationSatisfied}
                             onSatisfied={handleVerificationSatisfied}
+                            onRestart={handleVerificationRestart}
+                            onRestored={handleVerificationRestored}
                           />
                         </div>
                       </div>

@@ -41,11 +41,11 @@ export default function DashboardView({ data, viewDate, loadingNewMonth, onPrevM
       />
 
       {/* Mode tabs */}
-      <div className="flex gap-4 text-sm border-b border-gray-100" aria-label="Dashboard view mode">
+      <div className="flex gap-4 border-b border-gray-100 text-sm" aria-label="Dashboard view mode">
         <button
           type="button"
           onClick={() => setMode('calendar')}
-          className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+          className={`min-h-11 border-b-2 px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
             mode === 'calendar'
               ? 'border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]'
               : 'border-transparent text-gray-500 hover:text-gray-900'
@@ -56,7 +56,7 @@ export default function DashboardView({ data, viewDate, loadingNewMonth, onPrevM
         <button
           type="button"
           onClick={() => setMode('table')}
-          className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+          className={`min-h-11 border-b-2 px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
             mode === 'table'
               ? 'border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]'
               : 'border-transparent text-gray-500 hover:text-gray-900'
