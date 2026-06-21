@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { ExternalLink, X } from 'lucide-react';
+import { CheckCircle, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiJson } from '../../api/client';
 import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherDashboardSession } from '../../types';
@@ -178,6 +178,14 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     </div>
 
+                    {/* Green state indicator */}
+                    {absences.length === 0 && visitors.length === 0 ? (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-green-600">
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                        No absences — No sit-ins
+                      </div>
+                    ) : null}
+
                     {/* Absences */}
                     {absences.length > 0 ? (
                       <div className="mt-1.5 space-y-1">
@@ -240,21 +248,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     ) : null}
 
-                    {/* Actions */}
-                    <div className="mt-2 grid grid-cols-1 gap-2 border-t border-gray-50 pt-2 sm:flex sm:items-center">
-                      <Link
-                        to={`/courses/${s.course_id}`}
-                        className="inline-flex min-h-11 items-center justify-center rounded-sm border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 sm:min-h-0"
-                      >
-                        View Course
-                      </Link>
-                      <Link
-                        to={`/attendance?session=${s.id}`}
-                        className="inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--color-wi-primary)] px-2.5 py-1 text-[11px] font-medium text-white sm:min-h-0"
-                      >
-                        Take Attendance
-                      </Link>
-                    </div>
+
                   </div>
                 );
               })}

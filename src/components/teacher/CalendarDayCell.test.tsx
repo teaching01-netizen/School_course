@@ -66,4 +66,25 @@ describe("CalendarDayCell", () => {
     expect(cell.className).toContain("ring-[var(--color-wi-primary)]");
     expect(screen.getByText("21").className).toContain("bg-gray-900");
   });
+
+  it("renders a larger, darker-amber mobile dot for sit-in-only sessions", () => {
+    renderCell({
+      ...session,
+      sit_in_visitors: [{
+        wcode: "W1",
+        nickname: null,
+        student_name: null,
+        from_course_code: "C",
+        from_subject_name: null,
+        absence_id: "a1",
+        session_start_at: session.start_at,
+        session_end_at: session.end_at,
+        absent_subject_name: null,
+        absence_date: "2026-06-20",
+      }],
+    });
+    const cell = screen.getByRole("button");
+    expect(cell.innerHTML).toContain("bg-amber-600");
+    expect(cell.innerHTML).toContain("h-2 w-2 rounded-full");
+  });
 });

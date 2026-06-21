@@ -4,20 +4,12 @@ import { CheckCircle, Clock, RotateCcw, XCircle, PenLine } from "lucide-react";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useRealtime } from "../hooks/useRealtime";
-import type { Course, ManagedAbsence } from "../types";
+import type { ManagedAbsence } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import { formatSitInLabel } from "../components/absences/sitInLabel";
-
-type OverrideMethod = "auto" | "zoom" | "physical";
-type CandidateSession = {
-  id: string;
-  start_at: string;
-  end_at: string;
-  room_name?: string;
-  capacity_warning?: boolean;
-};
+import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 
 const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
 
@@ -144,12 +136,6 @@ export default function AbsenceDetail() {
   const [cancelReasonCategory, setCancelReasonCategory] = useState("");
   const [cancelReasonDetail, setCancelReasonDetail] = useState("");
   const [overrideOpen, setOverrideOpen] = useState(false);
-  const [overrideMethod, setOverrideMethod] = useState<OverrideMethod>("auto");
-  const [overrideReason, setOverrideReason] = useState("");
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [courseID, setCourseID] = useState("");
-  const [candidates, setCandidates] = useState<CandidateSession[]>([]);
-  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,12 +161,7 @@ export default function AbsenceDetail() {
     { debounceMs: 500, onReconnect: () => { void load(); } }
   );
 
-  useEffect(() => {
-    if (!overrideOpen || overrideMethod !== "physical" || !courseID) return;
-    void apiJson<CandidateSession[]>(`/api/v1/absences/${id}/sit-in-candidates?course_id=${encodeURIComponent(courseID)}`, { method: "GET" })
-      .then((rows) => { setCandidates(rows); setSelectedSessions(new Set(rows.map((r) => r.id))); })
-      .catch((err: unknown) => addToast("error", err instanceof Error ? err.message : "Failed to load sessions"));
-  }, [addToast, courseID, id, overrideMethod, overrideOpen]);
+
 
   async function updateStatus(status: "reviewed" | "actioned" | "pending" | "cancelled", reason?: string) {
     if (!absence) return;
@@ -217,39 +198,8 @@ export default function AbsenceDetail() {
     }
   }
 
-  async function openOverride() {
-    setOverrideMethod(absence?.sit_in_method === "zoom" ? "zoom" : absence?.sit_in_method === "physical" ? "physical" : "auto");
-    setOverrideReason("");
-    setCourseID(absence?.sit_in_course_id ?? "");
-    setCandidates([]);
-    setSelectedSessions(new Set());
+  function openOverride() {
     setOverrideOpen(true);
-    try {
-      setCourses(await apiJson<Course[]>("/api/v1/courses/public", { method: "GET" }));
-    } catch { setCourses([]); }
-  }
-
-  async function saveOverride() {
-    if (!absence || !overrideReason.trim()) return;
-    setSaving(true);
-    try {
-      await apiJson(`/api/v1/absences/${absence.id}/sit-in`, {
-        method: "PUT",
-        body: JSON.stringify({
-          method: overrideMethod,
-          expected_version: absence.version,
-          reason: overrideReason.trim(),
-          ...(overrideMethod === "physical" ? { sit_in_course_id: courseID, sit_in_session_ids: [...selectedSessions] } : {}),
-        }),
-      });
-      setOverrideOpen(false);
-      addToast("success", "Sit-in updated");
-      await load();
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Override failed");
-    } finally {
-      setSaving(false);
-    }
   }
 
   const statusClasses = useMemo(() => {
@@ -424,58 +374,15 @@ export default function AbsenceDetail() {
         </Modal>
       ) : null}
 
-      {overrideOpen ? (
-        <Modal title="Override Sit-in" onClose={() => setOverrideOpen(false)} size="xl"
-          footer={<><Button variant="secondary" onClick={() => setOverrideOpen(false)}>Cancel</Button><Button disabled={!overrideReason.trim() || (overrideMethod === "physical" && (!courseID || selectedSessions.size === 0))} loading={saving} onClick={() => void saveOverride()}>Save Override</Button></>}>
-          <p className="mb-4 text-sm text-gray-600">Current: {formatSitInLabel(absence)}</p>
-          <div className="border-b border-gray-200">
-            <div className="flex gap-0">
-              {(["auto", "zoom", "physical"] as OverrideMethod[]).map((method) => (
-                <button
-                  key={method}
-                  onClick={() => setOverrideMethod(method)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-                    overrideMethod === method
-                      ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {method === "auto" ? "Auto-resolve" : method === "zoom" ? "Zoom" : "Manual course"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-4">
-            {overrideMethod === "physical" ? (
-              <>
-                <label className="block text-sm font-medium" htmlFor="sit-in-course">Course</label>
-                <select id="sit-in-course" className="mt-1 w-full" value={courseID} onChange={(e) => setCourseID(e.target.value)}>
-                  <option value="">Select a course</option>
-                  {courses.map((course) => <option key={course.id} value={course.id}>{course.code} - {course.name}</option>)}
-                </select>
-                <div className="mt-3 space-y-2">
-                  {candidates.map((candidate) => (
-                    <label key={candidate.id} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={selectedSessions.has(candidate.id)} onChange={(e) => setSelectedSessions((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(candidate.id); else next.delete(candidate.id);
-                        return next;
-                      })} />
-                      <span>{displayDateTime(candidate.start_at)}{candidate.room_name ? ` - ${candidate.room_name}` : ""}</span>
-                      {candidate.capacity_warning ? <span className="text-xs font-medium text-amber-700">Near capacity</span> : null}
-                    </label>
-                  ))}
-                </div>
-              </>
-            ) : overrideMethod === "zoom" ? (
-              <p className="text-sm text-gray-600">Student will attend a Zoom session instead of physical class.</p>
-            ) : (
-              <p className="text-sm text-gray-600">Automatically resolve based on course level and availability.</p>
-            )}
-          </div>
-          <label className="mt-4 block text-sm font-medium" htmlFor="override-reason">Reason</label>
-          <textarea id="override-reason" className="mt-1 w-full rounded-sm border border-gray-300 p-2" rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
-        </Modal>
+      {overrideOpen && absence ? (
+        <OverrideSitInModal
+          absenceId={absence.id}
+          version={absence.version}
+          currentMethod={absence.sit_in_method}
+          currentCourseId={absence.sit_in_course_id}
+          onClose={() => setOverrideOpen(false)}
+          onSaved={() => void load()}
+        />
       ) : null}
     </div>
   );

@@ -66,7 +66,7 @@ export default function CalendarDayCell({ date, sessions, isToday, isCurrentMont
         {displaySessions.map((s) => {
           const a = (s.absent_students?.length ?? 0) > 0;
           const v = !a && (s.sit_in_visitors?.length ?? 0) > 0;
-          return <span key={s.id} className={`h-1.5 w-1.5 rounded-full ${a ? 'bg-red-500' : v ? 'bg-amber-500' : 'bg-green-500'}`} />;
+          return <span key={s.id} className={`h-2 w-2 rounded-full ${a ? 'bg-red-500' : v ? 'bg-amber-600' : 'bg-green-500'}`} />;
         })}
         {overflow > 0 ? <span className="text-[8px] leading-none text-gray-500">+{overflow}</span> : null}
       </span>

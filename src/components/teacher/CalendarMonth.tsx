@@ -130,6 +130,22 @@ export default function CalendarMonth({
         </button>
       </div>
 
+      {/* Color legend */}
+      <div className="mb-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-red-500" />
+          Has absences
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          Has sit-ins
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-green-500" />
+          All OK
+        </span>
+      </div>
+
       {/* Day name row */}
       <div className="mb-1.5 grid grid-cols-7 gap-0.5">
         {DAY_NAMES.map((d) => (
