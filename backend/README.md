@@ -66,7 +66,15 @@ A `railway.toml` at repo root defines the build/deploy config:
 | `CRM_BASE_URL` / `CRM_USERNAME` / `CRM_PASSWORD` | — | CRM integration |
 | `OTP_SMS_PROVIDER` | `mock` | `smartsms` for real SMS |
 | `SMS_SERVICE_*` | — | SmartSMS credentials |
+| `OTP_ASYNC_DELIVERY_ENABLED` | `false` | Enables PostgreSQL-backed durable OTP delivery after migration `00065` is applied |
+| `OTP_DELIVERY_ENCRYPTION_KEYS` | — | Required when async delivery is enabled; comma-separated `version:base64` AES-256 keys, newest key last, e.g. `v1:...` |
 | `REALTIME_DATABASE_URL` | `DATABASE_URL` | Direct or session-pooling PostgreSQL endpoint used for realtime `LISTEN/NOTIFY`; required when `DATABASE_URL` uses transaction pooling (commonly port 6543) |
+
+For a safe rollout, deploy migration `00065`, the backend, and the frontend while
+`OTP_ASYNC_DELIVERY_ENABLED=false`. Configure `OTP_DELIVERY_ENCRYPTION_KEYS`, then
+enable the flag after all server instances run the new version. Disable the flag
+to return new OTP requests to the legacy synchronous path; queued delivery rows
+remain available for operational inspection.
 
 ### Cron jobs
 

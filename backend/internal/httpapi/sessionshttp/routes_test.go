@@ -360,3 +360,121 @@ func TestRegister_BulkUpdate_BadJSON_Returns400(t *testing.T) {
 		t.Fatalf("code = %q, want %q", got.Code, "bad_json")
 	}
 }
+
+// TestRegister_PostSessions_ConcurrentOverlap_RaceCondition verifies that
+// concurrent session creation requests for the same room+teacher+time slot
+// produce exactly 1 success and N-1 schedule_conflict responses. This
+// exercises the SERIALIZABLE isolation introduced in WithSerializableIdempotentTx.
+func TestRegister_PostSessions_ConcurrentOverlap_RaceCondition(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulingSvc, err := scheduling.NewService(dbpool, "Asia/Bangkok", seriesSvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	suffix := uuid.New().String()[:8]
+	adminPgID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "conc-admin-" + suffix, Role: "Admin", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminID, err := uuid.FromBytes(adminPgID.Bytes[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacher, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "conc-teacher-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-conc-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-conc-" + suffix, Name: "Course concurrent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mux := http.NewServeMux()
+	Register(mux, httpdeps.Deps{
+		Log:         logger,
+		Auth:        fakeAuth{user: auth.AuthenticatedUser{ID: adminID, Username: "a", Role: "Admin"}},
+		Q:           q,
+		DB:          dbpool,
+		Scheduling:  schedulingSvc,
+		InstituteTZ: "Asia/Bangkok",
+	})
+
+	startAt := "2026-06-20T10:00:00Z"
+	endAt := "2026-06-20T11:00:00Z"
+	body := `{"course_id":"` + uuidString(t, course.ID) + `","teacher_id":"` + uuidString(t, teacher) + `","room_id":"` + uuidString(t, room.ID) + `","start_at":"` + startAt + `","end_at":"` + endAt + `"}`
+
+	const numRequests = 10
+	type result struct {
+		statusCode int
+		code       string
+	}
+	results := make(chan result, numRequests)
+	var wg sync.WaitGroup
+	ready := make(chan struct{})
+
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-ready
+			req := httptest.NewRequest("POST", "/api/v1/sessions", strings.NewReader(body))
+			req.Header.Set("Idempotency-Key", uuid.New().String())
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			var got struct {
+				Code string `json:"code"`
+			}
+			_ = json.NewDecoder(w.Body).Decode(&got)
+			results <- result{statusCode: w.Code, code: got.Code}
+		}()
+	}
+	close(ready)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	conflicts := 0
+	otherErrors := 0
+	for r := range results {
+		switch {
+		case r.statusCode == http.StatusCreated:
+			successes++
+		case r.statusCode == http.StatusConflict && r.code == "schedule_conflict":
+			conflicts++
+		default:
+			otherErrors++
+			t.Logf("unexpected response: status=%d code=%q", r.statusCode, r.code)
+		}
+	}
+
+	if successes != 1 {
+		t.Fatalf("expected exactly 1 success (10 concurrent requests for same slot), got %d successes, %d conflicts, %d other",
+			successes, conflicts, otherErrors)
+	}
+	if successes+conflicts != numRequests {
+		t.Fatalf("expected %d total (successes+conflicts), got successes=%d conflicts=%d other=%d",
+			numRequests, successes, conflicts, otherErrors)
+	}
+	if otherErrors > 0 {
+		t.Fatalf("expected no unexpected errors, got %d", otherErrors)
+	}
+}

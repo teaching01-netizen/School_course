@@ -43,6 +43,7 @@ import (
 	"warwick-institute/internal/httpapi/teacherhttp"
 	"warwick-institute/internal/httpapi/usershttp"
 	"warwick-institute/internal/otp"
+	"warwick-institute/internal/otpdelivery"
 	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
@@ -69,6 +70,14 @@ type EmailDeps struct {
 	Service       *emailnotifier.Service
 	InstituteName string
 	SitInQuery    func(ctx context.Context, instituteTZ string) ([]emailnotifier.SitInReminderRow, error)
+}
+
+type OTPDeliveryDeps struct {
+	SMS            smartsms.SMSProvider
+	Sender         smartsms.OTPProvider
+	Dispatcher     *otpdelivery.Dispatcher
+	Store          *otpdelivery.Store
+	CircuitBreaker *smartsms.CircuitBreaker
 }
 
 func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqldb.Queries) EmailDeps {
@@ -113,7 +122,7 @@ func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqld
 	}
 }
 
-func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps, realtimeHub ...*realtime.Hub) http.Handler {
+func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps, otpDelivery *OTPDeliveryDeps, realtimeHub ...*realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
 	hub := realtime.NewHub()
 	if len(realtimeHub) > 0 && realtimeHub[0] != nil {
@@ -173,7 +182,14 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		otpProviderMode = "mock"
 	}
 
-	if otpProviderMode == "smartsms" && cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
+	if otpDelivery != nil {
+		deps.SMS = otpDelivery.SMS
+		deps.OTPSender = otpDelivery.Sender
+		deps.OTPDelivery = otpDelivery.Dispatcher
+		deps.OTPDeliveryStore = otpDelivery.Store
+		deps.OTPAsyncDelivery = true
+		deps.CircuitBreaker = otpDelivery.CircuitBreaker
+	} else if otpProviderMode == "smartsms" && cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
 		smsClient, err := smartsms.New(smartsms.Config{
 			BaseURL:  cfg.SMSServiceBaseURL,
 			Username: cfg.SMSServiceUsername,

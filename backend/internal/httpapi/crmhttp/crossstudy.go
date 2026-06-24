@@ -2,6 +2,7 @@ package crmhttp
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -32,7 +33,7 @@ func (s *crossStudyServer) handleStudentLookup(w http.ResponseWriter, r *http.Re
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return
 	}
-	wcode := r.PathValue("wcode")
+	wcode := strings.ToLower(strings.TrimSpace(r.PathValue("wcode")))
 	if wcode == "" {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "Missing wcode")
 		return

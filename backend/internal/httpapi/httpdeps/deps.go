@@ -14,6 +14,7 @@ import (
 	"warwick-institute/internal/emailnotifier"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/otp"
+	"warwick-institute/internal/otpdelivery"
 	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
@@ -41,6 +42,9 @@ type Deps struct {
 	SMS                smartsms.SMSProvider
 	OTPSender          smartsms.OTPProvider
 	OTP                *otp.Service
+	OTPDelivery        *otpdelivery.Dispatcher
+	OTPDeliveryStore   *otpdelivery.Store
+	OTPAsyncDelivery   bool
 	RateLimiter        *ratelimit.Store
 	Realtime           *realtime.Hub
 	CircuitBreaker     *smartsms.CircuitBreaker

@@ -2,10 +2,13 @@ package smartsms
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"warwick-institute/internal/otpdelivery"
 )
 
 // SendOTP sends a one-time verification code to a single phone number.
@@ -20,30 +23,50 @@ func (c *Client) SendOTP(ctx context.Context, phone string, code string, message
 }
 
 func (m *MockProvider) SendOTP(_ context.Context, phone string, code string, message string) error {
-	slog.Info("SMS mock OTP send", "phone", phone, "code", code, "message", message)
+	slog.Info("SMS mock OTP send", "message_len", len(message))
 	return nil
 }
 
 func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string, message string) ([]byte, error) {
+	campaignID := fmt.Sprintf("otp-%d", time.Now().UnixMilli())
+	result := c.submitOTP(ctx, otpdelivery.Submission{
+		DeliveryID: campaignID,
+		CampaignID: campaignID,
+		Phone:      phone,
+		Message:    message,
+	})
+	if result.Outcome != otpdelivery.OutcomeAccepted {
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return nil, fmt.Errorf("smartsms: otp delivery %s: %s", result.Outcome, result.ErrorCode)
+	}
+	return []byte(`{"success":true}`), nil
+}
+
+func (c *Client) submitOTP(ctx context.Context, submission otpdelivery.Submission) otpdelivery.SubmitResult {
 	c.mu.Lock()
 	if err := c.ensureSessionLocked(ctx); err != nil {
 		c.mu.Unlock()
-		return nil, err
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeRetryable, ErrorCode: "session_unavailable", Err: err}
 	}
 	c.mu.Unlock()
 
 	// SmartSMS API expects Thai-format phone numbers (0xxxxxxxxx).
-	mobile := normalizeMobile(phone)
+	mobile := normalizeMobile(submission.Phone)
 	if mobile == "" {
-		return nil, fmt.Errorf("smartsms: invalid phone for otp send")
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeFailed, ErrorCode: "invalid_phone"}
 	}
 
-	campaignID := fmt.Sprintf("otp-%s-%d", code, time.Now().UnixMilli())
+	campaignID := strings.TrimSpace(submission.CampaignID)
+	if campaignID == "" {
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeFailed, ErrorCode: "invalid_campaign"}
+	}
 	sendTime := ""
 	baseFields := map[string]string{
 		"campaign_no": campaignID,
 		"campaign":    campaignID,
-		"message":     message,
+		"message":     submission.Message,
 		"mobile":      mobile,
 		"sender":      c.sender,
 		"label":       c.label,
@@ -54,31 +77,30 @@ func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string, mess
 	// Step 1: POST /dataset/previewData
 	baseFields["_token"] = c.csrfToken.Load().(string)
 
-	slog.Debug("otp step 1: previewData", "phone", phone)
+	slog.Debug("otp step 1: previewData", "delivery_id", submission.DeliveryID)
 	step1Body, err := c.withReLogin(ctx, baseFields, "/dataset/previewData")
 	if err != nil {
-		slog.Error("otp step 1 failed", "error", err)
-		return nil, err
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeRetryable, ErrorCode: "preview_unavailable", Err: err}
 	}
 	if strings.TrimSpace(string(step1Body)) == "" {
-		return nil, fmt.Errorf("smartsms: empty otp preview response")
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeRetryable, ErrorCode: "preview_empty"}
 	}
 	if err := expectJSON(step1Body, "otp step 1 (preview)"); err != nil {
-		return nil, err
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeRetryable, ErrorCode: "preview_invalid"}
 	}
 	step1Resp, err := parsePreviewResponse(step1Body)
 	if err != nil {
-		return nil, fmt.Errorf("smartsms: otp step 1 (preview): %w", err)
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeRetryable, ErrorCode: "preview_invalid"}
 	}
 	if !step1Resp.Success {
-		return nil, fmt.Errorf("smartsms: otp step 1 (preview) returned success=false; credits=%d", step1Resp.CreditsUsed)
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeFailed, ErrorCode: "preview_rejected"}
 	}
 
 	// Step 2: POST /dataset/confirmSend
 	step2Fields := map[string]string{
 		"campaign_no":    campaignID,
 		"campaign":       campaignID,
-		"message":        message,
+		"message":        submission.Message,
 		"mobile":         mobile,
 		"sender":         c.sender,
 		"label":          c.label,
@@ -87,26 +109,28 @@ func (c *Client) sendOTPSMS(ctx context.Context, phone string, code string, mess
 		"is_auto_resend": "false",
 		"resends":        "{}",
 	}
-	slog.Debug("otp step 2: confirmSend", "phone", phone)
+	slog.Debug("otp step 2: confirmSend", "delivery_id", submission.DeliveryID)
 	step2Body, err := c.withReLogin(ctx, step2Fields, "/dataset/confirmSend")
 	if err != nil {
-		slog.Error("otp step 2 failed", "error", err)
-		return nil, err
+		var httpErr *httpStatusError
+		if errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 {
+			return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeFailed, ErrorCode: "confirm_rejected"}
+		}
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeUncertain, ErrorCode: "confirm_response_lost"}
 	}
 	if err := expectJSON(step2Body, "otp step 2 (confirmSend)"); err != nil {
-		return nil, err
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeUncertain, ErrorCode: "confirm_invalid_response"}
 	}
 	step2Resp, err := parseSimpleSuccess(step2Body)
 	if err != nil {
-		return nil, fmt.Errorf("smartsms: otp step 2 (confirmSend): %w", err)
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeUncertain, ErrorCode: "confirm_invalid_response"}
 	}
 	if !step2Resp.Success {
-		slog.Error("otp step 2 returned success=false", "body", string(step2Body))
-		return nil, fmt.Errorf("smartsms: otp step 2 (confirmSend) returned success=false")
+		return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeFailed, ErrorCode: "confirm_rejected"}
 	}
 
-	slog.Info("otp sms sent successfully", "phone", mobile, "preview_id", step1Resp.PreviewID)
-	return step1Body, nil
+	slog.Info("otp sms accepted", "delivery_id", submission.DeliveryID, "preview_id", step1Resp.PreviewID)
+	return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeAccepted}
 }
 
 func normalizePhoneE164(raw string) (string, error) {

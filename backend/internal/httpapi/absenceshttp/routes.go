@@ -579,100 +579,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 	s.publishAbsenceChanged(createdID)
 }
 
-func (s *server) handleAbsenceList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.a.MustAdmin(w, r); !ok {
-		return
-	}
-	items, err := s.deps.Q.AbsenceListExtended(r.Context())
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-
-	type sitInDTO struct {
-		ID        string `json:"id"`
-		SessionID string `json:"session_id"`
-	}
-	type absenceDTO struct {
-		ID              string     `json:"id"`
-		Wcode           string     `json:"wcode"`
-		CourseID        string     `json:"course_id"`
-		SubjectID       *string    `json:"subject_id"`
-		SubjectCode     *string    `json:"subject_code"`
-		SubjectName     *string    `json:"subject_name"`
-		DateFrom        string     `json:"date_from"`
-		DateTo          string     `json:"date_to"`
-		Reason          *string    `json:"reason"`
-		SitInMethod     *string    `json:"sit_in_method"`
-		SitInCourseID   *string    `json:"sit_in_course_id"`
-		CreatedAt       string     `json:"created_at"`
-		CourseCode      string     `json:"course_code"`
-		CourseName      string     `json:"course_name"`
-		SitInCourseCode *string    `json:"sit_in_course_code"`
-		SitInCourseName *string    `json:"sit_in_course_name"`
-		SitIns          []sitInDTO `json:"sit_ins,omitempty"`
-	}
-	out := make([]absenceDTO, 0, len(items))
-	for _, it := range items {
-		id, _ := s.a.UUIDString(it.ID)
-		courseID, _ := s.a.UUIDString(it.CourseID)
-		dto := absenceDTO{
-			ID:         id,
-			Wcode:      it.Wcode,
-			CourseID:   courseID,
-			DateFrom:   it.DateFrom.Time.Format("2006-01-02"),
-			DateTo:     it.DateTo.Time.Format("2006-01-02"),
-			CreatedAt:  it.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-			CourseCode: it.CourseCode,
-			CourseName: it.CourseName,
-		}
-		if it.Reason.Valid {
-			r := it.Reason.String
-			dto.Reason = &r
-		}
-		if it.SitInMethod.Valid {
-			m := it.SitInMethod.String
-			dto.SitInMethod = &m
-		}
-		if it.SubjectID.Valid {
-			sid, _ := s.a.UUIDString(it.SubjectID)
-			dto.SubjectID = &sid
-		}
-		if it.SubjectCode.Valid {
-			c := it.SubjectCode.String
-			dto.SubjectCode = &c
-		}
-		if it.SubjectName.Valid {
-			n := it.SubjectName.String
-			dto.SubjectName = &n
-		}
-		if it.SitInCourseID.Valid {
-			sid, _ := s.a.UUIDString(it.SitInCourseID)
-			dto.SitInCourseID = &sid
-		}
-		if it.SitInCourseCode.Valid {
-			c := it.SitInCourseCode.String
-			dto.SitInCourseCode = &c
-		}
-		if it.SitInCourseName.Valid {
-			n := it.SitInCourseName.String
-			dto.SitInCourseName = &n
-		}
-
-		// Load sit-in sessions for this absence
-		sitIns, _ := s.deps.Q.AbsenceSitInsByAbsence(r.Context(), it.ID)
-		for _, si := range sitIns {
-			siID, _ := s.a.UUIDString(si.ID)
-			sessionID, _ := s.a.UUIDString(si.SessionID)
-			dto.SitIns = append(dto.SitIns, sitInDTO{ID: siID, SessionID: sessionID})
-		}
-
-		out = append(out, dto)
-	}
-	s.a.WriteJSON(w, http.StatusOK, out)
-}
-
 func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 	items, err := s.deps.Q.CourseListActive(r.Context())
 	if err != nil {
@@ -696,7 +602,7 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 
 // Public: lookup student by wcode and return their enrolled subjects
 func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
-	wcode := r.URL.Query().Get("wcode")
+	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	if wcode == "" {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode parameter is required")
 		return
@@ -747,7 +653,7 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 
 // Public: given student wcode + subject + dates, return sit-in options
 func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
-	wcode := r.URL.Query().Get("wcode")
+	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	subjectIDStr := r.URL.Query().Get("subject_id")
 	dateFromStr := r.URL.Query().Get("date_from")
 	dateToStr := r.URL.Query().Get("date_to")
@@ -790,7 +696,7 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 
 // Public: return all sessions for a student across enrolled subjects in a date range, with absence flagging
 func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
-	wcode := r.URL.Query().Get("wcode")
+	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	dateFromStr := r.URL.Query().Get("date_from")
 	dateToStr := r.URL.Query().Get("date_to")
 

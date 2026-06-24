@@ -355,6 +355,18 @@ export type ParentVerificationResponse = {
   consumed_at?: string | null;
   consumed_absence_id?: string | null;
   expires_at?: string | null;
+  delivery_id?: string | null;
+  delivery_status?:
+    | "queued"
+    | "preparing"
+    | "submitting"
+    | "accepted"
+    | "retryable"
+    | "failed"
+    | "uncertain"
+    | "expired"
+    | null;
+  delivery_retry_after_seconds?: number;
 };
 
 export type StaffAbsencePolicies = {

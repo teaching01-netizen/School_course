@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"strings"
 	"time"
@@ -767,8 +768,26 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
-			if se := s.preflightSlot(ctx, s.db, s.q, preflightIn); se != nil {
+			if se := s.preflightSlot(ctx, tx, qtx, preflightIn); se != nil {
 				return CreateSessionResult{}, se
+			}
+			// Preflight found no conflict — the concurrent tx hasn't committed yet.
+			// Return a synthetic conflict error so the caller always gets a
+			// schedule_conflict response, not a raw database error.
+			slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
+				"room_id", uuidStringOrEmpty(p.RoomID),
+				"teacher_id", uuidStringOrEmpty(p.TeacherID),
+				"start_at", p.StartAt.Time.UTC(),
+				"end_at", p.EndAt.Time.UTC(),
+			)
+			return CreateSessionResult{}, &Err{
+				Code:    "schedule_conflict",
+				Message: "schedule conflict detected by database constraint",
+				Details: ConflictDetails{
+					Kind:      conflictKindFromInput(preflightIn),
+					Conflicts: nil,
+					Requested: preflightIn.Requested,
+				},
 			}
 		}
 		return CreateSessionResult{}, err
@@ -882,6 +901,24 @@ func (s *Service) CreateSession(ctx context.Context, p CreateSessionParams) (Cre
 			if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
 				if se := s.preflightSlot(ctx, s.db, s.q, preflightIn); se != nil {
 					return CreateSessionResult{}, se
+				}
+				// Preflight found no conflict — the concurrent tx hasn't committed yet.
+				// Return a synthetic conflict error so the caller always gets a
+				// schedule_conflict response, not a raw database error.
+				slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
+					"room_id", uuidStringOrEmpty(p.RoomID),
+					"teacher_id", uuidStringOrEmpty(p.TeacherID),
+					"start_at", p.StartAt.Time.UTC(),
+					"end_at", p.EndAt.Time.UTC(),
+				)
+				return CreateSessionResult{}, &Err{
+					Code:    "schedule_conflict",
+					Message: "schedule conflict detected by database constraint",
+					Details: ConflictDetails{
+						Kind:      conflictKindFromInput(preflightIn),
+						Conflicts: nil,
+						Requested: preflightIn.Requested,
+					},
 				}
 			}
 			return CreateSessionResult{}, err
@@ -1020,6 +1057,25 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 			// Re-run preflight using the same tx view (including any roster overrides).
 			if se := s.preflightSlot(ctx, tx, qtx, preflightIn); se != nil {
 				return EditOccurrenceResult{}, se
+			}
+			// Preflight found no conflict — the concurrent tx hasn't committed yet.
+			// Return a synthetic conflict error so the caller always gets a
+			// schedule_conflict response, not a raw database error.
+			slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
+				"session_id", uuidStringOrEmpty(p.SessionID),
+				"room_id", uuidStringOrEmpty(newRoomID),
+				"teacher_id", uuidStringOrEmpty(newTeacherID),
+				"start_at", newStartAt.Time.UTC(),
+				"end_at", newEndAt.Time.UTC(),
+			)
+			return EditOccurrenceResult{}, &Err{
+				Code:    "schedule_conflict",
+				Message: "schedule conflict detected by database constraint",
+				Details: ConflictDetails{
+					Kind:      conflictKindFromInput(preflightIn),
+					Conflicts: nil,
+					Requested: preflightIn.Requested,
+				},
 			}
 		}
 		return EditOccurrenceResult{}, err
@@ -1175,6 +1231,25 @@ func (s *Service) EditOccurrenceTime(ctx context.Context, p EditOccurrenceParams
 				if se := s.preflightSlot(ctx, s.db, s.q, in2); se != nil {
 					return EditOccurrenceResult{}, se
 				}
+				// Preflight found no conflict — the concurrent tx hasn't committed yet.
+				// Return a synthetic conflict error so the caller always gets a
+				// schedule_conflict response, not a raw database error.
+				slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
+					"session_id", uuidStringOrEmpty(p.SessionID),
+					"room_id", uuidStringOrEmpty(newRoomID),
+					"teacher_id", uuidStringOrEmpty(newTeacherID),
+					"start_at", newStartAt.Time.UTC(),
+					"end_at", newEndAt.Time.UTC(),
+				)
+				return EditOccurrenceResult{}, &Err{
+					Code:    "schedule_conflict",
+					Message: "schedule conflict detected by database constraint",
+					Details: ConflictDetails{
+						Kind:      conflictKindFromInput(in2),
+						Conflicts: nil,
+						Requested: in2.Requested,
+					},
+				}
 			}
 			return EditOccurrenceResult{}, err
 		}
@@ -1237,6 +1312,18 @@ func uuidStringPtr(u pgtype.UUID) (*string, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// uuidStringOrEmpty returns the UUID string or "<nil>" for logging.
+func uuidStringOrEmpty(u pgtype.UUID) string {
+	if !u.Valid {
+		return "<nil>"
+	}
+	s, err := uuidString(u)
+	if err != nil {
+		return "<invalid>"
+	}
+	return s
 }
 
 // preflightStrings holds the string versions of UUIDs commonly needed for building ConflictRequested.
@@ -1621,6 +1708,16 @@ WHERE br.student_id = ANY($1::uuid[])
 func isRetryableSchedulingErr(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "23P01")
+}
+
+// conflictKindFromInput returns the most likely ConflictKind for a synthetic
+// error built when the GiST exclusion constraint fires but preflight cannot
+// identify the conflicting session (the other tx hasn't committed yet).
+func conflictKindFromInput(in preflightInput) ConflictKind {
+	if in.RoomID.Valid {
+		return ConflictKindRoomOverlap
+	}
+	return ConflictKindTeacherOverlap
 }
 
 // ensure pgx import stays used in builds where some features are behind tags.

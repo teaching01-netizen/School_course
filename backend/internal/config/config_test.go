@@ -45,3 +45,29 @@ func TestFromEnvReadsDedicatedRealtimeDatabaseURL(t *testing.T) {
 		t.Fatalf("RealtimeDatabaseURL = %q", cfg.RealtimeDatabaseURL)
 	}
 }
+
+func TestFromEnvAsyncOTPDeliveryRequiresEncryptionKeys(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("AUTH_PEPPER", "pepper")
+	t.Setenv("OTP_HMAC_KEY", "otp-key")
+	t.Setenv("OTP_ASYNC_DELIVERY_ENABLED", "true")
+	t.Setenv("OTP_DELIVERY_ENCRYPTION_KEYS", "")
+
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("FromEnv succeeded, want missing OTP delivery encryption key error")
+	}
+}
+
+func TestFromEnvAsyncOTPDeliveryDefaultsDisabled(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("AUTH_PEPPER", "pepper")
+	t.Setenv("OTP_HMAC_KEY", "otp-key")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.OTPAsyncDeliveryEnabled {
+		t.Fatal("OTPAsyncDeliveryEnabled = true, want false by default")
+	}
+}

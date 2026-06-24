@@ -3,6 +3,7 @@ package studentshttp
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -98,6 +99,7 @@ func (s *server) handleStudentsCreate(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
+	req.Wcode = strings.ToLower(strings.TrimSpace(req.Wcode))
 	s.a.WithIdempotentTx(w, r, user.ID, "students", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := qtx.StudentCreate(r.Context(), req)
@@ -142,7 +144,7 @@ func (s *server) handleStudentsGetByWCode(w http.ResponseWriter, r *http.Request
 	if _, ok := s.a.MustUser(w, r); !ok {
 		return
 	}
-	wcode := r.URL.Query().Get("wcode")
+	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	if wcode == "" {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "Invalid wcode")
 		return
@@ -234,6 +236,7 @@ func (s *server) handleStudentsUpdate(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
+	body.Wcode = strings.ToLower(strings.TrimSpace(body.Wcode))
 	s.a.WithIdempotentTx(w, r, user.ID, "students", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := qtx.StudentUpdate(r.Context(), sqldb.StudentUpdateParams{

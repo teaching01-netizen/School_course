@@ -189,7 +189,7 @@ func (s *ReconcileV2Service) queryDesiredStudentsV2(ctx context.Context, snapsho
 		if strings.TrimSpace(d.WCode) == "" {
 			continue
 		}
-		d.WCode = strings.TrimSpace(d.WCode)
+		d.WCode = strings.ToLower(strings.TrimSpace(d.WCode))
 		desired = append(desired, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -209,6 +209,7 @@ func (s *ReconcileV2Service) reconcileDesiredStudentIDs(ctx context.Context, tx 
 		if fullName == "" {
 			fullName = d.WCode
 		}
+		d.WCode = strings.ToLower(strings.TrimSpace(d.WCode))
 
 		var stID pgtype.UUID
 		err := tx.QueryRow(ctx, `
@@ -1032,7 +1033,7 @@ func (s *ReconcileV2Service) SetRosterLockAndEnqueueApply(ctx context.Context, w
 }
 
 func (s *ReconcileV2Service) ResolveStudentScheduleConflictAndEnqueue(ctx context.Context, worker *queue.QueueWorker, wcode string, courseID pgtype.UUID, excludedSessionIDs []pgtype.UUID) (*ResolveConflictResult, error) {
-	wcode = strings.TrimSpace(wcode)
+	wcode = strings.ToLower(strings.TrimSpace(wcode))
 	if wcode == "" {
 		return nil, &ResolveConflictValidationError{Code: "bad_wcode", Err: fmt.Errorf("missing student wcode")}
 	}

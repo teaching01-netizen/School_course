@@ -18,6 +18,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/idempotency"
 	"warwick-institute/internal/otp"
+	"warwick-institute/internal/otpdelivery"
 )
 
 type parentVerificationSendRequest struct {
@@ -31,16 +32,19 @@ type parentVerificationVerifyRequest struct {
 }
 
 type parentVerificationDTO struct {
-	Token             string  `json:"token"`
-	Status            string  `json:"status"`
-	Wcode             string  `json:"wcode"`
-	ParentPhone       *string `json:"parent_phone,omitempty"`
-	OtpLastSentAt     *string `json:"otp_last_sent_at,omitempty"`
-	OtpCodeExpiresAt  *string `json:"otp_code_expires_at,omitempty"`
-	VerifiedAt        *string `json:"verified_at,omitempty"`
-	ConsumedAt        *string `json:"consumed_at,omitempty"`
-	ConsumedAbsenceID *string `json:"consumed_absence_id,omitempty"`
-	ExpiresAt         *string `json:"expires_at,omitempty"`
+	Token                     string  `json:"token"`
+	Status                    string  `json:"status"`
+	Wcode                     string  `json:"wcode"`
+	ParentPhone               *string `json:"parent_phone,omitempty"`
+	OtpLastSentAt             *string `json:"otp_last_sent_at,omitempty"`
+	OtpCodeExpiresAt          *string `json:"otp_code_expires_at,omitempty"`
+	VerifiedAt                *string `json:"verified_at,omitempty"`
+	ConsumedAt                *string `json:"consumed_at,omitempty"`
+	ConsumedAbsenceID         *string `json:"consumed_absence_id,omitempty"`
+	ExpiresAt                 *string `json:"expires_at,omitempty"`
+	DeliveryID                *string `json:"delivery_id,omitempty"`
+	DeliveryStatus            *string `json:"delivery_status,omitempty"`
+	DeliveryRetryAfterSeconds int     `json:"delivery_retry_after_seconds,omitempty"`
 }
 
 const resendCooldown = 60 * time.Second
@@ -228,6 +232,31 @@ func verificationResponseFromState(row otp.SessionState, token string, expiresAt
 	return dto
 }
 
+func withDeliverySummary(dto parentVerificationDTO, delivery otpdelivery.DeliverySummary) parentVerificationDTO {
+	id := delivery.ID.String()
+	status := string(delivery.Status)
+	dto.DeliveryID = &id
+	dto.DeliveryStatus = &status
+	dto.DeliveryRetryAfterSeconds = delivery.RetryAfterSeconds
+	return dto
+}
+
+func (s *server) verificationResponse(ctx context.Context, row otp.SessionState, token string, expiresAt time.Time) (parentVerificationDTO, error) {
+	dto := verificationResponseFromState(row, token, expiresAt)
+	if !s.deps.OTPAsyncDelivery || s.deps.OTPDeliveryStore == nil {
+		return dto, nil
+	}
+	info, err := s.deps.OTP.DecodeToken(token)
+	if err != nil {
+		return parentVerificationDTO{}, err
+	}
+	delivery, ok, err := s.deps.OTPDeliveryStore.Latest(ctx, info.SessionID)
+	if err != nil || !ok {
+		return dto, err
+	}
+	return withDeliverySummary(dto, delivery), nil
+}
+
 func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
@@ -296,17 +325,37 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 				s.a.WriteErr(w, http.StatusTooManyRequests, "rate_limited", "Too many verification requests")
 				return 0, nil, fmt.Errorf("rate limited")
 			}
-			if allowed, retryAfter, err := s.deps.CircuitBreaker.Allow(r.Context()); err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
-			} else if !allowed {
-				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
-				s.a.WriteErr(w, http.StatusServiceUnavailable, "sms_circuit_open", "Verification service is temporarily unavailable")
-				return 0, nil, fmt.Errorf("circuit open")
+			if !s.deps.OTPAsyncDelivery {
+				if allowed, retryAfter, err := s.deps.CircuitBreaker.Allow(r.Context()); err != nil {
+					status, code, msg := s.a.ClassifyDBErr(err)
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, err
+				} else if !allowed {
+					w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+					s.a.WriteErr(w, http.StatusServiceUnavailable, "sms_circuit_open", "Verification service is temporarily unavailable")
+					return 0, nil, fmt.Errorf("circuit open")
+				}
 			}
 
-			code, token, err = s.deps.OTP.ResendSessionTx(r.Context(), tx, strings.TrimSpace(*body.Token))
+			if s.deps.OTPAsyncDelivery {
+				delivery, requeueErr := s.deps.OTPDelivery.RequeueUncertainTx(r.Context(), tx, info.SessionID, resendCooldown)
+				switch {
+				case requeueErr == nil:
+					resp := withDeliverySummary(verificationResponseFromState(session, strings.TrimSpace(*body.Token), info.ExpiresAt), delivery)
+					return http.StatusAccepted, resp, nil
+				case errors.Is(requeueErr, otpdelivery.ErrDeliveryCooldown):
+					w.Header().Set("Retry-After", strconv.Itoa(int(resendCooldown.Seconds())))
+					s.a.WriteErr(w, http.StatusTooManyRequests, "otp_cooldown", "Please wait before requesting another code")
+					return 0, nil, requeueErr
+				case !errors.Is(requeueErr, otpdelivery.ErrNoUncertainDelivery):
+					status, code, msg := s.a.ClassifyDBErr(requeueErr)
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, requeueErr
+				}
+				code, token, err = s.deps.OTP.ResendQueuedSessionTx(r.Context(), tx, strings.TrimSpace(*body.Token))
+			} else {
+				code, token, err = s.deps.OTP.ResendSessionTx(r.Context(), tx, strings.TrimSpace(*body.Token))
+			}
 			if err != nil {
 				switch {
 				case errors.Is(err, otp.ErrCooldown):
@@ -326,15 +375,35 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 				}
 				return 0, nil, err
 			}
-			_ = phone
 			studentName := session.Wcode
 			if student, err := s.deps.Q.StudentGetByWCode(r.Context(), session.Wcode); err == nil {
 				studentName = student.FullName
 			}
 			otpMessage := renderParentSMSTemplate(settings.Notifications.SmsParentTemplate, studentName, code)
+			info, _ = s.deps.OTP.DecodeToken(token)
+			session, err = s.deps.OTP.LoadSessionTx(r.Context(), tx, strings.TrimSpace(*body.Token))
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+			if s.deps.OTPAsyncDelivery {
+				delivery, err := s.deps.OTPDelivery.EnqueueTx(r.Context(), tx, otpdelivery.EnqueueRequest{
+					SessionID: info.SessionID,
+					Phone:     phone, Message: otpMessage,
+					ExpiresAt: session.OTPCodeExpiresAt.Time,
+				})
+				if err != nil {
+					status, code, msg := s.a.ClassifyDBErr(err)
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, err
+				}
+				return http.StatusAccepted, withDeliverySummary(verificationResponseFromState(session, token, info.ExpiresAt), delivery), nil
+			}
+
 			if err := s.deps.OTPSender.SendOTP(r.Context(), phone, code, otpMessage); err != nil {
 				if s.deps.Log != nil {
-					s.deps.Log.Error("otp sms resend failed", "phone", phone, "error", err)
+					s.deps.Log.Error("otp sms resend failed", "error", err)
 				}
 				if retryAfter, cbErr := s.deps.CircuitBreaker.ReportFailure(r.Context()); cbErr == nil && retryAfter > 0 {
 					w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -350,23 +419,17 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 				}
 			}()
 
-			info, _ = s.deps.OTP.DecodeToken(token)
-			session, err := s.deps.OTP.LoadSessionTx(r.Context(), tx, strings.TrimSpace(*body.Token))
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
-			}
 			resp := verificationResponseFromState(session, token, info.ExpiresAt)
 			return http.StatusOK, resp, nil
 		}
 
-		if strings.TrimSpace(body.Wcode) == "" {
+		body.Wcode = strings.ToLower(strings.TrimSpace(body.Wcode))
+		if body.Wcode == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode is required")
 			return 0, nil, fmt.Errorf("wcode required")
 		}
 
-		if retryAfter, err := s.allowPublicRateLimit(r.Context(), nowKey+strings.TrimSpace(body.Wcode), 20, time.Hour); err != nil {
+		if retryAfter, err := s.allowPublicRateLimit(r.Context(), nowKey+body.Wcode, 20, time.Hour); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -384,17 +447,19 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			s.a.WriteErr(w, http.StatusTooManyRequests, "rate_limited", "Too many verification requests")
 			return 0, nil, fmt.Errorf("rate limited")
 		}
-		if allowed, retryAfter, err := s.deps.CircuitBreaker.Allow(r.Context()); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		} else if !allowed {
-			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
-			s.a.WriteErr(w, http.StatusServiceUnavailable, "sms_circuit_open", "Verification service is temporarily unavailable")
-			return 0, nil, fmt.Errorf("circuit open")
+		if !s.deps.OTPAsyncDelivery {
+			if allowed, retryAfter, err := s.deps.CircuitBreaker.Allow(r.Context()); err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			} else if !allowed {
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+				s.a.WriteErr(w, http.StatusServiceUnavailable, "sms_circuit_open", "Verification service is temporarily unavailable")
+				return 0, nil, fmt.Errorf("circuit open")
+			}
 		}
 
-		rows, err := s.deps.Q.StudentSubjectByWCode(r.Context(), strings.TrimSpace(body.Wcode))
+		rows, err := s.deps.Q.StudentSubjectByWCode(r.Context(), body.Wcode)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
@@ -409,7 +474,11 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			return 0, nil, fmt.Errorf("parent phone missing")
 		}
 
-		code, token, err = s.deps.OTP.StartSessionTx(r.Context(), tx, strings.TrimSpace(body.Wcode), rows[0].ParentPhone.String)
+		if s.deps.OTPAsyncDelivery {
+			code, token, err = s.deps.OTP.StartQueuedSessionTx(r.Context(), tx, body.Wcode, rows[0].ParentPhone.String)
+		} else {
+			code, token, err = s.deps.OTP.StartSessionTx(r.Context(), tx, body.Wcode, rows[0].ParentPhone.String)
+		}
 		if err != nil {
 			switch {
 			case errors.Is(err, otp.ErrLocked):
@@ -425,9 +494,30 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			return 0, nil, err
 		}
 		otpMessage := renderParentSMSTemplate(settings.Notifications.SmsParentTemplate, rows[0].FullName, code)
+		info, _ = s.deps.OTP.DecodeToken(token)
+		session, err := s.deps.OTP.LoadSessionTx(r.Context(), tx, token)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if s.deps.OTPAsyncDelivery {
+			delivery, err := s.deps.OTPDelivery.EnqueueTx(r.Context(), tx, otpdelivery.EnqueueRequest{
+				SessionID: info.SessionID,
+				Phone:     rows[0].ParentPhone.String, Message: otpMessage,
+				ExpiresAt: session.OTPCodeExpiresAt.Time,
+			})
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+			return http.StatusAccepted, withDeliverySummary(verificationResponseFromState(session, token, info.ExpiresAt), delivery), nil
+		}
+
 		if err := s.deps.OTPSender.SendOTP(r.Context(), rows[0].ParentPhone.String, code, otpMessage); err != nil {
 			if s.deps.Log != nil {
-				s.deps.Log.Error("otp sms send failed", "phone", rows[0].ParentPhone.String, "error", err)
+				s.deps.Log.Error("otp sms send failed", "error", err)
 			}
 			if retryAfter, cbErr := s.deps.CircuitBreaker.ReportFailure(r.Context()); cbErr == nil && retryAfter > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -443,13 +533,6 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			}
 		}()
 
-		info, _ = s.deps.OTP.DecodeToken(token)
-		session, err := s.deps.OTP.LoadSessionTx(r.Context(), tx, token)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
 		resp := verificationResponseFromState(session, token, info.ExpiresAt)
 		return http.StatusOK, resp, nil
 	}) {
@@ -551,7 +634,12 @@ func (s *server) handleParentVerificationGet(w http.ResponseWriter, r *http.Requ
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	resp := verificationResponseFromState(session, token, info.ExpiresAt)
+	resp, err := s.verificationResponse(r.Context(), session, token, info.ExpiresAt)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
 	s.a.WriteJSON(w, http.StatusOK, resp)
 }
 

@@ -848,7 +848,7 @@ func TestStudentSync_FromSnapshot(t *testing.T) {
 
 	// Verify full names.
 	var fullName string
-	err = dbpool.QueryRow(ctx, `SELECT full_name FROM students WHERE wcode = 'W250010'`).Scan(&fullName)
+	err = dbpool.QueryRow(ctx, `SELECT full_name FROM students WHERE wcode = 'w250010'`).Scan(&fullName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestStudentSync_DeterministicTieBreak(t *testing.T) {
 
 	// With same order_quote_updated_at, the secondary sort (xlsx_row_number ASC) should pick the first row.
 	var fullName string
-	err = dbpool.QueryRow(ctx, `SELECT full_name FROM students WHERE wcode = 'W250020'`).Scan(&fullName)
+	err = dbpool.QueryRow(ctx, `SELECT full_name FROM students WHERE wcode = 'w250020'`).Scan(&fullName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -904,7 +904,7 @@ func TestStudentSync_PreservesNotes(t *testing.T) {
 	defer cancel()
 
 	// Pre-create a student with notes.
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ('W250030', 'Existing Name', 'important note')`)
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ('w250030', 'Existing Name', 'important note')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,7 +923,7 @@ func TestStudentSync_PreservesNotes(t *testing.T) {
 
 	// Verify full name was updated but notes were preserved.
 	var fullName, notes string
-	err = dbpool.QueryRow(ctx, `SELECT full_name, notes FROM students WHERE wcode = 'W250030'`).Scan(&fullName, &notes)
+	err = dbpool.QueryRow(ctx, `SELECT full_name, notes FROM students WHERE wcode = 'w250030'`).Scan(&fullName, &notes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -958,7 +958,7 @@ func TestStudentSync_SyncsStudentPhoneFromCRMMobile(t *testing.T) {
 	}
 
 	var studentPhone, parentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250040'`).Scan(&studentPhone, &parentPhone)
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'w250040'`).Scan(&studentPhone, &parentPhone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -980,7 +980,7 @@ func TestStudentSync_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone) VALUES ('W250041', 'Existing Name', '', '081-111-1111')`)
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone) VALUES ('w250041', 'Existing Name', '', '081-111-1111')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -998,7 +998,7 @@ func TestStudentSync_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
 	}
 
 	var studentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT student_phone FROM students WHERE wcode = 'W250041'`).Scan(&studentPhone)
+	err = dbpool.QueryRow(ctx, `SELECT student_phone FROM students WHERE wcode = 'w250041'`).Scan(&studentPhone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1043,7 +1043,7 @@ func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
 	}
 
 	var email, nickname, studentPhone, parentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT email, nickname, student_phone, parent_phone FROM students WHERE wcode = 'W250042'`).Scan(&email, &nickname, &studentPhone, &parentPhone)
+	err = dbpool.QueryRow(ctx, `SELECT email, nickname, student_phone, parent_phone FROM students WHERE wcode = 'w250042'`).Scan(&email, &nickname, &studentPhone, &parentPhone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1290,12 +1290,12 @@ func TestReconcileApply_RemovesExtraStudents(t *testing.T) {
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-REMOVE-"+suffix, "V2 Remove Test", filter)
 
 	// Pre-enroll an extra student who doesn't match the filter.
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ('W259999', 'Extra Student', '')`)
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ('w259999', 'Extra Student', '')`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var extraStudentID pgtype.UUID
-	err = dbpool.QueryRow(ctx, `SELECT id FROM students WHERE wcode = 'W259999'`).Scan(&extraStudentID)
+	err = dbpool.QueryRow(ctx, `SELECT id FROM students WHERE wcode = 'w259999'`).Scan(&extraStudentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1433,7 +1433,7 @@ func TestReconcileApply_WithOverridesIncludeExclude(t *testing.T) {
 
 	// Exclude one student via override (manually insert override + write-through to course_students).
 	var excludeStudentID pgtype.UUID
-	err = dbpool.QueryRow(ctx, `SELECT id FROM students WHERE wcode = 'W250071'`).Scan(&excludeStudentID)
+	err = dbpool.QueryRow(ctx, `SELECT id FROM students WHERE wcode = 'w250071'`).Scan(&excludeStudentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1968,7 +1968,7 @@ func TestCRMPipelineEndToEnd(t *testing.T) {
 		SELECT EXISTS(
 			SELECT 1 FROM course_students cs
 			JOIN students s ON s.id = cs.student_id
-			WHERE cs.course_id = $1 AND s.wcode = 'W250202'
+			WHERE cs.course_id = $1 AND s.wcode = 'w250202'
 		)
 	`, courseA).Scan(&exists)
 	if err != nil {
@@ -2029,7 +2029,7 @@ func TestReconcileApply_SyncsStudentAndParentPhones(t *testing.T) {
 	}
 
 	var studentPhone, parentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250070'`).Scan(&studentPhone, &parentPhone)
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'w250070'`).Scan(&studentPhone, &parentPhone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2054,7 +2054,7 @@ func TestReconcileApply_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 
 	// Pre-create student with phones already set.
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone) VALUES ('W250071', 'Existing Phone', '', '081-111-1111', '089-222-2222')`)
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone) VALUES ('w250071', 'Existing Phone', '', '081-111-1111', '089-222-2222')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2091,7 +2091,7 @@ func TestReconcileApply_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) 
 	}
 
 	var studentPhone, parentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'W250071'`).Scan(&studentPhone, &parentPhone)
+	err = dbpool.QueryRow(ctx, `SELECT student_phone, parent_phone FROM students WHERE wcode = 'w250071'`).Scan(&studentPhone, &parentPhone)
 	if err != nil {
 		t.Fatal(err)
 	}

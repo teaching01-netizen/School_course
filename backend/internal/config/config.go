@@ -29,13 +29,15 @@ type Config struct {
 	SMSServiceUsername string
 	SMSServicePassword string
 
-	OTPHMACKey           string
-	OTPSMSProvider       string
-	AppOrigin            string
-	EmailWebhookURL      string
-	EmailWebhookSecret   string
-	EmailReminderEnabled bool
-	EmailReminderTime    string
+	OTPHMACKey                string
+	OTPSMSProvider            string
+	OTPAsyncDeliveryEnabled   bool
+	OTPDeliveryEncryptionKeys string
+	AppOrigin                 string
+	EmailWebhookURL           string
+	EmailWebhookSecret        string
+	EmailReminderEnabled      bool
+	EmailReminderTime         string
 }
 
 func FromEnv() (Config, error) {
@@ -61,6 +63,8 @@ func FromEnv() (Config, error) {
 	cfg.SMSServicePassword = os.Getenv("SMS_SERVICE_PASSWORD")
 	cfg.OTPHMACKey = os.Getenv("OTP_HMAC_KEY")
 	cfg.OTPSMSProvider = strings.ToLower(strings.TrimSpace(os.Getenv("OTP_SMS_PROVIDER")))
+	cfg.OTPAsyncDeliveryEnabled = envBoolOr("OTP_ASYNC_DELIVERY_ENABLED", false)
+	cfg.OTPDeliveryEncryptionKeys = strings.TrimSpace(os.Getenv("OTP_DELIVERY_ENCRYPTION_KEYS"))
 	cfg.AppOrigin = strings.TrimSpace(os.Getenv("APP_ORIGIN"))
 	cfg.EmailWebhookURL = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_URL"))
 	cfg.EmailWebhookSecret = strings.TrimSpace(os.Getenv("INSTITUTE_EMAIL_WEBHOOK_SECRET"))
@@ -83,6 +87,9 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.OTPHMACKey == "" {
 		return Config{}, errors.New("OTP_HMAC_KEY is required")
+	}
+	if cfg.OTPAsyncDeliveryEnabled && cfg.OTPDeliveryEncryptionKeys == "" {
+		return Config{}, errors.New("OTP_DELIVERY_ENCRYPTION_KEYS is required when OTP_ASYNC_DELIVERY_ENABLED=true")
 	}
 
 	return cfg, nil

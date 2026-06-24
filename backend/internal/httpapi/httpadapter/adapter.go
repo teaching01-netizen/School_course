@@ -327,6 +327,92 @@ func (a Adapter) writeRawJSON(w http.ResponseWriter, status int, body []byte) {
 	_, _ = w.Write(body)
 }
 
+// WithSerializableIdempotentTx is identical to WithIdempotentTx but opens the
+// transaction at SERIALIZABLE isolation. Use for scheduling writes where a
+// Read Committed preflight-then-insert leaves a TOCTOU window that the GiST
+// exclusion constraint catches only at INSERT/COMMIT time with an opaque error.
+// SERIALIZABLE promotes that to a clean serialization failure (40001) that the
+// handler can classify as a schedule_conflict.
+func (a Adapter) WithSerializableIdempotentTx(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	scope string,
+	pool *pgxpool.Pool,
+	q *sqldb.Queries,
+	fn func(tx pgx.Tx) (int, any, error),
+) bool {
+	key, ok := a.RequireIdempotencyKey(w, r)
+	if !ok {
+		return false
+	}
+
+	bodyBytes, err := a.ReadBodyBytes(r)
+	if err != nil {
+		a.WriteErr(w, http.StatusBadRequest, "bad_request", "cannot read request body")
+		return false
+	}
+
+	fingerprint := idempotency.NewRequestFingerprint(r.Method, r.URL, bodyBytes)
+	expiry := idempotency.DefaultUIExpiry()
+
+	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		a.log.Error("serializable idempotent tx: begin failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+	defer tx.Rollback(context.Background())
+
+	qtx := q.WithTx(tx)
+
+	isNew, cached, err := idempotency.Acquire(r.Context(), qtx, userID, scope, key, fingerprint, expiry)
+	if err != nil {
+		if a.HandleIdempotencyErr(w, err) {
+			return false
+		}
+		a.log.Error("serializable idempotent tx: acquire failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+
+	if !isNew && cached != nil && cached.StatusCode == nil {
+		if _, delErr := qtx.IdempotencyDeleteStale(r.Context(), pgtype.UUID{Bytes: userID, Valid: true}, scope, key); delErr != nil {
+			a.log.Error("serializable idempotent tx: delete stale record failed", "error", delErr)
+		}
+		a.WriteErr(w, http.StatusConflict, "stale_idempotency_record",
+			fmt.Sprintf("stale idempotency record for key %q; retry with a new idempotency key", key))
+		return true
+	}
+
+	if !isNew && cached != nil && cached.StatusCode != nil && len(cached.ResponseBody) > 0 {
+		tx.Rollback(context.Background())
+		a.writeRawJSON(w, int(*cached.StatusCode), cached.ResponseBody)
+		return true
+	}
+
+	statusCode, resp, fnErr := fn(tx)
+	if fnErr != nil {
+		return false
+	}
+
+	qtx2 := q.WithTx(tx)
+	if err := idempotency.Complete(r.Context(), qtx2, userID, scope, key, statusCode, resp, expiry); err != nil {
+		a.log.Error("serializable idempotent tx: complete failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		a.log.Error("serializable idempotent tx: commit failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+
+	a.WriteJSON(w, statusCode, resp)
+	return true
+}
+
 func (a Adapter) ClassifyDBErr(err error) (status int, code string, message string) {
 	// Context cancellation/timeout — distinct from internal errors.
 	// These occur when the per-request context deadline is exceeded

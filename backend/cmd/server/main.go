@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"warwick-institute/internal/config"
 	"warwick-institute/internal/crmimport"
 	"warwick-institute/internal/crmimport/crossstudy"
@@ -23,10 +25,12 @@ import (
 	"warwick-institute/internal/emailreminder"
 	"warwick-institute/internal/httpapi"
 	"warwick-institute/internal/logging"
+	"warwick-institute/internal/otpdelivery"
 	"warwick-institute/internal/pg"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
+	"warwick-institute/internal/smartsms"
 )
 
 func main() {
@@ -124,6 +128,11 @@ func main() {
 
 	q := sqldb.New(dbpool)
 	emailDeps := httpapi.NewEmailDeps(log, cfg, dbpool, q)
+	otpDeliveryDeps, otpDeliveryCancel, err := newOTPDeliveryRuntime(log, cfg, dbpool)
+	if err != nil {
+		log.Error("init OTP delivery runtime", "error", err)
+		os.Exit(1)
+	}
 	realtimeCtx, realtimeCancel := context.WithCancel(context.Background())
 	postgresFanout := realtime.NewPostgresFanout(realtimeDBPool, log)
 	realtimeHub := realtime.NewHubWithFanout(
@@ -142,7 +151,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps, realtimeHub),
+		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps, otpDeliveryDeps, realtimeHub),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -185,6 +194,7 @@ func main() {
 	}
 
 	scheduler.Stop()
+	otpDeliveryCancel()
 	realtimeHub.Close()
 	realtimeCancel()
 
@@ -194,6 +204,55 @@ func main() {
 
 	workerCancel()
 	worker.Stop()
+}
+
+func newOTPDeliveryRuntime(log *slog.Logger, cfg config.Config, db *pgxpool.Pool) (*httpapi.OTPDeliveryDeps, context.CancelFunc, error) {
+	noopCancel := func() {}
+	if !cfg.OTPAsyncDeliveryEnabled {
+		return nil, noopCancel, nil
+	}
+	keyring, err := otpdelivery.ParseKeyring(cfg.OTPDeliveryEncryptionKeys)
+	if err != nil {
+		return nil, noopCancel, err
+	}
+
+	var sms smartsms.SMSProvider
+	var sender smartsms.OTPProvider
+	var provider otpdelivery.Provider
+	if cfg.OTPSMSProvider == "smartsms" && cfg.SMSServiceUsername != "" && cfg.SMSServicePassword != "" {
+		client, err := smartsms.New(smartsms.Config{
+			BaseURL:  cfg.SMSServiceBaseURL,
+			Username: cfg.SMSServiceUsername,
+			Password: cfg.SMSServicePassword,
+		})
+		if err != nil {
+			return nil, noopCancel, err
+		}
+		adapter := &smartsms.OTPAdapter{Client: client}
+		sms, sender, provider = client, adapter, adapter
+	} else {
+		mock := &smartsms.MockProvider{}
+		sms, sender, provider = mock, mock, mock
+	}
+
+	store := otpdelivery.NewStore(db)
+	dispatcher := otpdelivery.NewDispatcher(store, keyring)
+	workerID, _ := os.Hostname()
+	if workerID == "" {
+		workerID = "server"
+	}
+	worker := otpdelivery.NewWorker(store, provider, keyring, otpdelivery.WorkerConfig{
+		WorkerID: "otp-" + workerID,
+		Log:      log,
+	})
+	circuitBreaker := smartsms.NewCircuitBreaker(db, cfg.OTPSMSProvider)
+	worker.SetCircuitReporter(circuitBreaker)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	go worker.Run(workerCtx)
+	log.Info("OTP delivery worker started", "worker_id", "otp-"+workerID)
+	return &httpapi.OTPDeliveryDeps{
+		SMS: sms, Sender: sender, Dispatcher: dispatcher, Store: store, CircuitBreaker: circuitBreaker,
+	}, cancel, nil
 }
 
 func crossStudyJobHandler(proc *crossstudy.Processor) queue.JobHandler {

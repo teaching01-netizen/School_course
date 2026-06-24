@@ -184,7 +184,7 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 		r := Row{
 			CycleLabel: cycleLabel,
 			CourseName: courseName,
-			WCode:      wcode,
+			WCode:      strings.ToLower(strings.TrimSpace(wcode)),
 
 			FirstName:           get("First Name"),
 			LastName:            get("Last Name"),

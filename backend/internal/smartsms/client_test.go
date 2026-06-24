@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"warwick-institute/internal/otpdelivery"
 )
 
 // testCfg returns a Config suitable for httptest (localhost bypass).
@@ -750,6 +752,108 @@ func TestSendOTP_Step2HTTP419_ReLogin(t *testing.T) {
 	}
 	if confirmCount != 2 {
 		t.Fatalf("expected 2 confirmSend calls (retry after 419), got %d", confirmCount)
+	}
+}
+
+func TestOTPAdapterSubmitOTP_ContextCanceledDuringConfirmIsUncertain(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Write([]byte(`<form><input name="_token" value="tok"></form>`))
+		case "/login":
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": true, "preview_id": "preview-uncertain",
+				"number_of_used_credit": 1, "correct": 1,
+			})
+		case "/dataset/confirmSend":
+			cancel()
+			time.Sleep(50 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	adapter := &OTPAdapter{Client: client}
+	result := adapter.SubmitOTP(ctx, otpdelivery.Submission{
+		DeliveryID: "delivery-1",
+		CampaignID: "otp-delivery-1",
+		Phone:      "+66812345678",
+		Message:    "OTP 123456",
+	})
+
+	if result.Outcome != otpdelivery.OutcomeUncertain {
+		t.Fatalf("Outcome = %q, want uncertain (error_code=%q)", result.Outcome, result.ErrorCode)
+	}
+}
+
+func TestOTPAdapterSubmitOTP_ClassifiesFailureBySubmissionStage(t *testing.T) {
+	tests := []struct {
+		name          string
+		previewStatus int
+		confirmStatus int
+		want          otpdelivery.Outcome
+	}{
+		{name: "preview 500 is safe to retry", previewStatus: 500, want: otpdelivery.OutcomeRetryable},
+		{name: "confirm 500 is uncertain", confirmStatus: 500, want: otpdelivery.OutcomeUncertain},
+		{name: "confirm 400 is rejected", confirmStatus: 400, want: otpdelivery.OutcomeFailed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/sendsms":
+					w.Write([]byte(`<form><input name="_token" value="tok"></form>`))
+				case "/login":
+					http.Redirect(w, r, "/sendsms", http.StatusFound)
+				case "/dataset/previewData":
+					if tc.previewStatus != 0 {
+						http.Error(w, "preview failure", tc.previewStatus)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]any{
+						"success": true, "preview_id": "preview-stage",
+						"number_of_used_credit": 1, "correct": 1,
+					})
+				case "/dataset/confirmSend":
+					if tc.confirmStatus != 0 {
+						http.Error(w, "confirm failure", tc.confirmStatus)
+						return
+					}
+					json.NewEncoder(w).Encode(map[string]bool{"success": true})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			client, err := New(testCfg(srv.URL))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			result := (&OTPAdapter{Client: client}).SubmitOTP(context.Background(), otpdelivery.Submission{
+				DeliveryID: "delivery-stage",
+				CampaignID: "otp-delivery-stage",
+				Phone:      "+66812345678",
+				Message:    "OTP 123456",
+			})
+			if result.Outcome != tc.want {
+				t.Fatalf("Outcome = %q, want %q (error_code=%q)", result.Outcome, tc.want, result.ErrorCode)
+			}
+		})
 	}
 }
 

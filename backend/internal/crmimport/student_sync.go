@@ -10,6 +10,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// NormalizeWCode trims whitespace and lowercases a wcode for consistent
+// storage and comparison. Call this before any insert or lookup that uses
+// wcode as an identity key.
+func NormalizeWCode(wcode string) string {
+	return strings.ToLower(strings.TrimSpace(wcode))
+}
+
 // studentRow represents a student identity extracted from a snapshot.
 type studentRow struct {
 	WCode        string
@@ -63,7 +70,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.PrimaryEmail, &sr.StudentPhone, &sr.ParentPhone); err != nil {
 			return 0, fmt.Errorf("scan student: %w", err)
 		}
-		sr.WCode = strings.TrimSpace(sr.WCode)
+		sr.WCode = NormalizeWCode(sr.WCode)
 		sr.FullName = strings.TrimSpace(sr.FullName)
 		if sr.FullName == "" {
 			sr.FullName = sr.WCode

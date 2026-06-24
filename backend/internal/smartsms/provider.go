@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"warwick-institute/internal/otpdelivery"
 )
 
 // SMSProvider is the interface for sending SMS messages.
@@ -46,6 +48,11 @@ func (m *MockProvider) SendSMS(_ context.Context, req SendRequest) (*SendRespons
 		CreditsUsed:  len(req.Mobiles),
 		CorrectCount: len(req.Mobiles),
 	}, nil
+}
+
+func (m *MockProvider) SubmitOTP(_ context.Context, req otpdelivery.Submission) otpdelivery.SubmitResult {
+	slog.Info("SMS mock OTP delivery", "delivery_id", req.DeliveryID, "campaign_id", req.CampaignID)
+	return otpdelivery.SubmitResult{Outcome: otpdelivery.OutcomeAccepted}
 }
 
 func (m *MockProvider) HealthCheck(_ context.Context) error {

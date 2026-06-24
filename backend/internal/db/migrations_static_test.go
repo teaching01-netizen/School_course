@@ -129,6 +129,22 @@ func TestSatVerbalPolicyMappingsLegacyPolicyColumnDoesNotBlockInserts(t *testing
 	}
 }
 
+func TestDurableOTPDeliveryMigrationDefinesLeaseAndUncertainState(t *testing.T) {
+	sql := readMigration(t, "00065_durable_otp_sms_delivery.sql")
+	for _, required := range []string{
+		"sms_otp_deliveries",
+		"'submitting'",
+		"'uncertain'",
+		"encrypted_payload bytea",
+		"locked_until timestamptz",
+		"sms_otp_deliveries_one_active_per_session_idx",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("00065 must contain %q", required)
+		}
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

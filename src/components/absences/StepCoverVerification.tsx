@@ -54,6 +54,12 @@ export default function StepCoverVerification({
   const autoVerifyCodeRef = useRef<string | null>(null);
 
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
+  const deliveryStatus = session?.delivery_status;
+  const deliveryPending = deliveryStatus === "queued"
+    || deliveryStatus === "preparing"
+    || deliveryStatus === "submitting"
+    || deliveryStatus === "retryable";
+  const deliveryAccepted = deliveryStatus === "accepted" || (!deliveryStatus && lastSentAt !== null);
 
   useEffect(() => {
     if (!verification.token || !wcode) {
@@ -89,6 +95,28 @@ export default function StepCoverVerification({
   }, [verification.token, wcode, validationAttempt, onRestart, onRestored]);
 
   useEffect(() => {
+    const token = session?.token ?? verification.token;
+    if (!token || !deliveryPending) return;
+    const controller = new AbortController();
+    const poll = window.setInterval(() => {
+      void apiJson<ParentVerificationResponse>(
+        `/api/v1/absences/parent-verification/${encodeURIComponent(token)}`,
+        { method: "GET", signal: controller.signal },
+      ).then((response) => {
+        if (controller.signal.aborted) return;
+        setSession(response);
+        if (response.delivery_status === "accepted") setLastSentAt(Date.now());
+      }).catch(() => {
+        // A later poll can recover from a transient status-read failure.
+      });
+    }, 1000);
+    return () => {
+      controller.abort();
+      window.clearInterval(poll);
+    };
+  }, [session?.token, verification.token, deliveryPending]);
+
+  useEffect(() => {
     if (verified || isSending || isVerifying || !verification.token) return;
     const normalized = verification.code.replace(/\D/g, "").slice(0, 6);
     if (normalized.length !== 6) { autoVerifyCodeRef.current = null; return; }
@@ -114,7 +142,11 @@ export default function StepCoverVerification({
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
       verification.setCode("");
-      setLastSentAt(Date.now());
+      if (!response.delivery_status || response.delivery_status === "accepted") {
+        setLastSentAt(Date.now());
+      } else {
+        setLastSentAt(null);
+      }
       setSendCount((c) => c + 1);
     } catch (err) {
       setSendCount((c) => c + 1);
@@ -207,14 +239,36 @@ export default function StepCoverVerification({
       ) : null}
 
       <SmsSendButton
-        isSending={isSending}
+        isSending={isSending || deliveryPending}
         sendCount={sendCount}
         disabled={!canSend}
         onClick={() => void handleSend()}
         parentPhoneMissing={parentMissing}
       />
 
-      {lastSentAt && !isSending && (
+      {deliveryPending ? (
+        <p className="text-xs font-medium text-blue-600">Sending code…</p>
+      ) : null}
+
+      {deliveryStatus === "uncertain" ? (
+        <p role="status" className="text-xs font-medium text-amber-700">
+          The SMS may have been sent. Enter the code if it arrives, or resend after the cooldown.
+        </p>
+      ) : null}
+
+      {deliveryStatus === "failed" ? (
+        <p role="alert" className="text-xs font-medium text-red-600">
+          We couldn't send the code. Please try again.
+        </p>
+      ) : null}
+
+      {deliveryStatus === "expired" ? (
+        <p role="alert" className="text-xs font-medium text-red-600">
+          The verification code expired. Request a new code.
+        </p>
+      ) : null}
+
+      {deliveryAccepted && lastSentAt && !isSending && (
         <motion.p
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -227,7 +281,7 @@ export default function StepCoverVerification({
         </motion.p>
       )}
 
-      {verification.token ? (
+      {(session?.token || verification.token) ? (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}

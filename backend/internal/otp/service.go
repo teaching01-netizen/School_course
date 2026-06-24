@@ -137,10 +137,19 @@ func (s *Service) StartSessionTx(ctx context.Context, tx txExecutor, wcode strin
 	if s == nil {
 		return "", "", fmt.Errorf("otp service not configured")
 	}
-	return s.startSessionTx(ctx, tx, wcode, phone)
+	return s.startSessionTx(ctx, tx, wcode, phone, true)
 }
 
-func (s *Service) startSessionTx(ctx context.Context, tx txExecutor, wcode string, phone string) (code string, token string, err error) {
+// StartQueuedSessionTx creates an OTP that has not yet been accepted by the
+// delivery provider. MarkAccepted updates otp_last_sent_at after delivery.
+func (s *Service) StartQueuedSessionTx(ctx context.Context, tx txExecutor, wcode string, phone string) (code string, token string, err error) {
+	if s == nil {
+		return "", "", fmt.Errorf("otp service not configured")
+	}
+	return s.startSessionTx(ctx, tx, wcode, phone, false)
+}
+
+func (s *Service) startSessionTx(ctx context.Context, tx txExecutor, wcode string, phone string, markSent bool) (code string, token string, err error) {
 	normalizedPhone, err := NormalizePhoneE164(phone)
 	if err != nil {
 		return "", "", ErrInvalidPhone
@@ -161,6 +170,10 @@ func (s *Service) startSessionTx(ctx context.Context, tx txExecutor, wcode strin
 	}
 
 	sessionID := uuid.New()
+	var sentAt *time.Time
+	if markSent {
+		sentAt = &now
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO student_parent_verification_sessions (
 			id, wcode, parent_phone, status, otp_code_hash, otp_attempt_count,
@@ -168,7 +181,7 @@ func (s *Service) startSessionTx(ctx context.Context, tx txExecutor, wcode strin
 			consumed_at, consumed_absence_id, version, created_at, updated_at
 		)
 		VALUES ($1, $2, $3, 'pending', $4, 0, NULL, $5, $6, NULL, NULL, NULL, 1, now(), now())
-	`, sessionID, wcode, normalizedPhone, string(hash), now, now.Add(codeTTL)); err != nil {
+	`, sessionID, wcode, normalizedPhone, string(hash), sentAt, now.Add(codeTTL)); err != nil {
 		return "", "", err
 	}
 	if err := s.ensureLockoutRow(ctx, tx, wcode); err != nil {
@@ -212,10 +225,17 @@ func (s *Service) ResendSessionTx(ctx context.Context, tx txExecutor, token stri
 	if s == nil {
 		return "", "", fmt.Errorf("otp service not configured")
 	}
-	return s.resendSessionTx(ctx, tx, token)
+	return s.resendSessionTx(ctx, tx, token, true)
 }
 
-func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token string) (code string, nextToken string, err error) {
+func (s *Service) ResendQueuedSessionTx(ctx context.Context, tx txExecutor, token string) (code string, nextToken string, err error) {
+	if s == nil {
+		return "", "", fmt.Errorf("otp service not configured")
+	}
+	return s.resendSessionTx(ctx, tx, token, false)
+}
+
+func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token string, markSent bool) (code string, nextToken string, err error) {
 	info, err := s.DecodeToken(token)
 	if err != nil {
 		return "", "", err
@@ -253,6 +273,10 @@ func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token stri
 	if err != nil {
 		return "", "", err
 	}
+	var sentAt *time.Time
+	if markSent {
+		sentAt = &now
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE student_parent_verification_sessions
 		SET otp_code_hash = $2,
@@ -261,7 +285,7 @@ func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token stri
 		    updated_at = now(),
 		    version = version + 1
 		WHERE id = $1
-	`, info.SessionID, string(hash), now, now.Add(codeTTL)); err != nil {
+	`, info.SessionID, string(hash), sentAt, now.Add(codeTTL)); err != nil {
 		return "", "", err
 	}
 

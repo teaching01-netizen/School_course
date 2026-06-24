@@ -119,7 +119,7 @@ func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
 		t.Fatalf("expected course_name='CrossStudy Test Course A', got %q", resp.CRMRow.CourseName)
 	}
 	if resp.Student.WCode != "W260001" {
-		t.Fatalf("expected wcode='W260001', got %q", resp.Student.WCode)
+		t.Fatalf("expected wcode='w260001', got %q", resp.Student.WCode)
 	}
 	// No assignment should exist yet
 	if resp.CurrentAssignment != nil {
@@ -192,7 +192,7 @@ func TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides(t *testing.T) {
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260002')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260002')
 	`).Scan(&overrideCount)
 	if err != nil {
 		t.Fatalf("count overrides: %v", err)
@@ -249,7 +249,7 @@ func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *tes
 		if err := dbpool.QueryRow(ctx, `
 			SELECT COUNT(*) FROM course_students
 			WHERE course_id = $1
-			  AND student_id = (SELECT id FROM students WHERE wcode = 'W260202')
+			  AND student_id = (SELECT id FROM students WHERE wcode = 'w260202')
 		`, courseID).Scan(&enrolled); err != nil {
 			t.Fatalf("count %s enrollment: %v", label, err)
 		}
@@ -263,7 +263,7 @@ func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *tes
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
 		  AND action = 'include'
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260202')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260202')
 		  AND course_id IN ($1, $2)
 	`, destAID, destBID).Scan(&includeOverrides); err != nil {
 		t.Fatalf("count include overrides: %v", err)
@@ -351,7 +351,7 @@ func TestCrossStudy_DeleteAssignment_SoftDeletesAndCleansOverrides(t *testing.T)
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260003')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260003')
 	`).Scan(&overrideCount)
 	if err != nil {
 		t.Fatalf("count overrides: %v", err)
@@ -581,7 +581,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	var csCount int
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, destAID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check initial course_students destA: %v", err)
@@ -607,7 +607,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	// Assert 1: student is in assigned course's course_students
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, destAID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students destA after save: %v", err)
@@ -619,7 +619,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	// Assert 2: student is NOT in source course's course_students (excluded because different)
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, sourceID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students source after save: %v", err)
@@ -631,7 +631,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	// Assert 3: student is also in Course B because cross-study assigns both destination courses.
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, destBID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students destB after save: %v", err)
@@ -646,7 +646,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 		SELECT COUNT(*) FROM student_busy_ranges br
 		JOIN sessions s ON s.id = br.session_id
 		WHERE s.course_id = $1
-		AND br.student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND br.student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 		AND br.deleted_at IS NULL
 	`, destAID).Scan(&brCount)
 	if err != nil {
@@ -677,7 +677,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	// Assert 5: student is removed from assigned course's course_students
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, destAID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students destA after delete: %v", err)
@@ -690,7 +690,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	// did not remove an existing source enrollment during save.
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 	`, sourceID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students source after delete: %v", err)
@@ -704,7 +704,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 		SELECT COUNT(*) FROM student_busy_ranges br
 		JOIN sessions s ON s.id = br.session_id
 		WHERE s.course_id = $1
-		AND br.student_id = (SELECT id FROM students WHERE wcode = 'W260099')
+		AND br.student_id = (SELECT id FROM students WHERE wcode = 'w260099')
 		AND br.deleted_at IS NULL
 	`, destAID).Scan(&brCount)
 	if err != nil {
@@ -780,7 +780,7 @@ func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAt
 	var courseEnrollmentCount int
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
-		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'w260203')
 		  AND course_id IN ($1, $2)
 	`, destAID, destBID).Scan(&courseEnrollmentCount); err != nil {
 		t.Fatalf("count destination course_students: %v", err)
@@ -796,7 +796,7 @@ func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAt
 	rows, err := dbpool.Query(ctx, `
 		SELECT session_id
 		FROM session_attendance
-		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'w260203')
 		  AND status = 'included'
 		  AND override_source = 'cross_study'
 	`)
@@ -826,7 +826,7 @@ func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAt
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM student_busy_ranges
-		WHERE student_id = (SELECT id FROM students WHERE wcode = 'W260203')
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'w260203')
 		  AND deleted_at IS NULL
 	`).Scan(&activeBusyRanges); err != nil {
 		t.Fatalf("count active busy ranges: %v", err)
@@ -857,7 +857,7 @@ func TestCrossStudy_RosterEffect_AssignedIsSource(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260100", "Same Course Student")
 	_, err := dbpool.Exec(ctx, `
 		INSERT INTO course_students (course_id, student_id)
-		VALUES ($1, (SELECT id FROM students WHERE wcode = 'W260100'))
+		VALUES ($1, (SELECT id FROM students WHERE wcode = 'w260100'))
 	`, sourceID)
 	if err != nil {
 		t.Fatalf("seed course_students: %v", err)
@@ -893,7 +893,7 @@ func TestCrossStudy_RosterEffect_AssignedIsSource(t *testing.T) {
 	var csCount int
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260100')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260100')
 	`, sourceID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students: %v", err)
@@ -923,7 +923,7 @@ func TestCrossStudy_RosterEffect_AssignedIsSource(t *testing.T) {
 	// Assert: student still in source course_students after delete (was never removed)
 	err = dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students WHERE course_id = $1
-		AND student_id = (SELECT id FROM students WHERE wcode = 'W260100')
+		AND student_id = (SELECT id FROM students WHERE wcode = 'w260100')
 	`, sourceID).Scan(&csCount)
 	if err != nil {
 		t.Fatalf("check course_students after delete: %v", err)
@@ -955,7 +955,7 @@ func TestCrossStudy_DeleteAssignment_PreservesPreExistingAssignedEnrollment(t *t
 
 	_, err := dbpool.Exec(ctx, `
 		INSERT INTO course_students (course_id, student_id)
-		VALUES ($1, (SELECT id FROM students WHERE wcode = 'W260110'))
+		VALUES ($1, (SELECT id FROM students WHERE wcode = 'w260110'))
 	`, destAID)
 	if err != nil {
 		t.Fatalf("seed pre-existing assigned enrollment: %v", err)
@@ -991,7 +991,7 @@ func TestCrossStudy_DeleteAssignment_PreservesPreExistingAssignedEnrollment(t *t
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
 		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260110')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260110')
 	`, destAID).Scan(&enrolled); err != nil {
 		t.Fatalf("count assigned enrollment: %v", err)
 	}
@@ -1022,7 +1022,7 @@ func TestCrossStudy_SaveAssignment_PreservesPreExistingPreviousAssignedEnrollmen
 
 	_, err := dbpool.Exec(ctx, `
 		INSERT INTO course_students (course_id, student_id)
-		VALUES ($1, (SELECT id FROM students WHERE wcode = 'W260111'))
+		VALUES ($1, (SELECT id FROM students WHERE wcode = 'w260111'))
 	`, destAID)
 	if err != nil {
 		t.Fatalf("seed pre-existing previous assigned enrollment: %v", err)
@@ -1057,7 +1057,7 @@ func TestCrossStudy_SaveAssignment_PreservesPreExistingPreviousAssignedEnrollmen
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
 		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260111')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260111')
 	`, destAID).Scan(&enrolled); err != nil {
 		t.Fatalf("count previous assigned enrollment: %v", err)
 	}
@@ -1091,7 +1091,7 @@ func TestCrossStudy_DeleteAssignment_RestoresOnlySourceEnrollmentRemovedByCrossS
 
 	_, err := dbpool.Exec(ctx, `
 		INSERT INTO course_students (course_id, student_id)
-		VALUES ($1, (SELECT id FROM students WHERE wcode = 'W260112'))
+		VALUES ($1, (SELECT id FROM students WHERE wcode = 'w260112'))
 	`, sourceWithEnrollmentID)
 	if err != nil {
 		t.Fatalf("seed source enrollment: %v", err)
@@ -1135,7 +1135,7 @@ func TestCrossStudy_DeleteAssignment_RestoresOnlySourceEnrollmentRemovedByCrossS
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
 		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260112')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260112')
 	`, sourceWithEnrollmentID).Scan(&restored); err != nil {
 		t.Fatalf("count restored source enrollment: %v", err)
 	}
@@ -1147,7 +1147,7 @@ func TestCrossStudy_DeleteAssignment_RestoresOnlySourceEnrollmentRemovedByCrossS
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
 		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260113')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260113')
 	`, sourceWithoutEnrollmentID).Scan(&invented); err != nil {
 		t.Fatalf("count source enrollment that should not be invented: %v", err)
 	}
@@ -1210,7 +1210,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	var assignmentCount int
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM crm_cross_study_assignments
-		WHERE wcode = 'W260101' AND deleted_at IS NULL
+		WHERE wcode = 'w260101' AND deleted_at IS NULL
 	`).Scan(&assignmentCount); err != nil {
 		t.Fatalf("count assignments: %v", err)
 	}
@@ -1222,7 +1222,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260101')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
 	`).Scan(&overrideCount); err != nil {
 		t.Fatalf("count cross-study overrides: %v", err)
 	}
@@ -1235,7 +1235,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 		if err := dbpool.QueryRow(ctx, `
 			SELECT COUNT(*) FROM course_students
 			WHERE course_id = $1
-			  AND student_id = (SELECT id FROM students WHERE wcode = 'W260101')
+			  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
 		`, courseID).Scan(&enrolled); err != nil {
 			t.Fatalf("count course_students for %s: %v", courseID, err)
 		}
@@ -1247,7 +1247,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	var firstAssignmentID uuid.UUID
 	if err := dbpool.QueryRow(ctx, `
 		SELECT id FROM crm_cross_study_assignments
-		WHERE wcode = 'W260101' AND source_course_id = $1 AND deleted_at IS NULL
+		WHERE wcode = 'w260101' AND source_course_id = $1 AND deleted_at IS NULL
 	`, sourceAID).Scan(&firstAssignmentID); err != nil {
 		t.Fatalf("lookup first assignment id: %v", err)
 	}
@@ -1258,7 +1258,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260101')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
 	`).Scan(&overrideCount); err != nil {
 		t.Fatalf("count cross-study overrides after delete: %v", err)
 	}
@@ -1270,7 +1270,7 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_students
 		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'W260101')
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
 	`, destBID).Scan(&remainingAssigned); err != nil {
 		t.Fatalf("count remaining assigned course_students: %v", err)
 	}

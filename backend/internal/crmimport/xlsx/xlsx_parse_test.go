@@ -40,8 +40,8 @@ func TestParseXLSX_HeaderDiscoveryAndRows(t *testing.T) {
 	if len(parsed.Rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(parsed.Rows))
 	}
-	if parsed.Rows[0].WCode != "W250084" {
-		t.Fatalf("unexpected wcode: %q", parsed.Rows[0].WCode)
+	if parsed.Rows[0].WCode != "w250084" {
+		t.Fatalf("unexpected wcode: %q (expected lowercase normalized)", parsed.Rows[0].WCode)
 	}
 	if parsed.Rows[0].FirstName != "Jitirada" {
 		t.Fatalf("unexpected first name: %q", parsed.Rows[0].FirstName)
@@ -159,5 +159,54 @@ func TestParseXLSX_SkipsEmptyRows(t *testing.T) {
 	}
 	if len(parsed.Rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(parsed.Rows))
+	}
+}
+
+func TestParseXLSX_NormalizesWCodeToLowerTrimmed(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Bangkok")
+	f := excelize.NewFile()
+	sheet := f.GetSheetName(0)
+
+	headers := []string{"Student Id", "First Name", "Last Name", "Course Name", "Cycle"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(sheet, cell, h)
+	}
+
+	tests := []struct {
+		name       string
+		input      string
+		wantWCode  string
+	}{
+		{name: "uppercase", input: "W250001", wantWCode: "w250001"},
+		{name: "mixed case", input: "W250abc", wantWCode: "w250abc"},
+		{name: "leading/trailing spaces", input: "  W250002  ", wantWCode: "w250002"},
+		{name: "already lowercase", input: "w250003", wantWCode: "w250003"},
+		{name: "all caps with spaces", input: "  W250004  ", wantWCode: "w250004"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = f.SetCellValue(sheet, "A2", tt.input)
+			_ = f.SetCellValue(sheet, "B2", "Test")
+			_ = f.SetCellValue(sheet, "C2", "User")
+			_ = f.SetCellValue(sheet, "D2", "Course A")
+			_ = f.SetCellValue(sheet, "E2", "Cycle 1")
+
+			buf, err := f.WriteToBuffer()
+			if err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			parsed, err := ParseXLSX(buf.Bytes(), loc)
+			if err != nil {
+				t.Fatalf("ParseXLSX: %v", err)
+			}
+			if len(parsed.Rows) != 1 {
+				t.Fatalf("expected 1 row, got %d", len(parsed.Rows))
+			}
+			if parsed.Rows[0].WCode != tt.wantWCode {
+				t.Errorf("WCode = %q, want %q", parsed.Rows[0].WCode, tt.wantWCode)
+			}
+		})
 	}
 }
