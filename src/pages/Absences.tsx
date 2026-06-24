@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2 } from "lucide-react";
+import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, UserPlus } from "lucide-react";
 import { apiJson, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
@@ -12,6 +12,7 @@ import Button from "../components/ui/Button";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
+import StaffCreateAbsenceModal from "../components/absences/StaffCreateAbsenceModal";
 import { queryKeys } from "../query/cache";
 import { useOperationalQuery } from "../query/useOperationalQuery";
 
@@ -154,6 +155,7 @@ export default function Absences() {
   const [deleteTarget, setDeleteTarget] = useState<ManagedAbsence | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState<ManagedAbsence | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
   const statusParam = searchParams.get("status") ?? "";
@@ -482,6 +484,7 @@ export default function Absences() {
           >
             <Settings className="h-4 w-4" aria-hidden="true" /> Settings
           </Link>
+          <Button variant="secondary" onClick={() => setCreating(true)}><UserPlus className="mr-1.5 h-4 w-4" /> Create Absence</Button>
           <Button variant="secondary" onClick={exportCsv}><Download className="mr-1.5 h-4 w-4" />Export CSV</Button>
           <Button variant="secondary" onClick={() => void load()}><RefreshCcw className="mr-1.5 h-4 w-4" /> Refresh</Button>
         </div>
@@ -713,6 +716,13 @@ export default function Absences() {
           currentCourseId={overrideTarget.sit_in_course_id}
           onClose={() => setOverrideTarget(null)}
           onSaved={() => void load()}
+        />
+      ) : null}
+
+      {creating ? (
+        <StaffCreateAbsenceModal
+          onClose={() => setCreating(false)}
+          onCreated={() => { setCreating(false); void load(); }}
         />
       ) : null}
     </div>

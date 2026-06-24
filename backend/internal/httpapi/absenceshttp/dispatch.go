@@ -73,6 +73,13 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 			s.handleAbsenceExport(w, r)
 			return
 		}
+	case "staff-create":
+		if r.Method == http.MethodPost {
+			s.handleStaffCreateAbsence(w, r)
+			return
+		}
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
+		return
 	case "batch-status":
 		if r.Method == http.MethodPost {
 			s.handleBatchStatus(w, r)
@@ -114,6 +121,9 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 			return
 		case len(parts) == 2 && r.Method == http.MethodPost && parts[1] == "cancel":
 			s.handlePendingCancel(w, r)
+			return
+		case len(parts) == 2 && r.Method == http.MethodPost && parts[1] == "send-success-sms":
+			s.handleSendSuccessSMS(w, r)
 			return
 		case len(parts) == 1 && r.Method == http.MethodDelete:
 			s.handleAbsenceDelete(w, r)

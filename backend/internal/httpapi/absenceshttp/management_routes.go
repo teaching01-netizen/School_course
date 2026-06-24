@@ -126,6 +126,12 @@ type managedAbsenceDTO struct {
 	MissedSessions      []absenceSessionDTO  `json:"missed_sessions,omitempty"`
 	SitIns              []absenceSessionDTO  `json:"sit_ins,omitempty"`
 	Timeline            []absenceTimelineDTO `json:"timeline,omitempty"`
+	SmsPreview          *smsPreviewDTO       `json:"sms_preview,omitempty"`
+}
+
+type smsPreviewDTO struct {
+	Phones  []string `json:"phones"`
+	Message string   `json:"message"`
 }
 
 func stringPtrIfValid(v pgtype.Text) *string {

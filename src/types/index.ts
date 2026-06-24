@@ -280,6 +280,25 @@ export type AbsenceStats = {
 
 export type ReasonCategory = { value: string; label: string };
 
+export type StaffCreateAbsenceRequest = {
+  wcode: string;
+  subject_id?: string;
+  course_id?: string;
+  date_from: string;
+  date_to: string;
+  missed_session_ids: string[];
+  sit_in_method?: string;
+  sit_in_course_id?: string;
+  sit_in_session_ids: string[];
+  reason?: string;
+  reason_category?: string;
+};
+
+export type SmsPreview = {
+  phones: string[];
+  message: string;
+};
+
 export type AbsenceNotificationsSettings = {
   sms_parent_enabled: boolean;
   sms_parent_template: string;
