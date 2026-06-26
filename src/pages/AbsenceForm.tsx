@@ -514,6 +514,16 @@ export default function AbsenceForm() {
 
   
 
+  if (configLoading) {
+    return (
+      <div className="min-h-screen bg-[var(--color-wi-bg)]">
+        <div className="mx-auto max-w-lg px-4 pb-24 pt-6">
+          <LoadingSkeleton type="text" lines={3} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-wi-bg)]">
       <div className="mx-auto max-w-lg px-4 pb-24 pt-6">
@@ -522,8 +532,6 @@ export default function AbsenceForm() {
           currentStep={step}
           onStepClick={(s) => s < step && goToStep(s as StepIndex)}
         />
-
-        {configLoading ? <LoadingSkeleton type="text" lines={3} /> : null}
 
         {pageError ? (
           <div role="alert" className="mb-6 rounded-lg bg-[var(--color-wi-danger-bg)] p-4 text-sm text-[var(--color-wi-red)]">{pageError}</div>
