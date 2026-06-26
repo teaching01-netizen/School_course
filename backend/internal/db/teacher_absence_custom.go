@@ -34,7 +34,7 @@ const teacherAbsenceSelectTemplate = `
 	FROM student_absences sa
 	JOIN courses c ON c.id = sa.course_id
 	LEFT JOIN subjects sub ON sub.id = c.subject_id
-	LEFT JOIN students st ON st.wcode = sa.wcode
+	LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 `
 
 func teacherAbsenceQuerySQL(template string, hasStudentNicknameColumn bool) string {

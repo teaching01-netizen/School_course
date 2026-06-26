@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import type { UsePreflightReturn, PreflightStatus } from "@/hooks/usePreflight";
+import type { UsePreflightReturn, PreflightStatus } from "@/features/scheduling/hooks/usePreflight";
 import type { Course, Room, User } from "@/types";
 import { conflictKindLabel, formatTimeRange, getRequestedLabel } from "@/types";
 

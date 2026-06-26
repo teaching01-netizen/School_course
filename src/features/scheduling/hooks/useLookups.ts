@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
-import type { Course, Room, User } from "@/types";
 import { apiJson } from "@/api/client";
+import type { Course } from "@/features/courses/types";
+import type { User } from "@/types/shared";
+import type { Room } from "../types";
 
 interface Lookups {
   courses: Course[];

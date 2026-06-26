@@ -23,7 +23,15 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	overlapTeacher, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "teacher-sitin-ov-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "SitInRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlapRoom, err := q.RoomCreate(ctx, RoomCreateParams{Name: "SitInOverlapRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +64,22 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 		return session.ID
 	}
 
+	createSessionInRoom := func(courseID pgtype.UUID, start, end time.Time, roomID pgtype.UUID) pgtype.UUID {
+		t.Helper()
+		session, err := q.SessionCreate(ctx, SessionCreateParams{
+			SeriesID:  pgtype.UUID{},
+			CourseID:  courseID,
+			RoomID:    roomID,
+			TeacherID: overlapTeacher,
+			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session.ID
+	}
+
 	createSession(
 		missedCourse.ID,
 		time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC),
@@ -71,15 +95,17 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 		time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC),
 	)
-	overlappingMissedTime := createSession(
+	overlappingMissedTime := createSessionInRoom(
 		sitInCourse.ID,
 		time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+		overlapRoom.ID,
 	)
-	wrongCourse := createSession(
+	wrongCourse := createSessionInRoom(
 		otherCourse.ID,
 		time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 1, 14, 0, 0, 0, time.UTC),
+		overlapRoom.ID,
 	)
 
 	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{

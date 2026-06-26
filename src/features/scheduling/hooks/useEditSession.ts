@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ApiRequestError, apiJson } from "../api/client";
+import { ApiRequestError, apiJson } from "@/api/client";
 import { usePreflight } from "./usePreflight";
 import usePreflightGate from "./usePreflightGate";
-import { localDateTimeToUTCISO } from "../types";
-import { utcISOToZoneLocalInput } from "../utils/timezone";
+import { localDateTimeToUTCISO } from "../domain/time";
+import { utcISOToZoneLocalInput } from "@/utils/timezone";
 import type { Session, AttendanceOverride } from "../types";
 
 export interface EditSessionForm {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import { apiJson } from "../api/client";
-import { useToast } from "./useToast";
+import { apiJson } from "@/api/client";
+import { useToast } from "@/hooks/useToast";
 import type { SitInRule, SitInRuleCreateInput } from "../types";
 
 export function useSitInRules() {

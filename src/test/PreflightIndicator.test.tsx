@@ -3,7 +3,7 @@ import { render as rtlRender, screen, fireEvent, within } from "@testing-library
 import { MemoryRouter } from "react-router-dom";
 function render(ui: React.ReactElement) { return rtlRender(ui, { wrapper: MemoryRouter }); }
 import { PreflightIndicator, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
-import { usePreflight } from "@/hooks/usePreflight";
+import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
 import type { Course, Room, User, ConflictDetails } from "@/types";
 
 const mockApiJson = vi.hoisted(() => vi.fn());

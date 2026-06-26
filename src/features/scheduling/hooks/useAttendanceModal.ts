@@ -1,9 +1,10 @@
 import { useState, useCallback } from "react";
-import { apiJson } from "../api/client";
-import type { Session, Student, AttendanceOverride } from "../types";
-import { formatConflictToastMessage } from "../utils/conflictErrors";
-import { cachePolicies, queryClient, queryKeys } from "../query/cache";
-import { useRealtime } from "./useRealtime";
+import { apiJson } from "@/api/client";
+import type { Student } from "@/types/shared";
+import { formatConflictToastMessage } from "@/utils/conflictErrors";
+import { cachePolicies, queryClient, queryKeys } from "@/query/cache";
+import { useRealtime } from "@/hooks/useRealtime";
+import type { Session, AttendanceOverride } from "../types";
 
 export interface UseAttendanceModalReturn {
   session: Session | null;

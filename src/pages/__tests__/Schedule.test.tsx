@@ -29,7 +29,7 @@ const teachers = [
   { id: "teacher-2", username: "teacher.two", role: "Teacher" },
 ];
 
-vi.mock("@/hooks/useLookups", () => ({
+vi.mock("@/features/scheduling/hooks/useLookups", () => ({
   default: () => ({
     courses,
     rooms,

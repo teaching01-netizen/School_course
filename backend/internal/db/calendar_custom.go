@@ -110,7 +110,7 @@ const teacherPendingAbsenceRequestsQueryTemplate = `
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		WHERE sa.status = 'pending'
 		  AND EXISTS (
 		    SELECT 1 FROM sessions sess

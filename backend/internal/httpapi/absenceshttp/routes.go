@@ -216,7 +216,8 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 			return 0, nil, err
 		}
-		if strings.TrimSpace(body.Wcode) == "" {
+		body.Wcode = normalizeWCode(body.Wcode)
+		if body.Wcode == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode is required")
 			return 0, nil, fmt.Errorf("wcode is required")
 		}

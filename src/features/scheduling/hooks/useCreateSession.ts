@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ApiRequestError, apiJson } from "../api/client";
+import { ApiRequestError, apiJson } from "@/api/client";
 import { usePreflight } from "./usePreflight";
 import usePreflightGate from "./usePreflightGate";
-import { localDateTimeToUTCISO } from "../types";
+import { localDateTimeToUTCISO } from "../domain/time";
 
 export interface CreateSessionForm {
   course_id: string;

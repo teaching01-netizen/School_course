@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { apiJson, newIdempotencyKey, ApiRequestError } from "@/api/client";
+import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import StepIndicator from "@/components/absences/StepIndicator";
 import SubjectCard from "@/components/absences/SubjectCard";
@@ -15,519 +15,57 @@ import { useOtp } from "@/hooks/useOtp";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
   AbsenceFormConfig,
-  AbsenceNotificationsSettings,
-  AdminContactSettings,
   ManagedAbsence,
-  SessionsInRangeResponse,
   SubjectSessions,
   StudentLookupResponse,
 } from "@/types";
+import { DEFAULT_CONFIG, VERIFICATION_STORAGE_KEY } from "@/features/absences/constants";
+import {
+  loadAbsenceFormConfig,
+  loadSessionsInRange,
+  lookupStudentByWcode,
+  submitAbsenceBatch,
+} from "@/features/absences/api/absenceFormApi";
+import { dateToLocalISO, postSessionLookbackDays } from "@/features/absences/domain/dateRange";
+import {
+  countSelectedSessions,
+  getSelectedSessionsForGroup,
+  groupByDay,
+  isDayGroupSelected,
+  mergedSessionValue,
+} from "@/features/absences/domain/sessionGrouping";
+import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/features/absences/domain/submissionPayload";
+import {
+  availableSessionsForMissedSessions,
+  firstPriorityLevel,
+  getCurrentSitInDisplayName,
+  getReviewSitInLabel,
+  getSitInCourseDisplayName,
+  getSitInSessionGroupLabel,
+  getSitInSessionLabel,
+  groupWithSitInForMissedSession,
+  hasPriorityLevel,
+  hasServerPriorityReveal,
+  nextPriorityLevel,
+  previousPriorityLevel,
+  prioritiesForLevel,
+  rootAvailableSessionsForMissedSessions,
+  sitInForMissedSession,
+  unavailableSessionsForMissedSession,
+} from "@/features/absences/domain/sitInResolution";
+import {
+  formatBatchAbsenceSummary,
+  formatBatchSitInSummary,
+} from "@/features/absences/domain/resultSummaries";
+import {
+  clearLegacyAbsenceDraft,
+  clearStudentResume,
+  readStudentResume,
+  writeStudentResume,
+} from "@/features/absences/storage/studentResumeStorage";
+import { getStudentDisplayName, maskPhone, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
 
 type StepIndex = 0 | 1 | 2;
-type AbsenceBatchCreateItem = {
-  subject_id: string;
-  course_id: string;
-  date_from: string;
-  date_to: string;
-  reason?: string;
-  sit_in_method?: string;
-  sit_in_course_id?: string;
-  missed_session_ids: string[];
-  sit_in_session_ids: string[];
-};
-type AbsenceBatchCreateResponse = {
-  items: ManagedAbsence[];
-};
-
-const LEGACY_SESSION_STORAGE_KEY = "warwick-absence-form-state-v3";
-const LEGACY_VERIFICATION_STORAGE_KEY = `${LEGACY_SESSION_STORAGE_KEY}:parent-verification`;
-const STUDENT_RESUME_STORAGE_KEY = "warwick-absence-form-student-v1";
-const VERIFICATION_STORAGE_KEY = "warwick-absence-parent-verification-v1";
-
-const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
-  sms_parent_enabled: true,
-  sms_parent_template: "",
-  sms_success_template: "",
-  allow_submit_without_otp: false,
-};
-
-const DEFAULT_ADMIN_CONTACT: AdminContactSettings = {
-  email: "",
-  phone: "",
-  hours: "",
-};
-
-const DEFAULT_CONFIG: AbsenceFormConfig = {
-  form: {
-    max_date_range_days: 30,
-    min_hours_before_session: 0,
-    max_hours_after_session: 0,
-    require_reason: false,
-    reason_categories: [],
-    allow_free_text_reason: true,
-    intro_text: "",
-    confirmation_text: "",
-  },
-  sit_in: {
-    auto_resolve_enabled: true,
-    zoom_description: "Zoom session - no physical class attendance required.",
-    max_sessions_per_absence: 10,
-  },
-  notifications: DEFAULT_NOTIFICATIONS,
-  admin_contact: DEFAULT_ADMIN_CONTACT,
-};
-
-function dateToLocalISO(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function postSessionLookbackDays(maxHoursAfterSession: number): number {
-  if (!Number.isFinite(maxHoursAfterSession) || maxHoursAfterSession <= 0) return 0;
-  return Math.ceil(maxHoursAfterSession / 24);
-}
-
-function daysBetween(from: string, to: string): number {
-  return Math.round(
-    (new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) /
-      (1000 * 60 * 60 * 24),
-  );
-}
-
-function normalizeLookupWcode(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return "";
-  return trimmed[0]?.toLowerCase() === "w" ? `W${trimmed.slice(1)}` : trimmed;
-}
-
-function maskPhone(phone?: string | null): string {
-  if (!phone) return "";
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length <= 4) return phone;
-  return `${digits.slice(0, 3)} *** ${digits.slice(-3)}`;
-}
-
-function isDayGroupSelected(group: DayRangeGroup<{ id: string; start_at: string; end_at: string; date?: string }>, selected: Set<string>): boolean {
-  return group.items.every((session) => selected.has(session.id));
-}
-
-function countSelectedSessions(groups: SubjectSessions[], selected: Set<string>): number {
-  return groups.reduce(
-    (total, group) => total + groupByDay(group.sessions).filter((sessionGroup) => isDayGroupSelected(sessionGroup, selected)).length,
-    0,
-  );
-}
-
-function getStudentDisplayName(lookup: StudentLookupResponse | null) {
-  return lookup?.display_name?.trim() || lookup?.nickname?.trim() || lookup?.full_name?.trim() || "";
-}
-
-const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
-const MERGED_SESSION_ID_SEPARATOR = "|";
-
-type TimeRanged = { id?: string; start_at: string; end_at: string; date?: string };
-
-type MergedDayRange = {
-  date: string;
-  start_at: string;
-  end_at: string;
-};
-
-type DayRangeGroup<T extends TimeRanged> = MergedDayRange & {
-  id: string;
-  items: T[];
-};
-
-function instituteDateKey(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: INSTITUTE_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function dayKey(item: TimeRanged): string {
-  return item.date ?? instituteDateKey(item.start_at);
-}
-
-function mergeRanges(ranges: TimeRanged[]): { start_at: string; end_at: string } {
-  let start = ranges[0].start_at;
-  let end = ranges[0].end_at;
-  for (const r of ranges) {
-    if (new Date(r.start_at).getTime() < new Date(start).getTime()) start = r.start_at;
-    if (new Date(r.end_at).getTime() > new Date(end).getTime()) end = r.end_at;
-  }
-  return { start_at: start, end_at: end };
-}
-
-function sortByStart<T extends TimeRanged>(items: T[]): T[] {
-  return items.slice().sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
-}
-
-function groupByDay<T extends TimeRanged>(items: T[]): DayRangeGroup<T>[] {
-  const byDay = new Map<string, T[]>();
-  for (const item of sortByStart(items)) {
-    const key = dayKey(item);
-    byDay.set(key, [...(byDay.get(key) ?? []), item]);
-  }
-  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, dayItems]) => {
-    const sorted = sortByStart(dayItems);
-    const merged = mergeRanges(sorted);
-    const id = sorted.map((item) => item.id ?? `${item.start_at}-${item.end_at}`).join(MERGED_SESSION_ID_SEPARATOR);
-    return { id, date, start_at: merged.start_at, end_at: merged.end_at, items: sorted };
-  });
-}
-
-function mergedSessionValue(items: Array<{ id: string }>): string {
-  return items.map((item) => item.id).join(MERGED_SESSION_ID_SEPARATOR);
-}
-
-function splitMergedSessionValue(value: string | undefined): string[] {
-  return (value ?? "").split(MERGED_SESSION_ID_SEPARATOR).filter(Boolean);
-}
-
-function uniqueValues(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
-  return group.sessions
-    .filter((session) => selected.has(session.id))
-    .slice()
-    .sort((a, b) => a.start_at.localeCompare(b.start_at));
-}
-
-type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number];
-type SitInCourse = NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
-
-function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
-  return sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
-}
-
-function getSitInCourseDisplayName(
-  sitInCourse: SitInCourse,
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  return (
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim() ||
-    ""
-  );
-}
-
-function getPriorityTargetDisplayName(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  const courseName = getSitInCourseDisplayName(priority.sit_in_course, "", allSubjects);
-  if (courseName) return courseName;
-  const firstSession = priority.available_sessions?.[0];
-  return (
-    firstSession?.class_name?.trim() ||
-    firstSession?.subject_name?.trim() ||
-    firstSession?.course_name?.trim() ||
-    firstSession?.subject_code?.trim() ||
-    firstSession?.course_code?.trim() ||
-    fallbackSubjectName
-  );
-}
-
-function getCurrentSitInDisplayName(
-  sitIn: SubjectSessions["sit_in"],
-  currentPriorities: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>,
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  if (sitIn?.sit_in_method !== "physical") {
-    return sitIn?.sit_in_method === "zoom" ? "Zoom" : "To arrange";
-  }
-  if (currentPriorities.length > 0) {
-    const labels = [
-      ...new Set(
-        currentPriorities
-          .map((priority) => {
-            if (!priority.sit_in_course && (priority.available_sessions ?? []).length === 0) return "";
-            return getPriorityTargetDisplayName(priority, fallbackSubjectName, allSubjects).trim();
-          })
-          .filter(Boolean),
-      ),
-    ];
-    if (labels.length > 0) return labels.join(", ");
-    return "Not available";
-  }
-  return getSitInCourseDisplayName(sitIn.sit_in_course, fallbackSubjectName, allSubjects);
-}
-
-function sessionsInRangePath(
-  wcode: string,
-  dateFrom: string,
-  dateTo: string,
-  options?: { courseIds?: string[]; satVerbalAfterPriority?: number },
-): string {
-  const params = new URLSearchParams({ wcode, date_from: dateFrom, date_to: dateTo });
-  if (options?.courseIds && options.courseIds.length > 0) {
-    params.set("course_ids", options.courseIds.join(","));
-  }
-  if (options?.satVerbalAfterPriority !== undefined) {
-    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
-  }
-  return `/api/v1/absences/sessions-in-range?${params.toString()}`;
-}
-
-function sitInForMissedSession(group: SubjectSessions, missedSessionId: string) {
-  return group.sit_in?.sit_in_by_missed_session?.[missedSessionId] ?? group.sit_in;
-}
-
-function groupWithSitInForMissedSession(group: SubjectSessions, missedSessionId: string): SubjectSessions {
-  const sitIn = sitInForMissedSession(group, missedSessionId);
-  if (!sitIn || sitIn === group.sit_in) return group;
-  return { ...group, sit_in: sitIn };
-}
-
-function availableSessionsForMissedSession(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  missedSessionId: string,
-) {
-  return availableSessionsForMissedSessions(priority, [missedSessionId]);
-}
-
-function availableSessionsForMissedSessions(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  missedSessionIds: string[],
-) {
-  const available = priority.available_sessions ?? [];
-  if (!available.some((session) => session.missed_session_id)) return available;
-  return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
-}
-
-function unavailableSessionsForMissedSession(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
-  missedSessionId: string,
-) {
-  const unavailable = priority.unavailable_sessions ?? [];
-  if (!unavailable.some((session) => session.missed_session_id)) return unavailable;
-  return unavailable.filter((session) => session.missed_session_id === missedSessionId);
-}
-
-function rootAvailableSessionsForMissedSession(
-  sitIn: SubjectSessions["sit_in"],
-  missedSessionId: string,
-) {
-  return rootAvailableSessionsForMissedSessions(sitIn, [missedSessionId]);
-}
-
-function rootAvailableSessionsForMissedSessions(
-  sitIn: SubjectSessions["sit_in"],
-  missedSessionIds: string[],
-) {
-  const available = sitIn?.available_sessions ?? [];
-  if (!available.some((session) => session.missed_session_id)) return available;
-  return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
-}
-
-function hasServerPriorityReveal(group: SubjectSessions): boolean {
-  return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
-}
-
-function firstPriorityLevel(group: SubjectSessions): number {
-  const priorities = group.sit_in?.priorities ?? [];
-  if (priorities.length === 0) return 1;
-  return Math.min(...priorities.map((priority) => priority.level));
-}
-
-function hasPriorityLevel(group: SubjectSessions, level: number): boolean {
-  return (group.sit_in?.priorities ?? []).some((priority) => priority.level === level);
-}
-
-function nextPriorityLevel(group: SubjectSessions, currentLevel: number): number | null {
-  const levels = [...new Set((group.sit_in?.priorities ?? []).map((priority) => priority.level))]
-    .filter((level) => level > currentLevel)
-    .sort((a, b) => a - b);
-  return levels[0] ?? null;
-}
-
-function previousPriorityLevel(group: SubjectSessions, currentLevel: number): number | null {
-  const levels = [...new Set((group.sit_in?.priorities ?? []).map((priority) => priority.level))]
-    .filter((level) => level < currentLevel)
-    .sort((a, b) => b - a);
-  return levels[0] ?? null;
-}
-
-function prioritiesForLevel(group: SubjectSessions, level: number) {
-  return (group.sit_in?.priorities ?? []).filter((priority) => priority.level === level);
-}
-
-function getReviewSitInLabel(
-  missedSession: { id: string },
-  group: SubjectSessions,
-  sitInSelections: Record<string, string>,
-  priorityLevels: Record<string, number>,
-  priorityHistory: Record<string, Record<number, SubjectSessions>>,
-  allSubjects: SubjectSessions[],
-): string {
-  const requestedLevel = priorityLevels[missedSession.id];
-  const sitInGroup = requestedLevel
-    ? priorityHistory[missedSession.id]?.[requestedLevel] ?? groupWithSitInForMissedSession(group, missedSession.id)
-    : groupWithSitInForMissedSession(group, missedSession.id);
-  const sitIn = sitInGroup.sit_in;
-  if (!sitIn) return "To arrange";
-  if (sitIn.sit_in_method === "zoom") return "Zoom";
-  if (sitIn.sit_in_method === "teacher_case") return "To arrange";
-  if (sitIn.sit_in_method !== "physical") return "To arrange";
-  const sitInSessionIds = splitMergedSessionValue(sitInSelections[missedSession.id]);
-  if (sitInSessionIds.length === 0) return "Not yet selected";
-  const priorities = sitIn.priorities ?? [];
-  const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
-  const rootMatches = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).filter((s) => sitInSessionIds.includes(s.id));
-  if (rootMatches.length > 0) {
-    return getSitInSessionGroupLabel(rootMatches, sitIn.sit_in_course, groupLabel, allSubjects);
-  }
-  for (const p of priorities) {
-    const available = availableSessionsForMissedSession(p, missedSession.id);
-    const matches = available.filter((s) => sitInSessionIds.includes(s.id));
-    if (matches.length > 0) {
-      return getSitInSessionGroupLabel(matches, p.sit_in_course, groupLabel, allSubjects);
-    }
-  }
-  return "Make-up class selected";
-}
-
-function getSitInSessionLabel(
-  session: SitInAvailableSession,
-  sitInCourse: SitInCourse,
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  const className =
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    session.class_name?.trim() ||
-    session.subject_name?.trim() ||
-    session.course_name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    session.subject_code?.trim() ||
-    session.course_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim();
-  return `${className} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
-}
-
-function getSitInSessionGroupLabel(
-  sessions: SitInAvailableSession[],
-  sitInCourse: SitInCourse,
-  fallbackSubjectName: string,
-  allSubjects: SubjectSessions[],
-) {
-  if (sessions.length === 1) return getSitInSessionLabel(sessions[0], sitInCourse, fallbackSubjectName, allSubjects);
-  const first = sessions[0];
-  const className =
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    first.class_name?.trim() ||
-    first.subject_name?.trim() ||
-    first.course_name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    first.subject_code?.trim() ||
-    first.course_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim();
-  const range = groupByDay(sessions)[0];
-  return `${className} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
-}
-
-function selectedSitInCourseIDForGroup(
-  group: SubjectSessions,
-  selectedMissedSessionIds: string[],
-  sitInSelections: Record<string, string>,
-): string | null {
-  if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
-    return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
-  }
-  const courseIDs = new Set<string>();
-  for (const missedSessionID of selectedMissedSessionIds) {
-    const sitIn = sitInForMissedSession(group, missedSessionID);
-    if (sitIn?.sit_in_method !== "physical") {
-      const courseID = sitIn?.sit_in_course?.id?.trim() || group.course_id.trim();
-      if (courseID) courseIDs.add(courseID);
-      continue;
-    }
-    const priorities = sitIn.priorities ?? [];
-    if (priorities.length === 0) {
-      const courseID = sitIn.sit_in_course?.id?.trim() || group.course_id.trim();
-      if (courseID) courseIDs.add(courseID);
-      continue;
-    }
-    const sitInSessionIDs = splitMergedSessionValue(sitInSelections[missedSessionID]);
-    if (sitInSessionIDs.length === 0) continue;
-    for (const priority of priorities) {
-      const hasSession = (priority.available_sessions ?? []).some((session) => sitInSessionIDs.includes(session.id));
-      const courseID = priority.sit_in_course?.id?.trim();
-      if (hasSession && courseID) {
-        courseIDs.add(courseID);
-        break;
-      }
-    }
-  }
-  if (courseIDs.size === 1) return [...courseIDs][0];
-  if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
-  return null;
-}
-
-function formatBatchAbsenceSummary(absence: ManagedAbsence) {
-  const className = absence.subject_name?.trim() || absence.course_name?.trim() || absence.course_code?.trim() || "";
-  const dates = getAbsenceSessionDateLabels(absence);
-  if (!className && !dates) return "To arrange";
-  if (!dates) return className || "To arrange";
-  if (!className) return dates;
-  return `${className} (${dates})`;
-}
-
-function getAbsenceSessionDateLabels(absence: ManagedAbsence) {
-  const sessions = absence.missed_sessions ?? [];
-  const dates = new Set<string>();
-  for (const session of sessions) {
-    if (session.start_at) dates.add(dayKey(session));
-  }
-  const labels = [...dates].sort().map((date) => formatDate(date));
-  if (labels.length > 0) return labels.join(", ");
-  if (absence.date_from && absence.date_to) {
-    if (absence.date_from === absence.date_to) return formatDate(absence.date_from);
-    return `${formatDate(absence.date_from)} - ${formatDate(absence.date_to)}`;
-  }
-  return "";
-}
-
-function formatBatchSitInSummary(absence: ManagedAbsence) {
-  const method = absence.sit_in_method?.trim();
-  if (method === "zoom") return "Zoom";
-  const sessions = absence.sit_ins ?? [];
-  const sessionLabels = (() => {
-    const withTimes = sessions.filter((session) => session.start_at);
-    return groupByDay(withTimes).map((group) => `${formatDate(group.date)} ${formatTime(group.start_at)}-${formatTime(group.end_at)}`);
-  })();
-  if (method !== "physical") {
-    return sessionLabels.length > 0 ? `To arrange (${sessionLabels.join(", ")})` : "To arrange";
-  }
-  if (sessionLabels.length > 0) {
-    const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim() || "Make-up class";
-    return `${className} (${sessionLabels.join(", ")})`;
-  }
-  const label = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim();
-  if (label) return label;
-  return "To arrange";
-}
 
 export default function AbsenceForm() {
   const navigate = useNavigate();
@@ -605,21 +143,10 @@ export default function AbsenceForm() {
 
   useEffect(() => {
     let active = true;
-    void apiJson<AbsenceFormConfig>("/api/v1/absence-form-config", { method: "GET" })
+    void loadAbsenceFormConfig()
       .then((data) => {
         if (!active) return;
-        const notifications: AbsenceNotificationsSettings = {
-          sms_parent_enabled: data.notifications?.sms_parent_enabled ?? DEFAULT_NOTIFICATIONS.sms_parent_enabled,
-          sms_parent_template: data.notifications?.sms_parent_template ?? DEFAULT_NOTIFICATIONS.sms_parent_template,
-          sms_success_template: data.notifications?.sms_success_template ?? DEFAULT_NOTIFICATIONS.sms_success_template,
-          allow_submit_without_otp: data.notifications?.allow_submit_without_otp ?? DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
-        };
-        const adminContact: AdminContactSettings = {
-          email: data.admin_contact?.email ?? DEFAULT_ADMIN_CONTACT.email,
-          phone: data.admin_contact?.phone ?? DEFAULT_ADMIN_CONTACT.phone,
-          hours: data.admin_contact?.hours ?? DEFAULT_ADMIN_CONTACT.hours,
-        };
-        setConfig({ ...DEFAULT_CONFIG, ...data, form: { ...DEFAULT_CONFIG.form, ...data.form }, sit_in: { ...DEFAULT_CONFIG.sit_in, ...data.sit_in }, notifications, admin_contact: adminContact });
+        setConfig(data);
       })
       .catch((error: unknown) => {
         addToast("error", error instanceof Error ? error.message : "Failed to load form settings");
@@ -633,10 +160,9 @@ export default function AbsenceForm() {
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    void apiJson<SessionsInRangeResponse>(
-      sessionsInRangePath(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo),
-      { method: "GET", signal: controller.signal },
-    )
+    void loadSessionsInRange(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo, {
+      signal: controller.signal,
+    })
       .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects); })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -650,42 +176,25 @@ export default function AbsenceForm() {
   useEffect(() => {
     let active = true;
     try {
-      window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
-      window.sessionStorage.removeItem(LEGACY_VERIFICATION_STORAGE_KEY);
-      const raw = window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY);
-      if (!raw) return () => { active = false; };
-      const parsed = JSON.parse(raw) as Partial<{ wcode: string; collectedEmail: string }>;
-      const cleaned = normalizeLookupWcode(typeof parsed.wcode === "string" ? parsed.wcode : "");
-      if (!cleaned) {
-        window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY);
-        return () => { active = false; };
-      }
-      setLookupInput(cleaned);
-      if (typeof parsed.collectedEmail === "string") setCollectedEmail(parsed.collectedEmail);
+      clearLegacyAbsenceDraft();
+      const resume = readStudentResume();
+      if (!resume) return () => { active = false; };
+      setLookupInput(resume.wcode);
+      if (resume.collectedEmail) setCollectedEmail(resume.collectedEmail);
       setLookupLoading(true);
-      void apiJson<StudentLookupResponse>(
-        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`,
-        { method: "GET" },
-      )
+      void lookupStudentByWcode(resume.wcode)
         .then((response) => { if (active) setLookup(response); })
         .catch((error: unknown) => {
           if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
         })
         .finally(() => { if (active) setLookupLoading(false); });
-    } catch {
-      try { window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY); } catch { }
-    }
+    } catch { }
     return () => { active = false; };
   }, []);
 
   useEffect(() => {
     if (!lookup) return;
-    try {
-      window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({
-        wcode: lookup.wcode,
-        collectedEmail,
-      }));
-    } catch { }
+    try { writeStudentResume({ wcode: lookup.wcode, collectedEmail }); } catch { }
   }, [lookup, collectedEmail]);
 
   useEffect(() => {
@@ -731,10 +240,7 @@ export default function AbsenceForm() {
     }
     try {
       setLookupLoading(true);
-      const response = await apiJson<StudentLookupResponse>(
-        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`,
-        { method: "GET" },
-      );
+      const response = await lookupStudentByWcode(cleaned);
       setLookup(response);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
@@ -793,11 +299,12 @@ export default function AbsenceForm() {
       setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
-        const data = await apiJson<SessionsInRangeResponse>(
-          sessionsInRangePath(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo, {
-            courseIds: [group.course_id], satVerbalAfterPriority: currentLevel,
-          }),
-          { method: "GET" },
+        const data = await loadSessionsInRange(
+          lookup.wcode,
+          sessionLookupWindow.dateFrom,
+          sessionLookupWindow.dateTo,
+          undefined,
+          { courseIds: [group.course_id], satVerbalAfterPriority: currentLevel },
         );
         const updatedGroup = data.subjects.find((subject) => subject.course_id === group.course_id);
         if (!updatedGroup) { setPageError("No more make-up times are available for this class."); return; }
@@ -857,70 +364,42 @@ export default function AbsenceForm() {
     return true;
   }
 
-  function buildSubmissionPayloads() {
-    if (!lookup) return [];
-    const payloads: AbsenceBatchCreateItem[] = [];
-    for (const group of sessions) {
-      if (!selectedSubjectIds.includes(group.subject_id)) continue;
-      if (group.absence_rate_exceeded) continue;
-      const selectedGroupSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
-      if (selectedGroupSessions.length === 0) continue;
-      const selectedDates = [...new Set(selectedGroupSessions.map((session) => session.date))].sort();
-      const dateFrom = selectedDates[0];
-      const dateTo = selectedDates[selectedDates.length - 1];
-      if (daysBetween(dateFrom, dateTo) > config.form.max_date_range_days) {
-        setPageError(`${group.subject_name || group.course_name} spans more than ${config.form.max_date_range_days} days. Split it into separate submissions.`);
-        return null;
-      }
-      const selectedSessIds = selectedGroupSessions.map((session) => session.id);
-      const sitInSessionIds = uniqueValues(selectedSessIds.flatMap((id) => splitMergedSessionValue(sitInSelections[id])));
-      const sitInMethod = group.sit_in?.sit_in_method;
-      const payload: AbsenceBatchCreateItem = {
-        subject_id: group.subject_id, course_id: group.course_id,
-        date_from: dateFrom, date_to: dateTo,
-        reason: reason.trim() || undefined,
-        missed_session_ids: selectedSessIds, sit_in_session_ids: sitInSessionIds,
-      };
-      if (sitInMethod === "physical" || sitInMethod === "zoom") payload.sit_in_method = sitInMethod;
-      const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, sitInSelections);
-      if (sitInCourseID === null) {
-        setPageError(`${group.subject_name || group.course_name} has sit-in selections from more than one priority class. Split them into separate submissions.`);
-        return null;
-      }
-      if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
-      payloads.push(payload);
-    }
-    return payloads;
-  }
-
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
     if (!validateStepOne()) return;
     if (!lookup) { setPageError("Search for your profile first."); return; }
-    const payloads = buildSubmissionPayloads();
-    if (payloads === null) return;
+    const payloadResult = buildAbsenceSubmissionPayloads({
+      lookupWcode: lookup.wcode,
+      sessions,
+      selectedSubjectIds,
+      selectedSessionIds,
+      sitInSelections,
+      reason,
+      maxDateRangeDays: config.form.max_date_range_days,
+    });
+    if (!payloadResult.ok) {
+      setPageError(payloadResult.error);
+      return;
+    }
+    const payloads = payloadResult.payloads;
     if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
     try {
       setIsSubmitting(true);
-      const response = await apiJson<AbsenceBatchCreateResponse>("/api/v1/absences/batch", {
-        method: "POST",
-        headers: { "Idempotency-Key": submissionIdempotencyKey.current },
-        body: JSON.stringify({
-          wcode: lookup.wcode,
-          email: collectedEmail.trim() || undefined,
-          reason: reason.trim(),
-          verification_token: verificationSatisfied && verification.token ? verification.token : undefined,
-          items: payloads,
-        }),
+      const response = await submitAbsenceBatch({
+        idempotencyKey: submissionIdempotencyKey.current,
+        wcode: lookup.wcode,
+        email: collectedEmail.trim() || undefined,
+        reason: reason.trim(),
+        verificationToken: verificationSatisfied && verification.token ? verification.token : undefined,
+        items: payloads,
       });
       setFinalResults(response.items);
       verification.clearStoredToken();
       verification.setCode("");
       try {
-        window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
-        window.sessionStorage.removeItem(LEGACY_VERIFICATION_STORAGE_KEY);
-        window.sessionStorage.removeItem(STUDENT_RESUME_STORAGE_KEY);
+        clearLegacyAbsenceDraft();
+        clearStudentResume();
       } catch { }
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {

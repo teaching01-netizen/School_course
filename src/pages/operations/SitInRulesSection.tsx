@@ -8,7 +8,7 @@ import LevelStepper from "../../components/LevelStepper";
 import LevelBadge from "../../components/LevelBadge";
 import useReturnsDesk from "../../hooks/useReturnsDesk";
 import ReturnsDeskPanel from "../../components/ReturnsDeskPanel";
-import { useSitInRules } from "../../hooks/useSitInRules";
+import { useSitInRules } from "../../features/absences/hooks/useSitInRules";
 import { getGapWarning } from "../../utils/levels";
 import type { CourseLevelItem, PolicyResponse, RootCourseGroupInfo } from "../../utils/levels";
 import type { SitInRule } from "../../types";

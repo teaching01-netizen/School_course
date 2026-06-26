@@ -32,7 +32,7 @@ import LevelBadge from "../components/LevelBadge";
 import CourseLevelSearch from "../components/CourseLevelSearch";
 import useLevelHistory from "../hooks/useLevelHistory";
 import RuleSelector from "../components/RuleSelector";
-import { useSitInRules } from "../hooks/useSitInRules";
+import { useSitInRules } from "@/features/absences/hooks/useSitInRules";
 
 type ViewMode = "classic" | "ladder";
 

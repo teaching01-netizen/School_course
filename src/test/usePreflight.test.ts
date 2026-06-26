@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { usePreflight } from "@/hooks/usePreflight";
+import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
 import { ApiRequestError } from "@/api/client";
 
 const mockApiJson = vi.hoisted(() => vi.fn());

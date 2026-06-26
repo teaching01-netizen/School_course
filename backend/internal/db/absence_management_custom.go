@@ -86,7 +86,7 @@ const managedAbsenceListQueryTemplate = `
 		       count(*) OVER()
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
 		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
@@ -113,7 +113,7 @@ const managedAbsenceGetQueryTemplate = `
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
 		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
@@ -360,7 +360,7 @@ func (q *Queries) AbsentStudentsBySessionIDs(ctx context.Context, sessionIDs []p
 		       sa.created_at
 		FROM absence_missed_sessions ams
 		JOIN student_absences sa ON sa.id = ams.absence_id AND sa.status <> 'cancelled'
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		WHERE ams.session_id = ANY($1::uuid[])
 		ORDER BY ams.session_id, st.full_name
 	`, sessionIDs)
@@ -421,7 +421,7 @@ func (q *Queries) SitInsBySessionIDs(ctx context.Context, sessionIDs []pgtype.UU
 		       sa.date_from
 		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN courses c ON c.id = sa.sit_in_course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
@@ -855,7 +855,7 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 		  sc.name,
 		  sit_sub.name
 		FROM student_absences sa
-		LEFT JOIN students st ON st.wcode = sa.wcode
+		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
 		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id

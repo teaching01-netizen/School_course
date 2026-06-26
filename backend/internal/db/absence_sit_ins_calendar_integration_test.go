@@ -87,8 +87,7 @@ func TestSitInsBySessionIDs(t *testing.T) {
 
 		bySession := make(map[string][]SitInStudentRow)
 		for _, r := range rows {
-			sid, _ := pgtype.UUID{}, r.SessionID
-			key := sid.String()
+			key := r.SessionID.String()
 			bySession[key] = append(bySession[key], r)
 		}
 

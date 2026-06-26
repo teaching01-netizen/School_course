@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { useAttendanceModal } from "@/hooks/useAttendanceModal";
+import { useAttendanceModal } from "@/features/scheduling/hooks/useAttendanceModal";
 import type { AttendanceOverride, Session, Student } from "@/types";
 import { queryClient } from "@/query/cache";
 

@@ -6,7 +6,7 @@ import MultiTeacherSelect from "../components/MultiTeacherSelect";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
-import { usePreflight } from "@/hooks/usePreflight";
+import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
 import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO, groupSessionKey } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
@@ -22,6 +22,21 @@ import Select from "../components/ui/Select";
 import ConfirmModal from "../components/ConfirmModal";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
+import { LegacyLinkSection } from "@/features/courses/components/LegacyLinkSection";
+import {
+  addCourseStudent,
+  deleteCourse,
+  getCourse,
+  getCourseCrmFilter,
+  getCourseSessions,
+  getCourseStudents,
+  getInstituteTimeMeta,
+  getRooms,
+  getStudentByWcode,
+  getTeacherUsers,
+  removeCourseStudent,
+  updateCourse,
+} from "@/features/courses/api/courseApi";
 import {
   yyyyMmDd,
   minutesBetween,
@@ -34,125 +49,6 @@ import {
   type ConflictDetails,
   conflictKindLabel,
 } from "@/types";
-
-function extractLegacyCourseId(url: string): string | null {
-  const trimmed = url.trim();
-  try {
-    const parsed = new URL(trimmed);
-    const id = parsed.searchParams.get("id");
-    if (id && /^\d+$/.test(id)) return id;
-  } catch { /* not a full URL, try raw query string */ }
-  const match = trimmed.match(/[?&]id=(\d+)/);
-  if (match) return match[1];
-  if (/^\d+$/.test(trimmed)) return trimmed;
-  return null;
-}
-
-function LegacyLinkSection({ course, onLinked }: { course: Course; onLinked: () => void }) {
-  const { addToast } = useToast();
-  const [urlInput, setUrlInput] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-
-  const handleLink = async () => {
-    const extracted = extractLegacyCourseId(urlInput);
-    if (!extracted) {
-      addToast("error", "Could not extract a numeric ID from the URL. Paste the full old system URL or just the numeric ID.");
-      return;
-    }
-    try {
-      setSaving(true);
-      await apiJson(`/api/v1/courses/${course.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ code: course.code, name: course.name, legacy_course_id: extracted }),
-      });
-      addToast("success", `Linked to old system ID ${extracted}`);
-      setUrlInput("");
-      onLinked();
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to link");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUnlink = async () => {
-    try {
-      setSaving(true);
-      await apiJson(`/api/v1/courses/${course.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ code: course.code, name: course.name, legacy_course_id: null }),
-      });
-      addToast("success", "Removed legacy link");
-      onLinked();
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to unlink");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSyncNow = async () => {
-    try {
-      setSyncing(true);
-      await apiJson(`/api/v1/courses/${course.id}/legacy-sync`, { method: "POST" });
-      addToast("success", "Legacy sync completed");
-      onLinked();
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Sync failed");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  if (course.legacy_course_id) {
-    return (
-      <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-sm text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-700">Old System</span>
-          <span className="text-gray-500">ID: {course.legacy_course_id}</span>
-          <a
-            href={`https://warwick.azurewebsites.net/Admin/Courses/Detail?id=${course.legacy_course_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 underline"
-          >
-            Open in old system
-          </a>
-          <Button variant="secondary" size="sm" loading={syncing} onClick={handleSyncNow} disabled={syncing} className="ml-auto">
-            {syncing ? "Syncing…" : "Sync now"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleUnlink} disabled={saving} className="text-red-600">
-            Remove link
-          </Button>
-        </div>
-        {course.legacy_last_synced_at && (
-          <div className="text-gray-400 mt-1">
-            Last synced: {course.legacy_last_synced_at}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-sm text-xs">
-      <div className="font-semibold text-gray-700 mb-2">Link to Old System</div>
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={urlInput}
-          onChange={(e) => setUrlInput(e.target.value)}
-          placeholder="Paste old system URL or numeric ID"
-          className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-        />
-        <Button variant="primary" size="sm" loading={saving} onClick={handleLink} disabled={saving || !urlInput.trim()}>
-          {saving ? "Linking…" : "Link"}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -168,10 +64,7 @@ export default function CourseDetail() {
   const loadCrmFilter = async () => {
     if (!id) return;
     try {
-      const res = await apiJson<{ enabled: boolean; locked: boolean; filter: any }>(
-        `/api/v1/courses/${id}/crm-filter`,
-        { method: "GET" },
-      );
+      const res = await getCourseCrmFilter(id);
       setCrmEnabled(res.enabled);
       setCrmLocked(res.locked);
     } catch {
@@ -339,7 +232,7 @@ export default function CourseDetail() {
       if (!id) return;
       try {
         setLoading(true);
-        const c = await apiJson<Course>(`/api/v1/courses/${id}`, { method: "GET" });
+        const c = await getCourse(id);
         setCourse(c);
       } catch (err) {
         addToast("error", err instanceof Error ? err.message : "Failed to load course");
@@ -370,8 +263,8 @@ export default function CourseDetail() {
   const loadLookups = async () => {
     try {
       const [r, t] = await Promise.all([
-        apiJson<Room[]>("/api/v1/rooms", { method: "GET" }),
-        apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" }),
+        getRooms(),
+        getTeacherUsers(),
       ]);
       setRooms(r);
       setTeachers(t);
@@ -384,7 +277,7 @@ export default function CourseDetail() {
     if (!id) return;
     try {
       setRosterLoading(true);
-      const st = await apiJson<Student[]>(`/api/v1/courses/${id}/students`, { method: "GET" });
+      const st = await getCourseStudents(id);
       setRoster(st);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load roster");
@@ -397,7 +290,7 @@ export default function CourseDetail() {
     if (!id) return;
     try {
       setSessionsLoading(true);
-      const items = await apiJson<Session[]>(`/api/v1/courses/${id}/sessions`, { method: "GET" });
+      const items = await getCourseSessions(id);
       setSessions(items);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load sessions");
@@ -416,7 +309,7 @@ export default function CourseDetail() {
     void loadLookups();
     void (async () => {
       try {
-        const meta = await apiJson<{ institute_tz: string; server_now: string }>(`/api/v1/meta/time`, { method: "GET" });
+        const meta = await getInstituteTimeMeta();
         setInstituteTZ(meta.institute_tz);
         setServerNow(meta.server_now);
       } catch {
@@ -449,14 +342,11 @@ export default function CourseDetail() {
     }
     try {
       setCourseEditSaving(true);
-      const updated = await apiJson<Course>(`/api/v1/courses/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          code: editCode.trim(),
-          name: editName.trim(),
-          teacher_id: editTeacherIds[0] || null,
-          teacher_ids: editTeacherIds,
-        }),
+      const updated = await updateCourse(id, {
+        code: editCode.trim(),
+        name: editName.trim(),
+        teacher_id: editTeacherIds[0] || null,
+        teacher_ids: editTeacherIds,
       });
       setCourse(updated);
       addToast("success", "Course updated");
@@ -472,7 +362,7 @@ export default function CourseDetail() {
     if (!id) return;
     try {
       setDeleting(true);
-      await apiJson(`/api/v1/courses/${id}`, { method: "DELETE" });
+      await deleteCourse(id);
       addToast("success", "Course deleted");
       navigate("/courses");
     } catch (err) {
@@ -490,7 +380,7 @@ export default function CourseDetail() {
   const handleConfirmRemoveStudent = async () => {
     if (!id || !confirmRemoveStudent) return;
     try {
-      await apiJson(`/api/v1/courses/${id}/students/${confirmRemoveStudent}`, { method: "DELETE" });
+      await removeCourseStudent(id, confirmRemoveStudent);
       addToast("success", "Removed student");
       setConfirmRemoveStudent(null);
       await loadRoster();
@@ -506,8 +396,8 @@ export default function CourseDetail() {
     try {
       setAdding(true);
       // Find student by wcode via existing student lookup endpoint.
-      const st = await apiJson<Student>(`/api/v1/students/${encodeURIComponent(w)}`, { method: "GET" });
-      await apiJson(`/api/v1/courses/${id}/students`, { method: "POST", body: JSON.stringify({ student_id: st.id }) });
+      const st = await getStudentByWcode(w);
+      await addCourseStudent(id, st.id);
       addToast("success", "Added student");
       setAddingWcode("");
       await loadRoster();
@@ -999,7 +889,8 @@ export default function CourseDetail() {
 
         {user?.role === "Admin" && (
           <LegacyLinkSection course={course} onLinked={async () => {
-            const updated = await apiJson<Course>(`/api/v1/courses/${id}`, { method: "GET" });
+            if (!id) return;
+            const updated = await getCourse(id);
             setCourse(updated);
           }} />
         )}

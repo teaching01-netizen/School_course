@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { apiJson } from "@/api/client";
-import type { Student } from "@/types";
+import type { Student } from "@/types/shared";
 
 type CourseStudentsState = {
   cache: Record<string, Student[]>;

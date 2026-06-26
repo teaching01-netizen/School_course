@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ApiRequestError, apiJson } from "@/api/client";
-import type { ConflictDetails } from "@/types";
 import { isConflictDetails } from "@/utils/conflictErrors";
+import type { ConflictDetails } from "../types";
 
 export type PreflightStatus = "available" | "provisional" | "blocked" | "idle";
 

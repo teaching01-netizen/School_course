@@ -4,7 +4,7 @@ import { ChevronRight, Trash2 } from "lucide-react";
 import { apiJson } from "@/api/client";
 import { useToast } from "@/hooks/useToast";
 import { useApiQuery } from "@/hooks/useApiQuery";
-import { useCourseStudents } from "@/hooks/useCourseStudents";
+import { useCourseStudents } from "@/features/courses/hooks/useCourseStudents";
 import type { User } from "@/types";
 import PageHeading from "@/components/ui/PageHeading";
 import SearchInput from "@/components/ui/SearchInput";

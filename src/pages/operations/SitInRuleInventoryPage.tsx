@@ -5,7 +5,7 @@ import Modal from "../../components/Modal";
 import RulePredicateForm from "../../components/RulePredicateForm";
 import { RulePreviewPanel, RULE_TYPE_DESCRIPTIONS } from "../../components/RulePreviewPanel";
 import { RuleExampleSection } from "../../components/RuleExampleSection";
-import { useSitInRules } from "../../hooks/useSitInRules";
+import { useSitInRules } from "../../features/absences/hooks/useSitInRules";
 import { apiJson } from "../../api/client";
 import type { SitInRuleType, SitInRuleCreateInput } from "../../types";
 import type { CourseLevelItem } from "../../utils/levels";

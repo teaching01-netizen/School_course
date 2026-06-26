@@ -1,71 +1,32 @@
 package absenceshttp
 
 import (
-	"fmt"
-	"net/mail"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 )
 
+func normalizeWCode(raw string) string {
+	return absences.NormalizeWCode(raw)
+}
+
 func normalizeSubmissionSitInMethod(raw *string) (pgtype.Text, error) {
-	if raw == nil {
-		return pgtype.Text{}, nil
-	}
-	value := strings.TrimSpace(*raw)
-	switch value {
-	case "":
-		return pgtype.Text{}, nil
-	case "physical", "zoom":
-		return pgtype.Text{String: value, Valid: true}, nil
-	case "teacher_case", "none":
-		return pgtype.Text{}, nil
-	default:
-		return pgtype.Text{}, fmt.Errorf("invalid sit-in method")
-	}
+	return absences.NormalizeSubmissionSitInMethod(raw)
 }
 
 func projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords int32) bool {
-	if totalSessions <= 0 || submittingAbsenceRecords <= 0 {
-		return false
-	}
-	return (existingAbsenceRecords+submittingAbsenceRecords)*5 > totalSessions
+	return absences.ProjectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords)
 }
 
 func resolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {
-	if raw == nil {
-		return pgtype.Text{}, false, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return pgtype.Text{}, false, nil
-	}
-	if pgTextHasValue(emailCRM) || pgTextHasValue(emailSystem) {
-		return pgtype.Text{}, false, fmt.Errorf("student already has an email on file")
-	}
-	if !validPlainEmailAddress(trimmed) {
-		return pgtype.Text{}, false, fmt.Errorf("invalid email")
-	}
-	return pgtype.Text{String: trimmed, Valid: true}, true, nil
+	return absences.ResolveClientStudentEmail(raw, emailCRM, emailSystem)
 }
 
 func clientStudentEmailProvided(raw *string) bool {
-	return raw != nil && strings.TrimSpace(*raw) != ""
-}
-
-func pgTextHasValue(value pgtype.Text) bool {
-	return value.Valid && strings.TrimSpace(value.String) != ""
-}
-
-func validPlainEmailAddress(value string) bool {
-	if strings.ContainsAny(value, " \t\r\n") || strings.Count(value, "@") != 1 {
-		return false
-	}
-	parsed, err := mail.ParseAddress(value)
-	return err == nil && parsed.Address == value
+	return absences.ClientStudentEmailProvided(raw)
 }
 
 type sessionTimingInfo struct {
@@ -83,42 +44,11 @@ func (e *sessionTimingError) Error() string {
 }
 
 func validateSessionTiming(settings absenceFormSettings, now time.Time, sessions []sessionTimingInfo) *sessionTimingError {
-	for _, session := range sessions {
-		if timingErr := sessionTimingPolicyError(settings, now, session); timingErr != nil {
-			return timingErr
-		}
-	}
-	return nil
+	return toSessionTimingError(absences.ValidateSessionTiming(timingSettings(settings), now, domainSessionTimingInfos(sessions)))
 }
 
 func sessionAllowedByTimingPolicy(settings absenceFormSettings, now time.Time, session sessionTimingInfo) bool {
-	return sessionTimingPolicyError(settings, now, session) == nil
-}
-
-func sessionTimingPolicyError(settings absenceFormSettings, now time.Time, session sessionTimingInfo) *sessionTimingError {
-	sessionStarted := session.StartAt.Valid && !now.Before(session.StartAt.Time)
-	if settings.MaxHoursAfterSession > 0 && session.EndAt.Valid {
-		deadline := session.EndAt.Time.Add(time.Duration(settings.MaxHoursAfterSession) * time.Hour)
-		if now.After(deadline) {
-			return &sessionTimingError{
-				code:    "grace_period_expired",
-				message: fmt.Sprintf("Request period ended %d %s after class", settings.MaxHoursAfterSession, pluralizeHour(settings.MaxHoursAfterSession)),
-			}
-		}
-		if sessionStarted {
-			return nil
-		}
-	}
-	if settings.MinHoursBeforeSession > 0 && session.StartAt.Valid {
-		cutoff := now.Add(time.Duration(settings.MinHoursBeforeSession) * time.Hour)
-		if cutoff.After(session.StartAt.Time) {
-			return &sessionTimingError{
-				code:    "too_close_to_session",
-				message: fmt.Sprintf("Must request at least %d %s before class", settings.MinHoursBeforeSession, pluralizeHour(settings.MinHoursBeforeSession)),
-			}
-		}
-	}
-	return nil
+	return absences.SessionAllowedByTimingPolicy(timingSettings(settings), now, absences.SessionTimingInfo{StartAt: session.StartAt, EndAt: session.EndAt})
 }
 
 func sessionTimingInfos(rows []sqldb.MissedSessionTimingRow) []sessionTimingInfo {
@@ -129,9 +59,24 @@ func sessionTimingInfos(rows []sqldb.MissedSessionTimingRow) []sessionTimingInfo
 	return out
 }
 
-func pluralizeHour(hours int) string {
-	if hours == 1 {
-		return "hour"
+func timingSettings(settings absenceFormSettings) absences.TimingSettings {
+	return absences.TimingSettings{
+		MinHoursBeforeSession: settings.MinHoursBeforeSession,
+		MaxHoursAfterSession:  settings.MaxHoursAfterSession,
 	}
-	return "hours"
+}
+
+func domainSessionTimingInfos(sessions []sessionTimingInfo) []absences.SessionTimingInfo {
+	out := make([]absences.SessionTimingInfo, 0, len(sessions))
+	for _, session := range sessions {
+		out = append(out, absences.SessionTimingInfo{StartAt: session.StartAt, EndAt: session.EndAt})
+	}
+	return out
+}
+
+func toSessionTimingError(err *absences.SessionTimingError) *sessionTimingError {
+	if err == nil {
+		return nil
+	}
+	return &sessionTimingError{code: err.Code, message: err.Message}
 }
