@@ -481,22 +481,7 @@ export default function AbsenceForm() {
               })}
             </div>
           </div>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/absences")}
-              className="min-h-[48px] flex-1 rounded-lg bg-[var(--color-wi-primary)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-wi-primary-dark)]"
-            >
-              View my absences
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              className="min-h-[48px] flex-1 rounded-lg border border-[var(--color-wi-border)] bg-white px-4 text-sm font-semibold text-[var(--color-wi-text)] transition-colors hover:bg-[var(--color-wi-bg)]"
-            >
-              Back to home
-            </button>
-          </div>
+
         </div>
       </div>
     );
