@@ -945,6 +945,81 @@ func TestResolveSatVerbalPolicy_MappedBeginnerSection3TargetsSection1SameLessonO
 	}
 }
 
+func TestResolveSatVerbalPolicy_AfterPastLastPriorityReturnsEmptySitInResult(t *testing.T) {
+	section3ID := "30000000-0000-0000-0000-000000000003"
+	section1ID := "10000000-0000-0000-0000-000000000001"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "rank3-sec3",
+			"courseName": "SAT Verbal Rank 3-Section 3",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Another Rank 3 section (same lesson #)",
+					"makeupTargets": [{ "section": "Section 1", "subject": "Reading" }]
+				},
+				{
+					"level": 3,
+					"ruleType": "rank_chain",
+					"label": "3rd Priority: Rank 4 Reading or Writing",
+					"eligibleTargets": ["SAT Verbal Reading Rank 4"]
+				}
+			]
+		}
+	]`)
+
+	courses := []sqldb.SubjectCourseV2{
+		satCourse(section3ID, "SAT Verbal Rank 3-Section 3"),
+		satCourse(section1ID, "SAT Verbal Rank 3 Section 1"),
+	}
+	missedSessions := []sqldb.SessionInRange{
+		session("d3000000-0000-0000-0000-000000000002", section3ID, "2026-02-08T09:00:00Z", "2026-02-08T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section3ID): {
+			session("d3000000-0000-0000-0000-000000000001", section3ID, "2026-02-01T09:00:00Z", "2026-02-01T10:00:00Z"),
+			missedSessions[0],
+			session("d3000000-0000-0000-0000-000000000003", section3ID, "2026-02-15T09:00:00Z", "2026-02-15T10:00:00Z"),
+		},
+		makeUUID(section1ID): {
+			session("d1000000-0000-0000-0000-000000000001", section1ID, "2026-02-01T11:00:00Z", "2026-02-01T12:00:00Z"),
+			session("d1000000-0000-0000-0000-000000000002", section1ID, "2026-02-08T11:00:00Z", "2026-02-08T12:00:00Z"),
+			session("d1000000-0000-0000-0000-000000000003", section1ID, "2026-02-15T11:00:00Z", "2026-02-15T12:00:00Z"),
+		},
+	}
+
+	// afterPriorityLevel=3 means "show priorities after level 3" — no priorities remain
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Policy:             rules,
+		MissedCourse:       courses[0],
+		Enrolled:           []sqldb.StudentEnrolledCourseV2{satEnrolled(section3ID, "SAT Verbal Rank 3-Section 3")},
+		AllCourses:         courses,
+		MissedSessions:     missedSessions,
+		AfterPriorityLevel: 3,
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil SitInResult when SAT Verbal mapping exists but no priorities remain")
+	}
+	if result.SitInMethod != SitInMethodNone {
+		t.Fatalf("SitInMethod = %q, want %q", result.SitInMethod, SitInMethodNone)
+	}
+	if len(result.Priorities) != 0 {
+		t.Fatalf("expected empty priorities, got %d", len(result.Priorities))
+	}
+	if result.HasNextPriority {
+		t.Fatal("expected has_next_priority = false when past last priority")
+	}
+}
+
 func TestSubjectWindowWeeksFallsBackToRootGroup(t *testing.T) {
 	subjectID := "11111111-1111-1111-1111-111111111111"
 	rootID := "22222222-2222-2222-2222-222222222222"

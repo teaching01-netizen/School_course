@@ -90,7 +90,15 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	}
 	visiblePriorities, currentLevel, hasNext := satVerbalVisiblePriority(priorities, input.AfterPriorityLevel)
 	if len(visiblePriorities) == 0 {
-		return nil, nil
+		return &SitInResult{
+			SitInMethod:          SitInMethodNone,
+			RuleName:             "SAT Verbal Policy",
+			RuleType:             "sat_verbal_policy",
+			Priorities:           []SitInPriorityResult{},
+			CurrentPriorityLevel: 0,
+			HasNextPriority:      false,
+			MissedCount:          len(input.MissedSessions),
+		}, nil
 	}
 
 	result := &SitInResult{
