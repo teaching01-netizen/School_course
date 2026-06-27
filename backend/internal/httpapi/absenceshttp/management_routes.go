@@ -76,6 +76,7 @@ type absenceSessionDTO struct {
 	CourseID   string  `json:"course_id"`
 	CourseCode string  `json:"course_code"`
 	CourseName string  `json:"course_name"`
+	SubjectName *string `json:"subject_name"`
 	RoomName   *string `json:"room_name"`
 	StartAt    string  `json:"start_at"`
 	EndAt      string  `json:"end_at"`
@@ -581,6 +582,7 @@ func (s *server) sessionDTO(rows []sqldb.ManagedAbsenceSession) []absenceSession
 		courseID, _ := s.a.UUIDString(row.CourseID)
 		out = append(out, absenceSessionDTO{
 			ID: id, SessionID: sessionID, CourseID: courseID, CourseCode: row.CourseCode, CourseName: row.CourseName,
+			SubjectName: stringPtrIfValid(row.SubjectName),
 			RoomName: stringPtrIfValid(row.RoomName),
 			StartAt:  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
 			EndAt:    row.EndAt.Time.UTC().Format(time.RFC3339Nano),

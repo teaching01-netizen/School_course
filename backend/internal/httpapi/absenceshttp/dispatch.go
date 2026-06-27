@@ -80,6 +80,13 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 		}
 		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
 		return
+	case "batch-send-success-sms":
+		if r.Method == http.MethodPost {
+			s.handleBatchSendSuccessSMS(w, r)
+			return
+		}
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
+		return
 	case "batch-status":
 		if r.Method == http.MethodPost {
 			s.handleBatchStatus(w, r)

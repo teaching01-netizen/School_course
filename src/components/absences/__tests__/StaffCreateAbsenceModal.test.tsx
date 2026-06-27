@@ -405,3 +405,157 @@ describe("accessibility and validation", () => {
     });
   });
 });
+
+const MOCK_STUDENT_TWO_SUBJECTS = {
+  student_id: "s1",
+  wcode: "W001",
+  full_name: "Test Student",
+  subjects: [
+    { id: "sub1", code: "MATH", name: "Mathematics", active_course_id: "c1" },
+    { id: "sub2", code: "ENG", name: "English", active_course_id: "c2" },
+  ],
+};
+
+const MOCK_SESSIONS_TWO_SUBJECTS = {
+  subjects: [
+    {
+      subject_id: "sub1",
+      subject_code: "MATH",
+      subject_name: "Mathematics",
+      course_id: "c1",
+      course_code: "MATH-1",
+      course_name: "Math 101",
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: { id: "sitcourse1", code: "SCI-1", name: "Science 101", subject_name: "Science" },
+        available_sessions: [
+          { id: "sit1", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z", course_id: "sitcourse1" },
+        ],
+      },
+      sessions: [
+        { id: "sess1", start_at: "2026-06-24T10:00:00Z", end_at: "2026-06-24T11:00:00Z", date: "2026-06-24", already_absent: false },
+      ],
+    },
+    {
+      subject_id: "sub2",
+      subject_code: "ENG",
+      subject_name: "English",
+      course_id: "c2",
+      course_code: "ENG-1",
+      course_name: "English 101",
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: { id: "sitcourse2", code: "HIS-1", name: "History 101", subject_name: "History" },
+        available_sessions: [
+          { id: "sit2", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z", course_id: "sitcourse2" },
+        ],
+      },
+      sessions: [
+        { id: "sess2", start_at: "2026-06-24T12:00:00Z", end_at: "2026-06-24T13:00:00Z", date: "2026-06-24", already_absent: false },
+      ],
+    },
+  ],
+};
+
+describe("multi-subject SMS aggregation", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("sends batch endpoint with all absence IDs when multiple subjects created", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT_TWO_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "absence-1", status: "pending", sms_preview: { phones: ["+66811111111"], message: "Math preview" } })
+      .mockResolvedValueOnce({ id: "absence-2", status: "pending", sms_preview: { phones: ["+66811111111"], message: "English preview" } })
+      .mockResolvedValueOnce({ sent: true, recipient_count: 1, absence_count: 2 });
+    renderModal({ onCreated });
+
+    // Step 1: lookup + select both subjects
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => { expect(screen.getByText("Test Student")).toBeInTheDocument(); });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("checkbox", { name: /English/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: select sessions for both subjects (each shows "1 class day")
+    await waitFor(() => { expect(screen.getAllByText(/1 class day/).length).toBeGreaterThanOrEqual(2); });
+    const checkboxes = await screen.findAllByRole("checkbox");
+    for (const cb of checkboxes) {
+      await user.click(cb);
+    }
+    // Select sit-ins for both sessions (each subject has its own sit-in option)
+    const sitInSelects = await screen.findAllByRole("combobox");
+    for (const sel of sitInSelects) {
+      const options = Array.from((sel as HTMLSelectElement).options).filter(o => o.value);
+      if (options.length > 0) await user.selectOptions(sel, options[0].value);
+    }
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 3: submit
+    await waitFor(() => { expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument(); });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    // Should show SmsConfirmModal with aggregated preview
+    await waitFor(() => {
+      expect(screen.getByText("Send Absence Notification")).toBeInTheDocument();
+      expect(screen.getByText("Math preview; English preview")).toBeInTheDocument();
+    });
+
+    // Click Send SMS
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+
+    await waitFor(() => {
+      const batchCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(batchCalls.length).toBe(1);
+      const body = JSON.parse((batchCalls[0][1] as RequestInit).body as string);
+      expect(body.ids).toEqual(["absence-1", "absence-2"]);
+    });
+  });
+
+  it("calls batch endpoint with single ID for single subject", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "absence-single", status: "pending", sms_preview: { phones: ["+66811111111"], message: "Single preview" } })
+      .mockResolvedValueOnce({ sent: true, recipient_count: 1, absence_count: 1 });
+    renderModal({ onCreated });
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => { expect(screen.getByText("Test Student")).toBeInTheDocument(); });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByText(/1 class day/)).toBeInTheDocument(); });
+    await user.click(await screen.findByRole("checkbox"));
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument(); });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Send Absence Notification")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+
+    await waitFor(() => {
+      const batchCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(batchCalls.length).toBe(1);
+      const body = JSON.parse((batchCalls[0][1] as RequestInit).body as string);
+      expect(body.ids).toEqual(["absence-single"]);
+    });
+  });
+});

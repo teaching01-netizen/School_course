@@ -301,8 +301,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     if (!student) return;
     setSubmitting(true);
     const created: string[] = [];
-    let lastSms: SmsPreview | null = null;
-    let lastCreatedId: string | null = null;
+    let aggregatedSms: SmsPreview | null = null;
 
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
@@ -347,9 +346,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           }),
         });
         created.push(res.id);
-        if (res.sms_preview && res.sms_preview.phones.length > 0 && !lastSms) {
-          lastSms = res.sms_preview;
-          lastCreatedId = res.id;
+        if (res.sms_preview && res.sms_preview.phones.length > 0) {
+          if (!aggregatedSms) {
+            aggregatedSms = res.sms_preview;
+          } else {
+            aggregatedSms = {
+              phones: aggregatedSms.phones,
+              message: aggregatedSms.message + "; " + res.sms_preview.message,
+            };
+          }
         }
       } catch (err) {
         addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
@@ -360,9 +365,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     if (created.length === 0) return;
     setCreatedAbsenceIds(created);
 
-    if (lastSms && lastCreatedId) {
-      setSmsPreview(lastSms);
-      setCreatedAbsenceIds([lastCreatedId]);
+    if (aggregatedSms && created.length > 0) {
+      setSmsPreview(aggregatedSms);
     } else {
       addToast("success", `${created.length} absence${created.length !== 1 ? "s" : ""} created`);
       onCreated();
@@ -376,7 +380,10 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
     setSendingSms(true);
     try {
-      const res = await apiJson<{ sent: boolean; recipient_count: number }>(`/api/v1/absences/${createdAbsenceIds[0]}/send-success-sms`, { method: "POST" });
+      const res = await apiJson<{ sent: boolean; recipient_count: number }>("/api/v1/absences/batch-send-success-sms", {
+        method: "POST",
+        body: JSON.stringify({ ids: createdAbsenceIds }),
+      });
       if (!res.sent) {
         addToast("error", "SMS was not sent");
         return;

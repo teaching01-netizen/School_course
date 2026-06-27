@@ -1,6 +1,7 @@
 package absenceshttp
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -339,6 +340,97 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 		}
 
 		return http.StatusOK, map[string]any{"sent": true, "recipient_count": len(phones)}, nil
+	}) {
+		return
+	}
+}
+
+func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
+	_, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid request body")
+		return
+	}
+	if len(body.IDs) == 0 {
+		s.a.WriteErr(w, http.StatusBadRequest, "no_ids", "At least one absence ID is required")
+		return
+	}
+
+	ids := make([]pgtype.UUID, 0, len(body.IDs))
+	seen := map[string]bool{}
+	for _, raw := range body.IDs {
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		id, err := s.a.ParseUUID(raw)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid absence ID: "+raw)
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	idempotencyKey := "batch-send-sms-" + strings.Join(body.IDs, ",")
+	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, idempotencyKey, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+
+		settings, err := s.readAbsenceSettings(r)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if settings.Notifications.SmsSuccessTemplate == "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
+			return 0, nil, fmt.Errorf("sms not configured")
+		}
+
+		items := make([]successSMSItem, 0, len(ids))
+		var wcode string
+		for _, id := range ids {
+			managed, err := qtx.ManagedAbsenceGet(r.Context(), id)
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, err
+			}
+			if wcode == "" {
+				wcode = managed.Wcode
+			} else if managed.Wcode != wcode {
+				s.a.WriteErr(w, http.StatusBadRequest, "mixed_students", "All absences must belong to the same student")
+				return 0, nil, fmt.Errorf("mixed students")
+			}
+			sess, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
+			mis, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
+			items = append(items, successSMSItem{row: managed, sessions: sess, missed: mis})
+		}
+
+		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), wcode)
+		if contactErr != nil || len(contactRows) == 0 {
+			s.a.WriteErr(w, http.StatusBadRequest, "no_contacts", "No contact phone numbers found for this student")
+			return 0, nil, fmt.Errorf("no contacts")
+		}
+		phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
+		if len(phones) == 0 {
+			s.a.WriteErr(w, http.StatusBadRequest, "no_phones", "No phone numbers available for this student")
+			return 0, nil, fmt.Errorf("no phones")
+		}
+
+		sent := sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, items, phones, s.deps.InstituteTZ)
+		if !sent {
+			s.a.WriteErr(w, http.StatusInternalServerError, "sms_send_failed", "Failed to send SMS notification")
+			return 0, nil, fmt.Errorf("sms send failed")
+		}
+
+		return http.StatusOK, map[string]any{"sent": true, "recipient_count": len(phones), "absence_count": len(ids)}, nil
 	}) {
 		return
 	}

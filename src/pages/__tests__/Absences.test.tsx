@@ -79,6 +79,51 @@ const PAGE_WITH_MISSED_SESSIONS = {
           course_id: "sit-course-1",
           course_code: "MATH-301",
           course_name: "SAT Math Scholar C2",
+          subject_name: "Mathematics",
+          start_at: "2026-06-03T10:00:00+07:00",
+          end_at: "2026-06-03T11:30:00+07:00",
+        },
+      ],
+    },
+  ],
+};
+
+const PAGE_WITH_CROSS_SUBJECT_SIT_IN = {
+  ...PAGE,
+  items: [
+    {
+      ...PAGE.items[0],
+      sit_in_method: "physical",
+      sit_in_subject_name: "Natural Sciences",
+      sit_ins: [
+        {
+          id: "sit-1",
+          session_id: "sit-session-1",
+          course_id: "sit-course-1",
+          course_code: "PHYS-101",
+          course_name: "Physics I",
+          subject_name: "Natural Sciences",
+          start_at: "2026-06-03T10:00:00+07:00",
+          end_at: "2026-06-03T11:30:00+07:00",
+        },
+      ],
+    },
+  ],
+};
+
+const PAGE_WITH_SAME_SUBJECT_SIT_IN = {
+  ...PAGE,
+  items: [
+    {
+      ...PAGE.items[0],
+      sit_ins: [
+        {
+          id: "sit-1",
+          session_id: "sit-session-1",
+          course_id: "sit-course-1",
+          course_code: "MATH-301",
+          course_name: "SAT Math Scholar C2",
+          subject_name: "Mathematics",
           start_at: "2026-06-03T10:00:00+07:00",
           end_at: "2026-06-03T11:30:00+07:00",
         },
@@ -138,7 +183,8 @@ describe("Absence inbox", () => {
     expect(row).toHaveTextContent("8 Jun");
     expect(row).toHaveTextContent("09:00");
     expect(row).toHaveTextContent("12:00");
-    expect(row).toHaveTextContent("SAT Math Scholar C2");
+    expect(row).toHaveTextContent("Mathematics");
+    expect(row).not.toHaveTextContent("SAT Math Scholar C2");
     expect(row).toHaveTextContent("3 Jun");
     expect(row).toHaveTextContent("10:00");
     expect(row).toHaveTextContent("11:30");
@@ -497,5 +543,31 @@ describe("Absence inbox", () => {
     expect(screen.queryByText("Cancel absence")).not.toBeInTheDocument();
     expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
     expect(screen.getByText(/permanently remove the absence record/i)).toBeInTheDocument();
+  });
+
+  it("shows sit-in subject name for cross-subject sit-in sessions", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE_WITH_CROSS_SUBJECT_SIT_IN);
+    renderPage();
+
+    const absenceLink = await screen.findByRole("link", { name: /view john smith absence/i });
+    const row = absenceLink.closest("tr");
+    if (!row) throw new Error("Expected absence table row");
+    expect(row).toHaveTextContent("Natural Sciences");
+    expect(row).toHaveTextContent("10:00");
+    expect(row).toHaveTextContent("11:30");
+    expect(row).not.toHaveTextContent("Physics I");
+  });
+
+  it("shows sit-in subject name for same-subject sit-in sessions", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE_WITH_SAME_SUBJECT_SIT_IN);
+    renderPage();
+
+    const absenceLink = await screen.findByRole("link", { name: /view john smith absence/i });
+    const row = absenceLink.closest("tr");
+    if (!row) throw new Error("Expected absence table row");
+    expect(row).toHaveTextContent("Mathematics");
+    expect(row).toHaveTextContent("10:00");
+    expect(row).toHaveTextContent("11:30");
+    expect(row).not.toHaveTextContent("SAT Math Scholar C2");
   });
 });
