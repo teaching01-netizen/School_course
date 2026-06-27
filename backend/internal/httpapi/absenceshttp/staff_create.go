@@ -352,7 +352,8 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 	}
 
 	var body struct {
-		IDs []string `json:"ids"`
+		IDs    []string `json:"ids"`
+		DryRun bool     `json:"dry_run"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid request body")
@@ -422,6 +423,15 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 		if len(phones) == 0 {
 			s.a.WriteErr(w, http.StatusBadRequest, "no_phones", "No phone numbers available for this student")
 			return 0, nil, fmt.Errorf("no phones")
+		}
+
+		if body.DryRun {
+			loc, _ := time.LoadLocation(s.deps.InstituteTZ)
+			if loc == nil {
+				loc = time.UTC
+			}
+			rendered := renderBatchSuccessSMSTemplate(settings.Notifications.SmsSuccessTemplate, items, loc)
+			return http.StatusOK, map[string]any{"preview": map[string]any{"phones": phones, "message": rendered}}, nil
 		}
 
 		sent := sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, items, phones, s.deps.InstituteTZ)

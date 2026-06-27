@@ -301,7 +301,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     if (!student) return;
     setSubmitting(true);
     const created: string[] = [];
-    let aggregatedSms: SmsPreview | null = null;
 
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
@@ -346,16 +345,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           }),
         });
         created.push(res.id);
-        if (res.sms_preview && res.sms_preview.phones.length > 0) {
-          if (!aggregatedSms) {
-            aggregatedSms = res.sms_preview;
-          } else {
-            aggregatedSms = {
-              phones: aggregatedSms.phones,
-              message: aggregatedSms.message + "; " + res.sms_preview.message,
-            };
-          }
-        }
       } catch (err) {
         addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
       }
@@ -365,12 +354,22 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     if (created.length === 0) return;
     setCreatedAbsenceIds(created);
 
-    if (aggregatedSms && created.length > 0) {
-      setSmsPreview(aggregatedSms);
-    } else {
-      addToast("success", `${created.length} absence${created.length !== 1 ? "s" : ""} created`);
-      onCreated();
+    if (created.length > 0) {
+      try {
+        const preview = await apiJson<{ preview?: SmsPreview }>("/api/v1/absences/batch-send-success-sms", {
+          method: "POST",
+          body: JSON.stringify({ ids: created, dry_run: true }),
+        });
+        if (preview.preview && preview.preview.phones.length > 0) {
+          setSmsPreview(preview.preview);
+          return;
+        }
+      } catch {
+        // fall through to toast
+      }
     }
+    addToast("success", `${created.length} absence${created.length !== 1 ? "s" : ""} created`);
+    onCreated();
   }
 
   async function handleSendSms() {

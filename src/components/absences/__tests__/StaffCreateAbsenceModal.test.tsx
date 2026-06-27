@@ -469,8 +469,9 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_STUDENT_TWO_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
-      .mockResolvedValueOnce({ id: "absence-1", status: "pending", sms_preview: { phones: ["+66811111111"], message: "Math preview" } })
-      .mockResolvedValueOnce({ id: "absence-2", status: "pending", sms_preview: { phones: ["+66811111111"], message: "English preview" } })
+      .mockResolvedValueOnce({ id: "absence-1", status: "pending" })
+      .mockResolvedValueOnce({ id: "absence-2", status: "pending" })
+      .mockResolvedValueOnce({ preview: { phones: ["+66811111111"], message: "Aggregated preview" } })
       .mockResolvedValueOnce({ sent: true, recipient_count: 1, absence_count: 2 });
     renderModal({ onCreated });
 
@@ -500,22 +501,34 @@ describe("multi-subject SMS aggregation", () => {
     await waitFor(() => { expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument(); });
     await user.click(screen.getByRole("button", { name: /create absence/i }));
 
-    // Should show SmsConfirmModal with aggregated preview
+    // Should call dry_run to get preview, then show SmsConfirmModal
     await waitFor(() => {
-      expect(screen.getByText("Send Absence Notification")).toBeInTheDocument();
-      expect(screen.getByText("Math preview; English preview")).toBeInTheDocument();
+      const dryRunCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(dryRunCalls.length).toBeGreaterThanOrEqual(1);
+      const body = JSON.parse((dryRunCalls[0][1] as RequestInit).body as string);
+      expect(body.ids).toEqual(["absence-1", "absence-2"]);
+      expect(body.dry_run).toBe(true);
     });
 
-    // Click Send SMS
+    await waitFor(() => {
+      expect(screen.getByText("Send Absence Notification")).toBeInTheDocument();
+      expect(screen.getByText("Aggregated preview")).toBeInTheDocument();
+    });
+
+    // Click Send SMS — calls batch endpoint again without dry_run
     await user.click(screen.getByRole("button", { name: /send sms/i }));
 
     await waitFor(() => {
-      const batchCalls = mockApiJson.mock.calls.filter(
+      const sendCalls = mockApiJson.mock.calls.filter(
         (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
       );
-      expect(batchCalls.length).toBe(1);
-      const body = JSON.parse((batchCalls[0][1] as RequestInit).body as string);
-      expect(body.ids).toEqual(["absence-1", "absence-2"]);
+      // dry_run + send = 2 calls
+      expect(sendCalls.length).toBe(2);
+      const sendBody = JSON.parse((sendCalls[1][1] as RequestInit).body as string);
+      expect(sendBody.ids).toEqual(["absence-1", "absence-2"]);
+      expect(sendBody.dry_run).toBeUndefined();
     });
   });
 
@@ -526,7 +539,8 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
-      .mockResolvedValueOnce({ id: "absence-single", status: "pending", sms_preview: { phones: ["+66811111111"], message: "Single preview" } })
+      .mockResolvedValueOnce({ id: "absence-single", status: "pending" })
+      .mockResolvedValueOnce({ preview: { phones: ["+66811111111"], message: "Single aggregated" } })
       .mockResolvedValueOnce({ sent: true, recipient_count: 1, absence_count: 1 });
     renderModal({ onCreated });
 
@@ -545,6 +559,7 @@ describe("multi-subject SMS aggregation", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Send Absence Notification")).toBeInTheDocument();
+      expect(screen.getByText("Single aggregated")).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole("button", { name: /send sms/i }));
@@ -553,9 +568,11 @@ describe("multi-subject SMS aggregation", () => {
       const batchCalls = mockApiJson.mock.calls.filter(
         (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
       );
-      expect(batchCalls.length).toBe(1);
-      const body = JSON.parse((batchCalls[0][1] as RequestInit).body as string);
-      expect(body.ids).toEqual(["absence-single"]);
+      // dry_run + send = 2 calls
+      expect(batchCalls.length).toBe(2);
+      const sendBody = JSON.parse((batchCalls[1][1] as RequestInit).body as string);
+      expect(sendBody.ids).toEqual(["absence-single"]);
+      expect(sendBody.dry_run).toBeUndefined();
     });
   });
 });
