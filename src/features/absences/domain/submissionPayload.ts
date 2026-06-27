@@ -221,12 +221,6 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
     };
     if (sitInMethod === "physical" || sitInMethod === "zoom") payload.sit_in_method = sitInMethod;
     const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, input.sitInSelections, input.sitInPriorityLevels, input.sitInPriorityHistory);
-    if (sitInCourseID === null) {
-      return {
-        ok: false,
-        error: `${group.subject_name || group.course_name} has sit-in selections from more than one priority class. Split them into separate submissions.`,
-      };
-    }
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
     if (sitInMethod === "physical" && sitInCourseID && sitInSessionIds.length > 0) {
       const mismatched = sitInSessionIds.filter((sid) => {

@@ -191,7 +191,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 				return 0, nil, fmt.Errorf("non-physical sit-in with sessions")
 			}
-			count, err := qtx.ValidSitInSessionCount(r.Context(), row.ID, sitInCourseID, sessionUUIDs)
+			count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)

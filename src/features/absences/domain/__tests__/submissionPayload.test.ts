@@ -45,7 +45,7 @@ describe("absence submission payload builder", () => {
     });
   });
 
-  it("rejects one course payload when selected physical sit-ins span multiple target courses", () => {
+  it("builds payload when selected physical sit-ins span multiple target courses", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
       sessions: [
@@ -82,8 +82,19 @@ describe("absence submission payload builder", () => {
     });
 
     expect(result).toEqual({
-      ok: false,
-      error: "Mathematics has sit-in selections from more than one priority class. Split them into separate submissions.",
+      ok: true,
+      payloads: [
+        {
+          subject_id: "subj-1",
+          course_id: "course-1",
+          date_from: "2026-06-01",
+          date_to: "2026-06-02",
+          reason: "Travel",
+          sit_in_method: "physical",
+          missed_session_ids: ["missed-1", "missed-2"],
+          sit_in_session_ids: ["sit-a", "sit-b"],
+        },
+      ],
     });
   });
 

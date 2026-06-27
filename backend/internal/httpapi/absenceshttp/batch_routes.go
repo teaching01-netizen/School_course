@@ -368,11 +368,7 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 			return createdAbsenceRecord{}, false
 		}
-		if !sitInCourseID.Valid {
-			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
-			return createdAbsenceRecord{}, false
-		}
-		count, err := qtx.ValidSitInSessionCount(r.Context(), row.ID, sitInCourseID, sessionUUIDs)
+		count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

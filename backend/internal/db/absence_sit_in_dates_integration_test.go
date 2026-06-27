@@ -137,6 +137,112 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 	}
 }
 
+func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	teacher, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "ov-teacher-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "OvRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	missedCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "OVMISS-" + suffix, Name: "OvMissed " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sitInCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "OVSIT-" + suffix, Name: "OvSitIn " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "OVOTHER-" + suffix, Name: "OvOther " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createSession := func(courseID pgtype.UUID, start, end time.Time) pgtype.UUID {
+		t.Helper()
+		session, err := q.SessionCreate(ctx, SessionCreateParams{
+			SeriesID:  pgtype.UUID{},
+			CourseID:  courseID,
+			RoomID:    room.ID,
+			TeacherID: teacher,
+			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session.ID
+	}
+
+	// Missed class
+	createSession(missedCourse.ID,
+		time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC),
+	)
+	fromSitInCourse := createSession(sitInCourse.ID,
+		time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 1, 14, 0, 0, 0, time.UTC),
+	)
+	fromOtherCourse := createSession(otherCourse.ID,
+		time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC),
+	)
+	overlapping := createSession(sitInCourse.ID,
+		time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+	)
+
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+		Wcode:         "WOVRLAP-" + suffix,
+		CourseID:      missedCourse.ID,
+		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
+		Reason:        pgtype.Text{String: "sick", Valid: true},
+		SitInCourseID: missedCourse.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both non-overlapping sessions pass regardless of course
+	count, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromSitInCourse, fromOtherCourse})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("expected both non-overlapping sessions from different courses to be valid, got count %d", count)
+	}
+
+	// Overlapping session still fails; wrong-course-but-non-overlapping passes
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{overlapping, fromOtherCourse})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected only the non-overlapping session from other course to be valid, got count %d", count)
+	}
+
+	// Single session from other course passes
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromOtherCourse})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected single session from other course to be valid, got count %d", count)
+	}
+}
+
 func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
