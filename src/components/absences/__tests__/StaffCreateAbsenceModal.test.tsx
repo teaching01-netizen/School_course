@@ -193,7 +193,7 @@ describe("StaffCreateAbsenceModal", () => {
     });
   });
 
-  it("loads sessions with wide date bounds on step 2", async () => {
+  it("loads sessions with wide date bounds and bypass_timing on step 2", async () => {
     const user = userEvent.setup();
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
@@ -211,7 +211,7 @@ describe("StaffCreateAbsenceModal", () => {
     await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
     await user.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 2: verify sessions loaded with wide date bounds
+    // Step 2: verify sessions loaded with wide date bounds and bypass_timing
     await waitFor(() => {
       expect(screen.getByText(/1 class day/)).toBeInTheDocument();
     });
@@ -219,6 +219,7 @@ describe("StaffCreateAbsenceModal", () => {
     const sessionsUrl = mockApiJson.mock.calls[1][0] as string;
     expect(sessionsUrl).toContain("date_from=1970-01-01");
     expect(sessionsUrl).toContain("date_to=2100-01-01");
+    expect(sessionsUrl).toContain("bypass_timing=true");
   });
 
   it("submits to staff-create endpoint on confirm", async () => {

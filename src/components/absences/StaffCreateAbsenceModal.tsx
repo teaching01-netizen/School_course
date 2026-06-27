@@ -124,7 +124,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    void loadSessionsInRange(student.wcode, "1970-01-01", "2100-01-01", { signal: controller.signal })
+    void loadSessionsInRange(student.wcode, "1970-01-01", "2100-01-01", { signal: controller.signal }, { bypassTiming: true })
       .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects ?? []); })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;

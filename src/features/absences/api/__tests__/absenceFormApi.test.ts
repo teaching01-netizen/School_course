@@ -23,6 +23,16 @@ describe("sessionsInRangePath", () => {
     const path = sessionsInRangePath("W250389", undefined, undefined, { satVerbalAfterPriority: 3 });
     expect(path).toContain("sat_verbal_after_priority=3");
   });
+
+  it("adds bypass_timing when bypassTiming is true", () => {
+    const path = sessionsInRangePath("W250389", undefined, undefined, { bypassTiming: true });
+    expect(path).toContain("bypass_timing=true");
+  });
+
+  it("omits bypass_timing when bypassTiming is false", () => {
+    const path = sessionsInRangePath("W250389", undefined, undefined, { bypassTiming: false });
+    expect(path).not.toContain("bypass_timing");
+  });
 });
 
 describe("normalizeAbsenceFormConfig", () => {

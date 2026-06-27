@@ -784,6 +784,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		}
 		satVerbalAfterPriority = value
 	}
+	bypassTiming := strings.TrimSpace(r.URL.Query().Get("bypass_timing")) == "true"
 
 	// Query sessions in range for all enrolled subjects.
 	type sessionDBRow struct {
@@ -835,7 +836,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 			return
 		}
-		if !sessionAllowedByTimingPolicy(settings.Form, now, sessionTimingInfo{StartAt: dbRow.StartAt, EndAt: dbRow.EndAt}) {
+		if !bypassTiming && !sessionAllowedByTimingPolicy(settings.Form, now, sessionTimingInfo{StartAt: dbRow.StartAt, EndAt: dbRow.EndAt}) {
 			continue
 		}
 		row := sessionRow{

@@ -15,6 +15,7 @@ export type AbsenceBatchCreateResponse = {
 export type SessionsInRangeOptions = {
   courseIds?: string[];
   satVerbalAfterPriority?: number;
+  bypassTiming?: boolean;
 };
 
 export function sessionsInRangePath(
@@ -31,6 +32,9 @@ export function sessionsInRangePath(
   }
   if (options?.satVerbalAfterPriority !== undefined) {
     params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
+  }
+  if (options?.bypassTiming) {
+    params.set("bypass_timing", "true");
   }
   return `/api/v1/absences/sessions-in-range?${params.toString()}`;
 }
