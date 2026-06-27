@@ -328,7 +328,7 @@ describe("absence submission payload builder", () => {
             sit_in_by_missed_session: {
               "missed-1": {
                 sit_in_method: "zoom",
-                sit_in_course: { id: "course-original" },
+                sit_in_course: { id: "course-original", code: "", name: "" },
                 available_sessions: [{ id: "zoom-orig-1", course_id: "course-original", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
               },
             },
@@ -350,7 +350,7 @@ describe("absence submission payload builder", () => {
               sit_in_by_missed_session: {
                 "missed-1": {
                   sit_in_method: "zoom",
-                  sit_in_course: { id: "course-p2" },
+                  sit_in_course: { id: "course-p2", code: "", name: "" },
                   available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-03T14:00:00+07:00", end_at: "2026-06-03T15:00:00+07:00" }],
                 },
               },
@@ -376,10 +376,10 @@ describe("absence submission payload builder", () => {
             sit_in_by_missed_session: {
               "missed-1": {
                 sit_in_method: "physical",
-                sit_in_course: { id: "course-l1" },
+                sit_in_course: { id: "course-l1", code: "", name: "" },
                 available_sessions: [{ id: "sit-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
                 priorities: [
-                  { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                   { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
                 ],
               },
             },
@@ -401,7 +401,7 @@ describe("absence submission payload builder", () => {
               sit_in_by_missed_session: {
                 "missed-1": {
                   sit_in_method: "physical",
-                  sit_in_course: { id: "course-l2" },
+                  sit_in_course: { id: "course-l2", code: "", name: "" },
                   available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
                 },
               },
@@ -427,10 +427,10 @@ describe("absence submission payload builder", () => {
             sit_in_by_missed_session: {
               "missed-1": {
                 sit_in_method: "physical",
-                sit_in_course: { id: "course-l1" },
+                sit_in_course: { id: "course-l1", code: "", name: "" },
                 available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
                 priorities: [
-                  { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                  { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
                 ],
               },
             },
@@ -452,7 +452,7 @@ describe("absence submission payload builder", () => {
               sit_in_by_missed_session: {
                 "missed-1": {
                   sit_in_method: "physical",
-                  sit_in_course: { id: "course-l2" },
+                  sit_in_course: { id: "course-l2", code: "", name: "" },
                   available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
                 },
               },
@@ -476,11 +476,11 @@ describe("selectedSitInCourseIDForGroup", () => {
       ...baseGroup,
       sit_in: {
         sit_in_method: "zoom",
-        sit_in_course: { id: "course-original" },
+        sit_in_course: { id: "course-original", code: "", name: "" },
         sit_in_by_missed_session: {
           "other-id": {
             sit_in_method: "zoom",
-            sit_in_course: { id: "course-other" },
+            sit_in_course: { id: "course-other", code: "", name: "" },
             available_sessions: [{ id: "zoom-other-1", course_id: "course-other", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
           },
         },
@@ -491,7 +491,7 @@ describe("selectedSitInCourseIDForGroup", () => {
       baseMissedIds,
       { "missed-1": "zoom-p2-1" },
       { "missed-1": 2 },
-      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "zoom", sit_in_course: { id: "course-p2" }, available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "zoom", sit_in_course: { id: "course-p2", code: "", name: "" }, available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
     );
     expect(result).toBe("course-p2");
   });
@@ -504,10 +504,10 @@ describe("selectedSitInCourseIDForGroup", () => {
         sit_in_by_missed_session: {
           "missed-1": {
             sit_in_method: "physical",
-            sit_in_course: { id: "course-l1" },
+            sit_in_course: { id: "course-l1", code: "", name: "" },
             available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
             priorities: [
-              { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+              { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
             ],
           },
         },
@@ -518,7 +518,7 @@ describe("selectedSitInCourseIDForGroup", () => {
       baseMissedIds,
       { "missed-1": "refetch-l2-1" },
       { "missed-1": 2 },
-      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "physical", sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "physical", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
     );
     expect(result).toBe("course-l2");
   });
@@ -531,10 +531,10 @@ describe("selectedSitInCourseIDForGroup", () => {
         sit_in_by_missed_session: {
           "missed-1": {
             sit_in_method: "physical",
-            sit_in_course: { id: "course-l1" },
+            sit_in_course: { id: "course-l1", code: "", name: "" },
             available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
             priorities: [
-              { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+              { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
             ],
           },
         },

@@ -142,11 +142,6 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_sessions_required", "Physical sit-in requires at least one sit-in session")
 			return 0, nil, fmt.Errorf("physical sit-in requires sessions")
 		}
-		if sitInMethod.String == "physical" && (body.SitInCourseID == nil || strings.TrimSpace(*body.SitInCourseID) == "") {
-			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Physical sit-in requires a sit-in course")
-			return 0, nil, fmt.Errorf("physical sit-in requires course")
-		}
-
 		var sitInCourseID pgtype.UUID
 		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
 			parsed, err := s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
@@ -155,6 +150,8 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				return 0, nil, err
 			}
 			sitInCourseID = parsed
+		} else if sitInMethod.String == "physical" {
+			sitInCourseID = course.CourseID
 		}
 
 		// ponytail: staff bypass the absence-record limit; add a policy config

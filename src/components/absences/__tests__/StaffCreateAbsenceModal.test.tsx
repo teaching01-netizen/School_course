@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../../../hooks/useToast";
 import StaffCreateAbsenceModal from "../StaffCreateAbsenceModal";
+
+vi.mock("../../../features/absences/domain/submissionPayload", async () => {
+  const actual = await vi.importActual<typeof import("../../../features/absences/domain/submissionPayload")>("../../../features/absences/domain/submissionPayload");
+  return { ...actual, selectedSitInCourseIDForGroup: () => null };
+});
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -263,6 +268,140 @@ describe("StaffCreateAbsenceModal", () => {
         expect.objectContaining({ method: "POST" }),
       );
       expect(onCreated).toHaveBeenCalled();
+    });
+  });
+});
+
+describe("accessibility and validation", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("w-code input has required", () => {
+    renderModal();
+    expect(screen.getByLabelText(/w-code/i)).toBeRequired();
+  });
+
+  it("w-code input has autoComplete off", () => {
+    renderModal();
+    expect(screen.getByLabelText(/w-code/i)).toHaveAttribute("autoComplete", "off");
+  });
+
+  it("renders w-code error message in DOM", () => {
+    renderModal();
+    expect(screen.getByText("Enter a student W-Code to continue")).toBeInTheDocument();
+  });
+
+  it("w-code error message has role alert", () => {
+    renderModal();
+    expect(screen.getByText("Enter a student W-Code to continue")).toHaveAttribute("role", "alert");
+  });
+
+  async function navigateToStep3(user: ReturnType<typeof userEvent.setup>) {
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG);
+    renderModal();
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => { expect(screen.getByText("Test Student")).toBeInTheDocument(); });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByText(/1 class day/)).toBeInTheDocument(); });
+    await user.click(await screen.findByRole("checkbox"));
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument(); });
+  }
+
+  it("reason category select has required", async () => {
+    const user = userEvent.setup();
+    await navigateToStep3(user);
+    expect(screen.getByLabelText(/reason category/i)).toBeRequired();
+  });
+
+  it("reason category error message has role alert", async () => {
+    const user = userEvent.setup();
+    await navigateToStep3(user);
+    expect(screen.getByText("Select a reason category")).toHaveAttribute("role", "alert");
+  });
+
+  it("step indicator shows aria-current on active step", () => {
+    const { container } = renderModal();
+    expect(container.querySelector('[aria-current="step"]')).toHaveTextContent("1");
+  });
+
+  it("focuses step heading on step change", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_SESSIONS);
+    renderModal();
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => { expect(screen.getByText("Test Student")).toBeInTheDocument(); });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => {
+      expect(document.activeElement).toHaveTextContent("Step 2: Select missed classes and make-up sessions");
+    });
+  });
+
+  it("sets aria-invalid on blur for empty w-code", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    const input = screen.getByLabelText(/w-code/i);
+    vi.spyOn(input, "checkValidity" as any).mockReturnValue(false);
+    await user.click(input);
+    await user.tab();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("removes aria-invalid on input after previously invalid", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    const input = screen.getByLabelText(/w-code/i);
+    const checkValidity = vi.spyOn(input, "checkValidity" as any);
+    checkValidity.mockReturnValue(false);
+    await user.click(input);
+    await user.tab();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    checkValidity.mockReturnValue(true);
+    await user.type(input, "W");
+    await waitFor(() => {
+      expect(input).not.toHaveAttribute("aria-invalid");
+    });
+  });
+
+  it("falls back to group.course_id when selectedSitInCourseIDForGroup returns null", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
+    renderModal();
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => { expect(screen.getByText("Test Student")).toBeInTheDocument(); });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByText(/1 class day/)).toBeInTheDocument(); });
+    await user.click(await screen.findByRole("checkbox"));
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => { expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument(); });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const calls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/staff-create",
+      );
+      expect(calls.length).toBeGreaterThan(0);
+      const body = JSON.parse((calls[0][1] as RequestInit).body as string);
+      expect(body.sit_in_course_id).toBe("c1");
     });
   });
 });

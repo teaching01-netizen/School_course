@@ -65,7 +65,7 @@ describe("getStudentDisplayName", () => {
   });
 
   it("returns empty string when all names are null", () => {
-    expect(getStudentDisplayName({ ...base, display_name: null, nickname: null, full_name: null })).toBe("");
+    expect(getStudentDisplayName({ ...base, display_name: null, nickname: null, full_name: null } as any)).toBe("");
   });
 
   it("returns empty string for null lookup", () => {

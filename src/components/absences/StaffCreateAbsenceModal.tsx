@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ChevronLeft, Info } from "lucide-react";
 import { apiJson } from "../../api/client";
 import { loadSessionsInRange } from "../../features/absences/api/absenceFormApi";
@@ -39,11 +39,14 @@ function StepIndicator({ step }: { step: ModalStep }) {
         const isComplete = i < currentIdx;
         return (
           <div key={s} className="flex items-center gap-1.5">
-            <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-              isActive ? "bg-[var(--color-wi-primary)] text-white" :
-              isComplete ? "bg-emerald-500 text-white" :
-              "bg-gray-200 text-gray-400"
-            }`}>
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                isActive ? "bg-[var(--color-wi-primary)] text-white" :
+                isComplete ? "bg-emerald-500 text-white" :
+                "bg-gray-200 text-gray-400"
+              }`}
+              aria-current={isActive ? "step" : undefined}
+            >
               {isComplete ? <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : i + 1}
             </div>
             {i < STEP_KEYS.length - 1 ? (
@@ -94,6 +97,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   const [smsPreview, setSmsPreview] = useState<SmsPreview | null>(null);
   const [createdAbsenceIds, setCreatedAbsenceIds] = useState<string[]>([]);
   const [sendingSms, setSendingSms] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const selectedSessionCount = useMemo(() => {
     let count = 0;
@@ -142,6 +146,21 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       .then((config) => setFormConfig(config))
       .catch(() => { addToast("error", "Failed to load form settings"); setFormConfig(null); });
   }, [step, formConfig, addToast]);
+
+  // Focus step heading when step changes
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [step]);
+
+  function syncAriaInvalid(el: EventTarget | null) {
+    const input = el as (HTMLInputElement | HTMLSelectElement) | null;
+    if (!input || typeof input.checkValidity !== "function") return;
+    if (!input.checkValidity()) {
+      input.setAttribute("aria-invalid", "true");
+    } else {
+      input.removeAttribute("aria-invalid");
+    }
+  }
 
   function toggleSubject(subjectId: string) {
     setSelectedSubjectIds((current) =>
@@ -308,7 +327,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
-      const sitInCourseId = selectedSitInCourseIDForGroup(group, missedIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory);
+      const sitInCourseId = selectedSitInCourseIDForGroup(group, missedIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory) ?? group.course_id;
 
       try {
         const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>("/api/v1/absences/staff-create", {
@@ -419,20 +438,27 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       {/* Step 1: Student + Subjects */}
       {step === "subjects" && (
         <div className="space-y-5">
-          <div>
+          <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step 1: Select student and subjects</h2>
+          <div className="field">
             <label htmlFor="staff-wcode" className="mb-1.5 block text-sm font-medium text-gray-700">Student W-Code</label>
             <div className="flex gap-2">
               <input
                 id="staff-wcode"
                 type="text"
+                autoComplete="off"
                 className="flex-1 rounded-sm border border-gray-300 px-3 py-2 text-sm"
                 placeholder="e.g. W001234"
+                required
+                aria-errormessage="wcode-error"
                 value={wcode}
                 onChange={(e) => { setWcode(e.target.value); setStudent(null); setSelectedSubjectIds([]); }}
                 onKeyDown={(e) => { if (e.key === "Enter" && wcode.trim()) void lookupStudent(); }}
+                onBlur={(e) => syncAriaInvalid(e.currentTarget)}
+                onInput={(e) => { if (e.currentTarget.checkValidity()) e.currentTarget.removeAttribute("aria-invalid"); }}
               />
               <Button variant="secondary" onClick={() => void lookupStudent()} loading={lookingUp}>Look up</Button>
             </div>
+            <p id="wcode-error" className="error-msg" role="alert">Enter a student W-Code to continue</p>
           </div>
 
           {student ? (
@@ -473,6 +499,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       {/* Step 2: Classes + Make-up */}
       {step === "sessions" && (
         <div className="space-y-4">
+          <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step 2: Select missed classes and make-up sessions</h2>
           {selectedSubjectIds.length > 0 && student ? (
             <>
               {sessionsLoading ? (
@@ -670,6 +697,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       {/* Step 3: Confirm */}
       {step === "confirm" && (
         <div className="space-y-5">
+          <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step 3: Confirm and submit</h2>
           <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -709,13 +737,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
             </div>
           ) : null}
 
-          <div>
+          <div className="field">
             <label htmlFor="staff-reason-category" className="mb-1.5 block text-sm font-medium text-gray-700">Reason Category</label>
-            <Select id="staff-reason-category" placeholder="Select a reason..." value={reasonCategory} onChange={(e) => setReasonCategory(e.target.value)}>
+            <Select id="staff-reason-category" placeholder="Select a reason..." required aria-errormessage="reason-category-error" value={reasonCategory} onChange={(e) => setReasonCategory(e.target.value)} onBlur={(e) => syncAriaInvalid(e.currentTarget)} onInput={(e) => { if (e.currentTarget.checkValidity()) e.currentTarget.removeAttribute("aria-invalid"); }}>
               {(formConfig?.form.reason_categories ?? []).map((cat) => (
                 <option key={cat.value} value={cat.value}>{cat.label}</option>
               ))}
             </Select>
+            <p id="reason-category-error" className="error-msg" role="alert">Select a reason category</p>
           </div>
 
           <div>

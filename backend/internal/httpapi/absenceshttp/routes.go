@@ -300,15 +300,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected missed sessions exceed the configured maximum")
 			return 0, nil, fmt.Errorf("too many missed sessions")
 		}
-		var sitInCourseID pgtype.UUID
-		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
-			sitInCourseID, err = s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
-			if err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
-				return 0, nil, err
-			}
-		}
-
 		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, &body.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -319,6 +310,17 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
+		}
+
+		var sitInCourseID pgtype.UUID
+		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
+			sitInCourseID, err = s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
+			if err != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
+				return 0, nil, err
+			}
+		} else if sitInMethod.String == "physical" {
+			sitInCourseID = course.CourseID
 		}
 
 		totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)

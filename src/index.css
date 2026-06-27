@@ -104,6 +104,18 @@ tr:hover {
   }
 }
 
+/* Field-level error messages */
+.error-msg {
+  display: none;
+  color: var(--color-wi-red);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.field:has(:user-invalid) .error-msg {
+  display: block;
+}
+
 button {
   cursor: pointer;
 }

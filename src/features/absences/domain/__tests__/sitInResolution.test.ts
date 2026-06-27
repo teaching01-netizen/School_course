@@ -164,7 +164,7 @@ describe("groupWithSitInForMissedSession", () => {
 
 describe("availableSessionsForMissedSessions", () => {
   it("returns all available when no session has missed_session_id", () => {
-    const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1" }, { id: "s2" }] };
+    const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1", start_at: "", end_at: "" }, { id: "s2", start_at: "", end_at: "" }] };
     expect(availableSessionsForMissedSessions(priority, ["missed-1"])).toHaveLength(2);
   });
 
@@ -172,8 +172,8 @@ describe("availableSessionsForMissedSessions", () => {
     const priority = {
       level: 1, label: "P1",
       available_sessions: [
-        { id: "s1", missed_session_id: "missed-1" },
-        { id: "s2", missed_session_id: "missed-2" },
+        { id: "s1", start_at: "", end_at: "", missed_session_id: "missed-1" },
+        { id: "s2", start_at: "", end_at: "", missed_session_id: "missed-2" },
       ],
     };
     expect(availableSessionsForMissedSessions(priority, ["missed-1"])).toHaveLength(1);
@@ -183,7 +183,7 @@ describe("availableSessionsForMissedSessions", () => {
     const priority = {
       level: 1, label: "P1",
       available_sessions: [
-        { id: "s1", missed_session_id: "missed-1" },
+        { id: "s1", start_at: "", end_at: "", missed_session_id: "missed-1" },
       ],
     };
     expect(availableSessionsForMissedSessions(priority, ["missed-3"])).toHaveLength(0);
@@ -192,7 +192,7 @@ describe("availableSessionsForMissedSessions", () => {
 
 describe("unavailableSessionsForMissedSession", () => {
   it("returns all unavailable when none has missed_session_id", () => {
-    const priority = { level: 1, label: "P1", unavailable_sessions: [{ id: "us1", session: { id: "s1" }, reason: "Conflict", reason_code: "conflict" }] };
+    const priority = { level: 1, label: "P1", unavailable_sessions: [{ id: "us1", session: { id: "s1", start_at: "", end_at: "" }, reason: "Conflict", reason_code: "conflict" }] };
     expect(unavailableSessionsForMissedSession(priority, "missed-1")).toHaveLength(1);
   });
 
@@ -220,7 +220,7 @@ describe("unavailableSessionsForMissedSession", () => {
 
 describe("rootAvailableSessionsForMissedSessions", () => {
   it("returns all available when none has missed_session_id", () => {
-    const sitIn = { sit_in_method: "physical" as const, available_sessions: [{ id: "s1" }, { id: "s2" }] };
+    const sitIn = { sit_in_method: "physical" as const, available_sessions: [{ id: "s1", start_at: "", end_at: "" }, { id: "s2", start_at: "", end_at: "" }] };
     expect(rootAvailableSessionsForMissedSessions(sitIn, ["missed-1"])).toHaveLength(2);
   });
 
@@ -228,8 +228,8 @@ describe("rootAvailableSessionsForMissedSessions", () => {
     const sitIn = {
       sit_in_method: "physical" as const,
       available_sessions: [
-        { id: "s1", missed_session_id: "missed-1" },
-        { id: "s2", missed_session_id: "missed-2" },
+        { id: "s1", start_at: "", end_at: "", missed_session_id: "missed-1" },
+        { id: "s2", start_at: "", end_at: "", missed_session_id: "missed-2" },
       ],
     };
     expect(rootAvailableSessionsForMissedSessions(sitIn, ["missed-1"])).toHaveLength(1);
@@ -239,7 +239,7 @@ describe("rootAvailableSessionsForMissedSessions", () => {
     const sitIn = {
       sit_in_method: "physical" as const,
       available_sessions: [
-        { id: "s1", missed_session_id: "missed-1" },
+        { id: "s1", start_at: "", end_at: "", missed_session_id: "missed-1" },
       ],
     };
     expect(rootAvailableSessionsForMissedSessions(sitIn, ["missed-3"])).toHaveLength(0);
@@ -273,8 +273,6 @@ describe("resolveSitInSubjectName", () => {
 });
 
 describe("getSitInCourseDisplayName", () => {
-  const allSubjects: SubjectSessions[] = [{ ...baseGroup, subject_name: "Advanced Math", course_id: "c2" }];
-
   it("resolves from resolveSitInSubjectName (subject_name > name > subject_code > fallback > code)", () => {
     expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "Calc III", subject_name: "Calculus" }, "Fallback", [])).toBe("Calculus");
   });
@@ -284,19 +282,19 @@ describe("getSitInCourseDisplayName", () => {
   });
 
   it("falls back to subject_code", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", subject_code: "MATH" }, "Fallback", [])).toBe("MATH");
+    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "", subject_code: "MATH" }, "Fallback", [])).toBe("MATH");
   });
 
   it("falls back to fallbackSubjectName", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301" }, "Fallback Class", [])).toBe("Fallback Class");
+    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "" }, "Fallback Class", [])).toBe("Fallback Class");
   });
 
   it("falls back to code", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301" }, "", [])).toBe("MATH301");
+    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "" }, "", [])).toBe("MATH301");
   });
 
   it("returns empty string when everything empty", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "" }, "", [])).toBe("");
+    expect(getSitInCourseDisplayName({ id: "c1", code: "", name: "" }, "", [])).toBe("");
   });
 });
 
@@ -307,7 +305,7 @@ describe("getPriorityTargetDisplayName", () => {
   });
 
   it("falls back to session fields when no sit_in_course", () => {
-    const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1", class_name: "Morning Class" }] };
+    const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1", start_at: "", end_at: "", class_name: "Morning Class" }] };
     expect(getPriorityTargetDisplayName(priority, "Fallback", [])).toBe("Morning Class");
   });
 

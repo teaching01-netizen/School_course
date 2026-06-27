@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
@@ -67,7 +66,6 @@ import { getStudentDisplayName, maskPhone, normalizeLookupWcode } from "@/featur
 type StepIndex = 0 | 1 | 2;
 
 export default function AbsenceForm() {
-  const navigate = useNavigate();
   const { addToast } = useToast();
   const { online, justRestored } = useConnectivity();
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
