@@ -13,6 +13,7 @@ import {
   rootAvailableSessionsForMissedSessions,
   getSitInSessionGroupLabel, getReviewSitInLabel,
 } from "../../features/absences/domain/sitInResolution";
+import { selectedSitInCourseIDForGroup } from "../../features/absences/domain/submissionPayload";
 import type { SubjectSessions, StudentLookupResponse, AbsenceFormConfig, SmsPreview } from "../../types";
 import Button from "../ui/Button";
 import Select from "../ui/Select";
@@ -295,7 +296,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
       const missedIds = selectedSessions.map((s) => s.id);
       const sitInSessionIds: string[] = [];
-      const usedCourses = new Set<string>();
       let sitInMethod: string | undefined;
 
       for (const session of missedIds) {
@@ -305,13 +305,10 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         if (sitIn?.sit_in_method === "physical" || sitIn?.sit_in_method === "zoom") {
           sitInMethod = sitIn.sit_in_method;
         }
-        const prioGroup = groupWithSitInForMissedSession(group, session);
-        const sitInCourse = prioGroup.sit_in?.sit_in_course;
-        if (sitInCourse?.id) usedCourses.add(sitInCourse.id);
       }
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
-      const sitInCourseId = usedCourses.size === 1 ? [...usedCourses][0] : undefined;
+      const sitInCourseId = selectedSitInCourseIDForGroup(group, missedIds, sitInSelections);
 
       try {
         const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>("/api/v1/absences/staff-create", {
