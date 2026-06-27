@@ -63,11 +63,12 @@ export default function Subjects() {
       </div>
 
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
+        <caption className="sr-only">List of subjects</caption>
         <thead>
           <tr className="border-b-2 border-gray-200">
-            <th className="text-left py-2 px-2 font-semibold text-gray-700">Id</th>
-            <th className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
-            <th className="text-left py-2 px-2 font-semibold text-gray-700"></th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Id</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700"></th>
           </tr>
         </thead>
         <tbody>

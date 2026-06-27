@@ -210,11 +210,12 @@ export default function Courses() {
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto data-table-wrapper">
         <table className="w-full text-[13px]">
+          <caption className="sr-only">List of courses</caption>
           <thead>
             <tr className="border-b-2 border-gray-200">
-              <th className="w-8 px-2">
+              <th scope="col" className="w-8 px-2">
                 <input
                   aria-label="Select all courses"
                   type="checkbox"
@@ -227,17 +228,17 @@ export default function Courses() {
                   onChange={(event) => handleSelectAll(event.target.checked)}
                 />
               </th>
-              <th className="w-8 px-2"></th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">C-ID</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">C-Code</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Year</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Subject</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Hour</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Type</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Legacy</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700"></th>
+              <th scope="col" className="w-8 px-2"></th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">C-ID</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">C-Code</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Year</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Subject</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Hour</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Type</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Legacy</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700"></th>
             </tr>
           </thead>
           <tbody>

@@ -164,13 +164,14 @@ export default function CrmConflicts() {
       {!loading && conflicts.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
+            <caption className="sr-only">Schedule conflicts</caption>
             <thead>
               <tr className="border-b-2 border-gray-200">
-                <th className="w-8 px-2"></th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Course</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Conflict</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Detected</th>
+                <th scope="col" className="w-8 px-2"></th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Course</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Conflict</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Detected</th>
               </tr>
             </thead>
             <tbody>

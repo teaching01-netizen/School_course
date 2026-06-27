@@ -1,10 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from '../hooks/useAuth';
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { apiJson } from "../api/client";
-import { cachePolicies, queryClient, queryKeys } from "../query/cache";
+import { cachePolicies, queryKeys } from "../query/cache";
 import type { AbsenceStats } from "../types";
 
 const navGroups = [
@@ -62,20 +62,62 @@ const absenceSubItems: { path: string; label: string; adminOnly?: boolean }[] = 
   { path: '/admin/absence-settings', label: 'Settings', adminOnly: true },
 ];
 
+const pageTitles: Record<string, string> = {
+  '/': 'Dashboard',
+  '/courses': 'Courses',
+  '/students': 'Students',
+  '/teachers': 'Teachers',
+  '/subjects': 'Subjects',
+  '/classrooms': 'Classrooms',
+  '/users': 'Users',
+  '/schedule': 'Schedule',
+  '/summary': 'Summary',
+  '/availability': 'Availability',
+  '/slot-finder': 'Slot Finder',
+  '/absences': 'Absences',
+  '/reports': 'Reports',
+  '/logs': 'Logs',
+  '/teacher-dashboard': 'Teacher Dashboard',
+  '/course-levels': 'Course Levels',
+};
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    const match = Object.entries(pageTitles).find(
+      ([path]) => location.pathname === path || (path !== '/' && location.pathname.startsWith(path))
+    );
+    document.title = match ? `${match[1]} — Warwick Institute` : 'Warwick Institute';
+  }, [location.pathname]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [absenceOpen, setAbsenceOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobileAbsenceOpen, setMobileAbsenceOpen] = useState(false);
+  const absenceRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!absenceOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setAbsenceOpen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [absenceOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [moreOpen]);
   const statsQuery = useQuery<AbsenceStats>({
     queryKey: queryKeys.absenceStats,
     queryFn: () => apiJson<AbsenceStats>("/api/v1/absences/stats", { method: "GET" }),
     enabled: user?.role === "Admin",
     ...cachePolicies.operational,
-  }, queryClient);
+  });
   const pendingAbsences = user?.role === "Admin" ? statsQuery.data?.pending_count ?? 0 : 0;
 
   const handleLogout = async () => {
@@ -159,9 +201,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
                 {/* Absences dropdown */}
                 <div
+                  ref={absenceRef}
                   className="relative"
                   onMouseEnter={() => setAbsenceOpen(true)}
                   onMouseLeave={() => setAbsenceOpen(false)}
+                  onBlur={(e) => {
+                    if (!absenceRef.current?.contains(e.relatedTarget as Node)) setAbsenceOpen(false);
+                  }}
                 >
                   <button
                     onClick={() => setAbsenceOpen((prev) => !prev)}
@@ -223,9 +269,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
                 {/* More dropdown keeps lower-frequency admin links from crowding the bar */}
                 <div
+                  ref={moreRef}
                   className="relative"
                   onMouseEnter={() => setMoreOpen(true)}
                   onMouseLeave={() => setMoreOpen(false)}
+                  onBlur={(e) => {
+                    if (!moreRef.current?.contains(e.relatedTarget as Node)) setMoreOpen(false);
+                  }}
                 >
                   <button
                     onClick={() => setMoreOpen((prev) => !prev)}

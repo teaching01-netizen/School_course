@@ -468,12 +468,13 @@ export function SitInRulesSection() {
           }
         >
           <table className="w-full text-sm">
+            <caption className="sr-only">Bulk edit course levels</caption>
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="py-2 pr-3 font-medium">Course</th>
-                <th className="py-2 pr-3 font-medium">Cycle</th>
-                <th className="py-2 pr-3 font-medium">Current</th>
-                <th className="py-2 font-medium">Level</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Course</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Current</th>
+                <th scope="col" className="py-2 font-medium">Level</th>
               </tr>
             </thead>
             <tbody>

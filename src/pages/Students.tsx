@@ -100,12 +100,13 @@ export default function Students() {
         </Button>
       </div>
 
-      <div className="overflow-x-auto"><table className="w-full text-[13px]">
+      <div className="overflow-x-auto data-table-wrapper"><table className="w-full text-[13px]">
+        <caption className="sr-only">List of students</caption>
         <thead>
           <tr className="border-b-2 border-gray-300">
-            <th className="text-left py-2 px-2 font-semibold">W-Code</th>
-            <th className="text-left py-2 px-2 font-semibold">Name</th>
-            <th className="text-left py-2 px-2 font-semibold"></th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">W-Code</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
           </tr>
         </thead>
         <tbody>

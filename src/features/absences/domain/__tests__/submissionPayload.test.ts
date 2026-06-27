@@ -87,6 +87,210 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("builds one payload when another enrolled subject has sessions on the same day at a different time", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        { ...baseGroup, sit_in: { sit_in_method: "zoom" } },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            { id: "enrolled-1", start_at: "2026-06-01T14:00:00+07:00", end_at: "2026-06-01T15:00:00+07:00", date: "2026-06-01", already_absent: false },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: {},
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      payloads: [
+        {
+          subject_id: "subj-1",
+          course_id: "course-1",
+          date_from: "2026-06-01",
+          date_to: "2026-06-01",
+          reason: "Medical",
+          sit_in_method: "zoom",
+          sit_in_course_id: "course-1",
+          missed_session_ids: ["missed-1"],
+          sit_in_session_ids: [],
+        },
+      ],
+    });
+  });
+
+  it("allows sit-in on a different day from the enrolled subject's session", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
+            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            { id: "enrolled-1", start_at: "2026-06-01T14:00:00+07:00", end_at: "2026-06-01T15:00:00+07:00", date: "2026-06-01", already_absent: false },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0]).toMatchObject({
+      missed_session_ids: ["missed-1"],
+      sit_in_session_ids: ["sit-1"],
+    });
+  });
+
+  it("allows sit-in on the same day as an enrolled session when times do not overlap", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
+            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            { id: "enrolled-1", start_at: "2026-06-03T14:00:00+07:00", end_at: "2026-06-03T15:00:00+07:00", date: "2026-06-03", already_absent: false },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0]).toMatchObject({
+      missed_session_ids: ["missed-1"],
+      sit_in_session_ids: ["sit-1"],
+    });
+  });
+
+  it("rejects a sit-in when it overlaps with another enrolled subject's session on the same day", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
+            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            { id: "enrolled-1", start_at: "2026-06-03T11:30:00+07:00", end_at: "2026-06-03T13:00:00+07:00", date: "2026-06-03", already_absent: false },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
+    });
+  });
+
+  it("allows sit-in when adjacent (touching) to an enrolled session on the same day", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
+            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            { id: "enrolled-1", start_at: "2026-06-03T12:00:00+07:00", end_at: "2026-06-03T13:00:00+07:00", date: "2026-06-03", already_absent: false },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0]).toMatchObject({
+      missed_session_ids: ["missed-1"],
+      sit_in_session_ids: ["sit-1"],
+    });
+  });
+
   it("rejects a selected course when the selected dates exceed the configured range", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",

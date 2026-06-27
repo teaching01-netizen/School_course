@@ -63,12 +63,13 @@ export default function Teachers() {
         <Button variant="secondary" size="sm" onClick={() => void refetch()}>Reload</Button>
         <Link to="/teachers/create" className="px-3 py-1 text-sm rounded-sm bg-[#059669] hover:bg-[#047857] text-white">Create Teacher</Link>
       </div>
-      <div className="overflow-x-auto"><table className="w-full text-[13px]">
+      <div className="overflow-x-auto data-table-wrapper"><table className="w-full text-[13px]">
+        <caption className="sr-only">List of teachers</caption>
         <thead>
           <tr className="border-b-2 border-gray-300">
-            <th className="text-left py-2 px-2 font-semibold">ID</th>
-            <th className="text-left py-2 px-2 font-semibold">Username</th>
-            <th className="text-left py-2 px-2 font-semibold"></th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">ID</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
           </tr>
         </thead>
         <tbody>

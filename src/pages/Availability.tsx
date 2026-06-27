@@ -220,13 +220,14 @@ export default function Availability() {
       </div>
 
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
+        <caption className="sr-only">Availability windows</caption>
         <thead>
           <tr className="border-b-2 border-gray-300">
-            <th className="text-left py-2 px-2 font-semibold">Start (UTC)</th>
-            <th className="text-left py-2 px-2 font-semibold">End (UTC)</th>
-            <th className="text-left py-2 px-2 font-semibold">Start (Local)</th>
-            <th className="text-left py-2 px-2 font-semibold">End (Local)</th>
-            <th className="text-left py-2 px-2 font-semibold"></th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Start (UTC)</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">End (UTC)</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Start (Local)</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">End (Local)</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
           </tr>
         </thead>
         <tbody>

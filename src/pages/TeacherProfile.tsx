@@ -126,11 +126,12 @@ export default function TeacherProfile() {
         <div className="border border-gray-200 p-4 lg:col-span-2">
           <h3 className="text-sm font-semibold mb-2">Courses This Week ({courseRollup.length})</h3>
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
+            <caption className="sr-only">Courses this week</caption>
             <thead>
               <tr className="border-b-2 border-gray-300">
-                <th className="text-left py-1 px-2 font-semibold">C-ID</th>
-                <th className="text-left py-1 px-2 font-semibold">Course</th>
-                <th className="text-left py-1 px-2 font-semibold">Sessions</th>
+                <th scope="col" className="text-left py-1 px-2 font-semibold">C-ID</th>
+                <th scope="col" className="text-left py-1 px-2 font-semibold">Course</th>
+                <th scope="col" className="text-left py-1 px-2 font-semibold">Sessions</th>
               </tr>
             </thead>
             <tbody>
@@ -163,10 +164,11 @@ export default function TeacherProfile() {
           </div>
         </div>
         <div className="overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
+            <caption className="sr-only">Weekly schedule</caption>
             <thead>
               <tr className="bg-gray-50">
-                <th className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
-                {days.map((d) => <th key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>)}
+                <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
+                {days.map((d) => <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>)}
               </tr>
             </thead>
             <tbody>

@@ -898,11 +898,12 @@ export default function CourseDetail() {
         {viewMode === 'calendar' ? (
           <div className="border border-gray-200 p-4 bg-white">
             <div className="overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
+              <caption className="sr-only">Calendar view</caption>
               <thead>
                 <tr className="bg-gray-50">
-                  <th className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
+                  <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
                   {['MON', 'TUE', 'WED', 'THU', 'FRI'].map((d) => (
-                    <th key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>
+                    <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>
                   ))}
                 </tr>
               </thead>
@@ -946,9 +947,10 @@ export default function CourseDetail() {
         ) : (
           <div className="border border-gray-200 rounded-sm overflow-hidden">
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
+            <caption className="sr-only">Course schedule</caption>
             <thead className="bg-gray-50">
               <tr className="border-b border-gray-200">
-                <th className="w-10 py-2 px-1 text-center">
+                <th scope="col" className="w-10 py-2 px-1 text-center">
                   <input
                     type="checkbox"
                     checked={selectedIds.size === sessions.length && sessions.length > 0}
@@ -957,12 +959,12 @@ export default function CourseDetail() {
                     className="accent-gray-900"
                   />
                 </th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">Date</th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">Begin</th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">End</th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">Duration</th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">Classroom</th>
-                <th className="text-left py-2 px-3 font-semibold text-gray-700">By</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Date</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Begin</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">End</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Duration</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Classroom</th>
+                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">By</th>
               </tr>
             </thead>
             <tbody>
@@ -1306,11 +1308,11 @@ export default function CourseDetail() {
                       <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
                         <thead className="bg-gray-50">
                           <tr className="border-b border-gray-200">
-                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-                            <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Duration</th>
-                            <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Duration</th>
+                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1521,13 +1523,14 @@ export default function CourseDetail() {
             <div className="border border-gray-200 rounded-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-[12px]">
+                  <caption className="sr-only">Schedule conflict preview</caption>
                   <thead className="bg-gray-50">
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-                      <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
-                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1815,16 +1818,17 @@ function BulkEditModal({
 
       <div className="overflow-x-auto">
         <table className="w-full text-[13px] border border-gray-200">
+          <caption className="sr-only">Bulk edit sessions</caption>
           <thead className="bg-gray-50">
             <tr className="border-b border-gray-200">
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">#</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Dur</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
-              <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">#</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Dur</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
             </tr>
           </thead>
           <tbody>

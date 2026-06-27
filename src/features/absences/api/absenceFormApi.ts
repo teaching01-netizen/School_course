@@ -19,11 +19,13 @@ export type SessionsInRangeOptions = {
 
 export function sessionsInRangePath(
   wcode: string,
-  dateFrom: string,
-  dateTo: string,
+  dateFrom?: string,
+  dateTo?: string,
   options?: SessionsInRangeOptions,
 ): string {
-  const params = new URLSearchParams({ wcode, date_from: dateFrom, date_to: dateTo });
+  const params = new URLSearchParams({ wcode });
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
   if (options?.courseIds && options.courseIds.length > 0) {
     params.set("course_ids", options.courseIds.join(","));
   }
@@ -69,8 +71,8 @@ export function lookupStudentByWcode(wcode: string): Promise<StudentLookupRespon
 
 export function loadSessionsInRange(
   wcode: string,
-  dateFrom: string,
-  dateTo: string,
+  dateFrom?: string,
+  dateTo?: string,
   init?: Pick<RequestInit, "signal">,
   options?: SessionsInRangeOptions,
 ): Promise<SessionsInRangeResponse> {

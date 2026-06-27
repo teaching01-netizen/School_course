@@ -581,19 +581,20 @@ export default function Absences() {
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white data-table-wrapper">
         <table className="min-w-[960px] text-sm absence-inbox-table">
+          <caption className="sr-only">Absence inbox</caption>
           <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <th className="w-8 px-3 py-2">
+              <th scope="col" className="w-8 px-3 py-2">
                 <input aria-label="Select all absences" type="checkbox" checked={allSelected} onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => item.id)) : new Set())} />
               </th>
-              <th className="w-[116px] px-3 py-2">Status</th>
-              <th className="w-[180px] px-3 py-2">Student</th>
-              <th className="px-3 py-2">Subject</th>
-              <th className="w-[190px] px-3 py-2">Sit-in</th>
-              <th className="w-[110px] px-3 py-2">Submitted</th>
-              <th className="w-[260px] px-3 py-2 text-right">Actions</th>
+              <th scope="col" className="w-[116px] px-3 py-2">Status</th>
+              <th scope="col" className="w-[180px] px-3 py-2">Student</th>
+              <th scope="col" className="px-3 py-2">Subject</th>
+              <th scope="col" className="w-[190px] px-3 py-2">Sit-in</th>
+              <th scope="col" className="w-[110px] px-3 py-2">Submitted</th>
+              <th scope="col" className="w-[260px] px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>

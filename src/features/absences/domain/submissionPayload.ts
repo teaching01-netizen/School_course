@@ -29,25 +29,84 @@ export type BuildSubmissionPayloadsResult =
   | { ok: true; payloads: AbsenceBatchCreateItem[] }
   | { ok: false; error: string };
 
+type SessionTime = { start_at: string; end_at: string };
+
+type SessionWithCourse = { id: string; course_id?: string | null };
+
+function overlaps(a: SessionTime, b: SessionTime): boolean {
+  return new Date(a.start_at) < new Date(b.end_at) && new Date(a.end_at) > new Date(b.start_at);
+}
+
+function findSitInSessionTime(group: SubjectSessions, sitInSessionId: string): SessionTime | null {
+  const sitIn = group.sit_in;
+  if (!sitIn) return null;
+  const inTop = (sitIn.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+  if (inTop) return { start_at: inTop.start_at, end_at: inTop.end_at };
+  for (const p of sitIn.priorities ?? []) {
+    const inP = (p.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+    if (inP) return { start_at: inP.start_at, end_at: inP.end_at };
+  }
+  if (sitIn.sit_in_by_missed_session) {
+    for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
+      const inEntry = (entry.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+      if (inEntry) return { start_at: inEntry.start_at, end_at: inEntry.end_at };
+      for (const p of entry.priorities ?? []) {
+        const inP = (p.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+        if (inP) return { start_at: inP.start_at, end_at: inP.end_at };
+      }
+    }
+  }
+  return null;
+}
+
+function firstSessionCourseID(sessions: SessionWithCourse[] | undefined | null): string | null {
+  for (const s of sessions ?? []) {
+    if (s.course_id) return s.course_id;
+  }
+  return null;
+}
+
+function findSitInCourseFromSessions(group: SubjectSessions): string | null {
+  const top = group.sit_in;
+  if (!top) return null;
+  const fromTop = firstSessionCourseID(top.available_sessions);
+  if (fromTop) return fromTop;
+  for (const p of top.priorities ?? []) {
+    const fromPriority = firstSessionCourseID(p.available_sessions);
+    if (fromPriority) return fromPriority;
+  }
+  if (top.sit_in_by_missed_session) {
+    for (const entry of Object.values(top.sit_in_by_missed_session)) {
+      const fromEntry = firstSessionCourseID(entry.available_sessions);
+      if (fromEntry) return fromEntry;
+      for (const p of entry.priorities ?? []) {
+        const fromPriority = firstSessionCourseID(p.available_sessions);
+        if (fromPriority) return fromPriority;
+      }
+    }
+  }
+  return null;
+}
+
 export function selectedSitInCourseIDForGroup(
   group: SubjectSessions,
   selectedMissedSessionIds: string[],
   sitInSelections: Record<string, string>,
 ): string | null {
   if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
-    return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+    return group.sit_in?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim() || null;
   }
   const courseIDs = new Set<string>();
   for (const missedSessionID of selectedMissedSessionIds) {
     const sitIn = sitInForMissedSession(group, missedSessionID);
     if (sitIn?.sit_in_method !== "physical") {
-      const courseID = sitIn?.sit_in_course?.id?.trim() || group.course_id.trim();
+      const courseID = sitIn?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
     const priorities = sitIn.priorities ?? [];
     if (priorities.length === 0) {
-      const courseID = sitIn.sit_in_course?.id?.trim() || group.course_id.trim();
+      const courseID = sitIn.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
@@ -63,13 +122,31 @@ export function selectedSitInCourseIDForGroup(
     }
   }
   if (courseIDs.size === 1) return [...courseIDs][0];
-  if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || group.course_id.trim() || null;
+  if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim() || null;
   return null;
+}
+
+function collectAttendingSessions(
+  sessions: SubjectSessions[],
+  selectedSubjectIds: string[],
+): Map<string, SessionTime[]> {
+  const byDate = new Map<string, SessionTime[]>();
+  for (const group of sessions) {
+    if (selectedSubjectIds.includes(group.subject_id)) continue;
+    for (const session of group.sessions) {
+      if (session.already_absent) continue;
+      const ranges = byDate.get(session.date) ?? [];
+      ranges.push({ start_at: session.start_at, end_at: session.end_at });
+      byDate.set(session.date, ranges);
+    }
+  }
+  return byDate;
 }
 
 export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
   const payloads: AbsenceBatchCreateItem[] = [];
+  const attendingByDate = collectAttendingSessions(input.sessions, input.selectedSubjectIds);
   for (const group of input.sessions) {
     if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
     if (group.absence_rate_exceeded) continue;
@@ -86,6 +163,19 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
     }
     const selectedSessIds = selectedGroupSessions.map((session) => session.id);
     const sitInSessionIds = uniqueValues(selectedSessIds.flatMap((id) => splitMergedSessionValue(input.sitInSelections[id])));
+    const conflictingSitInIds = sitInSessionIds.filter((sid) => {
+      const time = findSitInSessionTime(group, sid);
+      if (!time) return false;
+      const date = new Date(time.start_at).toISOString().slice(0, 10);
+      const enrolledRanges = attendingByDate.get(date) ?? [];
+      return enrolledRanges.some((r) => overlaps(time, r));
+    });
+    if (conflictingSitInIds.length > 0) {
+      return {
+        ok: false,
+        error: `${group.subject_name || group.course_name} sit-in session conflicts with another class. Please select a different make-up time.`,
+      };
+    }
     const sitInMethod = group.sit_in?.sit_in_method;
     const payload: AbsenceBatchCreateItem = {
       subject_id: group.subject_id,
@@ -105,6 +195,34 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
       };
     }
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
+    if (sitInMethod === "physical" && sitInCourseID && sitInSessionIds.length > 0) {
+      const mismatched = sitInSessionIds.filter((sid) => {
+        const sitIn = group.sit_in;
+        const inTop = (sitIn?.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID));
+        if (inTop) return false;
+        const inPriority = (sitIn?.priorities ?? []).some((p) =>
+          (p.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID)),
+        );
+        if (inPriority) return false;
+        if (sitIn?.sit_in_by_missed_session) {
+          for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
+            const inEntry = (entry.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID));
+            if (inEntry) return false;
+            const inEntryPriority = (entry.priorities ?? []).some((p) =>
+              (p.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID)),
+            );
+            if (inEntryPriority) return false;
+          }
+        }
+        return true;
+      });
+      if (mismatched.length > 0) {
+        return {
+          ok: false,
+          error: `${group.subject_name || group.course_name} has sit-in sessions that don't match the selected course. Please re-select make-up classes.`,
+        };
+      }
+    }
     payloads.push(payload);
   }
   return { ok: true, payloads };

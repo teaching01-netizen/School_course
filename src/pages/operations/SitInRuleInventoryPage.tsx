@@ -127,10 +127,10 @@ export function SitInRuleInventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50/70 text-left text-gray-500">
-                <th className="px-4 py-2.5 font-medium">Name</th>
-                <th className="px-4 py-2.5 font-medium">Type</th>
-                <th className="px-4 py-2.5 font-medium">Description</th>
-                <th className="px-4 py-2.5 font-medium text-right">Actions</th>
+                <th scope="col" className="px-4 py-2.5 font-medium">Name</th>
+                <th scope="col" className="px-4 py-2.5 font-medium">Type</th>
+                <th scope="col" className="px-4 py-2.5 font-medium">Description</th>
+                <th scope="col" className="px-4 py-2.5 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

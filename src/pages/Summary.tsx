@@ -128,13 +128,14 @@ export default function Summary() {
 
         {/* Summary table */}
         <table className="w-full text-[13px] border border-gray-200">
+          <caption className="sr-only">Daily classes summary</caption>
           <thead>
             <tr className="border-b border-gray-200">
-              <th className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[22%]">Room</th>
-              <th className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[18%]">Time</th>
-              <th className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[26%]">Course</th>
-              <th className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[16%]">Student</th>
-              <th className="text-center py-2 px-2 font-semibold w-[18%]">Teacher</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[22%]">Room</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[18%]">Time</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[26%]">Course</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[16%]">Student</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold w-[18%]">Teacher</th>
             </tr>
           </thead>
           <tbody>

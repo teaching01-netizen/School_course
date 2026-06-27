@@ -454,6 +454,10 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 				return 0, nil, fmt.Errorf("bad sessions")
 			}
+			if !sitInCourseID.Valid {
+				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
+				return 0, nil, fmt.Errorf("sit-in course required")
+			}
 			count, err := qtx.ValidSitInSessionCount(r.Context(), item.ID, sitInCourseID, sessionUUIDs)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
@@ -652,15 +656,15 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Public: given student wcode + subject + dates, return sit-in options
+// Public: given student wcode + subject + optional dates, return sit-in options
 func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	subjectIDStr := r.URL.Query().Get("subject_id")
 	dateFromStr := r.URL.Query().Get("date_from")
 	dateToStr := r.URL.Query().Get("date_to")
 
-	if wcode == "" || subjectIDStr == "" || dateFromStr == "" || dateToStr == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode, subject_id, date_from, date_to are required")
+	if wcode == "" || subjectIDStr == "" {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode and subject_id are required")
 		return
 	}
 
@@ -670,15 +674,22 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
-		return
-	}
-	dateTo, err := time.Parse("2006-01-02", dateToStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
-		return
+	var dateFrom, dateTo time.Time
+	if dateFromStr != "" && dateToStr != "" {
+		dateFrom, err = time.Parse("2006-01-02", dateFromStr)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
+			return
+		}
+		dateTo, err = time.Parse("2006-01-02", dateToStr)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
+			return
+		}
+	} else {
+		now := time.Now()
+		dateFrom = now.AddDate(0, 0, -30)
+		dateTo = now.AddDate(0, 0, 90)
 	}
 
 	result, err := resolveSitIn(r.Context(), s.deps.Q, wcode, subjectID, dateFrom, dateTo)
@@ -695,26 +706,36 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	s.a.WriteJSON(w, http.StatusOK, result)
 }
 
-// Public: return all sessions for a student across enrolled subjects in a date range, with absence flagging
+// Public: return all sessions for a student across enrolled subjects (optional date range), with absence flagging
 func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	dateFromStr := r.URL.Query().Get("date_from")
 	dateToStr := r.URL.Query().Get("date_to")
 
-	if wcode == "" || dateFromStr == "" || dateToStr == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode, date_from, date_to are required")
+	if wcode == "" {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode is required")
 		return
 	}
 
-	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
-		return
-	}
-	dateTo, err := time.Parse("2006-01-02", dateToStr)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
-		return
+	dateFromProvided := dateFromStr != "" && dateToStr != ""
+
+	var dateFrom, dateTo time.Time
+	var err error
+	if dateFromProvided {
+		dateFrom, err = time.Parse("2006-01-02", dateFromStr)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
+			return
+		}
+		dateTo, err = time.Parse("2006-01-02", dateToStr)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
+			return
+		}
+	} else {
+		now := time.Now()
+		dateFrom = now.AddDate(0, 0, -30)
+		dateTo = now.AddDate(0, 0, 90)
 	}
 
 	settings, err := s.readAbsenceSettings(r)
@@ -723,12 +744,14 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	days := int(dateTo.Sub(dateFrom).Hours() / 24)
-	maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
-	if days > maxLookupRangeDays {
-		s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
-			fmt.Sprintf("Date range must be %d days or less", maxLookupRangeDays))
-		return
+	if dateFromProvided {
+		days := int(dateTo.Sub(dateFrom).Hours() / 24)
+		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
+		if days > maxLookupRangeDays {
+			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
+				fmt.Sprintf("Date range must be %d days or less", maxLookupRangeDays))
+			return
+		}
 	}
 
 	allowedCourseIDs := map[string]bool{}

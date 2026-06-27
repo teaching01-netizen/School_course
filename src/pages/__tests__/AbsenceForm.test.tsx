@@ -167,8 +167,9 @@ function installHappyPathMocks(overrides?: {
 }
 
 async function lookupStudent(user: ReturnType<typeof userEvent.setup>, wcode = "W250389") {
-  await user.clear(screen.getByPlaceholderText("e.g. W250389"));
-  await user.type(screen.getByPlaceholderText("e.g. W250389"), wcode);
+  const input = await screen.findByPlaceholderText("e.g. W250389");
+  await user.clear(input);
+  await user.type(input, wcode);
   await user.click(screen.getByRole("button", { name: /search/i }));
   await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
 }
@@ -230,12 +231,12 @@ describe("AbsenceForm", () => {
     window.sessionStorage?.clear();
   });
 
-  it("renders the lookup form initially", () => {
+  it("renders the lookup form initially", async () => {
     installHappyPathMocks();
     renderWithProviders(<AbsenceForm />);
-    expect(screen.getByPlaceholderText("e.g. W250389")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /search/i })).toBeInTheDocument();
-    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("e.g. W250389")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /search/i })).toBeInTheDocument();
+    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
   });
 
   it("discards the legacy absence draft instead of restoring critical selections", async () => {
@@ -253,7 +254,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm();
 
-    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
     expect(screen.queryByText("Review your absence")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("Stale reason")).not.toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull());
@@ -265,7 +266,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm();
 
-    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY)).toBeNull());
   });
 
@@ -419,8 +420,6 @@ describe("AbsenceForm", () => {
 
     const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
     expect(sessionsCall).toBeDefined();
-    expect(String(sessionsCall?.[0])).toContain("date_from=");
-    expect(String(sessionsCall?.[0])).not.toContain("2000-01-01");
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
 
@@ -461,18 +460,8 @@ describe("AbsenceForm", () => {
     );
   }, 30000);
 
-  it("includes sessions from the previous two calendar days when the post-session window is 48 hours", async () => {
+  it("loads sessions without explicit date range when max_hours_after_session is set", async () => {
     const user = userEvent.setup();
-    const today = new Date();
-    const expectedFrom = new Date(today);
-    expectedFrom.setDate(expectedFrom.getDate() - 2);
-    const expectedTo = new Date(today);
-    expectedTo.setDate(expectedTo.getDate() + MOCK_CONFIG.form.max_date_range_days);
-    const localDate = (date: Date) => [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    ].join("-");
 
     renderAbsenceForm({
       config: {
@@ -486,9 +475,10 @@ describe("AbsenceForm", () => {
     await goToCourses(user);
 
     const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
+    expect(sessionsCall).toBeDefined();
     const sessionsUrl = new URL(String(sessionsCall?.[0]), "https://example.test");
-    expect(sessionsUrl.searchParams.get("date_from")).toBe(localDate(expectedFrom));
-    expect(sessionsUrl.searchParams.get("date_to")).toBe(localDate(expectedTo));
+    expect(sessionsUrl.searchParams.has("date_from")).toBe(false);
+    expect(sessionsUrl.searchParams.has("date_to")).toBe(false);
   }, 30000);
 
   it("keeps active edits in memory and refetches sessions when returning from Review", async () => {

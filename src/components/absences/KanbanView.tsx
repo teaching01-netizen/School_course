@@ -52,7 +52,7 @@ function AbsenceCard({
 }) {
   const navigate = useNavigate();
   return (
-    <div className="group relative rounded-sm border border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow hover:shadow-md cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/absences/${absence.id}`); }} tabIndex={0}>
+    <div role="link" tabIndex={0} aria-label={`View absence for ${absence.student_name ?? absence.wcode}`} className="group relative rounded-sm border border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow hover:shadow-md cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/absences/${absence.id}`); } }}>
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-xs font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
         <div className="min-w-0 flex-1">

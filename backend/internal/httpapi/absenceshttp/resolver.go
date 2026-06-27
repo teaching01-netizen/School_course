@@ -93,6 +93,7 @@ type sessionBrief struct {
 	ID              string `json:"id"`
 	StartAt         string `json:"start_at"`
 	EndAt           string `json:"end_at"`
+	CourseID        string `json:"course_id,omitempty"`
 	MissedSessionID string `json:"missed_session_id,omitempty"`
 	ClassName       string `json:"class_name,omitempty"`
 	CourseName      string `json:"course_name,omitempty"`
@@ -772,16 +773,19 @@ func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, rootCourseGrou
 
 func toSessionBrief(s sqldb.SessionInRange) sessionBrief {
 	idStr, _ := uuidString(s.ID)
+	courseIDStr, _ := uuidString(s.CourseID)
 	return sessionBrief{
-		ID:      idStr,
-		StartAt: s.StartAt.Time.Format(time.RFC3339),
-		EndAt:   s.EndAt.Time.Format(time.RFC3339),
+		ID:       idStr,
+		StartAt:  s.StartAt.Time.Format(time.RFC3339),
+		EndAt:    s.EndAt.Time.Format(time.RFC3339),
+		CourseID: courseIDStr,
 	}
 }
 
 func toSessionBriefForCourse(s sqldb.SessionInRange, c *sqldb.SubjectCourseV2) sessionBrief {
 	brief := toSessionBrief(s)
 	if c != nil {
+		brief.CourseID = uuidStringOrZero(c.ID)
 		brief.ClassName = c.Name
 		brief.CourseName = c.Name
 		brief.CourseCode = c.Code
@@ -803,4 +807,12 @@ func uuidString(u pgtype.UUID) (string, error) {
 		return "", fmt.Errorf("invalid uuid")
 	}
 	return fmt.Sprintf("%x-%x-%x-%x-%x", u.Bytes[0:4], u.Bytes[4:6], u.Bytes[6:8], u.Bytes[8:10], u.Bytes[10:16]), nil
+}
+
+func uuidStringOrZero(u pgtype.UUID) string {
+	s, err := uuidString(u)
+	if err != nil {
+		return ""
+	}
+	return s
 }

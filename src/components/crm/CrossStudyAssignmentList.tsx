@@ -103,11 +103,11 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
           <table className="w-full text-[12px]">
             <thead className="bg-gray-50">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">WCode</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Course A</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Course B</th>
-                <th className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">WCode</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Course A</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Course B</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
               </tr>
             </thead>
             <tbody>

@@ -26,7 +26,6 @@ import {
   lookupStudentByWcode,
   submitAbsenceBatch,
 } from "@/features/absences/api/absenceFormApi";
-import { dateToLocalISO, postSessionLookbackDays } from "@/features/absences/domain/dateRange";
 import {
   countSelectedSessions,
   getSelectedSessionsForGroup,
@@ -117,15 +116,6 @@ export default function AbsenceForm() {
   const emailSatisfied = !!(lookup?.email_crm?.trim() || lookup?.email_system?.trim() || collectedEmail.trim());
   const canProceedFromVerify = !!lookup && emailSatisfied && verificationSatisfied;
   const studentDisplayName = getStudentDisplayName(lookup);
-  const sessionLookupWindow = useMemo(() => {
-    const today = new Date();
-    const dateFrom = new Date(today);
-    dateFrom.setDate(dateFrom.getDate() - postSessionLookbackDays(config.form.max_hours_after_session));
-    return {
-      dateFrom: dateToLocalISO(dateFrom),
-      dateTo: dateToLocalISO(new Date(today.getTime() + config.form.max_date_range_days * 24 * 60 * 60 * 1000)),
-    };
-  }, [config.form.max_date_range_days, config.form.max_hours_after_session]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -160,7 +150,7 @@ export default function AbsenceForm() {
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    void loadSessionsInRange(lookup.wcode, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo, {
+    void loadSessionsInRange(lookup.wcode, undefined, undefined, {
       signal: controller.signal,
     })
       .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects); })
@@ -171,7 +161,7 @@ export default function AbsenceForm() {
       })
       .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup, sessionLookupWindow.dateFrom, sessionLookupWindow.dateTo]);
+  }, [step, lookup]);
 
   useEffect(() => {
     let active = true;
@@ -301,8 +291,8 @@ export default function AbsenceForm() {
       try {
         const data = await loadSessionsInRange(
           lookup.wcode,
-          sessionLookupWindow.dateFrom,
-          sessionLookupWindow.dateTo,
+          undefined,
+          undefined,
           undefined,
           { courseIds: [group.course_id], satVerbalAfterPriority: currentLevel },
         );

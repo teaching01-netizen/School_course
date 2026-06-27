@@ -112,11 +112,12 @@ export default function AbsenceDashboard() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
+              <caption className="sr-only">Teacher dashboard</caption>
               <thead>
                 <tr className="border-b-2 border-gray-300">
-                  <th className="text-left py-2 px-2 font-semibold">ID</th>
-                  <th className="text-left py-2 px-2 font-semibold">Username</th>
-                  <th className="text-left py-2 px-2 font-semibold"></th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold">ID</th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
                 </tr>
               </thead>
               <tbody>

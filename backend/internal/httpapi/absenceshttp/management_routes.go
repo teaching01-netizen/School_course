@@ -954,6 +954,10 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 			sessionIDs = nil
 		}
 		if method == "physical" {
+			if !selectedCourse.Valid {
+				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
+				return 0, nil, fmt.Errorf("sit-in course required")
+			}
 			count, err := qtx.ValidSitInSessionCount(r.Context(), id, selectedCourse, sessionIDs)
 			if err != nil {
 				status, code, message := s.a.ClassifyDBErr(err)

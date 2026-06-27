@@ -794,14 +794,15 @@ export default function Schedule() {
         </div>
       ) : (
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
+          <caption className="sr-only">Schedule</caption>
           <thead>
             <tr className="border-b-2 border-gray-300">
-              <th className="text-left py-2 px-2 font-semibold">Start</th>
-              <th className="text-left py-2 px-2 font-semibold">End</th>
-              <th className="text-left py-2 px-2 font-semibold">Course</th>
-              <th className="text-left py-2 px-2 font-semibold">Room</th>
-              <th className="text-left py-2 px-2 font-semibold">Teacher</th>
-              <th className="text-left py-2 px-2 font-semibold"></th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Start</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">End</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Room</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Teacher</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
             </tr>
           </thead>
           <tbody>

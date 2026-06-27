@@ -166,12 +166,13 @@ export default function Reports() {
             </div>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
+            <caption className="sr-only">Daily room utilization</caption>
             <thead>
               <tr className="border-b-2 border-gray-300">
-                <th className="text-left py-2 px-2 font-semibold">Room</th>
-                <th className="text-left py-2 px-2 font-semibold">Sessions</th>
-                <th className="text-left py-2 px-2 font-semibold">Total Hours</th>
-                <th className="text-left py-2 px-2 font-semibold">Utilization</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Room</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Total Hours</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Utilization</th>
               </tr>
             </thead>
             <tbody>
@@ -197,11 +198,12 @@ export default function Reports() {
 
       {activeReport === 'teachers' && (
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
+          <caption className="sr-only">Teacher load report</caption>
           <thead>
             <tr className="border-b-2 border-gray-300">
-              <th className="text-left py-2 px-2 font-semibold">Teacher</th>
-              <th className="text-left py-2 px-2 font-semibold">Sessions</th>
-              <th className="text-left py-2 px-2 font-semibold">Total Hours</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Teacher</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Total Hours</th>
             </tr>
           </thead>
           <tbody>
@@ -218,12 +220,13 @@ export default function Reports() {
 
       {activeReport === 'classrooms' && (
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
+          <caption className="sr-only">Classroom utilization report</caption>
           <thead>
             <tr className="border-b-2 border-gray-300">
-              <th className="text-left py-2 px-2 font-semibold">Room</th>
-              <th className="text-left py-2 px-2 font-semibold">Capacity</th>
-              <th className="text-left py-2 px-2 font-semibold">Sessions</th>
-              <th className="text-left py-2 px-2 font-semibold">Hours Used</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Room</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Capacity</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Hours Used</th>
             </tr>
           </thead>
           <tbody>
@@ -241,12 +244,13 @@ export default function Reports() {
 
       {activeReport === 'courses' && (
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
+          <caption className="sr-only">Course completion report</caption>
           <thead>
             <tr className="border-b-2 border-gray-300">
-              <th className="text-left py-2 px-2 font-semibold">Code</th>
-              <th className="text-left py-2 px-2 font-semibold">Course</th>
-              <th className="text-left py-2 px-2 font-semibold">Sessions</th>
-              <th className="text-left py-2 px-2 font-semibold">Hours</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Code</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Hours</th>
             </tr>
           </thead>
           <tbody>

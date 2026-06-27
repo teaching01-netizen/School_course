@@ -926,9 +926,10 @@ export default function CourseLevels() {
                                 </div>
 
                                 <table className="w-full text-sm border-collapse">
+                                  <caption className="sr-only">Courses in cycle</caption>
                                   <thead>
                                     <tr className="border-b border-gray-200 text-left text-gray-500">
-                                      <th className="py-1.5 pr-3 font-medium w-8">
+                                      <th scope="col" className="py-1.5 pr-3 font-medium w-8">
                                         <input
                                           type="checkbox"
                                           className="rounded-sm"
@@ -955,12 +956,12 @@ export default function CourseLevels() {
                                           }}
                                         />
                                       </th>
-                                      <th className="py-1.5 pr-3 font-medium">Code</th>
-                                      <th className="py-1.5 pr-3 font-medium">Name</th>
-                                      <th className="py-1.5 pr-3 font-medium">Level</th>
-                                      <th className="py-1.5 pr-3 font-medium">Group</th>
-                                      <th className="py-1.5 pr-3 font-medium">Status</th>
-                                      <th className="py-1.5 font-medium" />
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Code</th>
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Name</th>
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Level</th>
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Group</th>
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Status</th>
+                                      <th scope="col" className="py-1.5 font-medium" />
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1084,12 +1085,13 @@ export default function CourseLevels() {
             Update levels together, then verify configuration to detect gaps before enabling automated assignment.
           </p>
           <table className="w-full text-sm">
+            <caption className="sr-only">Bulk edit levels</caption>
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="py-2 pr-3 font-medium">Course</th>
-                <th className="py-2 pr-3 font-medium">Cycle</th>
-                <th className="py-2 pr-3 font-medium">Current</th>
-                <th className="py-2 font-medium">New Level</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Course</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Current</th>
+                <th scope="col" className="py-2 font-medium">New Level</th>
               </tr>
             </thead>
             <tbody>

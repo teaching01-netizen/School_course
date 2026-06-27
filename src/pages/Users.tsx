@@ -170,13 +170,14 @@ export default function Users() {
 
       <div className="border border-gray-200 rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
+          <caption className="sr-only">List of users</caption>
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left py-2 px-2 font-semibold">Username</th>
-              <th className="text-left py-2 px-2 font-semibold">Role</th>
-              <th className="text-left py-2 px-2 font-semibold">Status</th>
-              <th className="text-left py-2 px-2 font-semibold">Created</th>
-              <th className="text-left py-2 px-2 font-semibold"></th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Role</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Status</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold">Created</th>
+              <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
             </tr>
           </thead>
           <tbody>

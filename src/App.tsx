@@ -1,48 +1,49 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ToastProvider } from './hooks/useToast';
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Layout from './components/Layout';
-import Login from './pages/Login';
-import Home from './pages/Home';
-import Courses from './pages/Courses';
-import CourseCreate from './pages/CourseCreate';
-import CourseDetail from './pages/CourseDetail';
-import Students from './pages/Students';
-import StudentProfile from './pages/StudentProfile';
-import Teachers from './pages/Teachers';
-import TeacherCreate from './pages/TeacherCreate';
-import TeacherProfile from './pages/TeacherProfile';
-import Subjects from './pages/Subjects';
-import SubjectCreate from './pages/SubjectCreate';
-import Classrooms from './pages/Classrooms';
-import Users from './pages/Users';
-import Schedule from './pages/Schedule';
-import Summary from './pages/Summary';
-import Availability from './pages/Availability';
-import Reports from './pages/Reports';
-import Logs from './pages/Logs';
-import SlotFinder from './pages/SlotFinder';
-import CrmAdmin from './pages/CrmAdmin';
-import CrmConflicts from './pages/CrmConflicts';
-import CrossStudyPage from './pages/CrossStudyPage';
-import CourseLevels from './pages/CourseLevels';
-import AbsenceForm from './pages/AbsenceForm';
-import Absences from './pages/Absences';
-import AbsenceDetail from './pages/AbsenceDetail';
-import AbsenceDashboard from './pages/AbsenceDashboard';
-import AbsenceSettings from './pages/AbsenceSettings';
-import OperationsCalendar from './pages/OperationsCalendar';
-import OperationsHub from './pages/operations/OperationsHub';
-import LeavePolicy from './pages/LeavePolicy';
-import EmailReminders from './pages/EmailReminders';
-import SitInTestPage from './pages/SitInTestPage';
-import TeacherDashboard from './pages/TeacherDashboard';
-import TeacherAbsenceDetail from './pages/TeacherAbsenceDetail';
 import { clearCacheForUserChange, queryClient } from "./query/cache";
 import { RealtimeProvider } from "./realtime/RealtimeProvider";
 import { invalidateRealtimeBackedQueries, RealtimeQueryBridge } from "./realtime/queryBridge";
+
+const Login = lazy(() => import('./pages/Login'));
+const Home = lazy(() => import('./pages/Home'));
+const Courses = lazy(() => import('./pages/Courses'));
+const CourseCreate = lazy(() => import('./pages/CourseCreate'));
+const CourseDetail = lazy(() => import('./pages/CourseDetail'));
+const Students = lazy(() => import('./pages/Students'));
+const StudentProfile = lazy(() => import('./pages/StudentProfile'));
+const Teachers = lazy(() => import('./pages/Teachers'));
+const TeacherCreate = lazy(() => import('./pages/TeacherCreate'));
+const TeacherProfile = lazy(() => import('./pages/TeacherProfile'));
+const Subjects = lazy(() => import('./pages/Subjects'));
+const SubjectCreate = lazy(() => import('./pages/SubjectCreate'));
+const Classrooms = lazy(() => import('./pages/Classrooms'));
+const Users = lazy(() => import('./pages/Users'));
+const Schedule = lazy(() => import('./pages/Schedule'));
+const Summary = lazy(() => import('./pages/Summary'));
+const Availability = lazy(() => import('./pages/Availability'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Logs = lazy(() => import('./pages/Logs'));
+const SlotFinder = lazy(() => import('./pages/SlotFinder'));
+const CrmAdmin = lazy(() => import('./pages/CrmAdmin'));
+const CrmConflicts = lazy(() => import('./pages/CrmConflicts'));
+const CrossStudyPage = lazy(() => import('./pages/CrossStudyPage'));
+const CourseLevels = lazy(() => import('./pages/CourseLevels'));
+const AbsenceForm = lazy(() => import('./pages/AbsenceForm'));
+const Absences = lazy(() => import('./pages/Absences'));
+const AbsenceDetail = lazy(() => import('./pages/AbsenceDetail'));
+const AbsenceDashboard = lazy(() => import('./pages/AbsenceDashboard'));
+const AbsenceSettings = lazy(() => import('./pages/AbsenceSettings'));
+const OperationsCalendar = lazy(() => import('./pages/OperationsCalendar'));
+const OperationsHub = lazy(() => import('./pages/operations/OperationsHub'));
+const LeavePolicy = lazy(() => import('./pages/LeavePolicy'));
+const EmailReminders = lazy(() => import('./pages/EmailReminders'));
+const SitInTestPage = lazy(() => import('./pages/SitInTestPage'));
+const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
+const TeacherAbsenceDetail = lazy(() => import('./pages/TeacherAbsenceDetail'));
 
 function AuthenticatedDataServices({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -86,10 +87,22 @@ function IndexRoute() {
 
 function RequireAuth() {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return (
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="sr-only">Loading...</span>
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+    </div>
+  );
   if (!user) return <Navigate to="/login" replace />;
   return <AppLayout />;
 }
+
+  const loadingFallback = (
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="sr-only">Loading...</span>
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+    </div>
+  );
 
 function App() {
   return (
@@ -98,6 +111,7 @@ function App() {
         <AuthProvider>
           <AuthenticatedDataServices>
             <BrowserRouter>
+          <Suspense fallback={loadingFallback}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/absence" element={<AbsenceForm />} />
@@ -141,6 +155,7 @@ function App() {
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
             </BrowserRouter>
           </AuthenticatedDataServices>
         </AuthProvider>

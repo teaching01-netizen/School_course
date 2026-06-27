@@ -50,13 +50,14 @@ export default function Logs() {
         <EmptyState message="No audit entries" />
       ) : (
         <div className="border border-gray-200 rounded-sm overflow-x-auto">
-          <table className="w-full text-[13px]">
+          <table className="w-full text-[13px] data-table">
+            <caption className="sr-only">Audit log</caption>
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left py-2 px-2 font-semibold">Time</th>
-                <th className="text-left py-2 px-2 font-semibold">Actor</th>
-                <th className="text-left py-2 px-2 font-semibold">Action</th>
-                <th className="text-left py-2 px-2 font-semibold">Payload</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Time</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Actor</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Action</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold">Payload</th>
               </tr>
             </thead>
             <tbody>

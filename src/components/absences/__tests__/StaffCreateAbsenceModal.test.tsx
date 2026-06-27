@@ -38,18 +38,17 @@ const MOCK_SESSIONS = {
       course_id: "c1",
       course_code: "MATH-1",
       course_name: "Math 101",
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: { id: "sitcourse1", code: "SCI-1", name: "Science 101", subject_name: "Science" },
+        available_sessions: [
+          { id: "sit1", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z", course_id: "sitcourse1" },
+        ],
+      },
       sessions: [
         { id: "sess1", start_at: "2026-06-24T10:00:00Z", end_at: "2026-06-24T11:00:00Z", date: "2026-06-24", already_absent: false },
       ],
     },
-  ],
-};
-
-const MOCK_SIT_IN_OPTIONS = {
-  sit_in_method: "physical",
-  sit_in_course: { id: "sitcourse1", code: "SCI-1", name: "Science 101", subject_name: "Science" },
-  available_sessions: [
-    { id: "sit1", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z" },
   ],
 };
 
@@ -103,11 +102,12 @@ describe("StaffCreateAbsenceModal", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
-      expect(screen.getByText("MATH — Mathematics")).toBeInTheDocument();
+      expect(screen.getByText("Mathematics")).toBeInTheDocument();
+      expect(screen.getByText("MATH")).toBeInTheDocument();
     });
   });
 
-  it("shows validation toast when advancing without required fields", async () => {
+  it("shows validation toast when advancing with no subject selected", async () => {
     const user = userEvent.setup();
     mockApiJson.mockResolvedValueOnce(MOCK_STUDENT);
     renderModal();
@@ -118,9 +118,10 @@ describe("StaffCreateAbsenceModal", () => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
     });
 
+    // Don't select any subject, click Next
     await user.click(screen.getByRole("button", { name: /next/i }));
     await waitFor(() => {
-      expect(screen.getByText(/select a student, subject, and date range/i)).toBeInTheDocument();
+      expect(screen.getByText(/select at least one subject/i)).toBeInTheDocument();
     });
   });
 
@@ -129,7 +130,6 @@ describe("StaffCreateAbsenceModal", () => {
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce(MOCK_SIT_IN_OPTIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG);
     renderModal();
 
@@ -140,32 +140,24 @@ describe("StaffCreateAbsenceModal", () => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
     });
 
-    await user.selectOptions(screen.getByLabelText(/subject/i), "sub1");
-    await user.type(screen.getByLabelText(/from/i), "2026-06-24");
-    await user.type(screen.getByLabelText(/to/i), "2026-06-25");
-
-    // Step 1 → 2
+    // Select subject via checkbox
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
     await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: Sessions loaded, select the day group checkbox
     await waitFor(() => {
-      expect(screen.getByText(/select the sessions/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
     });
+    const sessionCheckbox = await screen.findByRole("checkbox");
+    await user.click(sessionCheckbox);
 
-    // Step 2: Wait for sessions to load, then select one
-    const sessionButton = await screen.findByRole("button", { name: /17:00/i });
-    await user.click(sessionButton);
+    // Wait for sit-in select to appear
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+
     await user.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 3: Wait for sit-in options to load
-    await waitFor(() => {
-      expect(screen.getByText("Science")).toBeInTheDocument();
-    });
-
-    // Step 3: Select sit-in session (wait for it to load)
-    const sitInButton = await screen.findByRole("button", { name: /21:00/i });
-    await user.click(sitInButton);
-    await user.click(screen.getByRole("button", { name: /next/i }));
-
-    // Step 4: Confirm step
+    // Step 3: Confirm step
     await waitFor(() => {
       expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
     });
@@ -188,18 +180,16 @@ describe("StaffCreateAbsenceModal", () => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
     });
 
-    await user.selectOptions(screen.getByLabelText(/subject/i), "sub1");
-    await user.type(screen.getByLabelText(/from/i), "2026-06-24");
-    await user.type(screen.getByLabelText(/to/i), "2026-06-25");
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
     await user.click(screen.getByRole("button", { name: /next/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/select the sessions/i)).toBeInTheDocument();
-    });
 
     // Don't select any session, click Next
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
     await user.click(screen.getByRole("button", { name: /next/i }));
     await waitFor(() => {
-      expect(screen.getByText(/select at least one missed session/i)).toBeInTheDocument();
+      expect(screen.getByText(/select at least one missed class/i)).toBeInTheDocument();
     });
   });
 
@@ -209,45 +199,35 @@ describe("StaffCreateAbsenceModal", () => {
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce(MOCK_SIT_IN_OPTIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal({ onCreated });
 
-    // Step 1
+    // Step 1: lookup + select subject
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
     });
-
-    await user.selectOptions(screen.getByLabelText(/subject/i), "sub1");
-    await user.type(screen.getByLabelText(/from/i), "2026-06-24");
-    await user.type(screen.getByLabelText(/to/i), "2026-06-25");
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
     await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: select session + sit-in
     await waitFor(() => {
-      expect(screen.getByText(/select the sessions/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
     });
-
-    // Step 2
-    const sessionButton = await screen.findByRole("button", { name: /17:00/i });
-    await user.click(sessionButton);
+    const sessionCheckbox = await screen.findByRole("checkbox");
+    await user.click(sessionCheckbox);
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
     await user.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 3
-    await waitFor(() => {
-      expect(screen.getByText("Science")).toBeInTheDocument();
-    });
-    const sitInButton = await screen.findByRole("button", { name: /21:00/i });
-    await user.click(sitInButton);
-    await user.click(screen.getByRole("button", { name: /next/i }));
-
-    // Step 4
+    // Step 3: submit
     await waitFor(() => {
       expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
     });
-
     await user.click(screen.getByRole("button", { name: /create absence/i }));
+
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         "/api/v1/absences/staff-create",
