@@ -198,6 +198,7 @@ html {
   max-height: none;
   overflow: visible;
   background: transparent;
+  margin: auto;
 }
 
 .modal-base::backdrop {
