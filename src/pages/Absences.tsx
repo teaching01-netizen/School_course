@@ -122,7 +122,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
       {sessions.map((session) => (
         <div key={session.id}>
           <div className="max-w-[180px] truncate font-medium text-gray-900" title={session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
-            {fallbackLabel ?? session.course_name ?? session.course_code ?? "Sit-in"}
+            {session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}
           </div>
           <div className="text-xs text-gray-500">{formatSitInWindow(session.start_at, session.end_at)}</div>
         </div>

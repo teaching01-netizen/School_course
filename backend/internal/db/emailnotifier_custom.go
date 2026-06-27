@@ -41,7 +41,7 @@ func (q *Queries) QueryTodaySitIns(ctx context.Context, todayDate, instituteTZ s
 		JOIN absence_sit_ins asi ON asi.absence_id = sa.id
 		JOIN sessions ses ON ses.id = asi.session_id
 			JOIN courses c ON c.id = sa.course_id
-			JOIN courses sit_c ON sit_c.id = COALESCE(sa.sit_in_course_id, ses.course_id)
+			JOIN courses sit_c ON sit_c.id = ses.course_id
 			LEFT JOIN subjects missed_sub ON missed_sub.id = c.subject_id
 			LEFT JOIN subjects sit_sub ON sit_sub.id = sit_c.subject_id
 			LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)

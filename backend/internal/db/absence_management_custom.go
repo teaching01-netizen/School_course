@@ -89,7 +89,14 @@ const managedAbsenceListQueryTemplate = `
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
+		LEFT JOIN (
+		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
+		  FROM absence_sit_ins asi
+		  JOIN sessions s ON s.id = asi.session_id
+		  JOIN courses sit_courses ON sit_courses.id = s.course_id
+		  JOIN subjects sit_sub_inner ON sit_sub_inner.id = sit_courses.subject_id
+		  GROUP BY asi.absence_id
+		) sit_sub ON sit_sub.absence_id = sa.id
 		WHERE ($1 = '' OR sa.wcode ILIKE '%' || $1 || '%' OR COALESCE(sa.student_name, st.full_name, '') ILIKE '%' || $1 || '%')
 		  AND ($2::uuid IS NULL OR sa.subject_id = $2)
 		  AND ($3 = '' OR sa.status = $3)
@@ -116,7 +123,14 @@ const managedAbsenceGetQueryTemplate = `
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
+		LEFT JOIN (
+		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
+		  FROM absence_sit_ins asi
+		  JOIN sessions s ON s.id = asi.session_id
+		  JOIN courses sit_courses ON sit_courses.id = s.course_id
+		  JOIN subjects sit_sub_inner ON sit_sub_inner.id = sit_courses.subject_id
+		  GROUP BY asi.absence_id
+		) sit_sub ON sit_sub.absence_id = sa.id
 		WHERE sa.id = $1
 `
 
@@ -880,7 +894,14 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sub ON sit_sub.id = sc.subject_id
+		LEFT JOIN (
+		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
+		  FROM absence_sit_ins asi
+		  JOIN sessions s ON s.id = asi.session_id
+		  JOIN courses sit_courses ON sit_courses.id = s.course_id
+		  JOIN subjects sit_sub_inner ON sit_sub_inner.id = sit_courses.subject_id
+		  GROUP BY asi.absence_id
+		) sit_sub ON sit_sub.absence_id = sa.id
 		WHERE sa.date_from <= $2::date
 		  AND sa.date_to >= $1::date
 		ORDER BY sa.date_from ASC, sa.id ASC
