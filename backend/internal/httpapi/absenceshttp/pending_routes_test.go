@@ -103,9 +103,10 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 
 	studentWCode := "w" + suffix
 
-	// Student (lowercase wcode).
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name) VALUES ($1, $2)`,
-		studentWCode, "Test Student "+suffix)
+	// Student (lowercase wcode, with parent phone for verification).
+	_, err := dbpool.Exec(ctx,
+		`INSERT INTO students (wcode, full_name, parent_phone) VALUES ($1, $2, $3)`,
+		studentWCode, "Test Student "+suffix, "0812345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,7 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 	// Ensure SmsParentEnabled = true.
 	_, err = dbpool.Exec(ctx, `
 		INSERT INTO app_settings (id, absence_policies)
-		VALUES ('00000000-0000-0000-0000-000000000001',
+		VALUES (true,
 		        '{"notifications":{"sms_parent_enabled":true,"sms_parent_template":"Your code is {{code}}"}}'::jsonb)
 		ON CONFLICT (id) DO UPDATE SET absence_policies = EXCLUDED.absence_policies`)
 	if err != nil {
@@ -188,6 +189,7 @@ func TestHandleParentVerificationSend_UpperCaseWCode_NormalizesToLowercase(t *te
 	body := `{"wcode":"` + upperWCode + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.New().String())
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -247,6 +249,7 @@ func TestHandleParentVerificationSend_LowerCaseWCode_AlreadyNormalized(t *testin
 	body := `{"wcode":"` + studentWCode + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.New().String())
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -316,6 +319,7 @@ func TestHandleParentVerificationSend_MixedCaseWCode_MixedWhitespace(t *testing.
 			body := `{"wcode":"` + tt.input + `"}`
 			req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", uuid.New().String())
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
 

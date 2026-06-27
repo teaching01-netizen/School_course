@@ -368,6 +368,8 @@ export type SubjectSessions = {
   sessions: SessionInSubject[];
   sit_in?: SitInInfo;
   absence_rate_exceeded?: boolean;
+  existing_absence_count?: number;
+  total_session_count?: number;
 };
 
 export type SessionsInRangeResponse = {

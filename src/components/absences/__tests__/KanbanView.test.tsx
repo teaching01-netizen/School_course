@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import KanbanView from "../KanbanView";
 import { ToastProvider } from "../../../hooks/useToast";
+import { ApiRequestError } from "@/api/client";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 const mockUseRealtime = vi.hoisted(() => vi.fn());
@@ -150,6 +151,44 @@ describe("KanbanView hard delete", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Delete failed")).toBeInTheDocument();
+    });
+  });
+
+  it("shows stale edit error toast on delete API conflict", async () => {
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") throw new ApiRequestError("Version mismatch", { status: 409, code: "stale_edit" });
+      if (url.includes("status=pending")) return { items: [PENDING_ABSENCE], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Absence was changed by another user. Reload and try again.")).toBeInTheDocument();
+    });
+  });
+
+  it("shows stale edit error toast on cancel API conflict", async () => {
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.includes("/status")) throw new ApiRequestError("Version mismatch", { status: 409, code: "stale_edit" });
+      if (url.includes("status=pending")) return { items: [PENDING_ABSENCE], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+    const user = userEvent.setup();
+
+    await screen.findByText("John Smith");
+    await user.click(screen.getByRole("button", { name: /^Cancel$/ }));
+    await user.type(screen.getByRole("textbox", { name: /cancellation reason/i }), "Test reason");
+    await user.click(screen.getByRole("button", { name: /Cancel Absence/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Absence was changed by another user. Reload and try again.")).toBeInTheDocument();
     });
   });
 

@@ -23,6 +23,8 @@ export type BuildSubmissionPayloadsInput = {
   sitInSelections: Record<string, string>;
   reason: string;
   maxDateRangeDays: number;
+  sitInPriorityLevels?: Record<string, number>;
+  sitInPriorityHistory?: Record<string, Record<number, SubjectSessions>>;
 };
 
 export type BuildSubmissionPayloadsResult =
@@ -92,21 +94,31 @@ export function selectedSitInCourseIDForGroup(
   group: SubjectSessions,
   selectedMissedSessionIds: string[],
   sitInSelections: Record<string, string>,
+  priorityLevels?: Record<string, number>,
+  priorityHistory?: Record<string, Record<number, SubjectSessions>>,
 ): string | null {
   if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
     return group.sit_in?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim() || null;
   }
   const courseIDs = new Set<string>();
   for (const missedSessionID of selectedMissedSessionIds) {
-    const sitIn = sitInForMissedSession(group, missedSessionID);
+    let effectiveGroup = group;
+    if (priorityLevels && priorityHistory) {
+      const level = priorityLevels[missedSessionID];
+      if (level !== undefined) {
+        const historyGroup = priorityHistory[missedSessionID]?.[level];
+        if (historyGroup) effectiveGroup = historyGroup;
+      }
+    }
+    const sitIn = sitInForMissedSession(effectiveGroup, missedSessionID);
     if (sitIn?.sit_in_method !== "physical") {
-      const courseID = sitIn?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim();
+      const courseID = sitIn?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(effectiveGroup) || effectiveGroup.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
     const priorities = sitIn.priorities ?? [];
     if (priorities.length === 0) {
-      const courseID = sitIn.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim();
+      const courseID = sitIn.sit_in_course?.id?.trim() || findSitInCourseFromSessions(effectiveGroup) || effectiveGroup.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
@@ -141,6 +153,27 @@ function collectAttendingSessions(
     }
   }
   return byDate;
+}
+
+function sessionInSitInData(
+  sitIn: SubjectSessions["sit_in"] | undefined | null,
+  sessionId: string,
+  targetCourseId: string,
+): boolean {
+  if (!sitIn) return false;
+  if ((sitIn.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId))) return true;
+  if ((sitIn.priorities ?? []).some((p) =>
+    (p.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId)),
+  )) return true;
+  if (sitIn.sit_in_by_missed_session) {
+    for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
+      if ((entry.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId))) return true;
+      if ((entry.priorities ?? []).some((p) =>
+        (p.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId)),
+      )) return true;
+    }
+  }
+  return false;
 }
 
 export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): BuildSubmissionPayloadsResult {
@@ -187,7 +220,7 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
       sit_in_session_ids: sitInSessionIds,
     };
     if (sitInMethod === "physical" || sitInMethod === "zoom") payload.sit_in_method = sitInMethod;
-    const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, input.sitInSelections);
+    const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, input.sitInSelections, input.sitInPriorityLevels, input.sitInPriorityHistory);
     if (sitInCourseID === null) {
       return {
         ok: false,
@@ -197,21 +230,12 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
     if (sitInMethod === "physical" && sitInCourseID && sitInSessionIds.length > 0) {
       const mismatched = sitInSessionIds.filter((sid) => {
-        const sitIn = group.sit_in;
-        const inTop = (sitIn?.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID));
-        if (inTop) return false;
-        const inPriority = (sitIn?.priorities ?? []).some((p) =>
-          (p.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID)),
-        );
-        if (inPriority) return false;
-        if (sitIn?.sit_in_by_missed_session) {
-          for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
-            const inEntry = (entry.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID));
-            if (inEntry) return false;
-            const inEntryPriority = (entry.priorities ?? []).some((p) =>
-              (p.available_sessions ?? []).some((s) => s.id === sid && (!s.course_id || s.course_id === sitInCourseID)),
-            );
-            if (inEntryPriority) return false;
+        if (sessionInSitInData(group.sit_in, sid, sitInCourseID)) return false;
+        if (input.sitInPriorityHistory) {
+          for (const historyMap of Object.values(input.sitInPriorityHistory)) {
+            for (const historyGroup of Object.values(historyMap)) {
+              if (sessionInSitInData(historyGroup.sit_in, sid, sitInCourseID)) return false;
+            }
           }
         }
         return true;

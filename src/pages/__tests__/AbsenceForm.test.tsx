@@ -1447,4 +1447,53 @@ describe("AbsenceForm", () => {
     expect(screen.getByText(/Make-up:/).parentElement).toHaveTextContent("18 Jun 2026");
     expect(screen.queryByText("Make-up class selected")).not.toBeInTheDocument();
   });
+
+  it("shows absence count breakdown when existing_absence_count and total_session_count are present", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH",
+          course_name: "Mathematics",
+          absence_rate_exceeded: true,
+          existing_absence_count: 1,
+          total_session_count: 11,
+          sessions: [
+            { id: "s1", start_at: "2026-06-01T09:00:00Z", end_at: "2026-06-01T10:30:00Z", date: "2026-06-01", already_absent: false },
+          ],
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "c-phys301",
+          course_code: "PHYS",
+          course_name: "Physics",
+          absence_rate_exceeded: true,
+          existing_absence_count: 3,
+          total_session_count: 21,
+          sessions: [
+            { id: "s2", start_at: "2026-06-02T11:00:00Z", end_at: "2026-06-02T12:30:00Z", date: "2026-06-02", already_absent: false },
+          ],
+        },
+      ]),
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(await screen.findByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await toggleAllCourseSwitches(user);
+
+    // Wait for sessions to be fully rendered
+    await waitFor(() => {
+      expect(screen.getByText(/1 absence used, max 2/)).toBeInTheDocument();
+    }, { timeout: 10000 });
+    expect(screen.getByText(/3 absences used, max 4/)).toBeInTheDocument();
+  });
 });

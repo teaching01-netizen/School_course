@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import Absences from "../Absences";
 import { ToastProvider } from "../../hooks/useToast";
 import { queryClient } from "../../query/cache";
+import { ApiRequestError } from "@/api/client";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 const mockApiBlobDownload = vi.hoisted(() => vi.fn());
@@ -420,6 +421,38 @@ describe("Absence inbox", () => {
     });
     await waitFor(() => {
       expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows stale edit error toast on delete API conflict", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockRejectedValueOnce(new ApiRequestError("Version mismatch", { status: 409, code: "stale_edit" }));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Absence was changed by another user. Reload and try again.")).toBeInTheDocument();
+    });
+  });
+
+  it("shows stale edit error toast on cancel API conflict", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockRejectedValueOnce(new ApiRequestError("Version mismatch", { status: 409, code: "stale_edit" }))
+      .mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+    await user.selectOptions(screen.getByLabelText(/cancellation reason/i), "other");
+    await user.click(screen.getByRole("button", { name: /Cancel Absence/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("One or more absences were changed by another user. Reload and try again.")).toBeInTheDocument();
     });
   });
 

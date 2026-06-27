@@ -124,12 +124,6 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date", "date_to must be on or after date_from")
 			return 0, nil, fmt.Errorf("date_to before date_from")
 		}
-		days := int(dateTo.Time.Sub(dateFrom.Time).Hours() / 24)
-		if days > settings.Form.MaxDateRangeDays {
-			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded", fmt.Sprintf("Date range must be %d days or less", settings.Form.MaxDateRangeDays))
-			return 0, nil, fmt.Errorf("date range exceeded")
-		}
-
 		sitInMethod, err := normalizeSubmissionSitInMethod(body.SitInMethod)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "Invalid sit-in method")
@@ -163,20 +157,8 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			sitInCourseID = parsed
 		}
 
-		totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)
-		if totalErr != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
-			return 0, nil, totalErr
-		}
-		existingAbsences, absErr := qtx.StudentAbsenceCountForCourse(r.Context(), body.Wcode, course.CourseID)
-		if absErr != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
-			return 0, nil, absErr
-		}
-		if projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsences, 1) {
-			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
-			return 0, nil, fmt.Errorf("absence limit exceeded")
-		}
+		// ponytail: staff bypass the absence-record limit; add a policy config
+		// when a non-admin staff-creation path is introduced.
 
 		row, err := qtx.AbsenceCreate(r.Context(), sqldb.AbsenceCreateParams{
 			Wcode:         body.Wcode,
@@ -248,16 +230,6 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			if count != len(missedUUIDs) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 				return 0, nil, fmt.Errorf("invalid missed sessions")
-			}
-			timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), row.ID, missedUUIDs)
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
-			}
-			if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)
-				return 0, nil, timingErr
 			}
 			if err := qtx.AbsenceMissedSessionsCreate(r.Context(), row.ID, missedUUIDs); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)

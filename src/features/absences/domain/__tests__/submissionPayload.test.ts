@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SubjectSessions } from "../../types";
-import { buildSubmissionPayloads } from "../submissionPayload";
+import { buildSubmissionPayloads, selectedSitInCourseIDForGroup } from "../submissionPayload";
 
 const baseGroup = {
   subject_id: "subj-1",
@@ -315,5 +315,236 @@ describe("absence submission payload builder", () => {
       ok: false,
       error: "Mathematics spans more than 3 days. Split it into separate submissions.",
     });
+  });
+
+  it("uses sitInPriorityHistory to resolve sit-in course for non-physical sit-in at higher priority level", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "zoom",
+            sit_in_by_missed_session: {
+              "missed-1": {
+                sit_in_method: "zoom",
+                sit_in_course: { id: "course-original" },
+                available_sessions: [{ id: "zoom-orig-1", course_id: "course-original", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+              },
+            },
+          },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "zoom-p2-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+      sitInPriorityLevels: { "missed-1": 2 },
+      sitInPriorityHistory: {
+        "missed-1": {
+          2: {
+            ...baseGroup,
+            sit_in: {
+              sit_in_method: "zoom",
+              sit_in_by_missed_session: {
+                "missed-1": {
+                  sit_in_method: "zoom",
+                  sit_in_course: { id: "course-p2" },
+                  available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-03T14:00:00+07:00", end_at: "2026-06-03T15:00:00+07:00" }],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0].sit_in_course_id).toBe("course-p2");
+  });
+
+  it("resolves physical sit-in course from priority history when original group contains the same session IDs", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_by_missed_session: {
+              "missed-1": {
+                sit_in_method: "physical",
+                sit_in_course: { id: "course-l1" },
+                available_sessions: [{ id: "sit-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+                priorities: [
+                  { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                ],
+              },
+            },
+          },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-l2-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+      sitInPriorityLevels: { "missed-1": 2 },
+      sitInPriorityHistory: {
+        "missed-1": {
+          2: {
+            ...baseGroup,
+            sit_in: {
+              sit_in_method: "physical",
+              sit_in_by_missed_session: {
+                "missed-1": {
+                  sit_in_method: "physical",
+                  sit_in_course: { id: "course-l2" },
+                  available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0].sit_in_course_id).toBe("course-l2");
+  });
+
+  it("resolves physical sit-in course from priority history when re-fetched session IDs differ from the original", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_by_missed_session: {
+              "missed-1": {
+                sit_in_method: "physical",
+                sit_in_course: { id: "course-l1" },
+                available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+                priorities: [
+                  { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                ],
+              },
+            },
+          },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "refetch-l2-1" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+      sitInPriorityLevels: { "missed-1": 2 },
+      sitInPriorityHistory: {
+        "missed-1": {
+          2: {
+            ...baseGroup,
+            sit_in: {
+              sit_in_method: "physical",
+              sit_in_by_missed_session: {
+                "missed-1": {
+                  sit_in_method: "physical",
+                  sit_in_course: { id: "course-l2" },
+                  available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads[0].sit_in_course_id).toBe("course-l2");
+  });
+});
+
+describe("selectedSitInCourseIDForGroup", () => {
+  const baseMissedIds = ["missed-1"];
+
+  it("returns course from priority history for non-physical sit-in when missed session not in original sit_in_by_missed_session", () => {
+    const group: SubjectSessions = {
+      ...baseGroup,
+      sit_in: {
+        sit_in_method: "zoom",
+        sit_in_course: { id: "course-original" },
+        sit_in_by_missed_session: {
+          "other-id": {
+            sit_in_method: "zoom",
+            sit_in_course: { id: "course-other" },
+            available_sessions: [{ id: "zoom-other-1", course_id: "course-other", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+          },
+        },
+      },
+    };
+    const result = selectedSitInCourseIDForGroup(
+      group,
+      baseMissedIds,
+      { "missed-1": "zoom-p2-1" },
+      { "missed-1": 2 },
+      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "zoom", sit_in_course: { id: "course-p2" }, available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+    );
+    expect(result).toBe("course-p2");
+  });
+
+  it("returns course from priority history for physical sit-in when re-fetched session IDs differ from original", () => {
+    const group: SubjectSessions = {
+      ...baseGroup,
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_by_missed_session: {
+          "missed-1": {
+            sit_in_method: "physical",
+            sit_in_course: { id: "course-l1" },
+            available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            priorities: [
+              { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+            ],
+          },
+        },
+      },
+    };
+    const result = selectedSitInCourseIDForGroup(
+      group,
+      baseMissedIds,
+      { "missed-1": "refetch-l2-1" },
+      { "missed-1": 2 },
+      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "physical", sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+    );
+    expect(result).toBe("course-l2");
+  });
+
+  it("returns wrong sit_in_course when priority history not provided and re-fetched session not found in original group's priorities", () => {
+    const group: SubjectSessions = {
+      ...baseGroup,
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_by_missed_session: {
+          "missed-1": {
+            sit_in_method: "physical",
+            sit_in_course: { id: "course-l1" },
+            available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            priorities: [
+              { level: 2, sit_in_course: { id: "course-l2" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+            ],
+          },
+        },
+      },
+    };
+    const result = selectedSitInCourseIDForGroup(
+      group,
+      baseMissedIds,
+      { "missed-1": "refetch-l2-1" },
+    );
+    expect(result).toBe("course-l1");
   });
 });

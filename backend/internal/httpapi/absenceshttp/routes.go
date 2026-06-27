@@ -63,6 +63,11 @@ func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 	return settings.MaxDateRangeDays + lookbackDays
 }
 
+func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
+	user, err := v.RequireUser(r.Context(), r)
+	return err == nil && user.Role == "Admin"
+}
+
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
@@ -744,7 +749,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	if dateFromProvided {
+	if dateFromProvided && !isAdminRequest(s.deps.Auth, r) {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
 		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
 		if days > maxLookupRangeDays {
@@ -945,15 +950,17 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
 	}
 	type courseResponse struct {
-		SubjectID           string               `json:"subject_id"`
-		SubjectCode         string               `json:"subject_code"`
-		SubjectName         string               `json:"subject_name"`
-		CourseID            string               `json:"course_id"`
-		CourseCode          string               `json:"course_code"`
-		CourseName          string               `json:"course_name"`
-		Sessions            []sessionResponse    `json:"sessions"`
-		SitIn               *courseSitInResponse `json:"sit_in,omitempty"`
-		AbsenceRateExceeded bool                 `json:"absence_rate_exceeded"`
+		SubjectID            string               `json:"subject_id"`
+		SubjectCode          string               `json:"subject_code"`
+		SubjectName          string               `json:"subject_name"`
+		CourseID             string               `json:"course_id"`
+		CourseCode           string               `json:"course_code"`
+		CourseName           string               `json:"course_name"`
+		Sessions             []sessionResponse    `json:"sessions"`
+		SitIn                *courseSitInResponse `json:"sit_in,omitempty"`
+		AbsenceRateExceeded  bool                 `json:"absence_rate_exceeded"`
+		ExistingAbsenceCount int32                `json:"existing_absence_count"`
+		TotalSessionCount    int32                `json:"total_session_count"`
 	}
 
 	courses := make([]courseResponse, 0, len(courseOrder))
@@ -1002,6 +1009,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		}
 
 		absenceRateExceeded := false
+		var existingAbsenceCount, totalSessionCount int32
 		if cErr == nil {
 			total, totalErr := s.deps.Q.CourseSessionCount(r.Context(), courseID)
 			if totalErr != nil && s.deps.Log != nil {
@@ -1013,19 +1021,23 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			}
 			if totalErr == nil && absErr == nil {
 				absenceRateExceeded = projectedAbsenceRecordLimitExceeded(total, existing, 1)
+				existingAbsenceCount = existing
+				totalSessionCount = total
 			}
 		}
 
 		courses = append(courses, courseResponse{
-			SubjectID:           g.SubjectID,
-			SubjectCode:         g.SubjectCode,
-			SubjectName:         g.SubjectName,
-			CourseID:            g.CourseID,
-			CourseCode:          g.CourseCode,
-			CourseName:          g.CourseName,
-			Sessions:            sessionsResp,
-			SitIn:               sitIn,
-			AbsenceRateExceeded: absenceRateExceeded,
+			SubjectID:            g.SubjectID,
+			SubjectCode:          g.SubjectCode,
+			SubjectName:          g.SubjectName,
+			CourseID:             g.CourseID,
+			CourseCode:           g.CourseCode,
+			CourseName:           g.CourseName,
+			Sessions:             sessionsResp,
+			SitIn:                sitIn,
+			AbsenceRateExceeded:  absenceRateExceeded,
+			ExistingAbsenceCount: existingAbsenceCount,
+			TotalSessionCount:    totalSessionCount,
 		})
 	}
 

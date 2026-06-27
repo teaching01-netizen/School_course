@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiJson } from "../../api/client";
+import { apiJson, ApiRequestError } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import { useRealtime } from "../../hooks/useRealtime";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../../types";
@@ -192,7 +192,10 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
       setCancelReason("");
       addToast("success", "Absence cancelled");
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Cancel failed");
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "Absence was changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Cancel failed";
+      addToast("error", msg);
     } finally {
       setCancelling(false);
     }
@@ -207,7 +210,10 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
       setDeleteTarget(null);
       addToast("success", "Absence permanently deleted");
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Delete failed");
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "Absence was changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Delete failed";
+      addToast("error", msg);
     } finally {
       setDeleting(false);
     }

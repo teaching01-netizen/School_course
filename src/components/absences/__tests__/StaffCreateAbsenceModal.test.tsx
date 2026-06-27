@@ -193,6 +193,34 @@ describe("StaffCreateAbsenceModal", () => {
     });
   });
 
+  it("loads sessions with wide date bounds on step 2", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_SESSIONS);
+    renderModal();
+
+    // Step 1: lookup student
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+
+    // Select subject and advance to step 2
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: verify sessions loaded with wide date bounds
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+
+    const sessionsUrl = mockApiJson.mock.calls[1][0] as string;
+    expect(sessionsUrl).toContain("date_from=1970-01-01");
+    expect(sessionsUrl).toContain("date_to=2100-01-01");
+  });
+
   it("submits to staff-create endpoint on confirm", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();

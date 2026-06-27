@@ -566,7 +566,8 @@ func (q *Queries) AbsenceHardDelete(ctx context.Context, id pgtype.UUID, expecte
 	var one int32
 	err := q.db.QueryRow(ctx, `
 		DELETE FROM student_absences
-		WHERE id = $1 AND version = $2
+		WHERE id = $1
+		  AND (version = $2 OR status IN ('cancelled', 'actioned'))
 		RETURNING 1
 	`, id, expectedVersion).Scan(&one)
 	return one, err

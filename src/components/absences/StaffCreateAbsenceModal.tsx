@@ -124,7 +124,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    void loadSessionsInRange(student.wcode, undefined, undefined, { signal: controller.signal })
+    void loadSessionsInRange(student.wcode, "1970-01-01", "2100-01-01", { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects ?? []); })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -308,7 +308,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
-      const sitInCourseId = selectedSitInCourseIDForGroup(group, missedIds, sitInSelections);
+      const sitInCourseId = selectedSitInCourseIDForGroup(group, missedIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory);
 
       try {
         const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>("/api/v1/absences/staff-create", {

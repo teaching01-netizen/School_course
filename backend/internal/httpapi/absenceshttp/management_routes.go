@@ -1447,15 +1447,23 @@ func (s *server) handleAbsenceDelete(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, message)
 			return 0, nil, err
 		}
+		deleteVersion := *body.ExpectedVersion
 		if current.Version != *body.ExpectedVersion {
-			s.writeStaleAbsence(w)
-			return 0, nil, pgx.ErrNoRows
+			if current.Status == "cancelled" {
+				// Absence is already cancelled — a terminal state no concurrent
+				// status update can change. Use the actual DB version so the
+				// SQL-level check doesn't reject the delete with stale_edit.
+				deleteVersion = current.Version
+			} else {
+				s.writeStaleAbsence(w)
+				return 0, nil, pgx.ErrNoRows
+			}
 		}
 
 		// ON DELETE CASCADE on absence_sit_ins, absence_missed_sessions,
 		// and absence_audit_log handles child row cleanup atomically.
 		// Version check in WHERE clause provides DB-level optimistic locking.
-		if _, err := qtx.AbsenceHardDelete(r.Context(), id, *body.ExpectedVersion); err != nil {
+		if _, err := qtx.AbsenceHardDelete(r.Context(), id, deleteVersion); err != nil {
 			if sqldb.IsNoRows(err) {
 				s.writeStaleAbsence(w)
 			} else {

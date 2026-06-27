@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, UserPlus } from "lucide-react";
-import { apiJson, downloadApiFile } from "../api/client";
+import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
 import PageHeading from "../components/ui/PageHeading";
@@ -276,7 +276,10 @@ export default function Absences() {
       for (const target of cancelTargets) {
         target.status = "pending";
       }
-      addToast("error", err instanceof Error ? err.message : "Batch cancel failed");
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "One or more absences were changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Batch cancel failed";
+      addToast("error", msg);
       await load();
     } finally {
       setCancelling(false);
@@ -292,7 +295,10 @@ export default function Absences() {
       setDeleteTarget(null);
       await load();
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Delete failed");
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "Absence was changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Delete failed";
+      addToast("error", msg);
     } finally {
       setDeleting(false);
     }

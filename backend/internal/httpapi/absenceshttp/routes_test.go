@@ -1,6 +1,10 @@
 package absenceshttp
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"warwick-institute/internal/auth"
 )
 
 func TestDispatchDelete_RouteRegistered(t *testing.T) {
@@ -276,6 +282,126 @@ func TestMaxSessionsLookupRangeDaysIncludesPostSessionLookback(t *testing.T) {
 	}
 }
 
+func TestProjectedAbsenceRecordLimitExceeded_ZeroTotalSessions(t *testing.T) {
+	if projectedAbsenceRecordLimitExceeded(0, 1, 1) {
+		t.Fatal("zero total sessions should not be exceeded (guard)")
+	}
+}
+
+func TestProjectedAbsenceRecordLimitExceeded_ZeroSubmittingRecords(t *testing.T) {
+	if projectedAbsenceRecordLimitExceeded(10, 2, 0) {
+		t.Fatal("zero submitting records should not be exceeded (guard)")
+	}
+}
+
+func TestProjectedAbsenceRecordLimitExceeded_AllowsBoundary(t *testing.T) {
+	// Formula: (existing+1)*5 <= total → allowed
+	tests := []struct {
+		total, existing int32
+	}{
+		{total: 5, existing: 0},   // (0+1)*5 = 5 <= 5
+		{total: 9, existing: 0},   // (0+1)*5 = 5 <= 9
+		{total: 10, existing: 1},  // (1+1)*5 = 10 <= 10
+		{total: 14, existing: 1},  // (1+1)*5 = 10 <= 14
+		{total: 15, existing: 2},  // (2+1)*5 = 15 <= 15
+		{total: 20, existing: 3},  // (3+1)*5 = 20 <= 20
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)
+		t.Run(name, func(t *testing.T) {
+			if projectedAbsenceRecordLimitExceeded(tt.total, tt.existing, 1) {
+				t.Fatalf("%d-session course with %d existing records should allow one more (want false)", tt.total, tt.existing)
+			}
+		})
+	}
+}
+
+func TestProjectedAbsenceRecordLimitExceeded_BlocksPastBoundary(t *testing.T) {
+	// Formula: (existing+1)*5 > total → blocked
+	tests := []struct {
+		total, existing int32
+	}{
+		{total: 4, existing: 0},   // (0+1)*5 = 5 > 4
+		{total: 5, existing: 1},   // (1+1)*5 = 10 > 5
+		{total: 9, existing: 1},   // (1+1)*5 = 10 > 9
+		{total: 10, existing: 2},  // (2+1)*5 = 15 > 10
+		{total: 14, existing: 2},  // (2+1)*5 = 15 > 14
+		{total: 15, existing: 3},  // (3+1)*5 = 20 > 15
+		{total: 20, existing: 4},  // (4+1)*5 = 25 > 20
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)
+		t.Run(name, func(t *testing.T) {
+			if !projectedAbsenceRecordLimitExceeded(tt.total, tt.existing, 1) {
+				t.Fatalf("%d-session course with %d existing records should reject the next absence (want true)", tt.total, tt.existing)
+			}
+		})
+	}
+}
+
+type courseResponseCountFields struct {
+	ExistingAbsenceCount int32 `json:"existing_absence_count"`
+	TotalSessionCount    int32 `json:"total_session_count"`
+}
+
+func TestCourseResponse_SerializesCountFields(t *testing.T) {
+	resp := courseResponseCountFields{
+		ExistingAbsenceCount: 3,
+		TotalSessionCount:    20,
+	}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := decoded["existing_absence_count"]; !ok {
+		t.Fatal("missing existing_absence_count field in JSON response")
+	} else if v.(float64) != 3 {
+		t.Fatalf("existing_absence_count = %v, want 3", v)
+	}
+	if v, ok := decoded["total_session_count"]; !ok {
+		t.Fatal("missing total_session_count field in JSON response")
+	} else if v.(float64) != 20 {
+		t.Fatalf("total_session_count = %v, want 20", v)
+	}
+}
+
 func ptr(s string) *string {
 	return &s
+}
+
+type mockSessionValidator struct {
+	user auth.AuthenticatedUser
+	err  error
+}
+
+func (m mockSessionValidator) RequireUser(ctx context.Context, r *http.Request) (auth.AuthenticatedUser, error) {
+	return m.user, m.err
+}
+
+func TestIsAdminRequest_AdminUserReturnsTrue(t *testing.T) {
+	v := mockSessionValidator{user: auth.AuthenticatedUser{Role: "Admin"}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if !isAdminRequest(v, req) {
+		t.Fatal("isAdminRequest should return true for admin user")
+	}
+}
+
+func TestIsAdminRequest_NonAdminUserReturnsFalse(t *testing.T) {
+	v := mockSessionValidator{user: auth.AuthenticatedUser{Role: "User"}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if isAdminRequest(v, req) {
+		t.Fatal("isAdminRequest should return false for non-admin user")
+	}
+}
+
+func TestIsAdminRequest_UnauthenticatedReturnsFalse(t *testing.T) {
+	v := mockSessionValidator{err: errors.New("no session")}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if isAdminRequest(v, req) {
+		t.Fatal("isAdminRequest should return false for unauthenticated request")
+	}
 }
