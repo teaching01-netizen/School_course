@@ -354,6 +354,71 @@ describe("StaffCreateAbsenceModal", () => {
     });
   });
 
+  it("lets staff choose a special sit-in subject and session for an enrolled absence", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_SPECIAL_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "new-absence", status: "pending" })
+      .mockResolvedValueOnce({ preview: { phones: [], message: "" } });
+    renderModal();
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /special sit-in/i }));
+    await user.selectOptions(
+      screen.getByLabelText(/special sit-in subject/i),
+      "sub-special",
+    );
+
+    await waitFor(() => {
+      const specialSessionsUrl = mockApiJson.mock.calls
+        .map((call: unknown[]) => String(call[0]))
+        .find((url) => url.includes("include_all_subjects=true"));
+      expect(specialSessionsUrl).toContain("subject_ids=sub-special");
+      expect(specialSessionsUrl).toContain("bypass_timing=true");
+    });
+
+    const specialSessionSelect = await screen.findByLabelText(
+      /special sit-in session/i,
+    );
+    await user.selectOptions(specialSessionSelect, "sit-special");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Art/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const staffCreateCall = mockApiJson.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/v1/absences/staff-create",
+      );
+      expect(staffCreateCall).toBeTruthy();
+      const body = JSON.parse(
+        (staffCreateCall?.[1] as RequestInit).body as string,
+      );
+      expect(body.sit_in_method).toBe("physical");
+      expect(body.sit_in_course_id).toBe("c-special-alt");
+      expect(body.sit_in_session_ids).toEqual(["sit-special"]);
+    });
+  });
+
   it("submits to staff-create endpoint on confirm", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();

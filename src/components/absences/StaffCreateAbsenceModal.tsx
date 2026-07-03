@@ -51,7 +51,85 @@ type StaffSubjectOption = {
   name: string;
 };
 
+type SitInMode = "suggested" | "special";
+
+type SpecialSitInSelection = {
+  subjectId: string;
+  sessionValue: string;
+};
+
+type SpecialSitInAvailableSession = NonNullable<
+  NonNullable<SubjectSessions["sit_in"]>["available_sessions"]
+>[number];
+
+type SpecialSitInSessionOption = {
+  value: string;
+  courseId: string;
+  label: string;
+};
+
 const STEP_KEYS: ModalStep[] = ["subjects", "sessions", "confirm"];
+
+function specialSitInSessionsForGroup(
+  group: SubjectSessions,
+): SpecialSitInAvailableSession[] {
+  const fromSitIn = group.sit_in?.available_sessions ?? [];
+  if (fromSitIn.length > 0) return fromSitIn;
+  return group.sessions
+    .filter((session) => !session.already_absent)
+    .map((session) => ({
+      ...session,
+      course_id: group.course_id,
+      course_code: group.course_code,
+      course_name: group.course_name,
+      subject_code: group.subject_code,
+      subject_name: group.subject_name,
+    }));
+}
+
+function buildSpecialSitInSessionOptions(
+  subjectGroups: SubjectSessions[],
+): SpecialSitInSessionOption[] {
+  const options: SpecialSitInSessionOption[] = [];
+  const seen = new Set<string>();
+  for (const group of subjectGroups) {
+    const fallbackLabel =
+      group.subject_name?.trim() ||
+      group.course_name?.trim() ||
+      group.course_code;
+    for (const optGroup of groupByDay(specialSitInSessionsForGroup(group))) {
+      const value = mergedSessionValue(optGroup.items);
+      const courseId = optGroup.items.find(
+        (session) => session.course_id,
+      )?.course_id;
+      if (!value || !courseId || seen.has(value)) continue;
+      seen.add(value);
+      options.push({
+        value,
+        courseId,
+        label: getSitInSessionGroupLabel(
+          optGroup.items,
+          undefined,
+          fallbackLabel,
+          subjectGroups,
+        ),
+      });
+    }
+  }
+  return options;
+}
+
+function findSpecialSitInSessionOption(
+  subjectGroups: SubjectSessions[],
+  sessionValue: string,
+): SpecialSitInSessionOption | null {
+  if (!sessionValue) return null;
+  return (
+    buildSpecialSitInSessionOptions(subjectGroups).find(
+      (option) => option.value === sessionValue,
+    ) ?? null
+  );
+}
 
 function StepIndicator({ step }: { step: ModalStep }) {
   const currentIdx = STEP_KEYS.indexOf(step);
@@ -140,6 +218,16 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   const [sitInSelections, setSitInSelections] = useState<
     Record<string, string>
   >({});
+  const [sitInModes, setSitInModes] = useState<Record<string, SitInMode>>({});
+  const [specialSitInSelections, setSpecialSitInSelections] = useState<
+    Record<string, SpecialSitInSelection>
+  >({});
+  const [specialSitInSessionsBySubject, setSpecialSitInSessionsBySubject] =
+    useState<Record<string, SubjectSessions[]>>({});
+  const [specialSitInLoadingBySubject, setSpecialSitInLoadingBySubject] =
+    useState<Record<string, boolean>>({});
+  const [specialSitInErrorsBySubject, setSpecialSitInErrorsBySubject] =
+    useState<Record<string, string>>({});
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<
     Record<string, number>
   >({});
@@ -158,6 +246,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   const [createdAbsenceIds, setCreatedAbsenceIds] = useState<string[]>([]);
   const [sendingSms, setSendingSms] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const specialSitInControllersRef = useRef<Map<string, AbortController>>(
+    new Map(),
+  );
 
   const enrolledSubjectIds = useMemo(
     () => new Set((student?.subjects ?? []).map((subject) => subject.id)),
@@ -211,6 +302,34 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
     return false;
   }, [sessions, selectedSubjectIds, selectedSessionIds, sitInSelections]);
+
+  const incompleteSpecialSitIn = useMemo(() => {
+    for (const group of sessions) {
+      if (!selectedSubjectIds.includes(group.subject_id)) continue;
+      for (const session of group.sessions) {
+        if (!selectedSessionIds.has(session.id)) continue;
+        if ((sitInModes[session.id] ?? "suggested") !== "special") continue;
+        const selection = specialSitInSelections[session.id];
+        if (!selection?.subjectId || !selection.sessionValue) return true;
+      }
+    }
+    return false;
+  }, [
+    sessions,
+    selectedSubjectIds,
+    selectedSessionIds,
+    sitInModes,
+    specialSitInSelections,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      for (const controller of specialSitInControllersRef.current.values()) {
+        controller.abort();
+      }
+      specialSitInControllersRef.current.clear();
+    };
+  }, []);
 
   // Load sessions when entering step "sessions"
   useEffect(() => {
@@ -321,6 +440,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     setSpecialSubjectSelect("");
   }
 
+  function clearSpecialSitInState() {
+    for (const controller of specialSitInControllersRef.current.values()) {
+      controller.abort();
+    }
+    specialSitInControllersRef.current.clear();
+    setSitInModes({});
+    setSpecialSitInSelections({});
+    setSpecialSitInSessionsBySubject({});
+    setSpecialSitInLoadingBySubject({});
+    setSpecialSitInErrorsBySubject({});
+  }
+
   async function loadSubjectOptions(fallbackSubjects: StaffSubjectOption[]) {
     setSubjectOptionsLoading(true);
     setSubjectOptionsError(null);
@@ -339,6 +470,67 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
   }
 
+  function loadSpecialSitInSessions(subjectId: string) {
+    if (!student || !subjectId) return;
+    if (
+      specialSitInSessionsBySubject[subjectId] ||
+      specialSitInLoadingBySubject[subjectId] ||
+      specialSitInControllersRef.current.has(subjectId)
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    specialSitInControllersRef.current.set(subjectId, controller);
+    setSpecialSitInLoadingBySubject((current) => ({
+      ...current,
+      [subjectId]: true,
+    }));
+    setSpecialSitInErrorsBySubject((current) => {
+      const next = { ...current };
+      delete next[subjectId];
+      return next;
+    });
+    void loadSessionsInRange(
+      student.wcode,
+      "1970-01-01",
+      "2100-01-01",
+      { signal: controller.signal },
+      {
+        bypassTiming: true,
+        includeAllSubjects: true,
+        subjectIds: [subjectId],
+      },
+    )
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setSpecialSitInSessionsBySubject((current) => ({
+          ...current,
+          [subjectId]: data.subjects ?? [],
+        }));
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSpecialSitInErrorsBySubject((current) => ({
+          ...current,
+          [subjectId]:
+            error instanceof Error
+              ? error.message
+              : "Failed to load special sit-in sessions",
+        }));
+      })
+      .finally(() => {
+        if (specialSitInControllersRef.current.get(subjectId) === controller) {
+          specialSitInControllersRef.current.delete(subjectId);
+        }
+        if (!controller.signal.aborted) {
+          setSpecialSitInLoadingBySubject((current) => ({
+            ...current,
+            [subjectId]: false,
+          }));
+        }
+      });
+  }
+
   function handleSessionGroupToggle(sessionIds: string[]) {
     setSelectedSessionIds((current) => {
       const selected = sessionIds.every((id) => current.has(id));
@@ -349,6 +541,16 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           const n = { ...cs };
           for (const id of sessionIds) delete n[id];
           return n;
+        });
+        setSitInModes((currentModes) => {
+          const next = { ...currentModes };
+          for (const id of sessionIds) delete next[id];
+          return next;
+        });
+        setSpecialSitInSelections((currentSelections) => {
+          const next = { ...currentSelections };
+          for (const id of sessionIds) delete next[id];
+          return next;
         });
         return next;
       }
@@ -370,6 +572,66 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
       return next;
     });
+  }
+
+  function setSitInModeForSessions(sessionIds: string[], mode: SitInMode) {
+    const firstSessionId = sessionIds[0];
+    if (!firstSessionId) return;
+    if ((sitInModes[firstSessionId] ?? "suggested") === mode) return;
+    setSitInModes((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) {
+        if (mode === "suggested") delete next[id];
+        else next[id] = mode;
+      }
+      return next;
+    });
+    setSitInSelections((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) delete next[id];
+      return next;
+    });
+    setSpecialSitInSelections((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) delete next[id];
+      return next;
+    });
+  }
+
+  function handleSpecialSitInSubjectSelect(
+    sessionIds: string[],
+    subjectId: string,
+  ) {
+    setSpecialSitInSelections((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) {
+        if (!subjectId) delete next[id];
+        else next[id] = { subjectId, sessionValue: "" };
+      }
+      return next;
+    });
+    setSitInSelections((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) delete next[id];
+      return next;
+    });
+    if (subjectId) loadSpecialSitInSessions(subjectId);
+  }
+
+  function handleSpecialSitInSessionSelect(
+    sessionIds: string[],
+    subjectId: string,
+    sessionValue: string,
+  ) {
+    setSpecialSitInSelections((current) => {
+      const next = { ...current };
+      for (const id of sessionIds) {
+        if (!subjectId) delete next[id];
+        else next[id] = { subjectId, sessionValue };
+      }
+      return next;
+    });
+    handleSitInSelectForSessions(sessionIds, sessionValue);
   }
 
   async function handleNotAvailable(group: SubjectSessions, sessionId: string) {
@@ -495,7 +757,158 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   }
 
   function canAdvanceFromSessions(): boolean {
-    return selectedSessionCount > 0;
+    return selectedSessionCount > 0 && !incompleteSpecialSitIn;
+  }
+
+  function specialSitInCourseIdsForMissedSessions(
+    missedSessionIds: string[],
+  ): Set<string> {
+    const courseIds = new Set<string>();
+    for (const missedSessionId of missedSessionIds) {
+      if ((sitInModes[missedSessionId] ?? "suggested") !== "special") continue;
+      const selection = specialSitInSelections[missedSessionId];
+      if (!selection?.subjectId || !selection.sessionValue) continue;
+      const option = findSpecialSitInSessionOption(
+        specialSitInSessionsBySubject[selection.subjectId] ?? [],
+        selection.sessionValue,
+      );
+      if (option?.courseId) courseIds.add(option.courseId);
+    }
+    return courseIds;
+  }
+
+  function getSpecialSitInReviewLabel(missedSessionId: string): string | null {
+    if ((sitInModes[missedSessionId] ?? "suggested") !== "special") return null;
+    const selection = specialSitInSelections[missedSessionId];
+    if (!selection?.subjectId || !selection.sessionValue) return null;
+    return (
+      findSpecialSitInSessionOption(
+        specialSitInSessionsBySubject[selection.subjectId] ?? [],
+        selection.sessionValue,
+      )?.label ?? null
+    );
+  }
+
+  function renderSitInModeToggle(sessionIds: string[], firstSessionId: string) {
+    const mode = sitInModes[firstSessionId] ?? "suggested";
+    return (
+      <div className="mb-3 inline-flex rounded-md border border-gray-200 bg-gray-100 p-0.5">
+        <button
+          type="button"
+          onClick={() => setSitInModeForSessions(sessionIds, "suggested")}
+          className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+            mode === "suggested"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Suggested
+        </button>
+        <button
+          type="button"
+          onClick={() => setSitInModeForSessions(sessionIds, "special")}
+          className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+            mode === "special"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Special sit-in
+        </button>
+      </div>
+    );
+  }
+
+  function renderSpecialSitInControls(
+    sessionIds: string[],
+    firstSessionId: string,
+  ) {
+    const selection = specialSitInSelections[firstSessionId] ?? {
+      subjectId: "",
+      sessionValue: "",
+    };
+    const subjectGroups = selection.subjectId
+      ? (specialSitInSessionsBySubject[selection.subjectId] ?? [])
+      : [];
+    const sessionOptions = buildSpecialSitInSessionOptions(subjectGroups);
+    const loading = selection.subjectId
+      ? Boolean(specialSitInLoadingBySubject[selection.subjectId])
+      : false;
+    const error = selection.subjectId
+      ? specialSitInErrorsBySubject[selection.subjectId]
+      : null;
+
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label
+              className="mb-1 block text-xs font-medium text-gray-600"
+              htmlFor={`staff-special-sit-in-subject-${firstSessionId}`}
+            >
+              Special sit-in subject
+            </label>
+            <Select
+              id={`staff-special-sit-in-subject-${firstSessionId}`}
+              size="sm"
+              value={selection.subjectId}
+              onChange={(e) =>
+                handleSpecialSitInSubjectSelect(sessionIds, e.target.value)
+              }
+              disabled={subjectOptionsLoading || subjectOptions.length === 0}
+              placeholder={
+                subjectOptionsLoading ? "Loading subjects..." : "Subject"
+              }
+            >
+              {subjectOptions.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.code} — {subject.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label
+              className="mb-1 block text-xs font-medium text-gray-600"
+              htmlFor={`staff-special-sit-in-session-${firstSessionId}`}
+            >
+              Special sit-in session
+            </label>
+            <Select
+              id={`staff-special-sit-in-session-${firstSessionId}`}
+              size="sm"
+              value={selection.sessionValue}
+              onChange={(e) =>
+                handleSpecialSitInSessionSelect(
+                  sessionIds,
+                  selection.subjectId,
+                  e.target.value,
+                )
+              }
+              disabled={
+                !selection.subjectId || loading || sessionOptions.length === 0
+              }
+              placeholder={loading ? "Loading sessions..." : "Session"}
+            >
+              {sessionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        {error ? (
+          <p role="alert" className="mt-2 text-xs text-red-600">
+            {error}
+          </p>
+        ) : selection.subjectId && !loading && sessionOptions.length === 0 ? (
+          <p className="mt-2 text-xs text-gray-500">
+            No sessions found for this subject.
+          </p>
+        ) : null}
+      </div>
+    );
   }
 
   function handleNext() {
@@ -509,13 +922,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
       setSelectedSessionIds(new Set());
       setSitInSelections({});
+      clearSpecialSitInState();
       setSitInPriorityLevels({});
       setSitInPriorityHistory({});
       setSessions([]);
       setStep("sessions");
     } else if (step === "sessions") {
-      if (!canAdvanceFromSessions()) {
+      if (selectedSessionCount === 0) {
         addToast("error", "Select at least one missed class");
+        return;
+      }
+      if (!canAdvanceFromSessions()) {
+        addToast("error", "Select a special sit-in subject and session");
         return;
       }
       setStep("confirm");
@@ -533,6 +951,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     setStudent(null);
     setSelectedSubjectIds([]);
     clearSubjectOptions();
+    clearSpecialSitInState();
     try {
       const data = await apiJson<StudentLookupResponse>(
         `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(wcode.trim())}`,
@@ -552,6 +971,10 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
   async function handleSubmit() {
     if (!student) return;
+    if (incompleteSpecialSitIn) {
+      addToast("error", "Select a special sit-in subject and session");
+      return;
+    }
     setSubmitting(true);
     const created: string[] = [];
 
@@ -584,14 +1007,28 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
+      const specialSitInCourseIds =
+        specialSitInCourseIdsForMissedSessions(missedIds);
+      if (specialSitInCourseIds.size > 1) {
+        addToast(
+          "error",
+          `${group.subject_name || group.course_code}: use one special sit-in course per absence`,
+        );
+        setSubmitting(false);
+        return;
+      }
+      const specialSitInCourseId = [...specialSitInCourseIds][0];
+      if (specialSitInCourseId) sitInMethod = "physical";
       const sitInCourseId =
+        specialSitInCourseId ??
         selectedSitInCourseIDForGroup(
           group,
           missedIds,
           sitInSelections,
           sitInPriorityLevels,
           sitInPriorityHistory,
-        ) ?? group.course_id;
+        ) ??
+        group.course_id;
 
       try {
         const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>(
@@ -762,6 +1199,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                   setStudent(null);
                   setSelectedSubjectIds([]);
                   clearSubjectOptions();
+                  clearSpecialSitInState();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && wcode.trim()) void lookupStudent();
@@ -1012,8 +1450,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
                                   {selected && sitIn ? (
                                     <div className="mt-3 pl-7">
-                                      {sitIn.sit_in_method === "physical" &&
-                                      hasPriorities ? (
+                                      {renderSitInModeToggle(
+                                        sessionIds,
+                                        firstSessionId,
+                                      )}
+                                      {(sitInModes[firstSessionId] ??
+                                        "suggested") === "special" ? (
+                                        renderSpecialSitInControls(
+                                          sessionIds,
+                                          firstSessionId,
+                                        )
+                                      ) : sitIn.sit_in_method === "physical" &&
+                                        hasPriorities ? (
                                         (() => {
                                           const serverReveal =
                                             hasServerPriorityReveal(
@@ -1345,14 +1793,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                           {formatTime(dayGroup.end_at)}
                           <span className="text-gray-400"> — Make-up: </span>
                           <span className="font-medium text-gray-800">
-                            {getReviewSitInLabel(
-                              dayGroup.items[0],
-                              group,
-                              sitInSelections,
-                              sitInPriorityLevels,
-                              sitInPriorityHistory,
-                              sessions,
-                            )}
+                            {getSpecialSitInReviewLabel(dayGroup.items[0].id) ??
+                              getReviewSitInLabel(
+                                dayGroup.items[0],
+                                group,
+                                sitInSelections,
+                                sitInPriorityLevels,
+                                sitInPriorityHistory,
+                                sessions,
+                              )}
                           </span>
                         </p>
                       ))}
