@@ -215,48 +215,15 @@ html {
 
 .modal-base::backdrop {
   background-color: rgba(0, 0, 0, 0);
-  transition: background-color 0.2s, overlay 0.2s, display 0.2s;
-  transition-behavior: allow-discrete;
+  transition: background-color 0.2s;
 }
 
 .modal-base[open]::backdrop {
   background-color: rgba(0, 0, 0, 0.5);
-
-  @starting-style {
-    background-color: rgba(0, 0, 0, 0);
-  }
 }
 
 .modal-base[open] {
   opacity: 1;
-  transform: scale(1) translateY(0);
-
-  @starting-style {
-    opacity: 0;
-    transform: scale(0.95) translateY(-8px);
-  }
-}
-
-.modal-base {
-  opacity: 0;
-  transform: scale(0.95) translateY(-8px);
-  transition: opacity 0.2s, transform 0.2s, overlay 0.2s, display 0.2s;
-  transition-behavior: allow-discrete;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .modal-base {
-    transform: none;
-    transition-duration: 0.1s;
-  }
-
-  .modal-base[open] {
-    transform: none;
-
-    @starting-style {
-      transform: none;
-    }
-  }
 }
 
 /* Slide-over */
@@ -277,36 +244,15 @@ html {
 
 .slideover-base::backdrop {
   background-color: rgba(0, 0, 0, 0);
-  transition: background-color 0.2s, overlay 0.2s, display 0.2s;
-  transition-behavior: allow-discrete;
+  transition: background-color 0.2s;
 }
 
 .slideover-base[open]::backdrop {
   background-color: rgba(0, 0, 0, 0.3);
-
-  @starting-style {
-    background-color: rgba(0, 0, 0, 0);
-  }
 }
 
 .slideover-base[open] {
-  transform: translateX(0);
-
-  @starting-style {
-    transform: translateX(100%);
-  }
-}
-
-.slideover-base {
-  transform: translateX(100%);
-  transition: transform 0.25s, overlay 0.25s, display 0.25s;
-  transition-behavior: allow-discrete;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .slideover-base {
-    transition-duration: 0.1s;
-  }
+  opacity: 1;
 }
 
 /* react-day-picker theming */

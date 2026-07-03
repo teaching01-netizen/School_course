@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, useId } from "react";
 
 export type TypeaheadOption = { value: string; label: string; keywords?: string };
 
 export default function TypeaheadSelect(props: {
+  id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
   value: string;
   onChange: (value: string) => void;
   options: TypeaheadOption[];
@@ -11,13 +14,16 @@ export default function TypeaheadSelect(props: {
   className?: string;
 }) {
   const { value, onChange, options, placeholder, disabled, className } = props;
+  const { id, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy } = props;
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const listboxId = "typeahead-listbox";
+  const uid = useId();
+  const listboxId = `${uid}-listbox`;
+  const getOptionId = (index: number) => `${uid}-option-${index}`;
 
   const commitExactQueryMatch = useCallback(() => {
     const q = query.trim().toLowerCase();
@@ -93,11 +99,14 @@ export default function TypeaheadSelect(props: {
     <div ref={containerRef} className={`relative ${className ?? ""}`}>
       <input
         ref={inputRef}
+        id={id}
         role="combobox"
         aria-expanded={open}
         aria-controls={listboxId}
-        aria-activedescendant={highlightIndex >= 0 ? `option-${filtered[highlightIndex]?.value}` : undefined}
+        aria-activedescendant={highlightIndex >= 0 ? getOptionId(highlightIndex) : undefined}
         aria-autocomplete="list"
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         value={open ? query : selected?.label ?? ""}
         onFocus={() => {
           if (disabled) return;
@@ -128,7 +137,7 @@ export default function TypeaheadSelect(props: {
             filtered.map((o, i) => (
               <button
                 key={o.value}
-                id={`option-${o.value}`}
+                id={getOptionId(i)}
                 role="option"
                 aria-selected={o.value === value}
                 type="button"

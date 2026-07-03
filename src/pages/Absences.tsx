@@ -218,8 +218,6 @@ export default function Absences() {
 
   async function setStatus(absence: ManagedAbsence, status: AbsenceStatus, reason?: string, reload = true) {
     setReviewing(absence.id);
-    const previousStatus = absence.status;
-    absence.status = status;
     try {
       await apiJson(`/api/v1/absences/${absence.id}/status`, {
         method: "PUT",
@@ -228,7 +226,6 @@ export default function Absences() {
       addToast("success", status === "reviewed" ? "Absence marked reviewed" : "Absence updated");
       if (reload) await load();
     } catch (err) {
-      absence.status = previousStatus;
       addToast("error", err instanceof Error ? err.message : "Update failed");
     } finally {
       setReviewing(null);
@@ -243,7 +240,6 @@ export default function Absences() {
       const expectedVersions: Record<string, number> = {};
       for (const target of cancelTargets) {
         expectedVersions[target.id] = target.version;
-        target.status = "cancelled";
       }
       const result = await apiJson<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>(
         "/api/v1/absences/batch-status",
@@ -260,10 +256,6 @@ export default function Absences() {
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} cancelled, ${result.failed.length} failed`);
         setBatchFailed(result.failed);
-        for (const f of result.failed) {
-          const item = cancelTargets.find((t) => t.id === f.id);
-          if (item) item.status = "pending";
-        }
       } else {
         addToast("success", `${result.succeeded.length} absences cancelled`);
         setBatchFailed([]);
@@ -273,9 +265,6 @@ export default function Absences() {
       setCancelReasonCategory("");
       setCancelReasonDetail("");
     } catch (err) {
-      for (const target of cancelTargets) {
-        target.status = "pending";
-      }
       const msg = err instanceof ApiRequestError && err.code === "stale_edit"
         ? "One or more absences were changed by another user. Reload and try again."
         : err instanceof Error ? err.message : "Batch cancel failed";
@@ -333,9 +322,6 @@ export default function Absences() {
     setBatchProcessing(true);
     setBatchFailed([]);
     setBatchProgress({ done: 0, total: records.length });
-    for (const item of records) {
-      item.status = "reviewed";
-    }
     try {
       const expectedVersions: Record<string, number> = {};
       for (const item of records) {
@@ -356,19 +342,12 @@ export default function Absences() {
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} succeeded, ${result.failed.length} failed`);
         setBatchFailed(result.failed);
-        for (const f of result.failed) {
-          const item = records.find((r) => r.id === f.id);
-          if (item) item.status = "pending";
-        }
       } else {
         addToast("success", `${result.succeeded.length} absences marked reviewed`);
         setBatchFailed([]);
       }
       await load();
     } catch (err) {
-      for (const item of records) {
-        item.status = "pending";
-      }
       addToast("error", err instanceof Error ? err.message : "Batch update failed");
       await load();
     } finally {

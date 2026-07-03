@@ -1,24 +1,17 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
-import {
-  startOfMonth,
-  endOfMonth,
-  subDays,
-  addDays,
-  eachDayOfInterval,
-  isSameDay,
-  isToday as fnsIsToday,
-  isSameMonth,
-  format,
-} from 'date-fns';
+import { DateTime } from 'luxon';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TeacherDashboardSession } from '../../types';
 import CalendarDayCell from './CalendarDayCell';
+import { utcISOToZoneDate } from '../../utils/timezone';
 
 type CalendarMonthProps = {
-  viewDate: Date;
+  viewMonthKey: string;
   sessions: TeacherDashboardSession[];
-  selectedDay: Date | null;
-  onSelectDay: (day: Date) => void;
+  todayKey: string | null;
+  zone: string;
+  selectedDayKey: string | null;
+  onSelectDay: (dayKey: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onToday: () => void;
@@ -26,17 +19,12 @@ type CalendarMonthProps = {
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function yyyyMmDd(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 export default function CalendarMonth({
-  viewDate,
+  viewMonthKey,
   sessions,
-  selectedDay,
+  todayKey,
+  zone,
+  selectedDayKey,
   onSelectDay,
   onPrevMonth,
   onNextMonth,
@@ -45,7 +33,8 @@ export default function CalendarMonth({
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, TeacherDashboardSession[]>();
     for (const s of sessions) {
-      const key = yyyyMmDd(new Date(s.start_at));
+      const key = utcISOToZoneDate(s.start_at, zone);
+      if (!key) continue;
       const existing = map.get(key);
       if (existing) {
         existing.push(s);
@@ -54,29 +43,35 @@ export default function CalendarMonth({
       }
     }
     return map;
-  }, [sessions]);
+  }, [sessions, zone]);
+
+  const viewMonth = useMemo(
+    () => DateTime.fromISO(viewMonthKey, { zone }).startOf('month').startOf('day'),
+    [viewMonthKey, zone],
+  );
 
   const gridDays = useMemo(() => {
-    const monthStart = startOfMonth(viewDate);
-    const monthEnd = endOfMonth(viewDate);
-    const startDow = monthStart.getDay();
-    const startPad = startDow === 0 ? 6 : startDow - 1;
-    const endDow = monthEnd.getDay();
-    const endPad = endDow === 0 ? 0 : 7 - endDow;
-    const gridStart = subDays(monthStart, startPad);
-    const gridEnd = addDays(monthEnd, endPad);
-    return eachDayOfInterval({ start: gridStart, end: gridEnd });
-  }, [viewDate]);
+    const startPad = viewMonth.weekday - 1;
+    const monthEnd = viewMonth.endOf('month').startOf('day');
+    const endPad = monthEnd.weekday === 7 ? 0 : 7 - monthEnd.weekday;
+    const gridStart = viewMonth.minus({ days: startPad });
+    const gridEnd = monthEnd.plus({ days: endPad });
+    const days: DateTime[] = [];
+    for (let cursor = gridStart; cursor.toMillis() <= gridEnd.toMillis(); cursor = cursor.plus({ days: 1 })) {
+      days.push(cursor);
+    }
+    return days;
+  }, [viewMonth]);
 
   const weeks = useMemo(() => {
-    const result: Date[][] = [];
+    const result: DateTime[][] = [];
     for (let i = 0; i < gridDays.length; i += 7) {
       result.push(gridDays.slice(i, i + 7));
     }
     return result;
   }, [gridDays]);
 
-  const monthLabel = format(viewDate, 'MMMM yyyy');
+  const monthLabel = viewMonth.setLocale('en-GB').toFormat('MMMM yyyy');
 
   const [todayPulse, setTodayPulse] = useState(0);
   const handleToday = useCallback(() => {
@@ -85,7 +80,6 @@ export default function CalendarMonth({
     setTimeout(() => setTodayPulse(0), 1200);
   }, [onToday]);
 
-  // Keyboard navigation: left/right arrows for prev/next month, T for today
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'ArrowLeft') { onPrevMonth(); e.preventDefault(); }
@@ -94,11 +88,10 @@ export default function CalendarMonth({
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrevMonth, onNextMonth, handleToday]);
+  }, [handleToday, onNextMonth, onPrevMonth]);
 
   return (
     <div>
-      {/* Header */}
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <button
@@ -130,7 +123,6 @@ export default function CalendarMonth({
         </button>
       </div>
 
-      {/* Color legend */}
       <div className="mb-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-red-500" />
@@ -146,7 +138,6 @@ export default function CalendarMonth({
         </span>
       </div>
 
-      {/* Day name row */}
       <div className="mb-1.5 grid grid-cols-7 gap-0.5">
         {DAY_NAMES.map((d) => (
           <div key={d} className="py-1.5 text-center text-[10px] font-semibold uppercase tracking-normal text-gray-500 sm:text-[11px] sm:tracking-wider">
@@ -155,23 +146,26 @@ export default function CalendarMonth({
         ))}
       </div>
 
-      {/* Week rows */}
       <div className="space-y-0.5">
         {weeks.map((week, wi) => (
           <div key={wi} className="grid grid-cols-7 gap-0.5">
             {week.map((day) => {
-              const key = yyyyMmDd(day);
+              const key = day.toFormat('yyyy-MM-dd');
               const daySessions = sessionsByDay.get(key) ?? [];
+              const label = day.setLocale('en-GB').toFormat('EEEE, d MMMM yyyy');
               return (
                 <CalendarDayCell
                   key={key}
-                  date={day}
+                  dateKey={key}
+                  label={label}
+                  dayNumber={String(day.day)}
                   sessions={daySessions}
-                  isToday={fnsIsToday(day)}
-                  isCurrentMonth={isSameMonth(day, viewDate)}
-                  isSelected={selectedDay ? isSameDay(day, selectedDay) : false}
+                  isToday={todayKey === key}
+                  isCurrentMonth={day.month === viewMonth.month && day.year === viewMonth.year}
+                  isSelected={selectedDayKey === key}
                   todayPulse={todayPulse}
-                  onClick={() => onSelectDay(day)}
+                  zone={zone}
+                  onClick={() => onSelectDay(key)}
                 />
               );
             })}

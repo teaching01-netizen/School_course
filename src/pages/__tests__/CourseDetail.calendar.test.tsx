@@ -108,6 +108,7 @@ describe("CourseDetail calendar grid", () => {
     // Session card should render "Room 101" somewhere in the calendar
     await waitFor(() => {
       expect(screen.getAllByText("Room 101").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/09:00–11:00/)).toBeInTheDocument();
     });
 
     // The 09:00 row should contain the session (Bangkok time), not 02:00

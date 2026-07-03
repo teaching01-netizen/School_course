@@ -20,11 +20,14 @@ const session: TeacherDashboardSession = {
 function renderCell(currentSession?: TeacherDashboardSession, overrides: Partial<React.ComponentProps<typeof CalendarDayCell>> = {}) {
   render(
     <CalendarDayCell
-      date={new Date("2026-06-21T00:00:00Z")}
+      dateKey="2026-06-21"
+      label="Sunday, 21 June 2026"
+      dayNumber="21"
       sessions={currentSession ? [currentSession] : []}
       isToday={false}
       isCurrentMonth
       isSelected={false}
+      zone="Asia/Bangkok"
       onClick={vi.fn()}
       {...overrides}
     />,

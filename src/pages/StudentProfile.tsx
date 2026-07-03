@@ -294,6 +294,7 @@ export default function StudentProfile() {
                                     session={sess}
                                     course={course}
                                     room={room}
+                                    zone={zone}
                                   />
                                 );
                               })}

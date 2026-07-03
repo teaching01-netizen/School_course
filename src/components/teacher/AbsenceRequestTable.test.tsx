@@ -27,7 +27,7 @@ const session: TeacherDashboardSession = {
 function renderTable(currentSession: TeacherDashboardSession) {
   render(
     <MemoryRouter>
-      <AbsenceRequestTable sessions={[currentSession]} />
+      <AbsenceRequestTable sessions={[currentSession]} zone="Asia/Bangkok" />
     </MemoryRouter>,
   );
 }

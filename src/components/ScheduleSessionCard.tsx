@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { format } from 'date-fns';
+import { formatUTCToZone } from '@/utils/timezone';
 
 type Session = { id: string; course_id: string; room_id: string | null; start_at: string; end_at: string };
 type Course = { id: string; code: string; name: string; teacher_name?: string | null; subject_code?: string | null; subject_name?: string | null; student_count?: number | null };
@@ -9,13 +9,18 @@ interface ScheduleSessionCardProps {
   session: Session;
   course?: Course;
   room?: Room;
+  zone: string;
   /** Optional teacher name override (e.g., current profile teacher) */
   teacherName?: string;
 }
 
-export default function ScheduleSessionCard({ session, course, room, teacherName }: ScheduleSessionCardProps) {
+export default function ScheduleSessionCard({ session, course, room, zone, teacherName }: ScheduleSessionCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ visible: boolean; above: boolean }>({ visible: false, above: true });
+  const startTime = formatUTCToZone(session.start_at, zone, "HH:mm") ?? session.start_at.slice(11, 16);
+  const endTime = formatUTCToZone(session.end_at, zone, "HH:mm") ?? session.end_at.slice(11, 16);
+  const tooltipStart = formatUTCToZone(session.start_at, zone, "EEEE HH:mm") ?? startTime;
+  const tooltipEnd = formatUTCToZone(session.end_at, zone, "EEEE HH:mm") ?? endTime;
 
   const handleMouseEnter = () => {
     if (ref.current) {
@@ -33,7 +38,7 @@ export default function ScheduleSessionCard({ session, course, room, teacherName
       <div className="bg-[color-mix(in_oklab,var(--color-wi-primary)_10%,transparent)] border border-[color-mix(in_oklab,var(--color-wi-primary)_20%,transparent)] p-1 text-[10px] cursor-default">
         <p className="font-semibold">{course?.name ?? session.course_id}</p>
         <p className="text-gray-500">{room?.name ?? session.room_id}</p>
-        <p className="text-gray-400">{format(session.start_at, 'HH:mm')}–{format(session.end_at, 'HH:mm')}</p>
+        <p className="text-gray-400">{startTime}–{endTime}</p>
       </div>
 
       {/* Tooltip — flips above/below based on available space */}
@@ -53,7 +58,7 @@ export default function ScheduleSessionCard({ session, course, room, teacherName
           <p><span className="text-gray-400">Subject:</span> {course?.subject_name || course?.subject_code || '—'}</p>
           <p><span className="text-gray-400">Teacher:</span> {teacherName ?? course?.teacher_name ?? '—'}</p>
           <p><span className="text-gray-400">Room:</span> {room?.name ?? '—'}{room?.capacity != null ? ` (cap. ${room.capacity})` : ''}</p>
-          <p><span className="text-gray-400">Time:</span> {format(session.start_at, 'EEEE HH:mm')}–{format(session.end_at, 'HH:mm')}</p>
+          <p><span className="text-gray-400">Time:</span> {tooltipStart}–{tooltipEnd}</p>
         </div>
       </div>
     </div>

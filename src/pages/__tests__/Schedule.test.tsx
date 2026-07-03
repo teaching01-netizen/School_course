@@ -99,6 +99,16 @@ describe("Schedule inline editing", () => {
 
     showPastRange();
     await screen.findByText(/MATH-101/);
+    expect(screen.getByText(/10:00–11:00/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /table/i }));
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText(/10:00/)).toBeInTheDocument();
+      expect(within(table).getByText(/11:00/)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /week/i }));
     await user.click(screen.getByRole("button", { name: /inline edit session MATH-101/i }));
 
     const form = screen.getByRole("form", { name: /inline edit session MATH-101/i });

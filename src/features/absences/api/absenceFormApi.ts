@@ -5,7 +5,11 @@ import type {
   SessionsInRangeResponse,
   StudentLookupResponse,
 } from "../types";
-import { DEFAULT_ADMIN_CONTACT, DEFAULT_CONFIG, DEFAULT_NOTIFICATIONS } from "../constants";
+import {
+  DEFAULT_ADMIN_CONTACT,
+  DEFAULT_CONFIG,
+  DEFAULT_NOTIFICATIONS,
+} from "../constants";
 import type { AbsenceBatchCreateItem } from "../domain/submissionPayload";
 
 export type AbsenceBatchCreateResponse = {
@@ -14,6 +18,8 @@ export type AbsenceBatchCreateResponse = {
 
 export type SessionsInRangeOptions = {
   courseIds?: string[];
+  subjectIds?: string[];
+  includeAllSubjects?: boolean;
   satVerbalAfterPriority?: number;
   bypassTiming?: boolean;
 };
@@ -30,8 +36,17 @@ export function sessionsInRangePath(
   if (options?.courseIds && options.courseIds.length > 0) {
     params.set("course_ids", options.courseIds.join(","));
   }
+  if (options?.subjectIds && options.subjectIds.length > 0) {
+    params.set("subject_ids", options.subjectIds.join(","));
+  }
+  if (options?.includeAllSubjects) {
+    params.set("include_all_subjects", "true");
+  }
   if (options?.satVerbalAfterPriority !== undefined) {
-    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
+    params.set(
+      "sat_verbal_after_priority",
+      String(options.satVerbalAfterPriority),
+    );
   }
   if (options?.bypassTiming) {
     params.set("bypass_timing", "true");
@@ -39,12 +54,22 @@ export function sessionsInRangePath(
   return `/api/v1/absences/sessions-in-range?${params.toString()}`;
 }
 
-export function normalizeAbsenceFormConfig(data: AbsenceFormConfig): AbsenceFormConfig {
+export function normalizeAbsenceFormConfig(
+  data: AbsenceFormConfig,
+): AbsenceFormConfig {
   const notifications = {
-    sms_parent_enabled: data.notifications?.sms_parent_enabled ?? DEFAULT_NOTIFICATIONS.sms_parent_enabled,
-    sms_parent_template: data.notifications?.sms_parent_template ?? DEFAULT_NOTIFICATIONS.sms_parent_template,
-    sms_success_template: data.notifications?.sms_success_template ?? DEFAULT_NOTIFICATIONS.sms_success_template,
-    allow_submit_without_otp: data.notifications?.allow_submit_without_otp ?? DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
+    sms_parent_enabled:
+      data.notifications?.sms_parent_enabled ??
+      DEFAULT_NOTIFICATIONS.sms_parent_enabled,
+    sms_parent_template:
+      data.notifications?.sms_parent_template ??
+      DEFAULT_NOTIFICATIONS.sms_parent_template,
+    sms_success_template:
+      data.notifications?.sms_success_template ??
+      DEFAULT_NOTIFICATIONS.sms_success_template,
+    allow_submit_without_otp:
+      data.notifications?.allow_submit_without_otp ??
+      DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
   };
   const adminContact = {
     email: data.admin_contact?.email ?? DEFAULT_ADMIN_CONTACT.email,
@@ -62,11 +87,15 @@ export function normalizeAbsenceFormConfig(data: AbsenceFormConfig): AbsenceForm
 }
 
 export async function loadAbsenceFormConfig(): Promise<AbsenceFormConfig> {
-  const data = await apiJson<AbsenceFormConfig>("/api/v1/absence-form-config", { method: "GET" });
+  const data = await apiJson<AbsenceFormConfig>("/api/v1/absence-form-config", {
+    method: "GET",
+  });
   return normalizeAbsenceFormConfig(data);
 }
 
-export function lookupStudentByWcode(wcode: string): Promise<StudentLookupResponse> {
+export function lookupStudentByWcode(
+  wcode: string,
+): Promise<StudentLookupResponse> {
   return apiJson<StudentLookupResponse>(
     `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(wcode)}`,
     { method: "GET" },

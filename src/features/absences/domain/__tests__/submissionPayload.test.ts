@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SubjectSessions } from "../../types";
-import { buildSubmissionPayloads, selectedSitInCourseIDForGroup } from "../submissionPayload";
+import {
+  buildSubmissionPayloads,
+  selectedSitInCourseIDForGroup,
+} from "../submissionPayload";
 
 const baseGroup = {
   subject_id: "subj-1",
@@ -11,7 +14,13 @@ const baseGroup = {
   course_name: "Mathematics 101",
   absence_rate_exceeded: false,
   sessions: [
-    { id: "missed-1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },
+    {
+      id: "missed-1",
+      start_at: "2026-06-01T09:00:00+07:00",
+      end_at: "2026-06-01T10:00:00+07:00",
+      date: "2026-06-01",
+      already_absent: false,
+    },
   ],
 } satisfies SubjectSessions;
 
@@ -53,7 +62,13 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sessions: [
             ...baseGroup.sessions,
-            { id: "missed-2", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:00:00+07:00", date: "2026-06-02", already_absent: false },
+            {
+              id: "missed-2",
+              start_at: "2026-06-02T09:00:00+07:00",
+              end_at: "2026-06-02T10:00:00+07:00",
+              date: "2026-06-02",
+              already_absent: false,
+            },
           ],
           sit_in: {
             sit_in_method: "physical",
@@ -62,13 +77,25 @@ describe("absence submission payload builder", () => {
                 level: 1,
                 label: "Priority 1",
                 sit_in_course: { id: "target-a", code: "A", name: "Target A" },
-                available_sessions: [{ id: "sit-a", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00" }],
+                available_sessions: [
+                  {
+                    id: "sit-a",
+                    start_at: "2026-06-03T09:00:00+07:00",
+                    end_at: "2026-06-03T10:00:00+07:00",
+                  },
+                ],
               },
               {
                 level: 2,
                 label: "Priority 2",
                 sit_in_course: { id: "target-b", code: "B", name: "Target B" },
-                available_sessions: [{ id: "sit-b", start_at: "2026-06-04T09:00:00+07:00", end_at: "2026-06-04T10:00:00+07:00" }],
+                available_sessions: [
+                  {
+                    id: "sit-b",
+                    start_at: "2026-06-04T09:00:00+07:00",
+                    end_at: "2026-06-04T10:00:00+07:00",
+                  },
+                ],
               },
             ],
           },
@@ -112,7 +139,13 @@ describe("absence submission payload builder", () => {
           course_name: "Physics 101",
           absence_rate_exceeded: false,
           sessions: [
-            { id: "enrolled-1", start_at: "2026-06-01T14:00:00+07:00", end_at: "2026-06-01T15:00:00+07:00", date: "2026-06-01", already_absent: false },
+            {
+              id: "enrolled-1",
+              start_at: "2026-06-01T14:00:00+07:00",
+              end_at: "2026-06-01T15:00:00+07:00",
+              date: "2026-06-01",
+              already_absent: false,
+            },
           ],
         },
       ],
@@ -149,8 +182,18 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
-            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+            sit_in_course: {
+              id: "target-1",
+              code: "MATH301",
+              name: "Calculus III",
+            },
+            available_sessions: [
+              {
+                id: "sit-1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:30:00+07:00",
+              },
+            ],
           },
         },
         {
@@ -162,7 +205,13 @@ describe("absence submission payload builder", () => {
           course_name: "Physics 101",
           absence_rate_exceeded: false,
           sessions: [
-            { id: "enrolled-1", start_at: "2026-06-01T14:00:00+07:00", end_at: "2026-06-01T15:00:00+07:00", date: "2026-06-01", already_absent: false },
+            {
+              id: "enrolled-1",
+              start_at: "2026-06-01T14:00:00+07:00",
+              end_at: "2026-06-01T15:00:00+07:00",
+              date: "2026-06-01",
+              already_absent: false,
+            },
           ],
         },
       ],
@@ -190,8 +239,18 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
-            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+            sit_in_course: {
+              id: "target-1",
+              code: "MATH301",
+              name: "Calculus III",
+            },
+            available_sessions: [
+              {
+                id: "sit-1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:30:00+07:00",
+              },
+            ],
           },
         },
         {
@@ -203,7 +262,13 @@ describe("absence submission payload builder", () => {
           course_name: "Physics 101",
           absence_rate_exceeded: false,
           sessions: [
-            { id: "enrolled-1", start_at: "2026-06-03T14:00:00+07:00", end_at: "2026-06-03T15:00:00+07:00", date: "2026-06-03", already_absent: false },
+            {
+              id: "enrolled-1",
+              start_at: "2026-06-03T14:00:00+07:00",
+              end_at: "2026-06-03T15:00:00+07:00",
+              date: "2026-06-03",
+              already_absent: false,
+            },
           ],
         },
       ],
@@ -231,8 +296,18 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
-            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:30:00+07:00" }],
+            sit_in_course: {
+              id: "target-1",
+              code: "MATH301",
+              name: "Calculus III",
+            },
+            available_sessions: [
+              {
+                id: "sit-1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:30:00+07:00",
+              },
+            ],
           },
         },
         {
@@ -244,7 +319,13 @@ describe("absence submission payload builder", () => {
           course_name: "Physics 101",
           absence_rate_exceeded: false,
           sessions: [
-            { id: "enrolled-1", start_at: "2026-06-03T11:30:00+07:00", end_at: "2026-06-03T13:00:00+07:00", date: "2026-06-03", already_absent: false },
+            {
+              id: "enrolled-1",
+              start_at: "2026-06-03T11:30:00+07:00",
+              end_at: "2026-06-03T13:00:00+07:00",
+              date: "2026-06-03",
+              already_absent: false,
+            },
           ],
         },
       ],
@@ -257,7 +338,8 @@ describe("absence submission payload builder", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
+      error:
+        "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
     });
   });
 
@@ -269,8 +351,18 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sit_in: {
             sit_in_method: "physical",
-            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
-            available_sessions: [{ id: "sit-1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            sit_in_course: {
+              id: "target-1",
+              code: "MATH301",
+              name: "Calculus III",
+            },
+            available_sessions: [
+              {
+                id: "sit-1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:00:00+07:00",
+              },
+            ],
           },
         },
         {
@@ -282,7 +374,13 @@ describe("absence submission payload builder", () => {
           course_name: "Physics 101",
           absence_rate_exceeded: false,
           sessions: [
-            { id: "enrolled-1", start_at: "2026-06-03T12:00:00+07:00", end_at: "2026-06-03T13:00:00+07:00", date: "2026-06-03", already_absent: false },
+            {
+              id: "enrolled-1",
+              start_at: "2026-06-03T12:00:00+07:00",
+              end_at: "2026-06-03T13:00:00+07:00",
+              date: "2026-06-03",
+              already_absent: false,
+            },
           ],
         },
       ],
@@ -310,7 +408,13 @@ describe("absence submission payload builder", () => {
           ...baseGroup,
           sessions: [
             ...baseGroup.sessions,
-            { id: "missed-2", start_at: "2026-06-10T09:00:00+07:00", end_at: "2026-06-10T10:00:00+07:00", date: "2026-06-10", already_absent: false },
+            {
+              id: "missed-2",
+              start_at: "2026-06-10T09:00:00+07:00",
+              end_at: "2026-06-10T10:00:00+07:00",
+              date: "2026-06-10",
+              already_absent: false,
+            },
           ],
           sit_in: { sit_in_method: "zoom" },
         },
@@ -324,7 +428,8 @@ describe("absence submission payload builder", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "Mathematics spans more than 3 days. Split it into separate submissions.",
+      error:
+        "Mathematics spans more than 3 days. Split it into separate submissions.",
     });
   });
 
@@ -340,7 +445,14 @@ describe("absence submission payload builder", () => {
               "missed-1": {
                 sit_in_method: "zoom",
                 sit_in_course: { id: "course-original", code: "", name: "" },
-                available_sessions: [{ id: "zoom-orig-1", course_id: "course-original", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+                available_sessions: [
+                  {
+                    id: "zoom-orig-1",
+                    course_id: "course-original",
+                    start_at: "2026-06-03T11:00:00+07:00",
+                    end_at: "2026-06-03T12:00:00+07:00",
+                  },
+                ],
               },
             },
           },
@@ -362,7 +474,14 @@ describe("absence submission payload builder", () => {
                 "missed-1": {
                   sit_in_method: "zoom",
                   sit_in_course: { id: "course-p2", code: "", name: "" },
-                  available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-03T14:00:00+07:00", end_at: "2026-06-03T15:00:00+07:00" }],
+                  available_sessions: [
+                    {
+                      id: "zoom-p2-1",
+                      course_id: "course-p2",
+                      start_at: "2026-06-03T14:00:00+07:00",
+                      end_at: "2026-06-03T15:00:00+07:00",
+                    },
+                  ],
                 },
               },
             },
@@ -388,9 +507,28 @@ describe("absence submission payload builder", () => {
               "missed-1": {
                 sit_in_method: "physical",
                 sit_in_course: { id: "course-l1", code: "", name: "" },
-                available_sessions: [{ id: "sit-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+                available_sessions: [
+                  {
+                    id: "sit-l1-1",
+                    course_id: "course-l1",
+                    start_at: "2026-06-03T11:00:00+07:00",
+                    end_at: "2026-06-03T12:00:00+07:00",
+                  },
+                ],
                 priorities: [
-                   { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                  {
+                    level: 2,
+                    label: "",
+                    sit_in_course: { id: "course-l2", code: "", name: "" },
+                    available_sessions: [
+                      {
+                        id: "sit-l2-1",
+                        course_id: "course-l2",
+                        start_at: "2026-06-04T11:00:00+07:00",
+                        end_at: "2026-06-04T12:00:00+07:00",
+                      },
+                    ],
+                  },
                 ],
               },
             },
@@ -413,7 +551,14 @@ describe("absence submission payload builder", () => {
                 "missed-1": {
                   sit_in_method: "physical",
                   sit_in_course: { id: "course-l2", code: "", name: "" },
-                  available_sessions: [{ id: "sit-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
+                  available_sessions: [
+                    {
+                      id: "sit-l2-1",
+                      course_id: "course-l2",
+                      start_at: "2026-06-04T11:00:00+07:00",
+                      end_at: "2026-06-04T12:00:00+07:00",
+                    },
+                  ],
                 },
               },
             },
@@ -439,9 +584,28 @@ describe("absence submission payload builder", () => {
               "missed-1": {
                 sit_in_method: "physical",
                 sit_in_course: { id: "course-l1", code: "", name: "" },
-                available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+                available_sessions: [
+                  {
+                    id: "orig-l1-1",
+                    course_id: "course-l1",
+                    start_at: "2026-06-03T11:00:00+07:00",
+                    end_at: "2026-06-03T12:00:00+07:00",
+                  },
+                ],
                 priorities: [
-                  { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+                  {
+                    level: 2,
+                    label: "",
+                    sit_in_course: { id: "course-l2", code: "", name: "" },
+                    available_sessions: [
+                      {
+                        id: "orig-l2-1",
+                        course_id: "course-l2",
+                        start_at: "2026-06-04T11:00:00+07:00",
+                        end_at: "2026-06-04T12:00:00+07:00",
+                      },
+                    ],
+                  },
                 ],
               },
             },
@@ -464,7 +628,14 @@ describe("absence submission payload builder", () => {
                 "missed-1": {
                   sit_in_method: "physical",
                   sit_in_course: { id: "course-l2", code: "", name: "" },
-                  available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }],
+                  available_sessions: [
+                    {
+                      id: "refetch-l2-1",
+                      course_id: "course-l2",
+                      start_at: "2026-06-04T11:00:00+07:00",
+                      end_at: "2026-06-04T12:00:00+07:00",
+                    },
+                  ],
                 },
               },
             },
@@ -492,7 +663,14 @@ describe("selectedSitInCourseIDForGroup", () => {
           "other-id": {
             sit_in_method: "zoom",
             sit_in_course: { id: "course-other", code: "", name: "" },
-            available_sessions: [{ id: "zoom-other-1", course_id: "course-other", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            available_sessions: [
+              {
+                id: "zoom-other-1",
+                course_id: "course-other",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:00:00+07:00",
+              },
+            ],
           },
         },
       },
@@ -502,7 +680,25 @@ describe("selectedSitInCourseIDForGroup", () => {
       baseMissedIds,
       { "missed-1": "zoom-p2-1" },
       { "missed-1": 2 },
-      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "zoom", sit_in_course: { id: "course-p2", code: "", name: "" }, available_sessions: [{ id: "zoom-p2-1", course_id: "course-p2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+      {
+        "missed-1": {
+          2: {
+            ...baseGroup,
+            sit_in: {
+              sit_in_method: "zoom",
+              sit_in_course: { id: "course-p2", code: "", name: "" },
+              available_sessions: [
+                {
+                  id: "zoom-p2-1",
+                  course_id: "course-p2",
+                  start_at: "2026-06-04T11:00:00+07:00",
+                  end_at: "2026-06-04T12:00:00+07:00",
+                },
+              ],
+            },
+          },
+        },
+      },
     );
     expect(result).toBe("course-p2");
   });
@@ -516,9 +712,28 @@ describe("selectedSitInCourseIDForGroup", () => {
           "missed-1": {
             sit_in_method: "physical",
             sit_in_course: { id: "course-l1", code: "", name: "" },
-            available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            available_sessions: [
+              {
+                id: "orig-l1-1",
+                course_id: "course-l1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:00:00+07:00",
+              },
+            ],
             priorities: [
-              { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+              {
+                level: 2,
+                label: "",
+                sit_in_course: { id: "course-l2", code: "", name: "" },
+                available_sessions: [
+                  {
+                    id: "orig-l2-1",
+                    course_id: "course-l2",
+                    start_at: "2026-06-04T11:00:00+07:00",
+                    end_at: "2026-06-04T12:00:00+07:00",
+                  },
+                ],
+              },
             ],
           },
         },
@@ -529,9 +744,56 @@ describe("selectedSitInCourseIDForGroup", () => {
       baseMissedIds,
       { "missed-1": "refetch-l2-1" },
       { "missed-1": 2 },
-      { "missed-1": { 2: { ...baseGroup, sit_in: { sit_in_method: "physical", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "refetch-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] } } } },
+      {
+        "missed-1": {
+          2: {
+            ...baseGroup,
+            sit_in: {
+              sit_in_method: "physical",
+              sit_in_course: { id: "course-l2", code: "", name: "" },
+              available_sessions: [
+                {
+                  id: "refetch-l2-1",
+                  course_id: "course-l2",
+                  start_at: "2026-06-04T11:00:00+07:00",
+                  end_at: "2026-06-04T12:00:00+07:00",
+                },
+              ],
+            },
+          },
+        },
+      },
     );
     expect(result).toBe("course-l2");
+  });
+
+  it("returns the selected root available session course when a manual option list spans courses", () => {
+    const group: SubjectSessions = {
+      ...baseGroup,
+      sit_in: {
+        sit_in_method: "physical",
+        available_sessions: [
+          {
+            id: "sit-course-a",
+            course_id: "course-a",
+            start_at: "2026-06-03T11:00:00+07:00",
+            end_at: "2026-06-03T12:00:00+07:00",
+          },
+          {
+            id: "sit-course-b",
+            course_id: "course-b",
+            start_at: "2026-06-04T11:00:00+07:00",
+            end_at: "2026-06-04T12:00:00+07:00",
+          },
+        ],
+      },
+    };
+
+    const result = selectedSitInCourseIDForGroup(group, baseMissedIds, {
+      "missed-1": "sit-course-b",
+    });
+
+    expect(result).toBe("course-b");
   });
 
   it("returns wrong sit_in_course when priority history not provided and re-fetched session not found in original group's priorities", () => {
@@ -543,19 +805,36 @@ describe("selectedSitInCourseIDForGroup", () => {
           "missed-1": {
             sit_in_method: "physical",
             sit_in_course: { id: "course-l1", code: "", name: "" },
-            available_sessions: [{ id: "orig-l1-1", course_id: "course-l1", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            available_sessions: [
+              {
+                id: "orig-l1-1",
+                course_id: "course-l1",
+                start_at: "2026-06-03T11:00:00+07:00",
+                end_at: "2026-06-03T12:00:00+07:00",
+              },
+            ],
             priorities: [
-              { level: 2, label: "", sit_in_course: { id: "course-l2", code: "", name: "" }, available_sessions: [{ id: "orig-l2-1", course_id: "course-l2", start_at: "2026-06-04T11:00:00+07:00", end_at: "2026-06-04T12:00:00+07:00" }] },
+              {
+                level: 2,
+                label: "",
+                sit_in_course: { id: "course-l2", code: "", name: "" },
+                available_sessions: [
+                  {
+                    id: "orig-l2-1",
+                    course_id: "course-l2",
+                    start_at: "2026-06-04T11:00:00+07:00",
+                    end_at: "2026-06-04T12:00:00+07:00",
+                  },
+                ],
+              },
             ],
           },
         },
       },
     };
-    const result = selectedSitInCourseIDForGroup(
-      group,
-      baseMissedIds,
-      { "missed-1": "refetch-l2-1" },
-    );
+    const result = selectedSitInCourseIDForGroup(group, baseMissedIds, {
+      "missed-1": "refetch-l2-1",
+    });
     expect(result).toBe("course-l1");
   });
 });

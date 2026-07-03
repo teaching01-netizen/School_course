@@ -121,6 +121,7 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
   }, [endpoint]);
 
   const reset = useCallback(() => {
+    checkIdRef.current += 1;
     safe.setStatus("idle");
     safe.setLoading(false);
     safe.setDetails(null);

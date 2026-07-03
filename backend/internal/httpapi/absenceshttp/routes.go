@@ -55,6 +55,22 @@ func sessionsInRangeSelectSQL() string {
 	`
 }
 
+func sessionsInRangeAllSubjectsSelectSQL() string {
+	return `
+		SELECT sess.id, sess.start_at, sess.end_at,
+		       c.id, c.code, c.name,
+		       sub.id, sub.code, sub.name
+		FROM sessions sess
+		JOIN courses c ON c.id = sess.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
+		WHERE sub.id::text = ANY(string_to_array($1, ','))
+		  AND sess.start_at >= $2
+		  AND sess.start_at < $3
+		  AND sess.deleted_at IS NULL
+		ORDER BY sub.code, c.code, sess.start_at
+	`
+}
+
 func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 	lookbackDays := 0
 	if settings.MaxHoursAfterSession > 0 {
@@ -66,6 +82,31 @@ func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
 	user, err := v.RequireUser(r.Context(), r)
 	return err == nil && user.Role == "Admin"
+}
+
+func parseSubjectIDFilter(adapter httpadapter.Adapter, raw string) ([]string, error) {
+	var ids []string
+	seen := map[string]bool{}
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		id, err := adapter.ParseUUID(value)
+		if err != nil {
+			return nil, err
+		}
+		subjectID, err := adapter.UUIDString(id)
+		if err != nil {
+			return nil, err
+		}
+		if seen[subjectID] {
+			continue
+		}
+		seen[subjectID] = true
+		ids = append(ids, subjectID)
+	}
+	return ids, nil
 }
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
@@ -783,8 +824,23 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		satVerbalAfterPriority = value
 	}
 	bypassTiming := strings.TrimSpace(r.URL.Query().Get("bypass_timing")) == "true"
+	includeAllSubjects := strings.TrimSpace(r.URL.Query().Get("include_all_subjects")) == "true"
+	subjectIDFilter, err := parseSubjectIDFilter(s.a, strings.TrimSpace(r.URL.Query().Get("subject_ids")))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_ids", "Invalid subject_ids filter")
+		return
+	}
+	if includeAllSubjects {
+		if !isAdminRequest(s.deps.Auth, r) {
+			s.a.WriteErr(w, http.StatusForbidden, "admin_required", "Only staff can load all subject sessions")
+			return
+		}
+		if len(subjectIDFilter) == 0 {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_ids", "subject_ids are required when loading all subject sessions")
+			return
+		}
+	}
 
-	// Query sessions in range for all enrolled subjects.
 	type sessionDBRow struct {
 		ID          pgtype.UUID
 		StartAt     pgtype.Timestamptz
@@ -797,7 +853,12 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		SubjectName string
 	}
 
-	rows, err := s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
+	var rows pgx.Rows
+	if includeAllSubjects {
+		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeAllSubjectsSelectSQL(), strings.Join(subjectIDFilter, ","), dateFrom, dateTo.AddDate(0, 0, 1))
+	} else {
+		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
+	}
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -962,6 +1023,23 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		TotalSessionCount    int32                `json:"total_session_count"`
 	}
 
+	staffSubjectAvailable := map[string][]sessionBrief{}
+	if includeAllSubjects {
+		for _, sess := range sessions {
+			staffSubjectAvailable[sess.SubjectID] = append(staffSubjectAvailable[sess.SubjectID], sessionBrief{
+				ID:          sess.ID,
+				StartAt:     sess.StartAt,
+				EndAt:       sess.EndAt,
+				CourseID:    sess.CourseID,
+				ClassName:   sess.CourseName,
+				CourseName:  sess.CourseName,
+				CourseCode:  sess.CourseCode,
+				SubjectCode: sess.SubjectCode,
+				SubjectName: sess.SubjectName,
+			})
+		}
+	}
+
 	courses := make([]courseResponse, 0, len(courseOrder))
 	for _, key := range courseOrder {
 		g := grouped[key]
@@ -977,9 +1055,14 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var sitIn *courseSitInResponse
-		// Resolve sit-in using the student's enrolled course ID for this block
 		courseID, cErr := s.a.ParseUUID(g.CourseID)
-		if cErr == nil {
+		if includeAllSubjects {
+			sitIn = &courseSitInResponse{
+				SitInMethod:       SitInMethodPhysical,
+				AvailableSessions: staffSubjectAvailable[g.SubjectID],
+			}
+		} else if cErr == nil {
+			// Resolve sit-in using the student's enrolled course ID for this block.
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
 				resolveFrom, resolveTo := resolveDateRangeForSessionStarts(sessionStartAtValues(g.Sessions), dateFrom, dateTo)

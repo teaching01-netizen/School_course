@@ -8,20 +8,16 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
+import { formatUTCToZone, formatZoneDateKey } from "../utils/timezone";
 
 const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
 
 function formatDate(value: string): string {
-  return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB", {
-    day: "numeric", month: "short", year: "numeric",
-  });
+  return formatZoneDateKey(value, INSTITUTE_TIME_ZONE, "d MMM yyyy") ?? value;
 }
 
 function formatSession(value: string): string {
-  return new Date(value).toLocaleString("en-GB", {
-    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-    timeZone: INSTITUTE_TIME_ZONE,
-  });
+  return formatUTCToZone(value, INSTITUTE_TIME_ZONE, "d MMM yyyy, HH:mm") ?? value;
 }
 
 function titleCase(value: string): string {
@@ -61,6 +57,7 @@ export default function TeacherAbsenceDetail() {
   const { user } = useAuth();
   const { addToast } = useToast();
   const backTo = user?.role === 'Admin' ? '/absences/dashboard' : '/teacher-dashboard';
+  const canOverrideSitIn = user?.role === 'Admin';
   const [detail, setDetail] = useState<TeacherAbsenceDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [overrideOpen, setOverrideOpen] = useState(false);
@@ -108,7 +105,9 @@ export default function TeacherAbsenceDetail() {
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
             <Eye className="h-3.5 w-3.5" aria-hidden="true" /> Read-only
           </span>
-          <Button size="sm" variant="secondary" onClick={() => setOverrideOpen(true)}>Override Sit-in</Button>
+          {canOverrideSitIn ? (
+            <Button size="sm" variant="secondary" onClick={() => setOverrideOpen(true)}>Override Sit-in</Button>
+          ) : null}
         </div>
       </header>
 
@@ -124,7 +123,7 @@ export default function TeacherAbsenceDetail() {
         <SessionList title="Sit-in sessions assigned to you" sessions={detail.sit_in_sessions} />
       </div>
 
-      {overrideOpen ? (
+      {overrideOpen && canOverrideSitIn ? (
         <OverrideSitInModal
           absenceId={detail.id}
           version={detail.version}

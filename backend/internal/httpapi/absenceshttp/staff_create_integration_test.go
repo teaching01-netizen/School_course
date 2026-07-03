@@ -265,14 +265,14 @@ func TestStaffCreate_AdminBypassWideDateRange(t *testing.T) {
 	dateTo := now.AddDate(0, 0, 5).Format("2006-01-02")
 
 	reqBody := map[string]any{
-		"wcode":               studentWcode,
-		"subject_id":          subjectID,
-		"course_id":           courseID,
-		"date_from":           dateFrom,
-		"date_to":             dateTo,
-		"missed_session_ids":  []string{sessionID},
-		"sit_in_method":       "none",
-		"reason_category":     "medical",
+		"wcode":              studentWcode,
+		"subject_id":         subjectID,
+		"course_id":          courseID,
+		"date_from":          dateFrom,
+		"date_to":            dateTo,
+		"missed_session_ids": []string{sessionID},
+		"sit_in_method":      "none",
+		"reason_category":    "medical",
 	}
 
 	mux := http.NewServeMux()
@@ -323,14 +323,14 @@ func TestStaffCreate_AdminBypassOldSession(t *testing.T) {
 	dateTo := now.AddDate(0, 0, -1).Format("2006-01-02")
 
 	reqBody := map[string]any{
-		"wcode":               studentWcode,
-		"subject_id":          subjectID,
-		"course_id":           courseID,
-		"date_from":           dateFrom,
-		"date_to":             dateTo,
-		"missed_session_ids":  []string{sessionID},
-		"sit_in_method":       "none",
-		"reason_category":     "medical",
+		"wcode":              studentWcode,
+		"subject_id":         subjectID,
+		"course_id":          courseID,
+		"date_from":          dateFrom,
+		"date_to":            dateTo,
+		"missed_session_ids": []string{sessionID},
+		"sit_in_method":      "none",
+		"reason_category":    "medical",
 	}
 
 	mux := http.NewServeMux()
@@ -345,4 +345,117 @@ func TestStaffCreate_AdminBypassOldSession(t *testing.T) {
 		t.Fatalf("expected 201 Created, got %d: %v", resp.StatusCode, bodyMap)
 	}
 	t.Log("old session absence created successfully (session timing bypassed)")
+}
+
+func TestStaffCreate_AllowsAdminSpecialCaseUnenrolledCourse(t *testing.T) {
+	databaseURL := requireStaffTestDB(t)
+	migrateStaffUpOnce(t, databaseURL)
+	dbpool := newStaffPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	studentWcode, _, _, _, adminUUID := seedStaffCreateData(t, q, dbpool, "SPECIAL")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	subj, err := q.SubjectCreate(ctx, sqldb.SubjectCreateParams{
+		Code: "SPECIAL-EXTRA-" + suffix,
+		Name: "Special Extra " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{
+		Code: "SPECIAL-COURSE-" + suffix,
+		Name: "Special Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+	teacher, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{
+		Username:     "special-teacher-" + suffix,
+		Role:         "Teacher",
+		PasswordHash: "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{
+		Name:     "SPECIAL-R-" + suffix,
+		Capacity: pgtype.Int4{Int32: 10, Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	missed, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+		CourseID:  course.ID,
+		RoomID:    room.ID,
+		TeacherID: teacher,
+		StartAt:   pgtype.Timestamptz{Time: now.Add(-24 * time.Hour), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: now.Add(-23 * time.Hour), Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sitIn, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+		CourseID:  course.ID,
+		RoomID:    room.ID,
+		TeacherID: teacher,
+		StartAt:   pgtype.Timestamptz{Time: now.Add(24 * time.Hour), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: now.Add(25 * time.Hour), Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subjectID, _ := uuidString(subj.ID)
+	courseID, _ := uuidString(course.ID)
+	missedID, _ := uuidString(missed.ID)
+	sitInID, _ := uuidString(sitIn.ID)
+
+	fa := staffFakeAuth{
+		user: auth.AuthenticatedUser{
+			ID:       adminUUID,
+			Username: "admin",
+			Role:     "Admin",
+		},
+	}
+	deps := httpdeps.Deps{
+		Log:  slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Auth: fa,
+		Q:    q,
+		DB:   dbpool,
+	}
+
+	reqBody := map[string]any{
+		"wcode":              studentWcode,
+		"subject_id":         subjectID,
+		"course_id":          courseID,
+		"date_from":          now.AddDate(0, 0, -2).Format("2006-01-02"),
+		"date_to":            now.AddDate(0, 0, 2).Format("2006-01-02"),
+		"missed_session_ids": []string{missedID},
+		"sit_in_method":      "physical",
+		"sit_in_course_id":   courseID,
+		"sit_in_session_ids": []string{sitInID},
+		"reason_category":    "medical",
+	}
+
+	mux := http.NewServeMux()
+	Register(mux, deps)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	resp := staffDoRequest(t, server.URL, "POST", "/api/v1/absences/staff-create", reqBody)
+	if resp.StatusCode != http.StatusCreated {
+		var bodyMap map[string]any
+		staffParseResponse(t, resp, &bodyMap)
+		t.Fatalf("expected 201 Created, got %d: %v", resp.StatusCode, bodyMap)
+	}
 }

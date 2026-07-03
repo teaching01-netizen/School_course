@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { subMonths, addMonths } from 'date-fns';
+import { useEffect, useMemo, useState } from 'react';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
@@ -8,15 +7,10 @@ import Button from '../components/ui/Button';
 import PageHeading from '../components/ui/PageHeading';
 import LoadingSkeleton from '../components/ui/LoadingSkeleton';
 import EmptyState from '../components/ui/EmptyState';
+import useInstituteMeta from '../hooks/useInstituteMeta';
+import { shiftZoneMonthKey, startOfZoneMonthKey, utcISOToZoneDate } from '../utils/timezone';
 
 type Teacher = { id: string; username: string; role: string };
-
-function yyyyMmDd(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function friendlyDashboardError(error: unknown): string {
   const msg = typeof error === 'object' && error !== null && 'message' in error
@@ -50,30 +44,55 @@ function friendlyDashboardError(error: unknown): string {
 export default function AbsenceDashboard() {
   const { addToast } = useToast();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
-  const [viewDate, setViewDate] = useState(() => new Date());
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const { serverNow, instituteTZ, loaded: instituteMetaLoaded } = useInstituteMeta();
+  const zone = instituteTZ ?? 'Asia/Bangkok';
+  const fallbackNowIso = useMemo(() => new Date().toISOString(), []);
+  const [viewMonthKey, setViewMonthKey] = useState<string | null>(null);
+
+  const todayKey = useMemo(
+    () => utcISOToZoneDate(serverNow ?? fallbackNowIso, zone),
+    [fallbackNowIso, serverNow, zone],
+  );
+  const todayMonthKey = useMemo(
+    () => (todayKey ? startOfZoneMonthKey(todayKey, zone) : null),
+    [todayKey, zone],
+  );
+  const activeViewMonthKey = viewMonthKey ?? todayMonthKey ?? startOfZoneMonthKey(todayKey ?? fallbackNowIso.slice(0, 10), zone) ?? '';
+
+  useEffect(() => {
+    if (!instituteMetaLoaded || viewMonthKey !== null) return;
+    const initialDayKey = todayKey ?? utcISOToZoneDate(fallbackNowIso, zone);
+    const initialMonthKey = initialDayKey ? startOfZoneMonthKey(initialDayKey, zone) : null;
+    if (initialMonthKey) setViewMonthKey(initialMonthKey);
+  }, [fallbackNowIso, instituteMetaLoaded, todayKey, viewMonthKey, zone]);
 
   const teachersQuery = useApiQuery<Teacher[]>('/api/v1/users?role=Teacher', []);
   const teachers = teachersQuery.data ?? [];
   const teachersLoading = teachersQuery.loading;
 
   const teacherDashboardPath = selectedTeacherId
-    ? `/api/v1/teacher/dashboard?month_start=${yyyyMmDd(viewDate)}&teacher_id=${selectedTeacherId}`
+    ? `/api/v1/teacher/dashboard?month_start=${activeViewMonthKey}&teacher_id=${selectedTeacherId}`
     : null;
 
   const { data, loading, error, refetch } = useApiQuery<TeacherDashboardResponse>(teacherDashboardPath, [teacherDashboardPath]);
-
-  useEffect(() => {
-    if (!loading) {
-      setInitialLoadDone(true);
-    }
-  }, [loading]);
 
   useEffect(() => {
     if (teachersQuery.error) {
       addToast('error', teachersQuery.error.message ?? 'Failed to load teachers');
     }
   }, [teachersQuery.error]);
+
+  const handlePrevMonth = () => {
+    setViewMonthKey((current) => (current ? shiftZoneMonthKey(current, zone, -1) ?? current : current));
+  };
+
+  const handleNextMonth = () => {
+    setViewMonthKey((current) => (current ? shiftZoneMonthKey(current, zone, 1) ?? current : current));
+  };
+
+  const handleToday = () => {
+    setViewMonthKey((current) => todayMonthKey ?? current);
+  };
 
   return (
     <div>
@@ -150,11 +169,13 @@ export default function AbsenceDashboard() {
           ) : data ? (
             <DashboardView
               data={data}
-              viewDate={viewDate}
-              loadingNewMonth={loading && initialLoadDone}
-              onPrevMonth={() => setViewDate((d) => subMonths(d, 1))}
-              onNextMonth={() => setViewDate((d) => addMonths(d, 1))}
-              onToday={() => setViewDate(new Date())}
+              viewMonthKey={activeViewMonthKey}
+              todayKey={todayKey}
+              zone={zone}
+              loadingNewMonth={loading && data != null}
+              onPrevMonth={handlePrevMonth}
+              onNextMonth={handleNextMonth}
+              onToday={handleToday}
             />
           ) : loading ? (
             <LoadingSkeleton type="table" lines={8} />

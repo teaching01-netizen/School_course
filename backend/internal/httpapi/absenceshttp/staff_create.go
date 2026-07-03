@@ -1,6 +1,7 @@
 package absenceshttp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -103,7 +104,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			return 0, nil, fmt.Errorf("free text disabled")
 		}
 
-		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, body.SubjectID, body.CourseID)
+		student, subjectID, course, err := s.resolveStaffAbsenceSelection(r.Context(), qtx, tx, body.Wcode, body.SubjectID, body.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			if status == http.StatusInternalServerError {
@@ -283,6 +284,66 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 	if createdID != "" {
 		s.publishAbsenceChanges([]string{createdID})
 	}
+}
+
+func (s *server) resolveStaffAbsenceSelection(ctx context.Context, q *sqldb.Queries, db publicRowExecutor, wcode string, subjectIDRaw, courseIDRaw *string) (sqldb.Student, pgtype.UUID, sqldb.StudentEnrolledCourseV2, error) {
+	if courseIDRaw == nil || strings.TrimSpace(*courseIDRaw) == "" {
+		return s.resolveAbsenceSelection(ctx, q, db, wcode, subjectIDRaw, courseIDRaw)
+	}
+
+	studentRow, err := q.StudentGetByWCode(ctx, wcode)
+	if err != nil {
+		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
+	}
+	student := sqldb.Student{
+		ID:        studentRow.ID,
+		Wcode:     studentRow.Wcode,
+		FullName:  studentRow.FullName,
+		Notes:     studentRow.Notes,
+		CreatedAt: studentRow.CreatedAt,
+		UpdatedAt: studentRow.UpdatedAt,
+	}
+
+	var requestedSubjectID pgtype.UUID
+	if subjectIDRaw != nil && strings.TrimSpace(*subjectIDRaw) != "" {
+		requestedSubjectID, err = s.a.ParseUUID(strings.TrimSpace(*subjectIDRaw))
+		if err != nil {
+			return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
+		}
+	}
+
+	selectedCourseID, err := s.a.ParseUUID(strings.TrimSpace(*courseIDRaw))
+	if err != nil {
+		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
+	}
+
+	var course sqldb.StudentEnrolledCourseV2
+	if err := db.QueryRow(ctx, `
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		FROM courses c
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE c.id = $1
+	`, selectedCourseID).Scan(
+		&course.CourseID,
+		&course.CourseCode,
+		&course.CourseName,
+		&course.SubjectID,
+		&course.CycleID,
+		&course.Level,
+		&course.RootCourseGroupID,
+		&course.SitInRuleID,
+	); err != nil {
+		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
+	}
+
+	if requestedSubjectID.Valid && course.SubjectID.Valid && requestedSubjectID != course.SubjectID {
+		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, fmt.Errorf("course does not belong to selected subject")
+	}
+	if !course.SubjectID.Valid {
+		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, fmt.Errorf("selected course has no subject")
+	}
+
+	return student, course.SubjectID, course, nil
 }
 
 func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {

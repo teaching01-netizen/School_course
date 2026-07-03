@@ -107,6 +107,34 @@ describe("usePreflight", () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it("reset() ignores a stale in-flight response", async () => {
+    let resolveFlight!: (v: unknown) => void;
+    mockApiJson.mockImplementation(() => new Promise((resolve) => {
+      resolveFlight = resolve;
+    }));
+    const { result } = renderHook(() => usePreflight());
+
+    act(() => {
+      void result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
+    });
+    expect(result.current.loading).toBe(true);
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(result.current.loading).toBe(false);
+
+    await act(async () => {
+      resolveFlight({ status: "available" });
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(result.current.loading).toBe(false);
+    expect(result.current.details).toBeNull();
+  });
+
   it("uses preflight_series endpoint when specified", async () => {
     mockApiJson.mockResolvedValue({ status: "available", occurrences_planned: 5 });
     const { result } = renderHook(() => usePreflight("preflight_series"));

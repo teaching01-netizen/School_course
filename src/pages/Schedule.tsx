@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { clampDateRange } from "../utils/time";
-import { utcISOToZoneDate, utcISOToZoneLocalInput, zoneLocalInputToUTCISO } from "../utils/timezone";
+import { formatUTCToZone, formatZoneDateKey, utcISOToZoneDate, utcISOToZoneLocalInput, zoneLocalInputToUTCISO } from "../utils/timezone";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import Select from "../components/ui/Select";
@@ -14,7 +14,7 @@ import Modal from "../components/Modal";
 import ConfirmModal from "../components/ConfirmModal";
 import ScheduleFilters from "../components/ScheduleFilters";
 import SessionActions from "../components/SessionActions";
-import { PreflightIndicator, getSaveButtonLabel, isSaveDisabled } from "../components/PreflightIndicator";
+import { PreflightIndicator, getSaveButtonLabel } from "../components/PreflightIndicator";
 import SessionOccurrenceForm from "../components/SessionOccurrenceForm";
 import SeriesFormFields from "../components/SeriesFormFields";
 import AttendancePanel from "../components/AttendancePanel";
@@ -24,6 +24,7 @@ import { useCreateSession } from "@/features/scheduling/hooks/useCreateSession";
 import { useEditSession } from "@/features/scheduling/hooks/useEditSession";
 import { useAttendanceModal } from "@/features/scheduling/hooks/useAttendanceModal";
 import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
+import usePreflightGate from "@/features/scheduling/hooks/usePreflightGate";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "../utils/preflight";
 import { useFormValidation } from "../hooks/useFormValidation";
 import TypeaheadSelect from "../components/TypeaheadSelect";
@@ -97,6 +98,9 @@ export default function Schedule() {
   });
   const [inlineSaving, setInlineSaving] = useState(false);
   const inlinePreflight = usePreflight();
+  const inlineGate = usePreflightGate(inlinePreflight, {
+    requiredFields: [inlineEditForm.course_id, inlineEditForm.teacher_id, inlineEditForm.start_local, inlineEditForm.end_local],
+  });
   // --- Attendance modal hook ---
   const attendance = useAttendanceModal(addToast);
 
@@ -116,6 +120,22 @@ export default function Schedule() {
     count: 10,
   });
   const seriesPreflight = usePreflight("preflight_series");
+  const seriesValidatedForm = useMemo(
+    () => validateSeriesPreflight(seriesForm as SeriesPreflightForm, seriesUseCount),
+    [seriesForm, seriesUseCount]
+  );
+  const seriesGate = usePreflightGate(seriesPreflight, {
+    requiredFields: [
+      seriesForm.course_id,
+      seriesForm.teacher_id,
+      seriesForm.start_local_time,
+      seriesForm.duration_minutes > 0 ? String(seriesForm.duration_minutes) : "",
+      seriesForm.start_date,
+      seriesForm.weekdays.some(Boolean) ? "1" : "",
+      seriesUseCount ? (Number.isFinite(seriesForm.count) && seriesForm.count > 0 ? String(seriesForm.count) : "") : seriesForm.end_date,
+    ],
+    isFormValid: seriesValidatedForm != null,
+  });
 
   const seriesSchema = {
     course_id: [{ type: "required" as const, message: "Course is required" }],
@@ -150,6 +170,35 @@ export default function Schedule() {
     count: number;
   } | null>(null);
   const editSeriesPreflight = usePreflight("preflight_series");
+  const editSeriesValidatedForm = useMemo(() => {
+    if (!editSeriesForm || !editSeriesPivotDate) return null;
+    return validateSeriesPreflight(
+      {
+        course_id: editSeriesForm.course_id,
+        room_id: editSeriesForm.room_id ?? "",
+        teacher_id: editSeriesForm.teacher_id,
+        weekdays: editSeriesForm.weekdays,
+        start_local_time: editSeriesForm.start_local_time,
+        duration_minutes: editSeriesForm.duration_minutes,
+        start_date: editSeriesPivotDate,
+        end_date: editSeriesUseCount ? "" : editSeriesForm.end_date,
+        count: editSeriesUseCount ? editSeriesForm.count : 0,
+      },
+      editSeriesUseCount
+    );
+  }, [editSeriesForm, editSeriesPivotDate, editSeriesUseCount]);
+  const editSeriesGate = usePreflightGate(editSeriesPreflight, {
+    requiredFields: [
+      editSeriesForm?.course_id ?? "",
+      editSeriesForm?.teacher_id ?? "",
+      editSeriesForm?.start_local_time ?? "",
+      editSeriesForm && editSeriesForm.duration_minutes > 0 ? String(editSeriesForm.duration_minutes) : "",
+      editSeriesPivotDate,
+      editSeriesForm?.weekdays.some(Boolean) ? "1" : "",
+      editSeriesUseCount ? (editSeriesForm && Number.isFinite(editSeriesForm.count) && editSeriesForm.count > 0 ? String(editSeriesForm.count) : "") : editSeriesForm?.end_date ?? "",
+    ],
+    isFormValid: editSeriesValidatedForm != null,
+  });
 
   // --- Edit Series (Future Only / Entire) ---
   const [editSeriesEntireOpen, setEditSeriesEntireOpen] = useState(false);
@@ -169,6 +218,35 @@ export default function Schedule() {
     count: number;
   } | null>(null);
   const editSeriesEntirePreflight = usePreflight("preflight_series");
+  const editSeriesEntireValidatedForm = useMemo(() => {
+    if (!editSeriesEntireForm || !editSeriesEntireFromDate) return null;
+    return validateSeriesPreflight(
+      {
+        course_id: editSeriesEntireForm.course_id,
+        room_id: editSeriesEntireForm.room_id ?? "",
+        teacher_id: editSeriesEntireForm.teacher_id,
+        weekdays: editSeriesEntireForm.weekdays,
+        start_local_time: editSeriesEntireForm.start_local_time,
+        duration_minutes: editSeriesEntireForm.duration_minutes,
+        start_date: editSeriesEntireFromDate,
+        end_date: editSeriesEntireUseCount ? "" : editSeriesEntireForm.end_date,
+        count: editSeriesEntireUseCount ? editSeriesEntireForm.count : 0,
+      },
+      editSeriesEntireUseCount
+    );
+  }, [editSeriesEntireForm, editSeriesEntireFromDate, editSeriesEntireUseCount]);
+  const editSeriesEntireGate = usePreflightGate(editSeriesEntirePreflight, {
+    requiredFields: [
+      editSeriesEntireForm?.course_id ?? "",
+      editSeriesEntireForm?.teacher_id ?? "",
+      editSeriesEntireForm?.start_local_time ?? "",
+      editSeriesEntireForm && editSeriesEntireForm.duration_minutes > 0 ? String(editSeriesEntireForm.duration_minutes) : "",
+      editSeriesEntireFromDate,
+      editSeriesEntireForm?.weekdays.some(Boolean) ? "1" : "",
+      editSeriesEntireUseCount ? (editSeriesEntireForm && Number.isFinite(editSeriesEntireForm.count) && editSeriesEntireForm.count > 0 ? String(editSeriesEntireForm.count) : "") : editSeriesEntireForm?.end_date ?? "",
+    ],
+    isFormValid: editSeriesEntireValidatedForm != null,
+  });
 
   // --- Cancel Series ---
   const [cancelSeriesOpen, setCancelSeriesOpen] = useState(false);
@@ -194,14 +272,15 @@ export default function Schedule() {
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      const key = s.start_at.slice(0, 10);
+      const key = utcISOToZoneDate(s.start_at, zone);
+      if (!key) continue;
       const arr = map.get(key) ?? [];
       arr.push(s);
       map.set(key, arr);
     }
     for (const arr of map.values()) arr.sort((a, b) => a.start_at.localeCompare(b.start_at));
     return map;
-  }, [sessions]);
+  }, [sessions, zone]);
 
   // --- Cancel occurrence ---
   const cancelOccurrence = (sess: Session) => {
@@ -261,7 +340,10 @@ export default function Schedule() {
 
   const submitInlineEdit = async () => {
     if (!inlineEditSession) return;
-    if (inlinePreflight.status !== "available" && inlinePreflight.status !== "provisional") return;
+    if (!inlineGate.canSave) {
+      addToast("error", inlineGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     const startISO = localDateTimeToUTCISO(inlineEditForm.start_local, zone);
     const endISO = localDateTimeToUTCISO(inlineEditForm.end_local, zone);
     if (!startISO || !endISO || endISO <= startISO) {
@@ -494,18 +576,17 @@ export default function Schedule() {
   // --- Series preflight ---
   const runSeriesPreflight = async () => {
     if (!seriesOpen) return;
-    const validated = validateSeriesPreflight(seriesForm as SeriesPreflightForm, seriesUseCount);
-    if (!validated) { seriesPreflight.reset(); return; }
+    if (!seriesValidatedForm) { seriesPreflight.reset(); return; }
     await seriesPreflight.check({
       course_id: seriesForm.course_id,
       teacher_id: seriesForm.teacher_id,
-      room_id: validated.room_id,
-      weekdays: validated.weekdays,
+      room_id: seriesValidatedForm.room_id,
+      weekdays: seriesValidatedForm.weekdays,
       start_local_time: seriesForm.start_local_time,
       duration_minutes: seriesForm.duration_minutes,
       start_date: seriesForm.start_date,
-      end_date: validated.end_date,
-      count: validated.count,
+      end_date: seriesValidatedForm.end_date,
+      count: seriesValidatedForm.count,
       start_at: "",
       end_at: "",
     });
@@ -520,16 +601,19 @@ export default function Schedule() {
   // --- Edit Series (This & Future) preflight ---
   const runEditSeriesPreflight = async () => {
     if (!editSeriesOpen || !editSeriesForm || editSeriesLoading) { editSeriesPreflight.reset(); return; }
-    const weekdays = editSeriesForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null);
-    if (weekdays.length === 0 || !editSeriesForm.start_local_time || !editSeriesPivotDate) { editSeriesPreflight.reset(); return; }
-    if (editSeriesForm.duration_minutes <= 0) { editSeriesPreflight.reset(); return; }
-    if (editSeriesUseCount) { if (!Number.isFinite(editSeriesForm.count) || editSeriesForm.count <= 0) { editSeriesPreflight.reset(); return; } }
-    else { if (!editSeriesForm.end_date) { editSeriesPreflight.reset(); return; } }
+    if (!editSeriesValidatedForm) { editSeriesPreflight.reset(); return; }
     await editSeriesPreflight.check({
-      course_id: editSeriesForm.course_id, teacher_id: editSeriesForm.teacher_id, room_id: editSeriesForm.room_id,
-      weekdays, start_local_time: editSeriesForm.start_local_time, duration_minutes: editSeriesForm.duration_minutes,
-      start_date: editSeriesPivotDate, end_date: editSeriesUseCount ? null : editSeriesForm.end_date,
-      count: editSeriesUseCount ? editSeriesForm.count : null, start_at: "", end_at: "",
+      course_id: editSeriesForm.course_id,
+      teacher_id: editSeriesForm.teacher_id,
+      room_id: editSeriesValidatedForm.room_id,
+      weekdays: editSeriesValidatedForm.weekdays,
+      start_local_time: editSeriesForm.start_local_time,
+      duration_minutes: editSeriesForm.duration_minutes,
+      start_date: editSeriesPivotDate,
+      end_date: editSeriesValidatedForm.end_date,
+      count: editSeriesValidatedForm.count,
+      start_at: "",
+      end_at: "",
     });
   };
 
@@ -543,16 +627,19 @@ export default function Schedule() {
   // --- Edit Series (Entire) preflight ---
   const runEditSeriesEntirePreflight = async () => {
     if (!editSeriesEntireOpen || !editSeriesEntireForm || editSeriesEntireLoading) { editSeriesEntirePreflight.reset(); return; }
-    const weekdays = editSeriesEntireForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null);
-    if (weekdays.length === 0 || !editSeriesEntireForm.start_local_time || !editSeriesEntireFromDate) { editSeriesEntirePreflight.reset(); return; }
-    if (editSeriesEntireForm.duration_minutes <= 0) { editSeriesEntirePreflight.reset(); return; }
-    if (editSeriesEntireUseCount) { if (!Number.isFinite(editSeriesEntireForm.count) || editSeriesEntireForm.count <= 0) { editSeriesEntirePreflight.reset(); return; } }
-    else { if (!editSeriesEntireForm.end_date) { editSeriesEntirePreflight.reset(); return; } }
+    if (!editSeriesEntireValidatedForm) { editSeriesEntirePreflight.reset(); return; }
     await editSeriesEntirePreflight.check({
-      course_id: editSeriesEntireForm.course_id, teacher_id: editSeriesEntireForm.teacher_id, room_id: editSeriesEntireForm.room_id,
-      weekdays, start_local_time: editSeriesEntireForm.start_local_time, duration_minutes: editSeriesEntireForm.duration_minutes,
-      start_date: editSeriesEntireFromDate, end_date: editSeriesEntireUseCount ? null : editSeriesEntireForm.end_date,
-      count: editSeriesEntireUseCount ? editSeriesEntireForm.count : null, start_at: "", end_at: "",
+      course_id: editSeriesEntireForm.course_id,
+      teacher_id: editSeriesEntireForm.teacher_id,
+      room_id: editSeriesEntireValidatedForm.room_id,
+      weekdays: editSeriesEntireValidatedForm.weekdays,
+      start_local_time: editSeriesEntireForm.start_local_time,
+      duration_minutes: editSeriesEntireForm.duration_minutes,
+      start_date: editSeriesEntireFromDate,
+      end_date: editSeriesEntireValidatedForm.end_date,
+      count: editSeriesEntireValidatedForm.count,
+      start_at: "",
+      end_at: "",
     });
   };
 
@@ -566,25 +653,24 @@ export default function Schedule() {
   // --- Create Series submit ---
   const submitSeries = async () => {
     if (!seriesValidation.validateAll()) return;
-    const weekdays = seriesForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null);
-    if (!seriesForm.course_id || !seriesForm.teacher_id) { addToast("error", "Course and Teacher are required"); return; }
-    if (weekdays.length === 0) { addToast("error", "Select at least one weekday"); return; }
-    if (!seriesForm.start_local_time) { addToast("error", "Start time is required"); return; }
-    if (!seriesForm.start_date) { addToast("error", "Start date is required"); return; }
-    if (seriesForm.duration_minutes <= 0) { addToast("error", "Duration must be > 0"); return; }
-    if (seriesUseCount) { if (!Number.isFinite(seriesForm.count) || seriesForm.count <= 0) { addToast("error", "Count must be > 0"); return; } }
-    else { if (!seriesForm.end_date) { addToast("error", "End date is required"); return; } }
-    if (seriesPreflight.loading) { addToast("error", "Checking availability…"); return; }
-    if (seriesPreflight.status !== "available" && seriesPreflight.status !== "provisional") { addToast("error", "Preflight must pass before saving"); return; }
+    if (!seriesGate.canSave) {
+      addToast("error", seriesGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     try {
       setSeriesCreating(true);
       await apiJson("/api/v1/series", {
         method: "POST",
         body: JSON.stringify({
-          course_id: seriesForm.course_id, room_id: seriesForm.room_id ? seriesForm.room_id : null,
-          teacher_id: seriesForm.teacher_id, weekdays, start_local_time: seriesForm.start_local_time,
-          duration_minutes: seriesForm.duration_minutes, start_date: seriesForm.start_date,
-          end_date: seriesUseCount ? null : seriesForm.end_date, count: seriesUseCount ? seriesForm.count : null,
+          course_id: seriesForm.course_id,
+          room_id: seriesValidatedForm?.room_id ?? (seriesForm.room_id ? seriesForm.room_id : null),
+          teacher_id: seriesForm.teacher_id,
+          weekdays: seriesValidatedForm?.weekdays ?? seriesForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null),
+          start_local_time: seriesForm.start_local_time,
+          duration_minutes: seriesForm.duration_minutes,
+          start_date: seriesForm.start_date,
+          end_date: seriesValidatedForm?.end_date ?? (seriesUseCount ? null : seriesForm.end_date),
+          count: seriesValidatedForm?.count ?? (seriesUseCount ? seriesForm.count : null),
         }),
       });
       addToast("success", "Series created");
@@ -599,16 +685,23 @@ export default function Schedule() {
   // --- Edit Series (This & Future) submit ---
   const submitEditSeriesThisAndFuture = async () => {
     if (!editSeriesForm) return;
-    const weekdays = editSeriesForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null);
-    if (weekdays.length === 0) { addToast("error", "Select at least one weekday"); return; }
-    if (editSeriesPreflight.status !== "available" && editSeriesPreflight.status !== "provisional") { addToast("error", "Preflight must pass before saving"); return; }
+    if (!editSeriesGate.canSave) {
+      addToast("error", editSeriesGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     try {
       await apiJson(`/api/v1/series/${encodeURIComponent(editSeriesForm.series_id)}`, {
         method: "PATCH",
         body: JSON.stringify({
-          pivot_date: editSeriesPivotDate, weekdays, start_local_time: editSeriesForm.start_local_time,
-          duration_minutes: editSeriesForm.duration_minutes, end_date: editSeriesUseCount ? null : editSeriesForm.end_date,
-          count: editSeriesUseCount ? editSeriesForm.count : null, expected_version: editSeriesForm.expected_version,
+          pivot_date: editSeriesPivotDate,
+          course_id: editSeriesForm.course_id,
+          room_id: editSeriesValidatedForm?.room_id ?? editSeriesForm.room_id,
+          teacher_id: editSeriesForm.teacher_id,
+          weekdays: editSeriesValidatedForm?.weekdays ?? editSeriesForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null),
+          start_local_time: editSeriesForm.start_local_time,
+          duration_minutes: editSeriesForm.duration_minutes,
+          end_date: editSeriesValidatedForm?.end_date ?? (editSeriesUseCount ? null : editSeriesForm.end_date),
+          count: editSeriesValidatedForm?.count ?? (editSeriesUseCount ? editSeriesForm.count : null), expected_version: editSeriesForm.expected_version,
         }),
       });
       addToast("success", "Series updated (this & future)");
@@ -643,17 +736,22 @@ export default function Schedule() {
   // --- Edit Series (Entire) submit ---
   const submitEditSeriesEntire = async () => {
     if (!editSeriesEntireForm) return;
-    const weekdays = editSeriesEntireForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null);
-    if (weekdays.length === 0) { addToast("error", "Select at least one weekday"); return; }
-    if (editSeriesEntirePreflight.status !== "available" && editSeriesEntirePreflight.status !== "provisional") { addToast("error", "Preflight must pass before saving"); return; }
+    if (!editSeriesEntireGate.canSave) {
+      addToast("error", editSeriesEntireGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     try {
       await apiJson(`/api/v1/series/${encodeURIComponent(editSeriesEntireForm.series_id)}/entire`, {
         method: "PATCH",
         body: JSON.stringify({
-          expected_version: editSeriesEntireForm.expected_version, course_id: editSeriesEntireForm.course_id,
-          room_id: editSeriesEntireForm.room_id, teacher_id: editSeriesEntireForm.teacher_id, weekdays,
-          start_local_time: editSeriesEntireForm.start_local_time, duration_minutes: editSeriesEntireForm.duration_minutes,
-          end_date: editSeriesEntireUseCount ? null : editSeriesEntireForm.end_date, count: editSeriesEntireUseCount ? editSeriesEntireForm.count : null,
+          expected_version: editSeriesEntireForm.expected_version,
+          course_id: editSeriesEntireForm.course_id,
+          room_id: editSeriesEntireValidatedForm?.room_id ?? editSeriesEntireForm.room_id,
+          teacher_id: editSeriesEntireForm.teacher_id,
+          weekdays: editSeriesEntireValidatedForm?.weekdays ?? editSeriesEntireForm.weekdays.map((v, idx) => (v ? idx : null)).filter((v): v is number => v != null),
+          start_local_time: editSeriesEntireForm.start_local_time,
+          duration_minutes: editSeriesEntireForm.duration_minutes,
+          end_date: editSeriesEntireValidatedForm?.end_date ?? (editSeriesEntireUseCount ? null : editSeriesEntireForm.end_date), count: editSeriesEntireValidatedForm?.count ?? (editSeriesEntireUseCount ? editSeriesEntireForm.count : null),
         }),
       });
       addToast("success", "Series updated (future only)");
@@ -717,10 +815,11 @@ export default function Schedule() {
             {daysInRange.map((d) => {
               const key = d.toISOString().slice(0, 10);
               const items = sessionsByDay.get(key) ?? [];
+              const dateLabel = formatZoneDateKey(key, zone, "EEE d MMM") ?? key;
               return (
                 <div key={key} className="border-r border-gray-200 last:border-r-0">
                   <div className="bg-gray-50 border-b border-gray-200 px-3 py-2">
-                    <div className="text-sm font-semibold text-gray-800">{key}</div>
+                    <div className="text-sm font-semibold text-gray-800">{dateLabel}</div>
                     <div className="text-xs text-gray-500">{items.length} session(s)</div>
                   </div>
                   <div className="p-2 space-y-2">
@@ -733,9 +832,11 @@ export default function Schedule() {
                         const teacher = teacherById.get(s.teacher_id);
                         const isInlineEditing = inlineEditSession?.id === s.id;
                         const inlineLabel = course ? `${course.code} — ${course.name}` : s.course_id;
+                        const startLabel = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
+                        const endLabel = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
                         return (
                           <div key={s.id} className="w-full text-left border border-gray-200 rounded-sm px-2 py-2 hover:bg-gray-50">
-                            <div className="text-xs font-mono text-gray-600">{s.start_at.slice(11, 16)}–{s.end_at.slice(11, 16)} UTC</div>
+                            <div className="text-xs font-mono text-gray-600">{startLabel}–{endLabel}</div>
                             <div className="text-sm text-gray-900 font-semibold">{inlineLabel}</div>
                             <div className="text-xs text-gray-600">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? teacher.username : s.teacher_id}</div>
                             <SessionActions
@@ -776,7 +877,7 @@ export default function Schedule() {
                                 />
                                 <div className="flex justify-end gap-2">
                                   <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
-                                  <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || isSaveDisabled({ status: inlinePreflight.status, loading: inlinePreflight.loading })} loading={inlinePreflight.loading || inlineSaving}>
+                                  <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || !inlineGate.canSave} loading={inlinePreflight.loading || inlineSaving}>
                                     {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
                                   </Button>
                                 </div>
@@ -812,8 +913,8 @@ export default function Schedule() {
               return (
                 <Fragment key={s.id}>
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.start_at}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.end_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{formatUTCToZone(s.start_at, zone, "EEE d MMM yy HH:mm") ?? s.start_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{formatUTCToZone(s.end_at, zone, "EEE d MMM yy HH:mm") ?? s.end_at}</td>
                     <td className="py-2 px-2 font-mono text-xs text-gray-600">{label}</td>
                     <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
                     <td className="py-2 px-2 font-mono text-xs text-gray-600">{teacherById.get(s.teacher_id)?.username ?? s.teacher_id}</td>
@@ -852,7 +953,7 @@ export default function Schedule() {
                           />
                           <div className="flex justify-end gap-2">
                             <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
-                            <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || isSaveDisabled({ status: inlinePreflight.status, loading: inlinePreflight.loading })} loading={inlinePreflight.loading || inlineSaving}>
+                            <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || !inlineGate.canSave} loading={inlinePreflight.loading || inlineSaving}>
                               {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
                             </Button>
                           </div>
@@ -880,7 +981,7 @@ export default function Schedule() {
               <Button
                 variant="primary" size="sm"
                 onClick={create.submit}
-                disabled={create.creating || isSaveDisabled({ status: create.preflight.status, loading: create.preflight.loading })}
+                disabled={create.creating || !create.gate.canSave}
                 loading={create.preflight.loading || create.creating}
               >
                 {create.creating ? "Creating…" : getSaveButtonLabel({ status: create.preflight.status, loading: create.preflight.loading }, "Create", create.preflight.details)}
@@ -919,7 +1020,7 @@ export default function Schedule() {
               <Button
                 variant="primary" size="sm"
                 onClick={edit.submit}
-                disabled={edit.saving || isSaveDisabled({ status: edit.preflight.status, loading: edit.preflight.loading })}
+                disabled={edit.saving || !edit.gate.canSave}
                 loading={edit.preflight.loading || edit.saving}
               >
                 {edit.saving ? "Saving…" : getSaveButtonLabel({ status: edit.preflight.status, loading: edit.preflight.loading }, "Save", edit.preflight.details)}
@@ -955,7 +1056,7 @@ export default function Schedule() {
           footer={
             <>
               <Button variant="secondary" size="sm" onClick={() => setSeriesOpen(false)}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={submitSeries} disabled={seriesCreating || isSaveDisabled({ status: seriesPreflight.status, loading: seriesPreflight.loading })} loading={seriesPreflight.loading || seriesCreating}>
+              <Button variant="primary" size="sm" onClick={submitSeries} disabled={seriesCreating || !seriesGate.canSave} loading={seriesPreflight.loading || seriesCreating}>
                 {seriesCreating ? "Creating…" : getSaveButtonLabel({ status: seriesPreflight.status, loading: seriesPreflight.loading }, "Create", seriesPreflight.details)}
               </Button>
             </>
@@ -1007,9 +1108,11 @@ export default function Schedule() {
               requiredFields={[
                 { label: "Course", value: seriesForm.course_id },
                 { label: "Teacher", value: seriesForm.teacher_id },
+                { label: "Weekdays", value: seriesForm.weekdays.some(Boolean) ? "selected" : "" },
                 { label: "Start time", value: seriesForm.start_local_time },
                 { label: "Duration", value: seriesForm.duration_minutes > 0 ? String(seriesForm.duration_minutes) : "" },
                 { label: "Start date", value: seriesForm.start_date },
+                { label: seriesUseCount ? "Count" : "End date", value: seriesUseCount ? (Number.isFinite(seriesForm.count) && seriesForm.count > 0 ? String(seriesForm.count) : "") : seriesForm.end_date },
               ]}
             />
           </div>
@@ -1023,7 +1126,7 @@ export default function Schedule() {
           footer={
             <>
               <Button variant="secondary" size="sm" onClick={() => { setEditSeriesOpen(false); setEditSeriesForm(null); }}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={submitEditSeriesThisAndFuture} disabled={editSeriesLoading || isSaveDisabled({ status: editSeriesPreflight.status, loading: editSeriesPreflight.loading })} loading={editSeriesPreflight.loading}>
+              <Button variant="primary" size="sm" onClick={submitEditSeriesThisAndFuture} disabled={editSeriesLoading || !editSeriesGate.canSave} loading={editSeriesPreflight.loading}>
                 {getSaveButtonLabel({ status: editSeriesPreflight.status, loading: editSeriesPreflight.loading }, "Save", editSeriesPreflight.details)}
               </Button>
             </>
@@ -1083,9 +1186,10 @@ export default function Schedule() {
               />
               <PreflightIndicator preflight={editSeriesPreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
                 requiredFields={[
+                  { label: "Weekdays", value: editSeriesForm.weekdays.some(Boolean) ? "selected" : "" },
                   { label: "Start time", value: editSeriesForm.start_local_time },
                   { label: "Duration", value: editSeriesForm.duration_minutes > 0 ? String(editSeriesForm.duration_minutes) : "" },
-                  { label: "End date", value: editSeriesForm.end_date },
+                  { label: editSeriesUseCount ? "Count" : "End date", value: editSeriesUseCount ? (Number.isFinite(editSeriesForm.count) && editSeriesForm.count > 0 ? String(editSeriesForm.count) : "") : editSeriesForm.end_date },
                 ]}
               />
             </div>
@@ -1100,7 +1204,7 @@ export default function Schedule() {
           footer={
             <>
               <Button variant="secondary" size="sm" onClick={() => { setEditSeriesEntireOpen(false); setEditSeriesEntireForm(null); }}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={submitEditSeriesEntire} disabled={editSeriesEntireLoading || isSaveDisabled({ status: editSeriesEntirePreflight.status, loading: editSeriesEntirePreflight.loading })} loading={editSeriesEntirePreflight.loading}>
+              <Button variant="primary" size="sm" onClick={submitEditSeriesEntire} disabled={editSeriesEntireLoading || !editSeriesEntireGate.canSave} loading={editSeriesEntirePreflight.loading}>
                 {getSaveButtonLabel({ status: editSeriesEntirePreflight.status, loading: editSeriesEntirePreflight.loading }, "Save", editSeriesEntirePreflight.details)}
               </Button>
             </>
@@ -1187,9 +1291,10 @@ export default function Schedule() {
                 requiredFields={[
                   { label: "Course", value: editSeriesEntireForm.course_id },
                   { label: "Teacher", value: editSeriesEntireForm.teacher_id },
+                  { label: "Weekdays", value: editSeriesEntireForm.weekdays.some(Boolean) ? "selected" : "" },
                   { label: "Start time", value: editSeriesEntireForm.start_local_time },
                   { label: "Duration", value: editSeriesEntireForm.duration_minutes > 0 ? String(editSeriesEntireForm.duration_minutes) : "" },
-                  { label: "End date", value: editSeriesEntireForm.end_date },
+                  { label: editSeriesEntireUseCount ? "Count" : "End date", value: editSeriesEntireUseCount ? (Number.isFinite(editSeriesEntireForm.count) && editSeriesEntireForm.count > 0 ? String(editSeriesEntireForm.count) : "") : editSeriesEntireForm.end_date },
                 ]}
               />
             </div>

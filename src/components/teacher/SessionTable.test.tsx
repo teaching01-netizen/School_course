@@ -70,12 +70,12 @@ const sessions: TeacherDashboardSession[] = [
 
 describe("SessionTable", () => {
   it("renders empty state when no sessions", () => {
-    render(<SessionTable sessions={[]} />);
+    render(<SessionTable sessions={[]} zone="Asia/Bangkok" />);
     expect(screen.getByText("No sessions in this period.")).toBeInTheDocument();
   });
 
   it("renders course codes and subject names", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     expect(screen.getByText("PHY201")).toBeInTheDocument();
     expect(screen.getByText("Physics")).toBeInTheDocument();
     expect(screen.getByText("CHEM101")).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("SessionTable", () => {
   });
 
   it("renders room names or placeholder", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     expect(screen.getByText("Room 301")).toBeInTheDocument();
     expect(screen.getByText("Lab A")).toBeInTheDocument();
     const roomCells = screen.getAllByText("—");
@@ -91,24 +91,24 @@ describe("SessionTable", () => {
   });
 
   it("shows absence badge with correct count", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("shows sit-in badge with correct count", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
   it("shows status pills for each row", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     expect(screen.getAllByText("Absences")).toHaveLength(2);
     expect(screen.getAllByText("Sit-ins")).toHaveLength(2);
     expect(screen.getAllByText("OK")).toHaveLength(2);
   });
 
   it("renders sessions sorted chronologically by start_at", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     const cells = screen.getAllByRole("cell");
     // cells[0] = date header (colSpan=7); then data rows: s4, s2, s1, s3
     expect(cells[3]?.textContent).toContain("CHEM101");
@@ -118,7 +118,7 @@ describe("SessionTable", () => {
   });
 
   it("clicking a row with absences reveals expanded detail", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     const sectionHeaders = screen.queryAllByText("Absences");
     expect(sectionHeaders).toHaveLength(2); // header + 1 row's status pill
     fireEvent.click(screen.getByText("2"));
@@ -127,7 +127,7 @@ describe("SessionTable", () => {
   });
 
   it("expanded detail shows absent student names and wcodes", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     fireEvent.click(screen.getByText("2"));
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("STU001")).toBeInTheDocument();
@@ -136,7 +136,7 @@ describe("SessionTable", () => {
   });
 
   it("expanded detail shows absent student course context", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     fireEvent.click(screen.getByText("2"));
     const lines = screen.getAllByText(/Absent from MATH101/);
     expect(lines).toHaveLength(2);
@@ -144,7 +144,7 @@ describe("SessionTable", () => {
   });
 
   it("expanded detail contains View links for each absence", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     fireEvent.click(screen.getByText("2"));
     const viewLinks = screen.getAllByText("View →");
     expect(viewLinks).toHaveLength(2);
@@ -153,7 +153,7 @@ describe("SessionTable", () => {
   });
 
   it("expanded sit-in detail shows visitor info", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     fireEvent.click(screen.getByText("CHEM101"));
     expect(screen.getByText("Charlie")).toBeInTheDocument();
     expect(screen.getByText("STU003")).toBeInTheDocument();
@@ -163,7 +163,7 @@ describe("SessionTable", () => {
   });
 
   it("clicking the same row again collapses the detail", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     const badge = screen.getAllByText("2")[0];
     fireEvent.click(badge);
     expect(screen.getAllByText("View →")).toHaveLength(2);
@@ -172,7 +172,7 @@ describe("SessionTable", () => {
   });
 
   it("only one row can be expanded at a time", () => {
-    wrap(<SessionTable sessions={sessions} />);
+    wrap(<SessionTable sessions={sessions} zone="Asia/Bangkok" />);
     fireEvent.click(screen.getByText("2"));
     expect(screen.getAllByText("View →")).toHaveLength(2);
     fireEvent.click(screen.getByText("CHEM101"));

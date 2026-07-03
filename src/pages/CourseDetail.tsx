@@ -7,10 +7,13 @@ import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
-import { PreflightIndicator, PreflightBadge, getSaveButtonLabel, isSaveDisabled } from "@/components/PreflightIndicator";
+import usePreflightGate from "@/features/scheduling/hooks/usePreflightGate";
+import { PreflightIndicator, PreflightBadge, getSaveButtonLabel } from "@/components/PreflightIndicator";
 import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO, groupSessionKey } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
+import SessionOccurrenceForm from "../components/SessionOccurrenceForm";
+import SeriesFormFields from "../components/SeriesFormFields";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
 import { parseSchedulePaste } from "@/utils/schedulePaste";
 import { isConflictDetails, formatConflictToastMessage } from "@/utils/conflictErrors";
@@ -19,6 +22,7 @@ import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
+import FormField from "../components/ui/FormField";
 import ConfirmModal from "../components/ConfirmModal";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
@@ -47,7 +51,6 @@ import {
   type User,
   type Student,
   type ConflictDetails,
-  conflictKindLabel,
 } from "@/types";
 
 export default function CourseDetail() {
@@ -130,6 +133,9 @@ export default function CourseDetail() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string, teacher_id: "" as string });
   const editPreflight = usePreflight();
+  const editGate = usePreflightGate(editPreflight, {
+    requiredFields: [editForm.date, editForm.begin, editForm.end, editForm.teacher_id],
+  });
   const [editSaving, setEditSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -180,18 +186,14 @@ export default function CourseDetail() {
   const submitEditSession = async () => {
     const s = getEditSession();
     if (!s) return;
+    if (!editGate.canSave) {
+      addToast("error", editGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     const startISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.begin}`, zone);
     const endISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.end}`, zone);
     if (!startISO || !endISO || endISO <= startISO) {
       addToast("error", "Invalid date/time");
-      return;
-    }
-    if (editPreflight.loading) {
-      addToast("error", "Checking availability…");
-      return;
-    }
-    if (editPreflight.status !== "available" && editPreflight.status !== "provisional") {
-      addToast("error", "Preflight must pass before saving");
       return;
     }
     try {
@@ -430,12 +432,16 @@ export default function CourseDetail() {
 
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionForm, setSessionForm] = useState({
+    course_id: "",
     room_id: "" as string, // "" => no room (send null)
     teacher_id: "",
     start_local: "",
     end_local: "",
   });
   const sessionPreflight = usePreflight();
+  const sessionGate = usePreflightGate(sessionPreflight, {
+    requiredFields: [sessionForm.course_id, sessionForm.teacher_id, sessionForm.start_local, sessionForm.end_local],
+  });
   const [pasteText, setPasteText] = useState("");
   const [pasteTeacherId, setPasteTeacherId] = useState("");
   const [creatingPaste, setCreatingPaste] = useState(false);
@@ -460,11 +466,35 @@ export default function CourseDetail() {
     count: 10,
   });
   const seriesPreflight = usePreflight("preflight_series");
+  const seriesValidatedForm = useMemo(
+    () => validateSeriesPreflight(
+      {
+        ...seriesForm,
+        course_id: id ?? "",
+        room_id: seriesForm.room_id,
+      } as SeriesPreflightForm,
+      seriesUseCount,
+    ),
+    [id, seriesForm, seriesUseCount]
+  );
+  const seriesGate = usePreflightGate(seriesPreflight, {
+    requiredFields: [
+      id ?? "",
+      seriesForm.teacher_id,
+      seriesForm.start_local_time,
+      seriesForm.duration_minutes > 0 ? String(seriesForm.duration_minutes) : "",
+      seriesForm.start_date,
+      seriesForm.weekdays.some(Boolean) ? "1" : "",
+      seriesUseCount ? (Number.isFinite(seriesForm.count) && seriesForm.count > 0 ? String(seriesForm.count) : "") : seriesForm.end_date,
+    ],
+    isFormValid: seriesValidatedForm != null,
+  });
 
   const openCreate = (tab: "series" | "session" | "paste" = "series") => {
     setCreateOpen(true);
     setCreateTab(tab);
     setSessionForm({
+      course_id: id ?? "",
       room_id: "",
       teacher_id: teachers[0]?.id ?? "",
       start_local: "",
@@ -489,7 +519,7 @@ export default function CourseDetail() {
 
   const runSessionPreflight = async () => {
     if (!createOpen || createTab !== "session") return;
-    if (!id || !sessionForm.teacher_id || !sessionForm.start_local || !sessionForm.end_local) {
+    if (!sessionForm.course_id || !sessionForm.teacher_id || !sessionForm.start_local || !sessionForm.end_local) {
       sessionPreflight.reset();
       return;
     }
@@ -501,7 +531,7 @@ export default function CourseDetail() {
     }
     await sessionPreflight.check({
       session_id: null,
-      course_id: id,
+      course_id: sessionForm.course_id,
       room_id: sessionForm.room_id ? sessionForm.room_id : null,
       teacher_id: sessionForm.teacher_id,
       start_at: startISO,
@@ -515,19 +545,15 @@ export default function CourseDetail() {
   }, [createOpen, createTab, id, zone, sessionForm.room_id, sessionForm.teacher_id, sessionForm.start_local, sessionForm.end_local]);
 
   const submitSession = async () => {
-    if (!id || !sessionForm.teacher_id) return;
+    if (!sessionForm.course_id || !sessionForm.teacher_id) return;
+    if (!sessionGate.canSave) {
+      addToast("error", sessionGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
     const startISO = zoneLocalInputToUTCISO(sessionForm.start_local, zone);
     const endISO = zoneLocalInputToUTCISO(sessionForm.end_local, zone);
     if (!startISO || !endISO || endISO <= startISO) {
       addToast("error", "Invalid start/end");
-      return;
-    }
-    if (sessionPreflight.loading) {
-      addToast("error", "Checking availability…");
-      return;
-    }
-    if (sessionPreflight.status !== "available" && sessionPreflight.status !== "provisional") {
-      addToast("error", "Preflight must pass before saving");
       return;
     }
     try {
@@ -535,7 +561,7 @@ export default function CourseDetail() {
       await apiJson("/api/v1/sessions", {
         method: "POST",
         body: JSON.stringify({
-          course_id: id,
+          course_id: sessionForm.course_id,
           room_id: sessionForm.room_id ? sessionForm.room_id : null,
           teacher_id: sessionForm.teacher_id,
           start_at: startISO,
@@ -666,22 +692,17 @@ export default function CourseDetail() {
 
   const runSeriesPreflight = async () => {
     if (!createOpen || createTab !== "series") { seriesPreflight.reset(); return; }
-    if (!id) { seriesPreflight.reset(); return; }
-    const validated = validateSeriesPreflight(
-      { ...seriesForm, course_id: id } as SeriesPreflightForm,
-      seriesUseCount
-    );
-    if (!validated) { seriesPreflight.reset(); return; }
+    if (!seriesValidatedForm) { seriesPreflight.reset(); return; }
     await seriesPreflight.check({
-      course_id: id,
+      course_id: id ?? "",
       teacher_id: seriesForm.teacher_id,
-      room_id: validated.room_id,
-      weekdays: validated.weekdays,
+      room_id: seriesValidatedForm.room_id,
+      weekdays: seriesValidatedForm.weekdays,
       start_local_time: seriesForm.start_local_time,
       duration_minutes: seriesForm.duration_minutes,
       start_date: seriesForm.start_date,
-      end_date: validated.end_date,
-      count: validated.count,
+      end_date: seriesValidatedForm.end_date,
+      count: seriesValidatedForm.count,
       start_at: "",
       end_at: "",
     });
@@ -708,19 +729,12 @@ export default function CourseDetail() {
 
   const submitSeries = async () => {
     if (!id) return;
-    const validated = validateSeriesPreflight(
-      { ...seriesForm, course_id: id } as SeriesPreflightForm,
-      seriesUseCount
-    );
+    if (!seriesGate.canSave) {
+      addToast("error", seriesGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+      return;
+    }
+    const validated = seriesValidatedForm;
     if (!validated) { addToast("error", "Please complete schedule fields"); return; }
-    if (seriesPreflight.loading) {
-      addToast("error", "Checking availability…");
-      return;
-    }
-    if (seriesPreflight.status !== "available" && seriesPreflight.status !== "provisional") {
-      addToast("error", "Preflight must pass before saving");
-      return;
-    }
     try {
       setCreatingSeries(true);
       await apiJson("/api/v1/series", {
@@ -925,6 +939,7 @@ export default function CourseDetail() {
                                     session={sess}
                                     course={course}
                                     room={room}
+                                    zone={zone}
                                     teacherName={teacherById.get(sess.teacher_id)}
                                   />
                                 );
@@ -1053,7 +1068,7 @@ export default function CourseDetail() {
                                   variant="primary"
                                   size="sm"
                                   onClick={submitEditSession}
-                                  disabled={editSaving || isSaveDisabled({ status: editPreflight.status, loading: editPreflight.loading }) || !editPreflight.status}
+                                  disabled={editSaving || !editGate.canSave}
                                   loading={editPreflight.loading || editSaving}
                                 >
                                   {editSaving ? "Saving…" : getSaveButtonLabel({ status: editPreflight.status, loading: editPreflight.loading }, "Save", editPreflight.details)}
@@ -1094,6 +1109,7 @@ export default function CourseDetail() {
                                 { label: "Date", value: editForm.date },
                                 { label: "Start time", value: editForm.begin },
                                 { label: "End time", value: editForm.end },
+                                { label: "Teacher", value: editForm.teacher_id },
                               ]}
                             />
                           </td>
@@ -1145,7 +1161,7 @@ export default function CourseDetail() {
                   variant="primary"
                   size="sm"
                   onClick={submitSeries}
-                  disabled={creatingSeries || isSaveDisabled({ status: seriesPreflight.status, loading: seriesPreflight.loading })}
+                  disabled={creatingSeries || !seriesGate.canSave}
                   loading={seriesPreflight.loading || creatingSeries}
                 >
                   {creatingSeries ? "Creating…" : getSaveButtonLabel({ status: seriesPreflight.status, loading: seriesPreflight.loading }, "Create series", seriesPreflight.details)}
@@ -1155,7 +1171,7 @@ export default function CourseDetail() {
                   variant="primary"
                   size="sm"
                   onClick={submitSession}
-                  disabled={creatingSession || isSaveDisabled({ status: sessionPreflight.status, loading: sessionPreflight.loading })}
+                  disabled={creatingSession || !sessionGate.canSave}
                   loading={sessionPreflight.loading || creatingSession}
                 >
                   {creatingSession ? "Creating…" : getSaveButtonLabel({ status: sessionPreflight.status, loading: sessionPreflight.loading }, "Create session", sessionPreflight.details)}
@@ -1206,64 +1222,22 @@ export default function CourseDetail() {
 
             {createTab === "session" ? (
               <div className="space-y-6">
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Room</label>
-                      <Select size="sm" value={sessionForm.room_id} onChange={(e) => setSessionForm((prev) => ({ ...prev, room_id: e.target.value }))}>
-                        <option value="">[NOT SET] (Provisional)</option>
-                        {rooms.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Teacher</label>
-                      <TypeaheadSelect
-                        value={sessionForm.teacher_id}
-                        onChange={(v) => setSessionForm((prev) => ({ ...prev, teacher_id: v }))}
-                        options={teacherOptions}
-                        placeholder="Search teacher…"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Time</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Start (local time)</label>
-                      <input
-                        type="datetime-local"
-                        step={300}
-                        value={sessionForm.start_local}
-                        onChange={(e) => setSessionForm((prev) => ({ ...prev, start_local: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">End (local time)</label>
-                      <input
-                        type="datetime-local"
-                        step={300}
-                        value={sessionForm.end_local}
-                        onChange={(e) => setSessionForm((prev) => ({ ...prev, end_local: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-
+                <SessionOccurrenceForm
+                  form={sessionForm}
+                  setForm={setSessionForm}
+                  courseOptions={[]}
+                  teacherOptions={teacherOptions}
+                  rooms={rooms}
+                  courseReadonlyLabel={course ? `${course.code} — ${course.name}` : sessionForm.course_id}
+                  prefix="course-detail-session-"
+                />
                 <PreflightIndicator
                   preflight={sessionPreflight}
                   coursesById={course ? new Map([[course.id, course]]) : new Map()}
                   teachersById={new Map(teachers.map((t) => [t.id, t]))}
                   roomsById={roomById}
                   requiredFields={[
+                    { label: "Course", value: sessionForm.course_id },
                     { label: "Teacher", value: sessionForm.teacher_id },
                     { label: "Start", value: sessionForm.start_local },
                     { label: "End", value: sessionForm.end_local },
@@ -1347,8 +1321,7 @@ export default function CourseDetail() {
                 <div className="bg-gray-50 rounded-sm p-3 space-y-3">
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Room</label>
+                    <FormField name="course-detail-series-room_id" label="Room">
                       <Select size="sm" value={seriesForm.room_id} onChange={(e) => setSeriesForm((prev) => ({ ...prev, room_id: e.target.value }))}>
                         <option value="">[NOT SET] (Provisional)</option>
                         {rooms.map((r) => (
@@ -1357,134 +1330,52 @@ export default function CourseDetail() {
                           </option>
                         ))}
                       </Select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Teacher</label>
+                    </FormField>
+                    <FormField name="course-detail-series-teacher_id" label="Teacher" className="md:col-span-2">
                       <TypeaheadSelect
                         value={seriesForm.teacher_id}
                         onChange={(v) => setSeriesForm((prev) => ({ ...prev, teacher_id: v }))}
                         options={teacherOptions}
                         placeholder="Search teacher…"
                       />
-                    </div>
+                    </FormField>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-semibold">1</span>
-                  <span>Course & Teacher</span>
-                  <span className="text-gray-300 mx-1">→</span>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-[10px] font-semibold">2</span>
-                  <span>When & How Often</span>
-                </div>
-
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule</div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Weekdays</label>
-                      <div className="grid grid-cols-7 gap-1">
-                        {["S", "M", "T", "W", "T", "F", "S"].map((label, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => {
-                              setSeriesForm((prev) => {
-                                const next = prev.weekdays.slice();
-                                next[idx] = !next[idx];
-                                return { ...prev, weekdays: next };
-                              });
-                            }}
-                            className={`px-2 py-2 text-sm border rounded-sm ${
-                              seriesForm.weekdays[idx] ? "bg-gray-900 text-white border-gray-900" : "bg-white hover:bg-gray-50 border-gray-300"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Start time</label>
-                      <input
-                        type="time"
-                        step={300}
-                        value={seriesForm.start_local_time}
-                        onChange={(e) => setSeriesForm((prev) => ({ ...prev, start_local_time: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Duration (min)</label>
-                      <input
-                        type="number"
-                        min={5}
-                        step={5}
-                        value={seriesForm.duration_minutes}
-                        onChange={(e) => setSeriesForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Start date</label>
-                      <input
-                        type="date"
-                        value={seriesForm.start_date}
-                        onChange={(e) => setSeriesForm((prev) => ({ ...prev, start_date: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">End bound</label>
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" checked={seriesUseCount} onChange={(e) => setSeriesUseCount(e.target.checked)} />
-                          Use count
-                        </label>
-                        <div className="text-xs text-gray-400">{seriesUseCount ? "Count" : "End date"}</div>
-                      </div>
-                    </div>
-                    <div>
-                      {seriesUseCount ? (
-                        <>
-                          <label className="block text-xs text-gray-500 mb-1">Count</label>
-                          <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={seriesForm.count}
-                            onChange={(e) => setSeriesForm((prev) => ({ ...prev, count: Number(e.target.value) }))}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <label className="block text-xs text-gray-500 mb-1">End date</label>
-                          <input
-                            type="date"
-                            value={seriesForm.end_date}
-                            onChange={(e) => setSeriesForm((prev) => ({ ...prev, end_date: e.target.value }))}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-                          />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
+                <SeriesFormFields
+                  weekdays={seriesForm.weekdays}
+                  onWeekdayChange={(idx) => {
+                    setSeriesForm((prev) => {
+                      const next = prev.weekdays.slice();
+                      next[idx] = !next[idx];
+                      return { ...prev, weekdays: next };
+                    });
+                  }}
+                  startLocalTime={seriesForm.start_local_time}
+                  onStartLocalTimeChange={(v) => setSeriesForm((prev) => ({ ...prev, start_local_time: v }))}
+                  durationMinutes={seriesForm.duration_minutes}
+                  onDurationMinutesChange={(v) => setSeriesForm((prev) => ({ ...prev, duration_minutes: v }))}
+                  useCount={seriesUseCount}
+                  onUseCountChange={setSeriesUseCount}
+                  count={seriesForm.count}
+                  onCountChange={(v) => setSeriesForm((prev) => ({ ...prev, count: v }))}
+                  endDate={seriesForm.end_date}
+                  onEndDateChange={(v) => setSeriesForm((prev) => ({ ...prev, end_date: v }))}
+                  startDate={seriesForm.start_date}
+                  onStartDateChange={(v) => setSeriesForm((prev) => ({ ...prev, start_date: v }))}
+                />
                 <PreflightIndicator
                   preflight={seriesPreflight}
                   coursesById={course ? new Map([[course.id, course]]) : new Map()}
                   teachersById={new Map(teachers.map((t) => [t.id, t]))}
                   roomsById={roomById}
                   requiredFields={[
+                    { label: "Course", value: id ?? "" },
                     { label: "Teacher", value: seriesForm.teacher_id },
+                    { label: "Weekdays", value: seriesForm.weekdays.some(Boolean) ? "selected" : "" },
                     { label: "Start time", value: seriesForm.start_local_time },
                     { label: "Duration", value: seriesForm.duration_minutes > 0 ? String(seriesForm.duration_minutes) : "" },
                     { label: "Start date", value: seriesForm.start_date },
+                    { label: seriesUseCount ? "Count" : "End date", value: seriesUseCount ? (Number.isFinite(seriesForm.count) && seriesForm.count > 0 ? String(seriesForm.count) : "") : seriesForm.end_date },
                   ]}
                 />
               </div>
@@ -1547,22 +1438,7 @@ export default function CourseDetail() {
                           )}
                         </td>
                         <td className="py-2 px-2">
-                          {pf.status === "blocked" ? (
-                            <span className="inline-flex items-center gap-1 text-red-700">
-                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-700 text-white text-[8px] font-bold leading-none">✕</span>
-                              <span>{conflictKindLabel(pf.conflict!.kind).label}</span>
-                            </span>
-                          ) : pf.status === "provisional" ? (
-                            <span className="inline-flex items-center gap-1 text-amber-700">
-                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold leading-none">◷</span>
-                              <span>Provisional</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-green-700">
-                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-green-700 text-white text-[8px] font-bold leading-none">✓</span>
-                              <span>Available</span>
-                            </span>
-                          )}
+                          <PreflightBadge status={pf.status} details={pf.conflict ?? null} loading={false} />
                         </td>
                       </tr>
                     ))}

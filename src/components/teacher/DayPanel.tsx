@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { format, parseISO } from 'date-fns';
 import { CheckCircle, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiJson } from '../../api/client';
 import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherDashboardSession } from '../../types';
 import { cachePolicies, queryClient, queryKeys } from '../../query/cache';
+import { formatUTCToZone, formatZoneDateKey } from '../../utils/timezone';
 
 type DayPanelProps = {
-  date: Date;
+  dateKey: string;
+  zone: string;
   sessions: TeacherDashboardSession[];
   onClose: () => void;
 };
@@ -40,7 +41,7 @@ function ReasonText({ absenceId, reasonStates }: { absenceId: string; reasonStat
   );
 }
 
-export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
+export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelProps) {
   const sorted = useMemo(
     () => [...sessions].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()),
     [sessions],
@@ -80,7 +81,6 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
         : { status: 'loading', reason: null };
   }
 
-  // Trap focus inside modal on mount, restore on unmount
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -109,31 +109,28 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Remember the previously focused element to restore on close
   const prevFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     prevFocus.current = document.activeElement as HTMLElement;
     return () => { prevFocus.current?.focus(); };
   }, []);
 
+  const dateLabel = formatZoneDateKey(dateKey, zone, 'EEEE, d MMMM yyyy') ?? dateKey;
+
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/15" onClick={onClose} aria-hidden="true" />
 
-      {/* Modal */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Session details for ${format(date, 'EEEE, d MMMM yyyy')}`}
+        aria-label={`Session details for ${dateLabel}`}
         className="fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-white shadow-lg sm:inset-0 sm:m-auto sm:max-h-[70vh] sm:w-[92vw] sm:max-w-[560px] sm:rounded-lg"
       >
-
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
           <div>
-            <h3 className="text-[14px] font-bold text-gray-900">{format(date, 'EEEE, d MMMM yyyy')}</h3>
+            <h3 className="text-[14px] font-bold text-gray-900">{dateLabel}</h3>
             {sessions.length > 0 ? (
               <p className="text-[11px] text-gray-500">
                 {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
@@ -153,32 +150,29 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
           </button>
         </div>
 
-        {/* Sessions */}
         <div className="overflow-y-auto px-4 py-3">
           {sessions.length === 0 ? (
             <div className="py-8 text-center text-[13px] text-gray-400">No sessions on this day.</div>
           ) : (
             <div className="space-y-4">
               {sorted.map((s) => {
-                const start = new Date(s.start_at);
-                const end = new Date(s.end_at);
+                const start = formatUTCToZone(s.start_at, zone, 'HH:mm');
+                const end = formatUTCToZone(s.end_at, zone, 'HH:mm');
                 const absences = s.absent_students ?? [];
                 const visitors = s.sit_in_visitors ?? [];
                 const label = s.subject_name ?? s.course_name;
 
                 return (
                   <div key={s.id} className="rounded-sm border border-gray-200 bg-white px-3 py-2.5">
-                    {/* Session header */}
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-1.5">
                         <span className="text-[12px] font-semibold text-gray-900 tabular-nums">
-                          {format(start, 'HH:mm')}–{format(end, 'HH:mm')}
+                          {start ?? '--:--'}–{end ?? '--:--'}
                         </span>
                         <span className="text-[14px] font-bold text-gray-800">{label}</span>
                       </div>
                     </div>
 
-                    {/* Green state indicator */}
                     {absences.length === 0 && visitors.length === 0 ? (
                       <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-green-600">
                         <CheckCircle className="h-3.5 w-3.5 shrink-0" />
@@ -186,7 +180,6 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     ) : null}
 
-                    {/* Absences */}
                     {absences.length > 0 ? (
                       <div className="mt-1.5 space-y-1">
                         {absences.map((a) => (
@@ -216,7 +209,6 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                       </div>
                     ) : null}
 
-                    {/* Visitors */}
                     {visitors.length > 0 ? (
                       <div className="mt-1.5 space-y-1">
                         {visitors.map((v) => (
@@ -229,7 +221,7 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                                 </span>
                                 <span className="shrink-0 text-[11px] text-amber-600">
                                   sit-in from {v.absent_subject_name?.trim() || v.from_subject_name?.trim() || 'Subject unavailable'}
-                                  {v.absence_date ? ` · ${format(parseISO(v.absence_date), 'd MMM')}` : ''}
+                                  {v.absence_date ? ` · ${formatZoneDateKey(v.absence_date, zone, 'd MMM')}` : ''}
                                 </span>
                               </div>
                               <div className="mt-1 flex min-w-0 items-start gap-1.5 text-[11px] text-gray-500">
@@ -247,8 +239,6 @@ export default function DayPanel({ date, sessions, onClose }: DayPanelProps) {
                         ))}
                       </div>
                     ) : null}
-
-
                   </div>
                 );
               })}

@@ -261,6 +261,17 @@ func TestSessionsInRangeQueryAppliesRequestedDateBounds(t *testing.T) {
 	}
 }
 
+func TestSessionsInRangeAllSubjectsQueryUsesExplicitSubjectFilter(t *testing.T) {
+	sql := sessionsInRangeAllSubjectsSelectSQL()
+
+	if !strings.Contains(sql, "sub.id::text = ANY(string_to_array($1, ','))") {
+		t.Fatalf("all-subjects query should require explicit subject IDs, SQL: %s", sql)
+	}
+	if strings.Contains(sql, "course_students") {
+		t.Fatalf("all-subjects query should not require student enrollment, SQL: %s", sql)
+	}
+}
+
 func TestMaxSessionsLookupRangeDaysIncludesPostSessionLookback(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -299,12 +310,12 @@ func TestProjectedAbsenceRecordLimitExceeded_AllowsBoundary(t *testing.T) {
 	tests := []struct {
 		total, existing int32
 	}{
-		{total: 5, existing: 0},   // (0+1)*5 = 5 <= 5
-		{total: 9, existing: 0},   // (0+1)*5 = 5 <= 9
-		{total: 10, existing: 1},  // (1+1)*5 = 10 <= 10
-		{total: 14, existing: 1},  // (1+1)*5 = 10 <= 14
-		{total: 15, existing: 2},  // (2+1)*5 = 15 <= 15
-		{total: 20, existing: 3},  // (3+1)*5 = 20 <= 20
+		{total: 5, existing: 0},  // (0+1)*5 = 5 <= 5
+		{total: 9, existing: 0},  // (0+1)*5 = 5 <= 9
+		{total: 10, existing: 1}, // (1+1)*5 = 10 <= 10
+		{total: 14, existing: 1}, // (1+1)*5 = 10 <= 14
+		{total: 15, existing: 2}, // (2+1)*5 = 15 <= 15
+		{total: 20, existing: 3}, // (3+1)*5 = 20 <= 20
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)
@@ -321,13 +332,13 @@ func TestProjectedAbsenceRecordLimitExceeded_BlocksPastBoundary(t *testing.T) {
 	tests := []struct {
 		total, existing int32
 	}{
-		{total: 4, existing: 0},   // (0+1)*5 = 5 > 4
-		{total: 5, existing: 1},   // (1+1)*5 = 10 > 5
-		{total: 9, existing: 1},   // (1+1)*5 = 10 > 9
-		{total: 10, existing: 2},  // (2+1)*5 = 15 > 10
-		{total: 14, existing: 2},  // (2+1)*5 = 15 > 14
-		{total: 15, existing: 3},  // (3+1)*5 = 20 > 15
-		{total: 20, existing: 4},  // (4+1)*5 = 25 > 20
+		{total: 4, existing: 0},  // (0+1)*5 = 5 > 4
+		{total: 5, existing: 1},  // (1+1)*5 = 10 > 5
+		{total: 9, existing: 1},  // (1+1)*5 = 10 > 9
+		{total: 10, existing: 2}, // (2+1)*5 = 15 > 10
+		{total: 14, existing: 2}, // (2+1)*5 = 15 > 14
+		{total: 15, existing: 3}, // (3+1)*5 = 20 > 15
+		{total: 20, existing: 4}, // (4+1)*5 = 25 > 20
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)

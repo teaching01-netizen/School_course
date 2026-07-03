@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Absences from "../Absences";
@@ -46,6 +46,20 @@ const PAGE = {
   offset: 0,
   limit: 25,
 };
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function freshPage() {
+  return structuredClone(PAGE);
+}
 
 const PAGE_WITH_MISSED_SESSIONS = {
   ...PAGE,
@@ -144,7 +158,7 @@ function renderPage(path = "/absences?status=pending") {
 
 describe("Absence inbox", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     queryClient.clear();
   });
 
@@ -208,10 +222,14 @@ describe("Absence inbox", () => {
   });
 
   it("marks an absence reviewed using its current version and reloads results", async () => {
+    const initialPage = freshPage();
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "reviewed";
+    updatedPage.items[0].version = 2;
     mockApiJson
-      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce(initialPage)
       .mockResolvedValueOnce({ status: "reviewed", version: 2 })
-      .mockResolvedValueOnce({ ...PAGE, items: [{ ...PAGE.items[0], status: "reviewed", version: 2 }] });
+      .mockResolvedValueOnce(updatedPage);
     renderPage();
     const user = userEvent.setup();
 
@@ -225,6 +243,80 @@ describe("Absence inbox", () => {
           body: JSON.stringify({ status: "reviewed", expected_version: 1 }),
         }),
       );
+    });
+  });
+
+  it("keeps a row pending until the review request resolves", async () => {
+    const review = deferred<{ status: string; version: number }>();
+    const initialPage = freshPage();
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "reviewed";
+    updatedPage.items[0].version = 2;
+    mockApiJson
+      .mockResolvedValueOnce(initialPage)
+      .mockImplementationOnce(() => review.promise)
+      .mockResolvedValueOnce(updatedPage);
+    renderPage();
+    const user = userEvent.setup();
+
+    const row = (await screen.findByText("John Smith")).closest("tr");
+    if (!row) {
+      throw new Error("Expected absence table row");
+    }
+    const statusCell = row.querySelector('[data-label="Status"]');
+    if (!statusCell) {
+      throw new Error("Expected status cell");
+    }
+
+    await user.click(screen.getByRole("button", { name: /mark reviewed/i }));
+
+    expect(statusCell).toHaveTextContent("Pending");
+    expect(statusCell).not.toHaveTextContent("Reviewed");
+
+    await act(async () => {
+      review.resolve({ status: "reviewed", version: 2 });
+    });
+
+    await waitFor(() => {
+      expect(statusCell).toHaveTextContent("Reviewed");
+    });
+  });
+
+  it("keeps selected rows pending until the bulk review request resolves", async () => {
+    const review = deferred<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>();
+    const initialPage = freshPage();
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "reviewed";
+    updatedPage.items[0].version = 2;
+    mockApiJson
+      .mockResolvedValueOnce(initialPage)
+      .mockImplementationOnce(() => review.promise)
+      .mockResolvedValueOnce(updatedPage);
+    renderPage();
+    const user = userEvent.setup();
+
+    const row = (await screen.findByText("John Smith")).closest("tr");
+    if (!row) {
+      throw new Error("Expected absence table row");
+    }
+    const statusCell = row.querySelector('[data-label="Status"]');
+    if (!statusCell) {
+      throw new Error("Expected status cell");
+    }
+
+    await user.click(await screen.findByLabelText("Select W250389"));
+    const batchBar = screen.getByText("1 selected").parentElement!;
+    await user.click(within(batchBar).getByRole("button", { name: /mark reviewed/i }));
+
+    expect(statusCell).toHaveTextContent("Pending");
+    expect(statusCell).not.toHaveTextContent("Reviewed");
+
+    await act(async () => {
+      review.resolve({ succeeded: ["abs-1"], failed: [], total_processed: 1 });
+    });
+
+    await waitFor(() => {
+      expect(statusCell).toHaveTextContent("Reviewed");
     });
   });
 
@@ -329,10 +421,13 @@ describe("Absence inbox", () => {
   });
 
   it("bulk cancels selected absences with a recorded reason", async () => {
+    const initialPage = freshPage();
+    const cancelledPage = freshPage();
+    cancelledPage.items = [];
     mockApiJson
-      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce(initialPage)
       .mockResolvedValueOnce({ status: "cancelled", version: 2 })
-      .mockResolvedValueOnce({ ...PAGE, items: [] });
+      .mockResolvedValueOnce(cancelledPage);
     renderPage();
     const user = userEvent.setup();
 
@@ -379,7 +474,7 @@ describe("Absence inbox", () => {
           total_processed: 2,
         };
       }
-      return twoItemPage;
+      return structuredClone(twoItemPage);
     });
 
     renderPage("/absences");

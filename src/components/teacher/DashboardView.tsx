@@ -1,46 +1,52 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TeacherDashboardResponse } from '../../types';
 import CalendarMonth from './CalendarMonth';
 import DayPanel from './DayPanel';
 import AbsenceRequestTable from './AbsenceRequestTable';
 import WeekSummary from './WeekSummary';
+import { utcISOToZoneDate } from '../../utils/timezone';
 
 type DashboardViewProps = {
   data: TeacherDashboardResponse;
-  viewDate: Date;
+  viewMonthKey: string;
+  todayKey: string | null;
+  zone: string;
   loadingNewMonth?: boolean;
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onToday: () => void;
 };
 
-function yyyyMmDd(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-export default function DashboardView({ data, viewDate, loadingNewMonth, onPrevMonth, onNextMonth, onToday }: DashboardViewProps) {
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+export default function DashboardView({
+  data,
+  viewMonthKey,
+  todayKey,
+  zone,
+  loadingNewMonth,
+  onPrevMonth,
+  onNextMonth,
+  onToday,
+}: DashboardViewProps) {
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [mode, setMode] = useState<'calendar' | 'table'>('calendar');
 
+  useEffect(() => {
+    setSelectedDayKey(null);
+  }, [viewMonthKey]);
+
   const dayModalSessions = useMemo(() => {
-    if (!selectedDay) return [];
-    const key = yyyyMmDd(selectedDay);
-    return data.sessions.filter((s) => yyyyMmDd(new Date(s.start_at)) === key);
-  }, [data.sessions, selectedDay]);
+    if (!selectedDayKey) return [];
+    return data.sessions.filter((s) => utcISOToZoneDate(s.start_at, zone) === selectedDayKey);
+  }, [data.sessions, selectedDayKey, zone]);
 
   return (
     <div className="space-y-6">
-      {/* Week summary */}
       <WeekSummary
         totalSessions={data.summary.total_sessions}
         totalAbsences={data.summary.total_absences}
         totalSitIns={data.summary.total_sit_ins}
       />
 
-      {/* Mode tabs */}
       <div className="flex gap-4 border-b border-gray-100 text-sm" aria-label="Dashboard view mode">
         <button
           type="button"
@@ -66,7 +72,6 @@ export default function DashboardView({ data, viewDate, loadingNewMonth, onPrevM
         </button>
       </div>
 
-      {/* Calendar or table with fade-in on mode switch */}
       <div key={mode} className="animate-fade-in">
         {mode === 'calendar' ? (
           <div className="relative">
@@ -82,29 +87,30 @@ export default function DashboardView({ data, viewDate, loadingNewMonth, onPrevM
               </div>
             ) : null}
             <CalendarMonth
-              viewDate={viewDate}
+              viewMonthKey={viewMonthKey}
               sessions={data.sessions}
-              selectedDay={selectedDay}
-              onSelectDay={setSelectedDay}
+              todayKey={todayKey}
+              zone={zone}
+              selectedDayKey={selectedDayKey}
+              onSelectDay={setSelectedDayKey}
               onPrevMonth={onPrevMonth}
               onNextMonth={onNextMonth}
               onToday={onToday}
             />
           </div>
         ) : (
-          <AbsenceRequestTable sessions={data.sessions} />
+          <AbsenceRequestTable sessions={data.sessions} zone={zone} />
         )}
       </div>
 
-      {/* Bottom spacer */}
       <div className="h-4" />
 
-      {/* Day detail modal (calendar mode only) */}
-      {mode === 'calendar' && selectedDay ? (
+      {mode === 'calendar' && selectedDayKey ? (
         <DayPanel
-          date={selectedDay}
+          dateKey={selectedDayKey}
+          zone={zone}
           sessions={dayModalSessions}
-          onClose={() => setSelectedDay(null)}
+          onClose={() => setSelectedDayKey(null)}
         />
       ) : null}
     </div>

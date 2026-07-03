@@ -11,17 +11,19 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 }
 
 const mockApiJson = vi.hoisted(() => vi.fn());
+const mockUseAuth = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return { ...actual, apiJson: mockApiJson };
 });
 
 vi.mock("../../hooks/useAuth", () => ({
-  useAuth: () => ({ user: { username: "admin", role: "Admin" }, logout: vi.fn() }),
+  useAuth: mockUseAuth,
 }));
 
 beforeEach(() => {
   mockApiJson.mockReset();
+  mockUseAuth.mockReturnValue({ user: { username: "admin", role: "Admin" }, logout: vi.fn() });
   queryClient.clear();
 });
 
@@ -50,4 +52,14 @@ it("refetches authoritative stats instead of installing an event payload", async
 
   expect(await screen.findByLabelText("15 pending absences")).toBeInTheDocument();
   expect(screen.queryByLabelText("3 pending absences")).not.toBeInTheDocument();
+});
+
+it("keeps the teacher shell scoped to the teacher dashboard", () => {
+  mockUseAuth.mockReturnValue({ user: { username: "teacher", role: "Teacher" }, logout: vi.fn() });
+  render(<TestWrapper><Layout><div>Body</div></Layout></TestWrapper>);
+
+  expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/teacher-dashboard");
+  expect(screen.queryByText("Courses")).not.toBeInTheDocument();
+  expect(screen.queryByText("Students")).not.toBeInTheDocument();
+  expect(screen.queryByText("Users")).not.toBeInTheDocument();
 });

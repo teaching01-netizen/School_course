@@ -3,9 +3,27 @@ import { DateTime } from "luxon";
 export function formatUTCToZone(utcISO: string, zone: string, fmt: string): string | null {
   const dt = DateTime.fromISO(utcISO, { zone: "utc" });
   if (!dt.isValid) return null;
-  const z = dt.setZone(zone);
+  const z = dt.setZone(zone).setLocale("en-GB");
   if (!z.isValid) return null;
   return z.toFormat(fmt);
+}
+
+export function formatZoneDateKey(dateYYYYMMDD: string, zone: string, fmt: string): string | null {
+  const dt = DateTime.fromISO(dateYYYYMMDD, { zone });
+  if (!dt.isValid) return null;
+  return dt.setLocale("en-GB").toFormat(fmt);
+}
+
+export function startOfZoneMonthKey(dateYYYYMMDD: string, zone: string): string | null {
+  const dt = DateTime.fromISO(dateYYYYMMDD, { zone });
+  if (!dt.isValid) return null;
+  return dt.startOf("month").toFormat("yyyy-MM-dd");
+}
+
+export function shiftZoneMonthKey(dateYYYYMMDD: string, zone: string, months: number): string | null {
+  const dt = DateTime.fromISO(dateYYYYMMDD, { zone });
+  if (!dt.isValid) return null;
+  return dt.plus({ months }).startOf("month").toFormat("yyyy-MM-dd");
 }
 
 export function zoneDateToUTCISO(dateYYYYMMDD: string, zone: string, endOfDay = false): string | null {
@@ -47,4 +65,3 @@ export function utcISOToZoneDate(utcISO: string, zone: string): string | null {
   if (!z.isValid) return null;
   return z.toFormat("yyyy-MM-dd");
 }
-

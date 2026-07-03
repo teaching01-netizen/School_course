@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import TeacherAbsenceDetail from "../TeacherAbsenceDetail";
 import { ToastProvider } from "../../hooks/useToast";
@@ -58,7 +57,7 @@ describe("Teacher absence detail", () => {
     expect(screen.getByText("Appointment")).toBeInTheDocument();
     expect(screen.getByText(/read-only/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /back to dashboard/i })).toHaveAttribute("href", "/teacher-dashboard");
-    expect(screen.getByRole("button", { name: /override sit-in/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /override sit-in/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /mark reviewed|mark actioned|cancel|save note/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/admin note|timeline/i)).not.toBeInTheDocument();
     expect(screen.getAllByText("Mathematics").length).toBeGreaterThan(0);
@@ -66,10 +65,9 @@ describe("Teacher absence detail", () => {
     expect(screen.queryByText(/MATH-201|PHYS-201/)).not.toBeInTheDocument();
   });
 
-  it("opens override modal directly from teacher detail without admin endpoint call", async () => {
-    mockApiJson
-      .mockResolvedValueOnce(detail)
-      .mockResolvedValueOnce([]);
+  it("shows the override action for administrators on the teacher detail route", async () => {
+    mockUseAuth.mockReturnValue({ user: { username: "admin", role: "Admin" }, logout: vi.fn() });
+    mockApiJson.mockResolvedValueOnce(detail);
     render(
       <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
         <ToastProvider>
@@ -81,24 +79,7 @@ describe("Teacher absence detail", () => {
     );
 
     expect(await screen.findByText("John")).toBeInTheDocument();
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /override sit-in/i }));
-
-    expect(await screen.findByRole("heading", { name: /override sit-in/i })).toBeInTheDocument();
-
-    expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/teacher/absences/abs-1",
-      { method: "GET" },
-    );
-    expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/courses/public",
-      expect.objectContaining({ method: "GET" }),
-    );
-    expect(mockApiJson).not.toHaveBeenCalledWith(
-      "/api/v1/absences/abs-1",
-      expect.anything(),
-    );
+    expect(screen.getByRole("button", { name: /override sit-in/i })).toBeInTheDocument();
   });
 
   it("links back to /absences/dashboard when user is an Admin", async () => {

@@ -34,4 +34,21 @@ describe("TypeaheadSelect", () => {
 
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("uses unique ARIA ids for repeated instances", () => {
+    render(
+      <>
+        <TypeaheadSelect value="" onChange={vi.fn()} options={options} placeholder="Search teacher…" />
+        <TypeaheadSelect value="" onChange={vi.fn()} options={options} placeholder="Search teacher…" />
+      </>
+    );
+
+    const comboboxes = screen.getAllByRole("combobox");
+    const firstListboxId = comboboxes[0].getAttribute("aria-controls");
+    const secondListboxId = comboboxes[1].getAttribute("aria-controls");
+
+    expect(firstListboxId).toBeTruthy();
+    expect(secondListboxId).toBeTruthy();
+    expect(firstListboxId).not.toBe(secondListboxId);
+  });
 });

@@ -78,6 +78,7 @@ describe("PreflightIndicator", () => {
     render(<PreflightIndicator preflight={makePreflight({ status: "available" })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
     expect(screen.getByText("Available")).toBeInTheDocument();
     expect(screen.getByTestId("preflight-check-icon")).toBeInTheDocument();
+    expect(screen.getByText("Available").closest('[aria-live="polite"]')).toBeInTheDocument();
   });
 
   it("renders resource checklist when provisional", () => {

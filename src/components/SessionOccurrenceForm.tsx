@@ -27,6 +27,7 @@ interface SessionOccurrenceFormProps {
   courseOptions: TypeaheadOption[];
   teacherOptions: TypeaheadOption[];
   rooms: Room[];
+  courseReadonlyLabel?: string;
   validation?: FormValidationLike;
   prefix?: string;
 }
@@ -37,6 +38,7 @@ export default function SessionOccurrenceForm({
   courseOptions,
   teacherOptions,
   rooms,
+  courseReadonlyLabel,
   validation,
   prefix = "",
 }: SessionOccurrenceFormProps) {
@@ -49,12 +51,22 @@ export default function SessionOccurrenceForm({
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <FormField name={`${prefix}course_id`} label="Course" error={err.course_id} touched={tch.course_id} required>
-            <TypeaheadSelect
-              value={form.course_id}
-              onChange={(v) => setForm(prev => ({ ...prev, course_id: v }))}
-              options={courseOptions}
-              placeholder="Search course…"
-            />
+            {courseReadonlyLabel ? (
+              <Input
+                type="text"
+                size="sm"
+                value={courseReadonlyLabel}
+                readOnly
+                className="bg-gray-50 text-gray-600"
+              />
+            ) : (
+              <TypeaheadSelect
+                value={form.course_id}
+                onChange={(v) => setForm(prev => ({ ...prev, course_id: v }))}
+                options={courseOptions}
+                placeholder="Search course…"
+              />
+            )}
           </FormField>
           <FormField name={`${prefix}room_id`} label="Room">
             <Select size="sm" value={form.room_id} onChange={(e) => setForm(prev => ({ ...prev, room_id: e.target.value }))}>

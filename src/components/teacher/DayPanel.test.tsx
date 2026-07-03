@@ -16,7 +16,7 @@ vi.mock("../../api/client", async () => {
 function renderPanel(sessions: TeacherDashboardSession[]) {
   return render(
     <MemoryRouter>
-      <DayPanel date={new Date("2026-06-20T00:00:00Z")} sessions={sessions} onClose={vi.fn()} />
+      <DayPanel dateKey="2026-06-20" zone="Asia/Bangkok" sessions={sessions} onClose={vi.fn()} />
     </MemoryRouter>,
   );
 }
@@ -25,7 +25,7 @@ function renderStrictPanel(sessions: TeacherDashboardSession[]) {
   return render(
     <StrictMode>
       <MemoryRouter>
-        <DayPanel date={new Date("2026-06-20T00:00:00Z")} sessions={sessions} onClose={vi.fn()} />
+        <DayPanel dateKey="2026-06-20" zone="Asia/Bangkok" sessions={sessions} onClose={vi.fn()} />
       </MemoryRouter>
     </StrictMode>,
   );
@@ -211,7 +211,7 @@ describe("DayPanel", () => {
     const onClose = vi.fn();
     render(
       <MemoryRouter>
-        <DayPanel date={new Date("2026-06-20T00:00:00Z")} sessions={[]} onClose={onClose} />
+        <DayPanel dateKey="2026-06-20" zone="Asia/Bangkok" sessions={[]} onClose={onClose} />
       </MemoryRouter>,
     );
     const close = screen.getByRole("button", { name: "Close panel" });

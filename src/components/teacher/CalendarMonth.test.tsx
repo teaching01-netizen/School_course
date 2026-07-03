@@ -5,9 +5,11 @@ import CalendarMonth from "./CalendarMonth";
 function renderMonth() {
   return render(
     <CalendarMonth
-      viewDate={new Date("2026-06-21T00:00:00Z")}
+      viewMonthKey="2026-06-01"
       sessions={[]}
-      selectedDay={null}
+      todayKey="2026-06-21"
+      zone="Asia/Bangkok"
+      selectedDayKey={null}
       onSelectDay={vi.fn()}
       onPrevMonth={vi.fn()}
       onNextMonth={vi.fn()}

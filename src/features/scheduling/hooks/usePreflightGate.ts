@@ -23,13 +23,13 @@ export default function usePreflightGate(
   const isChecking = preflight.loading;
 
   const fieldsFilled = requiredFields.length === 0 || requiredFields.every(Boolean);
-
-  const canSave = (status === "available" || status === "provisional") && !isChecking && isFormValid;
+  const canSave = fieldsFilled && (status === "available" || status === "provisional") && !isChecking && isFormValid;
 
   let reason: UsePreflightGateReturn["reason"] = "ok";
   if (isChecking) reason = "checking";
-  else if (status === "idle") reason = fieldsFilled ? "idle" : "no_fields";
+  else if (!fieldsFilled) reason = "no_fields";
   else if (status === "blocked") reason = "blocked";
+  else if (status === "idle") reason = "idle";
   else if (!isFormValid) reason = "idle";
 
   return { canSave, status, isChecking, reason };

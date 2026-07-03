@@ -119,35 +119,37 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
     <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
       <div className="flex items-center justify-between">
         <div className="font-medium text-gray-800">Preflight</div>
-        {preflight.loading ? (
-          <div className="flex items-center gap-1.5 text-gray-500">
-            <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-            <span>Checking schedule…</span>
-          </div>
-        ) : status === "available" ? (
-          <div className="flex items-center gap-1 text-green-700">
-            <span data-testid="preflight-check-icon" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-700 text-white text-[10px] font-bold leading-none" aria-hidden="true">✓</span>
-            <span>Available</span>
-          </div>
-        ) : status === "provisional" ? (
-          <div className="text-amber-700">Provisional</div>
-        ) : status === "blocked" ? (
-          <div className="flex items-center gap-1.5 text-red-700">
-            <span>Blocked</span>
-            {details && (
-              <span className="text-xs text-red-600">— {conflictKindLabel(details.kind).label}</span>
-            )}
-          </div>
-        ) : (() => {
-          if (requiredFields) {
-            const missingLabels = requiredFields.filter(f => !f.value).map(f => f.label);
-            if (missingLabels.length > 0) {
-              return <div className="text-gray-500">Fill in: {missingLabels.join(", ")}</div>;
+        <div aria-live="polite" aria-atomic="true">
+          {preflight.loading ? (
+            <div className="flex items-center gap-1.5 text-gray-500">
+              <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              <span>Checking schedule…</span>
+            </div>
+          ) : status === "available" ? (
+            <div className="flex items-center gap-1 text-green-700">
+              <span data-testid="preflight-check-icon" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-700 text-white text-[10px] font-bold leading-none" aria-hidden="true">✓</span>
+              <span>Available</span>
+            </div>
+          ) : status === "provisional" ? (
+            <div className="text-amber-700">Provisional</div>
+          ) : status === "blocked" ? (
+            <div className="flex items-center gap-1.5 text-red-700">
+              <span>Blocked</span>
+              {details && (
+                <span className="text-xs text-red-600">— {conflictKindLabel(details.kind).label}</span>
+              )}
+            </div>
+          ) : (() => {
+            if (requiredFields) {
+              const missingLabels = requiredFields.filter(f => !f.value).map(f => f.label);
+              if (missingLabels.length > 0) {
+                return <div className="text-gray-500">Fill in: {missingLabels.join(", ")}</div>;
+              }
+              return <div className="text-gray-500">Checking required fields…</div>;
             }
-            return <div className="text-gray-500">Checking required fields…</div>;
-          }
-          return <div className="text-gray-500">Fill in course, teacher, and time to check availability</div>;
-        })()}
+            return <div className="text-gray-500">Fill in course, teacher, and time to check availability</div>;
+          })()}
+        </div>
       </div>
 
       {status === "provisional" && (

@@ -17,6 +17,7 @@ type Session = { id: string; course_id: string; room_id: string; teacher_id: str
 export default function TeacherProfile() {
   const { id } = useParams<{ id: string }>();
   const { addToast } = useToast();
+  const zone = "Asia/Bangkok";
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -190,6 +191,7 @@ export default function TeacherProfile() {
                                   session={sess}
                                   course={course}
                                   room={room}
+                                  zone={zone}
                                   teacherName={teacher?.username}
                                 />
                               );

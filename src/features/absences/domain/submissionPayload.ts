@@ -1,6 +1,10 @@
 import type { SubjectSessions } from "../types";
 import { daysBetween } from "./dateRange";
-import { getSelectedSessionsForGroup, splitMergedSessionValue, uniqueValues } from "./sessionGrouping";
+import {
+  getSelectedSessionsForGroup,
+  splitMergedSessionValue,
+  uniqueValues,
+} from "./sessionGrouping";
 import { sitInForMissedSession } from "./sitInResolution";
 
 export type AbsenceBatchCreateItem = {
@@ -36,24 +40,39 @@ type SessionTime = { start_at: string; end_at: string };
 type SessionWithCourse = { id: string; course_id?: string | null };
 
 function overlaps(a: SessionTime, b: SessionTime): boolean {
-  return new Date(a.start_at) < new Date(b.end_at) && new Date(a.end_at) > new Date(b.start_at);
+  return (
+    new Date(a.start_at) < new Date(b.end_at) &&
+    new Date(a.end_at) > new Date(b.start_at)
+  );
 }
 
-function findSitInSessionTime(group: SubjectSessions, sitInSessionId: string): SessionTime | null {
+function findSitInSessionTime(
+  group: SubjectSessions,
+  sitInSessionId: string,
+): SessionTime | null {
   const sitIn = group.sit_in;
   if (!sitIn) return null;
-  const inTop = (sitIn.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+  const inTop = (sitIn.available_sessions ?? []).find(
+    (s) => s.id === sitInSessionId,
+  );
   if (inTop) return { start_at: inTop.start_at, end_at: inTop.end_at };
   for (const p of sitIn.priorities ?? []) {
-    const inP = (p.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+    const inP = (p.available_sessions ?? []).find(
+      (s) => s.id === sitInSessionId,
+    );
     if (inP) return { start_at: inP.start_at, end_at: inP.end_at };
   }
   if (sitIn.sit_in_by_missed_session) {
     for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
-      const inEntry = (entry.available_sessions ?? []).find((s) => s.id === sitInSessionId);
-      if (inEntry) return { start_at: inEntry.start_at, end_at: inEntry.end_at };
+      const inEntry = (entry.available_sessions ?? []).find(
+        (s) => s.id === sitInSessionId,
+      );
+      if (inEntry)
+        return { start_at: inEntry.start_at, end_at: inEntry.end_at };
       for (const p of entry.priorities ?? []) {
-        const inP = (p.available_sessions ?? []).find((s) => s.id === sitInSessionId);
+        const inP = (p.available_sessions ?? []).find(
+          (s) => s.id === sitInSessionId,
+        );
         if (inP) return { start_at: inP.start_at, end_at: inP.end_at };
       }
     }
@@ -61,9 +80,43 @@ function findSitInSessionTime(group: SubjectSessions, sitInSessionId: string): S
   return null;
 }
 
-function firstSessionCourseID(sessions: SessionWithCourse[] | undefined | null): string | null {
+function firstSessionCourseID(
+  sessions: SessionWithCourse[] | undefined | null,
+): string | null {
   for (const s of sessions ?? []) {
     if (s.course_id) return s.course_id;
+  }
+  return null;
+}
+
+function findSelectedSitInSessionCourseID(
+  sitIn: SubjectSessions["sit_in"] | undefined | null,
+  sitInSessionIDs: string[],
+): string | null {
+  if (!sitIn || sitInSessionIDs.length === 0) return null;
+  const selected = new Set(sitInSessionIDs);
+  const fromSessions = (sessions: SessionWithCourse[] | undefined | null) => {
+    for (const session of sessions ?? []) {
+      if (selected.has(session.id) && session.course_id)
+        return session.course_id;
+    }
+    return null;
+  };
+  const fromTop = fromSessions(sitIn.available_sessions);
+  if (fromTop) return fromTop;
+  for (const p of sitIn.priorities ?? []) {
+    const fromPriority = fromSessions(p.available_sessions);
+    if (fromPriority) return fromPriority;
+  }
+  if (sitIn.sit_in_by_missed_session) {
+    for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
+      const fromEntry = fromSessions(entry.available_sessions);
+      if (fromEntry) return fromEntry;
+      for (const p of entry.priorities ?? []) {
+        const fromPriority = fromSessions(p.available_sessions);
+        if (fromPriority) return fromPriority;
+      }
+    }
   }
   return null;
 }
@@ -97,8 +150,16 @@ export function selectedSitInCourseIDForGroup(
   priorityLevels?: Record<string, number>,
   priorityHistory?: Record<string, Record<number, SubjectSessions>>,
 ): string | null {
-  if (group.sit_in?.sit_in_method !== "physical" && !group.sit_in?.sit_in_by_missed_session) {
-    return group.sit_in?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim() || null;
+  if (
+    group.sit_in?.sit_in_method !== "physical" &&
+    !group.sit_in?.sit_in_by_missed_session
+  ) {
+    return (
+      group.sit_in?.sit_in_course?.id?.trim() ||
+      findSitInCourseFromSessions(group) ||
+      group.course_id.trim() ||
+      null
+    );
   }
   const courseIDs = new Set<string>();
   for (const missedSessionID of selectedMissedSessionIds) {
@@ -111,21 +172,32 @@ export function selectedSitInCourseIDForGroup(
       }
     }
     const sitIn = sitInForMissedSession(effectiveGroup, missedSessionID);
+    const sitInSessionIDs = splitMergedSessionValue(
+      sitInSelections[missedSessionID],
+    );
     if (sitIn?.sit_in_method !== "physical") {
-      const courseID = sitIn?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(effectiveGroup) || effectiveGroup.course_id.trim();
+      const courseID =
+        sitIn?.sit_in_course?.id?.trim() ||
+        findSitInCourseFromSessions(effectiveGroup) ||
+        effectiveGroup.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
     const priorities = sitIn.priorities ?? [];
     if (priorities.length === 0) {
-      const courseID = sitIn.sit_in_course?.id?.trim() || findSitInCourseFromSessions(effectiveGroup) || effectiveGroup.course_id.trim();
+      const courseID =
+        findSelectedSitInSessionCourseID(sitIn, sitInSessionIDs) ||
+        sitIn.sit_in_course?.id?.trim() ||
+        findSitInCourseFromSessions(effectiveGroup) ||
+        effectiveGroup.course_id.trim();
       if (courseID) courseIDs.add(courseID);
       continue;
     }
-    const sitInSessionIDs = splitMergedSessionValue(sitInSelections[missedSessionID]);
     if (sitInSessionIDs.length === 0) continue;
     for (const priority of priorities) {
-      const hasSession = (priority.available_sessions ?? []).some((session) => sitInSessionIDs.includes(session.id));
+      const hasSession = (priority.available_sessions ?? []).some((session) =>
+        sitInSessionIDs.includes(session.id),
+      );
       const courseID = priority.sit_in_course?.id?.trim();
       if (hasSession && courseID) {
         courseIDs.add(courseID);
@@ -134,7 +206,13 @@ export function selectedSitInCourseIDForGroup(
     }
   }
   if (courseIDs.size === 1) return [...courseIDs][0];
-  if (courseIDs.size === 0) return group.sit_in?.sit_in_course?.id?.trim() || findSitInCourseFromSessions(group) || group.course_id.trim() || null;
+  if (courseIDs.size === 0)
+    return (
+      group.sit_in?.sit_in_course?.id?.trim() ||
+      findSitInCourseFromSessions(group) ||
+      group.course_id.trim() ||
+      null
+    );
   return null;
 }
 
@@ -161,31 +239,68 @@ function sessionInSitInData(
   targetCourseId: string,
 ): boolean {
   if (!sitIn) return false;
-  if ((sitIn.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId))) return true;
-  if ((sitIn.priorities ?? []).some((p) =>
-    (p.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId)),
-  )) return true;
+  if (
+    (sitIn.available_sessions ?? []).some(
+      (s) =>
+        s.id === sessionId && (!s.course_id || s.course_id === targetCourseId),
+    )
+  )
+    return true;
+  if (
+    (sitIn.priorities ?? []).some((p) =>
+      (p.available_sessions ?? []).some(
+        (s) =>
+          s.id === sessionId &&
+          (!s.course_id || s.course_id === targetCourseId),
+      ),
+    )
+  )
+    return true;
   if (sitIn.sit_in_by_missed_session) {
     for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
-      if ((entry.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId))) return true;
-      if ((entry.priorities ?? []).some((p) =>
-        (p.available_sessions ?? []).some((s) => s.id === sessionId && (!s.course_id || s.course_id === targetCourseId)),
-      )) return true;
+      if (
+        (entry.available_sessions ?? []).some(
+          (s) =>
+            s.id === sessionId &&
+            (!s.course_id || s.course_id === targetCourseId),
+        )
+      )
+        return true;
+      if (
+        (entry.priorities ?? []).some((p) =>
+          (p.available_sessions ?? []).some(
+            (s) =>
+              s.id === sessionId &&
+              (!s.course_id || s.course_id === targetCourseId),
+          ),
+        )
+      )
+        return true;
     }
   }
   return false;
 }
 
-export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): BuildSubmissionPayloadsResult {
+export function buildSubmissionPayloads(
+  input: BuildSubmissionPayloadsInput,
+): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
   const payloads: AbsenceBatchCreateItem[] = [];
-  const attendingByDate = collectAttendingSessions(input.sessions, input.selectedSubjectIds);
+  const attendingByDate = collectAttendingSessions(
+    input.sessions,
+    input.selectedSubjectIds,
+  );
   for (const group of input.sessions) {
     if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
     if (group.absence_rate_exceeded) continue;
-    const selectedGroupSessions = getSelectedSessionsForGroup(group, input.selectedSessionIds);
+    const selectedGroupSessions = getSelectedSessionsForGroup(
+      group,
+      input.selectedSessionIds,
+    );
     if (selectedGroupSessions.length === 0) continue;
-    const selectedDates = [...new Set(selectedGroupSessions.map((session) => session.date))].sort();
+    const selectedDates = [
+      ...new Set(selectedGroupSessions.map((session) => session.date)),
+    ].sort();
     const dateFrom = selectedDates[0];
     const dateTo = selectedDates[selectedDates.length - 1];
     if (daysBetween(dateFrom, dateTo) > input.maxDateRangeDays) {
@@ -195,7 +310,11 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
       };
     }
     const selectedSessIds = selectedGroupSessions.map((session) => session.id);
-    const sitInSessionIds = uniqueValues(selectedSessIds.flatMap((id) => splitMergedSessionValue(input.sitInSelections[id])));
+    const sitInSessionIds = uniqueValues(
+      selectedSessIds.flatMap((id) =>
+        splitMergedSessionValue(input.sitInSelections[id]),
+      ),
+    );
     const conflictingSitInIds = sitInSessionIds.filter((sid) => {
       const time = findSitInSessionTime(group, sid);
       if (!time) return false;
@@ -219,16 +338,28 @@ export function buildSubmissionPayloads(input: BuildSubmissionPayloadsInput): Bu
       missed_session_ids: selectedSessIds,
       sit_in_session_ids: sitInSessionIds,
     };
-    if (sitInMethod === "physical" || sitInMethod === "zoom") payload.sit_in_method = sitInMethod;
-    const sitInCourseID = selectedSitInCourseIDForGroup(group, selectedSessIds, input.sitInSelections, input.sitInPriorityLevels, input.sitInPriorityHistory);
+    if (sitInMethod === "physical" || sitInMethod === "zoom")
+      payload.sit_in_method = sitInMethod;
+    const sitInCourseID = selectedSitInCourseIDForGroup(
+      group,
+      selectedSessIds,
+      input.sitInSelections,
+      input.sitInPriorityLevels,
+      input.sitInPriorityHistory,
+    );
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
-    if (sitInMethod === "physical" && sitInCourseID && sitInSessionIds.length > 0) {
+    if (
+      sitInMethod === "physical" &&
+      sitInCourseID &&
+      sitInSessionIds.length > 0
+    ) {
       const mismatched = sitInSessionIds.filter((sid) => {
         if (sessionInSitInData(group.sit_in, sid, sitInCourseID)) return false;
         if (input.sitInPriorityHistory) {
           for (const historyMap of Object.values(input.sitInPriorityHistory)) {
             for (const historyGroup of Object.values(historyMap)) {
-              if (sessionInSitInData(historyGroup.sit_in, sid, sitInCourseID)) return false;
+              if (sessionInSitInData(historyGroup.sit_in, sid, sitInCourseID))
+                return false;
             }
           }
         }

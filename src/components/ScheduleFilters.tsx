@@ -24,20 +24,24 @@ export default function ScheduleFilters({
 }: ScheduleFiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 mb-4">
-      <Input type="date" size="sm" value={startDate} onChange={(e) => onChangeStartDate(e.target.value)} className="w-36" />
-      <Input type="date" size="sm" value={endDate} onChange={(e) => onChangeEndDate(e.target.value)} className="w-36" />
-      <Input type="time" size="sm" value={startTime} onChange={(e) => onChangeStartTime(e.target.value)} step={300} className="w-28" />
-      <Input type="time" size="sm" value={endTime} onChange={(e) => onChangeEndTime(e.target.value)} step={300} className="w-28" />
+      <Input aria-label="Start date" type="date" size="sm" value={startDate} onChange={(e) => onChangeStartDate(e.target.value)} className="w-36" />
+      <Input aria-label="End date" type="date" size="sm" value={endDate} onChange={(e) => onChangeEndDate(e.target.value)} className="w-36" />
+      <Input aria-label="Start time" type="time" size="sm" value={startTime} onChange={(e) => onChangeStartTime(e.target.value)} step={300} className="w-28" />
+      <Input aria-label="End time" type="time" size="sm" value={endTime} onChange={(e) => onChangeEndTime(e.target.value)} step={300} className="w-28" />
       <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh</Button>
       <div className="flex border border-gray-300 rounded-sm overflow-hidden">
         <button
+          type="button"
           onClick={() => onViewModeChange("week")}
+          aria-pressed={viewMode === "week"}
           className={`px-3 py-1 text-sm ${viewMode === "week" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
         >
           Week
         </button>
         <button
+          type="button"
           onClick={() => onViewModeChange("table")}
+          aria-pressed={viewMode === "table"}
           className={`px-3 py-1 text-sm ${viewMode === "table" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
         >
           Table

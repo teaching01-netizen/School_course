@@ -1,12 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ToastProvider } from './hooks/useToast';
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Layout from './components/Layout';
-import { clearCacheForUserChange, queryClient } from "./query/cache";
+import { queryClient } from "./query/cache";
 import { RealtimeProvider } from "./realtime/RealtimeProvider";
 import { invalidateRealtimeBackedQueries, RealtimeQueryBridge } from "./realtime/queryBridge";
+import { useUserScopedQueryCache } from "./query/useUserScopedQueryCache";
 
 const Login = lazy(() => import('./pages/Login'));
 const Home = lazy(() => import('./pages/Home'));
@@ -48,20 +49,12 @@ const TeacherAbsenceDetail = lazy(() => import('./pages/TeacherAbsenceDetail'));
 function AuthenticatedDataServices({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const client = useQueryClient();
-  const userID = user?.id ?? null;
-  const [cacheUserID, setCacheUserID] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (cacheUserID === userID) return;
-    clearCacheForUserChange(client, cacheUserID, userID);
-    setCacheUserID(userID);
-  }, [cacheUserID, client, userID]);
-
   const handleReconnect = useCallback(() => {
     void invalidateRealtimeBackedQueries(client);
   }, [client]);
 
-  if (cacheUserID !== userID) return null;
+  const cacheReady = useUserScopedQueryCache(user?.id ?? null);
+  if (!cacheReady) return null;
 
   return (
     <RealtimeProvider enabled={user != null} onReconnect={handleReconnect}>
@@ -97,12 +90,37 @@ function RequireAuth() {
   return <AppLayout />;
 }
 
-  const loadingFallback = (
+function RequireTeacherOrAdmin() {
+  const { user, loading } = useAuth();
+  if (loading) return (
     <div className="flex min-h-screen items-center justify-center">
       <span className="sr-only">Loading...</span>
       <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
     </div>
   );
+  if (user?.role === 'Teacher' || user?.role === 'Admin') return <Outlet />;
+  return <Navigate to="/login" replace />;
+}
+
+function RequireAdmin() {
+  const { user, loading } = useAuth();
+  if (loading) return (
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="sr-only">Loading...</span>
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+    </div>
+  );
+  if (user?.role === 'Admin') return <Outlet />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <Navigate to="/teacher-dashboard" replace />;
+}
+
+const loadingFallback = (
+  <div className="flex min-h-screen items-center justify-center">
+    <span className="sr-only">Loading...</span>
+    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+  </div>
+);
 
 function App() {
   return (
@@ -117,41 +135,45 @@ function App() {
             <Route path="/absence" element={<AbsenceForm />} />
             <Route element={<RequireAuth />}>
               <Route path="/" element={<IndexRoute />} />
-              <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
-              <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
-              <Route path="/courses" element={<Courses />} />
-              <Route path="/courses/create" element={<CourseCreate />} />
-              <Route path="/courses/:id" element={<CourseDetail />} />
-              <Route path="/students" element={<Students />} />
-              <Route path="/students/:wcode" element={<StudentProfile />} />
-              <Route path="/teachers" element={<Teachers />} />
-              <Route path="/teachers/create" element={<TeacherCreate />} />
-              <Route path="/teachers/:id" element={<TeacherProfile />} />
-              <Route path="/subjects" element={<Subjects />} />
-              <Route path="/subjects/create" element={<SubjectCreate />} />
-              <Route path="/classrooms" element={<Classrooms />} />
-              <Route path="/users" element={<Users />} />
-              <Route path="/schedule" element={<Schedule />} />
-              <Route path="/summary" element={<Summary />} />
-              <Route path="/availability" element={<Availability />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/absences" element={<Absences />} />
-              <Route path="/absences/board" element={<Navigate to="/absences?view=board" replace />} />
-              <Route path="/absences/dashboard" element={<AbsenceDashboard />} />
-              <Route path="/absences/:id" element={<AbsenceDetail />} />
-              <Route path="/logs" element={<Logs />} />
-              <Route path="/slot-finder" element={<SlotFinder />} />
-              <Route path="/course-levels" element={<CourseLevels />} />
-              <Route path="/crm" element={<CrmAdmin />} />
-              <Route path="/crm/conflicts" element={<CrmConflicts />} />
-              <Route path="/crm/cross-study" element={<CrossStudyPage />} />
-              <Route path="/admin/absence-settings" element={<AbsenceSettings />} />
-              <Route path="/absences/calendar" element={<OperationsCalendar />} />
-              <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />
-              <Route path="/admin/operations" element={<OperationsHub />} />
-              <Route path="/leave-policy" element={<LeavePolicy />} />
-              <Route path="/email-reminders" element={<EmailReminders />} />
-              <Route path="/admin/sit-in-test" element={<SitInTestPage />} />
+              <Route element={<RequireTeacherOrAdmin />}>
+                <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
+                <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+              </Route>
+              <Route element={<RequireAdmin />}>
+                <Route path="/courses" element={<Courses />} />
+                <Route path="/courses/create" element={<CourseCreate />} />
+                <Route path="/courses/:id" element={<CourseDetail />} />
+                <Route path="/students" element={<Students />} />
+                <Route path="/students/:wcode" element={<StudentProfile />} />
+                <Route path="/teachers" element={<Teachers />} />
+                <Route path="/teachers/create" element={<TeacherCreate />} />
+                <Route path="/teachers/:id" element={<TeacherProfile />} />
+                <Route path="/subjects" element={<Subjects />} />
+                <Route path="/subjects/create" element={<SubjectCreate />} />
+                <Route path="/classrooms" element={<Classrooms />} />
+                <Route path="/users" element={<Users />} />
+                <Route path="/schedule" element={<Schedule />} />
+                <Route path="/summary" element={<Summary />} />
+                <Route path="/availability" element={<Availability />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/absences" element={<Absences />} />
+                <Route path="/absences/board" element={<Navigate to="/absences?view=board" replace />} />
+                <Route path="/absences/dashboard" element={<AbsenceDashboard />} />
+                <Route path="/absences/:id" element={<AbsenceDetail />} />
+                <Route path="/logs" element={<Logs />} />
+                <Route path="/slot-finder" element={<SlotFinder />} />
+                <Route path="/course-levels" element={<CourseLevels />} />
+                <Route path="/crm" element={<CrmAdmin />} />
+                <Route path="/crm/conflicts" element={<CrmConflicts />} />
+                <Route path="/crm/cross-study" element={<CrossStudyPage />} />
+                <Route path="/admin/absence-settings" element={<AbsenceSettings />} />
+                <Route path="/absences/calendar" element={<OperationsCalendar />} />
+                <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />
+                <Route path="/admin/operations" element={<OperationsHub />} />
+                <Route path="/leave-policy" element={<LeavePolicy />} />
+                <Route path="/email-reminders" element={<EmailReminders />} />
+                <Route path="/admin/sit-in-test" element={<SitInTestPage />} />
+              </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

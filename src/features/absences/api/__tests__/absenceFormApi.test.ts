@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { sessionsInRangePath, normalizeAbsenceFormConfig } from "../absenceFormApi";
+import {
+  sessionsInRangePath,
+  normalizeAbsenceFormConfig,
+} from "../absenceFormApi";
 import type { AbsenceFormConfig } from "../../types";
 
 describe("sessionsInRangePath", () => {
@@ -15,22 +18,39 @@ describe("sessionsInRangePath", () => {
   });
 
   it("adds courseIds when provided", () => {
-    const path = sessionsInRangePath("W250389", undefined, undefined, { courseIds: ["c1", "c2"] });
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      courseIds: ["c1", "c2"],
+    });
     expect(path).toContain("course_ids=c1%2Cc2");
   });
 
+  it("adds subject-wide staff options when provided", () => {
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      subjectIds: ["sub1", "sub2"],
+      includeAllSubjects: true,
+    });
+    expect(path).toContain("subject_ids=sub1%2Csub2");
+    expect(path).toContain("include_all_subjects=true");
+  });
+
   it("adds satVerbalAfterPriority when provided", () => {
-    const path = sessionsInRangePath("W250389", undefined, undefined, { satVerbalAfterPriority: 3 });
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      satVerbalAfterPriority: 3,
+    });
     expect(path).toContain("sat_verbal_after_priority=3");
   });
 
   it("adds bypass_timing when bypassTiming is true", () => {
-    const path = sessionsInRangePath("W250389", undefined, undefined, { bypassTiming: true });
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      bypassTiming: true,
+    });
     expect(path).toContain("bypass_timing=true");
   });
 
   it("omits bypass_timing when bypassTiming is false", () => {
-    const path = sessionsInRangePath("W250389", undefined, undefined, { bypassTiming: false });
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      bypassTiming: false,
+    });
     expect(path).not.toContain("bypass_timing");
   });
 });
