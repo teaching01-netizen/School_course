@@ -203,7 +203,7 @@ export default function Absences() {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
     else params.delete(key);
-    if (key !== "view") params.delete("offset");
+    if (key !== "view" && key !== "offset") params.delete("offset");
     setSearchParams(params);
   }
 
