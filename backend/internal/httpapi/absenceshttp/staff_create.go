@@ -435,7 +435,11 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 			emailCfg := settings.emailSuccessConfig()
 			if emailCfg.Enabled {
 				emailSent = sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+			} else if s.deps.Log != nil {
+				s.deps.Log.Info("success email skipped: email_success_enabled is false", "absence_id", id)
 			}
+		} else if s.deps.Log != nil {
+			s.deps.Log.Info("success email skipped: email service not configured", "absence_id", id)
 		}
 
 		return http.StatusOK, map[string]any{
@@ -565,7 +569,11 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			emailCfg := settings.emailSuccessConfig()
 			if emailCfg.Enabled {
 				emailSent = sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, items, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+			} else if s.deps.Log != nil {
+				s.deps.Log.Info("success email skipped: email_success_enabled is false", "absence_count", len(ids))
 			}
+		} else if s.deps.Log != nil {
+			s.deps.Log.Info("success email skipped: email service not configured", "absence_count", len(ids))
 		}
 
 		return http.StatusOK, map[string]any{
