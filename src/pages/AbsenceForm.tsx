@@ -275,7 +275,8 @@ export default function AbsenceForm() {
       const remaining = remainingForGroup(group);
       const currentlySelectedInGroup = getSelectedSessionsForGroup(group, current).length;
       if (currentlySelectedInGroup + sessionIds.length > remaining) return current;
-      if (selectedSessionCount + sessionIds.length > maxSessions) return current;
+      const selectedInThisCourse = group.sessions.filter((s) => current.has(s.id)).length;
+      if (selectedInThisCourse + sessionIds.length > maxSessions) return current;
       const next = new Set(current);
       for (const sessionId of sessionIds) next.add(sessionId);
       return next;
@@ -754,7 +755,7 @@ export default function AbsenceForm() {
                                               type="checkbox"
                                               id={`session-${dayGroup.id}`}
                                               checked={selected}
-                                              disabled={!selected && (effectiveRemaining === 0 || selectedSessionCount >= maxSessions)}
+                                              disabled={!selected && (effectiveRemaining === 0 || group.sessions.filter((s) => selectedSessionIds.has(s.id)).length >= maxSessions)}
                                               onChange={() => handleSessionGroupToggle(group, sessionIds)}
                                               className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                             />

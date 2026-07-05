@@ -366,6 +366,425 @@ describe("AbsenceForm - 20% session limit", () => {
     });
   });
 
+  describe("per-course maxSessions", () => {
+    function makeTwoCourseSetup(maxPerAbsence: number) {
+      const sessions: SubjectSessions[] = [
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Algebra II",
+          sessions: Array.from({ length: 10 }, (_, i) => ({
+            id: `m${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: false,
+          })),
+          absence_rate_exceeded: false,
+          existing_absence_count: 0,
+          total_session_count: 10,
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHY",
+          subject_name: "Physics",
+          course_id: "c-phy301",
+          course_code: "PHY301",
+          course_name: "Mechanics",
+          sessions: Array.from({ length: 10 }, (_, i) => ({
+            id: `p${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T14:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T15:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: false,
+          })),
+          absence_rate_exceeded: false,
+          existing_absence_count: 0,
+          total_session_count: 10,
+        },
+      ];
+      return { sessions, maxPerAbsence };
+    }
+
+    async function setupTwoCourse(sessions: SubjectSessions[], maxPerAbsence: number) {
+      const configSmallMax = {
+        ...MOCK_CONFIG,
+        sit_in: { ...MOCK_CONFIG.sit_in, max_sessions_per_absence: maxPerAbsence },
+      };
+      const twoCourseStudent = {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-1", code: "MATH", name: "Mathematics" },
+          { id: "subj-2", code: "PHY", name: "Physics" },
+        ],
+      };
+      mockApiByPattern({
+        "absence-form-config": configSmallMax,
+        "student-lookup": twoCourseStudent,
+        "sessions-in-range": { subjects: sessions },
+        "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
+      });
+
+      renderWithProviders(<AbsenceForm />);
+      const user = userEvent.setup();
+
+      const input = await screen.findByPlaceholderText("e.g. W250389");
+      await user.clear(input);
+      await user.type(input, "W250389");
+      await user.click(screen.getByRole("button", { name: /search/i }));
+      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: /send code/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /continue without verifying/i })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
+      await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+
+      return user;
+    }
+
+    const sessionCbs = () => screen.getAllByRole("checkbox").filter((cb) => cb.getAttribute("id")?.startsWith("session-"));
+
+    it("selecting sessions from Course A does not block selecting sessions from Course B", async () => {
+      const { sessions } = makeTwoCourseSetup(2);
+      const user = await setupTwoCourse(sessions, 2);
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+      await waitFor(() => expect(screen.getByText("2 sessions remaining")).toBeInTheDocument());
+
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      const phyCheckbox = await screen.findByRole("checkbox", { name: /physics/i });
+      await user.click(phyCheckbox);
+
+      const phySessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("p"));
+      expect(phySessions.length).toBeGreaterThan(0);
+      expect(phySessions[0]).not.toBeDisabled();
+      expect(phySessions[1]).not.toBeDisabled();
+    });
+
+    it("maxSessions caps selections within a single course", async () => {
+      const { sessions } = makeTwoCourseSetup(2);
+      const user = await setupTwoCourse(sessions, 2);
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      await user.click(mathSessions[2]);
+      const mathAfter = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m") && cb.getAttribute("id")?.startsWith("session-"));
+      const mathChecked = mathAfter.filter((cb) => cb.getAttribute("id")?.startsWith("session-m") && (cb as HTMLInputElement).checked);
+      expect(mathChecked.length).toBe(2);
+    });
+
+    it("deselecting frees room for re-selection in the same course", async () => {
+      const { sessions } = makeTwoCourseSetup(2);
+      const user = await setupTwoCourse(sessions, 2);
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      await user.click(mathSessions[0]);
+      await waitFor(() => expect(screen.getByText("1 session remaining")).toBeInTheDocument());
+
+      await user.click(mathSessions[2]);
+      const mathChecked = sessionCbs()
+        .filter((cb) => cb.getAttribute("id")?.startsWith("session-m"))
+        .filter((cb) => (cb as HTMLInputElement).checked);
+      expect(mathChecked.length).toBe(2);
+    });
+
+    it("each course is independently capped at maxSessions", async () => {
+      const { sessions } = makeTwoCourseSetup(2);
+      const user = await setupTwoCourse(sessions, 2);
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+
+      const phyCheckbox = await screen.findByRole("checkbox", { name: /physics/i });
+      await user.click(phyCheckbox);
+      const phySessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("p"));
+      await user.click(phySessions[0]);
+      await user.click(phySessions[1]);
+
+      const allChecked = sessionCbs().filter((cb) => (cb as HTMLInputElement).checked);
+      expect(allChecked.length).toBe(4);
+
+      await user.click(phySessions[2]);
+      const phyCheckedAfter = sessionCbs()
+        .filter((cb) => cb.getAttribute("id")?.startsWith("session-p"))
+        .filter((cb) => (cb as HTMLInputElement).checked);
+      expect(phyCheckedAfter.length).toBe(2);
+    });
+
+    it("20% limit and maxSessions - lower limit wins", async () => {
+      const sessions: SubjectSessions[] = [
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Algebra II",
+          sessions: Array.from({ length: 10 }, (_, i) => ({
+            id: `m${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: false,
+          })),
+          absence_rate_exceeded: false,
+          existing_absence_count: 0,
+          total_session_count: 10,
+        },
+      ];
+
+      const configHighMax = {
+        ...MOCK_CONFIG,
+        sit_in: { ...MOCK_CONFIG.sit_in, max_sessions_per_absence: 5 },
+      };
+      mockApiByPattern({
+        "absence-form-config": configHighMax,
+        "student-lookup": MOCK_STUDENT,
+        "sessions-in-range": { subjects: sessions },
+        "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
+      });
+
+      renderWithProviders(<AbsenceForm />);
+      const user = userEvent.setup();
+
+      const input = await screen.findByPlaceholderText("e.g. W250389");
+      await user.clear(input);
+      await user.type(input, "W250389");
+      await user.click(screen.getByRole("button", { name: /search/i }));
+      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: /send code/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /continue without verifying/i })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
+      await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+
+      await waitFor(() => expect(screen.getByText("2 sessions remaining")).toBeInTheDocument());
+
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      await user.click(mathSessions[2]);
+      const mathChecked = sessionCbs()
+        .filter((cb) => cb.getAttribute("id")?.startsWith("session-m"))
+        .filter((cb) => (cb as HTMLInputElement).checked);
+      expect(mathChecked.length).toBe(2);
+    });
+
+    it("session group with multiple sessions on same day counts toward maxSessions", async () => {
+      const sessions: SubjectSessions[] = [
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Algebra II",
+          sessions: [
+            { id: "m1", start_at: "2026-06-01T09:00:00Z", end_at: "2026-06-01T10:30:00Z", date: "2026-06-01", already_absent: false },
+            { id: "m2", start_at: "2026-06-01T11:00:00Z", end_at: "2026-06-01T12:30:00Z", date: "2026-06-01", already_absent: false },
+            { id: "m3", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false },
+            { id: "m4", start_at: "2026-06-03T09:00:00Z", end_at: "2026-06-03T10:30:00Z", date: "2026-06-03", already_absent: false },
+            { id: "m5", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z", date: "2026-06-04", already_absent: false },
+            { id: "m6", start_at: "2026-06-05T09:00:00Z", end_at: "2026-06-05T10:30:00Z", date: "2026-06-05", already_absent: false },
+            { id: "m7", start_at: "2026-06-06T09:00:00Z", end_at: "2026-06-06T10:30:00Z", date: "2026-06-06", already_absent: false },
+            { id: "m8", start_at: "2026-06-07T09:00:00Z", end_at: "2026-06-07T10:30:00Z", date: "2026-06-07", already_absent: false },
+            { id: "m9", start_at: "2026-06-08T09:00:00Z", end_at: "2026-06-08T10:30:00Z", date: "2026-06-08", already_absent: false },
+            { id: "m10", start_at: "2026-06-09T09:00:00Z", end_at: "2026-06-09T10:30:00Z", date: "2026-06-09", already_absent: false },
+          ],
+          absence_rate_exceeded: false,
+          existing_absence_count: 0,
+          total_session_count: 10,
+        },
+      ];
+
+      const configMax2 = {
+        ...MOCK_CONFIG,
+        sit_in: { ...MOCK_CONFIG.sit_in, max_sessions_per_absence: 2 },
+      };
+      mockApiByPattern({
+        "absence-form-config": configMax2,
+        "student-lookup": MOCK_STUDENT,
+        "sessions-in-range": { subjects: sessions },
+        "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
+      });
+
+      renderWithProviders(<AbsenceForm />);
+      const user = userEvent.setup();
+
+      const input = await screen.findByPlaceholderText("e.g. W250389");
+      await user.clear(input);
+      await user.type(input, "W250389");
+      await user.click(screen.getByRole("button", { name: /search/i }));
+      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: /send code/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /continue without verifying/i })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
+      await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+
+      const day1Sessions = sessionCbs().filter((cb) => cb.getAttribute("id") === "session-m1|m2");
+      expect(day1Sessions.length).toBe(1);
+
+      await user.click(day1Sessions[0]);
+
+      expect((day1Sessions[0] as HTMLInputElement).checked).toBe(true);
+
+      await waitFor(() => {
+        const selectedCounter = screen.getByText(/\d+ selected/);
+        expect(selectedCounter.textContent).toContain("1 selected");
+      });
+
+      const day2Sessions = sessionCbs().filter((cb) => cb.getAttribute("id") === "session-m3");
+      await user.click(day2Sessions[0]);
+
+      expect((day2Sessions[0] as HTMLInputElement).checked).toBe(false);
+
+      await waitFor(() => {
+        const selectedCounter = screen.getByText(/\d+ selected/);
+        expect(selectedCounter.textContent).toContain("1 selected");
+      });
+    });
+
+    it("checkboxes disabled per-course when at maxSessions", async () => {
+      const { sessions } = makeTwoCourseSetup(2);
+      const user = await setupTwoCourse(sessions, 2);
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await user.click(mathSessions[1]);
+
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      const mathUnchecked = mathSessions.filter((cb) => !(cb as HTMLInputElement).checked);
+      for (const cb of mathUnchecked) {
+        expect(cb).toBeDisabled();
+      }
+
+      const phyCheckbox = await screen.findByRole("checkbox", { name: /physics/i });
+      await user.click(phyCheckbox);
+      const phySessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("p"));
+      for (const cb of phySessions) {
+        expect(cb).not.toBeDisabled();
+      }
+    });
+
+    it("can select up to maxSessions after existing absences reduce room", async () => {
+      const sessions: SubjectSessions[] = [
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-math201",
+          course_code: "MATH201",
+          course_name: "Algebra II",
+          sessions: Array.from({ length: 10 }, (_, i) => ({
+            id: `m${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: i < 1,
+          })),
+          absence_rate_exceeded: false,
+          existing_absence_count: 1,
+          total_session_count: 10,
+        },
+      ];
+
+      const configMax3 = {
+        ...MOCK_CONFIG,
+        sit_in: { ...MOCK_CONFIG.sit_in, max_sessions_per_absence: 3 },
+      };
+      mockApiByPattern({
+        "absence-form-config": configMax3,
+        "student-lookup": MOCK_STUDENT,
+        "sessions-in-range": { subjects: sessions },
+        "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
+        "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
+      });
+
+      renderWithProviders(<AbsenceForm />);
+      const user = userEvent.setup();
+
+      const input = await screen.findByPlaceholderText("e.g. W250389");
+      await user.clear(input);
+      await user.type(input, "W250389");
+      await user.click(screen.getByRole("button", { name: /search/i }));
+      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: /send code/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /continue without verifying/i })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
+      await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+
+      const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(mathCheckbox);
+
+      await waitFor(() => expect(screen.getByText("1 session remaining")).toBeInTheDocument());
+
+      const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
+      await user.click(mathSessions[0]);
+      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+
+      await user.click(mathSessions[1]);
+      const mathChecked = sessionCbs()
+        .filter((cb) => cb.getAttribute("id")?.startsWith("session-m"))
+        .filter((cb) => (cb as HTMLInputElement).checked);
+      expect(mathChecked.length).toBe(1);
+    });
+  });
+
   describe("fallback behavior", () => {
     it("falls back to maxSessions when total_session_count is not provided", async () => {
       const sessionsWithoutLimits: SubjectSessions[] = [
