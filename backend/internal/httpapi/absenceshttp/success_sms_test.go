@@ -64,6 +64,48 @@ func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
 	}
 }
 
+func TestSendSuccessSMS_FormatsMissedAndSitInSessionsInInstituteTimezone(t *testing.T) {
+	mock := &recordingSMSProvider{}
+	row := sqldb.ManagedAbsenceRow{
+		ID:               makeUUID("3a296bd4-fd61-4877-b4b2-698475030911"),
+		StudentName:      pgtype.Text{String: "Ada", Valid: true},
+		Wcode:            "W001",
+		SubjectName:      pgtype.Text{String: "Math", Valid: true},
+		SitInMethod:      pgtype.Text{String: "physical", Valid: true},
+		SitInCourseName:  pgtype.Text{String: "Makeup 101", Valid: true},
+		SitInSubjectName: pgtype.Text{},
+		DateFrom:         pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:           pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+	missed := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 17, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 18, 0, 0, 0, time.UTC), Valid: true},
+	}}
+	sessions := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 17, 30, 0, 0, time.UTC), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 18, 30, 0, 0, time.UTC), Valid: true},
+	}}
+
+	sent := sendSuccessSMS(
+		mock,
+		nil,
+		"{{absence_date}}|{{sit_in_date_time}}|{{absence_summary}}|{{sit_in_summary}}",
+		row,
+		sessions,
+		missed,
+		[]string{"+66812345678"},
+		"Asia/Bangkok",
+	)
+
+	if !sent {
+		t.Fatal("expected sendSuccessSMS to return true")
+	}
+	wantMsg := "16 Jan 2026|16 Jan, 00:30 - 01:30|Math (16 Jan 2026)|Makeup 101 (16 Jan, 00:30 - 01:30)"
+	if mock.sent[0].Message != wantMsg {
+		t.Fatalf("message = %q, want %q", mock.sent[0].Message, wantMsg)
+	}
+}
+
 func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{
@@ -210,6 +252,62 @@ func TestSendBatchSuccessSMS_SendsAggregatedSummary(t *testing.T) {
 	}
 }
 
+func TestSendBatchSuccessSMS_FormatsAggregatedSummariesInInstituteTimezone(t *testing.T) {
+	mock := &recordingSMSProvider{}
+	items := []successSMSItem{
+		{
+			row: sqldb.ManagedAbsenceRow{
+				ID:          makeUUID("3a296bd4-fd61-4877-b4b2-698475030911"),
+				StudentName: pgtype.Text{String: "Ada", Valid: true},
+				Wcode:       "W001",
+				SubjectName: pgtype.Text{String: "Math", Valid: true},
+				DateFrom:    pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:      pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod: pgtype.Text{String: "zoom", Valid: true},
+			},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 17, 0, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+		{
+			row: sqldb.ManagedAbsenceRow{
+				ID:              makeUUID("6f1f0d51-57b5-4ce7-8c1a-4eb5803d6f10"),
+				StudentName:     pgtype.Text{String: "Ada", Valid: true},
+				Wcode:           "W001",
+				SubjectName:     pgtype.Text{String: "Physics", Valid: true},
+				DateFrom:        pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:          pgtype.Date{Time: time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod:     pgtype.Text{String: "physical", Valid: true},
+				SitInCourseName: pgtype.Text{String: "Physics 301", Valid: true},
+			},
+			sessions: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 17, 30, 0, 0, time.UTC), Valid: true},
+				EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 18, 30, 0, 0, time.UTC), Valid: true},
+			}},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 17, 15, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+	}
+
+	sent := sendBatchSuccessSMS(
+		mock,
+		nil,
+		"{{nickname}}|{{absence_summary}}|{{sit_in_summary}}",
+		items,
+		[]string{"+66812345678"},
+		"Asia/Bangkok",
+	)
+
+	if !sent {
+		t.Fatal("expected sendBatchSuccessSMS to return true")
+	}
+	wantMsg := "Ada|Math (16 Jan 2026); Physics (16 Jan 2026)|Zoom; Physics 301 (16 Jan, 00:30 - 01:30)"
+	if mock.sent[0].Message != wantMsg {
+		t.Fatalf("message = %q, want %q", mock.sent[0].Message, wantMsg)
+	}
+}
+
 func TestSuccessSMSPhones_ExcludesNullPhones(t *testing.T) {
 	t.Run("both populated returns both", func(t *testing.T) {
 		phones := successSMSPhones(
@@ -273,5 +371,77 @@ func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true on success")
+	}
+}
+
+func TestSuccessSMSTemplateForStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		status          string
+		specialTemplate string
+		want            string
+	}{
+		{
+			name:            "pending uses normal template",
+			status:          "pending",
+			specialTemplate: "Special {{nickname}}",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "reviewed uses normal template",
+			status:          "reviewed",
+			specialTemplate: "Special {{nickname}}",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "actioned uses normal template",
+			status:          "actioned",
+			specialTemplate: "Special {{nickname}}",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "cancelled uses normal template",
+			status:          "cancelled",
+			specialTemplate: "Special {{nickname}}",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "special_approved with non-empty special template returns special",
+			status:          "special_approved",
+			specialTemplate: "Special {{nickname}}",
+			want:            "Special {{nickname}}",
+		},
+		{
+			name:            "special_approved with empty special template falls back to normal",
+			status:          "special_approved",
+			specialTemplate: "",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "special_approved with whitespace-only special template falls back to normal",
+			status:          "special_approved",
+			specialTemplate: "   ",
+			want:            "Normal {{nickname}}",
+		},
+		{
+			name:            "special_approved with identical templates returns special (no error)",
+			status:          "special_approved",
+			specialTemplate: "Same {{nickname}}",
+			want:            "Same {{nickname}}",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := absenceSettings{
+				Notifications: absenceNotificationsSettings{
+					SmsSuccessTemplate:         "Normal {{nickname}}",
+					SmsSpecialApprovedTemplate: tt.specialTemplate,
+				},
+			}
+			got := successSMSTemplateForStatus(settings, tt.status)
+			if got != tt.want {
+				t.Errorf("successSMSTemplateForStatus(_, %q) = %q, want %q", tt.status, got, tt.want)
+			}
+		})
 	}
 }

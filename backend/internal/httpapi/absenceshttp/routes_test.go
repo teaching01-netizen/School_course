@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +261,56 @@ func TestSessionsInRangeQueryAppliesRequestedDateBounds(t *testing.T) {
 	}
 	if !strings.Contains(sql, "sess.start_at < $3") {
 		t.Fatalf("sessions-in-range query should apply exclusive date_to bound, SQL: %s", sql)
+	}
+}
+
+func TestResolveDateRangeForSessionStartsUsesInstituteTimezone(t *testing.T) {
+	fallbackFrom := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	fallbackTo := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	from, to := resolveDateRangeForSessionStarts([]string{"2026-01-15T17:00:00Z"}, fallbackFrom, fallbackTo)
+
+	want := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
+	if !from.Equal(want) || !to.Equal(want) {
+		t.Fatalf("resolveDateRangeForSessionStarts = %s to %s, want Bangkok date %s", from.Format(time.RFC3339), to.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+func TestSessionDateKeyUsesInstituteTimezone(t *testing.T) {
+	got := sessionDateKey("2026-01-15T17:00:00Z", "Asia/Bangkok")
+	if got != "2026-01-16" {
+		t.Fatalf("sessionDateKey = %q, want Bangkok date 2026-01-16", got)
+	}
+}
+
+func TestParseInstituteLocalDateReturnsUTCBoundaryForBangkokDay(t *testing.T) {
+	got, err := parseInstituteLocalDate("2026-01-16", "Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("parseInstituteLocalDate: %v", err)
+	}
+	want := time.Date(2026, 1, 15, 17, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("parseInstituteLocalDate = %s, want %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+func TestSessionsInRangeResponseUsesInstituteTimezoneDateKey(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	path := filepath.Join(filepath.Dir(file), "routes.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read routes.go: %v", err)
+	}
+	source := string(data)
+
+	if strings.Contains(source, "Date:          sess.StartAt[:10]") {
+		t.Fatal("sessions-in-range response must not derive session date by slicing the UTC timestamp")
+	}
+	if !strings.Contains(source, "sessionDateKey(sess.StartAt, s.deps.InstituteTZ)") {
+		t.Fatal("sessions-in-range response should derive session date in the institute timezone")
 	}
 }
 

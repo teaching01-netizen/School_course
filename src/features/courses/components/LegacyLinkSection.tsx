@@ -71,7 +71,7 @@ export function LegacyLinkSection({ course, onLinked }: { course: Course; onLink
             Open in old system
           </a>
           <Button variant="secondary" size="sm" loading={syncing} onClick={handleSyncNow} disabled={syncing} className="ml-auto">
-            {syncing ? "Syncing..." : "Sync now"}
+            {syncing ? "Syncing…" : "Sync now"}
           </Button>
           <Button variant="ghost" size="sm" onClick={handleUnlink} disabled={saving} className="text-red-600">
             Remove link
@@ -98,7 +98,7 @@ export function LegacyLinkSection({ course, onLinked }: { course: Course; onLink
           className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
         />
         <Button variant="primary" size="sm" loading={saving} onClick={handleLink} disabled={saving || !urlInput.trim()}>
-          {saving ? "Linking..." : "Link"}
+          {saving ? "Linking…" : "Link"}
         </Button>
       </div>
     </div>

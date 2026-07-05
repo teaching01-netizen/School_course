@@ -75,4 +75,36 @@ describe("normalizeAbsenceFormConfig", () => {
     expect(result.notifications?.sms_parent_enabled).toBe(true);
     expect(result.admin_contact?.email).toBe("");
   });
+
+  it("fills sms_special_approved_template from defaults when absent", () => {
+    const input = {
+      form: { max_date_range_days: 14 },
+      sit_in: { auto_resolve_enabled: false },
+      notifications: { sms_parent_enabled: true },
+    } as AbsenceFormConfig;
+    const result = normalizeAbsenceFormConfig(input);
+    expect(result.notifications?.sms_special_approved_template).toBe("");
+  });
+
+  it("preserves existing sms_special_approved_template", () => {
+    const input = {
+      form: { max_date_range_days: 14 },
+      sit_in: { auto_resolve_enabled: false },
+      notifications: { sms_special_approved_template: "Custom special" },
+    } as AbsenceFormConfig;
+    const result = normalizeAbsenceFormConfig(input);
+    expect(result.notifications?.sms_special_approved_template).toBe("Custom special");
+  });
+
+  it("handles completely empty notifications", () => {
+    const input = {
+      form: { max_date_range_days: 14 },
+      sit_in: { auto_resolve_enabled: false },
+      notifications: {},
+    } as AbsenceFormConfig;
+    const result = normalizeAbsenceFormConfig(input);
+    expect(result.notifications?.sms_parent_enabled).toBe(true);
+    expect(result.notifications?.sms_special_approved_template).toBe("");
+    expect(result.notifications?.allow_submit_without_otp).toBe(false);
+  });
 });

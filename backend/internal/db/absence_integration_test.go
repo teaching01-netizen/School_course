@@ -520,3 +520,67 @@ func TestCalendarQueriesExposeReadableSubjectNames(t *testing.T) {
 		t.Fatal("expected session id to be set")
 	}
 }
+
+func TestStudentAbsenceCountForCourse_ExcludesSpecialApproved(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	wcode := "WCOUNT-" + suffix
+
+	student, err := q.StudentCreate(ctx, StudentCreateParams{
+		Wcode:    wcode,
+		FullName: "Count Student " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subj, err := q.SubjectCreate(ctx, SubjectCreateParams{
+		Code: "COUNT-SUBJ-" + suffix,
+		Name: "Count Subject " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "COUNT-CRS-" + suffix,
+		Name: "Count Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: course.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert absences: 2 pending, 1 cancelled, 1 special_approved
+	for _, status := range []string{"pending", "pending", "cancelled", "special_approved"} {
+		_, err = dbpool.Exec(ctx, `
+			INSERT INTO student_absences (wcode, course_id, date_from, date_to, status, reason)
+			VALUES ($1, $2, '2026-06-01', '2026-06-01', $3, 'test')`,
+			wcode, course.ID, status)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Query count - should only count pending (2), not cancelled or special_approved
+	count, err := q.StudentAbsenceCountForCourse(ctx, wcode, course.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("StudentAbsenceCountForCourse = %d, want 2 (excluding cancelled and special_approved)", count)
+	}
+}

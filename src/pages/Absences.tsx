@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, UserPlus } from "lucide-react";
 import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import type { AbsencePage, AbsenceStatus, ManagedAbsence } from "../types";
+import type { AbsencePage, AbsenceStatus, ManagedAbsence, SmsPreview } from "../types";
 import PageHeading from "../components/ui/PageHeading";
 import SearchInput from "../components/ui/SearchInput";
 import EmptyState from "../components/ui/EmptyState";
@@ -13,6 +13,7 @@ import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 import StaffCreateAbsenceModal from "../components/absences/StaffCreateAbsenceModal";
+import SmsConfirmModal from "../components/absences/SmsConfirmModal";
 import { queryKeys } from "../query/cache";
 import { useOperationalQuery } from "../query/useOperationalQuery";
 
@@ -39,6 +40,7 @@ const statusPresentation: Record<AbsenceStatus, { label: string; classes: string
   reviewed: { label: "Reviewed", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   actioned: { label: "Actioned", classes: "bg-slate-100 text-slate-600 border-slate-200" },
   cancelled: { label: "Cancelled", classes: "bg-red-50 text-red-700 border-red-200 line-through" },
+  special_approved: { label: "Special Approved", classes: "bg-purple-50 text-purple-700 border-purple-200" },
 };
 
 function StatusBadge({ status }: { status: AbsenceStatus }) {
@@ -156,11 +158,16 @@ export default function Absences() {
   const [deleting, setDeleting] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState<ManagedAbsence | null>(null);
   const [creating, setCreating] = useState(false);
+  const [specialApprovedTarget, setSpecialApprovedTarget] = useState<ManagedAbsence | null>(null);
+  const [specialApproving, setSpecialApproving] = useState(false);
+  const [specialApprovedSmsPreview, setSpecialApprovedSmsPreview] = useState<SmsPreview | null>(null);
+  const [specialApprovedSendingSms, setSpecialApprovedSendingSms] = useState(false);
+  const [specialApprovedCreatedIds, setSpecialApprovedCreatedIds] = useState<string[]>([]);
 
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
   const statusParam = searchParams.get("status") ?? "";
   const bucketParam = searchParams.get("bucket");
-  const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && (statusParam === "actioned" || statusParam === "cancelled")) ? "archived" : "active";
+  const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && (statusParam === "actioned" || statusParam === "cancelled" || statusParam === "special_approved")) ? "archived" : "active";
 
   const filters = {
     query: searchParams.get("query") ?? "",
@@ -291,6 +298,77 @@ export default function Absences() {
     } finally {
       setDeleting(false);
     }
+  }
+
+  async function handleSpecialApprove() {
+    if (!specialApprovedTarget) return;
+    setSpecialApproving(true);
+    try {
+      await apiJson(`/api/v1/absences/${specialApprovedTarget.id}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "special_approved", expected_version: specialApprovedTarget.version }),
+      });
+      addToast("success", "Absence marked as special approved");
+      setSpecialApprovedCreatedIds([specialApprovedTarget.id]);
+
+      try {
+        const preview = await apiJson<{ preview?: SmsPreview }>(
+          "/api/v1/absences/batch-send-success-sms",
+          {
+            method: "POST",
+            body: JSON.stringify({ ids: [specialApprovedTarget.id], dry_run: true }),
+          },
+        );
+        if (preview.preview && preview.preview.phones.length > 0) {
+          setSpecialApprovedSmsPreview(preview.preview);
+          setSpecialApprovedTarget(null);
+          return;
+        }
+      } catch {
+        // SMS preview not critical
+      }
+
+      setSpecialApprovedTarget(null);
+      await load();
+    } catch (err) {
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "Absence was changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Special approve failed";
+      addToast("error", msg);
+    } finally {
+      setSpecialApproving(false);
+    }
+  }
+
+  async function handleSpecialApprovedSendSms() {
+    if (specialApprovedCreatedIds.length === 0) return;
+    setSpecialApprovedSendingSms(true);
+    try {
+      const res = await apiJson<{ sent: boolean; recipient_count: number }>(
+        "/api/v1/absences/batch-send-success-sms",
+        { method: "POST", body: JSON.stringify({ ids: specialApprovedCreatedIds }) }
+      );
+      if (res.sent) {
+        addToast("success", `SMS notification sent to ${res.recipient_count} recipient(s)`);
+      } else {
+        addToast("error", "SMS was not sent");
+      }
+      setSpecialApprovedSmsPreview(null);
+      setSpecialApprovedCreatedIds([]);
+      await load();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "SMS send failed");
+    } finally {
+      setSpecialApprovedSendingSms(false);
+    }
+  }
+
+  function handleSpecialApprovedSkipSms() {
+    if (specialApprovedSendingSms) return;
+    addToast("success", "Absence marked as special approved (SMS skipped)");
+    setSpecialApprovedSmsPreview(null);
+    setSpecialApprovedCreatedIds([]);
+    void load();
   }
 
   async function exportCsv() {
@@ -435,6 +513,7 @@ export default function Absences() {
     ? [
         { value: "actioned", label: "Actioned" },
         { value: "cancelled", label: "Cancelled" },
+        { value: "special_approved", label: "Special Approved" },
       ]
     : [
         { value: "pending", label: "Pending" },
@@ -614,6 +693,7 @@ export default function Absences() {
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      {absence.status !== "cancelled" && absence.status !== "special_approved" ? <Button size="sm" variant="ghost" onClick={() => setSpecialApprovedTarget(absence)}>Special Approve</Button> : null}
                       <Button size="sm" variant="ghost" onClick={() => setOverrideTarget(absence)}>Override</Button>
                       {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
                       <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
@@ -692,6 +772,38 @@ export default function Absences() {
           </p>
           <p className="text-sm text-red-600 font-medium">Warning: All associated data will be lost.</p>
         </Modal>
+      ) : null}
+
+      {specialApprovedTarget ? (
+        <Modal
+          title="Special Approve Absence"
+          onClose={() => setSpecialApprovedTarget(null)}
+          footer={(
+            <>
+              <Button variant="secondary" onClick={() => setSpecialApprovedTarget(null)}>Back</Button>
+              <Button loading={specialApproving} onClick={() => void handleSpecialApprove()}>Confirm Special Approve</Button>
+            </>
+          )}
+        >
+          <p className="mb-3 text-sm text-gray-600">
+            This will mark the absence as <strong>Special Approved</strong> — it will <strong>not</strong> count toward the student's absence rate limit.
+          </p>
+          <div className="rounded-sm border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500">Student:</span><span className="font-medium">{specialApprovedTarget.student_name ?? "Unknown"} ({specialApprovedTarget.wcode})</span></div>
+            <div className="mt-1 flex justify-between"><span className="text-gray-500">Subject:</span><span className="font-medium">{specialApprovedTarget.subject_code ?? "-"}</span></div>
+            <div className="mt-1 flex justify-between"><span className="text-gray-500">Dates:</span><span className="font-medium">{specialApprovedTarget.date_from === specialApprovedTarget.date_to ? specialApprovedTarget.date_from : `${specialApprovedTarget.date_from} – ${specialApprovedTarget.date_to}`}</span></div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {specialApprovedSmsPreview && specialApprovedCreatedIds.length > 0 ? (
+        <SmsConfirmModal
+          phones={specialApprovedSmsPreview.phones}
+          message={specialApprovedSmsPreview.message}
+          onSend={() => void handleSpecialApprovedSendSms()}
+          onSkip={handleSpecialApprovedSkipSms}
+          sending={specialApprovedSendingSms}
+        />
       ) : null}
 
       {overrideTarget ? (

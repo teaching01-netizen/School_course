@@ -786,7 +786,7 @@ export default function CourseDetail() {
             <>
               <Button variant="secondary" size="md" onClick={startEditing}>Edit</Button>
               <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)} loading={deleting}>
-                {deleting ? "Deleting..." : "Delete"}
+                {deleting ? "Deleting…" : "Delete"}
               </Button>
             </>
           )}
@@ -854,13 +854,14 @@ export default function CourseDetail() {
 
       <div className="mb-8">
         <div className="flex items-end justify-between gap-3 mb-3">
-          <h2 className="text-[28px] font-bold text-gray-800">Schedule</h2>
+          <h2 className="text-xl font-semibold text-gray-800">Schedule</h2>
           <div className="flex items-end gap-2 flex-wrap">
-            <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden self-end">
+            <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden self-end" role="group" aria-label="View mode">
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
                 className={`px-2 py-1 text-[11px] ${viewMode === 'table' ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                aria-pressed={viewMode === 'table'}
               >
                 Table
               </button>
@@ -868,6 +869,7 @@ export default function CourseDetail() {
                 type="button"
                 onClick={() => setViewMode('calendar')}
                 className={`px-2 py-1 text-[11px] ${viewMode === 'calendar' ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                aria-pressed={viewMode === 'calendar'}
               >
                 Calendar
               </button>
@@ -878,19 +880,19 @@ export default function CourseDetail() {
                   TZ: {zone}
                   {serverNow ? ` • Server now: ${serverNow}` : ""}
                 </div>
-                <Button variant="secondary" size="md" onClick={loadSessions}>Refresh</Button>
+                <Button variant="secondary" size="md" onClick={loadSessions} aria-label="Refresh schedule">Refresh</Button>
                 <Button variant="primary" size="md" onClick={() => openCreate("series")}>Add…</Button>
               </>
             )}
             {viewMode === 'calendar' && (
               <div className="flex items-center gap-1.5 self-end pb-0.5">
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, -7))}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, -7))} aria-label="Previous week">
                   &lsaquo; Prev
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} aria-label="Go to current week">
                   Today
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, 7))}>
+                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, 7))} aria-label="Next week">
                   Next &rsaquo;
                 </Button>
                 <span className="text-xs text-gray-500 ml-1 font-mono">
@@ -911,7 +913,7 @@ export default function CourseDetail() {
 
         {viewMode === 'calendar' ? (
           <div className="border border-gray-200 p-4 bg-white">
-            <div className="overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
+            <div className="hidden md:block overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
               <caption className="sr-only">Calendar view</caption>
               <thead>
                 <tr className="bg-gray-50">
@@ -958,6 +960,10 @@ export default function CourseDetail() {
                 ))}
               </tbody>
             </table></div>
+            <div className="md:hidden text-center py-8 text-gray-500 text-sm">
+              <p>Calendar view is best on larger screens.</p>
+              <p className="mt-1">Switch to Table view for mobile.</p>
+            </div>
           </div>
         ) : (
           <div className="border border-gray-200 rounded-sm overflow-hidden">
@@ -1038,7 +1044,7 @@ export default function CourseDetail() {
                         <td className="py-2 px-3">
                           {isEditing ? (
                             <Select size="sm" value={editForm.room_id} onChange={(e) => setEditForm((p) => ({ ...p, room_id: e.target.value }))}>
-                              <option value="">[NOT SET] (Provisional)</option>
+                              <option value="">Not set (Provisional)</option>
                               {rooms.map((r) => (
                                 <option key={r.id} value={r.id}>
                                   {r.name}
@@ -1050,7 +1056,7 @@ export default function CourseDetail() {
                               {roomNameById.get(s.room_id) ?? "SET"}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-[var(--color-wi-yellow)] text-white">[NOT SET]</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-[var(--color-wi-yellow)] text-white">Not set</span>
                           )}
                         </td>
                         <td className="py-2 px-3">
@@ -1087,12 +1093,13 @@ export default function CourseDetail() {
                               <Button variant="ghost" size="sm" onClick={() => openEditSession(s)}>
                                 Edit
                               </Button>
-                              <Link
-                                to={`/schedule`}
-                                className="inline-flex items-center px-2 py-1 rounded-sm text-xs bg-[var(--color-wi-blue)] hover:bg-[var(--color-wi-blue-dark)] text-white"
+                               <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => navigate('/schedule')}
                               >
-                                check-in
-                              </Link>
+                                Check in
+                              </Button>
                             </div>
                           )}
                         </td>
@@ -1192,11 +1199,14 @@ export default function CourseDetail() {
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden">
+              <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden" role="tablist" aria-label="Schedule creation method">
                 <button
                   type="button"
                   onClick={() => setCreateTab("series")}
                   className={`px-3 py-1.5 text-sm ${createTab === "series" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                  role="tab"
+                  aria-selected={createTab === "series"}
+                  aria-controls="series-panel"
                 >
                   Recurring series
                 </button>
@@ -1204,6 +1214,9 @@ export default function CourseDetail() {
                   type="button"
                   onClick={() => setCreateTab("session")}
                   className={`px-3 py-1.5 text-sm ${createTab === "session" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                  role="tab"
+                  aria-selected={createTab === "session"}
+                  aria-controls="session-panel"
                 >
                   One-off session
                 </button>
@@ -1211,6 +1224,9 @@ export default function CourseDetail() {
                   type="button"
                   onClick={() => setCreateTab("paste")}
                   className={`px-3 py-1.5 text-sm ${createTab === "paste" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                  role="tab"
+                  aria-selected={createTab === "paste"}
+                  aria-controls="paste-panel"
                 >
                   Paste schedule
                 </button>
@@ -1221,7 +1237,7 @@ export default function CourseDetail() {
             </div>
 
             {createTab === "session" ? (
-              <div className="space-y-6">
+              <div className="space-y-6" role="tabpanel" id="session-panel" aria-labelledby="session-tab">
                 <SessionOccurrenceForm
                   form={sessionForm}
                   setForm={setSessionForm}
@@ -1245,7 +1261,7 @@ export default function CourseDetail() {
                 />
               </div>
             ) : createTab === "paste" ? (
-              <div className="space-y-4">
+              <div className="space-y-4" role="tabpanel" id="paste-panel" aria-labelledby="paste-tab">
                 <div className="bg-gray-50 rounded-sm p-3 space-y-3">
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teacher</div>
                   <TypeaheadSelect
@@ -1278,7 +1294,7 @@ export default function CourseDetail() {
 
                 {parsedPaste.rows.length > 0 && (
                   <div className="border border-gray-200 rounded-sm overflow-hidden">
-                    <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
                       <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
                         <thead className="bg-gray-50">
                           <tr className="border-b border-gray-200">
@@ -1304,7 +1320,7 @@ export default function CourseDetail() {
                                       {row.classroom}{matchedRoomId ? "" : " (not matched)"}
                                     </span>
                                   ) : (
-                                    <span className="text-gray-400">[NOT SET]</span>
+                                    <span className="text-gray-400">Not set</span>
                                   )}
                                 </td>
                               </tr>
@@ -1317,13 +1333,13 @@ export default function CourseDetail() {
                 )}
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-6" role="tabpanel" id="series-panel" aria-labelledby="series-tab">
                 <div className="bg-gray-50 rounded-sm p-3 space-y-3">
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <FormField name="course-detail-series-room_id" label="Room">
                       <Select size="sm" value={seriesForm.room_id} onChange={(e) => setSeriesForm((prev) => ({ ...prev, room_id: e.target.value }))}>
-                        <option value="">[NOT SET] (Provisional)</option>
+                        <option value="">Not set (Provisional)</option>
                         {rooms.map((r) => (
                           <option key={r.id} value={r.id}>
                             {r.name}
@@ -1434,7 +1450,7 @@ export default function CourseDetail() {
                           {pf.classroom ? (
                             <span>{pf.classroom}</span>
                           ) : (
-                            <span className="text-gray-400">[NOT SET]</span>
+                            <span className="text-gray-400">Not set</span>
                           )}
                         </td>
                         <td className="py-2 px-2">
@@ -1678,7 +1694,7 @@ function BulkEditModal({
               <label className="text-[10px] text-gray-500 block mb-0.5">Classroom</label>
               <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
                 <option value="__keep__">[KEEP ORIGINAL]</option>
-                <option value="">[NOT SET]</option>
+                          <option value="">Not set</option>
                 {rooms.map((room) => (
                   <option key={room.id} value={room.id}>{room.name}</option>
                 ))}
@@ -1748,11 +1764,11 @@ function BulkEditModal({
                     <td className="py-1.5 px-2 min-w-[120px]">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.room_id !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>
-                          {rooms.find((rm) => rm.id === eff.room_id)?.name ?? '[NOT SET]'}
+                          {rooms.find((rm) => rm.id === eff.room_id)?.name ?? 'Not set'}
                         </span>
                       ) : (
                         <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
-                          <option value="">[NOT SET]</option>
+                <option value="">Not set</option>
                           {rooms.map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>
                           ))}

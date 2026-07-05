@@ -2,6 +2,7 @@ import type { SubjectSessions } from "../types";
 import { daysBetween } from "./dateRange";
 import {
   getSelectedSessionsForGroup,
+  instituteDateKey,
   splitMergedSessionValue,
   uniqueValues,
 } from "./sessionGrouping";
@@ -225,9 +226,10 @@ function collectAttendingSessions(
     if (selectedSubjectIds.includes(group.subject_id)) continue;
     for (const session of group.sessions) {
       if (session.already_absent) continue;
-      const ranges = byDate.get(session.date) ?? [];
+      const date = session.date ?? instituteDateKey(session.start_at);
+      const ranges = byDate.get(date) ?? [];
       ranges.push({ start_at: session.start_at, end_at: session.end_at });
-      byDate.set(session.date, ranges);
+      byDate.set(date, ranges);
     }
   }
   return byDate;
@@ -318,7 +320,7 @@ export function buildSubmissionPayloads(
     const conflictingSitInIds = sitInSessionIds.filter((sid) => {
       const time = findSitInSessionTime(group, sid);
       if (!time) return false;
-      const date = new Date(time.start_at).toISOString().slice(0, 10);
+      const date = instituteDateKey(time.start_at);
       const enrolledRanges = attendingByDate.get(date) ?? [];
       return enrolledRanges.some((r) => overlaps(time, r));
     });

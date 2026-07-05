@@ -665,4 +665,322 @@ describe("Absence inbox", () => {
     expect(row).toHaveTextContent("11:30");
     expect(row).not.toHaveTextContent("SAT Math Scholar C2");
   });
+
+  it("shows Special Approve button for non-cancelled, non-special_approved absences", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    expect(screen.getByRole("button", { name: /special approve/i })).toBeInTheDocument();
+  });
+
+  it("hides Special Approve button for cancelled absences", async () => {
+    const cancelledPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], status: "cancelled" }],
+    };
+    mockApiJson.mockResolvedValueOnce(cancelledPage);
+    renderPage("/absences?status=cancelled");
+
+    await screen.findByText("John Smith");
+    expect(screen.queryByRole("button", { name: /special approve/i })).not.toBeInTheDocument();
+  });
+
+  it("hides Special Approve button for already special_approved absences", async () => {
+    const specialApprovedPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], status: "special_approved" }],
+    };
+    mockApiJson.mockResolvedValueOnce(specialApprovedPage);
+    renderPage("/absences?status=pending");
+
+    await screen.findByText("John Smith");
+    expect(screen.queryByRole("button", { name: /special approve/i })).not.toBeInTheDocument();
+  });
+
+  it("opens special approve confirmation modal with student details", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+
+    const modal = screen.getByRole("dialog");
+    expect(within(modal).getByText("Special Approve Absence")).toBeInTheDocument();
+    expect(within(modal).getByText(/John Smith/)).toBeInTheDocument();
+    expect(within(modal).getByText(/W250389/)).toBeInTheDocument();
+    expect(within(modal).getByText(/count toward the student/i)).toBeInTheDocument();
+  });
+
+  it("closes special approve modal on Back button click", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /back/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("calls status API with special_approved on confirm", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    updatedPage.items[0].version = 2;
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce(updatedPage);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/absences/abs-1/status",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ status: "special_approved", expected_version: 1 }),
+        }),
+      );
+    });
+  });
+
+  it("shows success toast after special approve", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce(updatedPage);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Absence marked as special approved")).toBeInTheDocument();
+    });
+  });
+
+  it("shows stale edit error toast on special approve conflict", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockRejectedValueOnce(new ApiRequestError("Version mismatch", { status: 409, code: "stale_edit" }))
+      .mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/changed by another user/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows error toast when special approve API fails", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockRejectedValueOnce(new Error("Special approve failed"));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Special approve failed")).toBeInTheDocument();
+    });
+  });
+
+  it("renders purple badge for special_approved status", async () => {
+    const specialApprovedPage = {
+      ...PAGE,
+      items: [{ ...PAGE.items[0], status: "special_approved" }],
+    };
+    mockApiJson.mockResolvedValueOnce(specialApprovedPage);
+    renderPage("/absences?status=pending");
+
+    const badge = await screen.findByText("Special Approved");
+    expect(badge).toHaveClass("bg-purple-50");
+    expect(badge).toHaveClass("text-purple-700");
+  });
+
+  it("makes correct API call sequence for special approve with SMS preview", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Special SMS preview" } });
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    // 1. Status update called first
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/absences/abs-1/status",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ status: "special_approved", expected_version: 1 }),
+        }),
+      );
+    });
+
+    // 2. SMS dry-run preview called second
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/absences/batch-send-success-sms",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ ids: ["abs-1"], dry_run: true }),
+        }),
+      );
+    });
+
+    // 3. SmsConfirmModal appears with preview message
+    await waitFor(() => {
+      expect(screen.getByText("Special SMS preview")).toBeInTheDocument();
+    });
+  });
+
+  it("Send button sends SMS and closes modal", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
+      .mockResolvedValueOnce({ sent: true, recipient_count: 1 });
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Preview")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+
+    await waitFor(() => {
+      // Verify actual send (no dry_run)
+      const sendCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      const lastCall = sendCalls[sendCalls.length - 1];
+      const body = JSON.parse((lastCall[1] as RequestInit).body as string);
+      expect(body.dry_run).toBeUndefined();
+      expect(body.ids).toEqual(["abs-1"]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/sms notification sent/i)).toBeInTheDocument();
+    });
+  });
+
+  it("Skip button closes modal without sending SMS", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } });
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Preview")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /skip/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/sms skipped/i)).toBeInTheDocument();
+    });
+
+    // Verify no non-dry-run SMS call was made
+    const sendCalls = mockApiJson.mock.calls.filter(
+      (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+    );
+    for (const call of sendCalls) {
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.dry_run).toBe(true);
+    }
+  });
+
+  it("no SMS sent during status update itself", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce({ preview: null });
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/absences/abs-1/status",
+        expect.anything(),
+      );
+    });
+
+    // Verify batch-send-success-sms was called with dry_run: true
+    await waitFor(() => {
+      const smsCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(smsCalls.length).toBeGreaterThanOrEqual(1);
+      const body = JSON.parse((smsCalls[0][1] as RequestInit).body as string);
+      expect(body.dry_run).toBe(true);
+    });
+
+    // Verify NO non-dry-run call was made
+    const nonDryRunCalls = mockApiJson.mock.calls.filter(
+      (c: unknown[]) => {
+        if (c[0] !== "/api/v1/absences/batch-send-success-sms") return false;
+        const body = JSON.parse((c[1] as RequestInit).body as string);
+        return body.dry_run !== true;
+      },
+    );
+    expect(nonDryRunCalls).toHaveLength(0);
+  });
+
+  it("handles SMS preview failure gracefully", async () => {
+    const updatedPage = freshPage();
+    updatedPage.items[0].status = "special_approved";
+    mockApiJson
+      .mockResolvedValueOnce(PAGE)
+      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockRejectedValueOnce(new Error("SMS preview failed"));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
+
+    // Status update should still succeed
+    await waitFor(() => {
+      expect(screen.getByText("Absence marked as special approved")).toBeInTheDocument();
+    });
+
+    // SMS modal should NOT appear (preview failed)
+    expect(screen.queryByText("Special SMS preview")).not.toBeInTheDocument();
+  });
 });

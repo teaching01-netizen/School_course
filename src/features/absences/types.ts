@@ -59,7 +59,8 @@ export type StudentAbsence = {
   updated_at: string;
 };
 
-export type AbsenceStatus = "pending" | "reviewed" | "actioned" | "cancelled";
+export const ABSENCE_STATUSES = ["pending", "reviewed", "actioned", "cancelled", "special_approved"] as const;
+export type AbsenceStatus = (typeof ABSENCE_STATUSES)[number];
 
 export type AbsenceSitInSession = {
   id: string;
@@ -103,6 +104,7 @@ export type AbsenceStats = {
   reviewed_count: number;
   actioned_count: number;
   cancelled_count: number;
+  special_approved_count: number;
   today_count: number;
 };
 
@@ -120,6 +122,7 @@ export type StaffCreateAbsenceRequest = {
   sit_in_session_ids: string[];
   reason?: string;
   reason_category?: string;
+  status?: "pending" | "special_approved";
 };
 
 export type SmsPreview = {
@@ -131,6 +134,7 @@ export type AbsenceNotificationsSettings = {
   sms_parent_enabled: boolean;
   sms_parent_template: string;
   sms_success_template?: string;
+  sms_special_approved_template?: string;
   allow_submit_without_otp: boolean;
 };
 

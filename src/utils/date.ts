@@ -1,14 +1,17 @@
+const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
+
 export function formatDate(iso: string): string {
   if (!iso) return "";
-  // Ensure the date is parsed in local timezone context without shifting
+  const hasTimeComponent = iso.includes("T");
   const datePart = iso.split("T")[0];
-  const d = new Date(`${datePart}T00:00:00`);
+  const d = new Date(hasTimeComponent ? iso : `${datePart}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",
     year: "numeric",
+    ...(hasTimeComponent ? { timeZone: INSTITUTE_TIME_ZONE } : {}),
   });
 }
 
@@ -24,6 +27,7 @@ export function formatTime(iso: string): string {
   return d.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: INSTITUTE_TIME_ZONE,
   });
 }
 
@@ -38,5 +42,6 @@ export function formatDateTime(iso: string): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: INSTITUTE_TIME_ZONE,
   });
 }

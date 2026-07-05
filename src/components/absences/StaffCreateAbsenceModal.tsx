@@ -38,7 +38,7 @@ import Modal from "../Modal";
 import SubjectCard from "./SubjectCard";
 import SmsConfirmModal from "./SmsConfirmModal";
 
-type ModalStep = "subjects" | "sessions" | "confirm";
+type ModalStep = "type" | "subjects" | "sessions" | "confirm";
 
 type Props = {
   onClose: () => void;
@@ -68,7 +68,7 @@ type SpecialSitInSessionOption = {
   label: string;
 };
 
-const STEP_KEYS: ModalStep[] = ["subjects", "sessions", "confirm"];
+const STEP_KEYS: ModalStep[] = ["type", "subjects", "sessions", "confirm"];
 
 function specialSitInSessionsForGroup(
   group: SubjectSessions,
@@ -192,7 +192,8 @@ function SkeletonRows({ count = 2 }: { count?: number }) {
 
 export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   const { addToast } = useToast();
-  const [step, setStep] = useState<ModalStep>("subjects");
+  const [step, setStep] = useState<ModalStep>("type");
+  const [absenceType, setAbsenceType] = useState<"normal" | "special">("normal");
 
   // Step 1: Student lookup + subject selection
   const [wcode, setWcode] = useState("");
@@ -912,7 +913,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   }
 
   function handleNext() {
-    if (step === "subjects") {
+    if (step === "type") {
+      setStep("subjects");
+    } else if (step === "subjects") {
       if (!canAdvanceFromSubjects()) {
         addToast(
           "error",
@@ -943,6 +946,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   function handleBack() {
     if (step === "sessions") setStep("subjects");
     else if (step === "confirm") setStep("sessions");
+    else if (step === "subjects") setStep("type");
   }
 
   async function lookupStudent() {
@@ -1047,6 +1051,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               sit_in_session_ids: uniqueSitInSessionIds,
               reason_category: reasonCategory || undefined,
               reason: reason || undefined,
+              status: absenceType === "special" ? "special_approved" : undefined,
             }),
           },
         );
@@ -1157,7 +1162,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         ) : (
           <>
             <div className="flex-1" />
-            {step !== "subjects" ? (
+            {step !== "type" ? (
               <Button variant="secondary" onClick={handleBack}>
                 Back
               </Button>
@@ -1170,6 +1175,73 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
     >
       <StepIndicator step={step} />
+
+      {/* Step 0: Absence Type */}
+      {step === "type" && (
+        <div className="space-y-5">
+          <h2 ref={headingRef} tabIndex={-1} className="sr-only">
+            Step 1: Select Absence Type
+          </h2>
+          <p className="text-sm text-gray-600">
+            Choose the type of absence to create:
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              aria-pressed={absenceType === "normal"}
+              onClick={() => setAbsenceType("normal")}
+              className={`rounded-lg border-2 p-6 text-left transition-colors ${
+                absenceType === "normal"
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`rounded-full p-2 ${
+                  absenceType === "normal" ? "bg-blue-100" : "bg-gray-100"
+                }`}>
+                  <Info className={`h-5 w-5 ${
+                    absenceType === "normal" ? "text-blue-600" : "text-gray-500"
+                  }`} />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900">Normal Absence</p>
+                  <p className="text-sm text-gray-500">Requires review and approval</p>
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              aria-pressed={absenceType === "special"}
+              onClick={() => setAbsenceType("special")}
+              className={`rounded-lg border-2 p-6 text-left transition-colors ${
+                absenceType === "special"
+                  ? "border-purple-500 bg-purple-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`rounded-full p-2 ${
+                  absenceType === "special" ? "bg-purple-100" : "bg-gray-100"
+                }`}>
+                  <Info className={`h-5 w-5 ${
+                    absenceType === "special" ? "text-purple-600" : "text-gray-500"
+                  }`} />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900">Special Absence</p>
+                  <p className="text-sm text-gray-500">Pre-approved, skips review</p>
+                </div>
+              </div>
+            </button>
+          </div>
+          {absenceType === "special" && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm text-purple-700">
+              <p>This absence will be created with <strong>Special Approved</strong> status and will not count toward the student&apos;s absence rate limit.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Step 1: Student + Subjects */}
       {step === "subjects" && (

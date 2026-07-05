@@ -154,6 +154,41 @@ func parseDate(s string) pgtype.Date {
 	return pgtype.Date{Time: t, Valid: true}
 }
 
+func instituteLocation(instituteTZ string) (*time.Location, error) {
+	zone := strings.TrimSpace(instituteTZ)
+	if zone == "" {
+		zone = "Asia/Bangkok"
+	}
+	return time.LoadLocation(zone)
+}
+
+func parseInstituteLocalDate(s string, instituteTZ string) (time.Time, error) {
+	loc, err := instituteLocation(instituteTZ)
+	if err != nil {
+		return time.Time{}, err
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, loc)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}
+
+func sessionDateKey(utcISO string, instituteTZ string) string {
+	start, err := time.Parse(time.RFC3339Nano, utcISO)
+	if err != nil {
+		if len(utcISO) >= 10 {
+			return utcISO[:10]
+		}
+		return utcISO
+	}
+	loc, err := instituteLocation(instituteTZ)
+	if err != nil {
+		return start.UTC().Format("2006-01-02")
+	}
+	return start.In(loc).Format("2006-01-02")
+}
+
 func managedAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
 	response := map[string]any{
 		"status":      row.Status,
@@ -502,7 +537,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 				return 0, nil, fmt.Errorf("bad sessions")
 			}
-			count, err := qtx.ValidSitInSessionOverlap(r.Context(), item.ID, sessionUUIDs)
+			count, err := qtx.ValidSitInSessionOverlap(r.Context(), item.ID, sessionUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
@@ -528,7 +563,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				}
 				missedUUIDs = append(missedUUIDs, uid)
 			}
-			count, err := qtx.ValidMissedSessionCount(r.Context(), item.ID, missedUUIDs)
+			count, err := qtx.ValidMissedSessionCount(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
@@ -538,7 +573,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 				return 0, nil, fmt.Errorf("invalid missed sessions")
 			}
-			timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), item.ID, missedUUIDs)
+			timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
@@ -720,12 +755,12 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 
 	var dateFrom, dateTo time.Time
 	if dateFromStr != "" && dateToStr != "" {
-		dateFrom, err = time.Parse("2006-01-02", dateFromStr)
+		dateFrom, err = parseInstituteLocalDate(dateFromStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
 			return
 		}
-		dateTo, err = time.Parse("2006-01-02", dateToStr)
+		dateTo, err = parseInstituteLocalDate(dateToStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
 			return
@@ -766,12 +801,12 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	var dateFrom, dateTo time.Time
 	var err error
 	if dateFromProvided {
-		dateFrom, err = time.Parse("2006-01-02", dateFromStr)
+		dateFrom, err = parseInstituteLocalDate(dateFromStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
 			return
 		}
-		dateTo, err = time.Parse("2006-01-02", dateToStr)
+		dateTo, err = parseInstituteLocalDate(dateToStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
 			return
@@ -926,10 +961,9 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		JOIN student_absences sa ON sa.course_id = sess.course_id
 		WHERE sa.wcode = $1
 		  AND sa.status <> 'cancelled'
-		  AND sess.start_at >= sa.date_from
-		  AND sess.start_at < (sa.date_to + interval '1 day')
+		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
 		  AND sess.deleted_at IS NULL
-	`, wcode)
+	`, wcode, s.deps.InstituteTZ)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -1049,7 +1083,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 				ID:            sess.ID,
 				StartAt:       sess.StartAt,
 				EndAt:         sess.EndAt,
-				Date:          sess.StartAt[:10],
+				Date:          sessionDateKey(sess.StartAt, s.deps.InstituteTZ),
 				AlreadyAbsent: absentSet[sess.ID],
 			})
 		}
@@ -1065,7 +1099,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			// Resolve sit-in using the student's enrolled course ID for this block.
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
-				resolveFrom, resolveTo := resolveDateRangeForSessionStarts(sessionStartAtValues(g.Sessions), dateFrom, dateTo)
+				resolveFrom, resolveTo := resolveDateRangeForSessionStartsInZone(sessionStartAtValues(g.Sessions), dateFrom, dateTo, s.deps.InstituteTZ)
 				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, satVerbalAfterPriority)
 				if resolveErr != nil {
 					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
@@ -1135,6 +1169,14 @@ func sessionStartAtValues(sessions []sessionRow) []string {
 }
 
 func resolveDateRangeForSessionStarts(starts []string, fallbackFrom time.Time, fallbackTo time.Time) (time.Time, time.Time) {
+	return resolveDateRangeForSessionStartsInZone(starts, fallbackFrom, fallbackTo, "Asia/Bangkok")
+}
+
+func resolveDateRangeForSessionStartsInZone(starts []string, fallbackFrom time.Time, fallbackTo time.Time, instituteTZ string) (time.Time, time.Time) {
+	loc, err := instituteLocation(instituteTZ)
+	if err != nil {
+		loc = time.UTC
+	}
 	var from time.Time
 	var to time.Time
 	for _, raw := range starts {
@@ -1142,7 +1184,8 @@ func resolveDateRangeForSessionStarts(starts []string, fallbackFrom time.Time, f
 		if err != nil {
 			continue
 		}
-		date := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		localStart := start.In(loc)
+		date := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, time.UTC)
 		if from.IsZero() || date.Before(from) {
 			from = date
 		}

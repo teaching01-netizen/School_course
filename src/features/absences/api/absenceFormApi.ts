@@ -67,6 +67,9 @@ export function normalizeAbsenceFormConfig(
     sms_success_template:
       data.notifications?.sms_success_template ??
       DEFAULT_NOTIFICATIONS.sms_success_template,
+    sms_special_approved_template:
+      data.notifications?.sms_special_approved_template ??
+      DEFAULT_NOTIFICATIONS.sms_special_approved_template,
     allow_submit_without_otp:
       data.notifications?.allow_submit_without_otp ??
       DEFAULT_NOTIFICATIONS.allow_submit_without_otp,

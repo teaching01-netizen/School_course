@@ -176,6 +176,10 @@ describe("instituteDateKey", () => {
     expect(key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("uses the Bangkok calendar date for UTC midnight-boundary sessions", () => {
+    expect(instituteDateKey("2026-01-15T17:00:00Z")).toBe("2026-01-16");
+  });
+
   it("falls back to first 10 chars for invalid dates", () => {
     expect(instituteDateKey("not-a-date")).toBe("not-a-date");
   });

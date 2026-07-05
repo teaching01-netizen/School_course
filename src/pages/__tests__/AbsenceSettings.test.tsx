@@ -32,7 +32,10 @@ const SETTINGS = {
 };
 
 describe("Absence settings", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiJson.mockReset();
+  });
 
   it("loads and saves public form rules without deployment", async () => {
     mockApiJson.mockResolvedValueOnce(SETTINGS).mockResolvedValueOnce(SETTINGS);
@@ -105,5 +108,98 @@ describe("Absence settings", () => {
       );
     });
     expect(await screen.findByDisplayValue("Updated {{class_name}} {{sit_in_class}}")).toBeInTheDocument();
+  });
+
+  it("renders and saves sms_special_approved_template", async () => {
+    const initialSettings = {
+      ...SETTINGS,
+      notifications: {
+        ...SETTINGS.notifications,
+        sms_special_approved_template: "",
+      },
+    };
+    const savedSettings = {
+      ...SETTINGS,
+      notifications: {
+        ...SETTINGS.notifications,
+        sms_special_approved_template: "Special approved {{nickname}}",
+      },
+    };
+    mockApiJson.mockResolvedValueOnce(initialSettings).mockResolvedValueOnce(savedSettings);
+    render(<ToastProvider><AbsenceSettings /></ToastProvider>);
+    const user = userEvent.setup();
+
+    const specialTemplate = await screen.findByLabelText(/special approved sms template/i);
+    expect(specialTemplate).toBeInTheDocument();
+    fireEvent.change(specialTemplate, { target: { value: "Special approved {{nickname}}" } });
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/v1/admin/absence-settings",
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining('"sms_special_approved_template":"Special approved {{nickname}}"'),
+        }),
+      );
+    });
+  });
+
+  it("does not drop special template when saving parent SMS checkbox toggle", async () => {
+    const settingsWithSpecial = {
+      ...SETTINGS,
+      notifications: {
+        ...SETTINGS.notifications,
+        sms_special_approved_template: "Keep me please",
+      },
+    };
+    mockApiJson
+      .mockResolvedValueOnce(settingsWithSpecial)
+      .mockResolvedValueOnce(settingsWithSpecial);
+    render(<ToastProvider><AbsenceSettings /></ToastProvider>);
+    const user = userEvent.setup();
+
+    // Wait for form to load, then toggle parent SMS checkbox
+    await screen.findByLabelText(/maximum date range/i);
+    const parentCheckbox = screen.getByRole("checkbox", { name: /enable parent sms/i });
+    await user.click(parentCheckbox);
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await waitFor(() => {
+      const putCall = mockApiJson.mock.calls.find(
+        (c: unknown[]) => c[0] === "/api/v1/admin/absence-settings" && (c[1] as RequestInit).method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse((putCall![1] as RequestInit).body as string);
+      expect(body.notifications.sms_special_approved_template).toBe("Keep me please");
+    });
+  });
+
+  it("does not drop special template when saving normal success template", async () => {
+    const settingsWithSpecial = {
+      ...SETTINGS,
+      notifications: {
+        ...SETTINGS.notifications,
+        sms_special_approved_template: "Do not drop me",
+      },
+    };
+    mockApiJson
+      .mockResolvedValueOnce(settingsWithSpecial)
+      .mockResolvedValueOnce(settingsWithSpecial);
+    render(<ToastProvider><AbsenceSettings /></ToastProvider>);
+    const user = userEvent.setup();
+
+    const successTemplate = await screen.findByLabelText(/success sms template/i);
+    fireEvent.change(successTemplate, { target: { value: "Updated normal" } });
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await waitFor(() => {
+      const putCall = mockApiJson.mock.calls.find(
+        (c: unknown[]) => c[0] === "/api/v1/admin/absence-settings" && (c[1] as RequestInit).method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse((putCall![1] as RequestInit).body as string);
+      expect(body.notifications.sms_special_approved_template).toBe("Do not drop me");
+    });
   });
 });

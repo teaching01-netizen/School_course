@@ -120,7 +120,7 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	count, err := q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{beforeAbsence, moreThanThirtyDaysAfter})
+	count, err := q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{beforeAbsence, moreThanThirtyDaysAfter}, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 		t.Fatalf("expected before-absence and 30-plus-day sit-in sessions to be valid, got count %d", count)
 	}
 
-	count, err = q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{overlappingMissedTime, wrongCourse})
+	count, err = q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{overlappingMissedTime, wrongCourse}, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Both non-overlapping sessions pass regardless of course
-	count, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromSitInCourse, fromOtherCourse})
+	count, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromSitInCourse, fromOtherCourse}, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Overlapping session still fails; wrong-course-but-non-overlapping passes
-	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{overlapping, fromOtherCourse})
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{overlapping, fromOtherCourse}, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Single session from other course passes
-	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromOtherCourse})
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromOtherCourse}, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID)
+	rows, err := q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}

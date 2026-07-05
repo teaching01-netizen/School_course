@@ -368,7 +368,7 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 			return createdAbsenceRecord{}, false
 		}
-		count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs)
+		count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs, s.deps.InstituteTZ)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
@@ -395,7 +395,7 @@ func (s *server) createAbsenceRecordTx(
 			}
 			missedUUIDs = append(missedUUIDs, uid)
 		}
-		count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs)
+		count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
@@ -405,7 +405,7 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 			return createdAbsenceRecord{}, false
 		}
-		timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), row.ID, missedUUIDs)
+		timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

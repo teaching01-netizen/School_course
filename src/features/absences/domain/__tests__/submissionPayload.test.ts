@@ -54,6 +54,49 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("uses Bangkok API date keys for missed-session date ranges", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sessions: [
+            {
+              id: "missed-boundary",
+              start_at: "2026-01-15T17:00:00Z",
+              end_at: "2026-01-15T18:00:00Z",
+              date: "2026-01-16",
+              already_absent: false,
+            },
+          ],
+          sit_in: { sit_in_method: "zoom" },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-boundary"]),
+      sitInSelections: {},
+      reason: "Travel",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      payloads: [
+        {
+          subject_id: "subj-1",
+          course_id: "course-1",
+          date_from: "2026-01-16",
+          date_to: "2026-01-16",
+          reason: "Travel",
+          sit_in_method: "zoom",
+          sit_in_course_id: "course-1",
+          missed_session_ids: ["missed-boundary"],
+          sit_in_session_ids: [],
+        },
+      ],
+    });
+  });
+
   it("builds payload when selected physical sit-ins span multiple target courses", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
@@ -171,6 +214,62 @@ describe("absence submission payload builder", () => {
           sit_in_session_ids: [],
         },
       ],
+    });
+  });
+
+  it("rejects sit-in conflicts on the Bangkok date when the sit-in starts near UTC midnight", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: {
+              id: "target-1",
+              code: "MATH301",
+              name: "Calculus III",
+            },
+            available_sessions: [
+              {
+                id: "sit-boundary",
+                course_id: "target-1",
+                start_at: "2026-01-15T17:00:00Z",
+                end_at: "2026-01-15T18:00:00Z",
+              },
+            ],
+          },
+        },
+        {
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            {
+              id: "enrolled-boundary",
+              start_at: "2026-01-15T17:30:00Z",
+              end_at: "2026-01-15T18:30:00Z",
+              date: "2026-01-16",
+              already_absent: false,
+            },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-boundary" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
     });
   });
 

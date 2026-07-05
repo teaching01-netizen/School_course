@@ -59,13 +59,13 @@ describe("KanbanView hard delete", () => {
     });
     renderKanban();
     expect(await screen.findByText("John Smith")).toBeInTheDocument();
-    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(4));
 
     const options = mockUseRealtime.mock.calls[0]?.[2] as { onReconnect?: () => void } | undefined;
     expect(options?.onReconnect).toBeTypeOf("function");
     await act(async () => options?.onReconnect?.());
 
-    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(6));
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(8));
   });
 
   it("shows delete button for pending absences", async () => {
@@ -227,5 +227,47 @@ describe("KanbanView hard delete", () => {
     expect(screen.queryByText("Cancel absence")).not.toBeInTheDocument();
     expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
     expect(screen.getByText(/permanently remove the absence record/i)).toBeInTheDocument();
+  });
+
+  it("renders special_approved badge with purple styling", async () => {
+    const specialApproved = { ...PENDING_ABSENCE, status: "special_approved" };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [specialApproved], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+
+    await screen.findByText("John Smith");
+    const badges = screen.getAllByText("Special Approved");
+    const badge = badges.find(el => el.tagName === "SPAN");
+    expect(badge).toHaveClass("bg-purple-50");
+    expect(badge).toHaveClass("text-purple-700");
+  });
+
+  it("does not show Mark Reviewed button for special_approved absences", async () => {
+    const specialApproved = { ...PENDING_ABSENCE, status: "special_approved" };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [specialApproved], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+
+    await screen.findByText("John Smith");
+    expect(screen.queryByRole("button", { name: /mark reviewed/i })).not.toBeInTheDocument();
+  });
+
+  it("shows Cancel button for special_approved absences", async () => {
+    const specialApproved = { ...PENDING_ABSENCE, status: "special_approved" };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [specialApproved], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban();
+
+    await screen.findByText("John Smith");
+    expect(screen.getByRole("button", { name: /^Cancel$/ })).toBeInTheDocument();
   });
 });

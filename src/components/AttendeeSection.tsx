@@ -136,7 +136,7 @@ export function AttendeeSection({
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-[28px] font-bold text-gray-800">
+        <h2 className="text-xl font-semibold text-gray-800">
           Attendee
           {draftCount > 0 && (
             <span className="ml-2 text-sm font-normal text-amber-600 align-middle">

@@ -59,6 +59,17 @@ describe("getAbsenceSessionDateLabels", () => {
     expect(getAbsenceSessionDateLabels(absence)).toBeTruthy();
   });
 
+  it("returns missed-session dates on the Bangkok calendar day", () => {
+    const absence: ManagedAbsence = {
+      ...baseAbsence,
+      missed_sessions: [
+        { id: "ms1", start_at: "2026-01-15T17:00:00Z", end_at: "2026-01-15T18:00:00Z", session_id: "s1", course_id: "c1", course_code: "MATH101", course_name: "Math 101" } as AbsenceSitInSession,
+      ],
+    };
+
+    expect(getAbsenceSessionDateLabels(absence)).toContain("16 Jan 2026");
+  });
+
   it("falls back to date_from/date_to range when no missed_sessions", () => {
     const absence: ManagedAbsence = { ...baseAbsence, date_from: "2026-06-01", date_to: "2026-06-05" };
     const labels = getAbsenceSessionDateLabels(absence);
@@ -101,6 +112,22 @@ describe("formatBatchSitInSummary", () => {
     const result = formatBatchSitInSummary(absence);
     expect(result).toContain("Calculus");
     expect(result).not.toContain("To arrange");
+  });
+
+  it("returns sit-in labels on the Bangkok calendar day and time", () => {
+    const absence: ManagedAbsence = {
+      ...baseAbsence,
+      sit_in_method: "physical",
+      sit_in_subject_name: "Calculus",
+      sit_ins: [
+        { id: "sis1", start_at: "2026-01-15T17:00:00Z", end_at: "2026-01-15T18:00:00Z", session_id: "s1", course_id: "c1", course_code: "MATH301", course_name: "Calc III" } as AbsenceSitInSession,
+      ],
+    };
+
+    const result = formatBatchSitInSummary(absence);
+
+    expect(result).toContain("16 Jan 2026");
+    expect(result).toContain("00:00-01:00");
   });
 
   it("returns className only for physical with no session times", () => {

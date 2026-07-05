@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SubjectSessions } from "../../types";
 import {
   firstPriorityLevel,
@@ -31,6 +31,10 @@ const baseGroup = {
   absence_rate_exceeded: false,
   sessions: [],
 } satisfies SubjectSessions;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("firstPriorityLevel", () => {
   it("returns lowest level from priorities", () => {
@@ -389,6 +393,22 @@ describe("getSitInSessionLabel", () => {
     const session = { id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", class_name: "Morning Calc" };
     const result = getSitInSessionLabel(session, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", []);
     expect(result).toMatch(/Calc III —/);
+  });
+
+  it("formats sit-in session times in Bangkok instead of the browser timezone", () => {
+    const spy = vi.spyOn(Date.prototype, "toLocaleTimeString");
+    const result = getSitInSessionLabel(
+      { id: "s1", start_at: "2026-01-15T02:00:00Z", end_at: "2026-01-15T03:00:00Z", class_name: "Morning Calc" },
+      { id: "c1", code: "MATH301", name: "Calc III" },
+      "Fallback",
+      [],
+    );
+
+    expect(result).toContain("09:00-10:00");
+    expect(spy).toHaveBeenCalledWith(
+      "en-GB",
+      expect.objectContaining({ timeZone: "Asia/Bangkok" }),
+    );
   });
 
   it("falls back through subject_name, course_name, subject_code, course_code", () => {

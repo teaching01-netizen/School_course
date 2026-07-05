@@ -1,7 +1,7 @@
 -- name: AbsenceCreate :one
 INSERT INTO student_absences (wcode, course_id, date_from, date_to, reason, sit_in_course_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, wcode, course_id, date_from, date_to, reason, sit_in_course_id, created_at;
+RETURNING id, wcode, course_id, date_from, date_to, reason, sit_in_course_id, created_at, version;
 
 -- name: AbsenceList :many
 SELECT sa.id, sa.wcode, sa.course_id, sa.date_from, sa.date_to, sa.reason, sa.sit_in_course_id, sa.created_at,
@@ -39,8 +39,7 @@ SELECT DISTINCT sess.id AS session_id
 FROM sessions sess
 JOIN student_absences sa ON sa.course_id = sess.course_id
 WHERE sa.wcode = $1
-  AND sess.start_at >= sa.date_from
-  AND sess.start_at < (sa.date_to + interval '1 day')
-  AND sess.start_at >= $2
-  AND sess.start_at < ($3::date + interval '1 day')
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN sa.date_from AND sa.date_to
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date <= $3::date
   AND sess.deleted_at IS NULL;

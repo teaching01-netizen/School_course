@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/realtime"
 )
@@ -71,15 +72,15 @@ type calendarAbsenceEntry struct {
 }
 
 type absenceSessionDTO struct {
-	ID         string  `json:"id"`
-	SessionID  string  `json:"session_id"`
-	CourseID   string  `json:"course_id"`
-	CourseCode string  `json:"course_code"`
-	CourseName string  `json:"course_name"`
+	ID          string  `json:"id"`
+	SessionID   string  `json:"session_id"`
+	CourseID    string  `json:"course_id"`
+	CourseCode  string  `json:"course_code"`
+	CourseName  string  `json:"course_name"`
 	SubjectName *string `json:"subject_name"`
-	RoomName   *string `json:"room_name"`
-	StartAt    string  `json:"start_at"`
-	EndAt      string  `json:"end_at"`
+	RoomName    *string `json:"room_name"`
+	StartAt     string  `json:"start_at"`
+	EndAt       string  `json:"end_at"`
 }
 
 type absenceTimelineDTO struct {
@@ -264,12 +265,7 @@ func (s *server) parseFilter(w http.ResponseWriter, r *http.Request, defaultLimi
 }
 
 func validAbsenceStatus(status string) bool {
-	switch status {
-	case "pending", "reviewed", "actioned", "cancelled":
-		return true
-	default:
-		return false
-	}
+	return absences.ValidStatus(status)
 }
 
 func (s *server) publishAbsenceChanges(ids []string) {
@@ -299,16 +295,7 @@ func (s *server) publishAbsenceChanged(id string) {
 }
 
 func validTransition(from, to string) bool {
-	switch from {
-	case "pending":
-		return to == "reviewed" || to == "cancelled"
-	case "reviewed":
-		return to == "actioned" || to == "pending" || to == "cancelled"
-	case "actioned":
-		return to == "reviewed" || to == "cancelled"
-	default:
-		return false
-	}
+	return absences.ValidTransition(absences.Status(from), absences.Status(to))
 }
 
 func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
@@ -583,9 +570,9 @@ func (s *server) sessionDTO(rows []sqldb.ManagedAbsenceSession) []absenceSession
 		out = append(out, absenceSessionDTO{
 			ID: id, SessionID: sessionID, CourseID: courseID, CourseCode: row.CourseCode, CourseName: row.CourseName,
 			SubjectName: stringPtrIfValid(row.SubjectName),
-			RoomName: stringPtrIfValid(row.RoomName),
-			StartAt:  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:    row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			RoomName:    stringPtrIfValid(row.RoomName),
+			StartAt:     row.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:       row.EndAt.Time.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	return out
@@ -658,10 +645,7 @@ func (s *server) writeStaleAbsence(w http.ResponseWriter) {
 }
 
 func statusAuditAction(current, next string) string {
-	if current == "reviewed" && next == "pending" {
-		return "reopened"
-	}
-	return next
+	return absences.StatusAuditAction(absences.Status(current), absences.Status(next))
 }
 
 func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Request) {
@@ -753,16 +737,19 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		if body.Status == "actioned" {
 			recipients := successSMSPhones(current.ParentPhone, current.StudentPhone)
 			if len(recipients) > 0 {
+				smsTemplate := successSMSTemplateForStatus(settings, body.Status)
 				sessions, sessErr := qtx.ManagedAbsenceSessions(r.Context(), id)
 				if sessErr == nil {
 					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
+					currentForSms := current
+					currentForSms.Status = body.Status
 					if missedErr == nil {
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, missed, recipients, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, missed, recipients, s.deps.InstituteTZ)
 					} else {
 						if s.deps.Log != nil {
 							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", r.PathValue("id"), "error", missedErr)
 						}
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, current, sessions, nil, recipients, s.deps.InstituteTZ)
+						sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, nil, recipients, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)
@@ -960,7 +947,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
 				return 0, nil, fmt.Errorf("sit-in course required")
 			}
-			count, err := qtx.ValidSitInSessionCount(r.Context(), id, selectedCourse, sessionIDs)
+			count, err := qtx.ValidSitInSessionCount(r.Context(), id, selectedCourse, sessionIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, message := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, message)
@@ -1016,7 +1003,7 @@ func (s *server) handleSitInCandidates(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course ID")
 		return
 	}
-	rows, err := s.deps.Q.SitInCandidateSessions(r.Context(), absenceID, courseID)
+	rows, err := s.deps.Q.SitInCandidateSessions(r.Context(), absenceID, courseID, s.deps.InstituteTZ)
 	if err != nil {
 		status, code, message := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, message)
@@ -1230,10 +1217,11 @@ type absenceSitInSettings struct {
 }
 
 type absenceNotificationsSettings struct {
-	SmsParentEnabled      bool   `json:"sms_parent_enabled"`
-	SmsParentTemplate     string `json:"sms_parent_template"`
-	SmsSuccessTemplate    string `json:"sms_success_template"`
-	AllowSubmitWithoutOtp bool   `json:"allow_submit_without_otp"`
+	SmsParentEnabled           bool   `json:"sms_parent_enabled"`
+	SmsParentTemplate          string `json:"sms_parent_template"`
+	SmsSuccessTemplate         string `json:"sms_success_template"`
+	SmsSpecialApprovedTemplate string `json:"sms_special_approved_template"`
+	AllowSubmitWithoutOtp      bool   `json:"allow_submit_without_otp"`
 }
 
 type adminContactSettings struct {
@@ -1263,10 +1251,11 @@ func defaultAbsenceSettings() absenceSettings {
 		},
 		SitIn: absenceSitInSettings{AutoResolveEnabled: true, ZoomDescription: "Zoom session - no physical class attendance required.", MaxSessionsPerAbsence: 10},
 		Notifications: absenceNotificationsSettings{
-			SmsParentEnabled:      true,
-			SmsParentTemplate:     "Your Warwick verification code is {{code}}.",
-			SmsSuccessTemplate:    "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
-			AllowSubmitWithoutOtp: false,
+			SmsParentEnabled:           true,
+			SmsParentTemplate:          "Your Warwick verification code is {{code}}.",
+			SmsSuccessTemplate:         "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+			SmsSpecialApprovedTemplate: "Warwick Institute: {{nickname}} จะมีเรียนชดเชย {{absence_summary}} และมีกำหนดเข้าเรียน {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+			AllowSubmitWithoutOtp:      false,
 		},
 	}
 }
@@ -1294,6 +1283,11 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 	}
 	if policies.Notifications != nil {
 		settings.Notifications = *policies.Notifications
+		// Preserve default special-approved template for legacy settings
+		// that predate this field.
+		if settings.Notifications.SmsSpecialApprovedTemplate == "" {
+			settings.Notifications.SmsSpecialApprovedTemplate = defaultAbsenceSettings().Notifications.SmsSpecialApprovedTemplate
+		}
 	}
 	if policies.AdminContact != nil {
 		settings.AdminContact = *policies.AdminContact
@@ -1336,6 +1330,9 @@ func validateAbsenceSettings(settings absenceSettings) error {
 	}
 	if len([]rune(settings.Notifications.SmsSuccessTemplate)) > 500 {
 		return fmt.Errorf("sms_success_template must not exceed 500 characters")
+	}
+	if len([]rune(settings.Notifications.SmsSpecialApprovedTemplate)) > 500 {
+		return fmt.Errorf("sms_special_approved_template must not exceed 500 characters")
 	}
 	if len([]rune(settings.AdminContact.Email)) > 200 || len([]rune(settings.AdminContact.Phone)) > 50 || len([]rune(settings.AdminContact.Hours)) > 120 {
 		return fmt.Errorf("admin contact fields are too long")

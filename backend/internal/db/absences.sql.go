@@ -14,7 +14,7 @@ import (
 const absenceCreate = `-- name: AbsenceCreate :one
 INSERT INTO student_absences (wcode, course_id, date_from, date_to, reason, sit_in_course_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, wcode, course_id, date_from, date_to, reason, sit_in_course_id, created_at
+RETURNING id, wcode, course_id, date_from, date_to, reason, sit_in_course_id, created_at, version
 `
 
 type AbsenceCreateParams struct {
@@ -35,6 +35,7 @@ type AbsenceCreateRow struct {
 	Reason        pgtype.Text        `json:"reason"`
 	SitInCourseID pgtype.UUID        `json:"sit_in_course_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Version       int32              `json:"version"`
 }
 
 func (q *Queries) AbsenceCreate(ctx context.Context, arg AbsenceCreateParams) (AbsenceCreateRow, error) {
@@ -56,6 +57,7 @@ func (q *Queries) AbsenceCreate(ctx context.Context, arg AbsenceCreateParams) (A
 		&i.Reason,
 		&i.SitInCourseID,
 		&i.CreatedAt,
+		&i.Version,
 	)
 	return i, err
 }
@@ -123,10 +125,9 @@ SELECT DISTINCT sess.id AS session_id
 FROM sessions sess
 JOIN student_absences sa ON sa.course_id = sess.course_id
 WHERE sa.wcode = $1
-  AND sess.start_at >= sa.date_from
-  AND sess.start_at < (sa.date_to + interval '1 day')
-  AND sess.start_at >= $2
-  AND sess.start_at < ($3::date + interval '1 day')
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN sa.date_from AND sa.date_to
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date
+  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date <= $3::date
   AND sess.deleted_at IS NULL
 `
 

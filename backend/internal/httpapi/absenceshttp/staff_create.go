@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/idempotency"
 )
@@ -27,6 +28,7 @@ type staffCreateAbsenceRequest struct {
 	SitInSessionIDs  []string `json:"sit_in_session_ids"`
 	Reason           *string  `json:"reason"`
 	ReasonCategory   *string  `json:"reason_category"`
+	Status           *string  `json:"status"` // optional: "pending" (default) or "special_approved"
 }
 
 func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,20 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 		if body.SitInMethod == nil || strings.TrimSpace(*body.SitInMethod) == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "sit_in_method is required")
 			return 0, nil, fmt.Errorf("sit-in method required")
+		}
+
+		requestedStatus := absences.StatusPending
+		if body.Status != nil {
+			statusVal := strings.TrimSpace(*body.Status)
+			switch absences.Status(statusVal) {
+			case absences.StatusPending:
+				requestedStatus = absences.StatusPending
+			case absences.StatusSpecialApproved:
+				requestedStatus = absences.StatusSpecialApproved
+			default:
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_status", "status must be 'pending' or 'special_approved'")
+				return 0, nil, fmt.Errorf("bad status")
+			}
 		}
 
 		settings, err := s.readAbsenceSettings(r)
@@ -193,7 +209,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 				return 0, nil, fmt.Errorf("non-physical sit-in with sessions")
 			}
-			count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs)
+			count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
@@ -220,7 +236,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				}
 				missedUUIDs = append(missedUUIDs, uid)
 			}
-			count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs)
+			count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
@@ -248,6 +264,25 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			return 0, nil, err
 		}
 
+		if requestedStatus == absences.StatusSpecialApproved {
+			newVersion, err := qtx.AbsenceStatusUpdate(r.Context(), row.ID, string(absences.StatusSpecialApproved), actorID(user.ID), row.Version)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not set special approved status")
+				return 0, nil, err
+			}
+			if err := qtx.AbsenceAuditInsert(r.Context(), sqldb.AbsenceAuditInsertParams{
+				AbsenceID: row.ID,
+				Action:    string(absences.StatusSpecialApproved),
+				ActorID:   actorID(user.ID),
+				ActorRole: "admin",
+				Details:   map[string]any{"from": "pending", "to": "special_approved", "staff_created": true, "wcode": body.Wcode},
+			}); err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write absence timeline")
+				return 0, nil, err
+			}
+			row.Version = newVersion
+		}
+
 		managed, err := qtx.ManagedAbsenceGet(r.Context(), row.ID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -256,12 +291,12 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 		}
 
 		dto := s.managedAbsenceDTO(managed)
-		dto.Status = "pending"
 		if id, err := sUUIDString(row.ID); err == nil {
 			createdID = id
 		}
 
-		if settings.Notifications.SmsSuccessTemplate != "" {
+		smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
+		if smsTemplate != "" {
 			if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 				phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 				if len(phones) > 0 {
@@ -271,7 +306,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 					if loc == nil {
 						loc = time.UTC
 					}
-					rendered := renderSuccessSMSTemplate(settings.Notifications.SmsSuccessTemplate, managed, sess, mis, loc)
+					rendered := renderSuccessSMSTemplate(smsTemplate, managed, sess, mis, loc)
 					dto.SmsPreview = &smsPreviewDTO{Phones: phones, Message: rendered}
 				}
 			}
@@ -375,7 +410,8 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 
-		if settings.Notifications.SmsSuccessTemplate == "" {
+		smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
+		if strings.TrimSpace(smsTemplate) == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
 			return 0, nil, fmt.Errorf("sms not configured")
 		}
@@ -394,7 +430,7 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 		sessions, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
 		missed, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
 
-		sent := sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
+		sent := sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
 		if !sent {
 			s.a.WriteErr(w, http.StatusInternalServerError, "sms_send_failed", "Failed to send SMS notification")
 			return 0, nil, fmt.Errorf("sms send failed")
@@ -450,7 +486,7 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if settings.Notifications.SmsSuccessTemplate == "" {
+		if settings.Notifications.SmsSuccessTemplate == "" && settings.Notifications.SmsSpecialApprovedTemplate == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
 			return 0, nil, fmt.Errorf("sms not configured")
 		}
@@ -475,6 +511,29 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			items = append(items, successSMSItem{row: managed, sessions: sess, missed: mis})
 		}
 
+		hasSpecial := false
+		hasNormal := false
+		for _, item := range items {
+			if absences.Status(item.row.Status) == absences.StatusSpecialApproved {
+				hasSpecial = true
+			} else {
+				hasNormal = true
+			}
+		}
+		if hasSpecial && hasNormal && strings.TrimSpace(settings.Notifications.SmsSpecialApprovedTemplate) != "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "mixed_status_sms_templates", "Send normal and special-approved SMS notifications separately")
+			return 0, nil, fmt.Errorf("mixed status sms templates")
+		}
+
+		smsTemplate := settings.Notifications.SmsSuccessTemplate
+		if hasSpecial && strings.TrimSpace(settings.Notifications.SmsSpecialApprovedTemplate) != "" {
+			smsTemplate = settings.Notifications.SmsSpecialApprovedTemplate
+		}
+		if strings.TrimSpace(smsTemplate) == "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
+			return 0, nil, fmt.Errorf("sms not configured")
+		}
+
 		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), wcode)
 		if contactErr != nil || len(contactRows) == 0 {
 			s.a.WriteErr(w, http.StatusBadRequest, "no_contacts", "No contact phone numbers found for this student")
@@ -491,11 +550,11 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			if loc == nil {
 				loc = time.UTC
 			}
-			rendered := renderBatchSuccessSMSTemplate(settings.Notifications.SmsSuccessTemplate, items, loc)
+			rendered := renderBatchSuccessSMSTemplate(smsTemplate, items, loc)
 			return http.StatusOK, map[string]any{"preview": map[string]any{"phones": phones, "message": rendered}}, nil
 		}
 
-		sent := sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, items, phones, s.deps.InstituteTZ)
+		sent := sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
 		if !sent {
 			s.a.WriteErr(w, http.StatusInternalServerError, "sms_send_failed", "Failed to send SMS notification")
 			return 0, nil, fmt.Errorf("sms send failed")
@@ -505,4 +564,11 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 	}) {
 		return
 	}
+}
+
+func successSMSTemplateForStatus(settings absenceSettings, status string) string {
+	if absences.Status(status) == absences.StatusSpecialApproved && strings.TrimSpace(settings.Notifications.SmsSpecialApprovedTemplate) != "" {
+		return settings.Notifications.SmsSpecialApprovedTemplate
+	}
+	return settings.Notifications.SmsSuccessTemplate
 }

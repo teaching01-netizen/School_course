@@ -616,7 +616,8 @@ func (q *Queries) StudentAbsenceCountForCourse(ctx context.Context, wcode string
 	var count int32
 	err := q.db.QueryRow(ctx, `
 		SELECT COUNT(*)::int4 FROM student_absences
-		WHERE wcode = $1 AND course_id = $2 AND status != 'cancelled'
+		WHERE wcode = $1 AND course_id = $2 AND status NOT IN ('cancelled', 'special_approved')
+		-- Status values must match absences.StatusCancelled / absences.StatusSpecialApproved
 	`, wcode, courseID).Scan(&count)
 	return count, err
 }

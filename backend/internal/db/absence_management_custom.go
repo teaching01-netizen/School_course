@@ -103,7 +103,7 @@ const managedAbsenceListQueryTemplate = `
 		  AND ($4::date IS NULL OR sa.date_to >= $4)
 		  AND ($5::date IS NULL OR sa.date_from <= $5)
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
-		  AND ($9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled')))
+		  AND ($9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled', 'special_approved')))
 		ORDER BY sa.created_at DESC, sa.id DESC
 		LIMIT $6 OFFSET $7
 `
@@ -581,7 +581,7 @@ func (q *Queries) AbsenceHardDelete(ctx context.Context, id pgtype.UUID, expecte
 	err := q.db.QueryRow(ctx, `
 		DELETE FROM student_absences
 		WHERE id = $1
-		  AND (version = $2 OR status IN ('cancelled', 'actioned'))
+		  AND (version = $2 OR status IN ('cancelled', 'actioned', 'special_approved'))
 		RETURNING 1
 	`, id, expectedVersion).Scan(&one)
 	return one, err
@@ -632,7 +632,7 @@ func (q *Queries) AbsenceMissedSessionsCreate(ctx context.Context, absenceID pgt
 	return nil
 }
 
-func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {
+func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*)
@@ -641,8 +641,8 @@ func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.
 		WHERE sess.id = ANY($2::uuid[])
 		  AND sess.course_id = sa.course_id
 		  AND sess.deleted_at IS NULL
-		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
-	`, absenceID, sessionIDs).Scan(&count)
+		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
+	`, absenceID, sessionIDs, instituteTZ).Scan(&count)
 	return count, err
 }
 
@@ -652,7 +652,7 @@ type MissedSessionTimingRow struct {
 	EndAt   pgtype.Timestamptz
 }
 
-func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) ([]MissedSessionTimingRow, error) {
+func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) ([]MissedSessionTimingRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT sess.id, sess.start_at, sess.end_at
 		FROM sessions sess
@@ -660,9 +660,9 @@ func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype
 		WHERE sess.id = ANY($2::uuid[])
 		  AND sess.course_id = sa.course_id
 		  AND sess.deleted_at IS NULL
-		  AND sess.start_at::date BETWEEN sa.date_from AND sa.date_to
+		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		ORDER BY sess.start_at ASC
-	`, absenceID, sessionIDs)
+	`, absenceID, sessionIDs, instituteTZ)
 	if err != nil {
 		return nil, err
 	}
@@ -679,7 +679,7 @@ func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype
 	return out, rows.Err()
 }
 
-func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {
+func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*)
@@ -693,15 +693,15 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		    FROM sessions missed
 		    WHERE missed.course_id = sa.course_id
 		      AND missed.deleted_at IS NULL
-		      AND missed.start_at::date BETWEEN sa.date_from AND sa.date_to
+		      AND (missed.start_at AT TIME ZONE $4)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
 		  )
-	`, absenceID, courseID, sessionIDs).Scan(&count)
+	`, absenceID, courseID, sessionIDs, instituteTZ).Scan(&count)
 	return count, err
 }
 
-func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) (int, error) {
+func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*)
@@ -714,11 +714,11 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 		    JOIN sessions missed ON missed.course_id = sa.course_id
 		    WHERE sa.id = $1
 		      AND missed.deleted_at IS NULL
-		      AND missed.start_at::date BETWEEN sa.date_from AND sa.date_to
+		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
 		  )
-	`, absenceID, sessionIDs).Scan(&count)
+	`, absenceID, sessionIDs, instituteTZ).Scan(&count)
 	return count, err
 }
 
@@ -733,7 +733,7 @@ type SitInCandidateSession struct {
 	Occupancy    int64
 }
 
-func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseID pgtype.UUID) ([]SitInCandidateSession, error) {
+func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseID pgtype.UUID, instituteTZ string) ([]SitInCandidateSession, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT sess.id, sess.course_id, sess.room_id, sess.start_at, sess.end_at,
 		       room.name, room.capacity,
@@ -749,12 +749,12 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		    FROM sessions missed
 		    WHERE missed.course_id = sa.course_id
 		      AND missed.deleted_at IS NULL
-		      AND missed.start_at::date BETWEEN sa.date_from AND sa.date_to
+		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
 		  )
 		ORDER BY sess.start_at ASC
-	`, absenceID, courseID)
+	`, absenceID, courseID, instituteTZ)
 	if err != nil {
 		return nil, err
 	}
@@ -771,12 +771,13 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 }
 
 type AbsenceStats struct {
-	TotalCount     int64 `json:"total_count"`
-	PendingCount   int64 `json:"pending_count"`
-	ReviewedCount  int64 `json:"reviewed_count"`
-	ActionedCount  int64 `json:"actioned_count"`
-	CancelledCount int64 `json:"cancelled_count"`
-	TodayCount     int64 `json:"today_count"`
+	TotalCount           int64 `json:"total_count"`
+	PendingCount         int64 `json:"pending_count"`
+	ReviewedCount        int64 `json:"reviewed_count"`
+	ActionedCount        int64 `json:"actioned_count"`
+	CancelledCount       int64 `json:"cancelled_count"`
+	SpecialApprovedCount int64 `json:"special_approved_count"`
+	TodayCount           int64 `json:"today_count"`
 }
 
 func (q *Queries) AbsenceStatsGet(ctx context.Context) (AbsenceStats, error) {
@@ -787,9 +788,11 @@ func (q *Queries) AbsenceStatsGet(ctx context.Context) (AbsenceStats, error) {
 		       count(*) FILTER (WHERE status = 'reviewed'),
 		       count(*) FILTER (WHERE status = 'actioned'),
 		       count(*) FILTER (WHERE status = 'cancelled'),
+		       count(*) FILTER (WHERE status = 'special_approved'),
 		       count(*) FILTER (WHERE created_at::date = CURRENT_DATE)
 		FROM student_absences
-	`).Scan(&stats.TotalCount, &stats.PendingCount, &stats.ReviewedCount, &stats.ActionedCount, &stats.CancelledCount, &stats.TodayCount)
+		-- Status values must match absences.Status* constants
+	`).Scan(&stats.TotalCount, &stats.PendingCount, &stats.ReviewedCount, &stats.ActionedCount, &stats.CancelledCount, &stats.SpecialApprovedCount, &stats.TodayCount)
 	return stats, err
 }
 
@@ -801,10 +804,12 @@ func (q *Queries) AbsenceStatsForRange(ctx context.Context, from, to time.Time) 
 		       count(*) FILTER (WHERE status = 'reviewed'),
 		       count(*) FILTER (WHERE status = 'actioned'),
 		       count(*) FILTER (WHERE status = 'cancelled'),
+		       count(*) FILTER (WHERE status = 'special_approved'),
 		       count(*) FILTER (WHERE created_at::date = CURRENT_DATE)
 		FROM student_absences
 		WHERE created_at >= $1 AND created_at < $2
-	`, from, to).Scan(&stats.TotalCount, &stats.PendingCount, &stats.ReviewedCount, &stats.ActionedCount, &stats.CancelledCount, &stats.TodayCount)
+		-- Status values must match absences.Status* constants
+	`, from, to).Scan(&stats.TotalCount, &stats.PendingCount, &stats.ReviewedCount, &stats.ActionedCount, &stats.CancelledCount, &stats.SpecialApprovedCount, &stats.TodayCount)
 	return stats, err
 }
 

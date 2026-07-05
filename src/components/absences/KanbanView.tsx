@@ -14,12 +14,14 @@ export const COLUMNS: { key: AbsenceStatus; label: string }[] = [
   { key: "pending", label: "Pending" },
   { key: "reviewed", label: "Reviewed" },
   { key: "actioned", label: "Actioned" },
+  { key: "special_approved", label: "Special Approved" },
 ];
 
 const COLUMN_STYLES: Record<string, string> = {
   pending: "border-blue-200 bg-blue-50/30",
   reviewed: "border-emerald-200 bg-emerald-50/30",
   actioned: "border-slate-200 bg-slate-50/30",
+  special_approved: "border-purple-200 bg-purple-50/30",
 };
 
 const PAGE_SIZE = 20;
@@ -65,7 +67,9 @@ function AbsenceCard({
         <span className="block whitespace-pre-line text-xs leading-tight text-gray-600">{formatAbsenceSummaryDates(absence)}</span>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        {absence.sit_in_method === "zoom" ? (
+        {absence.status === "special_approved" ? (
+          <span className="rounded-sm bg-purple-50 px-2 py-0.5 text-xs text-purple-700">Special Approved</span>
+        ) : absence.sit_in_method === "zoom" ? (
           <span className="rounded-sm bg-blue-50 px-2 py-0.5 text-xs text-blue-700">Zoom</span>
         ) : absence.sit_in_method === "physical" ? (
           <span className="rounded-sm bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{formatSitInLabel(absence)}</span>
@@ -89,9 +93,9 @@ function AbsenceCard({
 
 export default function KanbanView({ filters }: { filters: { query: string; subject: string; dateFrom: string; dateTo: string } }) {
   const { addToast } = useToast();
-  const [columns, setColumns] = useState<Record<AbsenceStatus, ManagedAbsence[]>>(() => ({ pending: [], reviewed: [], actioned: [], cancelled: [] }));
-  const [offsets, setOffsets] = useState<Record<string, number>>(() => ({ pending: 0, reviewed: 0, actioned: 0 }));
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [columns, setColumns] = useState<Record<AbsenceStatus, ManagedAbsence[]>>(() => ({ pending: [], reviewed: [], actioned: [], cancelled: [], special_approved: [] }));
+  const [offsets, setOffsets] = useState<Record<AbsenceStatus, number>>(() => ({ pending: 0, reviewed: 0, actioned: 0, cancelled: 0, special_approved: 0 }));
+  const [loading, setLoading] = useState<Record<AbsenceStatus, boolean>>({ pending: false, reviewed: false, actioned: false, cancelled: false, special_approved: false });
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ManagedAbsence | null>(null);
@@ -132,13 +136,13 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
   useRealtime(
     ["absent:all"],
     () => {
-      void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
+      void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0), loadColumn("special_approved", 0)]);
       if (showCancelled) void loadCancelled(0);
     },
     {
       debounceMs: 500,
       onReconnect: () => {
-        void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
+        void Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0), loadColumn("special_approved", 0)]);
         if (showCancelled) void loadCancelled(0);
       },
     }
@@ -146,7 +150,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0)]);
+      await Promise.all([loadColumn("pending", 0), loadColumn("reviewed", 0), loadColumn("actioned", 0), loadColumn("special_approved", 0)]);
       setInitialLoadDone(true);
     };
     init();

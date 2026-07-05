@@ -13,6 +13,7 @@ export const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,
   sms_parent_template: "",
   sms_success_template: "",
+  sms_special_approved_template: "",
   allow_submit_without_otp: false,
 };
 

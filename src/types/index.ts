@@ -1,4 +1,5 @@
 export type * from "@/features/absences/types";
+export { ABSENCE_STATUSES } from "@/features/absences/types";
 export type * from "@/features/courses/types";
 export type * from "@/features/email/types";
 export type * from "@/features/leave-policy/types";

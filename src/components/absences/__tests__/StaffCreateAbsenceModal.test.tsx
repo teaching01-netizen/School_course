@@ -30,6 +30,13 @@ function renderModal(props?: { onClose?: () => void; onCreated?: () => void }) {
   );
 }
 
+async function advanceToSubjectsStep(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /next/i }));
+  await waitFor(() => {
+    expect(screen.getByLabelText(/w-code/i)).toBeInTheDocument();
+  });
+}
+
 const MOCK_STUDENT = {
   student_id: "s1",
   wcode: "W001",
@@ -146,8 +153,10 @@ describe("StaffCreateAbsenceModal", () => {
     mockApiJson.mockReset();
   });
 
-  it("renders step 1 with student lookup input", () => {
+  it("renders step 1 with student lookup input", async () => {
+    const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     expect(screen.getByLabelText(/w-code/i)).toBeInTheDocument();
   });
 
@@ -155,6 +164,7 @@ describe("StaffCreateAbsenceModal", () => {
     const user = userEvent.setup();
     mockApiJson.mockRejectedValueOnce(new Error("Student not found"));
     renderModal();
+    await advanceToSubjectsStep(user);
 
     await user.type(screen.getByLabelText(/w-code/i), "W999");
     await user.click(screen.getByRole("button", { name: /look up/i }));
@@ -170,6 +180,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS);
     renderModal();
+    await advanceToSubjectsStep(user);
 
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
@@ -187,6 +198,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS);
     renderModal();
+    await advanceToSubjectsStep(user);
 
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
@@ -211,6 +223,9 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG);
     renderModal();
+
+    // Step 0: Type selection
+    await user.click(screen.getByRole("button", { name: /next/i }));
 
     // Step 1: Student lookup
     await user.type(screen.getByLabelText(/w-code/i), "W001");
@@ -260,6 +275,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS);
     renderModal();
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -289,7 +305,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS);
     renderModal();
 
-    // Step 1: lookup student
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -321,6 +337,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SPECIAL_SESSIONS);
     renderModal();
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -366,6 +383,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce({ preview: { phones: [], message: "" } });
     renderModal();
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -430,6 +448,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal({ onCreated });
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     // Step 1: lookup + select subject
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
@@ -474,28 +493,36 @@ describe("accessibility and validation", () => {
     vi.restoreAllMocks();
   });
 
-  it("w-code input has required", () => {
+  it("w-code input has required", async () => {
+    const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     expect(screen.getByLabelText(/w-code/i)).toBeRequired();
   });
 
-  it("w-code input has autoComplete off", () => {
+  it("w-code input has autoComplete off", async () => {
+    const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     expect(screen.getByLabelText(/w-code/i)).toHaveAttribute(
       "autoComplete",
       "off",
     );
   });
 
-  it("renders w-code error message in DOM", () => {
+  it("renders w-code error message in DOM", async () => {
+    const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     expect(
       screen.getByText("Enter a student W-Code to continue"),
     ).toBeInTheDocument();
   });
 
-  it("w-code error message has role alert", () => {
+  it("w-code error message has role alert", async () => {
+    const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     expect(
       screen.getByText("Enter a student W-Code to continue"),
     ).toHaveAttribute("role", "alert");
@@ -508,6 +535,7 @@ describe("accessibility and validation", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG);
     renderModal();
+    await advanceToSubjectsStep(user);
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -560,6 +588,7 @@ describe("accessibility and validation", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS);
     renderModal();
+    await advanceToSubjectsStep(user);
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -577,6 +606,7 @@ describe("accessibility and validation", () => {
   it("sets aria-invalid on blur for empty w-code", async () => {
     const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     const input = screen.getByLabelText(/w-code/i);
     vi.spyOn(input, "checkValidity" as any).mockReturnValue(false);
     await user.click(input);
@@ -587,6 +617,7 @@ describe("accessibility and validation", () => {
   it("removes aria-invalid on input after previously invalid", async () => {
     const user = userEvent.setup();
     renderModal();
+    await advanceToSubjectsStep(user);
     const input = screen.getByLabelText(/w-code/i);
     const checkValidity = vi.spyOn(input, "checkValidity" as any);
     checkValidity.mockReturnValue(false);
@@ -610,6 +641,7 @@ describe("accessibility and validation", () => {
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal();
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {
@@ -727,6 +759,150 @@ const MOCK_SESSIONS_TWO_SUBJECTS = {
   ],
 };
 
+describe("Absence type selection (Step 0)", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("defaults to Normal Absence with aria-pressed", async () => {
+    renderModal();
+    const normalBtn = screen.getByRole("button", { name: /normal absence/i });
+    const specialBtn = screen.getByRole("button", { name: /special absence/i });
+    expect(normalBtn).toHaveAttribute("aria-pressed", "true");
+    expect(specialBtn).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("selecting Special Absence shows info box and toggles aria-pressed", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    const specialBtn = screen.getByRole("button", { name: /special absence/i });
+    await user.click(specialBtn);
+
+    expect(specialBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /normal absence/i })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/special approved/i)).toBeInTheDocument();
+    expect(screen.getByText(/will not count toward the student/i)).toBeInTheDocument();
+  });
+
+  it("back button is hidden on type step", () => {
+    renderModal();
+    expect(screen.queryByRole("button", { name: /back/i })).not.toBeInTheDocument();
+  });
+
+  it("back from subjects returns to type step with state preserved", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    // Select special
+    await user.click(screen.getByRole("button", { name: /special absence/i }));
+    // Advance to subjects
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => {
+      expect(screen.getByLabelText(/w-code/i)).toBeInTheDocument();
+    });
+
+    // Go back
+    await user.click(screen.getByRole("button", { name: /back/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /special absence/i })).toHaveAttribute("aria-pressed", "true");
+    });
+  });
+
+  it("special type sends status: special_approved in request body", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "new-absence", status: "special_approved" });
+    renderModal();
+
+    // Select special type
+    await user.click(screen.getByRole("button", { name: /special absence/i }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 1: lookup + select subject
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: select session + sit-in
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    const sessionCheckbox = await screen.findByRole("checkbox");
+    await user.click(sessionCheckbox);
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 3: submit
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const staffCreateCall = mockApiJson.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/v1/absences/staff-create",
+      );
+      expect(staffCreateCall).toBeTruthy();
+      const body = JSON.parse((staffCreateCall?.[1] as RequestInit).body as string);
+      expect(body.status).toBe("special_approved");
+    });
+  });
+
+  it("normal type omits status field from request body", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
+    renderModal();
+
+    // Default is normal, just advance
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    const sessionCheckbox = await screen.findByRole("checkbox");
+    await user.click(sessionCheckbox);
+    const sitInSelect = await screen.findByRole("combobox", {}, { timeout: 3000 });
+    await user.selectOptions(sitInSelect, "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const staffCreateCall = mockApiJson.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/v1/absences/staff-create",
+      );
+      expect(staffCreateCall).toBeTruthy();
+      const body = JSON.parse((staffCreateCall?.[1] as RequestInit).body as string);
+      expect(body.status).toBeUndefined();
+    });
+  });
+});
+
 describe("multi-subject SMS aggregation", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
@@ -752,6 +928,7 @@ describe("multi-subject SMS aggregation", () => {
       });
     renderModal({ onCreated });
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     // Step 1: lookup + select both subjects
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
@@ -842,6 +1019,7 @@ describe("multi-subject SMS aggregation", () => {
       });
     renderModal({ onCreated });
 
+    await user.click(screen.getByRole("button", { name: /next/i }));
     await user.type(screen.getByLabelText(/w-code/i), "W001");
     await user.click(screen.getByRole("button", { name: /look up/i }));
     await waitFor(() => {

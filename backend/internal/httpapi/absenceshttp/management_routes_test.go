@@ -294,3 +294,122 @@ func TestAbsenceHardDelete_DeletedWithCorrectVersion(t *testing.T) {
 		t.Fatal("absence row was not actually deleted")
 	}
 }
+
+func TestParseAbsenceSettings_LegacyJSON_MissingSpecialTemplate(t *testing.T) {
+	legacyJSON := []byte(`{"notifications":{"sms_parent_enabled":true,"sms_parent_template":"OTP {{code}}","sms_success_template":"Normal {{absence_summary}}","allow_submit_without_otp":false}}`)
+	settings := parseAbsenceSettings(legacyJSON)
+
+	if settings.Notifications.SmsSuccessTemplate != "Normal {{absence_summary}}" {
+		t.Errorf("SmsSuccessTemplate = %q, want %q", settings.Notifications.SmsSuccessTemplate, "Normal {{absence_summary}}")
+	}
+	defaults := defaultAbsenceSettings()
+	if settings.Notifications.SmsSpecialApprovedTemplate != defaults.Notifications.SmsSpecialApprovedTemplate {
+		t.Errorf("SmsSpecialApprovedTemplate should be filled from defaults, got %q", settings.Notifications.SmsSpecialApprovedTemplate)
+	}
+}
+
+func TestParseAbsenceSettings_NewJSON_WithSpecialTemplate(t *testing.T) {
+	raw := []byte(`{"notifications":{"sms_special_approved_template":"Custom special template"}}`)
+	settings := parseAbsenceSettings(raw)
+
+	if settings.Notifications.SmsSpecialApprovedTemplate != "Custom special template" {
+		t.Errorf("SmsSpecialApprovedTemplate = %q, want %q", settings.Notifications.SmsSpecialApprovedTemplate, "Custom special template")
+	}
+}
+
+func TestParseAbsenceSettings_EmptyJSON(t *testing.T) {
+	settings := parseAbsenceSettings([]byte(`{}`))
+	defaults := defaultAbsenceSettings()
+
+	if settings.Notifications.SmsParentEnabled != defaults.Notifications.SmsParentEnabled {
+		t.Errorf("SmsParentEnabled = %v, want %v", settings.Notifications.SmsParentEnabled, defaults.Notifications.SmsParentEnabled)
+	}
+	if settings.Notifications.SmsSpecialApprovedTemplate != defaults.Notifications.SmsSpecialApprovedTemplate {
+		t.Errorf("SmsSpecialApprovedTemplate should default, got %q", settings.Notifications.SmsSpecialApprovedTemplate)
+	}
+}
+
+func TestParseAbsenceSettings_PartialJSON(t *testing.T) {
+	raw := []byte(`{"notifications":{"sms_success_template":"Custom normal"}}`)
+	settings := parseAbsenceSettings(raw)
+
+	if settings.Notifications.SmsSuccessTemplate != "Custom normal" {
+		t.Errorf("SmsSuccessTemplate = %q, want %q", settings.Notifications.SmsSuccessTemplate, "Custom normal")
+	}
+	defaults := defaultAbsenceSettings()
+	if settings.Notifications.SmsSpecialApprovedTemplate != defaults.Notifications.SmsSpecialApprovedTemplate {
+		t.Errorf("SmsSpecialApprovedTemplate should be default, got %q", settings.Notifications.SmsSpecialApprovedTemplate)
+	}
+}
+
+func TestValidateAbsenceSettings_SpecialTemplateLength(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		wantErr  bool
+	}{
+		{"empty is valid", "", false},
+		{"500 chars is valid", string(make([]rune, 500)), false},
+		{"501 chars is invalid", string(make([]rune, 501)), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := defaultAbsenceSettings()
+			settings.Notifications.SmsSpecialApprovedTemplate = tt.template
+			err := validateAbsenceSettings(settings)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateAbsenceSettings() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidAbsenceStatus_SpecialApproved(t *testing.T) {
+	if !validAbsenceStatus("special_approved") {
+		t.Fatal("special_approved should be a valid status")
+	}
+}
+
+func TestValidTransition_SpecialApproved(t *testing.T) {
+	tests := []struct {
+		name string
+		from string
+		to   string
+		want bool
+	}{
+		{"pending to special_approved", "pending", "special_approved", true},
+		{"reviewed to special_approved", "reviewed", "special_approved", true},
+		{"actioned to special_approved", "actioned", "special_approved", true},
+		{"cancelled to special_approved", "cancelled", "special_approved", false},
+		{"special_approved to pending", "special_approved", "pending", false},
+		{"special_approved to reviewed", "special_approved", "reviewed", false},
+		{"special_approved to actioned", "special_approved", "actioned", false},
+		{"special_approved to cancelled", "special_approved", "cancelled", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validTransition(tt.from, tt.to)
+			if got != tt.want {
+				t.Errorf("validTransition(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusAuditAction_SpecialApproved(t *testing.T) {
+	tests := []struct {
+		current, next, want string
+	}{
+		{"pending", "special_approved", "special_approved"},
+		{"reviewed", "special_approved", "special_approved"},
+		{"actioned", "special_approved", "special_approved"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.current+"_to_"+tt.next, func(t *testing.T) {
+			got := statusAuditAction(tt.current, tt.next)
+			if got != tt.want {
+				t.Errorf("statusAuditAction(%q, %q) = %q, want %q", tt.current, tt.next, got, tt.want)
+			}
+		})
+	}
+}
