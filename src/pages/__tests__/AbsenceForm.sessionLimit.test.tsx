@@ -86,7 +86,7 @@ function createSessionsWithLimits(
       course_code: "MATH201",
       course_name: "Algebra II",
       sessions,
-      absence_rate_exceeded: existingMissed * 5 >= totalSessions,
+      absence_rate_exceeded: existingMissed >= Math.round(totalSessions / 5),
       existing_absence_count: existingMissed,
       total_session_count: totalSessions,
     },

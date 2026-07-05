@@ -2,6 +2,7 @@ package absences
 
 import (
 	"fmt"
+	"math"
 	"net/mail"
 	"strings"
 	"time"
@@ -60,7 +61,8 @@ func ProjectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions,
 	if totalSessions <= 0 || submittingSessionCount <= 0 {
 		return false
 	}
-	return (existingMissedSessions+submittingSessionCount)*5 > totalSessions
+	maxAllowed := int32(math.Round(float64(totalSessions) / 5.0))
+	return existingMissedSessions+submittingSessionCount > maxAllowed
 }
 
 func ResolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {

@@ -194,17 +194,15 @@ func (q *Queries) SessionsByCourse(ctx context.Context, courseID pgtype.UUID) ([
 }
 
 func (q *Queries) AbsenceSitInsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
-	for _, sid := range sessionIDs {
-		_, err := q.db.Exec(ctx, `
-			INSERT INTO absence_sit_ins (absence_id, session_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, absenceID, sid)
-		if err != nil {
-			return err
-		}
+	if len(sessionIDs) == 0 {
+		return nil
 	}
-	return nil
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO absence_sit_ins (absence_id, session_id)
+		SELECT $1, unnest($2::uuid[])
+		ON CONFLICT DO NOTHING
+	`, absenceID, sessionIDs)
+	return err
 }
 
 type CourseLevelRow struct {

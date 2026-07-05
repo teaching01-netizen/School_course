@@ -46,11 +46,21 @@ type createdAbsenceRecord struct {
 	missed   []sqldb.ManagedAbsenceSession
 }
 
+// batchNotificationData carries notification context out of the DB transaction
+// so that external side-effects (SMS, email) can be sent after commit.
+type batchNotificationData struct {
+	smsRecipients []string
+	smsTemplate   string
+	created       []createdAbsenceRecord
+	emailCfg      emailSuccessConfig
+}
+
 func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
 	}
 	createdIDs := []string{}
+	var notifyData *batchNotificationData
 	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
@@ -217,23 +227,14 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		if settings.Notifications.SmsSuccessTemplate != "" && len(successSMSRecipients) > 0 {
-			smsItems := make([]successSMSItem, 0, len(created))
-			for _, record := range created {
-				smsItems = append(smsItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
-			}
-			sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, smsItems, successSMSRecipients, s.deps.InstituteTZ)
-		}
-
-		// Send success email after batch submission (non-critical; errors are logged only).
-		if s.deps.EmailService != nil {
-			emailCfg := settings.emailSuccessConfig()
-			if emailCfg.Enabled && len(created) > 0 {
-				emailItems := make([]successSMSItem, 0, len(created))
-				for _, record := range created {
-					emailItems = append(emailItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
-				}
-				sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, emailItems, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+		// Collect notification data for post-commit delivery.
+		// SMS and email are external side-effects that must not hold the DB transaction open.
+		if len(created) > 0 && (settings.Notifications.SmsSuccessTemplate != "" && len(successSMSRecipients) > 0) || (s.deps.EmailService != nil && settings.emailSuccessConfig().Enabled) {
+			notifyData = &batchNotificationData{
+				smsRecipients: successSMSRecipients,
+				smsTemplate:   settings.Notifications.SmsSuccessTemplate,
+				created:       created,
+				emailCfg:      settings.emailSuccessConfig(),
 			}
 		}
 
@@ -251,7 +252,35 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 	}) {
 		return
 	}
+
+	// Send notifications AFTER the idempotent transaction has committed.
+	// This avoids holding DB row locks while waiting for external APIs (SMS, email).
+	s.sendBatchNotifications(notifyData)
 	s.publishAbsenceChanges(createdIDs)
+}
+
+// sendBatchNotifications dispatches SMS and email notifications after commit.
+// Failures are logged only; they do not affect the HTTP response.
+func (s *server) sendBatchNotifications(data *batchNotificationData) {
+	if data == nil {
+		return
+	}
+
+	if data.smsTemplate != "" && len(data.smsRecipients) > 0 {
+		smsItems := make([]successSMSItem, 0, len(data.created))
+		for _, record := range data.created {
+			smsItems = append(smsItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+		}
+		sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, data.smsTemplate, smsItems, data.smsRecipients, s.deps.InstituteTZ)
+	}
+
+	if s.deps.EmailService != nil && data.emailCfg.Enabled && len(data.created) > 0 {
+		emailItems := make([]successSMSItem, 0, len(data.created))
+		for _, record := range data.created {
+			emailItems = append(emailItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+		}
+		sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, emailItems, data.emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+	}
 }
 
 func (s *server) createAbsenceRecordTx(

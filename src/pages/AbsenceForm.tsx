@@ -116,7 +116,7 @@ export default function AbsenceForm() {
       if (!group.total_session_count || group.total_session_count <= 0) {
         return maxSessions;
       }
-      const maxAllowed = Math.floor(group.total_session_count / 5);
+      const maxAllowed = Math.round(group.total_session_count / 5);
       return Math.max(0, maxAllowed - (group.existing_absence_count ?? 0));
     },
     [maxSessions],
@@ -716,7 +716,7 @@ export default function AbsenceForm() {
                                         <span>
                                           You have reached the maximum absences allowed for this course.
                                           {group.existing_absence_count != null && group.total_session_count != null && group.total_session_count > 0
-                                            ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.floor(group.total_session_count / 5)})`
+                                            ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.round(group.total_session_count / 5)})`
                                             : ""}
                                         </span>
                                       </div>
