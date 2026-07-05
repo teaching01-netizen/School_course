@@ -604,6 +604,11 @@ export default function SitInTestPage() {
                     <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-gray-800">{groupLabel}</span>
+                        <span className="text-xs font-semibold text-gray-500 shrink-0">
+                          {group.absence_rate_exceeded
+                            ? "Limit reached"
+                            : `${sessionGroups.length} session${sessionGroups.length !== 1 ? "s" : ""}`}
+                        </span>
                         {group.sit_in && (
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -626,7 +631,22 @@ export default function SitInTestPage() {
                       )}
                     </div>
 
-                    {/* Sessions */}
+                    {/* Absence limit warning */}
+                    {group.absence_rate_exceeded ? (
+                      <div className="p-4">
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                          <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                          </svg>
+                          <span>
+                            You have reached the maximum absences allowed for this course.
+                            {group.existing_absence_count != null && group.total_session_count != null && group.total_session_count > 0
+                              ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.floor((group.total_session_count - 1) / 5)})`
+                              : ""}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="divide-y divide-gray-50">
                       {sessionGroups.map((dayGroup) => {
                         const sessionIds = dayGroup.items.map((item) => item.id);
@@ -696,6 +716,7 @@ export default function SitInTestPage() {
                         );
                       })}
                     </div>
+                    )}
                   </div>
                 );
               })}
