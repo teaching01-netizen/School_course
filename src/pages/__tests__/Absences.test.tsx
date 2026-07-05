@@ -156,6 +156,10 @@ function renderPage(path = "/absences?status=pending") {
   );
 }
 
+async function openKebabMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /more actions/i }));
+}
+
 describe("Absence inbox", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -511,9 +515,11 @@ describe("Absence inbox", () => {
   it("shows delete button for non-cancelled absences", async () => {
     mockApiJson.mockResolvedValueOnce(PAGE);
     renderPage();
+    const user = userEvent.setup();
 
     await screen.findByText("John Smith");
-    const deleteBtn = screen.getByRole("button", { name: /delete/i });
+    await openKebabMenu(user);
+    const deleteBtn = screen.getByRole("menuitem", { name: /delete/i });
     expect(deleteBtn).toBeInTheDocument();
   });
 
@@ -524,9 +530,11 @@ describe("Absence inbox", () => {
     };
     mockApiJson.mockResolvedValueOnce(cancelledPage);
     renderPage("/absences?status=cancelled");
+    const user = userEvent.setup();
 
     await screen.findByText("John Smith");
-    expect(screen.getByRole("button", { name: /delete/i })).toBeInTheDocument();
+    await openKebabMenu(user);
+    expect(screen.getByRole("menuitem", { name: /delete/i })).toBeInTheDocument();
   });
 
   it("opens confirmation modal when delete button is clicked", async () => {
@@ -534,7 +542,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /delete/i }));
 
     const modal = screen.getByRole("dialog");
     expect(within(modal).getByText("Permanently delete absence")).toBeInTheDocument();
@@ -551,7 +561,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /delete/i }));
     await user.click(screen.getByRole("button", { name: /delete permanently/i }));
 
     await waitFor(() => {
@@ -572,7 +584,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /delete/i }));
     await user.click(screen.getByRole("button", { name: /delete permanently/i }));
 
     await waitFor(() => {
@@ -588,7 +602,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /cancel/i }));
     await user.selectOptions(screen.getByLabelText(/cancellation reason/i), "other");
     await user.click(screen.getByRole("button", { name: /Cancel Absence/i }));
 
@@ -604,7 +620,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /delete/i }));
     await user.click(screen.getByRole("button", { name: /delete permanently/i }));
 
     await waitFor(() => {
@@ -617,7 +635,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /delete/i }));
     expect(screen.getByText("Permanently delete absence")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /back/i }));
@@ -629,7 +649,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /cancel/i }));
     const cancelModal = screen.getByText("Cancel absence").closest("[role='dialog']") as HTMLElement;
     expect(cancelModal).toBeInTheDocument();
     expect(within(cancelModal).getByText(/delete permanently/i)).toBeInTheDocument();
@@ -669,9 +691,11 @@ describe("Absence inbox", () => {
   it("shows Special Approve button for non-cancelled, non-special_approved absences", async () => {
     mockApiJson.mockResolvedValueOnce(PAGE);
     renderPage();
+    const user = userEvent.setup();
 
     await screen.findByText("John Smith");
-    expect(screen.getByRole("button", { name: /special approve/i })).toBeInTheDocument();
+    await openKebabMenu(user);
+    expect(screen.getByRole("menuitem", { name: /special approve/i })).toBeInTheDocument();
   });
 
   it("hides Special Approve button for cancelled absences", async () => {
@@ -703,7 +727,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
 
     const modal = screen.getByRole("dialog");
     expect(within(modal).getByText("Special Approve Absence")).toBeInTheDocument();
@@ -717,7 +743,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /back/i }));
@@ -735,7 +763,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -759,7 +789,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -775,7 +807,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -790,7 +824,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -821,7 +857,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     // 1. Status update called first
@@ -863,7 +901,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -898,7 +938,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -931,7 +973,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     await waitFor(() => {
@@ -972,7 +1016,9 @@ describe("Absence inbox", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /special approve/i }));
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: /special approve/i }));
     await user.click(screen.getByRole("button", { name: /confirm special approve/i }));
 
     // Status update should still succeed
@@ -982,5 +1028,80 @@ describe("Absence inbox", () => {
 
     // SMS modal should NOT appear (preview failed)
     expect(screen.queryByText("Special SMS preview")).not.toBeInTheDocument();
+  });
+
+  it("renders table header columns with correct width classes", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers[1]).toHaveClass("w-24"); // Status
+    expect(headers[2]).toHaveClass("w-44"); // Student
+    expect(headers[4]).toHaveClass("w-36"); // Sit-in
+    expect(headers[5]).toHaveClass("w-20"); // Submitted
+    expect(headers[6]).toHaveClass("w-44"); // Actions
+  });
+
+  it("subject column has truncate class and title attribute", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    const subjectCell = screen.getByText("Mathematics");
+    expect(subjectCell).toHaveClass("truncate");
+    expect(subjectCell).toHaveClass("max-w-[220px]");
+    expect(subjectCell).toHaveAttribute("title", "Mathematics");
+  });
+
+  it("sit-in fallback label has truncate class and title attribute", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    const sitInLabel = screen.getByText("SAT Math Scholar C2");
+    expect(sitInLabel).toHaveClass("truncate");
+    expect(sitInLabel).toHaveClass("max-w-[180px]");
+    expect(sitInLabel).toHaveAttribute("title", "SAT Math Scholar C2");
+  });
+
+  it("kebab menu has correct ARIA attributes", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await screen.findByText("John Smith");
+    const trigger = screen.getByRole("button", { name: /more actions/i });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    await user.click(document.body);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("kebab menu closes after clicking outside", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+    const user = userEvent.setup();
+
+    await screen.findByText("John Smith");
+    await openKebabMenu(user);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    await user.click(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("View button remains inline and clickable", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE);
+    renderPage();
+
+    await screen.findByText("John Smith");
+    const viewLink = screen.getByRole("link", { name: /open details for w250389/i });
+    expect(viewLink).toHaveAttribute("href", "/absences/abs-1");
   });
 });

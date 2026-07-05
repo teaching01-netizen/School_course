@@ -10,6 +10,7 @@
     "admin:check": "bash scripts/admin-check.sh",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "migrate:validate": "bash scripts/validate-migrations.sh",
     "build": "vite build",
@@ -29,6 +30,7 @@
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

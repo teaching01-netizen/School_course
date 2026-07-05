@@ -9,6 +9,7 @@ import SearchInput from "../components/ui/SearchInput";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
 import Modal from "../components/Modal";
 import KanbanView from "../components/absences/KanbanView";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
@@ -81,7 +82,7 @@ function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
 
   return (
     <div className="min-w-0">
-      <div className="max-w-[210px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
+      <div className="max-w-[220px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
         {absence.subject_name ?? absence.subject_code ?? "-"}
       </div>
       {missedSessions.length > 0 ? (
@@ -646,19 +647,19 @@ export default function Absences() {
       ) : null}
 
       <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white data-table-wrapper">
-        <table className="min-w-[960px] text-sm absence-inbox-table">
+        <table className="w-full text-sm absence-inbox-table">
           <caption className="sr-only">Absence inbox</caption>
           <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
               <th scope="col" className="w-8 px-3 py-2">
                 <input aria-label="Select all absences" type="checkbox" checked={allSelected} onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => item.id)) : new Set())} />
               </th>
-              <th scope="col" className="w-[116px] px-3 py-2">Status</th>
-              <th scope="col" className="w-[180px] px-3 py-2">Student</th>
+              <th scope="col" className="w-24 px-3 py-2">Status</th>
+              <th scope="col" className="w-44 px-3 py-2">Student</th>
               <th scope="col" className="px-3 py-2">Subject</th>
-              <th scope="col" className="w-[190px] px-3 py-2">Sit-in</th>
-              <th scope="col" className="w-[110px] px-3 py-2">Submitted</th>
-              <th scope="col" className="w-[260px] px-3 py-2 text-right">Actions</th>
+              <th scope="col" className="w-36 px-3 py-2">Sit-in</th>
+              <th scope="col" className="w-20 px-3 py-2">Submitted</th>
+              <th scope="col" className="w-44 px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -688,16 +689,16 @@ export default function Absences() {
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-gray-500" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
                 <td className="px-3 py-3" data-label="Actions" onClick={(event) => event.stopPropagation()}>
-                  <div className="flex items-center justify-end gap-1.5">
+                  <div className="flex items-center justify-end gap-1">
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                      {absence.status !== "cancelled" && absence.status !== "special_approved" ? <Button size="sm" variant="ghost" onClick={() => setSpecialApprovedTarget(absence)}>Special Approve</Button> : null}
-                      <Button size="sm" variant="ghost" onClick={() => setOverrideTarget(absence)}>Override</Button>
-                      {absence.status !== "cancelled" ? <Button size="sm" variant="ghost" onClick={() => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); }}>Cancel</Button> : null}
-                      <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(absence)}>Delete</Button>
-                    </div>
+                    <DropdownMenu items={[
+                      ...(absence.status !== "cancelled" && absence.status !== "special_approved" ? [{ label: "Special Approve", onClick: () => setSpecialApprovedTarget(absence) }] : []),
+                      { label: "Override", onClick: () => setOverrideTarget(absence) },
+                      ...(absence.status !== "cancelled" ? [{ label: "Cancel", onClick: () => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); } }] : []),
+                      { label: "Delete", onClick: () => setDeleteTarget(absence), danger: true },
+                    ]} />
                   </div>
                 </td>
               </tr>
