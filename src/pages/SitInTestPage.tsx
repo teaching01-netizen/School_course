@@ -641,7 +641,7 @@ export default function SitInTestPage() {
                           <span>
                             You have reached the maximum absences allowed for this course.
                             {group.existing_absence_count != null && group.total_session_count != null && group.total_session_count > 0
-                              ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.floor((group.total_session_count - 1) / 5)})`
+                              ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.floor(group.total_session_count / 5)})`
                               : ""}
                           </span>
                         </div>

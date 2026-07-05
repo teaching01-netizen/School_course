@@ -94,37 +94,6 @@ function createSessionsWithLimits(
   ];
 }
 
-async function setupForm(sessions: SubjectSessions[]) {
-  mockApiByPattern({
-    "absence-form-config": MOCK_CONFIG,
-    "student-lookup": MOCK_STUDENT,
-    "sessions-in-range": { subjects: sessions },
-    "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-    "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-    "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
-  });
-
-  renderWithProviders(<AbsenceForm />);
-
-  const user = userEvent.setup();
-
-  const input = await screen.findByPlaceholderText("e.g. W250389");
-  await user.clear(input);
-  await user.type(input, "W250389");
-  await user.click(screen.getByRole("button", { name: /search/i }));
-  await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
-
-  await user.click(screen.getByRole("button", { name: /send code/i }));
-  await waitFor(() => {
-    const skipBtn = screen.queryByRole("button", { name: /continue without verifying/i });
-    expect(skipBtn).toBeInTheDocument();
-  });
-  await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
-  await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
-
-  return user;
-}
-
 describe("AbsenceForm - error handling", () => {
   beforeEach(() => {
     mockApiJson.mockReset();

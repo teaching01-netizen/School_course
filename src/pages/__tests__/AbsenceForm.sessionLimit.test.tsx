@@ -168,6 +168,30 @@ describe("AbsenceForm - 20% session limit", () => {
       });
     });
 
+    it("shows correct max count in limit message (10-session course → max 2)", async () => {
+      const sessions = createSessionsWithLimits(2, 10);
+      const user = await setupForm(sessions);
+
+      const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(courseCheckbox);
+
+      await waitFor(() => {
+        expect(screen.getByText(/max 2/)).toBeInTheDocument();
+      });
+    });
+
+    it("shows correct max count for 20-session course → max 4", async () => {
+      const sessions = createSessionsWithLimits(4, 20);
+      const user = await setupForm(sessions);
+
+      const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(courseCheckbox);
+
+      await waitFor(() => {
+        expect(screen.getByText(/max 4/)).toBeInTheDocument();
+      });
+    });
+
     it("shows correct remaining for odd session counts", async () => {
       const sessions = createSessionsWithLimits(0, 11);
       const user = await setupForm(sessions);
