@@ -326,7 +326,19 @@ export default function Absences() {
           return;
         }
       } catch {
-        // SMS preview not critical
+        // fall through to email auto-send
+      }
+
+      try {
+        const res = await apiJson<{ email_sent: boolean }>(
+          "/api/v1/absences/batch-send-success-sms",
+          { method: "POST", body: JSON.stringify({ ids: [specialApprovedTarget.id] }) },
+        );
+        if (res.email_sent) {
+          addToast("success", "Absence marked as special approved · Email notification sent");
+        }
+      } catch {
+        // email send is best-effort
       }
 
       setSpecialApprovedTarget(null);
@@ -345,20 +357,24 @@ export default function Absences() {
     if (specialApprovedCreatedIds.length === 0) return;
     setSpecialApprovedSendingSms(true);
     try {
-      const res = await apiJson<{ sent: boolean; recipient_count: number }>(
+      const res = await apiJson<{ sent: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
         "/api/v1/absences/batch-send-success-sms",
         { method: "POST", body: JSON.stringify({ ids: specialApprovedCreatedIds }) }
       );
       if (res.sent) {
-        addToast("success", `SMS notification sent to ${res.recipient_count} recipient(s)`);
+        const parts: string[] = [];
+        if (res.sms_sent) parts.push("SMS");
+        if (res.email_sent) parts.push("email");
+        const label = parts.length > 0 ? parts.join(" & ") : "Notification";
+        addToast("success", `${label} sent to ${res.recipient_count} recipient(s)`);
       } else {
-        addToast("error", "SMS was not sent");
+        addToast("error", "Notifications were not sent");
       }
       setSpecialApprovedSmsPreview(null);
       setSpecialApprovedCreatedIds([]);
       await load();
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "SMS send failed");
+      addToast("error", err instanceof Error ? err.message : "Notification send failed");
     } finally {
       setSpecialApprovedSendingSms(false);
     }
@@ -366,7 +382,7 @@ export default function Absences() {
 
   function handleSpecialApprovedSkipSms() {
     if (specialApprovedSendingSms) return;
-    addToast("success", "Absence marked as special approved (SMS skipped)");
+    addToast("success", "Absence marked as special approved");
     setSpecialApprovedSmsPreview(null);
     setSpecialApprovedCreatedIds([]);
     void load();

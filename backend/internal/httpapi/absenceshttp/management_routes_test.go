@@ -413,3 +413,161 @@ func TestStatusAuditAction_SpecialApproved(t *testing.T) {
 		})
 	}
 }
+
+// --- Section B: Email config tests ---
+
+func TestDefaultAbsenceSettings_EmailDefaults(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	if settings.Notifications.EmailSuccessEnabled {
+		t.Error("default should have email disabled")
+	}
+	if settings.Notifications.EmailSuccessSubject == "" {
+		t.Error("default email subject should not be empty")
+	}
+	if settings.Notifications.EmailSuccessBody == "" {
+		t.Error("default email body should not be empty")
+	}
+}
+
+func TestEmailSuccessConfig_Enabled(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessEnabled = true
+	cfg := settings.emailSuccessConfig()
+	if !cfg.Enabled {
+		t.Error("expected Enabled to be true")
+	}
+}
+
+func TestEmailSuccessConfig_Disabled(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessEnabled = false
+	cfg := settings.emailSuccessConfig()
+	if cfg.Enabled {
+		t.Error("expected Enabled to be false")
+	}
+}
+
+func TestEmailSuccessConfig_CustomSubject(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessSubject = "Hi {{student_name}}"
+	cfg := settings.emailSuccessConfig()
+	if cfg.Subject != "Hi {{student_name}}" {
+		t.Errorf("Subject = %q, want %q", cfg.Subject, "Hi {{student_name}}")
+	}
+}
+
+func TestEmailSuccessConfig_CustomBody(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessBody = "<p>Hello</p>"
+	cfg := settings.emailSuccessConfig()
+	if cfg.Body != "<p>Hello</p>" {
+		t.Errorf("Body = %q, want %q", cfg.Body, "<p>Hello</p>")
+	}
+}
+
+func TestEmailSuccessConfig_EmptySubjectUsesDefault(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessSubject = ""
+	cfg := settings.emailSuccessConfig()
+	defaultCfg := defaultEmailSuccessConfig()
+	if cfg.Subject != defaultCfg.Subject {
+		t.Errorf("empty subject should use default, got %q", cfg.Subject)
+	}
+}
+
+func TestEmailSuccessConfig_EmptyBodyUsesDefault(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessBody = ""
+	cfg := settings.emailSuccessConfig()
+	defaultCfg := defaultEmailSuccessConfig()
+	if cfg.Body != defaultCfg.Body {
+		t.Errorf("empty body should use default, got %q", cfg.Body)
+	}
+}
+
+func TestParseAbsenceSettings_EmailFieldsParsed(t *testing.T) {
+	raw := []byte(`{"notifications":{"email_success_enabled":true,"email_success_subject":"Custom Subject","email_success_body":"<p>Custom</p>"}}`)
+	settings := parseAbsenceSettings(raw)
+	if !settings.Notifications.EmailSuccessEnabled {
+		t.Error("expected email_success_enabled to be true")
+	}
+	if settings.Notifications.EmailSuccessSubject != "Custom Subject" {
+		t.Errorf("email_success_subject = %q, want %q", settings.Notifications.EmailSuccessSubject, "Custom Subject")
+	}
+	if settings.Notifications.EmailSuccessBody != "<p>Custom</p>" {
+		t.Errorf("email_success_body = %q, want %q", settings.Notifications.EmailSuccessBody, "<p>Custom</p>")
+	}
+}
+
+func TestParseAbsenceSettings_LegacyMissingEmailFields(t *testing.T) {
+	raw := []byte(`{"notifications":{"sms_parent_enabled":true,"sms_success_template":"Hi"}}`)
+	settings := parseAbsenceSettings(raw)
+	if settings.Notifications.EmailSuccessEnabled {
+		t.Error("legacy JSON should default email to disabled")
+	}
+	if settings.Notifications.EmailSuccessSubject != "" {
+		t.Errorf("legacy JSON without email subject should be empty, got %q", settings.Notifications.EmailSuccessSubject)
+	}
+	if settings.Notifications.EmailSuccessBody != "" {
+		t.Errorf("legacy JSON without email body should be empty, got %q", settings.Notifications.EmailSuccessBody)
+	}
+	// The emailSuccessConfig() method applies defaults for empty fields
+	cfg := settings.emailSuccessConfig()
+	defaults := defaultEmailSuccessConfig()
+	if cfg.Subject != defaults.Subject {
+		t.Errorf("emailSuccessConfig should fall back to default subject, got %q", cfg.Subject)
+	}
+	if cfg.Body != defaults.Body {
+		t.Errorf("emailSuccessConfig should fall back to default body, got %q", cfg.Body)
+	}
+}
+
+func TestParseAbsenceSettings_EmailDisabled(t *testing.T) {
+	raw := []byte(`{"notifications":{"email_success_enabled":false}}`)
+	settings := parseAbsenceSettings(raw)
+	if settings.Notifications.EmailSuccessEnabled {
+		t.Error("expected email_success_enabled to be false")
+	}
+}
+
+func TestValidateAbsenceSettings_EmailSubjectTooLong(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessSubject = string(make([]rune, 201))
+	err := validateAbsenceSettings(settings)
+	if err == nil {
+		t.Error("expected error for email_success_subject > 200 chars")
+	}
+	if !strings.Contains(err.Error(), "email_success_subject") {
+		t.Errorf("error should mention email_success_subject, got %q", err.Error())
+	}
+}
+
+func TestValidateAbsenceSettings_EmailBodyTooLong(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessBody = string(make([]rune, 15001))
+	err := validateAbsenceSettings(settings)
+	if err == nil {
+		t.Error("expected error for email_success_body > 15000 chars")
+	}
+	if !strings.Contains(err.Error(), "email_success_body") {
+		t.Errorf("error should mention email_success_body, got %q", err.Error())
+	}
+}
+
+func TestValidateAbsenceSettings_EmailSubjectAtLimit(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessSubject = string(make([]rune, 200))
+	err := validateAbsenceSettings(settings)
+	if err != nil {
+		t.Errorf("200 chars should be valid, got error: %v", err)
+	}
+}
+
+func TestValidateAbsenceSettings_EmailBodyAtLimit(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	settings.Notifications.EmailSuccessBody = string(make([]rune, 15000))
+	err := validateAbsenceSettings(settings)
+	if err != nil {
+		t.Errorf("15000 chars should be valid, got error: %v", err)
+	}
+}

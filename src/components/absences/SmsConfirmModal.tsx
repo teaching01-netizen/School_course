@@ -30,14 +30,14 @@ export default function SmsConfirmModal({ phones, message, onSend, onSkip, sendi
           </Button>
           <Button onClick={onSend} loading={sending} disabled={sending}>
             <Send className="mr-1.5 inline h-4 w-4" />
-            Send SMS
+            Send SMS & Email
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          The absence has been created. Would you like to send an SMS notification to the student and parent?
+          The absence has been created. Would you like to send SMS and email notifications to the student and parent?
         </p>
 
         <div>

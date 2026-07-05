@@ -225,6 +225,18 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, smsItems, successSMSRecipients, s.deps.InstituteTZ)
 		}
 
+		// Send success email after batch submission (non-critical; errors are logged only).
+		if s.deps.EmailService != nil {
+			emailCfg := settings.emailSuccessConfig()
+			if emailCfg.Enabled && len(created) > 0 {
+				emailItems := make([]successSMSItem, 0, len(created))
+				for _, record := range created {
+					emailItems = append(emailItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+				}
+				sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, emailItems, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+			}
+		}
+
 		out := make([]managedAbsenceDTO, 0, len(created))
 		for _, record := range created {
 			dto := s.managedAbsenceDTO(record.row)
@@ -325,12 +337,16 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
 		return createdAbsenceRecord{}, false
 	}
-	existingAbsences, absErr := qtx.StudentAbsenceCountForCourse(r.Context(), wcode, course.CourseID)
-	if absErr != nil {
+	existingMissedSessions, missErr := qtx.StudentMissedSessionCountForCourse(r.Context(), wcode, course.CourseID)
+	if missErr != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
 		return createdAbsenceRecord{}, false
 	}
-	if projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsences, 1) {
+	submittingSessionCount := int32(len(item.MissedSessionIDs))
+	if submittingSessionCount == 0 {
+		submittingSessionCount = 1
+	}
+	if projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount) {
 		s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
 		return createdAbsenceRecord{}, false
 	}

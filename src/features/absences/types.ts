@@ -136,6 +136,9 @@ export type AbsenceNotificationsSettings = {
   sms_success_template?: string;
   sms_special_approved_template?: string;
   allow_submit_without_otp: boolean;
+  email_success_enabled: boolean;
+  email_success_subject: string;
+  email_success_body: string;
 };
 
 export type AdminContactSettings = {

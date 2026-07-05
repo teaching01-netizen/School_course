@@ -1082,24 +1082,47 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           return;
         }
       } catch {
-        // fall through to toast
+        // fall through to email auto-send
       }
+
+      try {
+        const res = await apiJson<{ email_sent: boolean }>(
+          "/api/v1/absences/batch-send-success-sms",
+          {
+            method: "POST",
+            body: JSON.stringify({ ids: created }),
+          },
+        );
+        if (res.email_sent) {
+          addToast(
+            "success",
+            `${created.length} absence${created.length !== 1 ? "s" : ""} created · Email notification sent`,
+          );
+        } else {
+          addToast(
+            "success",
+            `${created.length} absence${created.length !== 1 ? "s" : ""} created`,
+          );
+        }
+      } catch {
+        addToast(
+          "success",
+          `${created.length} absence${created.length !== 1 ? "s" : ""} created`,
+        );
+      }
+      onCreated();
+      return;
     }
-    addToast(
-      "success",
-      `${created.length} absence${created.length !== 1 ? "s" : ""} created`,
-    );
-    onCreated();
   }
 
   async function handleSendSms() {
     if (createdAbsenceIds.length === 0) {
-      addToast("error", "Missing absence ID, cannot send SMS");
+      addToast("error", "Missing absence ID, cannot send notifications");
       return;
     }
     setSendingSms(true);
     try {
-      const res = await apiJson<{ sent: boolean; recipient_count: number }>(
+      const res = await apiJson<{ sent: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
         "/api/v1/absences/batch-send-success-sms",
         {
           method: "POST",
@@ -1107,18 +1130,22 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         },
       );
       if (!res.sent) {
-        addToast("error", "SMS was not sent");
+        addToast("error", "Notifications were not sent");
         return;
       }
+      const parts: string[] = [];
+      if (res.sms_sent) parts.push("SMS");
+      if (res.email_sent) parts.push("email");
+      const label = parts.length > 0 ? parts.join(" & ") : "Notification";
       addToast(
         "success",
-        `SMS notification sent to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
+        `${label} sent to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
       );
       onCreated();
     } catch (err) {
       addToast(
         "error",
-        err instanceof Error ? err.message : "Failed to send SMS",
+        err instanceof Error ? err.message : "Failed to send notifications",
       );
     } finally {
       setSendingSms(false);
@@ -1127,7 +1154,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
   function handleSkipSms() {
     if (sendingSms) return;
-    addToast("success", "Absence(s) created successfully (SMS skipped)");
+    addToast("success", "Absence(s) created successfully");
     onCreated();
   }
 

@@ -73,6 +73,15 @@ export function normalizeAbsenceFormConfig(
     allow_submit_without_otp:
       data.notifications?.allow_submit_without_otp ??
       DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
+    email_success_enabled:
+      data.notifications?.email_success_enabled ??
+      DEFAULT_NOTIFICATIONS.email_success_enabled,
+    email_success_subject:
+      data.notifications?.email_success_subject ??
+      DEFAULT_NOTIFICATIONS.email_success_subject,
+    email_success_body:
+      data.notifications?.email_success_body ??
+      DEFAULT_NOTIFICATIONS.email_success_body,
   };
   const adminContact = {
     email: data.admin_contact?.email ?? DEFAULT_ADMIN_CONTACT.email,

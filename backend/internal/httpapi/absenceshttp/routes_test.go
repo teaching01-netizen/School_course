@@ -118,6 +118,42 @@ func TestProjectedAbsenceRecordLimitExceededAllowsBoundaryBeforeNextRecord(t *te
 	}
 }
 
+func TestProjectedAbsenceSessionLimitExceededRejectsExcessiveSessions(t *testing.T) {
+	if !projectedAbsenceSessionLimitExceeded(10, 0, 3) {
+		t.Fatalf("10-session course with 0 existing should reject 3 sessions (30%%)")
+	}
+}
+
+func TestProjectedAbsenceSessionLimitExceededAllowsExactBoundary(t *testing.T) {
+	if projectedAbsenceSessionLimitExceeded(10, 0, 2) {
+		t.Fatalf("10-session course with 0 existing should allow 2 sessions (20%%)")
+	}
+}
+
+func TestProjectedAbsenceSessionLimitExceededAllowsCumulativeLimit(t *testing.T) {
+	if projectedAbsenceSessionLimitExceeded(10, 1, 1) {
+		t.Fatalf("10-session course with 1 existing should allow 1 more session (20%% total)")
+	}
+}
+
+func TestProjectedAbsenceSessionLimitExceededRejectsCumulativeOverLimit(t *testing.T) {
+	if !projectedAbsenceSessionLimitExceeded(10, 1, 2) {
+		t.Fatalf("10-session course with 1 existing should reject 2 more sessions (30%% total)")
+	}
+}
+
+func TestProjectedAbsenceSessionLimitExceededHandlesZeroTotalSessions(t *testing.T) {
+	if projectedAbsenceSessionLimitExceeded(0, 0, 1) {
+		t.Fatalf("0-session course should not allow any sessions")
+	}
+}
+
+func TestProjectedAbsenceSessionLimitExceededHandlesZeroSubmittingSessions(t *testing.T) {
+	if projectedAbsenceSessionLimitExceeded(10, 0, 0) {
+		t.Fatalf("0 submitting sessions should not be exceeded")
+	}
+}
+
 func TestResolveClientStudentEmailRejectsInvalidEmail(t *testing.T) {
 	_, _, err := resolveClientStudentEmail(ptr("not an email"), pgtype.Text{}, pgtype.Text{})
 	if err == nil {

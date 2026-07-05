@@ -936,4 +936,135 @@ describe("selectedSitInCourseIDForGroup", () => {
     });
     expect(result).toBe("course-l1");
   });
+
+  it("skips groups with absence_rate_exceeded in payload", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          absence_rate_exceeded: true,
+          sessions: [
+            {
+              id: "missed-1",
+              start_at: "2026-06-01T09:00:00+07:00",
+              end_at: "2026-06-01T10:00:00+07:00",
+              date: "2026-06-01",
+              already_absent: false,
+            },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: {},
+      reason: "",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({ ok: true, payloads: [] });
+  });
+
+  it("includes groups without absence_rate_exceeded", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          absence_rate_exceeded: false,
+          sessions: [
+            {
+              id: "missed-1",
+              start_at: "2026-06-01T09:00:00+07:00",
+              end_at: "2026-06-01T10:00:00+07:00",
+              date: "2026-06-01",
+              already_absent: false,
+            },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: {},
+      reason: "",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      payloads: [
+        {
+          subject_id: "subj-1",
+          course_id: "course-1",
+          date_from: "2026-06-01",
+          date_to: "2026-06-01",
+          reason: undefined,
+          sit_in_course_id: "course-1",
+          missed_session_ids: ["missed-1"],
+          sit_in_session_ids: [],
+        },
+      ],
+    });
+  });
+
+  it("skips only exceeded groups when mixed with valid groups", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          absence_rate_exceeded: true,
+          sessions: [
+            {
+              id: "missed-1",
+              start_at: "2026-06-01T09:00:00+07:00",
+              end_at: "2026-06-01T10:00:00+07:00",
+              date: "2026-06-01",
+              already_absent: false,
+            },
+          ],
+        },
+        {
+          ...baseGroup,
+          subject_id: "subj-2",
+          subject_code: "PHYS",
+          subject_name: "Physics",
+          course_id: "course-2",
+          course_code: "PHYS101",
+          course_name: "Physics 101",
+          absence_rate_exceeded: false,
+          sessions: [
+            {
+              id: "missed-2",
+              start_at: "2026-06-02T09:00:00+07:00",
+              end_at: "2026-06-02T10:00:00+07:00",
+              date: "2026-06-02",
+              already_absent: false,
+            },
+          ],
+        },
+      ],
+      selectedSubjectIds: ["subj-1", "subj-2"],
+      selectedSessionIds: new Set(["missed-1", "missed-2"]),
+      sitInSelections: {},
+      reason: "",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      payloads: [
+        {
+          subject_id: "subj-2",
+          course_id: "course-2",
+          date_from: "2026-06-02",
+          date_to: "2026-06-02",
+          reason: undefined,
+          sit_in_course_id: "course-2",
+          missed_session_ids: ["missed-2"],
+          sit_in_session_ids: [],
+        },
+      ],
+    });
+  });
 });

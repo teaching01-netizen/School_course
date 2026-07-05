@@ -56,6 +56,13 @@ func ProjectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, 
 	return (existingAbsenceRecords+submittingAbsenceRecords)*5 > totalSessions
 }
 
+func ProjectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount int32) bool {
+	if totalSessions <= 0 || submittingSessionCount <= 0 {
+		return false
+	}
+	return (existingMissedSessions+submittingSessionCount)*5 > totalSessions
+}
+
 func ResolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {
 	if raw == nil {
 		return pgtype.Text{}, false, nil

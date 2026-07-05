@@ -21,6 +21,10 @@ func projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, 
 	return absences.ProjectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords)
 }
 
+func projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount int32) bool {
+	return absences.ProjectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount)
+}
+
 func resolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {
 	return absences.ResolveClientStudentEmail(raw, emailCRM, emailSystem)
 }

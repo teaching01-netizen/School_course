@@ -110,7 +110,17 @@ export default function AbsenceForm() {
     [sessions, selectedSessionIds],
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
-  const atMaxSessions = selectedSessionCount >= maxSessions;
+
+  const remainingForGroup = useCallback(
+    (group: SubjectSessions): number => {
+      if (!group.total_session_count || group.total_session_count <= 0) {
+        return maxSessions;
+      }
+      const maxAllowed = Math.floor(group.total_session_count / 5);
+      return Math.max(0, maxAllowed - (group.existing_absence_count ?? 0));
+    },
+    [maxSessions],
+  );
   const emailSatisfied = !!(lookup?.email_crm?.trim() || lookup?.email_system?.trim() || collectedEmail.trim());
   const canProceedFromVerify = !!lookup && emailSatisfied && verificationSatisfied;
   const studentDisplayName = getStudentDisplayName(lookup);
@@ -249,7 +259,7 @@ export default function AbsenceForm() {
     );
   };
 
-  const handleSessionGroupToggle = (sessionIds: string[]) => {
+  const handleSessionGroupToggle = (group: SubjectSessions, sessionIds: string[]) => {
     setSelectedSessionIds((current) => {
       const selected = sessionIds.every((sessionId) => current.has(sessionId));
       if (selected) {
@@ -262,7 +272,10 @@ export default function AbsenceForm() {
         });
         return next;
       }
-      if (selectedSessionCount >= maxSessions) return current;
+      const remaining = remainingForGroup(group);
+      const currentlySelectedInGroup = getSelectedSessionsForGroup(group, current).length;
+      if (currentlySelectedInGroup + sessionIds.length > remaining) return current;
+      if (selectedSessionCount + sessionIds.length > maxSessions) return current;
       const next = new Set(current);
       for (const sessionId of sessionIds) next.add(sessionId);
       return next;
@@ -661,7 +674,12 @@ export default function AbsenceForm() {
                       <section>
                         <div className="flex items-center justify-between mb-3">
                           <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
-                          <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">{selectedSessionCount}/{maxSessions} selected</span>
+                          <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">
+                            {selectedSessionCount} selected
+                            {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0) > 0
+                              ? ` (${sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0)} remaining)`
+                              : ""}
+                          </span>
                         </div>
                         {sessionsLoading ? (
                           <LoadingSkeleton type="table" lines={3} />
@@ -673,13 +691,21 @@ export default function AbsenceForm() {
                           <div className="space-y-4">
                             {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
                               const sessionGroups = groupByDay(group.sessions);
-                              const selectedCount = sessionGroups.filter((sessionGroup) => isDayGroupSelected(sessionGroup, selectedSessionIds)).length;
                               const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+                              const groupRemaining = remainingForGroup(group);
+                              const selectedInGroup = getSelectedSessionsForGroup(group, selectedSessionIds).length;
+                              const effectiveRemaining = Math.max(0, groupRemaining - selectedInGroup);
                               return (
                                 <div key={group.course_id} className="rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm">
                                   <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
-                                    <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">{selectedCount} selected</span>
+                                    <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
+                                      {group.absence_rate_exceeded
+                                        ? "Limit reached"
+                                        : effectiveRemaining === 0
+                                          ? "Limit reached"
+                                          : `${effectiveRemaining} session${effectiveRemaining !== 1 ? "s" : ""} remaining`}
+                                    </span>
                                   </div>
                                   {group.absence_rate_exceeded ? (
                                     <div className="p-4">
@@ -728,8 +754,8 @@ export default function AbsenceForm() {
                                               type="checkbox"
                                               id={`session-${dayGroup.id}`}
                                               checked={selected}
-                                              disabled={!selected && atMaxSessions}
-                                              onChange={() => handleSessionGroupToggle(sessionIds)}
+                                              disabled={!selected && (effectiveRemaining === 0 || selectedSessionCount >= maxSessions)}
+                                              onChange={() => handleSessionGroupToggle(group, sessionIds)}
                                               className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                             />
                                             <label htmlFor={`session-${dayGroup.id}`} className="min-w-0 cursor-pointer flex-1">

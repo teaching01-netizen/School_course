@@ -107,4 +107,41 @@ describe("normalizeAbsenceFormConfig", () => {
     expect(result.notifications?.sms_special_approved_template).toBe("");
     expect(result.notifications?.allow_submit_without_otp).toBe(false);
   });
+
+  it("preserves email fields when present", () => {
+    const input = {
+      form: { max_date_range_days: 14 },
+      sit_in: { auto_resolve_enabled: false },
+      notifications: {
+        email_success_enabled: true,
+        email_success_subject: "Custom Subject {{student_name}}",
+        email_success_body: "<p>Custom body</p>",
+      },
+    } as AbsenceFormConfig;
+    const result = normalizeAbsenceFormConfig(input);
+    expect(result.notifications?.email_success_enabled).toBe(true);
+    expect(result.notifications?.email_success_subject).toBe("Custom Subject {{student_name}}");
+    expect(result.notifications?.email_success_body).toBe("<p>Custom body</p>");
+  });
+
+  it("defaults email fields when missing", () => {
+    const result = normalizeAbsenceFormConfig(partial);
+    expect(result.notifications?.email_success_enabled).toBe(false);
+    expect(result.notifications?.email_success_subject).toBe("");
+    expect(result.notifications?.email_success_body).toBe("");
+  });
+
+  it("defaults partial email fields", () => {
+    const input = {
+      form: { max_date_range_days: 14 },
+      sit_in: { auto_resolve_enabled: false },
+      notifications: {
+        email_success_enabled: true,
+      },
+    } as AbsenceFormConfig;
+    const result = normalizeAbsenceFormConfig(input);
+    expect(result.notifications?.email_success_enabled).toBe(true);
+    expect(result.notifications?.email_success_subject).toBe("");
+    expect(result.notifications?.email_success_body).toBe("");
+  });
 });

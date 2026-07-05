@@ -411,32 +411,39 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 		}
 
 		smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
-		if strings.TrimSpace(smsTemplate) == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
-			return 0, nil, fmt.Errorf("sms not configured")
-		}
 
 		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), managed.Wcode)
-		if contactErr != nil || len(contactRows) == 0 {
-			s.a.WriteErr(w, http.StatusBadRequest, "no_contacts", "No contact phone numbers found for this student")
-			return 0, nil, fmt.Errorf("no contacts")
+		if contactErr != nil && s.deps.Log != nil {
+			s.deps.Log.Error("failed to load contacts for sms/email", "wcode", managed.Wcode, "error", contactErr)
 		}
-		phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
-		if len(phones) == 0 {
-			s.a.WriteErr(w, http.StatusBadRequest, "no_phones", "No phone numbers available for this student")
-			return 0, nil, fmt.Errorf("no phones")
+
+		var phones []string
+		if contactErr == nil && len(contactRows) > 0 {
+			phones = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		}
 
 		sessions, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
 		missed, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
 
-		sent := sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
-		if !sent {
-			s.a.WriteErr(w, http.StatusInternalServerError, "sms_send_failed", "Failed to send SMS notification")
-			return 0, nil, fmt.Errorf("sms send failed")
+		smsSent := false
+		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
+			smsSent = sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
 		}
 
-		return http.StatusOK, map[string]any{"sent": true, "recipient_count": len(phones)}, nil
+		emailSent := false
+		if s.deps.EmailService != nil {
+			emailCfg := settings.emailSuccessConfig()
+			if emailCfg.Enabled {
+				emailSent = sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+			}
+		}
+
+		return http.StatusOK, map[string]any{
+			"sent":            smsSent || emailSent,
+			"sms_sent":        smsSent,
+			"email_sent":      emailSent,
+			"recipient_count": len(phones),
+		}, nil
 	}) {
 		return
 	}
@@ -486,10 +493,6 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if settings.Notifications.SmsSuccessTemplate == "" && settings.Notifications.SmsSpecialApprovedTemplate == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
-			return 0, nil, fmt.Errorf("sms not configured")
-		}
 
 		items := make([]successSMSItem, 0, len(ids))
 		var wcode string
@@ -529,20 +532,15 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 		if hasSpecial && strings.TrimSpace(settings.Notifications.SmsSpecialApprovedTemplate) != "" {
 			smsTemplate = settings.Notifications.SmsSpecialApprovedTemplate
 		}
-		if strings.TrimSpace(smsTemplate) == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "sms_disabled", "SMS notifications are not configured")
-			return 0, nil, fmt.Errorf("sms not configured")
-		}
 
 		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), wcode)
-		if contactErr != nil || len(contactRows) == 0 {
-			s.a.WriteErr(w, http.StatusBadRequest, "no_contacts", "No contact phone numbers found for this student")
-			return 0, nil, fmt.Errorf("no contacts")
+		if contactErr != nil && s.deps.Log != nil {
+			s.deps.Log.Error("failed to load contacts for sms/email", "wcode", wcode, "error", contactErr)
 		}
-		phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
-		if len(phones) == 0 {
-			s.a.WriteErr(w, http.StatusBadRequest, "no_phones", "No phone numbers available for this student")
-			return 0, nil, fmt.Errorf("no phones")
+
+		var phones []string
+		if contactErr == nil && len(contactRows) > 0 {
+			phones = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		}
 
 		if body.DryRun {
@@ -550,17 +548,33 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			if loc == nil {
 				loc = time.UTC
 			}
-			rendered := renderBatchSuccessSMSTemplate(smsTemplate, items, loc)
+			rendered := ""
+			if strings.TrimSpace(smsTemplate) != "" {
+				rendered = renderBatchSuccessSMSTemplate(smsTemplate, items, loc)
+			}
 			return http.StatusOK, map[string]any{"preview": map[string]any{"phones": phones, "message": rendered}}, nil
 		}
 
-		sent := sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
-		if !sent {
-			s.a.WriteErr(w, http.StatusInternalServerError, "sms_send_failed", "Failed to send SMS notification")
-			return 0, nil, fmt.Errorf("sms send failed")
+		smsSent := false
+		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
+			smsSent = sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
 		}
 
-		return http.StatusOK, map[string]any{"sent": true, "recipient_count": len(phones), "absence_count": len(ids)}, nil
+		emailSent := false
+		if s.deps.EmailService != nil {
+			emailCfg := settings.emailSuccessConfig()
+			if emailCfg.Enabled {
+				emailSent = sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, items, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+			}
+		}
+
+		return http.StatusOK, map[string]any{
+			"sent":            smsSent || emailSent,
+			"sms_sent":        smsSent,
+			"email_sent":      emailSent,
+			"recipient_count": len(phones),
+			"absence_count":   len(ids),
+		}, nil
 	}) {
 		return
 	}

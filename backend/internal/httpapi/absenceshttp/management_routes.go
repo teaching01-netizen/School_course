@@ -1222,6 +1222,9 @@ type absenceNotificationsSettings struct {
 	SmsSuccessTemplate         string `json:"sms_success_template"`
 	SmsSpecialApprovedTemplate string `json:"sms_special_approved_template"`
 	AllowSubmitWithoutOtp      bool   `json:"allow_submit_without_otp"`
+	EmailSuccessEnabled        bool   `json:"email_success_enabled"`
+	EmailSuccessSubject        string `json:"email_success_subject"`
+	EmailSuccessBody           string `json:"email_success_body"`
 }
 
 type adminContactSettings struct {
@@ -1256,8 +1259,23 @@ func defaultAbsenceSettings() absenceSettings {
 			SmsSuccessTemplate:         "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
 			SmsSpecialApprovedTemplate: "Warwick Institute: {{nickname}} จะมีเรียนชดเชย {{absence_summary}} และมีกำหนดเข้าเรียน {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
 			AllowSubmitWithoutOtp:      false,
+			EmailSuccessEnabled:        false,
+			EmailSuccessSubject:        defaultEmailSuccessConfig().Subject,
+			EmailSuccessBody:           defaultEmailSuccessConfig().Body,
 		},
 	}
+}
+
+func (s absenceSettings) emailSuccessConfig() emailSuccessConfig {
+	cfg := defaultEmailSuccessConfig()
+	cfg.Enabled = s.Notifications.EmailSuccessEnabled
+	if s.Notifications.EmailSuccessSubject != "" {
+		cfg.Subject = s.Notifications.EmailSuccessSubject
+	}
+	if s.Notifications.EmailSuccessBody != "" {
+		cfg.Body = s.Notifications.EmailSuccessBody
+	}
+	return cfg
 }
 
 func parseAbsenceSettings(raw []byte) absenceSettings {
@@ -1333,6 +1351,12 @@ func validateAbsenceSettings(settings absenceSettings) error {
 	}
 	if len([]rune(settings.Notifications.SmsSpecialApprovedTemplate)) > 500 {
 		return fmt.Errorf("sms_special_approved_template must not exceed 500 characters")
+	}
+	if len([]rune(settings.Notifications.EmailSuccessSubject)) > 200 {
+		return fmt.Errorf("email_success_subject must not exceed 200 characters")
+	}
+	if len([]rune(settings.Notifications.EmailSuccessBody)) > 15000 {
+		return fmt.Errorf("email_success_body must not exceed 15000 characters")
 	}
 	if len([]rune(settings.AdminContact.Email)) > 200 || len([]rune(settings.AdminContact.Phone)) > 50 || len([]rune(settings.AdminContact.Hours)) > 120 {
 		return fmt.Errorf("admin contact fields are too long")

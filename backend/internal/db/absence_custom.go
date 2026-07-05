@@ -622,6 +622,26 @@ func (q *Queries) StudentAbsenceCountForCourse(ctx context.Context, wcode string
 	return count, err
 }
 
+func (q *Queries) StudentMissedSessionCountForCourse(ctx context.Context, wcode string, courseID pgtype.UUID) (int32, error) {
+	var count int32
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT COUNT(*)::int4 FROM absence_missed_sessions ams
+			JOIN student_absences sa ON sa.id = ams.absence_id
+			WHERE sa.wcode = $1 AND sa.course_id = $2
+			AND sa.status NOT IN ('cancelled', 'special_approved')
+		), 0) + COALESCE((
+			SELECT COUNT(*)::int4 FROM student_absences sa
+			WHERE sa.wcode = $1 AND sa.course_id = $2
+			AND sa.status NOT IN ('cancelled', 'special_approved')
+			AND NOT EXISTS (
+				SELECT 1 FROM absence_missed_sessions ams WHERE ams.absence_id = sa.id
+			)
+		), 0) AS total_missed_sessions
+	`, wcode, courseID).Scan(&count)
+	return count, err
+}
+
 func (q *Queries) StudentSetSystemEmail(ctx context.Context, wcode string, email string) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE students

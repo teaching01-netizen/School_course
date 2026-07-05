@@ -404,12 +404,16 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
 			return 0, nil, totalErr
 		}
-		existingAbsences, absErr := qtx.StudentAbsenceCountForCourse(r.Context(), body.Wcode, course.CourseID)
-		if absErr != nil {
+		existingMissedSessions, missErr := qtx.StudentMissedSessionCountForCourse(r.Context(), body.Wcode, course.CourseID)
+		if missErr != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
-			return 0, nil, absErr
+			return 0, nil, missErr
 		}
-		if projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsences, 1) {
+		submittingSessionCount := int32(len(body.MissedSessionIDs))
+		if submittingSessionCount == 0 {
+			submittingSessionCount = 1
+		}
+		if projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount) {
 			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
 			return 0, nil, fmt.Errorf("absence limit exceeded for course %s", course.CourseID)
 		}
@@ -647,6 +651,24 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
+				}
+			}
+		}
+
+		// Send success email after submission (non-critical; errors are logged only).
+		if s.deps.EmailService != nil {
+			emailCfg := settings.emailSuccessConfig()
+			if emailCfg.Enabled {
+				sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
+				if sesErr == nil {
+					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
+					if missedErr == nil {
+						sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+					} else {
+						sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, nil, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+					}
+				} else if s.deps.Log != nil {
+					s.deps.Log.Error("failed to load absence sessions for email", "absence_id", item.ID, "error", sesErr)
 				}
 			}
 		}
@@ -1131,12 +1153,12 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			if totalErr != nil && s.deps.Log != nil {
 				s.deps.Log.Error("failed to count course sessions", "course_id", g.CourseID, "error", totalErr)
 			}
-			existing, absErr := s.deps.Q.StudentAbsenceCountForCourse(r.Context(), wcode, courseID)
-			if absErr != nil && s.deps.Log != nil {
-				s.deps.Log.Error("failed to count student absences", "course_id", g.CourseID, "error", absErr)
+			existing, missErr := s.deps.Q.StudentMissedSessionCountForCourse(r.Context(), wcode, courseID)
+			if missErr != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to count student missed sessions", "course_id", g.CourseID, "error", missErr)
 			}
-			if totalErr == nil && absErr == nil {
-				absenceRateExceeded = projectedAbsenceRecordLimitExceeded(total, existing, 1)
+			if totalErr == nil && missErr == nil {
+				absenceRateExceeded = projectedAbsenceSessionLimitExceeded(total, existing, 1)
 				existingAbsenceCount = existing
 				totalSessionCount = total
 			}

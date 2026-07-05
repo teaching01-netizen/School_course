@@ -897,7 +897,7 @@ describe("Absence inbox", () => {
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
       .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
-      .mockResolvedValueOnce({ sent: true, recipient_count: 1 });
+      .mockResolvedValueOnce({ sent: true, sms_sent: true, email_sent: true, recipient_count: 1 });
     renderPage();
     const user = userEvent.setup();
 
@@ -924,7 +924,7 @@ describe("Absence inbox", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/sms notification sent/i)).toBeInTheDocument();
+      expect(screen.getByText(/sms & email sent/i)).toBeInTheDocument();
     });
   });
 
@@ -934,7 +934,8 @@ describe("Absence inbox", () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
-      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } });
+      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
+      .mockResolvedValueOnce(updatedPage);
     renderPage();
     const user = userEvent.setup();
 
@@ -949,8 +950,9 @@ describe("Absence inbox", () => {
 
     await user.click(screen.getByRole("button", { name: /skip/i }));
 
+    // Modal should be closed (Preview text no longer visible)
     await waitFor(() => {
-      expect(screen.getByText(/sms skipped/i)).toBeInTheDocument();
+      expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     });
 
     // Verify no non-dry-run SMS call was made
@@ -969,7 +971,8 @@ describe("Absence inbox", () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
-      .mockResolvedValueOnce({ preview: null });
+      .mockResolvedValueOnce({ preview: null })
+      .mockResolvedValueOnce({ email_sent: true });
     renderPage();
     const user = userEvent.setup();
 
@@ -995,15 +998,17 @@ describe("Absence inbox", () => {
       expect(body.dry_run).toBe(true);
     });
 
-    // Verify NO non-dry-run call was made
-    const nonDryRunCalls = mockApiJson.mock.calls.filter(
-      (c: unknown[]) => {
-        if (c[0] !== "/api/v1/absences/batch-send-success-sms") return false;
-        const body = JSON.parse((c[1] as RequestInit).body as string);
-        return body.dry_run !== true;
-      },
-    );
-    expect(nonDryRunCalls).toHaveLength(0);
+    // Verify email was auto-sent when no phones (non-dry-run call for email)
+    await waitFor(() => {
+      const nonDryRunCalls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => {
+          if (c[0] !== "/api/v1/absences/batch-send-success-sms") return false;
+          const body = JSON.parse((c[1] as RequestInit).body as string);
+          return body.dry_run !== true;
+        },
+      );
+      expect(nonDryRunCalls).toHaveLength(1);
+    });
   });
 
   it("handles SMS preview failure gracefully", async () => {

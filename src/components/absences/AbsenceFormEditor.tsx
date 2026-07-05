@@ -35,6 +35,18 @@ export function AbsenceFormEditor({
 
   const inputClass = "mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm";
 
+  const notificationsWith = (patch: Partial<AbsenceSettings["notifications"]>) => ({
+    sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true,
+    sms_parent_template: settings.notifications?.sms_parent_template ?? "",
+    sms_success_template: settings.notifications?.sms_success_template ?? "",
+    sms_special_approved_template: settings.notifications?.sms_special_approved_template ?? "",
+    allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false,
+    email_success_enabled: settings.notifications?.email_success_enabled ?? false,
+    email_success_subject: settings.notifications?.email_success_subject ?? "",
+    email_success_body: settings.notifications?.email_success_body ?? "",
+    ...patch,
+  });
+
   return (
     <div className="space-y-4">
       {showFormBehavior && (
@@ -190,24 +202,64 @@ export function AbsenceFormEditor({
               <input
                 type="checkbox"
                 checked={settings.notifications?.sms_parent_enabled ?? true}
-                onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_parent_enabled: e.target.checked, sms_parent_template: settings.notifications?.sms_parent_template ?? "", sms_success_template: settings.notifications?.sms_success_template ?? "", sms_special_approved_template: settings.notifications?.sms_special_approved_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })}
+                onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_parent_enabled: e.target.checked }) })}
               />{" "}
               Enable parent SMS notifications
             </label>
             <label className="block text-sm">
               Verification SMS template (sent to parent)
-              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_parent_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_parent_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_success_template: settings.notifications?.sms_success_template ?? "", sms_special_approved_template: settings.notifications?.sms_special_approved_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_parent_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_parent_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{student_name}}"}, {"{{code}}"}</span>
             </label>
             <label className="block text-sm">
               Success SMS template (sent to parent and student after submission)
-              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_success_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_parent_template: settings.notifications?.sms_parent_template ?? "", sms_special_approved_template: settings.notifications?.sms_special_approved_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_success_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
             <label className="block text-sm">
               Special approved SMS template
-              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_special_approved_template ?? ""} onChange={(e) => onChange({ ...settings, notifications: { ...settings.notifications, sms_special_approved_template: e.target.value, sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true, sms_parent_template: settings.notifications?.sms_parent_template ?? "", sms_success_template: settings.notifications?.sms_success_template ?? "", allow_submit_without_otp: settings.notifications?.allow_submit_without_otp ?? false } })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_special_approved_template ?? ""} onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_special_approved_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
+            </label>
+          </div>
+        </section>
+      )}
+
+      {showTextEditors && (
+        <section className="rounded-sm border border-gray-200 bg-white p-5">
+          <h2 className="mb-4 text-base font-semibold">Email Notifications</h2>
+          <div className="space-y-4">
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.notifications?.email_success_enabled ?? false}
+                onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ email_success_enabled: e.target.checked }) })}
+              />{" "}
+              Enable success email to student after submission
+            </label>
+            <label className="block text-sm">
+              Email subject
+              <input
+                className={inputClass}
+                type="text"
+                maxLength={200}
+                value={settings.notifications?.email_success_subject ?? ""}
+                onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ email_success_subject: e.target.value }) })}
+                placeholder="Absence Confirmation - {{student_name}}"
+              />
+              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{student_name}}"}, {"{{wcode}}"}, {"{{institute_name}}"}</span>
+            </label>
+            <label className="block text-sm">
+              Email body (HTML)
+              <textarea
+                className="mt-1 block w-full rounded-sm border border-gray-300 p-2 text-sm font-mono"
+                maxLength={15000}
+                rows={10}
+                value={settings.notifications?.email_success_body ?? ""}
+                onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ email_success_body: e.target.value }) })}
+                placeholder="&lt;table&gt;...&lt;/table&gt;"
+              />
+              <span className="mt-1 text-xs text-gray-500">Placeholders: {"{{student_name}}"}, {"{{wcode}}"}, {"{{institute_name}}"}, {"{{submitted_at}}"}, {"{{absence_count}}"}, {"{{absence_rows}}"}</span>
             </label>
           </div>
         </section>
