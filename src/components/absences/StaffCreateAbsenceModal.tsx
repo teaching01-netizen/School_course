@@ -1398,19 +1398,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
             <>
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-3">
                 <p className="text-sm font-medium text-emerald-800">
-                  {student.full_name}
+                  {student.nickname?.trim() || student.full_name}
                 </p>
-                <p className="text-xs text-emerald-600">{student.wcode}</p>
-                {student.nickname ? (
-                  <p className="text-xs text-emerald-700">
-                    Nickname: {student.nickname}
-                  </p>
+                {student.nickname && student.full_name && student.nickname.trim() !== student.full_name ? (
+                  <p className="text-xs text-emerald-700">{student.full_name}</p>
                 ) : null}
                 {student.school ? (
-                  <p className="text-xs text-emerald-700">
-                    School: {student.school}
-                  </p>
+                  <p className="text-xs text-emerald-700">{student.school}</p>
                 ) : null}
+                <p className="text-xs text-emerald-600">{student.wcode}</p>
               </div>
 
               {student.subjects.length > 0 ? (
