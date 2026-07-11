@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../../../hooks/useToast";
 import StaffCreateAbsenceModal from "../StaffCreateAbsenceModal";
@@ -29,6 +29,10 @@ function renderModal(props?: { onClose?: () => void; onCreated?: () => void }) {
     </ToastProvider>,
   );
 }
+
+afterEach(() => {
+  cleanup();
+});
 
 async function advanceToSubjectsStep(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /next/i }));
@@ -1061,6 +1065,332 @@ describe("multi-subject SMS aggregation", () => {
       );
       expect(sendBody.ids).toEqual(["absence-single"]);
       expect(sendBody.dry_run).toBeUndefined();
+    });
+  });
+});
+
+describe("special sit-in multi-subject coverage", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  // Student is enrolled in Mathematics (sub1 / c1). Absence is recorded against
+  // Mathematics, but via "Special sit-in" staff may point the make-up at ANY
+  // other subject's sessions. These tests pin the CURRENT behaviour: a single
+  // absence may only carry ONE special sit-in course.
+
+  const MOCK_STUDENT_SPECIAL = {
+    student_id: "s1",
+    wcode: "W001",
+    full_name: "Test Student",
+    subjects: [
+      { id: "sub1", code: "MATH", name: "Mathematics", active_course_id: "c1" },
+    ],
+  };
+
+  const MOCK_ALL_SUBJECTS_SPECIAL = [
+    { id: "sub1", code: "MATH", name: "Mathematics" },
+    { id: "subB", code: "SCI", name: "Science" },
+    { id: "subC", code: "HIS", name: "History" },
+  ];
+
+  // Absent subject: Mathematics with TWO missed class days so we can mark each
+  // as a different special sit-in.
+  const MOCK_SESSIONS_TWO_MISSED = {
+    subjects: [
+      {
+        subject_id: "sub1",
+        subject_code: "MATH",
+        subject_name: "Mathematics",
+        course_id: "c1",
+        course_code: "MATH-1",
+        course_name: "Math 101",
+        sit_in: {
+          sit_in_method: "physical",
+          sit_in_course: {
+            id: "sitcourse1",
+            code: "SCI-1",
+            name: "Science 101",
+            subject_name: "Science",
+          },
+          available_sessions: [
+            {
+              id: "sit1",
+              start_at: "2026-06-26T14:00:00Z",
+              end_at: "2026-06-26T15:00:00Z",
+              course_id: "sitcourse1",
+            },
+          ],
+        },
+        sessions: [
+          {
+            id: "sessA1",
+            start_at: "2026-06-24T10:00:00Z",
+            end_at: "2026-06-24T11:00:00Z",
+            date: "2026-06-24",
+            already_absent: false,
+          },
+          {
+            id: "sessA2",
+            start_at: "2026-06-25T10:00:00Z",
+            end_at: "2026-06-25T11:00:00Z",
+            date: "2026-06-25",
+            already_absent: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  // Special sit-in target B (Science) -> resolves to course "cB-alt"
+  const MOCK_SPECIAL_SESSIONS_B = {
+    subjects: [
+      {
+        subject_id: "subB",
+        subject_code: "SCI",
+        subject_name: "Science",
+        course_id: "cB",
+        course_code: "SCI-1",
+        course_name: "Science 101",
+        sit_in: {
+          sit_in_method: "physical",
+          available_sessions: [
+            {
+              id: "sitB1",
+              start_at: "2026-06-26T14:00:00Z",
+              end_at: "2026-06-26T15:00:00Z",
+              course_id: "cB-alt",
+              course_code: "SCI-2",
+              course_name: "Science Workshop",
+              subject_code: "SCI",
+              subject_name: "Science",
+            },
+          ],
+        },
+        sessions: [
+          {
+            id: "specialB-missed",
+            start_at: "2026-06-24T10:00:00Z",
+            end_at: "2026-06-24T11:00:00Z",
+            date: "2026-06-24",
+            already_absent: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  // Special sit-in target C (History) -> resolves to course "cC-alt"
+  const MOCK_SPECIAL_SESSIONS_C = {
+    subjects: [
+      {
+        subject_id: "subC",
+        subject_code: "HIS",
+        subject_name: "History",
+        course_id: "cC",
+        course_code: "HIS-1",
+        course_name: "History 101",
+        sit_in: {
+          sit_in_method: "physical",
+          available_sessions: [
+            {
+              id: "sitC1",
+              start_at: "2026-06-27T14:00:00Z",
+              end_at: "2026-06-27T15:00:00Z",
+              course_id: "cC-alt",
+              course_code: "HIS-2",
+              course_name: "History Workshop",
+              subject_code: "HIS",
+              subject_name: "History",
+            },
+          ],
+        },
+        sessions: [
+          {
+            id: "specialC-missed",
+            start_at: "2026-06-25T10:00:00Z",
+            end_at: "2026-06-25T11:00:00Z",
+            date: "2026-06-25",
+            already_absent: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  function routeSpecialMocks() {
+    mockApiJson.mockImplementation(async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("student-lookup")) return MOCK_STUDENT_SPECIAL;
+      if (u === "/api/v1/subjects") return MOCK_ALL_SUBJECTS_SPECIAL;
+      if (u.includes("absence-form-config")) return MOCK_FORM_CONFIG;
+      if (u.includes("sessions-in-range")) {
+        if (u.includes("subject_ids=subB")) return MOCK_SPECIAL_SESSIONS_B;
+        if (u.includes("subject_ids=subC")) return MOCK_SPECIAL_SESSIONS_C;
+        return MOCK_SESSIONS_TWO_MISSED;
+      }
+      if (u.includes("staff-create"))
+        return { id: "abs-created", status: "special_approved" };
+      return {};
+    });
+  }
+
+  async function reachSessionsStep(user: ReturnType<typeof userEvent.setup>) {
+    // Type step: pick Special Absence so the record is special_approved.
+    await user.click(screen.getByRole("button", { name: /special absence/i }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Subject step
+    await waitFor(() => {
+      expect(screen.getByLabelText(/w-code/i)).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Sessions step: two missed class days for Mathematics
+    await waitFor(() => {
+      expect(screen.getByText(/2 class days/)).toBeInTheDocument();
+    });
+  }
+
+  it("creates one absence per special sit-in course when a special absence spans multiple subjects", async () => {
+    const user = userEvent.setup();
+    routeSpecialMocks();
+    renderModal();
+    await reachSessionsStep(user);
+
+    // Select both missed class days (absent from Mathematics).
+    const dayCheckboxes = await screen.findAllByRole("checkbox");
+    expect(dayCheckboxes).toHaveLength(2);
+    await user.click(dayCheckboxes[0]);
+    await user.click(dayCheckboxes[1]);
+
+    // Mark each missed day as a Special sit-in in a DIFFERENT subject
+    // (Science and History) — i.e. one absence, multiple make-up subjects.
+    const toggles1 = screen.getAllByRole("button", { name: "Special sit-in" });
+    await user.click(toggles1[0]);
+    const toggles2 = screen.getAllByRole("button", { name: "Special sit-in" });
+    await user.click(toggles2[1]);
+
+    const subjectSelects = screen.getAllByLabelText(/special sit-in subject/i);
+    expect(subjectSelects).toHaveLength(2);
+    await user.selectOptions(subjectSelects[0], "subB");
+    await user.selectOptions(subjectSelects[1], "subC");
+
+    // Wait for each subject's special sessions to load, then pick one.
+    const sessionSelects = screen.getAllByLabelText(/special sit-in session/i);
+    await waitFor(() => {
+      expect(
+        Array.from((sessionSelects[0] as HTMLSelectElement).options).some(
+          (o) => o.value,
+        ),
+      ).toBe(true);
+    });
+    await waitFor(() => {
+      expect(
+        Array.from((sessionSelects[1] as HTMLSelectElement).options).some(
+          (o) => o.value,
+        ),
+      ).toBe(true);
+    });
+    const valB = Array.from(
+      (sessionSelects[0] as HTMLSelectElement).options,
+    ).find((o) => o.value)!.value;
+    const valC = Array.from(
+      (sessionSelects[1] as HTMLSelectElement).options,
+    ).find((o) => o.value)!.value;
+    await user.selectOptions(sessionSelects[0], valB);
+    await user.selectOptions(sessionSelects[1], valC);
+
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    // The old "one special sit-in course per absence" restriction must be gone.
+    expect(
+      screen.queryByText(/use one special sit-in course per absence/i),
+    ).not.toBeInTheDocument();
+
+    // One staff-create per distinct special sit-in course.
+    await waitFor(() => {
+      const calls = mockApiJson.mock.calls.filter(
+        (c: unknown[]) => c[0] === "/api/v1/absences/staff-create",
+      );
+      expect(calls).toHaveLength(2);
+      const bodies = calls.map((c: unknown[]) =>
+        JSON.parse((c[1] as RequestInit).body as string),
+      );
+      const byCourse = new Map(bodies.map((b) => [b.sit_in_course_id, b]));
+      expect(byCourse.get("cB-alt")).toBeDefined();
+      expect(byCourse.get("cC-alt")).toBeDefined();
+
+      expect(byCourse.get("cB-alt").missed_session_ids).toContain("sessA1");
+      expect(byCourse.get("cB-alt").sit_in_session_ids).toEqual(["sitB1"]);
+      expect(byCourse.get("cB-alt").status).toBe("special_approved");
+
+      expect(byCourse.get("cC-alt").missed_session_ids).toContain("sessA2");
+      expect(byCourse.get("cC-alt").sit_in_session_ids).toEqual(["sitC1"]);
+      expect(byCourse.get("cC-alt").status).toBe("special_approved");
+    });
+  });
+
+  it("allows a special absence whose make-up targets a single other subject", async () => {
+    const user = userEvent.setup();
+    routeSpecialMocks();
+    renderModal();
+    await reachSessionsStep(user);
+
+    // Select only the first missed class day.
+    const dayCheckboxes = await screen.findAllByRole("checkbox");
+    await user.click(dayCheckboxes[0]);
+
+    const toggles = screen.getAllByRole("button", { name: "Special sit-in" });
+    await user.click(toggles[0]);
+
+    const subjectSelects = screen.getAllByLabelText(/special sit-in subject/i);
+    await user.selectOptions(subjectSelects[0], "subB");
+
+    const sessionSelects = screen.getAllByLabelText(/special sit-in session/i);
+    await waitFor(() => {
+      expect(
+        Array.from((sessionSelects[0] as HTMLSelectElement).options).some(
+          (o) => o.value,
+        ),
+      ).toBe(true);
+    });
+    const valB = Array.from(
+      (sessionSelects[0] as HTMLSelectElement).options,
+    ).find((o) => o.value)!.value;
+    await user.selectOptions(sessionSelects[0], valB);
+
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+    mockApiJson.mockImplementationOnce(async () => ({
+      id: "abs-special-ok",
+      status: "special_approved",
+    }));
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const staffCreateCall = mockApiJson.mock.calls.find(
+        (c: unknown[]) => c[0] === "/api/v1/absences/staff-create",
+      );
+      expect(staffCreateCall).toBeTruthy();
+      const body = JSON.parse((staffCreateCall?.[1] as RequestInit).body as string);
+      // Special make-up points at Science (cB-alt), NOT the absent Mathematics.
+      expect(body.sit_in_course_id).toBe("cB-alt");
+      expect(body.status).toBe("special_approved");
     });
   });
 });

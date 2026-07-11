@@ -761,23 +761,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     return selectedSessionCount > 0 && !incompleteSpecialSitIn;
   }
 
-  function specialSitInCourseIdsForMissedSessions(
-    missedSessionIds: string[],
-  ): Set<string> {
-    const courseIds = new Set<string>();
-    for (const missedSessionId of missedSessionIds) {
-      if ((sitInModes[missedSessionId] ?? "suggested") !== "special") continue;
-      const selection = specialSitInSelections[missedSessionId];
-      if (!selection?.subjectId || !selection.sessionValue) continue;
-      const option = findSpecialSitInSessionOption(
-        specialSitInSessionsBySubject[selection.subjectId] ?? [],
-        selection.sessionValue,
-      );
-      if (option?.courseId) courseIds.add(option.courseId);
-    }
-    return courseIds;
-  }
-
   function getSpecialSitInReviewLabel(missedSessionId: string): string | null {
     if ((sitInModes[missedSessionId] ?? "suggested") !== "special") return null;
     const selection = specialSitInSelections[missedSessionId];
@@ -989,12 +972,115 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         selectedSessionIds,
       );
       if (selectedSessions.length === 0) continue;
+
+      const missedIds = selectedSessions.map((s) => s.id);
+      const hasSpecialSitIn = missedIds.some(
+        (id) => (sitInModes[id] ?? "suggested") === "special",
+      );
+
+      // --- Special sit-in path: one absence per distinct sit-in course ---
+      // A single absence (e.g. absent from subject A) may be made up across
+      // several other subjects (C, D, E, F) at once, so we emit one
+      // staff-create record per distinct special sit-in course.
+      if (hasSpecialSitIn) {
+        const partitions = new Map<
+          string,
+          { missed: string[]; sessions: string[]; method: string | undefined }
+        >();
+        for (const missedId of missedIds) {
+          const isSpecial =
+            (sitInModes[missedId] ?? "suggested") === "special";
+          let courseId: string;
+          let sessionIds: string[];
+          let method: string | undefined;
+          if (isSpecial) {
+            const sel = specialSitInSelections[missedId];
+            const option =
+              sel?.sessionValue
+                ? findSpecialSitInSessionOption(
+                    specialSitInSessionsBySubject[sel.subjectId] ?? [],
+                    sel.sessionValue,
+                  )
+                : null;
+            courseId = option?.courseId ?? group.course_id;
+            sessionIds = sel?.sessionValue
+              ? splitMergedSessionValue(sel.sessionValue)
+              : [];
+            method = courseId && sessionIds.length > 0 ? "physical" : undefined;
+          } else {
+            sessionIds = splitMergedSessionValue(sitInSelections[missedId]);
+            courseId =
+              selectedSitInCourseIDForGroup(
+                group,
+                [missedId],
+                sitInSelections,
+                sitInPriorityLevels,
+                sitInPriorityHistory,
+              ) ?? group.course_id;
+            const sitIn = sitInForMissedSession(group, missedId);
+            method =
+              sitIn?.sit_in_method === "physical" ||
+              sitIn?.sit_in_method === "zoom"
+                ? sitIn.sit_in_method
+                : undefined;
+          }
+          const bucket =
+            partitions.get(courseId) ?? { missed: [], sessions: [], method };
+          bucket.missed.push(missedId);
+          for (const sid of sessionIds) {
+            if (!bucket.sessions.includes(sid)) bucket.sessions.push(sid);
+          }
+          bucket.method = method ?? bucket.method;
+          partitions.set(courseId, bucket);
+        }
+
+        for (const [courseId, bucket] of partitions) {
+          const partSessions = selectedSessions.filter((s) =>
+            bucket.missed.includes(s.id),
+          );
+          const dates = [...new Set(partSessions.map((s) => s.date))].sort();
+          const dateFrom = dates[0];
+          const dateTo = dates[dates.length - 1];
+          if (!dateFrom || !dateTo) continue;
+          try {
+            const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>(
+              "/api/v1/absences/staff-create",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  wcode: student.wcode,
+                  subject_id: group.subject_id,
+                  course_id: group.course_id,
+                  date_from: dateFrom,
+                  date_to: dateTo,
+                  missed_session_ids: bucket.missed,
+                  sit_in_method: bucket.method,
+                  sit_in_course_id: courseId,
+                  sit_in_session_ids: bucket.sessions,
+                  reason_category: reasonCategory || undefined,
+                  reason: reason || undefined,
+                  status:
+                    absenceType === "special" ? "special_approved" : undefined,
+                }),
+              },
+            );
+            created.push(res.id);
+          } catch (err) {
+            addToast(
+              "error",
+              `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`,
+            );
+          }
+        }
+        continue;
+      }
+
+      // --- Standard single-course path (no special sit-ins) ---
       const dates = [...new Set(selectedSessions.map((s) => s.date))].sort();
       const dateFrom = dates[0];
       const dateTo = dates[dates.length - 1];
       if (!dateFrom || !dateTo) continue;
 
-      const missedIds = selectedSessions.map((s) => s.id);
       const sitInSessionIds: string[] = [];
       let sitInMethod: string | undefined;
 
@@ -1011,28 +1097,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
-      const specialSitInCourseIds =
-        specialSitInCourseIdsForMissedSessions(missedIds);
-      if (specialSitInCourseIds.size > 1) {
-        addToast(
-          "error",
-          `${group.subject_name || group.course_code}: use one special sit-in course per absence`,
-        );
-        setSubmitting(false);
-        return;
-      }
-      const specialSitInCourseId = [...specialSitInCourseIds][0];
-      if (specialSitInCourseId) sitInMethod = "physical";
       const sitInCourseId =
-        specialSitInCourseId ??
         selectedSitInCourseIDForGroup(
           group,
           missedIds,
           sitInSelections,
           sitInPriorityLevels,
           sitInPriorityHistory,
-        ) ??
-        group.course_id;
+        ) ?? group.course_id;
 
       try {
         const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>(
