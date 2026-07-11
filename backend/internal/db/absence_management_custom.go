@@ -688,6 +688,13 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		WHERE sess.id = ANY($3::uuid[])
 		  AND sess.course_id = $2
 		  AND sess.deleted_at IS NULL
+		  AND EXISTS (
+		    SELECT 1
+		    FROM sessions later
+		    WHERE later.course_id = sess.course_id
+		      AND later.deleted_at IS NULL
+		      AND later.start_at > sess.start_at
+		  )
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed
@@ -708,6 +715,13 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 		FROM sessions sess
 		WHERE sess.id = ANY($2::uuid[])
 		  AND sess.deleted_at IS NULL
+		  AND EXISTS (
+		    SELECT 1
+		    FROM sessions later
+		    WHERE later.course_id = sess.course_id
+		      AND later.deleted_at IS NULL
+		      AND later.start_at > sess.start_at
+		  )
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM student_absences sa
@@ -744,6 +758,13 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		LEFT JOIN rooms room ON room.id = sess.room_id
 		WHERE sess.course_id = $2
 		  AND sess.deleted_at IS NULL
+		  AND EXISTS (
+		    SELECT 1
+		    FROM sessions later
+		    WHERE later.course_id = sess.course_id
+		      AND later.deleted_at IS NULL
+		      AND later.start_at > sess.start_at
+		  )
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed

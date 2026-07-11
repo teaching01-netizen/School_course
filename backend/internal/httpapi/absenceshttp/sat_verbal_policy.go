@@ -544,7 +544,7 @@ func satVerbalSessionOptionsForTarget(
 				continue
 			}
 			session := sessions[slot.Index]
-			if reason, code := satVerbalSessionBlockReason(session, finalID, false, missedSessions, notBefore, cutoff, offered); reason != "" {
+			if reason, code := satVerbalSessionBlockReason(session, finalID, true, missedSessions, notBefore, cutoff, offered); reason != "" {
 				out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
 					Session:         &session,
 					MissedSessionID: slot.Missed.ID,

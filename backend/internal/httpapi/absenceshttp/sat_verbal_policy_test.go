@@ -474,6 +474,71 @@ func TestResolveSatVerbalPolicy_BeginnerSection3TargetsSection1SameLessonOnly(t 
 	}
 }
 
+func TestResolveSatVerbalPolicy_SameOccurrenceTargetFinalUnavailableButMissedFinalAllowed(t *testing.T) {
+	section1ID := "41100000-0000-0000-0000-000000000001"
+	section2ID := "42200000-0000-0000-0000-000000000002"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "sat-verbal-reading-beginner-sec1",
+			"courseName": "SAT Verbal Reading Beginner Section 1",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Same Reading Beginner lesson in another section",
+					"makeupTargets": [{ "section": "Section 2", "subject": "Reading Beginner" }]
+				}
+			]
+		}
+	]`)
+
+	courses := []sqldb.SubjectCourseV2{
+		satCourse(section1ID, "SAT Verbal Reading Beginner Section 1"),
+		satCourse(section2ID, "SAT Verbal Reading Beginner Section 2"),
+	}
+	missedSessions := []sqldb.SessionInRange{
+		session("f4110000-0000-0000-0000-000000000002", section1ID, "2026-04-08T09:00:00Z", "2026-04-08T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section1ID): {
+			session("f4110000-0000-0000-0000-000000000001", section1ID, "2026-04-01T09:00:00Z", "2026-04-01T10:00:00Z"),
+			missedSessions[0],
+		},
+		makeUUID(section2ID): {
+			session("f4220000-0000-0000-0000-000000000001", section2ID, "2026-04-01T11:00:00Z", "2026-04-01T12:00:00Z"),
+			session("f4220000-0000-0000-0000-000000000002", section2ID, "2026-04-08T11:00:00Z", "2026-04-08T12:00:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Policy:         rules,
+		MissedCourse:   courses[0],
+		Enrolled:       []sqldb.StudentEnrolledCourseV2{satEnrolled(section1ID, "SAT Verbal Reading Beginner Section 1")},
+		AllCourses:     courses,
+		MissedSessions: missedSessions,
+		Cutoff:         time.Time{},
+		RequestTime:    time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC),
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("expected diagnostic priority for final missed session, got %#v", result)
+	}
+	priority := result.Priorities[0]
+	if len(priority.Available) != 0 {
+		t.Fatalf("final target sit-in session must not be available, got %#v", priority.Available)
+	}
+	if got := priority.Unavailable; len(got) != 1 || got[0].ReasonCode != "target_final_class" || got[0].Session == nil || got[0].Session.ID != "f4220000-0000-0000-0000-000000000002" {
+		t.Fatalf("unavailable = %#v, want target_final_class for same-occurrence final target", got)
+	}
+}
+
 func TestResolveSatVerbalPolicy_BeginnerSection1DoesNotOfferSameLessonBeforeRequestDate(t *testing.T) {
 	section1ID := "11100000-0000-0000-0000-000000000001"
 	section2ID := "22200000-0000-0000-0000-000000000002"
@@ -690,12 +755,14 @@ func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLe
 			session("e8220000-0000-0000-0000-000000000002", section2ID, "2026-06-14T17:00:00Z", "2026-06-14T20:20:00Z"),
 			session("e8220000-0000-0000-0000-000000000003", section2ID, "2026-06-21T17:00:00Z", "2026-06-21T20:20:00Z"),
 			session("e8220000-0000-0000-0000-000000000004", section2ID, "2026-06-28T17:00:00Z", "2026-06-28T20:20:00Z"),
+			session("e8220000-0000-0000-0000-000000000005", section2ID, "2026-07-05T17:00:00Z", "2026-07-05T20:20:00Z"),
 		},
 		makeUUID(section3ID): {
 			session("e8330000-0000-0000-0000-000000000001", section3ID, "2026-06-06T17:00:00Z", "2026-06-06T20:20:00Z"),
 			session("e8330000-0000-0000-0000-000000000002", section3ID, "2026-06-13T17:00:00Z", "2026-06-13T20:20:00Z"),
 			session("e8330000-0000-0000-0000-000000000003", section3ID, "2026-06-20T17:00:00Z", "2026-06-20T20:20:00Z"),
 			session("e8330000-0000-0000-0000-000000000004", section3ID, "2026-06-27T17:00:00Z", "2026-06-27T20:20:00Z"),
+			session("e8330000-0000-0000-0000-000000000005", section3ID, "2026-07-04T17:00:00Z", "2026-07-04T20:20:00Z"),
 		},
 	}
 

@@ -118,7 +118,11 @@ func buildPhysicalSitInResult(
 	cutoff time.Time,
 ) *SitInResult {
 	var nonOverlapping []sqldb.SessionInRange
+	finalID := finalSessionID(available)
 	for _, a := range available {
+		if finalID.Valid && a.ID == finalID {
+			continue
+		}
 		overlaps := false
 		for _, m := range missed {
 			if timesOverlap(a.StartAt, a.EndAt, m.StartAt, m.EndAt) {
@@ -166,6 +170,14 @@ func buildPhysicalSitInResult(
 	}
 
 	return result
+}
+
+func finalSessionID(sessions []sqldb.SessionInRange) pgtype.UUID {
+	sorted := sortedSessions(sessions)
+	if len(sorted) == 0 {
+		return pgtype.UUID{}
+	}
+	return sorted[len(sorted)-1].ID
 }
 
 type priorityInput struct {

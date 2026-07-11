@@ -137,12 +137,39 @@ func TestBuildPhysicalSitInResult_ZeroCutoff_DoesNotFilter(t *testing.T) {
 	available := []sqldb.SessionInRange{
 		session("a0000000-0000-0000-0000-00000000000a", "20000000-0000-0000-0000-000000000002", "2025-03-08T09:00:00Z", "2025-03-08T10:00:00Z"),
 		session("a0000000-0000-0000-0000-00000000000c", "20000000-0000-0000-0000-000000000002", "2025-09-22T09:00:00Z", "2025-09-22T10:00:00Z"),
+		session("a0000000-0000-0000-0000-00000000000d", "20000000-0000-0000-0000-000000000002", "2025-10-22T09:00:00Z", "2025-10-22T10:00:00Z"), // final target session
 	}
 
 	result := buildPhysicalSitInResult(&target, missed, available, time.Time{})
 
 	if len(result.Available) != 2 {
-		t.Fatalf("expected 2 available sessions (unlimited cutoff), got %d", len(result.Available))
+		t.Fatalf("expected 2 available sessions (unlimited cutoff, final target excluded), got %d", len(result.Available))
+	}
+}
+
+func TestBuildPhysicalSitInResult_FinalTargetSessionExcludedButFinalMissedAllowed(t *testing.T) {
+	target := sqldb.SubjectCourseV2{
+		ID:   makeUUID("10000000-0000-0000-0000-000000000001"),
+		Code: "TGT",
+		Name: "Target",
+	}
+
+	missed := []sqldb.SessionInRange{
+		session("m0000000-0000-0000-0000-000000000002", "10000000-0000-0000-0000-000000000001", "2025-03-15T09:00:00Z", "2025-03-15T10:00:00Z"),
+	}
+
+	available := []sqldb.SessionInRange{
+		session("a0000000-0000-0000-0000-000000000011", "20000000-0000-0000-0000-000000000002", "2025-03-08T09:00:00Z", "2025-03-08T10:00:00Z"),
+		session("a0000000-0000-0000-0000-000000000012", "20000000-0000-0000-0000-000000000002", "2025-03-15T11:00:00Z", "2025-03-15T12:00:00Z"),
+	}
+
+	result := buildPhysicalSitInResult(&target, missed, available, time.Time{})
+
+	if len(result.MissedSession) != 1 {
+		t.Fatalf("expected final missed session to remain recorded, got %d", len(result.MissedSession))
+	}
+	if len(result.Available) != 1 || result.Available[0].ID != "a0000000-0000-0000-0000-000000000011" {
+		t.Fatalf("available = %#v, want only the non-final target session", result.Available)
 	}
 }
 
@@ -185,9 +212,9 @@ func TestBuildPhysicalSitInResult_Window_LimitsPreselectionToSurvivors(t *testin
 	}
 
 	available := []sqldb.SessionInRange{
-		session("a0000000-0000-0000-0000-00000000000a", "20000000-0000-0000-0000-000000000002", "2025-03-08T09:00:00Z", "2025-03-08T10:00:00Z"),  // within cutoff
-		session("a0000000-0000-0000-0000-00000000000b", "20000000-0000-0000-0000-000000000002", "2025-03-10T09:00:00Z", "2025-03-10T10:00:00Z"),  // within cutoff
-		session("a0000000-0000-0000-0000-00000000000c", "20000000-0000-0000-0000-000000000002", "2025-03-20T09:00:00Z", "2025-03-20T10:00:00Z"),  // beyond cutoff
+		session("a0000000-0000-0000-0000-00000000000a", "20000000-0000-0000-0000-000000000002", "2025-03-08T09:00:00Z", "2025-03-08T10:00:00Z"), // within cutoff
+		session("a0000000-0000-0000-0000-00000000000b", "20000000-0000-0000-0000-000000000002", "2025-03-10T09:00:00Z", "2025-03-10T10:00:00Z"), // within cutoff
+		session("a0000000-0000-0000-0000-00000000000c", "20000000-0000-0000-0000-000000000002", "2025-03-20T09:00:00Z", "2025-03-20T10:00:00Z"), // beyond cutoff
 	}
 
 	cutoff := time.Date(2025, 3, 15, 0, 0, 0, 0, time.UTC)
@@ -294,6 +321,7 @@ func TestBuildPrioritySitInResults_MultiplePriorities_OverlapAndCutoffFiltering(
 	avail1 := []sqldb.SessionInRange{
 		session("a0000000-0000-0000-0000-00000000000a", "10000000-0000-0000-0000-000000000001", "2025-03-08T09:30:00Z", "2025-03-08T10:30:00Z"), // overlaps missed
 		session("a0000000-0000-0000-0000-00000000000b", "10000000-0000-0000-0000-000000000001", "2025-03-12T09:00:00Z", "2025-03-12T10:00:00Z"), // valid
+		session("a0000000-0000-0000-0000-00000000000e", "10000000-0000-0000-0000-000000000001", "2025-03-19T09:00:00Z", "2025-03-19T10:00:00Z"), // final target session
 	}
 
 	// Priority 2: target2 has sessions, one beyond cutoff
@@ -354,6 +382,7 @@ func TestBuildPrioritySitInResults_SinglePriority_Works(t *testing.T) {
 	}
 	available := []sqldb.SessionInRange{
 		session("a0000000-0000-0000-0000-00000000000a", "10000000-0000-0000-0000-000000000001", "2025-03-12T09:00:00Z", "2025-03-12T10:00:00Z"),
+		session("a0000000-0000-0000-0000-00000000000b", "10000000-0000-0000-0000-000000000001", "2025-03-19T09:00:00Z", "2025-03-19T10:00:00Z"),
 	}
 
 	priorities := []priorityInput{
