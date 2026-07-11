@@ -196,6 +196,42 @@ describe("StaffCreateAbsenceModal", () => {
     });
   });
 
+  it("shows student nickname and school in the lookup card", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce({ ...MOCK_STUDENT, nickname: "Testy", school: "Bangkok Prep" })
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS);
+    renderModal();
+    await advanceToSubjectsStep(user);
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/nickname: testy/i)).toBeInTheDocument();
+    expect(screen.getByText(/school: bangkok prep/i)).toBeInTheDocument();
+  });
+
+  it("does not show nickname or school labels when absent", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS);
+    renderModal();
+    await advanceToSubjectsStep(user);
+
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/nickname:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/school:/i)).not.toBeInTheDocument();
+  });
+
   it("shows validation toast when advancing with no subject selected", async () => {
     const user = userEvent.setup();
     mockApiJson

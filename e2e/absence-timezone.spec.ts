@@ -72,6 +72,8 @@ const studentLookup = {
   student_id: "student-1",
   wcode: "W250389",
   full_name: "John Smith",
+  nickname: "Johnny",
+  school: "Bangkok Prep",
   parent_phone: "+66812345678",
   subjects: [{ id: "subject-math", code: "MATH", name: "Mathematics" }],
 };

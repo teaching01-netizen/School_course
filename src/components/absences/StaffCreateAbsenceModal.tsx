@@ -1401,6 +1401,16 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                   {student.full_name}
                 </p>
                 <p className="text-xs text-emerald-600">{student.wcode}</p>
+                {student.nickname ? (
+                  <p className="text-xs text-emerald-700">
+                    Nickname: {student.nickname}
+                  </p>
+                ) : null}
+                {student.school ? (
+                  <p className="text-xs text-emerald-700">
+                    School: {student.school}
+                  </p>
+                ) : null}
               </div>
 
               {student.subjects.length > 0 ? (

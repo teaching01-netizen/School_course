@@ -191,6 +191,7 @@ export type StudentLookupResponse = {
   full_name: string;
   display_name?: string | null;
   nickname?: string | null;
+  school?: string | null;
   email?: string | null;
   email_crm?: string | null;
   email_system?: string | null;

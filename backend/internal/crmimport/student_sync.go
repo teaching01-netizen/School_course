@@ -22,6 +22,7 @@ type studentRow struct {
 	WCode        string
 	FullName     string
 	Nickname     string
+	School       string
 	PrimaryEmail string
 	StudentPhone string
 	ParentPhone  string
@@ -51,6 +52,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 				ELSE ''
 			END AS full_name,
 			COALESCE(NULLIF(btrim(nickname), ''), '') AS nickname,
+			COALESCE(NULLIF(btrim(secondary_school), ''), '') AS school,
 			COALESCE(NULLIF(btrim(primary_email), ''), '') AS primary_email,
 			COALESCE(NULLIF(btrim(mobile_phone), ''), '') AS student_phone,
 			COALESCE(NULLIF(btrim(parent_phone), ''), '') AS parent_phone
@@ -67,7 +69,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 	var students []studentRow
 	for rows.Next() {
 		var sr studentRow
-		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.PrimaryEmail, &sr.StudentPhone, &sr.ParentPhone); err != nil {
+		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.School, &sr.PrimaryEmail, &sr.StudentPhone, &sr.ParentPhone); err != nil {
 			return 0, fmt.Errorf("scan student: %w", err)
 		}
 		sr.WCode = NormalizeWCode(sr.WCode)
@@ -100,7 +102,8 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		ALTER TABLE students
 			ADD COLUMN IF NOT EXISTS email_crm text NULL,
 			ADD COLUMN IF NOT EXISTS email_system text NULL,
-			ADD COLUMN IF NOT EXISTS nickname text NULL
+			ADD COLUMN IF NOT EXISTS nickname text NULL,
+			ADD COLUMN IF NOT EXISTS school text NULL
 	`); err != nil {
 		return 0, fmt.Errorf("ensure students contact columns: %w", err)
 	}
@@ -123,6 +126,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 				wcode text NOT NULL,
 				full_name text NOT NULL,
 				nickname text NOT NULL DEFAULT '',
+				school text NOT NULL DEFAULT '',
 				email_crm text NOT NULL DEFAULT '',
 				student_phone text NOT NULL DEFAULT '',
 				parent_phone text NOT NULL DEFAULT ''
@@ -134,7 +138,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		copyCount, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{"_sync_students"},
-			[]string{"wcode", "full_name", "nickname", "email_crm", "student_phone", "parent_phone"},
+			[]string{"wcode", "full_name", "nickname", "school", "email_crm", "student_phone", "parent_phone"},
 			pgx.CopyFromRows(studentCopies(batch)),
 		)
 		if err != nil {
@@ -143,11 +147,12 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		_ = copyCount
 
 		res, err := tx.Exec(ctx, `
-			INSERT INTO students (wcode, full_name, notes, nickname, email_crm, student_phone, parent_phone)
-			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.email_crm, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
+			INSERT INTO students (wcode, full_name, notes, nickname, school, email_crm, student_phone, parent_phone)
+			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.school, ''), NULLIF(ss.email_crm, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
 			ON CONFLICT (wcode) DO UPDATE
 			SET full_name = EXCLUDED.full_name,
 			    nickname = CASE WHEN NULLIF(EXCLUDED.nickname, '') IS NOT NULL THEN EXCLUDED.nickname ELSE students.nickname END,
+			    school = CASE WHEN NULLIF(EXCLUDED.school, '') IS NOT NULL THEN EXCLUDED.school ELSE students.school END,
 			    email_crm = CASE WHEN NULLIF(EXCLUDED.email_crm, '') IS NOT NULL THEN EXCLUDED.email_crm ELSE students.email_crm END,
 			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL THEN EXCLUDED.student_phone ELSE students.student_phone END,
 			    parent_phone = CASE WHEN NULLIF(EXCLUDED.parent_phone, '') IS NOT NULL THEN EXCLUDED.parent_phone ELSE students.parent_phone END,
@@ -170,7 +175,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 func studentCopies(students []studentRow) [][]any {
 	sources := make([][]any, len(students))
 	for i, s := range students {
-		sources[i] = []any{s.WCode, s.FullName, s.Nickname, s.PrimaryEmail, s.StudentPhone, s.ParentPhone}
+		sources[i] = []any{s.WCode, s.FullName, s.Nickname, s.School, s.PrimaryEmail, s.StudentPhone, s.ParentPhone}
 	}
 	return sources
 }

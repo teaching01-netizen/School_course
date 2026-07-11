@@ -749,6 +749,7 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 		"full_name":    rows[0].FullName,
 		"display_name": stringPtrIfValid(rows[0].Nickname),
 		"nickname":     stringPtrIfValid(rows[0].Nickname),
+		"school":       stringPtrIfValid(rows[0].School),
 		"email":        stringPtrIfValid(rows[0].Email),
 		"email_crm":    stringPtrIfValid(rows[0].EmailCRM),
 		"email_system": stringPtrIfValid(rows[0].EmailSystem),

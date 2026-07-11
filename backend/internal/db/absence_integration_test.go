@@ -116,6 +116,65 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 	})
 }
 
+func TestStudentSubjectByWCode_IncludesSchool(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	wcode := "WSCHOOL-" + suffix
+
+	subj, err := q.SubjectCreate(ctx, SubjectCreateParams{
+		Code: "SCH-SUBJ-" + suffix,
+		Name: "School Subject " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	student, err := q.StudentCreate(ctx, StudentCreateParams{
+		Wcode:    wcode,
+		FullName: "School Student " + suffix,
+		Notes:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE students SET school = $1 WHERE id = $2", "Bangkok Prep", student.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "SCH-CRS-" + suffix,
+		Name: "School Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: course.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := q.StudentSubjectByWCode(ctx, wcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 subject row, got %d", len(rows))
+	}
+	if !rows[0].School.Valid || rows[0].School.String != "Bangkok Prep" {
+		t.Fatalf("expected school 'Bangkok Prep', got %+v", rows[0].School)
+	}
+}
+
 func TestAbsenceDaysInRange_UsesSubjectAndStudentFallback(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

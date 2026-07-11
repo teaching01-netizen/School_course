@@ -18,6 +18,7 @@ type StudentSubjectRow struct {
 	EmailCRM       pgtype.Text `json:"email_crm"`
 	EmailSystem    pgtype.Text `json:"email_system"`
 	Nickname       pgtype.Text `json:"nickname"`
+	School         pgtype.Text `json:"school"`
 	SubjectID      pgtype.UUID `json:"subject_id"`
 	SubjectCode    string      `json:"subject_code"`
 	SubjectName    string      `json:"subject_name"`
@@ -28,7 +29,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	rows, err := q.db.Query(ctx, `
 		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
 		       COALESCE(s.email_crm, s.email_system) AS email,
-		       s.email_crm, s.email_system, s.nickname,
+		       s.email_crm, s.email_system, s.nickname, s.school,
 		       sub.id, sub.code, sub.name,
 		       MIN(c.id::text)::uuid AS active_course_id
 		FROM students s
@@ -36,7 +37,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		JOIN courses c ON c.id = cs.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		WHERE s.wcode = $1
-		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, sub.id, sub.code, sub.name
+		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
 	`, wcode)
 	if err != nil {
@@ -47,7 +48,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.School, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

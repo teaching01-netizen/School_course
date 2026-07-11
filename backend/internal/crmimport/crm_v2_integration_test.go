@@ -970,6 +970,70 @@ func TestStudentSync_SyncsStudentPhoneFromCRMMobile(t *testing.T) {
 	}
 }
 
+func TestStudentSync_SyncsSchoolFromCRMRows(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rows := []xlsx.Row{
+		{WCode: "W250044", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "School", LastName: "Student", SecondarySchool: "Bangkok Prep"},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	if _, err := syncSvc.SyncFromSnapshot(ctx, snapshotID); err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var school string
+	if err := dbpool.QueryRow(ctx, `SELECT school FROM students WHERE wcode = 'w250044'`).Scan(&school); err != nil {
+		t.Fatal(err)
+	}
+	if school != "Bangkok Prep" {
+		t.Fatalf("school = %q, want %q", school, "Bangkok Prep")
+	}
+}
+
+func TestStudentSync_PreservesExistingSchoolWhenCRMBlank(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes, school) VALUES ('w250045', 'Existing Name', '', 'St Mary''s')`); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []xlsx.Row{
+		{WCode: "W250045", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Updated", LastName: "Name", SecondarySchool: ""},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	if _, err := syncSvc.SyncFromSnapshot(ctx, snapshotID); err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var school string
+	if err := dbpool.QueryRow(ctx, `SELECT school FROM students WHERE wcode = 'w250045'`).Scan(&school); err != nil {
+		t.Fatal(err)
+	}
+	if school != "St Mary's" {
+		t.Fatalf("school = %q, want existing school preserved", school)
+	}
+}
+
 func TestStudentSync_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) {
 	databaseURL := requireTestDBV2(t)
 	migrateUpV2(t, databaseURL)
