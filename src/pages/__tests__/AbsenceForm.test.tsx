@@ -196,7 +196,7 @@ async function verifyParent(user: ReturnType<typeof userEvent.setup>) {
 }
 
 async function goToCourses(_user: ReturnType<typeof userEvent.setup>) {
-  await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("Tell us about your absence")).toBeInTheDocument());
 }
 
 async function toggleAllCourseSwitches(user: ReturnType<typeof userEvent.setup>) {
@@ -236,7 +236,7 @@ describe("AbsenceForm", () => {
     renderWithProviders(<AbsenceForm />);
     expect(await screen.findByPlaceholderText("e.g. W250389")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /search/i })).toBeInTheDocument();
-    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
+    expect(await screen.findByText("Let's find you")).toBeInTheDocument();
   });
 
   it("discards the legacy absence draft instead of restoring critical selections", async () => {
@@ -254,8 +254,8 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm();
 
-    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
-    expect(screen.queryByText("Review your absence")).not.toBeInTheDocument();
+    expect(await screen.findByText("Let's find you")).toBeInTheDocument();
+    expect(screen.queryByText("Check everything looks right")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("Stale reason")).not.toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull());
     expect(window.sessionStorage.getItem(LEGACY_VERIFICATION_STORAGE_KEY)).toBeNull();
@@ -266,7 +266,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm();
 
-    expect(await screen.findByText("Find your profile")).toBeInTheDocument();
+    expect(await screen.findByText("Let's find you")).toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY)).toBeNull());
   });
 
@@ -282,8 +282,8 @@ describe("AbsenceForm", () => {
     await goToCourses(user);
     await user.click(screen.getByRole("button", { name: /^back$/i }));
 
-    expect(await screen.findByText("✓ Verified")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /send new code/i }));
+    expect(await screen.findByText("Parent confirmed")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /send again/i }));
 
     await waitFor(() => {
       const sendCalls = mockApiJson.mock.calls.filter(([url]) => String(url).endsWith("/parent-verification/send"));
@@ -303,7 +303,7 @@ describe("AbsenceForm", () => {
         code: "654321",
       });
     });
-    expect(await screen.findByText("Courses & classes")).toBeInTheDocument();
+    expect(await screen.findByText("Tell us about your absence")).toBeInTheDocument();
   });
 
   it("resumes only the student identifier and refetches the authoritative lookup", async () => {
@@ -320,7 +320,7 @@ describe("AbsenceForm", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(screen.getByDisplayValue("student@example.com")).toBeInTheDocument();
-    expect(screen.getByText("Find your profile")).toBeInTheDocument();
+    expect(screen.getByText("Let's find you")).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(false);
   });
 
@@ -335,13 +335,13 @@ describe("AbsenceForm", () => {
       verificationStatus: { ...OTP_VERIFY_RESPONSE, token: "stored-verified-token" },
     });
 
-    expect(await screen.findByText("✓ Verified")).toBeInTheDocument();
+    expect(await screen.findByText("Parent confirmed")).toBeInTheDocument();
     expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/absences/parent-verification/stored-verified-token",
       expect.objectContaining({ method: "GET" }),
     );
-    expect(screen.getByText("Find your profile")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send new code/i })).toBeInTheDocument();
+    expect(screen.getByText("Let's find you")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send again/i })).toBeInTheDocument();
   });
 
   it.each([
@@ -359,7 +359,7 @@ describe("AbsenceForm", () => {
     expect(await screen.findByText("John Smith")).toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toBeNull());
     expect(screen.getByRole("button", { name: /^send code$/i })).toBeInTheDocument();
-    expect(screen.queryByText("✓ Verified")).not.toBeInTheDocument();
+    expect(screen.queryByText("Parent confirmed")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -388,9 +388,9 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm({ verificationStatus: new TypeError("Network unavailable") });
 
-    expect(await screen.findByText(/could not validate saved verification/i)).toBeInTheDocument();
-    expect(screen.queryByText("✓ Verified")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry verification check/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Could not restore your verification/i)).toBeInTheDocument();
+    expect(screen.queryByText("Parent confirmed")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
     expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toContain("stored-token");
   });
 
@@ -421,7 +421,7 @@ describe("AbsenceForm", () => {
     const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
     expect(sessionsCall).toBeDefined();
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Medical appointment");
 
     await toggleAllCourseSwitches(user);
 
@@ -429,15 +429,15 @@ describe("AbsenceForm", () => {
     const sessionCheckbox = await findSessionCheckbox();
     await user.click(sessionCheckbox);
 
-    // Click Review & Submit in sticky footer
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    // Click Review in sticky footer
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
 
     // Step 2 - Review page
-    expect(screen.getByText("Review your absence")).toBeInTheDocument();
+    expect(await screen.findByText("Check everything looks right")).toBeInTheDocument();
     expect(screen.getByText(/John Smith/)).toBeInTheDocument();
 
     // Submit from sticky footer
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(await screen.findByRole("button", { name: /^confirm & send$/i }));
 
     expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
 
@@ -488,14 +488,14 @@ describe("AbsenceForm", () => {
     await lookupStudent(user);
     await verifyParent(user);
     await goToCourses(user);
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Keep this active edit");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Keep this active edit");
     const subjectCheckbox = (await screen.findAllByRole("checkbox")).find(
       checkbox => checkbox.getAttribute("id")?.startsWith("subject-"),
     )!;
     await user.click(subjectCheckbox);
     const sessionCheckbox = await findSessionCheckbox();
     await user.click(sessionCheckbox);
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
 
     const callsBeforeReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length;
     await user.click(screen.getByRole("button", { name: /^back$/i }));
@@ -543,7 +543,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Medical appointment");
 
     await toggleAllCourseSwitches(user);
 
@@ -554,12 +554,12 @@ describe("AbsenceForm", () => {
     await user.click(sessionCheckboxes[0]);
     await user.click(sessionCheckboxes[1]);
 
-    // Review & Submit
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
-    expect(screen.getByText("Review your absence")).toBeInTheDocument();
+    // Review
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
+    expect(await screen.findByText("Check everything looks right")).toBeInTheDocument();
 
     // Submit
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(await screen.findByRole("button", { name: /^confirm & send$/i }));
 
     expect(await screen.findByText("Your 2 absence requests have been sent and are waiting for review.")).toBeInTheDocument();
 
@@ -599,7 +599,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Medical appointment");
     await toggleAllCourseSwitches(user);
 
     const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
@@ -609,9 +609,9 @@ describe("AbsenceForm", () => {
     expect(screen.getByText(/2 Jun 2026 09:00-12:00/)).toBeInTheDocument();
 
     await user.click(sessionCheckboxes[0]);
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
-    expect(screen.getByText("Review your absence")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
+    expect(await screen.findByText("Check everything looks right")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /^confirm & send$/i }));
 
     const batchCall = await waitFor(() => {
       const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
@@ -659,7 +659,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Medical appointment");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -669,8 +669,8 @@ describe("AbsenceForm", () => {
     expect(makeUpOptions[0]).toHaveTextContent(/Calculus III.*4 Jun 2026 13:00-16:30/);
 
     await user.selectOptions(makeUpSelect, makeUpOptions[0].getAttribute("value")!);
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
+    await user.click(await screen.findByRole("button", { name: /^confirm & send$/i }));
 
     const batchCall = await waitFor(() => {
       const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
@@ -726,13 +726,13 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
     await user.selectOptions(await screen.findByRole("combobox"), "sit-r3s1-lesson-2");
 
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
-    await user.click(screen.getByRole("button", { name: /^submit$/i }));
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
+    await user.click(await screen.findByRole("button", { name: /^confirm & send$/i }));
 
     const batchCall = await waitFor(() => {
       const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
@@ -807,13 +807,13 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
     expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    await user.click(screen.getByRole("button", { name: /show other options/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         expect.stringContaining("sat_verbal_after_priority=1"),
@@ -821,12 +821,12 @@ describe("AbsenceForm", () => {
       );
     });
     expect(await screen.findByRole("option", { name: /SAT Verbal Reading Rank 4/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /see previous times/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /see previous times/i }));
+    expect(screen.getByRole("button", { name: /show previous/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show other options/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /show previous/i }));
     expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show other options/i })).toBeInTheDocument();
   }, 30000);
 
   it("shows an unavailable first SAT Verbal priority before revealing the next priority", async () => {
@@ -892,15 +892,14 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
-    expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
-    expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /make-up class/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /pick a time/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    await user.click(screen.getByRole("button", { name: /show other options/i }));
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
   }, 30000);
 
@@ -942,7 +941,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -999,7 +998,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
@@ -1054,7 +1053,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1115,7 +1114,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
@@ -1125,7 +1124,7 @@ describe("AbsenceForm", () => {
     }
     expect(await screen.findAllByRole("combobox")).toHaveLength(2);
 
-    await user.click(screen.getAllByRole("button", { name: /see other times/i })[0]);
+    await user.click(screen.getAllByRole("button", { name: /show other options/i })[0]);
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
   }, 30000);
 
@@ -1175,7 +1174,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     const sessionCheckboxes = await screen.findAllByRole("checkbox");
     for (const checkbox of sessionCheckboxes) {
@@ -1233,12 +1232,12 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
     expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    await user.click(screen.getByRole("button", { name: /show other options/i }));
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
@@ -1256,7 +1255,7 @@ describe("AbsenceForm", () => {
       student: { ...MOCK_STUDENT, parent_phone: null },
     });
     await lookupStudent(userEvent.setup());
-    expect(await screen.findByText(/not in our records/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No parent phone on file/i)).toBeInTheDocument();
   });
 
   it("shows a no-sessions status message when no sessions exist in range", async () => {
@@ -1267,7 +1266,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Family matter");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Family matter");
 
     await toggleAllCourseSwitches(user);
 
@@ -1282,7 +1281,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    expect(screen.getByPlaceholderText("Tell us why you'll be away from class...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. Doctor's appointment, family event...")).toBeInTheDocument();
   });
 
   it("shows the resolved sit-in target as Absence class", async () => {
@@ -1304,7 +1303,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1330,7 +1329,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1357,7 +1356,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1384,7 +1383,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Need a make-up class");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1410,7 +1409,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Need a make-up class");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
@@ -1436,13 +1435,13 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
+    await user.type(screen.getByPlaceholderText("e.g. Doctor's appointment, family event..."), "Need a make-up class");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
     await user.selectOptions(await screen.findByRole("combobox"), "as1");
-    await user.click(screen.getByRole("button", { name: /review & submit/i }));
+    await user.click(await screen.findByRole("button", { name: /^Review$/i }));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Check everything looks right/i })).toBeInTheDocument());
     expect(screen.getByText(/Make-up:/).parentElement).toHaveTextContent("Math inter");
     expect(screen.getByText(/Make-up:/).parentElement).toHaveTextContent("18 Jun 2026");
     expect(screen.queryByText("Make-up class selected")).not.toBeInTheDocument();
@@ -1487,7 +1486,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    await user.type(await screen.findByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await user.type(await screen.findByPlaceholderText("e.g. Doctor's appointment, family event..."), "Sick");
     await toggleAllCourseSwitches(user);
 
     // Wait for sessions to be fully rendered
