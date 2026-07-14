@@ -3,7 +3,8 @@ import {
   groupByDay,
   splitMergedSessionValue,
   isDayGroupSelected,
-  countSelectedSessions,
+  countSelectedAbsenceDays,
+  countSelectedAbsenceDaysForGroup,
   getSelectedSessionsForGroup,
   mergedSessionValue,
   uniqueValues,
@@ -73,7 +74,7 @@ describe("isDayGroupSelected", () => {
   });
 });
 
-describe("countSelectedSessions", () => {
+describe("countSelectedAbsenceDays", () => {
   it("counts fully-selected day groups across subjects", () => {
     const groups = [
       {
@@ -83,7 +84,7 @@ describe("countSelectedSessions", () => {
         course_id: "c1",
         course_code: "MATH101",
         course_name: "Math 101",
-        absence_rate_exceeded: false,
+        absence_limit_reached: false,
         sessions: [
           { id: "ms1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },
           { id: "ms2", start_at: "2026-06-01T10:00:00+07:00", end_at: "2026-06-01T11:00:00+07:00", date: "2026-06-01", already_absent: false },
@@ -91,7 +92,8 @@ describe("countSelectedSessions", () => {
         ],
       },
     ];
-    expect(countSelectedSessions(groups, new Set(["ms1", "ms2", "ms3"]))).toBe(2);
+    expect(countSelectedAbsenceDays(groups, new Set(["ms1", "ms2", "ms3"]))).toBe(2);
+    expect(countSelectedAbsenceDaysForGroup(groups[0], new Set(["ms1", "ms2", "ms3"]))).toBe(2);
   });
 
   it("counts 0 when no sessions selected", () => {
@@ -103,13 +105,32 @@ describe("countSelectedSessions", () => {
         course_id: "c1",
         course_code: "MATH101",
         course_name: "Math 101",
-        absence_rate_exceeded: false,
+        absence_limit_reached: false,
         sessions: [
           { id: "ms1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },
         ],
       },
     ];
-    expect(countSelectedSessions(groups, new Set())).toBe(0);
+    expect(countSelectedAbsenceDays(groups, new Set())).toBe(0);
+  });
+
+  it("does not count an already-absent session even if its stale id remains selected", () => {
+    const groups = [
+      {
+        subject_id: "subj-1",
+        subject_code: "MATH",
+        subject_name: "Math",
+        course_id: "c1",
+        course_code: "MATH101",
+        course_name: "Math 101",
+        absence_limit_reached: false,
+        sessions: [
+          { id: "reported", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: true },
+        ],
+      },
+    ];
+
+    expect(countSelectedAbsenceDays(groups, new Set(["reported"]))).toBe(0);
   });
 });
 
@@ -121,7 +142,7 @@ describe("getSelectedSessionsForGroup", () => {
     course_id: "c1",
     course_code: "MATH101",
     course_name: "Math 101",
-    absence_rate_exceeded: false,
+    absence_limit_reached: false,
     sessions: [
       { id: "s3", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:00:00+07:00", date: "2026-06-02", already_absent: false },
       { id: "s1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },

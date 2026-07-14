@@ -310,7 +310,7 @@ func (c *Client) loginLocked(ctx context.Context) error {
 	c.csrfToken.Store(freshToken)
 
 	c.loggedIn = true
-	c.startHeartbeatLocked(ctx)
+	c.startHeartbeatLocked()
 	return nil
 }
 
@@ -778,12 +778,13 @@ func parseSimpleSuccess(body []byte) (*SendResponse, error) {
 
 // startHeartbeatLocked starts a background goroutine that keeps the Laravel
 // session alive by issuing a lightweight GET to /sendsms every 3 minutes.
-// Caller must hold c.mu. It cancels any previous heartbeat first.
-func (c *Client) startHeartbeatLocked(ctx context.Context) {
+// Caller must hold c.mu. It cancels any previous heartbeat first. The heartbeat
+// owns its lifecycle so completing a login or send operation cannot stop it.
+func (c *Client) startHeartbeatLocked() {
 	if c.heartbeatCancel != nil {
 		c.heartbeatCancel()
 	}
-	c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+	c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(context.Background())
 	go c.heartbeatLoop(c.heartbeatCtx)
 }
 
@@ -826,7 +827,7 @@ func (c *Client) heartbeatLocked(ctx context.Context) error {
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		c.mu.Lock()
-		reErr := c.reLoginLocked(context.Background())
+		reErr := c.reLoginLocked(ctx)
 		c.mu.Unlock()
 		if reErr != nil {
 			return fmt.Errorf("smartsms: heartbeat re-login: %w", reErr)

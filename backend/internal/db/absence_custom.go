@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,7 +15,7 @@ type StudentSubjectRow struct {
 	FullName       string      `json:"full_name"`
 	StudentPhone   pgtype.Text `json:"student_phone"`
 	ParentPhone    pgtype.Text `json:"parent_phone"`
-	Email          pgtype.Text `json:"email"`       // resolved = COALESCE(email_crm, email_system)
+	Email          pgtype.Text `json:"email"` // resolved = COALESCE(email_crm, email_system)
 	EmailCRM       pgtype.Text `json:"email_crm"`
 	EmailSystem    pgtype.Text `json:"email_system"`
 	Nickname       pgtype.Text `json:"nickname"`
@@ -602,15 +603,6 @@ func (q *Queries) RootCourseGroupDelete(ctx context.Context, id pgtype.UUID) err
 	return err
 }
 
-func (q *Queries) CourseSessionCount(ctx context.Context, courseID pgtype.UUID) (int32, error) {
-	var count int32
-	err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)::int4 FROM sessions
-		WHERE course_id = $1 AND deleted_at IS NULL
-	`, courseID).Scan(&count)
-	return count, err
-}
-
 func (q *Queries) StudentAbsenceCountForCourse(ctx context.Context, wcode string, courseID pgtype.UUID) (int32, error) {
 	var count int32
 	err := q.db.QueryRow(ctx, `
@@ -621,24 +613,90 @@ func (q *Queries) StudentAbsenceCountForCourse(ctx context.Context, wcode string
 	return count, err
 }
 
-func (q *Queries) StudentMissedSessionCountForCourse(ctx context.Context, wcode string, courseID pgtype.UUID) (int32, error) {
-	var count int32
+type AbsenceDayCountsForCourseParams struct {
+	Wcode               string
+	CourseID            pgtype.UUID
+	CandidateSessionIDs []pgtype.UUID
+	DateFrom            pgtype.Date
+	DateTo              pgtype.Date
+	InstituteTZ         string
+}
+
+type AbsenceDayCounts struct {
+	TotalCourseDays      int32
+	UsedAbsenceDays      int32
+	CandidateAbsenceDays int32
+	ProjectedAbsenceDays int32
+}
+
+func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayCountsForCourseParams) (AbsenceDayCounts, error) {
+	timezone := strings.TrimSpace(arg.InstituteTZ)
+	if timezone == "" {
+		timezone = "Asia/Bangkok"
+	}
+	candidateSessionIDs := arg.CandidateSessionIDs
+	if candidateSessionIDs == nil {
+		candidateSessionIDs = []pgtype.UUID{}
+	}
+
+	var counts AbsenceDayCounts
 	err := q.db.QueryRow(ctx, `
-		SELECT COALESCE((
-			SELECT COUNT(*)::int4 FROM absence_missed_sessions ams
-			JOIN student_absences sa ON sa.id = ams.absence_id
-			WHERE sa.wcode = $1 AND sa.course_id = $2
-			AND sa.status NOT IN ('cancelled', 'special_approved')
-		), 0) + COALESCE((
-			SELECT COUNT(*)::int4 FROM student_absences sa
-			WHERE sa.wcode = $1 AND sa.course_id = $2
-			AND sa.status NOT IN ('cancelled', 'special_approved')
-			AND NOT EXISTS (
+		WITH course_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM sessions s
+			WHERE s.course_id = $2
+			  AND s.deleted_at IS NULL
+		), explicit_absence_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM student_absences sa
+			JOIN absence_missed_sessions ams ON ams.absence_id = sa.id
+			JOIN sessions s ON s.id = ams.session_id
+			WHERE lower(sa.wcode) = lower($1)
+			  AND sa.course_id = $2
+			  AND s.course_id = $2
+			  AND s.deleted_at IS NULL
+			  AND sa.status NOT IN ('cancelled', 'special_approved')
+		), legacy_absence_days AS (
+			SELECT DISTINCT cd.day
+			FROM student_absences sa
+			JOIN course_days cd ON cd.day BETWEEN sa.date_from AND sa.date_to
+			WHERE lower(sa.wcode) = lower($1)
+			  AND sa.course_id = $2
+			  AND sa.status NOT IN ('cancelled', 'special_approved')
+			  AND NOT EXISTS (
 				SELECT 1 FROM absence_missed_sessions ams WHERE ams.absence_id = sa.id
-			)
-		), 0) AS total_missed_sessions
-	`, wcode, courseID).Scan(&count)
-	return count, err
+			  )
+		), used_days AS (
+			SELECT day FROM explicit_absence_days
+			UNION
+			SELECT day FROM legacy_absence_days
+		), candidate_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM sessions s
+			WHERE s.course_id = $2
+			  AND s.deleted_at IS NULL
+			  AND (
+				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
+				OR
+				(cardinality($3::uuid[]) = 0 AND (s.start_at AT TIME ZONE $6)::date BETWEEN $4 AND $5)
+			  )
+		), projected_days AS (
+			SELECT day FROM used_days
+			UNION
+			SELECT day FROM candidate_days
+		)
+		SELECT
+			(SELECT count(*) FROM course_days)::int4,
+			(SELECT count(*) FROM used_days)::int4,
+			(SELECT count(*) FROM candidate_days)::int4,
+			(SELECT count(*) FROM projected_days)::int4
+	`, arg.Wcode, arg.CourseID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone).Scan(
+		&counts.TotalCourseDays,
+		&counts.UsedAbsenceDays,
+		&counts.CandidateAbsenceDays,
+		&counts.ProjectedAbsenceDays,
+	)
+	return counts, err
 }
 
 func (q *Queries) StudentSetSystemEmail(ctx context.Context, wcode string, email string) error {

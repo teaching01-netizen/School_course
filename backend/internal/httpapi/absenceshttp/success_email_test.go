@@ -28,6 +28,36 @@ func (f *failEmailProvider) Send(_ context.Context, _ emailnotifier.EmailMessage
 	return context.DeadlineExceeded
 }
 
+type contextObservingEmailProvider struct {
+	contextErr error
+}
+
+func (p *contextObservingEmailProvider) Send(ctx context.Context, _ emailnotifier.EmailMessage) error {
+	p.contextErr = ctx.Err()
+	return p.contextErr
+}
+
+func TestSendBatchSuccessEmail_PropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	provider := &contextObservingEmailProvider{}
+	svc := emailnotifier.NewService(provider)
+	items := []successSMSItem{{row: sqldb.ManagedAbsenceRow{
+		StudentName:  pgtype.Text{String: "Ada", Valid: true},
+		StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
+	}}}
+	cfg := emailSuccessConfig{Enabled: true, Subject: "Absence", Body: "Received"}
+
+	sent := sendBatchSuccessEmailWithConfig(ctx, svc, nil, items, cfg, "Warwick Institute", "UTC")
+	if sent {
+		t.Fatal("expected cancelled email send to fail")
+	}
+	if provider.contextErr != context.Canceled {
+		t.Fatalf("provider context error = %v, want context.Canceled", provider.contextErr)
+	}
+}
+
 func TestSendSuccessEmail_SendsToStudentEmail(t *testing.T) {
 	mock := &recordingEmailProvider{}
 	svc := emailnotifier.NewService(mock)
@@ -55,7 +85,7 @@ func TestSendSuccessEmail_SendsToStudentEmail(t *testing.T) {
 		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 11, 0, 0, 0, time.UTC), Valid: true},
 	}}
 
-	sent := sendSuccessEmail(svc, log, row, sessions, missed, "Warwick Institute", "UTC")
+	sent := sendSuccessEmail(context.Background(), svc, log, row, sessions, missed, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessEmail to return true")
 	}
@@ -89,7 +119,7 @@ func TestSendSuccessEmail_SkipsWhenEmailEmpty(t *testing.T) {
 		Wcode:        "W001",
 		StudentEmail: pgtype.Text{Valid: false},
 	}
-	sent := sendSuccessEmail(svc, nil, row, nil, nil, "Warwick Institute", "UTC")
+	sent := sendSuccessEmail(context.Background(), svc, nil, row, nil, nil, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessEmail to return false when email is empty")
 	}
@@ -109,7 +139,7 @@ func TestSendSuccessEmail_LogsErrorOnSendFailure(t *testing.T) {
 		DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
-	sent := sendSuccessEmail(svc, slog.Default(), row, nil, nil, "Warwick Institute", "UTC")
+	sent := sendSuccessEmail(context.Background(), svc, slog.Default(), row, nil, nil, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessEmail to return false on send failure")
 	}
@@ -132,7 +162,7 @@ func TestSendSuccessEmail_FormatsDatesInInstituteTimezone(t *testing.T) {
 		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 18, 0, 0, 0, time.UTC), Valid: true},
 	}}
 
-	sent := sendSuccessEmail(svc, nil, row, nil, missed, "Warwick Institute", "Asia/Bangkok")
+	sent := sendSuccessEmail(context.Background(), svc, nil, row, nil, missed, "Warwick Institute", "Asia/Bangkok")
 	if !sent {
 		t.Fatal("expected sendSuccessEmail to return true")
 	}
@@ -153,7 +183,7 @@ func TestSendSuccessEmail_IncludesInstituteName(t *testing.T) {
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
 
-	sent := sendSuccessEmail(svc, nil, row, nil, nil, "Warwick Institute", "UTC")
+	sent := sendSuccessEmail(context.Background(), svc, nil, row, nil, nil, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessEmail to return true")
 	}
@@ -174,7 +204,7 @@ func TestSendSuccessEmail_SkipsWhenTemplateDisabled(t *testing.T) {
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
 
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, emailSuccessConfig{Enabled: false}, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, emailSuccessConfig{Enabled: false}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessEmail to return false when disabled")
 	}
@@ -203,7 +233,7 @@ func TestSendSuccessEmail_RespectsCustomSubjectAndBody(t *testing.T) {
 		Body:    "<h1>Hello {{student_name}}</h1><p>Your W-code is {{wcode}}.</p>",
 	}
 
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessEmail to return true")
 	}
@@ -264,7 +294,7 @@ func TestSendBatchSuccessEmail_SendsCombinedEmail(t *testing.T) {
 		},
 	}
 
-	sent := sendBatchSuccessEmail(svc, nil, items, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmail(context.Background(), svc, nil, items, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected sendBatchSuccessEmail to return true")
 	}
@@ -286,7 +316,7 @@ func TestSendBatchSuccessEmail_SkipsWhenNoItems(t *testing.T) {
 	mock := &recordingEmailProvider{}
 	svc := emailnotifier.NewService(mock)
 
-	sent := sendBatchSuccessEmail(svc, nil, nil, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmail(context.Background(), svc, nil, nil, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected sendBatchSuccessEmail to return false for no items")
 	}
@@ -303,7 +333,7 @@ func TestSendSuccessEmailWithConfig_NilService(t *testing.T) {
 	row := sqldb.ManagedAbsenceRow{
 		StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
 	}
-	sent := sendSuccessEmailWithConfig(nil, nil, row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), nil, nil, row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when svc is nil")
 	}
@@ -318,7 +348,7 @@ func TestSendSuccessEmailWithConfig_BlankEmail(t *testing.T) {
 		Wcode:        "W001",
 		StudentEmail: pgtype.Text{String: "   ", Valid: true},
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when email is whitespace-only")
 	}
@@ -340,7 +370,7 @@ func TestSendSuccessEmailWithConfig_NilLogger(t *testing.T) {
 	}
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, cfg, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, cfg, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true even with nil logger")
 	}
@@ -382,7 +412,7 @@ func TestSendSuccessEmail_RenderedPlaceholders(t *testing.T) {
 		Body:    "{{student_name}}|{{wcode}}|{{institute_name}}|{{submitted_at}}|{{absence_count}}|{{absence_rows}}",
 	}
 
-	sent := sendSuccessEmailWithConfig(svc, nil, row, sessions, missed, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, sessions, missed, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -429,12 +459,15 @@ func TestSendSuccessEmail_CourseNameEmpty(t *testing.T) {
 		DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
+	missed := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
+	}}
 	config := emailSuccessConfig{
 		Enabled: true,
 		Subject: "test",
 		Body:    "{{absence_rows}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, missed, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -455,12 +488,15 @@ func TestSendSuccessEmail_SubjectNameEmpty(t *testing.T) {
 		DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
+	missed := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
+	}}
 	config := emailSuccessConfig{
 		Enabled: true,
 		Subject: "test",
 		Body:    "{{absence_rows}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, missed, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -481,17 +517,20 @@ func TestSendSuccessEmail_ReasonEmpty(t *testing.T) {
 		DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
+	missed := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
+	}}
 	config := emailSuccessConfig{
 		Enabled: true,
 		Subject: "test",
 		Body:    "{{absence_rows}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, missed, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
 	if !strings.Contains(mock.sent[0].Body, "Not specified") {
-		t.Errorf("expected 'Not specified' for empty reason, got %q", mock.sent[0].Body)
+		t.Errorf("expected 'Not specified' for empty subject name, got %q", mock.sent[0].Body)
 	}
 }
 
@@ -512,7 +551,7 @@ func TestSendSuccessEmail_CreatedAtInvalid(t *testing.T) {
 		Subject: "test",
 		Body:    "|{{submitted_at}}|",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -538,7 +577,7 @@ func TestSendSuccessEmail_CreatedAtValid(t *testing.T) {
 		Subject: "test",
 		Body:    "{{submitted_at}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -565,7 +604,7 @@ func TestSendSuccessEmail_InvalidTimezone(t *testing.T) {
 		Subject: "test",
 		Body:    "{{student_name}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "Bogus/Zone")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, config, "Warwick Institute", "Bogus/Zone")
 	if !sent {
 		t.Fatal("expected true even with invalid timezone")
 	}
@@ -582,7 +621,7 @@ func TestSendBatchEmailWithConfig_NilService(t *testing.T) {
 			StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
 		},
 	}}
-	sent := sendBatchSuccessEmailWithConfig(nil, nil, items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), nil, nil, items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false with nil service")
 	}
@@ -598,7 +637,7 @@ func TestSendBatchEmailWithConfig_Disabled(t *testing.T) {
 			DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		},
 	}}
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, emailSuccessConfig{Enabled: false}, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, emailSuccessConfig{Enabled: false}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when disabled")
 	}
@@ -614,7 +653,7 @@ func TestSendBatchEmailWithConfig_AllEmailsBlank(t *testing.T) {
 		{row: sqldb.ManagedAbsenceRow{Wcode: "W001", StudentEmail: pgtype.Text{Valid: false}}},
 		{row: sqldb.ManagedAbsenceRow{Wcode: "W002", StudentEmail: pgtype.Text{String: "  ", Valid: true}}},
 	}
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when all emails are blank")
 	}
@@ -642,7 +681,7 @@ func TestSendBatchEmailWithConfig_FindsEmailFromLaterItem(t *testing.T) {
 	}
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, cfg, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, cfg, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true when second item has email")
 	}
@@ -663,7 +702,7 @@ func TestSendBatchEmailWithConfig_InvalidTimezone(t *testing.T) {
 	}}
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, cfg, "Warwick Institute", "Bogus/Zone")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, cfg, "Warwick Institute", "Bogus/Zone")
 	if !sent {
 		t.Fatal("expected true even with invalid timezone")
 	}
@@ -682,7 +721,7 @@ func TestSendBatchEmailWithConfig_SendFailure(t *testing.T) {
 			DateTo:       pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		},
 	}}
-	sent := sendBatchSuccessEmailWithConfig(svc, slog.Default(), items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, slog.Default(), items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when send fails")
 	}
@@ -695,14 +734,14 @@ func TestSendBatchEmail_PlaceholderAggregation(t *testing.T) {
 	items := []successSMSItem{
 		{
 			row: sqldb.ManagedAbsenceRow{
-				StudentName: pgtype.Text{String: "Ada", Valid: true},
-				Wcode:       "W001",
+				StudentName:  pgtype.Text{String: "Ada", Valid: true},
+				Wcode:        "W001",
 				StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
-				SubjectName: pgtype.Text{String: "Math", Valid: true},
-				CourseName:  "Algebra",
-				DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
-				DateTo:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
-				SitInMethod: pgtype.Text{String: "zoom", Valid: true},
+				SubjectName:  pgtype.Text{String: "Math", Valid: true},
+				CourseName:   "Algebra",
+				DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:       pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod:  pgtype.Text{String: "zoom", Valid: true},
 			},
 			missed: []sqldb.ManagedAbsenceSession{{
 				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC), Valid: true},
@@ -710,14 +749,14 @@ func TestSendBatchEmail_PlaceholderAggregation(t *testing.T) {
 		},
 		{
 			row: sqldb.ManagedAbsenceRow{
-				StudentName: pgtype.Text{String: "Ada", Valid: true},
-				Wcode:       "W001",
-				StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
-				SubjectName: pgtype.Text{String: "Physics", Valid: true},
-				CourseName:  "Physics 101",
-				DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
-				DateTo:      pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
-				SitInMethod: pgtype.Text{String: "physical", Valid: true},
+				StudentName:     pgtype.Text{String: "Ada", Valid: true},
+				Wcode:           "W001",
+				StudentEmail:    pgtype.Text{String: "ada@example.com", Valid: true},
+				SubjectName:     pgtype.Text{String: "Physics", Valid: true},
+				CourseName:      "Physics 101",
+				DateFrom:        pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+				DateTo:          pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+				SitInMethod:     pgtype.Text{String: "physical", Valid: true},
 				SitInCourseName: pgtype.Text{String: "Physics 301", Valid: true},
 			},
 			missed: []sqldb.ManagedAbsenceSession{{
@@ -731,7 +770,7 @@ func TestSendBatchEmail_PlaceholderAggregation(t *testing.T) {
 		Subject: "test",
 		Body:    "{{absence_rows}}|{{absence_count}}",
 	}
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, config, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -774,7 +813,7 @@ func TestSendBatchEmail_SubmittedAtShowsCount(t *testing.T) {
 		Subject: "test",
 		Body:    "{{absence_count}}",
 	}
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, config, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -887,7 +926,7 @@ func TestSessionLabels_SkipsInvalidStartAt(t *testing.T) {
 		{StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
 			EndAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 11, 0, 0, 0, time.UTC), Valid: true}},
 	}
-	got := sessionLabels(sessions, time.UTC)
+	got := sessionLabels(sessions, "", time.UTC)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 label, got %d", len(got))
 	}
@@ -924,7 +963,7 @@ func TestSendSuccessEmailWithConfig_LogsSkipOnEmptyEmail(t *testing.T) {
 		Wcode:        "W001",
 		StudentEmail: pgtype.Text{Valid: false},
 	}
-	sent := sendSuccessEmailWithConfig(svc, slog.Default(), row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, slog.Default(), row, nil, nil, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when email is empty")
 	}
@@ -948,7 +987,7 @@ func TestSendSuccessEmailWithConfig_LogsInvalidTimezone(t *testing.T) {
 	}
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	sent := sendSuccessEmailWithConfig(svc, slog.Default(), row, nil, nil, cfg, "Warwick Institute", "Bogus/Zone")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, slog.Default(), row, nil, nil, cfg, "Warwick Institute", "Bogus/Zone")
 	if !sent {
 		t.Fatal("expected true even with invalid timezone")
 	}
@@ -966,7 +1005,7 @@ func TestSendBatchEmailWithConfig_LogsSkipOnAllBlankEmails(t *testing.T) {
 		{row: sqldb.ManagedAbsenceRow{Wcode: "W001", StudentEmail: pgtype.Text{Valid: false}}},
 		{row: sqldb.ManagedAbsenceRow{Wcode: "W002", StudentEmail: pgtype.Text{String: "  ", Valid: true}}},
 	}
-	sent := sendBatchSuccessEmailWithConfig(svc, slog.Default(), items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, slog.Default(), items, emailSuccessConfig{Enabled: true}, "Warwick Institute", "UTC")
 	if sent {
 		t.Fatal("expected false when all emails are blank")
 	}
@@ -989,7 +1028,7 @@ func TestSendBatchEmailWithConfig_LogsInvalidTimezone(t *testing.T) {
 	}}
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	sent := sendBatchSuccessEmailWithConfig(svc, slog.Default(), items, cfg, "Warwick Institute", "Bogus/Zone")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, slog.Default(), items, cfg, "Warwick Institute", "Bogus/Zone")
 	if !sent {
 		t.Fatal("expected true even with invalid timezone")
 	}
@@ -1055,9 +1094,12 @@ func TestRenderAbsenceCard_SubjectNameTakesPrecedenceOverCourseName(t *testing.T
 		SubjectName: pgtype.Text{String: "Mathematics", Valid: true},
 		CourseName:  "Algebra 101",
 	}
-	got := renderAbsenceCard(row, nil, nil, time.UTC)
+	missed := []sqldb.ManagedAbsenceSession{{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
+	}}
+	got := renderAbsenceCard(row, nil, missed, time.UTC)
 	if !strings.Contains(got, "Mathematics") {
-		t.Errorf("card should use SubjectName, got %q", got)
+		t.Errorf("card should use SubjectName in row, got %q", got)
 	}
 	if strings.Contains(got, "Algebra 101") {
 		t.Errorf("card should NOT contain CourseName when SubjectName is set, got %q", got)
@@ -1066,18 +1108,18 @@ func TestRenderAbsenceCard_SubjectNameTakesPrecedenceOverCourseName(t *testing.T
 
 func TestRenderAbsenceCard_EmptySessionsAndMissed(t *testing.T) {
 	row := sqldb.ManagedAbsenceRow{
-		CourseName: "",
+		CourseName:  "",
 		SubjectName: pgtype.Text{},
 	}
 	got := renderAbsenceCard(row, nil, nil, time.UTC)
-	if !strings.Contains(got, "Not specified") {
-		t.Errorf("card should show 'Not specified' when both names empty, got %q", got)
-	}
 	if !strings.Contains(got, "Missed") {
 		t.Errorf("card should contain 'Missed' column header, got %q", got)
 	}
 	if !strings.Contains(got, "Sit-in") {
 		t.Errorf("card should contain 'Sit-in' column header, got %q", got)
+	}
+	if strings.Contains(got, "Not specified") {
+		t.Errorf("card should NOT show 'Not specified' when there are no sessions, got %q", got)
 	}
 }
 
@@ -1088,7 +1130,7 @@ func TestSessionLabels_AllInvalidStartAt(t *testing.T) {
 		{StartAt: pgtype.Timestamptz{Valid: false}},
 		{StartAt: pgtype.Timestamptz{Valid: false}},
 	}
-	got := sessionLabels(sessions, time.UTC)
+	got := sessionLabels(sessions, "", time.UTC)
 	if len(got) != 0 {
 		t.Errorf("expected empty labels for all-invalid StartAt, got %d", len(got))
 	}
@@ -1099,7 +1141,7 @@ func TestSessionLabels_ValidStartAtInvalidEndAt(t *testing.T) {
 		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), Valid: true},
 		EndAt:   pgtype.Timestamptz{Valid: false},
 	}}
-	got := sessionLabels(sessions, time.UTC)
+	got := sessionLabels(sessions, "", time.UTC)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 label, got %d", len(got))
 	}
@@ -1129,7 +1171,7 @@ func TestSendSuccessEmail_XSSInStudentName(t *testing.T) {
 		Subject: "test",
 		Body:    "{{student_name}}",
 	}
-	sent := sendSuccessEmailWithConfig(svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
+	sent := sendSuccessEmailWithConfig(context.Background(), svc, nil, row, nil, nil, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}
@@ -1150,12 +1192,12 @@ func TestSendBatchSuccessEmail_SingleItemProducesCorrectCount(t *testing.T) {
 
 	items := []successSMSItem{{
 		row: sqldb.ManagedAbsenceRow{
-			StudentName: pgtype.Text{String: "Ada", Valid: true},
-			Wcode:       "W001",
+			StudentName:  pgtype.Text{String: "Ada", Valid: true},
+			Wcode:        "W001",
 			StudentEmail: pgtype.Text{String: "ada@example.com", Valid: true},
-			SubjectName: pgtype.Text{String: "Math", Valid: true},
-			DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
-			DateTo:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			SubjectName:  pgtype.Text{String: "Math", Valid: true},
+			DateFrom:     pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			DateTo:       pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
 		},
 		missed: []sqldb.ManagedAbsenceSession{{
 			StartAt: pgtype.Timestamptz{Time: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC), Valid: true},
@@ -1166,7 +1208,7 @@ func TestSendBatchSuccessEmail_SingleItemProducesCorrectCount(t *testing.T) {
 		Subject: "test",
 		Body:    "{{absence_count}}",
 	}
-	sent := sendBatchSuccessEmailWithConfig(svc, nil, items, config, "Warwick Institute", "UTC")
+	sent := sendBatchSuccessEmailWithConfig(context.Background(), svc, nil, items, config, "Warwick Institute", "UTC")
 	if !sent {
 		t.Fatal("expected true")
 	}

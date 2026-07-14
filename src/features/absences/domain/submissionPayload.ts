@@ -294,7 +294,7 @@ export function buildSubmissionPayloads(
   );
   for (const group of input.sessions) {
     if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
-    if (group.absence_rate_exceeded) continue;
+    if (group.absence_limit_reached) continue;
     const selectedGroupSessions = getSelectedSessionsForGroup(
       group,
       input.selectedSessionIds,

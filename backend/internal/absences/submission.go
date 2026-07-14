@@ -25,6 +25,36 @@ type SessionTimingError struct {
 	Message string
 }
 
+type AbsenceDayLimitStats struct {
+	TotalCourseDays        int32
+	UsedAbsenceDays        int32
+	ProjectedAbsenceDays   int32
+	MaximumAbsenceDays     int32
+	RemainingAbsenceDays   int32
+	LimitReached           bool
+	ProjectedLimitExceeded bool
+}
+
+func NewAbsenceDayLimitStats(totalCourseDays, usedAbsenceDays, projectedAbsenceDays int32) AbsenceDayLimitStats {
+	stats := AbsenceDayLimitStats{
+		TotalCourseDays:      totalCourseDays,
+		UsedAbsenceDays:      usedAbsenceDays,
+		ProjectedAbsenceDays: projectedAbsenceDays,
+	}
+	if totalCourseDays <= 0 {
+		return stats
+	}
+
+	stats.MaximumAbsenceDays = int32(math.Round(float64(totalCourseDays) / 5.0))
+	stats.RemainingAbsenceDays = stats.MaximumAbsenceDays - usedAbsenceDays
+	if stats.RemainingAbsenceDays < 0 {
+		stats.RemainingAbsenceDays = 0
+	}
+	stats.LimitReached = usedAbsenceDays >= stats.MaximumAbsenceDays
+	stats.ProjectedLimitExceeded = projectedAbsenceDays > stats.MaximumAbsenceDays
+	return stats
+}
+
 func (e *SessionTimingError) Error() string {
 	return e.Message
 }
@@ -48,21 +78,6 @@ func NormalizeSubmissionSitInMethod(raw *string) (pgtype.Text, error) {
 	default:
 		return pgtype.Text{}, fmt.Errorf("invalid sit-in method")
 	}
-}
-
-func ProjectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords int32) bool {
-	if totalSessions <= 0 || submittingAbsenceRecords <= 0 {
-		return false
-	}
-	return (existingAbsenceRecords+submittingAbsenceRecords)*5 > totalSessions
-}
-
-func ProjectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount int32) bool {
-	if totalSessions <= 0 || submittingSessionCount <= 0 {
-		return false
-	}
-	maxAllowed := int32(math.Round(float64(totalSessions) / 5.0))
-	return existingMissedSessions+submittingSessionCount > maxAllowed
 }
 
 func ResolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {

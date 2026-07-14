@@ -36,7 +36,7 @@ export function useOtp(storageKey: string) {
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
-  const [, forceTick] = useState(0);
+  const [tick, forceTick] = useState(0);
 
   useEffect(() => {
     const stored = readStoredOtp(storageKey);
@@ -56,7 +56,7 @@ export function useOtp(storageKey: string) {
   const secondsLeft = useMemo(() => {
     if (!expiresAt) return 0;
     return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-  }, [expiresAt]);
+  }, [expiresAt, tick]);
 
   const persistToken = useCallback((nextToken: string, nextExpiresAt?: number | null) => {
     setToken(nextToken);

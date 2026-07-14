@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,6 +30,17 @@ func TestDispatchDelete_RouteRegistered(t *testing.T) {
 	// Should NOT return 404 — route exists
 	if w.Code == http.StatusNotFound {
 		t.Fatalf("DELETE /api/v1/absences/{id} should route to a handler, got 404")
+	}
+}
+
+func TestAbsenceDayLimitLockKeyNormalizesWCode(t *testing.T) {
+	first := absenceDayLimitLockKey(" W250389 ", "course-1")
+	second := absenceDayLimitLockKey("w250389", "course-1")
+	if first != second {
+		t.Fatalf("lock keys differ: %q != %q", first, second)
+	}
+	if first != "absence-limit:w250389:course-1" {
+		t.Fatalf("lock key = %q", first)
 	}
 }
 
@@ -103,54 +113,6 @@ func TestResolveDateRangeForSessionStartsUsesAllReturnedCourseSessions(t *testin
 	}
 	if got := gotTo.Format("2006-01-02"); got != "2026-06-16" {
 		t.Fatalf("to = %s, want 2026-06-16", got)
-	}
-}
-
-func TestProjectedAbsenceRecordLimitExceededUsesSubmittedAbsence(t *testing.T) {
-	if !projectedAbsenceRecordLimitExceeded(10, 2, 1) {
-		t.Fatalf("10-session course with 2 existing records should reject the next absence record")
-	}
-}
-
-func TestProjectedAbsenceRecordLimitExceededAllowsBoundaryBeforeNextRecord(t *testing.T) {
-	if projectedAbsenceRecordLimitExceeded(10, 1, 1) {
-		t.Fatalf("10-session course with 1 existing record should allow one more absence record")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededRejectsExcessiveSessions(t *testing.T) {
-	if !projectedAbsenceSessionLimitExceeded(10, 0, 3) {
-		t.Fatalf("10-session course with 0 existing should reject 3 sessions (30%%)")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededAllowsExactBoundary(t *testing.T) {
-	if projectedAbsenceSessionLimitExceeded(10, 0, 2) {
-		t.Fatalf("10-session course with 0 existing should allow 2 sessions (20%%)")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededAllowsCumulativeLimit(t *testing.T) {
-	if projectedAbsenceSessionLimitExceeded(10, 1, 1) {
-		t.Fatalf("10-session course with 1 existing should allow 1 more session (20%% total)")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededRejectsCumulativeOverLimit(t *testing.T) {
-	if !projectedAbsenceSessionLimitExceeded(10, 1, 2) {
-		t.Fatalf("10-session course with 1 existing should reject 2 more sessions (30%% total)")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededHandlesZeroTotalSessions(t *testing.T) {
-	if projectedAbsenceSessionLimitExceeded(0, 0, 1) {
-		t.Fatalf("0-session course should not allow any sessions")
-	}
-}
-
-func TestProjectedAbsenceSessionLimitExceededHandlesZeroSubmittingSessions(t *testing.T) {
-	if projectedAbsenceSessionLimitExceeded(10, 0, 0) {
-		t.Fatalf("0 submitting sessions should not be exceeded")
 	}
 }
 
@@ -382,72 +344,21 @@ func TestMaxSessionsLookupRangeDaysIncludesPostSessionLookback(t *testing.T) {
 	}
 }
 
-func TestProjectedAbsenceRecordLimitExceeded_ZeroTotalSessions(t *testing.T) {
-	if projectedAbsenceRecordLimitExceeded(0, 1, 1) {
-		t.Fatal("zero total sessions should not be exceeded (guard)")
-	}
-}
-
-func TestProjectedAbsenceRecordLimitExceeded_ZeroSubmittingRecords(t *testing.T) {
-	if projectedAbsenceRecordLimitExceeded(10, 2, 0) {
-		t.Fatal("zero submitting records should not be exceeded (guard)")
-	}
-}
-
-func TestProjectedAbsenceRecordLimitExceeded_AllowsBoundary(t *testing.T) {
-	// Formula: (existing+1)*5 <= total → allowed
-	tests := []struct {
-		total, existing int32
-	}{
-		{total: 5, existing: 0},  // (0+1)*5 = 5 <= 5
-		{total: 9, existing: 0},  // (0+1)*5 = 5 <= 9
-		{total: 10, existing: 1}, // (1+1)*5 = 10 <= 10
-		{total: 14, existing: 1}, // (1+1)*5 = 10 <= 14
-		{total: 15, existing: 2}, // (2+1)*5 = 15 <= 15
-		{total: 20, existing: 3}, // (3+1)*5 = 20 <= 20
-	}
-	for _, tt := range tests {
-		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)
-		t.Run(name, func(t *testing.T) {
-			if projectedAbsenceRecordLimitExceeded(tt.total, tt.existing, 1) {
-				t.Fatalf("%d-session course with %d existing records should allow one more (want false)", tt.total, tt.existing)
-			}
-		})
-	}
-}
-
-func TestProjectedAbsenceRecordLimitExceeded_BlocksPastBoundary(t *testing.T) {
-	// Formula: (existing+1)*5 > total → blocked
-	tests := []struct {
-		total, existing int32
-	}{
-		{total: 4, existing: 0},  // (0+1)*5 = 5 > 4
-		{total: 5, existing: 1},  // (1+1)*5 = 10 > 5
-		{total: 9, existing: 1},  // (1+1)*5 = 10 > 9
-		{total: 10, existing: 2}, // (2+1)*5 = 15 > 10
-		{total: 14, existing: 2}, // (2+1)*5 = 15 > 14
-		{total: 15, existing: 3}, // (3+1)*5 = 20 > 15
-		{total: 20, existing: 4}, // (4+1)*5 = 25 > 20
-	}
-	for _, tt := range tests {
-		name := fmt.Sprintf("%d-sessions-%d-existing", tt.total, tt.existing)
-		t.Run(name, func(t *testing.T) {
-			if !projectedAbsenceRecordLimitExceeded(tt.total, tt.existing, 1) {
-				t.Fatalf("%d-session course with %d existing records should reject the next absence (want true)", tt.total, tt.existing)
-			}
-		})
-	}
-}
-
 type courseResponseCountFields struct {
-	ExistingAbsenceCount int32 `json:"existing_absence_count"`
-	TotalSessionCount    int32 `json:"total_session_count"`
+	TotalCourseDays      int32 `json:"total_course_days"`
+	UsedAbsenceDays      int32 `json:"used_absence_days"`
+	MaximumAbsenceDays   int32 `json:"maximum_absence_days"`
+	RemainingAbsenceDays int32 `json:"remaining_absence_days"`
+	AbsenceLimitReached  bool  `json:"absence_limit_reached"`
 }
 
 func TestCourseResponse_SerializesCountFields(t *testing.T) {
 	resp := courseResponseCountFields{
-		ExistingAbsenceCount: 3,
-		TotalSessionCount:    20,
+		TotalCourseDays:      20,
+		UsedAbsenceDays:      3,
+		MaximumAbsenceDays:   4,
+		RemainingAbsenceDays: 1,
+		AbsenceLimitReached:  false,
 	}
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -457,15 +368,21 @@ func TestCourseResponse_SerializesCountFields(t *testing.T) {
 	if err := json.Unmarshal(b, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok := decoded["existing_absence_count"]; !ok {
-		t.Fatal("missing existing_absence_count field in JSON response")
+	if v, ok := decoded["used_absence_days"]; !ok {
+		t.Fatal("missing used_absence_days field in JSON response")
 	} else if v.(float64) != 3 {
-		t.Fatalf("existing_absence_count = %v, want 3", v)
+		t.Fatalf("used_absence_days = %v, want 3", v)
 	}
-	if v, ok := decoded["total_session_count"]; !ok {
-		t.Fatal("missing total_session_count field in JSON response")
+	if v, ok := decoded["total_course_days"]; !ok {
+		t.Fatal("missing total_course_days field in JSON response")
 	} else if v.(float64) != 20 {
-		t.Fatalf("total_session_count = %v, want 20", v)
+		t.Fatalf("total_course_days = %v, want 20", v)
+	}
+	if v := decoded["maximum_absence_days"].(float64); v != 4 {
+		t.Fatalf("maximum_absence_days = %v, want 4", v)
+	}
+	if v := decoded["remaining_absence_days"].(float64); v != 1 {
+		t.Fatalf("remaining_absence_days = %v, want 1", v)
 	}
 }
 

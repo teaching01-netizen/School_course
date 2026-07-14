@@ -33,7 +33,6 @@ const MOCK_PENDING_RESULT: SitInResult = {
 
 function baseProps(overrides?: Partial<SitInResultCardProps>): SitInResultCardProps {
   return {
-    subjectCode: "MATH-301",
     subjectName: "Calculus III",
     result: MOCK_ZOOM_RESULT,
     selectedSessionIds: new Set<string>(),
@@ -65,9 +64,9 @@ describe("SitInResultCard", () => {
   });
 
   describe("physical method", () => {
-    it("renders green banner with course code", () => {
+    it("renders green banner without the course code", () => {
       render(<SitInResultCard {...baseProps({ result: MOCK_PHYSICAL_RESULT })} />);
-      expect(screen.getByText(/MATH-301/)).toBeInTheDocument();
+      expect(screen.queryByText(/MATH-301/)).not.toBeInTheDocument();
     });
 
     it("renders course name in banner", () => {

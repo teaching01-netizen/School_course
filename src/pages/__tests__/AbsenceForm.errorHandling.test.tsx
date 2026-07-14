@@ -58,9 +58,13 @@ const MOCK_STUDENT = {
 };
 
 function mockApiByPattern(routes: Record<string, unknown>) {
-  mockApiJson.mockImplementation(async (url: string, _init?: RequestInit) => {
+  mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
     for (const [pattern, data] of Object.entries(routes)) {
-      if (String(url).includes(pattern)) return data;
+      if (String(url).includes(pattern)) {
+        return typeof data === "function"
+          ? (data as (request?: RequestInit) => unknown)(init)
+          : data;
+      }
     }
     throw new Error(`Unmocked API call: ${url}`);
   });
@@ -87,11 +91,30 @@ function createSessionsWithLimits(
       course_code: "MATH201",
       course_name: "Algebra II",
       sessions,
-      absence_rate_exceeded: existingMissed * 5 >= totalSessions,
-      existing_absence_count: existingMissed,
-      total_session_count: totalSessions,
+      absence_limit_reached: existingMissed * 5 >= totalSessions,
+      used_absence_days: existingMissed,
+      total_course_days: totalSessions,
+      maximum_absence_days: Math.round(totalSessions / 5),
+      remaining_absence_days: Math.max(0, Math.round(totalSessions / 5) - existingMissed),
     },
   ];
+}
+
+async function continueToVerification(user: ReturnType<typeof userEvent.setup>) {
+  const emailInput = screen.queryByRole("textbox", { name: /your email address/i });
+  if (emailInput) await user.type(emailInput, "student@example.com");
+  await user.click(screen.getByRole("button", { name: /continue to verification/i }));
+  await screen.findByRole("heading", { name: /parent verification/i });
+}
+
+async function completeVerification(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /send code/i }));
+  const codeInput = (await screen.findAllByRole("textbox", { hidden: true })).find(
+    (element) => element.getAttribute("inputMode") === "numeric",
+  );
+  if (!codeInput) throw new Error("OTP input was not rendered");
+  await user.type(codeInput, "123456");
+  await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
 }
 
 describe("AbsenceForm - error handling", () => {
@@ -126,13 +149,8 @@ describe("AbsenceForm - error handling", () => {
     await user.click(screen.getByRole("button", { name: /search/i }));
     await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /send code/i }));
-    await waitFor(() => {
-      const skipBtn = screen.queryByRole("button", { name: /continue without verifying/i });
-      expect(skipBtn).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
-    await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+    await continueToVerification(user);
+    await completeVerification(user);
 
     // Select a session
     const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
@@ -145,11 +163,24 @@ describe("AbsenceForm - error handling", () => {
       await user.click(sessionCheckboxes[0]);
     }
 
-    // The form should show the course selected and session selected
-    // The error will only show after submission, so we verify the form state
-    await waitFor(() => {
-      expect(screen.getByText("1 session remaining")).toBeInTheDocument();
-    });
+    await user.type(
+      screen.getByRole("textbox", { name: /reason for absence/i }),
+      "Medical appointment",
+    );
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText(
+      "You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.",
+      { selector: '[role="alert"]' },
+    )).toBeInTheDocument();
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/batch",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
   });
 });
 
@@ -176,9 +207,11 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
           date: `2026-06-${String(i + 1).padStart(2, "0")}`,
           already_absent: i < 1, // 1 existing
         })),
-        absence_rate_exceeded: false,
-        existing_absence_count: 1,
-        total_session_count: 10,
+        absence_limit_reached: false,
+        used_absence_days: 1,
+        total_course_days: 10,
+        maximum_absence_days: 2,
+        remaining_absence_days: 1,
       },
       {
         subject_id: "subj-2",
@@ -194,9 +227,11 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
           date: `2026-06-${String(i + 1).padStart(2, "0")}`,
           already_absent: i < 3, // 3 existing
         })),
-        absence_rate_exceeded: false,
-        existing_absence_count: 3,
-        total_session_count: 20,
+        absence_limit_reached: false,
+        used_absence_days: 3,
+        total_course_days: 20,
+        maximum_absence_days: 4,
+        remaining_absence_days: 1,
       },
     ];
 
@@ -219,25 +254,20 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
     await user.click(screen.getByRole("button", { name: /search/i }));
     await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /send code/i }));
-    await waitFor(() => {
-      const skipBtn = screen.queryByRole("button", { name: /continue without verifying/i });
-      expect(skipBtn).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: /continue without verifying/i }));
-    await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
+    await continueToVerification(user);
+    await completeVerification(user);
 
     // Select Mathematics
     const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
     await user.click(mathCheckbox);
 
-    // Should show 1 session remaining for Math (10 sessions, 1 existing = 1 remaining)
+    // Should show 1 day remaining for Math (10 course days, 1 existing = 1 remaining)
     await waitFor(() => {
-      expect(screen.getByText("1 session remaining")).toBeInTheDocument();
+      expect(screen.getByText("1 day remaining")).toBeInTheDocument();
     });
 
     // Verify the remaining count is correct for Math
-    const remainingText = screen.getByText("1 session remaining");
+    const remainingText = screen.getByText("1 day remaining");
     expect(remainingText).toBeInTheDocument();
   });
 });

@@ -16,7 +16,6 @@ export type SitInResult = {
 };
 
 export type SitInResultCardProps = {
-  subjectCode: string;
   subjectName: string;
   result: SitInResult;
   selectedSessionIds: Set<string>;
@@ -51,7 +50,6 @@ function fmtDay(iso: string): string {
 /* ------------------------------------------------------------------ */
 
 export default function SitInResultCard({
-  subjectCode,
   subjectName,
   result,
   selectedSessionIds,
@@ -120,8 +118,7 @@ export default function SitInResultCard({
   if (missed.length === 0 && available.length === 0) {
     return (
       <div className="rounded-sm border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-        Sit-in at <strong>{result.sit_in_course?.code ?? subjectCode}</strong>{" "}
-        &mdash; {result.sit_in_course?.name ?? subjectName}
+        Sit-in at <strong>{result.sit_in_course?.name ?? subjectName}</strong>
         <p className="mt-1 text-xs text-green-600">
           {result.missed_count} missed session(s).
         </p>
@@ -167,8 +164,7 @@ export default function SitInResultCard({
       {/* green banner */}
       <div className="rounded-sm border border-green-200 bg-green-50 p-3 text-sm text-green-800">
         Sit-in at{" "}
-        <strong>{result.sit_in_course?.code ?? subjectCode}</strong> &mdash;{" "}
-        {result.sit_in_course?.name ?? subjectName}
+        <strong>{result.sit_in_course?.name ?? subjectName}</strong>
         <p className="mt-1 text-xs text-green-600">
           {result.missed_count} missed session(s).
           {available.length > 0

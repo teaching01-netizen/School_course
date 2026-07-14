@@ -16,7 +16,7 @@ type VerificationStore = {
 type StepCoverVerificationProps = {
   wcode: string;
   parentPhone?: string | null;
-  allowSubmitWithoutOtp: boolean;
+  smsParentEnabled?: boolean;
   adminContact?: { email: string; phone: string; hours: string };
   verification: VerificationStore;
   completed: boolean;
@@ -35,7 +35,7 @@ function isRetryable(err: unknown): boolean {
 export default function StepCoverVerification({
   wcode,
   parentPhone,
-  allowSubmitWithoutOtp,
+  smsParentEnabled = true,
   verification,
   completed,
   onSatisfied,
@@ -45,6 +45,7 @@ export default function StepCoverVerification({
   const [session, setSession] = useState<ParentVerificationResponse | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyRetryable, setVerifyRetryable] = useState(false);
   const [sendCount, setSendCount] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -126,7 +127,7 @@ export default function StepCoverVerification({
   }, [verification.code, verification.token, verified, isSending, isVerifying]);
 
   async function handleSend(startNewSession = false) {
-    if (!wcode || !parentPhone) return;
+    if (!smsParentEnabled || !wcode || !parentPhone) return;
     if (startNewSession) {
       onRestart();
       setSession(null);
@@ -134,6 +135,7 @@ export default function StepCoverVerification({
     setIsSending(true);
     setSendError(null);
     setVerifyError(null);
+    setVerifyRetryable(false);
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/send", {
         method: "POST",
@@ -160,6 +162,7 @@ export default function StepCoverVerification({
     if (!verification.token || verification.code.length !== 6) return;
     setIsVerifying(true);
     setVerifyError(null);
+    setVerifyRetryable(false);
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/verify", {
         method: "POST",
@@ -170,46 +173,46 @@ export default function StepCoverVerification({
       onSatisfied();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Verification failed";
+      const retryable = isRetryable(err);
       setVerifyError(message);
-      if (!isRetryable(err)) verification.setCode("");
+      setVerifyRetryable(retryable);
+      if (!retryable) verification.setCode("");
     } finally {
       setIsVerifying(false);
     }
   }
 
-  function handleSkip() {
-    verification.clearStoredToken();
-    verification.setCode("");
-    setSession(null);
-    setSendError(null);
-    setVerifyError(null);
-    onSatisfied();
-  }
-
   const parentMissing = !parentPhone || parentPhone.trim() === "";
-  const canSend = !isSending && !isVerifying && !parentMissing && !verified;
+  const canSend = smsParentEnabled && !isSending && !isVerifying && !parentMissing && !verified;
 
   if (verified) {
     return (
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-green-600 font-medium">✓ Verified</p>
-        <button
-          type="button"
-          onClick={() => void handleSend(true)}
-          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)]"
-        >
-          Send new code
-        </button>
+        {smsParentEnabled && !parentMissing ? (
+          <button
+            type="button"
+            onClick={() => void handleSend(true)}
+            className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)]"
+          >
+            Send new code
+          </button>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      {parentMissing ? (
+      {!smsParentEnabled ? (
+        <p role="alert" className="text-xs text-amber-600">
+          Parent verification codes are currently unavailable.
+          Contact admin before continuing.
+        </p>
+      ) : parentMissing ? (
         <p role="alert" className="text-xs text-amber-600">
           Your parent's phone number is not in our records.
-          {!allowSubmitWithoutOtp ? " Contact admin before continuing." : null}
+          Contact admin before continuing.
         </p>
       ) : null}
 
@@ -229,22 +232,36 @@ export default function StepCoverVerification({
         </div>
       ) : null}
       {verifyError ? (
-        <p role="alert" className="text-xs text-red-600">{verifyError}</p>
+        <div className="space-y-1 text-xs text-red-600">
+          <p role="alert">{verifyError}</p>
+          {verifyRetryable && verification.code.length === 6 ? (
+            <button
+              type="button"
+              onClick={() => void handleVerify()}
+              disabled={isVerifying}
+              className="font-semibold underline underline-offset-2 disabled:opacity-50"
+            >
+              Retry verification
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
-      {!parentMissing && !verified ? (
+      {smsParentEnabled && !parentMissing && !verified ? (
         <p className="text-xs text-[var(--color-wi-text-light)]">
           We'll send a code to your parent's phone for consent.
         </p>
       ) : null}
 
-      <SmsSendButton
-        isSending={isSending || deliveryPending}
-        sendCount={sendCount}
-        disabled={!canSend}
-        onClick={() => void handleSend()}
-        parentPhoneMissing={parentMissing}
-      />
+      {smsParentEnabled ? (
+        <SmsSendButton
+          isSending={isSending || deliveryPending}
+          sendCount={sendCount}
+          disabled={!canSend}
+          onClick={() => void handleSend()}
+          parentPhoneMissing={parentMissing}
+        />
+      ) : null}
 
       {deliveryPending ? (
         <p className="text-xs font-medium text-blue-600">Sending code…</p>
@@ -272,7 +289,7 @@ export default function StepCoverVerification({
         <motion.p
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium"
+          className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -297,17 +314,9 @@ export default function StepCoverVerification({
             label="Verification code"
           />
           <p className="text-xs text-gray-500">Enter the 6-digit code sent to your parent's phone.</p>
-          {allowSubmitWithoutOtp ? (
-            <button
-              type="button"
-              onClick={handleSkip}
-              className="text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              Continue without verifying
-            </button>
-          ) : null}
         </motion.div>
       ) : null}
+
     </div>
   );
 }

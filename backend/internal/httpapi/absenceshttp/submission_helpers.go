@@ -1,8 +1,10 @@
 package absenceshttp
 
 import (
+	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/absences"
@@ -17,12 +19,55 @@ func normalizeSubmissionSitInMethod(raw *string) (pgtype.Text, error) {
 	return absences.NormalizeSubmissionSitInMethod(raw)
 }
 
-func projectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords int32) bool {
-	return absences.ProjectedAbsenceRecordLimitExceeded(totalSessions, existingAbsenceRecords, submittingAbsenceRecords)
+func absenceDayLimitLockKey(wcode, courseID string) string {
+	return "absence-limit:" + normalizeWCode(wcode) + ":" + courseID
 }
 
-func projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount int32) bool {
-	return absences.ProjectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount)
+func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
+	parsed := make([]pgtype.UUID, 0, len(values))
+	for _, value := range values {
+		id, err := uuid.Parse(value)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, pgtype.UUID{Bytes: id, Valid: true})
+	}
+	return parsed, nil
+}
+
+func projectedAbsenceDayStats(
+	ctx context.Context,
+	q *sqldb.Queries,
+	wcode string,
+	courseID pgtype.UUID,
+	missedSessionIDs []pgtype.UUID,
+	dateFrom pgtype.Date,
+	dateTo pgtype.Date,
+	instituteTZ string,
+) (absences.AbsenceDayLimitStats, int32, error) {
+	courseIDString, err := sUUIDString(courseID)
+	if err != nil {
+		return absences.AbsenceDayLimitStats{}, 0, err
+	}
+	if err := q.AdvisoryLockForText(ctx, absenceDayLimitLockKey(wcode, courseIDString)); err != nil {
+		return absences.AbsenceDayLimitStats{}, 0, err
+	}
+	counts, err := q.AbsenceDayCountsForCourse(ctx, sqldb.AbsenceDayCountsForCourseParams{
+		Wcode:               wcode,
+		CourseID:            courseID,
+		CandidateSessionIDs: missedSessionIDs,
+		DateFrom:            dateFrom,
+		DateTo:              dateTo,
+		InstituteTZ:         instituteTZ,
+	})
+	if err != nil {
+		return absences.AbsenceDayLimitStats{}, 0, err
+	}
+	return absences.NewAbsenceDayLimitStats(
+		counts.TotalCourseDays,
+		counts.UsedAbsenceDays,
+		counts.ProjectedAbsenceDays,
+	), counts.CandidateAbsenceDays, nil
 }
 
 func resolveClientStudentEmail(raw *string, emailCRM, emailSystem pgtype.Text) (pgtype.Text, bool, error) {

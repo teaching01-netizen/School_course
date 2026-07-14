@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
@@ -8,6 +8,11 @@ import StepIndicator from "@/components/absences/StepIndicator";
 import SubjectCard from "@/components/absences/SubjectCard";
 import StickyFooter from "@/components/absences/StickyFooter";
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
+import StudentStep from "@/components/absences/public-form/StudentStep";
+import VerificationStep from "@/components/absences/public-form/VerificationStep";
+import ClassesStep from "@/components/absences/public-form/ClassesStep";
+import ReviewStep from "@/components/absences/public-form/ReviewStep";
+import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useOtp } from "@/hooks/useOtp";
@@ -26,10 +31,10 @@ import {
   submitAbsenceBatch,
 } from "@/features/absences/api/absenceFormApi";
 import {
-  countSelectedSessions,
+  countSelectedAbsenceDays,
+  countSelectedAbsenceDaysForGroup,
   getSelectedSessionsForGroup,
   groupByDay,
-  isDayGroupSelected,
   mergedSessionValue,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/features/absences/domain/submissionPayload";
@@ -63,16 +68,19 @@ import {
 } from "@/features/absences/storage/studentResumeStorage";
 import { getStudentDisplayName, maskPhone, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
 
-type StepIndex = 0 | 1 | 2;
+type StepIndex = 0 | 1 | 2 | 3;
 
 export default function AbsenceForm() {
   const { addToast } = useToast();
   const { online, justRestored } = useConnectivity();
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
+  const reduceMotion = useReducedMotion();
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
+  const lookupRequestId = useRef(0);
 
   const STEP_LABELS = [
-    { label: "Student", description: "Verify your profile" },
+    { label: "Student", description: "Confirm your profile" },
+    { label: "Verify", description: "Parent confirmation" },
     { label: "Classes", description: "Select classes & make-up" },
     { label: "Review", description: "Confirm and submit" },
   ];
@@ -86,6 +94,7 @@ export default function AbsenceForm() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [collectedEmail, setCollectedEmail] = useState("");
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+  const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
@@ -103,26 +112,29 @@ export default function AbsenceForm() {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [finalResults, setFinalResults] = useState<ManagedAbsence[] | null>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const pageAlertRef = useRef<HTMLDivElement | null>(null);
 
-  const selectedSubjectCount = selectedSubjectIds.length;
-  const selectedSessionCount = useMemo(
-    () => countSelectedSessions(sessions, selectedSessionIds),
+  const selectedAbsenceDayCount = useMemo(
+    () => countSelectedAbsenceDays(sessions, selectedSessionIds),
     [sessions, selectedSessionIds],
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
 
   const remainingForGroup = useCallback(
     (group: SubjectSessions): number => {
-      if (!group.total_session_count || group.total_session_count <= 0) {
-        return maxSessions;
-      }
-      const maxAllowed = Math.round(group.total_session_count / 5);
-      return Math.max(0, maxAllowed - (group.existing_absence_count ?? 0));
+      if (group.remaining_absence_days != null) return group.remaining_absence_days;
+      return maxSessions;
     },
     [maxSessions],
   );
-  const emailSatisfied = !!(lookup?.email_crm?.trim() || lookup?.email_system?.trim() || collectedEmail.trim());
-  const canProceedFromVerify = !!lookup && emailSatisfied && verificationSatisfied;
+  const manualEmail = collectedEmail.trim();
+  const manualEmailValid = /^[^\s@]+@[^\s@]+$/.test(manualEmail);
+  const emailSatisfied = !!(
+    lookup?.email_crm?.trim()
+    || lookup?.email_system?.trim()
+    || manualEmailValid
+  );
+  const canProceedFromStudent = !!lookup && emailSatisfied;
   const studentDisplayName = getStudentDisplayName(lookup);
 
   const missingSitIn = useMemo(() => {
@@ -136,8 +148,6 @@ export default function AbsenceForm() {
     }
     return false;
   }, [sessions, selectedSubjectIds, selectedSessionIds, sitInSelections]);
-
-  const canSubmit = selectedSubjectCount > 0 && selectedSessionCount > 0 && reason.trim().length > 0 && !verificationBlocked && !missingSitIn;
 
   useEffect(() => {
     let active = true;
@@ -154,7 +164,7 @@ export default function AbsenceForm() {
   }, [addToast]);
 
   useEffect(() => {
-    if (step !== 1 || !lookup) return;
+    if (step !== 2 || !lookup) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
@@ -197,7 +207,6 @@ export default function AbsenceForm() {
 
   useEffect(() => {
     if (!verification.token) {
-      setVerificationSatisfied(false);
       setVerificationBlocked(false);
       return;
     }
@@ -205,14 +214,29 @@ export default function AbsenceForm() {
     if (expiry && expiry < Date.now()) {
       setVerificationBlocked(true);
       setVerificationSatisfied(false);
+      setStep((current) => current >= 2 ? 1 : current);
       return;
     }
     setVerificationBlocked(false);
   }, [verification]);
 
+  useEffect(() => {
+    if (!verification.token || !verification.expiresAt) return;
+    const enforceExpiry = () => {
+      if (verification.expiresAt && verification.expiresAt <= Date.now()) {
+        setVerificationBlocked(true);
+        setVerificationSatisfied(false);
+        setStep((current) => current >= 2 ? 1 : current);
+      }
+    };
+    enforceExpiry();
+    const timer = window.setInterval(enforceExpiry, 100);
+    return () => window.clearInterval(timer);
+  }, [verification.expiresAt, verification.token]);
+
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
-    setStep(1);
+    setStep(2);
   }, []);
 
   const handleVerificationRestart = useCallback(() => {
@@ -228,35 +252,58 @@ export default function AbsenceForm() {
   }, []);
 
   const handleLookup = async () => {
+    const requestId = ++lookupRequestId.current;
     setLookupError(null);
     setLookup(null);
     setPageError(null);
     const cleaned = normalizeLookupWcode(lookupInput);
     if (!cleaned) {
+      setLookupLoading(false);
       setLookupError("Enter your Student ID (W-Code).");
       return;
     }
     try {
       setLookupLoading(true);
       const response = await lookupStudentByWcode(cleaned);
+      if (requestId !== lookupRequestId.current) return;
       setLookup(response);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
+      setExpandedSubjectId(null);
       setCollectedEmail("");
+      setReason("");
+      setReasonError(null);
+      setSessions([]);
+      setSessionsError(null);
+      setSelectedSessionIds(new Set());
+      setSitInSelections({});
+      setSitInPriorityLevels({});
+      setSitInPriorityHistory({});
+      setRevealingPrioritySessionIds(new Set());
+      setSubmissionError(null);
+      submissionIdempotencyKey.current = newIdempotencyKey();
       verification.clearStoredToken();
       verification.setCode("");
       setVerificationSatisfied(false);
+      setVerificationBlocked(false);
     } catch (error) {
+      if (requestId !== lookupRequestId.current) return;
       setLookupError(error instanceof Error ? error.message : "We couldn't find your profile");
     } finally {
-      setLookupLoading(false);
+      if (requestId === lookupRequestId.current) setLookupLoading(false);
     }
   };
 
   const toggleSubject = (subjectId: string) => {
-    setSelectedSubjectIds((current) =>
-      current.includes(subjectId) ? current.filter((id) => id !== subjectId) : [...current, subjectId],
-    );
+    setSelectedSubjectIds((current) => {
+      if (current.includes(subjectId)) {
+        const next = current.filter((id) => id !== subjectId);
+        setExpandedSubjectId((expanded) => expanded === subjectId ? next[0] ?? null : expanded);
+        return next;
+      }
+      setExpandedSubjectId(subjectId);
+      return [...current, subjectId];
+    });
   };
 
   const handleSessionGroupToggle = (group: SubjectSessions, sessionIds: string[]) => {
@@ -273,10 +320,9 @@ export default function AbsenceForm() {
         return next;
       }
       const remaining = remainingForGroup(group);
-      const currentlySelectedInGroup = getSelectedSessionsForGroup(group, current).length;
-      if (currentlySelectedInGroup + sessionIds.length > remaining) return current;
-      const selectedInThisCourse = group.sessions.filter((s) => current.has(s.id)).length;
-      if (selectedInThisCourse + sessionIds.length > maxSessions) return current;
+      const currentlySelectedDays = countSelectedAbsenceDaysForGroup(group, current);
+      if (currentlySelectedDays + 1 > remaining) return current;
+      if (currentlySelectedDays + 1 > maxSessions) return current;
       const next = new Set(current);
       for (const sessionId of sessionIds) next.add(sessionId);
       return next;
@@ -345,22 +391,50 @@ export default function AbsenceForm() {
   };
 
   const goToStep = useCallback((next: StepIndex) => {
+    setPageError(null);
+    setSubmissionError(null);
     setStep(next);
     try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { }
   }, []);
 
-  function validateStepOne() {
+  useEffect(() => {
+    if (!pageError && !submissionError) return;
+    pageAlertRef.current?.focus();
+  }, [pageError, submissionError]);
+
+  function focusFirstInvalid(selector: string) {
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(selector)?.focus();
+    });
+  }
+
+  function validateClasses() {
+    setPageError(null);
     setReasonError(null);
     if (selectedSubjectIds.length === 0) {
       setPageError("Select at least one course.");
+      focusFirstInvalid('[id^="subject-"]');
       return false;
     }
-    if (!reason.trim()) {
-      setReasonError("Please tell us why you'll be away.");
+    if (selectedAbsenceDayCount === 0) {
+      setPageError("Select at least one class you will miss.");
+      setExpandedSubjectId(selectedSubjectIds[0] ?? null);
+      focusFirstInvalid('[id^="session-"]');
       return false;
     }
     if (missingSitIn) {
       setPageError("Pick a make-up class for all selected sessions before submitting.");
+      const invalidGroup = sessions.find((group) =>
+        selectedSubjectIds.includes(group.subject_id) && group.sessions.some((session) =>
+          selectedSessionIds.has(session.id) && sitInForMissedSession(group, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]));
+      setExpandedSubjectId(invalidGroup?.subject_id ?? selectedSubjectIds[0] ?? null);
+      focusFirstInvalid('select[aria-label*="make-up" i], select');
+      return false;
+    }
+    if (!reason.trim()) {
+      setPageError("Please tell us why you'll be away.");
+      setReasonError("Please tell us why you'll be away.");
+      focusFirstInvalid("#absence-reason");
       return false;
     }
     return true;
@@ -369,7 +443,14 @@ export default function AbsenceForm() {
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
-    if (!validateStepOne()) return;
+    const verificationExpired = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
+    if (!verificationSatisfied || verificationBlocked || verificationExpired) {
+      setVerificationSatisfied(false);
+      setVerificationBlocked(true);
+      goToStep(1);
+      return;
+    }
+    if (!validateClasses()) return;
     if (!lookup) { setPageError("Search for your profile first."); return; }
     const payloadResult = buildAbsenceSubmissionPayloads({
       lookupWcode: lookup.wcode,
@@ -408,6 +489,8 @@ export default function AbsenceForm() {
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
+      } else if (error instanceof TypeError) {
+        setSubmissionError("Your connection was interrupted, so we couldn't confirm whether your absence was received. Stay on this page, check your connection, then tap Submit again. This retry will not create a duplicate.");
       } else {
         setSubmissionError(error instanceof Error ? error.message : "Could not submit your absence");
       }
@@ -418,8 +501,9 @@ export default function AbsenceForm() {
 
   const submissionOverlay = !finalResults && isSubmitting ? (
     <motion.div
-      initial={{ opacity: 0 }}
+      initial={reduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
+      transition={reduceMotion ? { duration: 0 } : undefined}
       className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm"
       role="status"
       aria-live="polite"
@@ -476,7 +560,7 @@ export default function AbsenceForm() {
             <h3 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Submitted classes</h3>
             <div className="mt-4 space-y-3">
               {finalResults.map((absence) => {
-                const label = absence.subject_code?.trim() || absence.subject_name?.trim() || absence.course_code?.trim() || absence.course_name?.trim() || "Submitted class";
+                const label = absence.subject_name?.trim() || absence.course_name?.trim() || "Submitted class";
                 return (
                   <article key={absence.id} className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -484,7 +568,6 @@ export default function AbsenceForm() {
                         <p className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</p>
                         <p className="text-xs text-[var(--color-wi-text-light)]">{formatBatchAbsenceSummary(absence)}</p>
                       </div>
-                      <span className="rounded-full bg-[var(--color-wi-green)]/10 px-2.5 py-0.5 text-xs font-semibold text-[var(--color-wi-green)]">Pending review</span>
                     </div>
                     <div className="mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
                       <p><span className="font-medium text-[var(--color-wi-text)]">Absence:</span> {formatBatchAbsenceSummary(absence)}</p>
@@ -515,24 +598,18 @@ export default function AbsenceForm() {
 
   return (
     <div className="min-h-screen bg-[var(--color-wi-bg)]">
-      <div className="mx-auto max-w-lg px-4 pb-24 pt-6">
+      <div className="mx-auto max-w-[640px] px-4 pb-24 pt-6 sm:px-6">
         <StepIndicator
           steps={STEP_LABELS}
           currentStep={step}
           onStepClick={(s) => s < step && goToStep(s as StepIndex)}
         />
 
-        {pageError ? (
-          <div role="alert" className="mb-6 rounded-lg bg-[var(--color-wi-danger-bg)] p-4 text-sm text-[var(--color-wi-red)]">{pageError}</div>
-        ) : null}
-        {submissionError ? (
-          <div role="alert" className="mb-6 rounded-lg bg-[var(--color-wi-danger-bg)] p-4 text-sm text-[var(--color-wi-red)]">{submissionError}</div>
-        ) : null}
+        {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
 
         <div className="space-y-6">
             {step === 0 && (
-              <>
-                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Find your profile</h1>
+              <StudentStep>
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="wcode-input" className="block text-sm font-semibold text-[var(--color-wi-text)] mb-1.5">
@@ -542,7 +619,7 @@ export default function AbsenceForm() {
                       <div className="flex-1">
                         <input
                           id="wcode-input"
-                          className="min-h-[48px] w-full rounded-lg border border-[var(--color-wi-border)] bg-white px-4 text-sm text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                          className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                           placeholder="e.g. W250389"
                           value={lookupInput}
                           onChange={(e) => setLookupInput(e.target.value)}
@@ -553,7 +630,7 @@ export default function AbsenceForm() {
                         type="button"
                         onClick={() => void handleLookup()}
                         disabled={lookupLoading}
-                        className="min-h-[48px] rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-wi-primary-dark)] disabled:opacity-50"
+                        className="min-h-[48px] rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] disabled:opacity-50"
                       >
                         {lookupLoading ? "..." : "Search"}
                       </button>
@@ -571,11 +648,6 @@ export default function AbsenceForm() {
                             <p className="text-sm font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
                             <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
                           </div>
-                          {lookup.parent_phone ? (
-                            <span className="text-xs text-[var(--color-wi-text-light)] whitespace-nowrap">Parent: {maskPhone(lookup.parent_phone)}</span>
-                          ) : (
-                            <span className="text-xs text-[var(--color-wi-amber)] whitespace-nowrap">No parent phone</span>
-                          )}
                         </div>
 
                         {lookup.email_crm?.trim() ? (
@@ -598,7 +670,7 @@ export default function AbsenceForm() {
                             <input
                               id="student-email"
                               type="email"
-                              className="min-h-[40px] w-full rounded-lg border border-[var(--color-wi-border)] bg-white px-3.5 text-sm text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                              className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                               placeholder="e.g. student@example.com"
                               value={collectedEmail}
                               onChange={(e) => setCollectedEmail(e.target.value)}
@@ -609,26 +681,7 @@ export default function AbsenceForm() {
                           </div>
                         )}
 
-                        <div className="border-t border-[var(--color-wi-border)] mt-4 pt-4">
-                          <StepCoverVerification
-                            wcode={lookup.wcode}
-                            parentPhone={lookup.parent_phone}
-                            allowSubmitWithoutOtp={config.notifications?.allow_submit_without_otp ?? false}
-                            adminContact={config.admin_contact}
-                            verification={verification}
-                            completed={verificationSatisfied}
-                            onSatisfied={handleVerificationSatisfied}
-                            onRestart={handleVerificationRestart}
-                            onRestored={handleVerificationRestored}
-                          />
-                        </div>
                       </div>
-
-                      {verificationBlocked ? (
-                        <div role="alert" className="rounded-lg bg-[var(--color-wi-amber-bg)] p-4 text-sm text-[var(--color-wi-amber)]">
-                          Your parent's verification has expired. Please verify again.
-                        </div>
-                      ) : null}
 
                       {!online ? (
                         <div role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm font-medium text-[var(--color-wi-amber)]">
@@ -642,12 +695,39 @@ export default function AbsenceForm() {
                     </div>
                   ) : null}
                 </div>
-              </>
+              </StudentStep>
             )}
 
             {step === 1 && (
-              <>
-                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Courses & classes</h1>
+              lookup ? (
+                <VerificationStep
+                  studentName={studentDisplayName || lookup.full_name}
+                  wcode={lookup.wcode}
+                  hasPhone={Boolean(lookup.parent_phone)}
+                  phoneLabel={lookup.parent_phone ? `Verification phone: ${maskPhone(lookup.parent_phone)}` : "Verification phone: unavailable"}
+                >
+                    <StepCoverVerification
+                      wcode={lookup.wcode}
+                      parentPhone={lookup.parent_phone}
+                      smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
+                      adminContact={config.admin_contact}
+                      verification={verification}
+                      completed={verificationSatisfied}
+                      onSatisfied={handleVerificationSatisfied}
+                      onRestart={handleVerificationRestart}
+                      onRestored={handleVerificationRestored}
+                    />
+                    {verificationBlocked ? (
+                      <div role="alert" className="rounded-xl bg-[var(--color-wi-amber-bg)] p-4 text-sm text-[var(--color-wi-amber)]">
+                        Your parent's verification has expired. Please verify again.
+                      </div>
+                    ) : null}
+                </VerificationStep>
+              ) : null
+            )}
+
+            {step === 2 && (
+              <ClassesStep>
 
                 {lookup ? (
                   <div className="space-y-6">
@@ -656,14 +736,13 @@ export default function AbsenceForm() {
                       {lookup.subjects.length > 0 ? (
                         <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
                           {lookup.subjects.map((subject) => (
-                            <SubjectCard
-                              key={subject.id}
-                              id={subject.id}
-                              name={subject.name}
-                              code={subject.code}
-                              selected={selectedSubjectIds.includes(subject.id)}
-                              onToggle={() => toggleSubject(subject.id)}
-                            />
+                          <SubjectCard
+                            key={subject.id}
+                            id={subject.id}
+                            name={subject.name}
+                            selected={selectedSubjectIds.includes(subject.id)}
+                            onToggle={() => toggleSubject(subject.id)}
+                          />
                           ))}
                         </div>
                       ) : (
@@ -676,11 +755,35 @@ export default function AbsenceForm() {
                         <div className="flex items-center justify-between mb-3">
                           <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
                           <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">
-                            {selectedSessionCount} selected
+                            {selectedAbsenceDayCount} selected
                             {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0) > 0
                               ? ` (${sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0)} remaining)`
                               : ""}
                           </span>
+                        </div>
+                        <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected subjects">
+                          {selectedSubjectIds.map((subjectId) => {
+                            const subject = lookup.subjects.find((item) => item.id === subjectId);
+                            const selectedForSubject = sessions
+                              .filter((group) => group.subject_id === subjectId)
+                              .reduce((count, group) => count + countSelectedAbsenceDaysForGroup(group, selectedSessionIds), 0);
+                            const expanded = expandedSubjectId === subjectId;
+                            return (
+                              <button
+                                key={subjectId}
+                                type="button"
+                                aria-expanded={expanded}
+                                aria-controls={sessions.filter((group) => group.subject_id === subjectId).map((group) => `subject-sessions-${subjectId}-${group.course_id}`).join(" ") || undefined}
+                                onClick={() => setExpandedSubjectId(expanded ? null : subjectId)}
+                                className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-left text-sm font-semibold text-[var(--color-wi-text)]"
+                              >
+                                <span>{subject?.name ?? subjectId}</span>
+                                <span className="text-xs font-medium text-[var(--color-wi-text-light)]">
+                                  {selectedForSubject > 0 ? `${selectedForSubject} class day${selectedForSubject === 1 ? "" : "s"} selected` : expanded ? "Open" : "Choose classes"}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
                         {sessionsLoading ? (
                           <LoadingSkeleton type="table" lines={3} />
@@ -692,23 +795,30 @@ export default function AbsenceForm() {
                           <div className="space-y-4">
                             {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
                               const sessionGroups = groupByDay(group.sessions);
-                              const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+                              const groupLabel = group.subject_name?.trim() || group.course_name?.trim();
                               const groupRemaining = remainingForGroup(group);
-                              const selectedInGroup = getSelectedSessionsForGroup(group, selectedSessionIds).length;
-                              const effectiveRemaining = Math.max(0, groupRemaining - selectedInGroup);
+                              const selectedDaysInGroup = countSelectedAbsenceDaysForGroup(group, selectedSessionIds);
+                              const effectiveRemaining = Math.max(0, groupRemaining - selectedDaysInGroup);
                               return (
-                                <div key={group.course_id} className="rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm">
+                                <div
+                                  key={group.course_id}
+                                  id={`subject-sessions-${group.subject_id}-${group.course_id}`}
+                                  className={clsx(
+                                    "rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm",
+                                    expandedSubjectId !== group.subject_id && "hidden sm:block",
+                                  )}
+                                >
                                   <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
-                                      {group.absence_rate_exceeded
+                                      {group.absence_limit_reached
                                         ? "Limit reached"
                                         : effectiveRemaining === 0
                                           ? "Limit reached"
-                                          : `${effectiveRemaining} session${effectiveRemaining !== 1 ? "s" : ""} remaining`}
+                                          : `${effectiveRemaining} day${effectiveRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
                                   </div>
-                                  {group.absence_rate_exceeded ? (
+                                  {group.absence_limit_reached ? (
                                     <div className="p-4">
                                       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                                         <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -716,8 +826,8 @@ export default function AbsenceForm() {
                                         </svg>
                                         <span>
                                           You have reached the maximum absences allowed for this course.
-                                          {group.existing_absence_count != null && group.total_session_count != null && group.total_session_count > 0
-                                            ? ` (${group.existing_absence_count} absence${group.existing_absence_count !== 1 ? "s" : ""} used, max ${Math.round(group.total_session_count / 5)})`
+                                          {group.used_absence_days != null && (group.maximum_absence_days != null || group.total_course_days != null)
+                                            ? ` (${group.used_absence_days} absence day${group.used_absence_days !== 1 ? "s" : ""} used, max ${group.maximum_absence_days ?? Math.round((group.total_course_days ?? 0) / 5)})`
                                             : ""}
                                         </span>
                                       </div>
@@ -726,8 +836,12 @@ export default function AbsenceForm() {
                                   <div className="space-y-2 p-4">
                                     {sessionGroups.map((dayGroup) => {
                                       const session = dayGroup.items[0];
-                                      const sessionIds = dayGroup.items.map((item) => item.id);
-                                      const selected = isDayGroupSelected(dayGroup, selectedSessionIds);
+                                      const sessionIds = dayGroup.items
+                                        .filter((item) => !item.already_absent)
+                                        .map((item) => item.id);
+                                      const alreadyAbsent = sessionIds.length === 0;
+                                      const selected = !alreadyAbsent
+                                        && sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
                                       const currentSitIn = sitInSelections[session.id] || "";
                                       const sessionGroup = groupWithSitInForMissedSession(group, session.id);
                                       const baseSitIn = sessionGroup.sit_in;
@@ -747,7 +861,7 @@ export default function AbsenceForm() {
 
                                       return (
                                         <div key={dayGroup.id} className={clsx(
-                                          "rounded-lg border px-4 py-3 transition-colors",
+                                          "rounded-lg border px-4 py-3 transition-colors motion-reduce:transition-none",
                                           selected ? "border-[var(--color-wi-primary)]/30 bg-[var(--color-wi-primary)]/5" : "border-[var(--color-wi-border)] bg-white",
                                         )}>
                                           <div className="flex items-center gap-3">
@@ -755,7 +869,7 @@ export default function AbsenceForm() {
                                               type="checkbox"
                                               id={`session-${dayGroup.id}`}
                                               checked={selected}
-                                              disabled={!selected && (effectiveRemaining === 0 || group.sessions.filter((s) => selectedSessionIds.has(s.id)).length >= maxSessions)}
+                                              disabled={alreadyAbsent || (!selected && (effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions))}
                                               onChange={() => handleSessionGroupToggle(group, sessionIds)}
                                               className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                             />
@@ -763,10 +877,13 @@ export default function AbsenceForm() {
                                               <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                                                 {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}-{formatTime(dayGroup.end_at)}
                                               </span>
+                                              {alreadyAbsent ? (
+                                                <span className="ml-2 text-xs font-medium text-[var(--color-wi-text-light)]">Already reported</span>
+                                              ) : null}
                                             </label>
                                           </div>
                                           {selected ? (
-                                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="mt-3 pl-7">
+                                            <motion.div initial={reduceMotion ? false : { opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={reduceMotion ? { duration: 0 } : undefined} className="mt-3 pl-7">
                                               {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
                                                   if (hasPriorities) {
@@ -804,7 +921,7 @@ export default function AbsenceForm() {
                                                                   disabled={revealingPriority}
                                                                   onClick={() => handlePreviousPriority(priorityGroup, session.id)}
                                                                   aria-label="See previous times"
-                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
+                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
                                                                 >
                                                                   <ChevronLeft className="h-3.5 w-3.5" />
                                                                   <span>Back</span>
@@ -815,7 +932,7 @@ export default function AbsenceForm() {
                                                                   type="button"
                                                                   disabled={revealingPriority}
                                                                   onClick={() => void handleNotAvailable(priorityGroup, session.id)}
-                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
+                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
                                                                 >
                                                                   <span>{revealingPriority ? "Loading..." : "See other times"}</span>
                                                                   {!revealingPriority && (
@@ -943,7 +1060,7 @@ export default function AbsenceForm() {
                           <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
                             <div
                               className={clsx(
-                                "h-full rounded-full transition-all duration-300",
+                                "h-full rounded-full transition-all duration-300 motion-reduce:transition-none",
                                 reason.length > 450 ? "bg-[var(--color-wi-amber)]" : reason.length > 0 ? "bg-[var(--color-wi-primary)]" : "bg-transparent",
                               )}
                               style={{ width: `${Math.min((reason.length / 500) * 100, 100)}%` }}
@@ -960,7 +1077,7 @@ export default function AbsenceForm() {
                       <textarea
                         id="absence-reason"
                         className={clsx(
-                          "w-full min-h-[100px] rounded-lg border px-4 py-3 text-sm text-[var(--color-wi-text)] focus:outline-none focus:ring-2",
+                          "w-full min-h-[120px] rounded-xl border bg-white px-4 py-3 text-base text-[var(--color-wi-text)] focus:outline-none focus:ring-2",
                           reasonError
                             ? "border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20"
                             : "border-[var(--color-wi-border)] focus:ring-[var(--color-wi-primary)]/20",
@@ -972,18 +1089,17 @@ export default function AbsenceForm() {
                         aria-describedby={reasonError ? "reason-error" : undefined}
                         required
                       />
-                      {reasonError ? <p id="reason-error" role="alert" className="text-xs text-[var(--color-wi-red)] mt-1.5">{reasonError}</p> : null}
+                      {reasonError ? <p id="reason-error" className="text-xs text-[var(--color-wi-red)] mt-1.5">{reasonError}</p> : null}
                     </section>
                   </div>
                 ) : (
                   <p className="text-sm text-[var(--color-wi-text-light)]">Search for your profile first.</p>
                 )}
-              </>
+              </ClassesStep>
             )}
 
-            {step === 2 && (
-              <>
-                <h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Review your absence</h1>
+            {step === 3 && (
+              <ReviewStep>
                 {lookup ? (
                   <div className="space-y-4">
                     <p className="text-sm text-[var(--color-wi-text-light)]">
@@ -996,8 +1112,8 @@ export default function AbsenceForm() {
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Classes</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(1)}
-                          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] transition-colors min-h-[32px]"
+                          onClick={() => goToStep(2)}
+                          className="min-h-[32px] text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:text-[var(--color-wi-primary-dark)]"
                         >
                           Edit
                         </button>
@@ -1029,8 +1145,8 @@ export default function AbsenceForm() {
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(1)}
-                          className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] transition-colors min-h-[32px]"
+                          onClick={() => goToStep(2)}
+                          className="min-h-[32px] text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:text-[var(--color-wi-primary-dark)]"
                         >
                           Edit
                         </button>
@@ -1041,35 +1157,35 @@ export default function AbsenceForm() {
                     </div>
                   </div>
                 ) : null}
-              </>
+              </ReviewStep>
             )}
         </div>
       </div>
 
       <StickyFooter
         currentStep={step}
-        totalSteps={3}
+        totalSteps={4}
         canProceed={
-          step === 0 ? canProceedFromVerify :
-          step === 1 ? canSubmit :
-          step === 2 ? true : false
+          step === 0 ? canProceedFromStudent :
+          step === 1 ? verificationSatisfied :
+          step === 2 ? !sessionsLoading :
+          step === 3 ? verificationSatisfied && !verificationBlocked : false
         }
         loading={isSubmitting}
         onBack={() => goToStep(Math.max(0, step - 1) as StepIndex)}
         onPrimary={() => {
           if (step === 0) goToStep(1);
-          else if (step === 1) {
-            setPageError(null);
-            setReasonError(null);
-            if (selectedSubjectIds.length === 0) { setPageError("Select at least one course."); return; }
-            if (!reason.trim()) { setReasonError("Please tell us why you'll be away."); return; }
-            goToStep(2);
-          } else if (step === 2) void handleSubmitAbsence();
+          else if (step === 1) goToStep(2);
+          else if (step === 2) {
+            if (!validateClasses()) return;
+            goToStep(3);
+          } else if (step === 3) void handleSubmitAbsence();
         }}
         primaryLabel={
-          step === 0 ? "Continue" :
-          step === 1 ? "Review & Submit" :
-          "Submit"
+          step === 0 ? "Continue to verification" :
+          step === 1 ? "Continue to classes" :
+          step === 2 ? "Review absence" :
+          "Submit absence"
         }
       />
 

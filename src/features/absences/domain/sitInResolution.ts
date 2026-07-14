@@ -17,9 +17,7 @@ export function getSitInCourseDisplayName(
   return (
     resolveSitInSubjectName(sitInCourse, allSubjects) ||
     sitInCourse?.name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
     fallbackSubjectName ||
-    sitInCourse?.code?.trim() ||
     ""
   );
 }
@@ -36,8 +34,6 @@ export function getPriorityTargetDisplayName(
     firstSession?.class_name?.trim() ||
     firstSession?.subject_name?.trim() ||
     firstSession?.course_name?.trim() ||
-    firstSession?.subject_code?.trim() ||
-    firstSession?.course_code?.trim() ||
     fallbackSubjectName
   );
 }
@@ -171,7 +167,7 @@ export function getReviewSitInLabel(
   const sitInSessionIds = splitMergedSessionValue(sitInSelections[missedSession.id]);
   if (sitInSessionIds.length === 0) return "Not yet selected";
   const priorities = sitIn.priorities ?? [];
-  const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+  const groupLabel = group.subject_name?.trim() || group.course_name?.trim();
   const rootMatches = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).filter((s) => sitInSessionIds.includes(s.id));
   if (rootMatches.length > 0) {
     return getSitInSessionGroupLabel(rootMatches, sitIn.sit_in_course, groupLabel, allSubjects);
@@ -198,11 +194,7 @@ export function getSitInSessionLabel(
     session.class_name?.trim() ||
     session.subject_name?.trim() ||
     session.course_name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    session.subject_code?.trim() ||
-    session.course_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim();
+    fallbackSubjectName;
   return `${className} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
 
@@ -220,11 +212,7 @@ export function getSitInSessionGroupLabel(
     first.class_name?.trim() ||
     first.subject_name?.trim() ||
     first.course_name?.trim() ||
-    sitInCourse?.subject_code?.trim() ||
-    first.subject_code?.trim() ||
-    first.course_code?.trim() ||
-    fallbackSubjectName ||
-    sitInCourse?.code?.trim();
+    fallbackSubjectName;
   const range = groupByDay(sessions)[0];
   return `${className} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }

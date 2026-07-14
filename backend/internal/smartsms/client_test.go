@@ -398,6 +398,72 @@ func TestSendSMS_3StepFlow(t *testing.T) {
 	}
 }
 
+func TestSendSMS_OperationCancellationDoesNotStopHeartbeat(t *testing.T) {
+	const csrfToken = "heartbeat-csrf"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sendsms":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<form><input name="_token" value="` + csrfToken + `"></form>`))
+		case "/login":
+			http.Redirect(w, r, "/sendsms", http.StatusFound)
+		case "/dataset/previewData":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success":               true,
+				"preview_id":            "heartbeat-preview",
+				"number_of_used_credit": 1,
+				"correct":               1,
+			})
+		case "/dataset/confirmSend", "/send/confirmSendSMS":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(testCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer c.StopHeartbeat()
+
+	operationCtx, cancelOperation := context.WithCancel(context.Background())
+	defer cancelOperation()
+	_, err = c.SendSMS(operationCtx, SendRequest{
+		CampaignNo: "CN-HEARTBEAT",
+		Campaign:   "Heartbeat lifecycle",
+		Message:    "test",
+		Mobiles:    []string{"0812345678"},
+	})
+	if err != nil {
+		t.Fatalf("SendSMS: %v", err)
+	}
+
+	c.mu.Lock()
+	heartbeatCtx := c.heartbeatCtx
+	c.mu.Unlock()
+	if heartbeatCtx == nil {
+		t.Fatal("expected heartbeat context after successful send")
+	}
+
+	cancelOperation()
+	select {
+	case <-heartbeatCtx.Done():
+		t.Fatal("completed operation cancellation stopped the persistent heartbeat")
+	default:
+	}
+
+	c.StopHeartbeat()
+	select {
+	case <-heartbeatCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("StopHeartbeat did not stop the persistent heartbeat")
+	}
+}
+
 func TestSendSMS_Step1Fails(t *testing.T) {
 	var step2Called, step3Called bool
 

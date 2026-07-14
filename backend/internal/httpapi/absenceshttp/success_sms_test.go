@@ -2,6 +2,7 @@ package absenceshttp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -25,6 +26,41 @@ func (r *recordingSMSProvider) SendSMS(_ context.Context, req smartsms.SendReque
 func (r *recordingSMSProvider) HealthCheck(_ context.Context) error       { return nil }
 func (r *recordingSMSProvider) GetCredits(_ context.Context) (int, error) { return 999, nil }
 
+type contextObservingSMSProvider struct {
+	contextErr error
+}
+
+func (p *contextObservingSMSProvider) SendSMS(ctx context.Context, _ smartsms.SendRequest) (*smartsms.SendResponse, error) {
+	p.contextErr = ctx.Err()
+	if p.contextErr != nil {
+		return nil, p.contextErr
+	}
+	return &smartsms.SendResponse{Success: true}, nil
+}
+
+func (p *contextObservingSMSProvider) HealthCheck(_ context.Context) error { return nil }
+func (p *contextObservingSMSProvider) GetCredits(_ context.Context) (int, error) {
+	return 999, nil
+}
+
+func TestSendBatchSuccessSMS_PropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	provider := &contextObservingSMSProvider{}
+	items := []successSMSItem{{row: sqldb.ManagedAbsenceRow{
+		StudentName: pgtype.Text{String: "Ada", Valid: true},
+	}}}
+
+	sent := sendBatchSuccessSMS(ctx, provider, nil, "Hi {{nickname}}", items, []string{"+66812345678"}, "UTC")
+	if sent {
+		t.Fatal("expected cancelled SMS send to fail")
+	}
+	if !errors.Is(provider.contextErr, context.Canceled) {
+		t.Fatalf("provider context error = %v, want context.Canceled", provider.contextErr)
+	}
+}
+
 func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	log := slog.Default()
@@ -42,7 +78,7 @@ func TestSendSuccessSMS_SendsWithRenderedTemplate(t *testing.T) {
 	}}
 	tmpl := "{{nickname}}|{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}"
 
-	sent := sendSuccessSMS(mock, log, tmpl, row, sessions, nil, []string{"+66812345678"}, "UTC")
+	sent := sendSuccessSMS(context.Background(), mock, log, tmpl, row, sessions, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -86,7 +122,7 @@ func TestSendSuccessSMS_FormatsMissedAndSitInSessionsInInstituteTimezone(t *test
 		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 1, 15, 18, 30, 0, 0, time.UTC), Valid: true},
 	}}
 
-	sent := sendSuccessSMS(
+	sent := sendSuccessSMS(context.Background(),
 		mock,
 		nil,
 		"{{absence_date}}|{{sit_in_date_time}}|{{absence_summary}}|{{sit_in_summary}}",
@@ -94,8 +130,7 @@ func TestSendSuccessSMS_FormatsMissedAndSitInSessionsInInstituteTimezone(t *test
 		sessions,
 		missed,
 		[]string{"+66812345678"},
-		"Asia/Bangkok",
-	)
+		"Asia/Bangkok")
 
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
@@ -116,7 +151,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 		DateFrom:    pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:      pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
-	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
+	sent := sendSuccessSMS(context.Background(), mock, nil, "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -132,7 +167,7 @@ func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "", row, nil, nil, []string{"+66812345678"}, "UTC")
+	sent := sendSuccessSMS(context.Background(), mock, nil, "", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessSMS to return false for empty template")
 	}
@@ -144,7 +179,7 @@ func TestSendSuccessSMS_SkipsWhenTemplateEmpty(t *testing.T) {
 func TestSendSuccessSMS_SkipsWhenPhonesEmpty(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{}
-	sent := sendSuccessSMS(mock, nil, "template {{nickname}}", row, nil, nil, nil, "UTC")
+	sent := sendSuccessSMS(context.Background(), mock, nil, "template {{nickname}}", row, nil, nil, nil, "UTC")
 	if sent {
 		t.Fatal("expected sendSuccessSMS to return false for empty phones")
 	}
@@ -164,12 +199,13 @@ func TestSendSuccessSMS_SendsToDedupedParentAndStudentPhones(t *testing.T) {
 		DateTo:      pgtype.Date{Time: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
 
-	sent := sendSuccessSMS(mock, nil, "Hi {{nickname}}", row, nil, nil, []string{
+	sent := sendSuccessSMS(context.Background(), mock, nil, "Hi {{nickname}}", row, nil, nil, []string{
 		"+66812345678",
 		"+66898765432",
 		" +66812345678 ",
 		"",
 	}, "UTC")
+
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true")
 	}
@@ -229,14 +265,14 @@ func TestSendBatchSuccessSMS_SendsAggregatedSummary(t *testing.T) {
 		},
 	}
 
-	sent := sendBatchSuccessSMS(
+	sent := sendBatchSuccessSMS(context.Background(),
 		mock,
 		log,
 		"{{nickname}}|{{absence_summary}}|{{sit_in_summary}}",
 		items,
 		[]string{"+66812345678"},
-		"UTC",
-	)
+		"UTC")
+
 	if !sent {
 		t.Fatal("expected sendBatchSuccessSMS to return true")
 	}
@@ -290,14 +326,13 @@ func TestSendBatchSuccessSMS_FormatsAggregatedSummariesInInstituteTimezone(t *te
 		},
 	}
 
-	sent := sendBatchSuccessSMS(
+	sent := sendBatchSuccessSMS(context.Background(),
 		mock,
 		nil,
 		"{{nickname}}|{{absence_summary}}|{{sit_in_summary}}",
 		items,
 		[]string{"+66812345678"},
-		"Asia/Bangkok",
-	)
+		"Asia/Bangkok")
 
 	if !sent {
 		t.Fatal("expected sendBatchSuccessSMS to return true")
@@ -368,7 +403,7 @@ func TestSendSuccessSMS_LogsErrorOnSendFail(t *testing.T) {
 	}
 	// MockProvider always succeeds, so this tests the "no error path".
 	// For the error path, we use a provider that returns error.
-	sent := sendSuccessSMS(mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
+	sent := sendSuccessSMS(context.Background(), mock, slog.Default(), "Hi {{nickname}}", row, nil, nil, []string{"+66812345678"}, "UTC")
 	if !sent {
 		t.Fatal("expected sendSuccessSMS to return true on success")
 	}

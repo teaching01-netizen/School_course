@@ -28,7 +28,7 @@ const baseGroup = {
   course_id: "course-1",
   course_code: "MATH101",
   course_name: "Mathematics 101",
-  absence_rate_exceeded: false,
+  absence_limit_reached: false,
   sessions: [],
 } satisfies SubjectSessions;
 
@@ -277,7 +277,7 @@ describe("resolveSitInSubjectName", () => {
 });
 
 describe("getSitInCourseDisplayName", () => {
-  it("resolves from resolveSitInSubjectName (subject_name > name > subject_code > fallback > code)", () => {
+  it("resolves from resolveSitInSubjectName (subject_name > name > fallback)", () => {
     expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "Calc III", subject_name: "Calculus" }, "Fallback", [])).toBe("Calculus");
   });
 
@@ -285,19 +285,19 @@ describe("getSitInCourseDisplayName", () => {
     expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", [])).toBe("Calc III");
   });
 
-  it("falls back to subject_code", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "", subject_code: "MATH" }, "Fallback", [])).toBe("MATH");
+  it("does not display the course code when only subject_code is set", () => {
+    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "", subject_code: "MATH" }, "Fallback Class", [])).toBe("Fallback Class");
+  });
+
+  it("does not display the course code when only code is set", () => {
+    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "" }, "Fallback Class", [])).toBe("Fallback Class");
   });
 
   it("falls back to fallbackSubjectName", () => {
     expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "" }, "Fallback Class", [])).toBe("Fallback Class");
   });
 
-  it("falls back to code", () => {
-    expect(getSitInCourseDisplayName({ id: "c1", code: "MATH301", name: "" }, "", [])).toBe("MATH301");
-  });
-
-  it("returns empty string when everything empty", () => {
+  it("returns empty string when nothing resolvable", () => {
     expect(getSitInCourseDisplayName({ id: "c1", code: "", name: "" }, "", [])).toBe("");
   });
 });
@@ -315,6 +315,11 @@ describe("getPriorityTargetDisplayName", () => {
 
   it("falls back to fallbackSubjectName when nothing available", () => {
     const priority = { level: 1, label: "P1" };
+    expect(getPriorityTargetDisplayName(priority, "Generic Class", [])).toBe("Generic Class");
+  });
+
+  it("does not display the session course_code when no name is available", () => {
+    const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1", start_at: "", end_at: "", course_code: "MATH101" }] };
     expect(getPriorityTargetDisplayName(priority, "Generic Class", [])).toBe("Generic Class");
   });
 });
@@ -411,10 +416,17 @@ describe("getSitInSessionLabel", () => {
     );
   });
 
-  it("falls back through subject_name, course_name, subject_code, course_code", () => {
+  it("falls back through subject_name, course_name when names available", () => {
     const session = { id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", subject_name: "Algebra" };
     const result = getSitInSessionLabel(session, undefined, "Fallback", []);
     expect(result).toMatch(/Algebra —/);
+  });
+
+  it("does not display the course_code when no name is available", () => {
+    const session = { id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", course_code: "MATH101" };
+    const result = getSitInSessionLabel(session, undefined, "Generic", []);
+    expect(result).toMatch(/Generic —/);
+    expect(result).not.toContain("MATH101");
   });
 
   it("falls back to fallbackSubjectName when nothing else", () => {
@@ -438,5 +450,12 @@ describe("getSitInSessionGroupLabel", () => {
     ];
     const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", []);
     expect(result).toMatch(/Calc III —/);
+  });
+
+  it("does not display the course_code when only course_code is set", () => {
+    const sessions = [{ id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03" }];
+    const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "" }, "Generic", []);
+    expect(result).toMatch(/Generic —/);
+    expect(result).not.toContain("MATH301");
   });
 });

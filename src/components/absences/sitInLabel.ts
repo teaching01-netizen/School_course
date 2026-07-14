@@ -7,6 +7,5 @@ export function formatSitInLabel(absence: ManagedAbsence): string {
 
   return absence.sit_in_subject_name
     ?? absence.sit_in_course_name
-    ?? absence.sit_in_course_code
     ?? "Physical";
 }

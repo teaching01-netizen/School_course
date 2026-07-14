@@ -1,8 +1,10 @@
 package absenceshttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -53,6 +55,26 @@ type batchNotificationData struct {
 	smsTemplate   string
 	created       []createdAbsenceRecord
 	emailCfg      emailSuccessConfig
+}
+
+const batchNotificationTimeout = 60 * time.Second
+const batchNotificationConcurrencyLimit = 8
+
+func safeBatchNotificationLog(log *slog.Logger, level slog.Level, message string, args ...any) {
+	if log == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	log.Log(context.Background(), level, message, args...)
+}
+
+func (s *server) batchNotificationSlots() chan struct{} {
+	s.batchNotificationLimiterOnce.Do(func() {
+		if s.batchNotificationLimiter == nil {
+			s.batchNotificationLimiter = make(chan struct{}, batchNotificationConcurrencyLimit)
+		}
+	})
+	return s.batchNotificationLimiter
 }
 
 func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request) {
@@ -253,33 +275,109 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Send notifications AFTER the idempotent transaction has committed.
-	// This avoids holding DB row locks while waiting for external APIs (SMS, email).
-	s.sendBatchNotifications(notifyData)
 	s.publishAbsenceChanges(createdIDs)
+	// Schedule notifications AFTER the idempotent transaction has committed.
+	// Delivery is detached so external APIs cannot delay the HTTP response.
+	s.sendBatchNotifications(notifyData)
 }
 
-// sendBatchNotifications dispatches SMS and email notifications after commit.
-// Failures are logged only; they do not affect the HTTP response.
+// sendBatchNotifications starts bounded best-effort notification delivery and
+// returns immediately. Delivery is independent of request cancellation.
 func (s *server) sendBatchNotifications(data *batchNotificationData) {
 	if data == nil {
 		return
 	}
+	limiter := s.batchNotificationSlots()
+	select {
+	case limiter <- struct{}{}:
+	default:
+		safeBatchNotificationLog(s.deps.Log, slog.LevelWarn, "batch notifications dropped",
+			"reason", "saturated",
+			"capacity", cap(limiter),
+			"absence_count", len(data.created),
+		)
+		return
+	}
+
+	go func() {
+		defer func() { <-limiter }()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				safeBatchNotificationLog(s.deps.Log, slog.LevelError, "batch notifications panicked", "absence_count", len(data.created))
+			}
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), batchNotificationTimeout)
+		defer cancel()
+
+		started := time.Now()
+		safeBatchNotificationLog(s.deps.Log, slog.LevelInfo, "batch notifications started",
+			"absence_count", len(data.created),
+			"timeout_seconds", int(batchNotificationTimeout/time.Second),
+		)
+
+		s.deliverBatchNotifications(ctx, data)
+		if ctx.Err() != nil {
+			safeBatchNotificationLog(s.deps.Log, slog.LevelWarn, "batch notifications timed out",
+				"absence_count", len(data.created),
+				"duration_ms", time.Since(started).Milliseconds(),
+			)
+			return
+		}
+		safeBatchNotificationLog(s.deps.Log, slog.LevelInfo, "batch notifications completed",
+			"absence_count", len(data.created),
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	}()
+}
+
+// deliverBatchNotifications starts enabled channels independently and waits
+// for them within the detached dispatcher, bounded by ctx.
+func (s *server) deliverBatchNotifications(ctx context.Context, data *batchNotificationData) {
+	if data == nil {
+		return
+	}
+
+	items := make([]successSMSItem, 0, len(data.created))
+	for _, record := range data.created {
+		items = append(items, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+	}
+
+	type channelResult struct{}
+	results := make(chan channelResult, 2)
+	launched := 0
+	launch := func(channel string, deliver func()) {
+		launched++
+		go func() {
+			defer func() {
+				recovered := recover()
+				results <- channelResult{}
+				if recovered != nil {
+					safeBatchNotificationLog(s.deps.Log, slog.LevelError, "batch notification channel panicked", "channel", channel)
+				}
+			}()
+			deliver()
+		}()
+	}
 
 	if data.smsTemplate != "" && len(data.smsRecipients) > 0 {
-		smsItems := make([]successSMSItem, 0, len(data.created))
-		for _, record := range data.created {
-			smsItems = append(smsItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
-		}
-		sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, data.smsTemplate, smsItems, data.smsRecipients, s.deps.InstituteTZ)
+		launch("sms", func() {
+			sendBatchSuccessSMS(ctx, s.deps.SMS, s.deps.Log, data.smsTemplate, items, data.smsRecipients, s.deps.InstituteTZ)
+		})
 	}
 
 	if s.deps.EmailService != nil && data.emailCfg.Enabled && len(data.created) > 0 {
-		emailItems := make([]successSMSItem, 0, len(data.created))
-		for _, record := range data.created {
-			emailItems = append(emailItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+		launch("email", func() {
+			sendBatchSuccessEmailWithConfig(ctx, s.deps.EmailService, s.deps.Log, items, data.emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+		})
+	}
+
+	for range launched {
+		select {
+		case <-results:
+		case <-ctx.Done():
+			return
 		}
-		sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, emailItems, data.emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
 	}
 }
 
@@ -333,10 +431,6 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
 		return createdAbsenceRecord{}, false
 	}
-	if len(item.MissedSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
-		s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected missed sessions exceed the configured maximum")
-		return createdAbsenceRecord{}, false
-	}
 	student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, wcode, &item.SubjectID, &item.CourseID)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
@@ -346,6 +440,26 @@ func (s *server) createAbsenceRecordTx(
 			msg = err.Error()
 		}
 		s.a.WriteErr(w, status, code, msg)
+		return createdAbsenceRecord{}, false
+	}
+	missedUUIDs, err := parseUUIDStrings(item.MissedSessionIDs)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
+		return createdAbsenceRecord{}, false
+	}
+	limitStats, candidateAbsenceDays, err := projectedAbsenceDayStats(
+		r.Context(), qtx, wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, s.deps.InstituteTZ,
+	)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
+		return createdAbsenceRecord{}, false
+	}
+	if candidateAbsenceDays > int32(settings.SitIn.MaxSessionsPerAbsence) {
+		s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected absence days exceed the configured maximum")
+		return createdAbsenceRecord{}, false
+	}
+	if limitStats.ProjectedLimitExceeded {
+		s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absence days allowed for this course")
 		return createdAbsenceRecord{}, false
 	}
 
@@ -359,25 +473,6 @@ func (s *server) createAbsenceRecordTx(
 		sitInCourseID = parsed
 	} else if sitInMethod.String == "physical" {
 		sitInCourseID = course.CourseID
-	}
-
-	totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)
-	if totalErr != nil {
-		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
-		return createdAbsenceRecord{}, false
-	}
-	existingMissedSessions, missErr := qtx.StudentMissedSessionCountForCourse(r.Context(), wcode, course.CourseID)
-	if missErr != nil {
-		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
-		return createdAbsenceRecord{}, false
-	}
-	submittingSessionCount := int32(len(item.MissedSessionIDs))
-	if submittingSessionCount == 0 {
-		submittingSessionCount = 1
-	}
-	if projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount) {
-		s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
-		return createdAbsenceRecord{}, false
 	}
 
 	row, err := qtx.AbsenceCreate(r.Context(), sqldb.AbsenceCreateParams{
@@ -431,15 +526,6 @@ func (s *server) createAbsenceRecordTx(
 	}
 
 	if len(item.MissedSessionIDs) > 0 {
-		var missedUUIDs []pgtype.UUID
-		for _, sid := range item.MissedSessionIDs {
-			uid, err := s.a.ParseUUID(sid)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
-				return createdAbsenceRecord{}, false
-			}
-			missedUUIDs = append(missedUUIDs, uid)
-		}
 		count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)

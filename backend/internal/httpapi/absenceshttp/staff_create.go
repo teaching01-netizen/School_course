@@ -427,14 +427,14 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 
 		smsSent := false
 		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
-			smsSent = sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
+			smsSent = sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
 		}
 
 		emailSent := false
 		if s.deps.EmailService != nil {
 			emailCfg := settings.emailSuccessConfig()
 			if emailCfg.Enabled {
-				emailSent = sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+				emailSent = sendSuccessEmailWithConfig(r.Context(), s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
 			} else if s.deps.Log != nil {
 				s.deps.Log.Info("success email skipped: email_success_enabled is false", "absence_id", id)
 			}
@@ -561,14 +561,14 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 
 		smsSent := false
 		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
-			smsSent = sendBatchSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
+			smsSent = sendBatchSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
 		}
 
 		emailSent := false
 		if s.deps.EmailService != nil {
 			emailCfg := settings.emailSuccessConfig()
 			if emailCfg.Enabled {
-				emailSent = sendBatchSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, items, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+				emailSent = sendBatchSuccessEmailWithConfig(r.Context(), s.deps.EmailService, s.deps.Log, items, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
 			} else if s.deps.Log != nil {
 				s.deps.Log.Info("success email skipped: email_success_enabled is false", "absence_count", len(ids))
 			}

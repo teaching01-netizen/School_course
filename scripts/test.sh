@@ -20,7 +20,7 @@ GO_DIR="$TOOLS_DIR/go"
 NODE_DIR="$TOOLS_DIR/node"
 
 install_go() {
-  if [ -x "$GO_DIR/bin/go" ]; then
+  if [ -x "$GO_DIR/bin/go" ] && [ "$($GO_DIR/bin/go env GOVERSION)" = "go${GO_VERSION}" ]; then
     return
   fi
   mkdir -p "$TOOLS_DIR"
@@ -58,9 +58,26 @@ echo "npm:  $(npm -v)"
 echo "go:   $(go version)"
 
 echo
-echo "== Frontend build =="
+echo "== Install dependencies =="
 npm ci
+
+echo
+echo "== Frontend typecheck =="
+npm run typecheck
+npm run typecheck:e2e
+
+echo
+echo "== Frontend tests and coverage =="
+npm run test:coverage
+
+echo
+echo "== Frontend build =="
 npm run build
+
+echo
+echo "== Browser tests =="
+npx playwright install chromium
+npm run test:e2e -- --project=chromium
 
 echo
 echo "== Backend unit tests =="
@@ -69,7 +86,7 @@ echo "== Backend unit tests =="
 if [ -n "${TEST_DATABASE_URL:-}" ]; then
   echo
   echo "== Backend DB integration tests (TEST_DATABASE_URL set) =="
-  (cd backend && go test ./internal/db -run TestStudent -count=1)
+  (cd backend && go test ./internal/httpapi/absenceshttp -count=1)
 else
   echo
   echo "== Skipping DB integration tests (set TEST_DATABASE_URL) =="

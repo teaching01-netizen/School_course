@@ -21,6 +21,8 @@ agent/
 # deps / builds
 node_modules/
 dist/
+coverage/
+test-results/
 
 # design artifacts / screenshots
 artifacts/

@@ -29,5 +29,21 @@ export default defineConfig({
     globals: true,
     setupFiles: "./src/test/setup.ts",
     css: false,
+    testTimeout: 15_000,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      include: [
+        "src/pages/AbsenceForm.tsx",
+        "src/components/absences/{OtpInput,StepCoverVerification,SmsSendButton,StepIndicator,StickyFooter}.tsx",
+        "src/features/absences/{api,domain,storage}/**/*.{ts,tsx}",
+      ],
+      thresholds: {
+        lines: 85,
+        functions: 85,
+        branches: 80,
+        statements: 85,
+      },
+    },
   },
 });

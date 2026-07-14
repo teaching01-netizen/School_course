@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import StepCoverVerification from "../StepCoverVerification";
-import { apiJson } from "@/api/client";
+import { apiJson, ApiRequestError } from "@/api/client";
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
@@ -12,26 +12,64 @@ vi.mock("@/api/client", async () => {
 const mockedApiJson = vi.mocked(apiJson);
 
 beforeEach(() => mockedApiJson.mockReset());
+afterEach(() => vi.useRealTimers());
 
-function renderVerification() {
+type VerificationStore = {
+  code: string;
+  setCode: (next: string) => void;
+  token: string | null;
+  persistToken: (nextToken: string, nextExpiresAt?: number | null) => void;
+  clearStoredToken: () => void;
+};
+
+type RenderVerificationOptions = {
+  parentPhone?: string | null;
+  smsParentEnabled?: boolean;
+  verification?: Partial<VerificationStore>;
+  completed?: boolean;
+  onSatisfied?: () => void;
+  onRestart?: () => void;
+  onRestored?: () => void;
+};
+
+function renderVerification(options: RenderVerificationOptions = {}) {
+  const verification: VerificationStore = {
+    code: "",
+    setCode: vi.fn(),
+    token: null,
+    persistToken: vi.fn(),
+    clearStoredToken: vi.fn(),
+    ...options.verification,
+  };
+  const onSatisfied = options.onSatisfied ?? vi.fn();
+  const onRestart = options.onRestart ?? vi.fn();
+  const onRestored = options.onRestored ?? vi.fn();
+
   render(
     <StepCoverVerification
       wcode="W250389"
-      parentPhone="0812345678"
-      allowSubmitWithoutOtp={false}
-      verification={{
-        code: "",
-        setCode: vi.fn(),
-        token: null,
-        persistToken: vi.fn(),
-        clearStoredToken: vi.fn(),
-      }}
-      completed={false}
-      onSatisfied={vi.fn()}
-      onRestart={vi.fn()}
-      onRestored={vi.fn()}
+      parentPhone={options.parentPhone === undefined ? "0812345678" : options.parentPhone}
+      smsParentEnabled={options.smsParentEnabled ?? true}
+      verification={verification}
+      completed={options.completed ?? false}
+      onSatisfied={onSatisfied}
+      onRestart={onRestart}
+      onRestored={onRestored}
     />,
   );
+
+  return { verification, onSatisfied, onRestart, onRestored };
+}
+
+function pendingVerification(deliveryStatus?: string) {
+  return {
+    token: "verification-token",
+    status: "pending",
+    wcode: "W250389",
+    parent_phone: "+66812345678",
+    delivery_id: "delivery-1",
+    ...(deliveryStatus ? { delivery_status: deliveryStatus } : {}),
+  };
 }
 
 it("does not claim an uncertain OTP delivery was sent", async () => {
@@ -53,28 +91,20 @@ it("does not claim an uncertain OTP delivery was sent", async () => {
 });
 
 it("polls a queued delivery until SmartSMS accepts it", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-14T12:00:00Z"));
   mockedApiJson
-    .mockResolvedValueOnce({
-      token: "verification-token",
-      status: "pending",
-      wcode: "W250389",
-      delivery_id: "delivery-1",
-      delivery_status: "queued",
-    })
-    .mockResolvedValueOnce({
-      token: "verification-token",
-      status: "pending",
-      wcode: "W250389",
-      delivery_id: "delivery-1",
-      delivery_status: "accepted",
-    });
-  const user = userEvent.setup();
+    .mockResolvedValueOnce(pendingVerification("queued"))
+    .mockResolvedValueOnce(pendingVerification("accepted"));
   renderVerification();
 
-  await user.click(screen.getByRole("button", { name: /send code/i }));
+  fireEvent.click(screen.getByRole("button", { name: /send code/i }));
+  await act(async () => Promise.resolve());
 
-  expect(await screen.findByText("Sending code…")).toBeInTheDocument();
-  expect(await screen.findByText(/^code sent to/i, {}, { timeout: 2500 })).toBeInTheDocument();
+  expect(screen.getByText("Sending code…")).toBeInTheDocument();
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+  expect(screen.getByText(/^code sent to/i)).toBeInTheDocument();
   expect(mockedApiJson).toHaveBeenCalledWith(
     "/api/v1/absences/parent-verification/verification-token",
     expect.objectContaining({ method: "GET" }),
@@ -96,4 +126,205 @@ it("shows a retryable error when delivery is rejected", async () => {
 
   expect(await screen.findByText(/couldn't send the code/i)).toBeInTheDocument();
   expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+});
+
+it("confirms an accepted OTP delivery", async () => {
+  mockedApiJson.mockResolvedValueOnce(pendingVerification("accepted"));
+  const user = userEvent.setup();
+  renderVerification();
+
+  await user.click(screen.getByRole("button", { name: /send code/i }));
+
+  expect(await screen.findByText(/^code sent to 081 \*\*\* 678/i)).toBeInTheDocument();
+  expect(screen.queryByText("Sending code…")).not.toBeInTheDocument();
+});
+
+it("reports an expired OTP without claiming delivery", async () => {
+  mockedApiJson.mockResolvedValueOnce(pendingVerification("expired"));
+  const user = userEvent.setup();
+  renderVerification();
+
+  await user.click(screen.getByRole("button", { name: /send code/i }));
+
+  expect(await screen.findByText(/verification code expired/i)).toBeInTheDocument();
+  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+});
+
+it("automatically verifies a complete six-digit code", async () => {
+  const verifiedResponse = {
+    ...pendingVerification("accepted"),
+    status: "verified",
+  };
+  mockedApiJson
+    .mockResolvedValueOnce(pendingVerification("accepted"))
+    .mockResolvedValueOnce(verifiedResponse);
+  const { onSatisfied } = renderVerification({
+    verification: { code: "123456", token: "verification-token" },
+  });
+
+  await waitFor(() => expect(onSatisfied).toHaveBeenCalledOnce());
+
+  expect(mockedApiJson).toHaveBeenCalledWith(
+    "/api/v1/absences/parent-verification/verify",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ token: "verification-token", code: "123456" }),
+    }),
+  );
+});
+
+it("retries the same code after a retryable verification error", async () => {
+  const verifiedResponse = {
+    ...pendingVerification("accepted"),
+    status: "verified",
+  };
+  mockedApiJson
+    .mockResolvedValueOnce(pendingVerification("accepted"))
+    .mockRejectedValueOnce(new ApiRequestError("Verification service unavailable", { status: 503 }))
+    .mockResolvedValueOnce(verifiedResponse);
+  const user = userEvent.setup();
+  const { onSatisfied, verification } = renderVerification({
+    verification: { code: "123456", token: "verification-token" },
+  });
+
+  expect(await screen.findByText("Verification service unavailable")).toBeInTheDocument();
+  expect(verification.setCode).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: /retry verification/i }));
+
+  await waitFor(() => expect(onSatisfied).toHaveBeenCalledOnce());
+  const verifyCalls = mockedApiJson.mock.calls.filter(([path]) => path === "/api/v1/absences/parent-verification/verify");
+  expect(verifyCalls).toHaveLength(2);
+  expect(verifyCalls[0]?.[1]).toEqual(expect.objectContaining({
+    body: JSON.stringify({ token: "verification-token", code: "123456" }),
+  }));
+  expect(verifyCalls[1]?.[1]).toEqual(expect.objectContaining({
+    body: JSON.stringify({ token: "verification-token", code: "123456" }),
+  }));
+});
+
+it.each([400, 410])("restarts when saved-token restore returns %i", async (status) => {
+  mockedApiJson.mockRejectedValueOnce(new ApiRequestError("Saved verification is invalid", { status }));
+  const { onRestart } = renderVerification({
+    verification: { token: "stale-token" },
+  });
+
+  await waitFor(() => expect(onRestart).toHaveBeenCalledOnce());
+
+  expect(screen.queryByRole("button", { name: /retry verification check/i })).not.toBeInTheDocument();
+});
+
+it("retries a saved-token restore after a transient failure", async () => {
+  mockedApiJson
+    .mockRejectedValueOnce(new TypeError("Network unavailable"))
+    .mockResolvedValueOnce({
+      ...pendingVerification("accepted"),
+      token: "saved-token",
+      status: "verified",
+    });
+  const onRestored = vi.fn();
+  const user = userEvent.setup();
+  renderVerification({
+    verification: { token: "saved-token" },
+    onRestored,
+  });
+
+  expect(await screen.findByText(/could not validate saved verification/i)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /retry verification check/i }));
+
+  await waitFor(() => expect(onRestored).toHaveBeenCalledOnce());
+  expect(mockedApiJson).toHaveBeenCalledTimes(2);
+});
+
+it("does not offer a way to continue without verifying", () => {
+  renderVerification({ parentPhone: null });
+
+  expect(screen.queryByRole("button", { name: /continue without verifying/i })).not.toBeInTheDocument();
+});
+
+it.each([
+  {
+    label: "SMS on, phone present, bypass off",
+    smsParentEnabled: true,
+    parentPhone: "0812345678",
+    sendVisible: true,
+    bypassVisible: false,
+    alertText: null,
+  },
+  {
+    label: "SMS on, phone present, bypass on",
+    smsParentEnabled: true,
+    parentPhone: "0812345678",
+    sendVisible: true,
+    bypassVisible: false,
+    alertText: null,
+  },
+  {
+    label: "SMS on, phone missing, bypass off",
+    smsParentEnabled: true,
+    parentPhone: null,
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /phone number is not in our records.*contact admin/i,
+  },
+  {
+    label: "SMS on, phone missing, bypass on",
+    smsParentEnabled: true,
+    parentPhone: null,
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /phone number is not in our records/i,
+  },
+  {
+    label: "SMS off, phone present, bypass off",
+    smsParentEnabled: false,
+    parentPhone: "0812345678",
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /verification codes are currently unavailable.*contact admin/i,
+  },
+  {
+    label: "SMS off, phone present, bypass on",
+    smsParentEnabled: false,
+    parentPhone: "0812345678",
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /verification codes are currently unavailable/i,
+  },
+  {
+    label: "SMS off, phone missing, bypass off",
+    smsParentEnabled: false,
+    parentPhone: null,
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /verification codes are currently unavailable.*contact admin/i,
+  },
+  {
+    label: "SMS off, phone missing, bypass on",
+    smsParentEnabled: false,
+    parentPhone: null,
+    sendVisible: false,
+    bypassVisible: false,
+    alertText: /verification codes are currently unavailable/i,
+  },
+])("enforces the OTP policy matrix: $label", ({
+  smsParentEnabled,
+  parentPhone,
+  sendVisible,
+  bypassVisible,
+  alertText,
+}) => {
+  renderVerification({ smsParentEnabled, parentPhone });
+
+  const sendButton = screen.queryByRole("button", { name: /^send code$/i });
+  const bypassButton = screen.queryByRole("button", { name: /continue without verifying/i });
+  expect(Boolean(sendButton)).toBe(sendVisible);
+  expect(Boolean(bypassButton)).toBe(bypassVisible);
+
+  const alert = screen.queryByRole("alert");
+  if (alertText) {
+    expect(alert).toHaveTextContent(alertText);
+  } else {
+    expect(alert).not.toBeInTheDocument();
+  }
 });

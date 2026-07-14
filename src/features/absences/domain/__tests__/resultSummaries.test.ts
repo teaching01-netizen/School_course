@@ -46,6 +46,18 @@ describe("formatBatchAbsenceSummary", () => {
     const absence: ManagedAbsence = { ...baseAbsence };
     expect(formatBatchAbsenceSummary(absence)).toBe("To arrange");
   });
+
+  it("does not display course_code when only course_code is set", () => {
+    const absence: ManagedAbsence = {
+      ...baseAbsence,
+      course_code: "MATH101",
+      course_name: "",
+      subject_name: "",
+      missed_sessions: [],
+    };
+    const result = formatBatchAbsenceSummary(absence);
+    expect(result).not.toContain("MATH101");
+  });
 });
 
 describe("getAbsenceSessionDateLabels", () => {
@@ -143,5 +155,18 @@ describe("formatBatchSitInSummary", () => {
   it("returns 'To arrange' when physical method with nothing resolved", () => {
     const absence: ManagedAbsence = { ...baseAbsence, sit_in_method: "physical" };
     expect(formatBatchSitInSummary(absence)).toBe("To arrange");
+  });
+
+  it("does not display sit_in_course_code when only the code is set", () => {
+    const absence: ManagedAbsence = {
+      ...baseAbsence,
+      sit_in_method: "physical",
+      sit_in_course_code: "MATH301",
+      sit_in_course_name: "",
+      sit_in_subject_name: "",
+      sit_ins: [],
+    };
+    const result = formatBatchSitInSummary(absence);
+    expect(result).not.toContain("MATH301");
   });
 });

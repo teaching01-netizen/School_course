@@ -3,7 +3,6 @@ import clsx from "clsx";
 type SubjectCardProps = {
   id: string;
   name: string;
-  code: string;
   selected: boolean;
   onToggle: () => void;
   disabled?: boolean;
@@ -12,7 +11,6 @@ type SubjectCardProps = {
 export default function SubjectCard({
   id,
   name,
-  code,
   selected,
   onToggle,
   disabled = false,
@@ -44,7 +42,6 @@ export default function SubjectCard({
       </div>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-[var(--color-wi-text)]">{name}</span>
-        <span className="block truncate text-xs text-[var(--color-wi-text-light)]">{code}</span>
       </span>
       {selected && !disabled && (
         <span className="shrink-0 text-xs font-semibold text-[var(--color-wi-primary)]">

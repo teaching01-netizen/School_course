@@ -3,7 +3,7 @@ import type { ManagedAbsence } from "../types";
 import { dayKey, groupByDay } from "./sessionGrouping";
 
 export function formatBatchAbsenceSummary(absence: ManagedAbsence) {
-  const className = absence.subject_name?.trim() || absence.course_name?.trim() || absence.course_code?.trim() || "";
+  const className = absence.subject_name?.trim() || absence.course_name?.trim() || "";
   const dates = getAbsenceSessionDateLabels(absence);
   if (!className && !dates) return "To arrange";
   if (!dates) return className || "To arrange";
@@ -38,10 +38,10 @@ export function formatBatchSitInSummary(absence: ManagedAbsence) {
     return sessionLabels.length > 0 ? `To arrange (${sessionLabels.join(", ")})` : "To arrange";
   }
   if (sessionLabels.length > 0) {
-    const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim() || "Make-up class";
+    const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || "Make-up class";
     return `${className} (${sessionLabels.join(", ")})`;
   }
-  const label = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || absence.sit_in_course_code?.trim();
+  const label = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim();
   if (label) return label;
   return "To arrange";
 }

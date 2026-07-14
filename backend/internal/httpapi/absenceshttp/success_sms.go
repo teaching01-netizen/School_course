@@ -239,6 +239,7 @@ func dedupePhones(phones []string) []string {
 }
 
 func sendSuccessSMS(
+	ctx context.Context,
 	sms smartsms.SMSProvider,
 	log *slog.Logger,
 	template string,
@@ -248,7 +249,7 @@ func sendSuccessSMS(
 	phones []string,
 	instituteTZ string,
 ) bool {
-	return sendBatchSuccessSMS(sms, log, template, []successSMSItem{{
+	return sendBatchSuccessSMS(ctx, sms, log, template, []successSMSItem{{
 		row:      row,
 		sessions: sessions,
 		missed:   missed,
@@ -256,6 +257,7 @@ func sendSuccessSMS(
 }
 
 func sendBatchSuccessSMS(
+	ctx context.Context,
 	sms smartsms.SMSProvider,
 	log *slog.Logger,
 	template string,
@@ -290,7 +292,7 @@ func sendBatchSuccessSMS(
 		prefix = "absence-batch-"
 	}
 	campaignID := prefix + idStr
-	_, err = sms.SendSMS(context.Background(), smartsms.SendRequest{
+	_, err = sms.SendSMS(ctx, smartsms.SendRequest{
 		CampaignNo: campaignID,
 		Campaign:   campaignID,
 		Message:    rendered,

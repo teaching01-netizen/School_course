@@ -376,9 +376,11 @@ export type SubjectSessions = {
   course_name: string;
   sessions: SessionInSubject[];
   sit_in?: SitInInfo;
-  absence_rate_exceeded?: boolean;
-  existing_absence_count?: number;
-  total_session_count?: number;
+  total_course_days?: number;
+  used_absence_days?: number;
+  maximum_absence_days?: number;
+  remaining_absence_days?: number;
+  absence_limit_reached?: boolean;
 };
 
 export type SessionsInRangeResponse = {

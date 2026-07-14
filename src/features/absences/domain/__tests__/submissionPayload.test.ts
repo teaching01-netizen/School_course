@@ -12,7 +12,7 @@ const baseGroup = {
   course_id: "course-1",
   course_code: "MATH101",
   course_name: "Mathematics 101",
-  absence_rate_exceeded: false,
+  absence_limit_reached: false,
   sessions: [
     {
       id: "missed-1",
@@ -25,6 +25,29 @@ const baseGroup = {
 } satisfies SubjectSessions;
 
 describe("absence submission payload builder", () => {
+  it("excludes a selected session that is already covered by an absence", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sessions: baseGroup.sessions.map((session) => ({
+            ...session,
+            already_absent: true,
+          })),
+          sit_in: { sit_in_method: "zoom" },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: {},
+      reason: "Medical appointment",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({ ok: true, payloads: [] });
+  });
+
   it("builds one payload with trimmed reason and selected sit-in session ids", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
@@ -180,7 +203,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-1",
@@ -247,7 +270,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-boundary",
@@ -302,7 +325,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-1",
@@ -359,7 +382,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-1",
@@ -416,7 +439,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-1",
@@ -471,7 +494,7 @@ describe("absence submission payload builder", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "enrolled-1",
@@ -937,13 +960,13 @@ describe("selectedSitInCourseIDForGroup", () => {
     expect(result).toBe("course-l1");
   });
 
-  it("skips groups with absence_rate_exceeded in payload", () => {
+  it("skips groups with absence_limit_reached in payload", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
       sessions: [
         {
           ...baseGroup,
-          absence_rate_exceeded: true,
+          absence_limit_reached: true,
           sessions: [
             {
               id: "missed-1",
@@ -965,13 +988,13 @@ describe("selectedSitInCourseIDForGroup", () => {
     expect(result).toEqual({ ok: true, payloads: [] });
   });
 
-  it("includes groups without absence_rate_exceeded", () => {
+  it("includes groups without absence_limit_reached", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
       sessions: [
         {
           ...baseGroup,
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "missed-1",
@@ -1013,7 +1036,7 @@ describe("selectedSitInCourseIDForGroup", () => {
       sessions: [
         {
           ...baseGroup,
-          absence_rate_exceeded: true,
+          absence_limit_reached: true,
           sessions: [
             {
               id: "missed-1",
@@ -1032,7 +1055,7 @@ describe("selectedSitInCourseIDForGroup", () => {
           course_id: "course-2",
           course_code: "PHYS101",
           course_name: "Physics 101",
-          absence_rate_exceeded: false,
+          absence_limit_reached: false,
           sessions: [
             {
               id: "missed-2",

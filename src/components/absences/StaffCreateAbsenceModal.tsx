@@ -1423,7 +1423,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                         key={subject.id}
                         id={subject.id}
                         name={subject.name}
-                        code={subject.code}
                         selected={selectedSubjectIds.includes(subject.id)}
                         onToggle={() => toggleSubject(subject.id)}
                       />
@@ -1493,7 +1492,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                           key={subject.id}
                           id={`special-${subject.id}`}
                           name={subject.name}
-                          code={`${subject.code} · special case`}
                           selected
                           onToggle={() => toggleSubject(subject.id)}
                         />

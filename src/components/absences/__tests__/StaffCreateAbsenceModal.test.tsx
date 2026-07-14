@@ -192,7 +192,6 @@ describe("StaffCreateAbsenceModal", () => {
     await waitFor(() => {
       expect(screen.getByText("Test Student")).toBeInTheDocument();
       expect(screen.getByText("Mathematics")).toBeInTheDocument();
-      expect(screen.getByText("MATH")).toBeInTheDocument();
     });
   });
 
@@ -389,7 +388,6 @@ describe("StaffCreateAbsenceModal", () => {
       "sub-special",
     );
     expect(screen.getByText("Art")).toBeInTheDocument();
-    expect(screen.getByText("ART · special case")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /next/i }));
     await waitFor(() => {

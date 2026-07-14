@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,6 +54,14 @@ func seedAbsenceLimitTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Po
 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 
+	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{
+		Username:     prefix + "-teacher-" + suffix,
+		Role:         "Teacher",
+		PasswordHash: "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	subj, err := q.SubjectCreate(ctx, sqldb.SubjectCreateParams{
 		Code: prefix + "-SUBJ-" + suffix,
 		Name: prefix + " Subject " + suffix,
@@ -97,9 +106,10 @@ func seedAbsenceLimitTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Po
 		startDate := time.Date(2026, 6, i+1, 9, 0, 0, 0, time.UTC)
 		endDate := startDate.Add(90 * time.Minute)
 		sess, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-			CourseID: course.ID,
-			StartAt:  pgtype.Timestamptz{Time: startDate, Valid: true},
-			EndAt:    pgtype.Timestamptz{Time: endDate, Valid: true},
+			CourseID:  course.ID,
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: startDate, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: endDate, Valid: true},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -126,7 +136,7 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, _ := seedAbsenceLimitTestData(t, q, dbpool, "LMT", 10)
+	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "LMT", 10)
 
 	// Parse subject and course IDs
 	var subjectID pgtype.UUID
@@ -171,9 +181,9 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 		"wcode":              wcode,
 		"subject_id":         subjectIDStr,
 		"course_id":          courseIDStr,
-		"date_from":          "2026-06-15",
-		"date_to":            "2026-06-15",
-		"missed_session_ids": []string{},
+		"date_from":          "2026-06-03",
+		"date_to":            "2026-06-03",
+		"missed_session_ids": []string{sessionIDs[2]},
 	}
 	reqBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences", bytes.NewReader(reqBody))
@@ -192,8 +202,8 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["error_code"] != "absence_limit_exceeded" {
-		t.Fatalf("expected error_code 'absence_limit_exceeded', got %v", resp["error_code"])
+	if resp["code"] != "absence_limit_exceeded" {
+		t.Fatalf("expected code 'absence_limit_exceeded', got %v", resp["code"])
 	}
 }
 
@@ -214,9 +224,13 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	q := sqldb.New(dbpool)
 	wcode, subjectIDStr, courseIDStr, _ := seedAbsenceLimitTestData(t, q, dbpool, "RTE", 10)
 
-	// Parse subject ID
+	// Parse subject and course IDs
 	var subjectID pgtype.UUID
 	if err := subjectID.Scan(subjectIDStr); err != nil {
+		t.Fatal(err)
+	}
+	var courseID pgtype.UUID
+	if err := courseID.Scan(courseIDStr); err != nil {
 		t.Fatal(err)
 	}
 
@@ -225,7 +239,7 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
 			Wcode:    wcode,
-			CourseID: pgtype.UUID{},
+			CourseID: courseID,
 			DateFrom: pgtype.Date{Time: time.Date(2026, 6, i+1, 0, 0, 0, 0, time.UTC), Valid: true},
 			DateTo:   pgtype.Date{Time: time.Date(2026, 6, i+1, 0, 0, 0, 0, time.UTC), Valid: true},
 		})
@@ -260,9 +274,11 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	var resp struct {
 		Subjects []struct {
 			CourseID             string `json:"course_id"`
-			AbsenceRateExceeded  bool   `json:"absence_rate_exceeded"`
-			ExistingAbsenceCount int32  `json:"existing_absence_count"`
-			TotalSessionCount    int32  `json:"total_session_count"`
+			TotalCourseDays      int32  `json:"total_course_days"`
+			UsedAbsenceDays      int32  `json:"used_absence_days"`
+			MaximumAbsenceDays   int32  `json:"maximum_absence_days"`
+			RemainingAbsenceDays int32  `json:"remaining_absence_days"`
+			AbsenceLimitReached  bool   `json:"absence_limit_reached"`
 		} `json:"subjects"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -277,14 +293,17 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	if subject.CourseID != courseIDStr {
 		t.Fatalf("expected course_id %s, got %s", courseIDStr, subject.CourseID)
 	}
-	if !subject.AbsenceRateExceeded {
-		t.Fatal("expected absence_rate_exceeded to be true")
+	if !subject.AbsenceLimitReached {
+		t.Fatal("expected absence_limit_reached to be true")
 	}
-	if subject.ExistingAbsenceCount != 2 {
-		t.Fatalf("expected existing_absence_count 2, got %d", subject.ExistingAbsenceCount)
+	if subject.UsedAbsenceDays != 2 {
+		t.Fatalf("expected used_absence_days 2, got %d", subject.UsedAbsenceDays)
 	}
-	if subject.TotalSessionCount != 10 {
-		t.Fatalf("expected total_session_count 10, got %d", subject.TotalSessionCount)
+	if subject.TotalCourseDays != 10 {
+		t.Fatalf("expected total_course_days 10, got %d", subject.TotalCourseDays)
+	}
+	if subject.MaximumAbsenceDays != 2 || subject.RemainingAbsenceDays != 0 {
+		t.Fatalf("expected max=2 remaining=0, got max=%d remaining=%d", subject.MaximumAbsenceDays, subject.RemainingAbsenceDays)
 	}
 }
 
@@ -303,7 +322,7 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, _ := seedAbsenceLimitTestData(t, q, dbpool, "BAT", 10)
+	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "BAT", 10)
 
 	// Parse subject and course IDs
 	var subjectID pgtype.UUID
@@ -347,11 +366,11 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 		"wcode": wcode,
 		"items": []map[string]any{
 			{
-				"subject_id":        subjectIDStr,
-				"course_id":         courseIDStr,
-				"date_from":         "2026-06-15",
-				"date_to":           "2026-06-15",
-				"missed_session_ids": []string{},
+				"subject_id":         subjectIDStr,
+				"course_id":          courseIDStr,
+				"date_from":          "2026-06-03",
+				"date_to":            "2026-06-03",
+				"missed_session_ids": []string{sessionIDs[2]},
 			},
 		},
 	}
@@ -372,23 +391,137 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["error_code"] != "absence_limit_exceeded" {
-		t.Fatalf("expected error_code 'absence_limit_exceeded', got %v", resp["error_code"])
+	if resp["code"] != "absence_limit_exceeded" {
+		t.Fatalf("expected code 'absence_limit_exceeded', got %v", resp["code"])
+	}
+}
+
+func TestAbsenceLimit_ConcurrentDifferentDaysCannotExceedLimit(t *testing.T) {
+	databaseURL := requireAbsenceLimitTestDB(t)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	dbpool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbpool.Close()
+
+	q := sqldb.New(dbpool)
+	wcode, _, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "CON", 5)
+	var courseID pgtype.UUID
+	if err := courseID.Scan(courseIDStr); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		created bool
+		err     error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(2)
+
+	createForDay := func(day int, sessionID string) {
+		ready.Done()
+		<-start
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		tx, txErr := dbpool.BeginTx(ctx, pgx.TxOptions{})
+		if txErr != nil {
+			results <- result{err: txErr}
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		missedIDs, parseErr := parseUUIDStrings([]string{sessionID})
+		if parseErr != nil {
+			results <- result{err: parseErr}
+			return
+		}
+		date := pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true}
+		stats, _, statsErr := projectedAbsenceDayStats(ctx, q.WithTx(tx), wcode, courseID, missedIDs, date, date, "Asia/Bangkok")
+		if statsErr != nil {
+			results <- result{err: statsErr}
+			return
+		}
+		if stats.ProjectedLimitExceeded {
+			results <- result{}
+			return
+		}
+		absence, createErr := q.WithTx(tx).AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
+			Wcode: wcode, CourseID: courseID, DateFrom: date, DateTo: date,
+		})
+		if createErr == nil {
+			createErr = q.WithTx(tx).AbsenceMissedSessionsCreate(ctx, absence.ID, missedIDs)
+		}
+		if createErr == nil {
+			createErr = tx.Commit(ctx)
+		}
+		results <- result{created: createErr == nil, err: createErr}
+	}
+
+	go createForDay(1, sessionIDs[0])
+	go createForDay(2, sessionIDs[1])
+	ready.Wait()
+	close(start)
+
+	created := 0
+	for i := 0; i < 2; i++ {
+		got := <-results
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.created {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("concurrent submissions created %d absences, want 1", created)
 	}
 }
 
 // --- Batch create notification integration tests ---
 
 type batchCreateRecordingSMS struct {
-	sent []smartsms.SendRequest
+	mu            sync.Mutex
+	sent          []smartsms.SendRequest
+	started       chan struct{}
+	release       chan struct{}
+	delivered     chan struct{}
+	startedOnce   sync.Once
+	deliveredOnce sync.Once
 }
 
-func (r *batchCreateRecordingSMS) SendSMS(_ context.Context, req smartsms.SendRequest) (*smartsms.SendResponse, error) {
+func (r *batchCreateRecordingSMS) SendSMS(ctx context.Context, req smartsms.SendRequest) (*smartsms.SendResponse, error) {
+	if r.started != nil {
+		r.startedOnce.Do(func() { close(r.started) })
+	}
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	r.mu.Lock()
 	r.sent = append(r.sent, req)
+	r.mu.Unlock()
+	if r.delivered != nil {
+		r.deliveredOnce.Do(func() { close(r.delivered) })
+	}
 	return &smartsms.SendResponse{Success: true}, nil
 }
 func (r *batchCreateRecordingSMS) HealthCheck(_ context.Context) error       { return nil }
-func (r *batchCreateRecordingSMS) GetCredits(_ context.Context) (int, error)  { return 999, nil }
+func (r *batchCreateRecordingSMS) GetCredits(_ context.Context) (int, error) { return 999, nil }
+
+func (r *batchCreateRecordingSMS) requests() []smartsms.SendRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]smartsms.SendRequest(nil), r.sent...)
+}
 
 type batchCreateRecordingEmail struct {
 	sent []string
@@ -500,36 +633,43 @@ func TestAbsenceBatchCreate_DispatchesNotificationsAfterCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sms := &batchCreateRecordingSMS{}
+	sms := &batchCreateRecordingSMS{
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		delivered: make(chan struct{}),
+	}
+	var releaseOnce sync.Once
+	releaseSMS := func() { releaseOnce.Do(func() { close(sms.release) }) }
+	defer releaseSMS()
 	emailRecorder := &batchCreateRecordingEmail{}
 	emailSvc := emailnotifier.NewService(emailRecorder)
 
 	s := &server{
 		deps: httpdeps.Deps{
-			Q:              q,
-			DB:             dbpool,
-			Log:            slog.Default(),
-			InstituteTZ:    "UTC",
-			InstituteName:  "Test Institute",
-			SMS:            sms,
-			EmailService:   emailSvc,
-			Auth:           absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
+			Q:             q,
+			DB:            dbpool,
+			Log:           slog.Default(),
+			InstituteTZ:   "UTC",
+			InstituteName: "Test Institute",
+			SMS:           sms,
+			EmailService:  emailSvc,
+			Auth:          absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
 		},
 		a: httpadapter.Adapter{},
 	}
 
 	body := map[string]any{
-		"wcode":     wcode,
+		"wcode":      wcode,
 		"subject_id": subjectIDStr,
 		"course_id":  courseIDStr,
 		"date_from":  "2026-07-01",
 		"date_to":    "2026-07-01",
 		"items": []map[string]any{
 			{
-				"subject_id":        subjectIDStr,
-				"course_id":         courseIDStr,
-				"date_from":         "2026-07-01",
-				"date_to":           "2026-07-01",
+				"subject_id":         subjectIDStr,
+				"course_id":          courseIDStr,
+				"date_from":          "2026-07-01",
+				"date_to":            "2026-07-01",
 				"missed_session_ids": []string{},
 			},
 		},
@@ -540,18 +680,51 @@ func TestAbsenceBatchCreate_DispatchesNotificationsAfterCommit(t *testing.T) {
 	req.Header.Set("Idempotency-Key", uuid.New().String())
 	w := httptest.NewRecorder()
 
-	s.handleAbsenceBatchCreate(w, req)
+	handlerDone := make(chan struct{})
+	go func() {
+		s.handleAbsenceBatchCreate(w, req)
+		close(handlerDone)
+	}()
+
+	select {
+	case <-sms.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMS provider was not called")
+	}
+
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		releaseSMS()
+		<-handlerDone
+		t.Fatal("batch create handler waited for notification delivery")
+	}
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// SMS should have been dispatched (outside tx, after commit)
-	if len(sms.sent) != 1 {
-		t.Fatalf("expected 1 SMS sent after commit, got %d", len(sms.sent))
+	var committedCount int
+	if err := dbpool.QueryRow(ctx, `SELECT count(*) FROM student_absences WHERE lower(wcode) = lower($1)`, wcode).Scan(&committedCount); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(sms.sent[0].Message, "Hi") {
-		t.Fatalf("SMS message should contain greeting, got %q", sms.sent[0].Message)
+	if committedCount != 1 {
+		t.Fatalf("expected committed absence before notification release, got %d", committedCount)
+	}
+
+	releaseSMS()
+	select {
+	case <-sms.delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMS was not delivered after provider release")
+	}
+
+	requests := sms.requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 SMS sent after commit, got %d", len(requests))
+	}
+	if !strings.Contains(requests[0].Message, "Hi") {
+		t.Fatalf("SMS message should contain greeting, got %q", requests[0].Message)
 	}
 }
 
@@ -593,17 +766,17 @@ func TestAbsenceBatchCreate_NoNotificationsWhenTemplateEmpty(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"wcode":     wcode,
+		"wcode":      wcode,
 		"subject_id": subjectIDStr,
 		"course_id":  courseIDStr,
 		"date_from":  "2026-07-01",
 		"date_to":    "2026-07-01",
 		"items": []map[string]any{
 			{
-				"subject_id":        subjectIDStr,
-				"course_id":         courseIDStr,
-				"date_from":         "2026-07-01",
-				"date_to":           "2026-07-01",
+				"subject_id":         subjectIDStr,
+				"course_id":          courseIDStr,
+				"date_from":          "2026-07-01",
+				"date_to":            "2026-07-01",
 				"missed_session_ids": []string{},
 			},
 		},
@@ -621,8 +794,8 @@ func TestAbsenceBatchCreate_NoNotificationsWhenTemplateEmpty(t *testing.T) {
 	}
 
 	// No SMS should have been sent (empty template)
-	if len(sms.sent) != 0 {
-		t.Fatalf("expected 0 SMS sent with empty template, got %d", len(sms.sent))
+	if len(sms.requests()) != 0 {
+		t.Fatalf("expected 0 SMS sent with empty template, got %d", len(sms.requests()))
 	}
 }
 

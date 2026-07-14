@@ -44,7 +44,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
                   onClick={() => isClickable && onStepClick(index)}
                   disabled={!isClickable}
                   className={clsx(
-                    "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-all duration-200",
+                    "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-all duration-200 motion-reduce:transition-none",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
                     isCompleted && "bg-[var(--color-wi-primary)] text-white",
                     isCurrent && "border-2 border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)]",
@@ -71,7 +71,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
                     {step.label}
                   </span>
                   {step.description && (
-                    <span className="text-[11px] leading-tight text-gray-500">{step.description}</span>
+                    <span className="hidden text-[11px] leading-tight text-gray-500 md:block">{step.description}</span>
                   )}
                 </div>
               </div>
@@ -80,7 +80,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
               {index < steps.length - 1 && (
                 <div
                   className={clsx(
-                    "mx-3 h-px flex-1 transition-colors duration-200 sm:mx-4",
+                    "mx-3 h-px flex-1 transition-colors duration-200 motion-reduce:transition-none sm:mx-4",
                     isCompleted ? "bg-[var(--color-wi-primary)]" : "bg-gray-300",
                   )}
                   aria-hidden="true"
@@ -92,8 +92,8 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
       </ol>
 
       {/* Mobile: current step label */}
-      <p className="mt-2 text-center text-sm font-semibold text-[var(--color-wi-text)] sm:hidden">
-        {steps[currentStep]?.label}
+      <p className="mt-3 text-center text-sm font-semibold text-[var(--color-wi-text)] sm:hidden">
+        Step {currentStep + 1} of {steps.length}: {steps[currentStep]?.label}
       </p>
     </nav>
   );

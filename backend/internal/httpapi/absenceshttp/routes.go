@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
@@ -21,8 +23,10 @@ import (
 )
 
 type server struct {
-	deps httpdeps.Deps
-	a    httpadapter.Adapter
+	deps                         httpdeps.Deps
+	a                            httpadapter.Adapter
+	batchNotificationLimiter     chan struct{}
+	batchNotificationLimiterOnce sync.Once
 }
 
 type sessionRow struct {
@@ -372,10 +376,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
 			return 0, nil, fmt.Errorf("too many sessions")
 		}
-		if len(body.MissedSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
-			s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected missed sessions exceed the configured maximum")
-			return 0, nil, fmt.Errorf("too many missed sessions")
-		}
 		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, &body.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -387,6 +387,26 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
+		missedUUIDs, err := parseUUIDStrings(body.MissedSessionIDs)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
+			return 0, nil, err
+		}
+		limitStats, candidateAbsenceDays, err := projectedAbsenceDayStats(
+			r.Context(), qtx, body.Wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, s.deps.InstituteTZ,
+		)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
+			return 0, nil, err
+		}
+		if candidateAbsenceDays > int32(settings.SitIn.MaxSessionsPerAbsence) {
+			s.a.WriteErr(w, http.StatusBadRequest, "too_many_missed_sessions", "Selected absence days exceed the configured maximum")
+			return 0, nil, fmt.Errorf("too many absence days")
+		}
+		if limitStats.ProjectedLimitExceeded {
+			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absence days allowed for this course")
+			return 0, nil, fmt.Errorf("absence day limit exceeded for course %s", course.CourseID)
+		}
 
 		var sitInCourseID pgtype.UUID
 		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
@@ -397,25 +417,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		} else if sitInMethod.String == "physical" {
 			sitInCourseID = course.CourseID
-		}
-
-		totalSessions, totalErr := qtx.CourseSessionCount(r.Context(), course.CourseID)
-		if totalErr != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course sessions")
-			return 0, nil, totalErr
-		}
-		existingMissedSessions, missErr := qtx.StudentMissedSessionCountForCourse(r.Context(), body.Wcode, course.CourseID)
-		if missErr != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence count")
-			return 0, nil, missErr
-		}
-		submittingSessionCount := int32(len(body.MissedSessionIDs))
-		if submittingSessionCount == 0 {
-			submittingSessionCount = 1
-		}
-		if projectedAbsenceSessionLimitExceeded(totalSessions, existingMissedSessions, submittingSessionCount) {
-			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absences allowed for this course")
-			return 0, nil, fmt.Errorf("absence limit exceeded for course %s", course.CourseID)
 		}
 
 		var studentPhone pgtype.Text
@@ -558,15 +559,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(body.MissedSessionIDs) > 0 {
-			var missedUUIDs []pgtype.UUID
-			for _, sid := range body.MissedSessionIDs {
-				uid, err := s.a.ParseUUID(sid)
-				if err != nil {
-					s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
-					return 0, nil, err
-				}
-				missedUUIDs = append(missedUUIDs, uid)
-			}
 			count, err := qtx.ValidMissedSessionCount(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
@@ -642,12 +634,12 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				if sesErr == nil {
 					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
 					if missedErr == nil {
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, successSMSRecipients, s.deps.InstituteTZ)
+						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, successSMSRecipients, s.deps.InstituteTZ)
 					} else {
 						if s.deps.Log != nil {
 							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", item.ID, "error", missedErr)
 						}
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, successSMSRecipients, s.deps.InstituteTZ)
+						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, successSMSRecipients, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
@@ -663,9 +655,9 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				if sesErr == nil {
 					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
 					if missedErr == nil {
-						sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+						sendSuccessEmailWithConfig(r.Context(), s.deps.EmailService, s.deps.Log, managed, sessions, missed, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
 					} else {
-						sendSuccessEmailWithConfig(s.deps.EmailService, s.deps.Log, managed, sessions, nil, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
+						sendSuccessEmailWithConfig(r.Context(), s.deps.EmailService, s.deps.Log, managed, sessions, nil, emailCfg, s.deps.InstituteName, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for email", "absence_id", item.ID, "error", sesErr)
@@ -762,8 +754,8 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
 	subjectIDStr := r.URL.Query().Get("subject_id")
-	dateFromStr := r.URL.Query().Get("date_from")
-	dateToStr := r.URL.Query().Get("date_to")
+	dateFromStr := strings.TrimSpace(r.URL.Query().Get("date_from"))
+	dateToStr := strings.TrimSpace(r.URL.Query().Get("date_to"))
 
 	if wcode == "" || subjectIDStr == "" {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_params", "wcode and subject_id are required")
@@ -819,11 +811,17 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dateFromProvided := dateFromStr != "" && dateToStr != ""
+	dateFromProvided := dateFromStr != ""
+	dateToProvided := dateToStr != ""
+	if dateFromProvided != dateToProvided {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_date_range", "date_from and date_to must be provided together")
+		return
+	}
+	dateRangeProvided := dateFromProvided && dateToProvided
 
 	var dateFrom, dateTo time.Time
 	var err error
-	if dateFromProvided {
+	if dateRangeProvided {
 		dateFrom, err = parseInstituteLocalDate(dateFromStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_from", "Invalid date_from, use YYYY-MM-DD")
@@ -832,6 +830,10 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		dateTo, err = parseInstituteLocalDate(dateToStr, s.deps.InstituteTZ)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_to", "Invalid date_to, use YYYY-MM-DD")
+			return
+		}
+		if dateTo.Before(dateFrom) {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_date_range", "date_to must be on or after date_from")
 			return
 		}
 	} else {
@@ -846,7 +848,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	if dateFromProvided && !isAdminRequest(s.deps.Auth, r) {
+	if dateRangeProvided && !isAdminRequest(s.deps.Auth, r) {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
 		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
 		if days > maxLookupRangeDays {
@@ -1075,9 +1077,11 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		CourseName           string               `json:"course_name"`
 		Sessions             []sessionResponse    `json:"sessions"`
 		SitIn                *courseSitInResponse `json:"sit_in,omitempty"`
-		AbsenceRateExceeded  bool                 `json:"absence_rate_exceeded"`
-		ExistingAbsenceCount int32                `json:"existing_absence_count"`
-		TotalSessionCount    int32                `json:"total_session_count"`
+		TotalCourseDays      int32                `json:"total_course_days"`
+		UsedAbsenceDays      int32                `json:"used_absence_days"`
+		MaximumAbsenceDays   int32                `json:"maximum_absence_days"`
+		RemainingAbsenceDays int32                `json:"remaining_absence_days"`
+		AbsenceLimitReached  bool                 `json:"absence_limit_reached"`
 	}
 
 	staffSubjectAvailable := map[string][]sessionBrief{}
@@ -1147,23 +1151,23 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		absenceRateExceeded := false
-		var existingAbsenceCount, totalSessionCount int32
-		if cErr == nil {
-			total, totalErr := s.deps.Q.CourseSessionCount(r.Context(), courseID)
-			if totalErr != nil && s.deps.Log != nil {
-				s.deps.Log.Error("failed to count course sessions", "course_id", g.CourseID, "error", totalErr)
-			}
-			existing, missErr := s.deps.Q.StudentMissedSessionCountForCourse(r.Context(), wcode, courseID)
-			if missErr != nil && s.deps.Log != nil {
-				s.deps.Log.Error("failed to count student missed sessions", "course_id", g.CourseID, "error", missErr)
-			}
-			if totalErr == nil && missErr == nil {
-				absenceRateExceeded = projectedAbsenceSessionLimitExceeded(total, existing, 1)
-				existingAbsenceCount = existing
-				totalSessionCount = total
-			}
+		if cErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading course absence days")
+			return
 		}
+		dayCounts, dayCountErr := s.deps.Q.AbsenceDayCountsForCourse(r.Context(), sqldb.AbsenceDayCountsForCourseParams{
+			Wcode:       wcode,
+			CourseID:    courseID,
+			InstituteTZ: s.deps.InstituteTZ,
+		})
+		if dayCountErr != nil {
+			if s.deps.Log != nil {
+				s.deps.Log.Error("failed to calculate course absence days", "course_id", g.CourseID, "error", dayCountErr)
+			}
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
+			return
+		}
+		limitStats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays)
 
 		courses = append(courses, courseResponse{
 			SubjectID:            g.SubjectID,
@@ -1174,9 +1178,11 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			CourseName:           g.CourseName,
 			Sessions:             sessionsResp,
 			SitIn:                sitIn,
-			AbsenceRateExceeded:  absenceRateExceeded,
-			ExistingAbsenceCount: existingAbsenceCount,
-			TotalSessionCount:    totalSessionCount,
+			TotalCourseDays:      limitStats.TotalCourseDays,
+			UsedAbsenceDays:      limitStats.UsedAbsenceDays,
+			MaximumAbsenceDays:   limitStats.MaximumAbsenceDays,
+			RemainingAbsenceDays: limitStats.RemainingAbsenceDays,
+			AbsenceLimitReached:  limitStats.LimitReached,
 		})
 	}
 

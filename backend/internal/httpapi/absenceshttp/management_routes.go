@@ -744,12 +744,12 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 					currentForSms := current
 					currentForSms.Status = body.Status
 					if missedErr == nil {
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, missed, recipients, s.deps.InstituteTZ)
+						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, missed, recipients, s.deps.InstituteTZ)
 					} else {
 						if s.deps.Log != nil {
 							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", r.PathValue("id"), "error", missedErr)
 						}
-						sendSuccessSMS(s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, nil, recipients, s.deps.InstituteTZ)
+						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, nil, recipients, s.deps.InstituteTZ)
 					}
 				} else if s.deps.Log != nil {
 					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)

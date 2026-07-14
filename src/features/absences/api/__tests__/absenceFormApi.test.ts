@@ -1,9 +1,122 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  loadAbsenceFormConfig,
+  loadSessionsInRange,
+  lookupStudentByWcode,
   sessionsInRangePath,
   normalizeAbsenceFormConfig,
+  submitAbsenceBatch,
 } from "../absenceFormApi";
 import type { AbsenceFormConfig } from "../../types";
+import { ApiRequestError } from "@/api/client";
+
+const mockApiJson = vi.hoisted(() => vi.fn());
+
+vi.mock("@/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
+  return { ...actual, apiJson: mockApiJson };
+});
+
+const BATCH_INPUT = {
+  idempotencyKey: "absence-submit-key",
+  wcode: "W250389",
+  email: "student@example.com",
+  reason: "Medical appointment",
+  verificationToken: "verified-token",
+  items: [
+    {
+      subject_id: "subject-1",
+      course_id: "course-1",
+      date_from: "2026-07-14",
+      date_to: "2026-07-14",
+      sit_in_method: "zoom" as const,
+      missed_session_ids: ["session-1"],
+      sit_in_session_ids: [],
+    },
+  ],
+};
+
+describe("submitAbsenceBatch", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("retries one interrupted request with the identical body and idempotency key", async () => {
+    const response = { items: [] };
+    mockApiJson
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(response);
+
+    await expect(submitAbsenceBatch(BATCH_INPUT)).resolves.toBe(response);
+
+    expect(mockApiJson).toHaveBeenCalledTimes(2);
+    const firstInit = mockApiJson.mock.calls[0][1] as RequestInit;
+    const secondInit = mockApiJson.mock.calls[1][1] as RequestInit;
+    expect(secondInit.body).toBe(firstInit.body);
+    expect(secondInit.headers).toEqual(firstInit.headers);
+    expect(firstInit.headers).toEqual({
+      "Idempotency-Key": BATCH_INPUT.idempotencyKey,
+    });
+  });
+
+  it("does not retry a readable API response error", async () => {
+    const error = new ApiRequestError("Invalid absence", {
+      code: "invalid_absence",
+      status: 400,
+    });
+    mockApiJson.mockRejectedValueOnce(error);
+
+    await expect(submitAbsenceBatch(BATCH_INPUT)).rejects.toBe(error);
+
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an aborted request", async () => {
+    const error = new DOMException("The operation was aborted", "AbortError");
+    mockApiJson.mockRejectedValueOnce(error);
+
+    await expect(submitAbsenceBatch(BATCH_INPUT)).rejects.toBe(error);
+
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry other errors", async () => {
+    const error = new Error("Unexpected client failure");
+    mockApiJson.mockRejectedValueOnce(error);
+
+    await expect(submitAbsenceBatch(BATCH_INPUT)).rejects.toBe(error);
+
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates a second interrupted request after exactly one retry", async () => {
+    const secondError = new TypeError("Failed to fetch again");
+    mockApiJson
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(secondError);
+
+    await expect(submitAbsenceBatch(BATCH_INPUT)).rejects.toBe(secondError);
+
+    expect(mockApiJson).toHaveBeenCalledTimes(2);
+  });
+
+  it("omits optional identity fields instead of sending null placeholders", async () => {
+    mockApiJson.mockResolvedValueOnce({ items: [] });
+
+    await submitAbsenceBatch({
+      ...BATCH_INPUT,
+      email: undefined,
+      verificationToken: undefined,
+    });
+
+    const init = mockApiJson.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({
+      wcode: BATCH_INPUT.wcode,
+      reason: BATCH_INPUT.reason,
+      items: BATCH_INPUT.items,
+    });
+  });
+});
 
 describe("sessionsInRangePath", () => {
   it("builds basic path with wcode", () => {
@@ -52,6 +165,71 @@ describe("sessionsInRangePath", () => {
       bypassTiming: false,
     });
     expect(path).not.toContain("bypass_timing");
+  });
+
+  it("encodes reserved characters in the student identifier", () => {
+    expect(sessionsInRangePath("W25 0389&admin=true")).toBe(
+      "/api/v1/absences/sessions-in-range?wcode=W25+0389%26admin%3Dtrue",
+    );
+  });
+
+  it("keeps priority level zero because it is a valid boundary value", () => {
+    expect(
+      sessionsInRangePath("W250389", undefined, undefined, {
+        satVerbalAfterPriority: 0,
+      }),
+    ).toContain("sat_verbal_after_priority=0");
+  });
+});
+
+describe("public absence API requests", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("normalizes configuration returned by the public endpoint", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      form: { max_date_range_days: 7 },
+      sit_in: {},
+    });
+
+    const config = await loadAbsenceFormConfig();
+
+    expect(config.form.max_date_range_days).toBe(7);
+    expect(config.notifications?.allow_submit_without_otp).toBe(false);
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/absence-form-config", {
+      method: "GET",
+    });
+  });
+
+  it("URL-encodes W-codes used for student lookup", async () => {
+    mockApiJson.mockResolvedValueOnce({ wcode: "W250389", subjects: [] });
+
+    await lookupStudentByWcode(" W250389&include=private ");
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/student-lookup?wcode=%20W250389%26include%3Dprivate%20",
+      { method: "GET" },
+    );
+  });
+
+  it("forwards cancellation and range options when loading sessions", async () => {
+    mockApiJson.mockResolvedValueOnce({ subjects: [] });
+    const controller = new AbortController();
+
+    await loadSessionsInRange(
+      "W250389",
+      "2026-07-01",
+      "2026-07-31",
+      { signal: controller.signal },
+      { courseIds: ["course-1"] },
+    );
+
+    const [path, init] = mockApiJson.mock.calls[0] as [string, RequestInit];
+    expect(path).toContain("date_from=2026-07-01");
+    expect(path).toContain("date_to=2026-07-31");
+    expect(path).toContain("course_ids=course-1");
+    expect(init).toEqual({ method: "GET", signal: controller.signal });
   });
 });
 

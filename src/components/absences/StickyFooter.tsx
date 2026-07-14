@@ -22,24 +22,32 @@ export default function StickyFooter({
 }: StickyFooterProps) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-wi-border)] bg-white/95 backdrop-blur-sm">
-      <div className="mx-auto flex h-16 max-w-lg items-center justify-between gap-4 px-4">
+      <div className="mx-auto flex min-h-16 max-w-[640px] items-center justify-between gap-3 px-4 py-2 sm:px-6">
         <div className="flex items-center gap-3">
           {currentStep > 0 ? (
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex min-h-[48px] items-center gap-1 text-sm font-semibold text-[var(--color-wi-text-light)] transition-colors hover:text-[var(--color-wi-text)]"
+              className="inline-flex min-h-[48px] items-center gap-1 text-sm font-semibold text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:text-[var(--color-wi-text)]"
             >
               <ChevronLeft className="h-4 w-4" />
               Back
             </button>
           ) : null}
-          <div className="flex items-center gap-1.5" aria-label={`Step ${currentStep + 1} of ${totalSteps}`}>
+          <div
+            className="flex items-center gap-1.5"
+            role="progressbar"
+            aria-label="Form progress"
+            aria-valuemin={1}
+            aria-valuemax={totalSteps}
+            aria-valuenow={currentStep + 1}
+            aria-valuetext={`Step ${currentStep + 1} of ${totalSteps}`}
+          >
             {Array.from({ length: totalSteps }, (_, i) => (
               <span
                 key={i}
                 className={clsx(
-                  "inline-block h-2 w-2 rounded-full transition-colors",
+                  "inline-block h-2 w-2 rounded-full transition-colors motion-reduce:transition-none",
                   i <= currentStep ? "bg-[var(--color-wi-primary)]" : "bg-[var(--color-wi-border)]",
                 )}
               />
@@ -51,7 +59,7 @@ export default function StickyFooter({
           onClick={onPrimary}
           disabled={!canProceed || loading}
           className={clsx(
-            "min-h-[48px] min-w-[120px] rounded-lg px-6 text-sm font-semibold transition-colors",
+            "min-h-[48px] min-w-[120px] rounded-xl px-5 text-base font-semibold transition-colors motion-reduce:transition-none",
             canProceed && !loading
               ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
               : "cursor-not-allowed bg-gray-100 text-gray-400",

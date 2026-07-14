@@ -127,7 +127,7 @@ export function loadSessionsInRange(
   );
 }
 
-export function submitAbsenceBatch(input: {
+export async function submitAbsenceBatch(input: {
   idempotencyKey: string;
   wcode: string;
   email?: string;
@@ -135,7 +135,7 @@ export function submitAbsenceBatch(input: {
   verificationToken?: string;
   items: AbsenceBatchCreateItem[];
 }): Promise<AbsenceBatchCreateResponse> {
-  return apiJson<AbsenceBatchCreateResponse>("/api/v1/absences/batch", {
+  const request: RequestInit = {
     method: "POST",
     headers: { "Idempotency-Key": input.idempotencyKey },
     body: JSON.stringify({
@@ -145,5 +145,18 @@ export function submitAbsenceBatch(input: {
       verification_token: input.verificationToken,
       items: input.items,
     }),
-  });
+  };
+
+  try {
+    return await apiJson<AbsenceBatchCreateResponse>(
+      "/api/v1/absences/batch",
+      request,
+    );
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return apiJson<AbsenceBatchCreateResponse>(
+      "/api/v1/absences/batch",
+      request,
+    );
+  }
 }

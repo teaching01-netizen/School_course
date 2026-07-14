@@ -77,16 +77,25 @@ export function isDayGroupSelected(group: DayRangeGroup<{ id: string; start_at: 
   return group.items.every((session) => selected.has(session.id));
 }
 
-export function countSelectedSessions(groups: SubjectSessions[], selected: Set<string>): number {
+export function countSelectedAbsenceDaysForGroup(group: SubjectSessions, selected: Set<string>): number {
+  return groupByDay(group.sessions)
+    .map((sessionGroup) => ({
+      ...sessionGroup,
+      items: sessionGroup.items.filter((session) => !session.already_absent),
+    }))
+    .filter((sessionGroup) => sessionGroup.items.length > 0 && isDayGroupSelected(sessionGroup, selected)).length;
+}
+
+export function countSelectedAbsenceDays(groups: SubjectSessions[], selected: Set<string>): number {
   return groups.reduce(
-    (total, group) => total + groupByDay(group.sessions).filter((sessionGroup) => isDayGroupSelected(sessionGroup, selected)).length,
+    (total, group) => total + countSelectedAbsenceDaysForGroup(group, selected),
     0,
   );
 }
 
 export function getSelectedSessionsForGroup(group: SubjectSessions, selected: Set<string>) {
   return group.sessions
-    .filter((session) => selected.has(session.id))
+    .filter((session) => selected.has(session.id) && !session.already_absent)
     .slice()
     .sort((a, b) => a.start_at.localeCompare(b.start_at));
 }

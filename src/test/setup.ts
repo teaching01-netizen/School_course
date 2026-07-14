@@ -1,5 +1,11 @@
 import "@testing-library/jest-dom";
 
+Object.defineProperty(window, "scrollTo", {
+  configurable: true,
+  value: () => undefined,
+  writable: true,
+});
+
 if (!HTMLDialogElement.prototype.showModal) {
   HTMLDialogElement.prototype.showModal = function () {
     if (this.hasAttribute("open")) throw new Error("Dialog is already open");

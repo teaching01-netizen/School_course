@@ -91,13 +91,11 @@ func renderAbsenceCard(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbse
 		loc = time.UTC
 	}
 
-	courseName := textOr(row.SubjectName, row.CourseName)
-	if courseName == "" {
-		courseName = "Not specified"
-	}
+	missedSubject := textOr(row.SubjectName, row.CourseName)
+	sitInSubject := textOr(row.SitInSubjectName, row.SitInCourseName.String)
 
-	missedLabels := sessionLabels(missed, loc)
-	sitInLabels := sessionLabels(sessions, loc)
+	missedLabels := sessionLabels(missed, missedSubject, loc)
+	sitInLabels := sessionLabels(sessions, sitInSubject, loc)
 	maxRows := len(missedLabels)
 	if len(sitInLabels) > maxRows {
 		maxRows = len(sitInLabels)
@@ -109,7 +107,6 @@ func renderAbsenceCard(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbse
 	var rows strings.Builder
 
 	rows.WriteString(`<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;border:1px solid #e0e0e0;">`)
-	rows.WriteString(fmt.Sprintf(`<tr><td style="padding:12px 16px;background-color:#1a1a1a;border-bottom:1px solid #e0e0e0;font-size:14px;font-weight:600;color:#ffffff;">%s</td></tr>`, html.EscapeString(courseName)))
 	rows.WriteString(`<tr><td style="padding:0;">`)
 	rows.WriteString(`<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">`)
 	rows.WriteString(`<tr>`)
@@ -139,13 +136,20 @@ func renderAbsenceCard(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbse
 	return rows.String()
 }
 
-func sessionLabels(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) []string {
+func sessionLabels(sessions []sqldb.ManagedAbsenceSession, fallbackSubject string, loc *time.Location) []string {
 	labels := make([]string, 0, len(sessions))
 	for _, s := range sessions {
 		if !s.StartAt.Valid {
 			continue
 		}
-		label := s.StartAt.Time.In(loc).Format("2 Jan, 15:04")
+		subject := textOr(s.SubjectName, s.CourseName)
+		if subject == "" {
+			subject = fallbackSubject
+		}
+		if subject == "" {
+			subject = "Not specified"
+		}
+		label := subject + " — " + s.StartAt.Time.In(loc).Format("2 Jan, 15:04")
 		if s.EndAt.Valid {
 			label += " – " + s.EndAt.Time.In(loc).Format("15:04")
 		}
@@ -179,6 +183,7 @@ func renderSuccessEmailPlaceholders(row sqldb.ManagedAbsenceRow, sessions []sqld
 }
 
 func sendSuccessEmail(
+	ctx context.Context,
 	svc *emailnotifier.Service,
 	log *slog.Logger,
 	row sqldb.ManagedAbsenceRow,
@@ -189,10 +194,11 @@ func sendSuccessEmail(
 ) bool {
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	return sendSuccessEmailWithConfig(svc, log, row, sessions, missed, cfg, instituteName, instituteTZ)
+	return sendSuccessEmailWithConfig(ctx, svc, log, row, sessions, missed, cfg, instituteName, instituteTZ)
 }
 
 func sendSuccessEmailWithConfig(
+	ctx context.Context,
 	svc *emailnotifier.Service,
 	log *slog.Logger,
 	row sqldb.ManagedAbsenceRow,
@@ -236,7 +242,7 @@ func sendSuccessEmailWithConfig(
 		log.Info("success email sending", "email", email, "wcode", row.Wcode)
 	}
 
-	result := svc.SendEmails(context.Background(), emailnotifier.SendInput{
+	result := svc.SendEmails(ctx, emailnotifier.SendInput{
 		Template:   emailnotifier.Template{Subject: subject, Body: body},
 		Recipients: []string{email},
 	})
@@ -250,6 +256,7 @@ func sendSuccessEmailWithConfig(
 }
 
 func sendBatchSuccessEmail(
+	ctx context.Context,
 	svc *emailnotifier.Service,
 	log *slog.Logger,
 	items []successSMSItem,
@@ -258,10 +265,11 @@ func sendBatchSuccessEmail(
 ) bool {
 	cfg := defaultEmailSuccessConfig()
 	cfg.Enabled = true
-	return sendBatchSuccessEmailWithConfig(svc, log, items, cfg, instituteName, instituteTZ)
+	return sendBatchSuccessEmailWithConfig(ctx, svc, log, items, cfg, instituteName, instituteTZ)
 }
 
 func sendBatchSuccessEmailWithConfig(
+	ctx context.Context,
 	svc *emailnotifier.Service,
 	log *slog.Logger,
 	items []successSMSItem,
@@ -313,7 +321,7 @@ func sendBatchSuccessEmailWithConfig(
 		log.Info("success email sending", "email", email, "absence_count", len(items))
 	}
 
-	result := svc.SendEmails(context.Background(), emailnotifier.SendInput{
+	result := svc.SendEmails(ctx, emailnotifier.SendInput{
 		Template:   emailnotifier.Template{Subject: subject, Body: body},
 		Recipients: []string{email},
 	})
