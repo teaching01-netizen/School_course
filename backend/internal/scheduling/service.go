@@ -755,6 +755,9 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
+	if discovered.DeletedAt.Valid {
+		return EditOccurrenceResult{}, &Err{Code: "stale_edit", Message: "session has been deleted"}
+	}
 	proposedCourseID := discovered.CourseID
 	if p.CourseID != nil && p.CourseID.Valid {
 		proposedCourseID = *p.CourseID
@@ -772,10 +775,13 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		TeacherIDs: []pgtype.UUID{discovered.TeacherID, proposedTeacherID},
 		RoomIDs:    []pgtype.UUID{discovered.RoomID, proposedRoomID},
 		SessionIDs: []pgtype.UUID{p.SessionID},
-		SeriesIDs:  []pgtype.UUID{discovered.SeriesID},
 	}); err != nil {
 		return EditOccurrenceResult{}, err
 	}
+	// TODO(schedulelock/task8): add the parent series lock only when every
+	// series edit/cancel path has moved from series-first locking to the same
+	// canonical resource order. Taking it here sooner creates a session->series
+	// inversion with the legacy series writers.
 
 	// A read committed statement after any lock wait gets a fresh snapshot.
 	// Reject if identity changed while we were waiting; the caller must retry
@@ -784,7 +790,7 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
-	if !sameSessionIdentity(discovered, existing) || existing.Version != p.ExpectedVersion {
+	if existing.DeletedAt.Valid || !sameSessionIdentity(discovered, existing) || existing.Version != p.ExpectedVersion {
 		return EditOccurrenceResult{}, &Err{Code: "stale_edit", Message: "session has been modified"}
 	}
 
@@ -930,8 +936,10 @@ func sameSessionIdentity(a, b sqldb.SessionGetByIDRow) bool {
 		a.CourseID == b.CourseID &&
 		a.RoomID == b.RoomID &&
 		a.TeacherID == b.TeacherID &&
+		a.DeletedAt.Valid == b.DeletedAt.Valid &&
 		a.StartAt.Valid == b.StartAt.Valid &&
 		a.EndAt.Valid == b.EndAt.Valid &&
+		(!a.DeletedAt.Valid || a.DeletedAt.Time.Equal(b.DeletedAt.Time)) &&
 		(!a.StartAt.Valid || a.StartAt.Time.Equal(b.StartAt.Time)) &&
 		(!a.EndAt.Valid || a.EndAt.Time.Equal(b.EndAt.Time)) &&
 		a.Version == b.Version

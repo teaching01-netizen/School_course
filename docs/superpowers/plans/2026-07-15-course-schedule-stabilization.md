@@ -469,6 +469,8 @@ func LockResources(ctx context.Context, q *sqldb.Queries, ids ResourceLocks) err
 
 For edits, perform an unlocked identity read only to discover old resource IDs; call `schedulelock.LockResources` with sorted old and proposed resources plus the target session/series ID; then re-read the locked row using `qtx`, apply the expected-version check, and abort with `stale_edit` if identity/version changed. No preflight or write occurs before this re-read. Wrap exclusion-producing inserts/updates in the existing nested-transaction savepoint helper before re-preflight.
 
+> **Series-lock sequencing:** Task 5 occurrence edits intentionally defer locking their optional parent series. The existing series edit/cancel paths still lock the series before mutating session rows, so adding a session-then-series lock here would invert that order. Task 8 must migrate all series writers to canonical resource ordering and add occurrence-to-series locking atomically with the attachment validation work.
+
 - [ ] **Step 5: Verify generated code and focused tests**
 
 Run: `make -C backend sqlc && git diff --check && go -C backend test ./internal/schedulelock ./internal/scheduling -count=1`

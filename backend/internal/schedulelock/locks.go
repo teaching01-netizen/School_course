@@ -20,6 +20,15 @@ type ResourceLocks struct {
 	SeriesIDs  []pgtype.UUID
 }
 
+type MissingResourceError struct {
+	Kind string
+	IDs  []pgtype.UUID
+}
+
+func (e *MissingResourceError) Error() string {
+	return fmt.Sprintf("schedulelock: %s resources not found: %v", e.Kind, e.IDs)
+}
+
 type resourceKind uint8
 
 const (
@@ -44,28 +53,70 @@ var lockOrder = []resourceKind{
 // Callers must use a transaction-bound Queries value.
 func LockResources(ctx context.Context, q *sqldb.Queries, ids ResourceLocks) error {
 	for _, kind := range lockOrder {
-		var err error
+		var (
+			kindName  string
+			requested []pgtype.UUID
+			locked    []pgtype.UUID
+			err       error
+		)
 		switch kind {
 		case courseResource:
-			_, err = q.CoursesLockOrdered(ctx, normalizeLockIDs(ids.CourseIDs))
+			kindName, requested = "course", normalizeLockIDs(ids.CourseIDs)
+			locked, err = q.CoursesLockOrdered(ctx, requested)
 		case studentResource:
-			_, err = q.StudentsLockOrdered(ctx, normalizeLockIDs(ids.StudentIDs))
+			kindName, requested = "student", normalizeLockIDs(ids.StudentIDs)
+			locked, err = q.StudentsLockOrdered(ctx, requested)
 		case teacherResource:
-			_, err = q.UsersLockOrdered(ctx, normalizeLockIDs(ids.TeacherIDs))
+			kindName, requested = "teacher", normalizeLockIDs(ids.TeacherIDs)
+			locked, err = q.UsersLockOrdered(ctx, requested)
 		case roomResource:
-			_, err = q.RoomsLockOrdered(ctx, normalizeLockIDs(ids.RoomIDs))
+			kindName, requested = "room", normalizeLockIDs(ids.RoomIDs)
+			locked, err = q.RoomsLockOrdered(ctx, requested)
 		case sessionResource:
-			_, err = q.SessionsLockOrdered(ctx, normalizeLockIDs(ids.SessionIDs))
+			kindName, requested = "session", normalizeLockIDs(ids.SessionIDs)
+			locked, err = q.SessionsLockOrdered(ctx, requested)
 		case seriesResource:
-			_, err = q.SeriesLockOrdered(ctx, normalizeLockIDs(ids.SeriesIDs))
+			kindName, requested = "series", normalizeLockIDs(ids.SeriesIDs)
+			locked, err = q.SeriesLockOrdered(ctx, requested)
 		default:
 			return fmt.Errorf("schedulelock: unknown resource kind %d", kind)
 		}
 		if err != nil {
-			return fmt.Errorf("schedulelock: lock resource kind %d: %w", kind, err)
+			return fmt.Errorf("schedulelock: lock %s resources: %w", kindName, err)
+		}
+		if err := ensureAllLocked(kindName, requested, locked); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func ensureAllLocked(kind string, requested, locked []pgtype.UUID) error {
+	requested = normalizeLockIDs(requested)
+	locked = normalizeLockIDs(locked)
+	if len(requested) == len(locked) {
+		allEqual := true
+		for i := range requested {
+			if requested[i].Bytes != locked[i].Bytes {
+				allEqual = false
+				break
+			}
+		}
+		if allEqual {
+			return nil
+		}
+	}
+	lockedSet := make(map[[16]byte]struct{}, len(locked))
+	for _, id := range locked {
+		lockedSet[id.Bytes] = struct{}{}
+	}
+	missing := make([]pgtype.UUID, 0, len(requested))
+	for _, id := range requested {
+		if _, ok := lockedSet[id.Bytes]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return &MissingResourceError{Kind: kind, IDs: missing}
 }
 
 func normalizeLockIDs(ids []pgtype.UUID) []pgtype.UUID {
