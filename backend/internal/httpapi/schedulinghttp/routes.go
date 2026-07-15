@@ -1,6 +1,7 @@
 package schedulinghttp
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 type server struct {
@@ -28,6 +30,11 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 // classifySchedulingErr maps a scheduling service error to a safe HTTP status, code, and message.
 // It never exposes internal database details (column names, query fragments, etc.) to the client.
 func (s *server) classifySchedulingErr(err error) (int, string, string) {
+	var validationErr *series.ValidationError
+	if errors.As(err, &validationErr) {
+		return http.StatusBadRequest, "invalid_recurrence", validationErr.Message
+	}
+
 	// ClassifyDBErr handles PG errors, context cancellation, and timeout — all safe.
 	status, code, msg := s.a.ClassifyDBErr(err)
 	if code != "internal" {

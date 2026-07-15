@@ -76,12 +76,15 @@ func isSerializationErr(err error) bool {
 // CreateSeriesAndMaterializeTx performs the series creation and session materialization
 // using an existing transaction-bound Queries handle. Does not manage begin/commit/rollback.
 func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Queries, p CreateParams) (CreateResult, error) {
+	if err := validateCountAndDuration(p.Count, p.DurationMinutes); err != nil {
+		return CreateResult{}, err
+	}
 	var occ []Occurrence
 	if p.Occurrences != nil {
 		occ = p.Occurrences
 	} else {
 		var err error
-		occ, err = Materialize(MaterializeInput{
+		occ, err = Materialize(ctx, MaterializeInput{
 			Weekdays:        p.Weekdays,
 			StartDate:       p.StartDate,
 			EndDate:         p.EndDate,
@@ -257,7 +260,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 			v := int(old.Count.Int32)
 			count = &v
 		}
-		occ, err := Materialize(MaterializeInput{
+		occ, err := Materialize(ctx, MaterializeInput{
 			Weekdays:        oldWeekdays,
 			StartDate:       startDate,
 			EndDate:         endDate,
@@ -284,18 +287,45 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		return SplitResult{}, fmt.Errorf("series missing end bound")
 	}
 
-	// New series end bound: use overrides if provided, else keep old.
-	var newEndDate pgtype.Date
-	var newCount pgtype.Int4
+	// New series end bound: use overrides if provided, else keep old. Materialize
+	// before converting the validated count and duration to database int32 values.
+	var endLD *LocalDate
 	if p.EndDate != nil {
-		newEndDate = pgtype.Date{Time: time.Date(p.EndDate.Year, p.EndDate.Month, p.EndDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+		tmp := *p.EndDate
+		endLD = &tmp
 	} else if old.EndDate.Valid {
-		newEndDate = old.EndDate
+		tmp := LocalDateFromPgDate(old.EndDate)
+		endLD = &tmp
 	}
+	var countNew *int
 	if p.Count != nil {
-		newCount = pgtype.Int4{Int32: int32(*p.Count), Valid: true}
+		v := *p.Count
+		countNew = &v
 	} else if old.Count.Valid {
-		newCount = old.Count
+		v := int(old.Count.Int32)
+		countNew = &v
+	}
+
+	occNew, err := Materialize(ctx, MaterializeInput{
+		Weekdays:        newWeekdays,
+		StartDate:       p.PivotDate,
+		EndDate:         endLD,
+		Count:           countNew,
+		StartLocalTime:  clock,
+		DurationMinutes: duration,
+		Location:        s.loc,
+	})
+	if err != nil {
+		return SplitResult{}, err
+	}
+
+	var newEndDate pgtype.Date
+	if endLD != nil {
+		newEndDate = pgtype.Date{Time: time.Date(endLD.Year, endLD.Month, endLD.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	var newCount pgtype.Int4
+	if countNew != nil {
+		newCount = pgtype.Int4{Int32: int32(*countNew), Valid: true}
 	}
 
 	// Create new series.
@@ -323,31 +353,6 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		StartDate:       startDateNew,
 		EndDate:         newEndDate,
 		Count:           newCount,
-	})
-	if err != nil {
-		return SplitResult{}, err
-	}
-
-	// Materialize future occurrences for new series only (>= pivot date).
-	startDateLD := p.PivotDate
-	var endLD *LocalDate
-	if newEndDate.Valid {
-		tmp := LocalDateFromPgDate(newEndDate)
-		endLD = &tmp
-	}
-	var countNew *int
-	if newCount.Valid {
-		v := int(newCount.Int32)
-		countNew = &v
-	}
-	occNew, err := Materialize(MaterializeInput{
-		Weekdays:        newWeekdays,
-		StartDate:       startDateLD,
-		EndDate:         endLD,
-		Count:           countNew,
-		StartLocalTime:  clock,
-		DurationMinutes: duration,
-		Location:        s.loc,
 	})
 	if err != nil {
 		return SplitResult{}, err
@@ -461,6 +466,20 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 		return EditEntireFutureResult{}, fmt.Errorf("stale_edit")
 	}
 
+	startDate := LocalDateFromPgDate(ser.StartDate)
+	occ, err := Materialize(ctx, MaterializeInput{
+		Weekdays:        p.Weekdays,
+		StartDate:       startDate,
+		EndDate:         p.EndDate,
+		Count:           p.Count,
+		StartLocalTime:  p.StartLocalTime,
+		DurationMinutes: p.DurationMinutes,
+		Location:        s.loc,
+	})
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+
 	// Store weekdays as unique int16.
 	wds := make([]int16, 0, len(p.Weekdays))
 	seen := map[time.Weekday]struct{}{}
@@ -504,36 +523,6 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 	canceled, err := qtx.SessionHardDeleteFutureBySeriesCount(ctx, sqldb.SessionHardDeleteFutureBySeriesCountParams{
 		SeriesID: updated.ID,
 		StartAt:  pgtype.Timestamptz{Time: nowUTC, Valid: true},
-	})
-	if err != nil {
-		return EditEntireFutureResult{}, err
-	}
-
-	// Re-materialize full series, then re-add only occurrences in the future.
-	startDate := LocalDateFromPgDate(updated.StartDate)
-	var endLD *LocalDate
-	if updated.EndDate.Valid {
-		tmp := LocalDateFromPgDate(updated.EndDate)
-		endLD = &tmp
-	}
-	var countPtr *int
-	if updated.Count.Valid {
-		v := int(updated.Count.Int32)
-		countPtr = &v
-	}
-	wdays := make([]time.Weekday, 0, len(updated.Weekdays))
-	for _, wd := range updated.Weekdays {
-		wdays = append(wdays, time.Weekday(wd))
-	}
-
-	occ, err := Materialize(MaterializeInput{
-		Weekdays:        wdays,
-		StartDate:       startDate,
-		EndDate:         endLD,
-		Count:           countPtr,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		Location:        s.loc,
 	})
 	if err != nil {
 		return EditEntireFutureResult{}, err
@@ -691,7 +680,7 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 			v := int(ser.Count.Int32)
 			countPtr = &v
 		}
-		occ, err := Materialize(MaterializeInput{
+		occ, err := Materialize(ctx, MaterializeInput{
 			Weekdays:        oldWeekdays,
 			StartDate:       startDate,
 			EndDate:         endDate,

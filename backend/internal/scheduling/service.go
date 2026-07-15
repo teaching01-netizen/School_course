@@ -115,7 +115,7 @@ type PreflightSeriesResult struct {
 // path (CreateSeriesAndMaterialize), which will reject real conflicts at
 // commit time.
 func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) (PreflightSeriesResult, *Err, error) {
-	occ, err := series.Materialize(series.MaterializeInput{
+	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
 		StartDate:       p.StartDate,
 		EndDate:         p.EndDate,
@@ -188,7 +188,7 @@ type CreateSeriesResult struct {
 // CreateSeriesAndMaterializeTx performs series creation using an existing tx-bound
 // handle. The caller owns begin/commit/rollback. Preflight runs inside the tx.
 func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, p CreateSeriesParams) (CreateSeriesResult, error) {
-	occ, err := series.Materialize(series.MaterializeInput{
+	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
 		StartDate:       p.StartDate,
 		EndDate:         p.EndDate,
@@ -429,7 +429,7 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 		return EditEntireSeriesResult{}, err
 	}
 	startLD := localDateFromPgDate(ser.StartDate)
-	occ, err := series.Materialize(series.MaterializeInput{
+	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
 		StartDate:       startLD,
 		EndDate:         p.EndDate,
@@ -502,7 +502,7 @@ func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireSe
 		return EditEntireSeriesResult{}, err
 	}
 	startLD := localDateFromPgDate(ser.StartDate)
-	occ, err := series.Materialize(series.MaterializeInput{
+	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
 		StartDate:       startLD,
 		EndDate:         p.EndDate,

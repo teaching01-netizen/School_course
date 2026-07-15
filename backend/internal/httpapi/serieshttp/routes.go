@@ -14,6 +14,7 @@ import (
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 func mustUUIDStringOrEmptySeries(a httpadapter.Adapter, u pgtype.UUID) string {
@@ -65,6 +66,15 @@ func buildStaleEditPayloadSeries(a httpadapter.Adapter, r *http.Request, ser sql
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
+}
+
+func (s *server) writeRecurrenceValidationErr(w http.ResponseWriter, err error) bool {
+	var validationErr *series.ValidationError
+	if !errors.As(err, &validationErr) {
+		return false
+	}
+	s.a.WriteErr(w, http.StatusBadRequest, "invalid_recurrence", validationErr.Message)
+	return true
 }
 
 func (s *server) publishSessionsChanged(id string) {
@@ -185,6 +195,9 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
+			if s.writeRecurrenceValidationErr(w, err) {
+				return 0, nil, err
+			}
 			var se *scheduling.Err
 			if errors.As(err, &se) {
 				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
@@ -383,6 +396,9 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
+			if s.writeRecurrenceValidationErr(w, err) {
+				return 0, nil, err
+			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
 				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
@@ -499,6 +515,9 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			ExpectedVersion: *body.ExpectedVersion,
 		})
 		if err != nil {
+			if s.writeRecurrenceValidationErr(w, err) {
+				return 0, nil, err
+			}
 			switch err.Error() {
 			case "stale_edit":
 				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
@@ -663,6 +682,9 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			Count:           body.Count,
 		})
 		if err != nil {
+			if s.writeRecurrenceValidationErr(w, err) {
+				return 0, nil, err
+			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
 				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
