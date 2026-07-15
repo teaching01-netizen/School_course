@@ -76,23 +76,24 @@ func isSerializationErr(err error) bool {
 // CreateSeriesAndMaterializeTx performs the series creation and session materialization
 // using an existing transaction-bound Queries handle. Does not manage begin/commit/rollback.
 func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Queries, p CreateParams) (CreateResult, error) {
-	if err := validateCountAndDuration(p.Count, p.DurationMinutes); err != nil {
-		return CreateResult{}, err
+	materializeInput := MaterializeInput{
+		Weekdays:        p.Weekdays,
+		StartDate:       p.StartDate,
+		EndDate:         p.EndDate,
+		Count:           p.Count,
+		StartLocalTime:  p.StartLocalTime,
+		DurationMinutes: p.DurationMinutes,
+		Location:        s.loc,
 	}
 	var occ []Occurrence
 	if p.Occurrences != nil {
+		if err := validateMaterializedOccurrences(ctx, materializeInput, p.Occurrences); err != nil {
+			return CreateResult{}, err
+		}
 		occ = p.Occurrences
 	} else {
 		var err error
-		occ, err = Materialize(ctx, MaterializeInput{
-			Weekdays:        p.Weekdays,
-			StartDate:       p.StartDate,
-			EndDate:         p.EndDate,
-			Count:           p.Count,
-			StartLocalTime:  p.StartLocalTime,
-			DurationMinutes: p.DurationMinutes,
-			Location:        s.loc,
-		})
+		occ, err = Materialize(ctx, materializeInput)
 		if err != nil {
 			return CreateResult{}, err
 		}
@@ -229,6 +230,8 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	if len(p.Weekdays) > 0 {
 		newWeekdays = p.Weekdays
 	}
+	inheritsLegacyDefinition := old.Count.Valid && len(p.Weekdays) == 0 && p.StartLocalTime == nil && p.DurationMinutes == nil && p.EndDate == nil && p.Count == nil
+	var legacyRemainingCount int32
 
 	pivotLocalStart := time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, clock.Hour, clock.Minute, 0, 0, s.loc)
 	pivotUTC := pivotLocalStart.UTC()
@@ -250,38 +253,23 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		}
 	} else if old.Count.Valid {
 		startDate := LocalDateFromPgDate(old.StartDate)
-		var endDate *LocalDate
-		if old.EndDate.Valid {
-			tmp := LocalDateFromPgDate(old.EndDate)
-			endDate = &tmp
-		}
-		var count *int
-		if old.Count.Valid {
-			v := int(old.Count.Int32)
-			count = &v
-		}
-		occ, err := Materialize(ctx, MaterializeInput{
-			Weekdays:        oldWeekdays,
-			StartDate:       startDate,
-			EndDate:         endDate,
-			Count:           count,
-			StartLocalTime:  ClockFromPgTime(old.StartLocalTime),
-			DurationMinutes: int(old.DurationMinutes),
-			Location:        s.loc,
-		})
+		before, err := retainedLegacyCount(ctx, oldWeekdays, startDate, p.PivotDate, old.Count.Int32)
 		if err != nil {
 			return SplitResult{}, err
 		}
-		before := 0
-		for _, o := range occ {
-			local := o.StartUTC.In(s.loc)
-			ld := LocalDate{Year: local.Year(), Month: local.Month(), Day: local.Day()}
-			if ld.Before(p.PivotDate) {
-				before++
+		legacyRemainingCount = old.Count.Int32 - before
+		bound := legacyRetainedBound(before, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
+		if bound.Count != nil {
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: old.Version}); err != nil {
+				return SplitResult{}, err
 			}
-		}
-		if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: int32(before), Valid: true}, Version: old.Version}); err != nil {
-			return SplitResult{}, err
+		} else {
+			if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
+				return SplitResult{}, err
+			}
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{}, Version: old.Version + 1}); err != nil {
+				return SplitResult{}, err
+			}
 		}
 	} else {
 		return SplitResult{}, fmt.Errorf("series missing end bound")
@@ -305,8 +293,18 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		v := int(old.Count.Int32)
 		countNew = &v
 	}
+	if inheritsLegacyDefinition {
+		if legacyRemainingCount <= 0 {
+			return SplitResult{}, newValidationError("no_remaining_occurrences", "no occurrences remain at or after pivot_date")
+		}
+		v := int(legacyRemainingCount)
+		if v > MaxOccurrences {
+			v = MaxOccurrences
+		}
+		countNew = &v
+	}
 
-	occNew, err := Materialize(ctx, MaterializeInput{
+	newMaterializeInput := MaterializeInput{
 		Weekdays:        newWeekdays,
 		StartDate:       p.PivotDate,
 		EndDate:         endLD,
@@ -314,7 +312,13 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		StartLocalTime:  clock,
 		DurationMinutes: duration,
 		Location:        s.loc,
-	})
+	}
+	var occNew []Occurrence
+	if inheritsLegacyDefinition {
+		occNew, err = materializeLegacyBounded(ctx, newMaterializeInput)
+	} else {
+		occNew, err = Materialize(ctx, newMaterializeInput)
+	}
 	if err != nil {
 		return SplitResult{}, err
 	}
@@ -670,38 +674,22 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 			oldWeekdays = append(oldWeekdays, time.Weekday(wd))
 		}
 		startDate := LocalDateFromPgDate(ser.StartDate)
-		var endDate *LocalDate
-		if ser.EndDate.Valid {
-			tmp := LocalDateFromPgDate(ser.EndDate)
-			endDate = &tmp
-		}
-		var countPtr *int
-		if ser.Count.Valid {
-			v := int(ser.Count.Int32)
-			countPtr = &v
-		}
-		occ, err := Materialize(ctx, MaterializeInput{
-			Weekdays:        oldWeekdays,
-			StartDate:       startDate,
-			EndDate:         endDate,
-			Count:           countPtr,
-			StartLocalTime:  startClock,
-			DurationMinutes: int(ser.DurationMinutes),
-			Location:        s.loc,
-		})
+		before, err := retainedLegacyCount(ctx, oldWeekdays, startDate, pivotLocalDate, ser.Count.Int32)
 		if err != nil {
 			return CancelResult{}, err
 		}
-		before := 0
-		for _, o := range occ {
-			local := o.StartUTC.In(s.loc)
-			ld := LocalDate{Year: local.Year(), Month: local.Month(), Day: local.Day()}
-			if ld.Before(pivotLocalDate) {
-				before++
+		bound := legacyRetainedBound(before, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
+		if bound.Count != nil {
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: ser.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: ser.Version}); err != nil {
+				return CancelResult{}, err
 			}
-		}
-		if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: ser.ID, Count: pgtype.Int4{Int32: int32(before), Valid: true}, Version: ser.Version}); err != nil {
-			return CancelResult{}, err
+		} else {
+			if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: ser.ID, EndDate: dayBeforeDate, Version: ser.Version}); err != nil {
+				return CancelResult{}, err
+			}
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: ser.ID, Count: pgtype.Int4{}, Version: ser.Version + 1}); err != nil {
+				return CancelResult{}, err
+			}
 		}
 	} else {
 		return CancelResult{}, fmt.Errorf("series missing end bound")
