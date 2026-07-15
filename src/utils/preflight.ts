@@ -51,7 +51,11 @@ export function validateSeriesPreflight(
       return null;
     }
   } else {
-    if (!form.end_date || !endDateFitsHorizon(form.start_date, form.end_date)) {
+    if (
+      !form.end_date ||
+      !endDateFitsHorizon(form.start_date, form.end_date) ||
+      !endDateOccurrenceCountFits(form.start_date, form.end_date, weekdays)
+    ) {
       return null;
     }
   }
@@ -87,6 +91,28 @@ function endDateFitsHorizon(startDate: string, endDate: string): boolean {
   const end = parseDateOnly(endDate);
   if (!start || !end) return false;
   return end >= start && end <= horizonFrom(start);
+}
+
+function endDateOccurrenceCountFits(
+  startDate: string,
+  endDate: string,
+  weekdays: number[],
+): boolean {
+  const cursor = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+  if (!cursor || !end) return false;
+
+  const allowedWeekdays = new Set(weekdays);
+  let occurrences = 0;
+  while (cursor <= end) {
+    if (allowedWeekdays.has(cursor.getUTCDay())) {
+      occurrences += 1;
+      if (occurrences > MAX_SERIES_OCCURRENCES) return false;
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return occurrences > 0;
 }
 
 function countFitsHorizon(startDate: string, weekdays: number[], count: number): boolean {

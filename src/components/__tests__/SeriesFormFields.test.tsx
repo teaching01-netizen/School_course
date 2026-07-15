@@ -74,4 +74,32 @@ describe("SeriesFormFields recurrence limits", () => {
       validateSeriesPreflight({ ...validForm, end_date: "2031-08-04" }, false),
     ).toBeNull();
   });
+
+  it("accepts exactly 1000 end-date occurrences and rejects 1001", () => {
+    const dailyForm = {
+      ...validForm,
+      weekdays: [true, true, true, true, true, true, true],
+      start_date: "2026-01-01",
+    };
+
+    expect(
+      validateSeriesPreflight({ ...dailyForm, end_date: "2028-09-26" }, false),
+    ).not.toBeNull();
+    expect(
+      validateSeriesPreflight({ ...dailyForm, end_date: "2028-09-27" }, false),
+    ).toBeNull();
+  });
+
+  it("rejects an end-date range containing no selected weekday", () => {
+    expect(
+      validateSeriesPreflight(
+        {
+          ...validForm,
+          start_date: "2026-08-04",
+          end_date: "2026-08-05",
+        },
+        false,
+      ),
+    ).toBeNull();
+  });
 });
