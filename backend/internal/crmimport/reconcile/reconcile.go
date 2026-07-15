@@ -16,6 +16,7 @@ import (
 	"warwick-institute/internal/crmimport/crmtypes"
 	"warwick-institute/internal/crmimport/queue"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 )
@@ -334,6 +335,14 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 	}
 	includeRows.Close()
 
+	// Hold the course lock while snapshotting the current roster, then lock
+	// the union of current and desired students before any trigger-producing
+	// course_students writes.
+	qtx := sqldb.New(tx)
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{courseID}}); err != nil {
+		return nil, fmt.Errorf("lock reconcile course: %w", err)
+	}
+
 	curRows, err := tx.Query(ctx, `SELECT student_id FROM course_students WHERE course_id = $1`, courseID)
 	if err != nil {
 		return nil, fmt.Errorf("query current students: %w", err)
@@ -351,6 +360,16 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		}
 	}
 	curRows.Close()
+	studentLocks := make([]pgtype.UUID, 0, len(currentSet)+len(finalDesired))
+	for _, id := range currentSet {
+		studentLocks = append(studentLocks, id)
+	}
+	for _, id := range finalDesired {
+		studentLocks = append(studentLocks, id)
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{StudentIDs: studentLocks}); err != nil {
+		return nil, fmt.Errorf("lock reconcile students: %w", err)
+	}
 
 	added := 0
 	removed := 0
@@ -363,7 +382,6 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		}
 	}
 
-	qtx := sqldb.New(tx)
 	for wcode, pgid := range finalDesired {
 		if !pgid.Valid {
 			continue
@@ -389,6 +407,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		if desiredUUIDSet[uid] {
 			continue
 		}
+		// course and student locks are held above.
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM course_students WHERE course_id = $1 AND student_id = $2`,
 			courseID, pgid,
@@ -1079,6 +1098,13 @@ func (s *ReconcileV2Service) ResolveStudentScheduleConflictAndEnqueue(ctx contex
 		}
 		return nil, fmt.Errorf("load course: %w", err)
 	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{courseID},
+		StudentIDs: []pgtype.UUID{student.ID},
+		SessionIDs: uniqueSessions,
+	}); err != nil {
+		return nil, fmt.Errorf("lock conflict-resolution schedule resources: %w", err)
+	}
 
 	validRows, err := tx.Query(ctx, `
 		SELECT id
@@ -1105,6 +1131,7 @@ func (s *ReconcileV2Service) ResolveStudentScheduleConflictAndEnqueue(ctx contex
 	}
 
 	for _, sessionID := range uniqueSessions {
+		// course, student, and session locks are held above.
 		if err := qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{
 			SessionID: sessionID,
 			StudentID: student.ID,

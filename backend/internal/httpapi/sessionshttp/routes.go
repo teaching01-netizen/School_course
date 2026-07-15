@@ -330,28 +330,20 @@ func (s *server) handleSessionsDelete(w http.ResponseWriter, r *http.Request) {
 	deletedID := r.PathValue("id")
 	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		existing, err := qtx.SessionGetByID(r.Context(), id)
+		existing, err := s.deps.Scheduling.DeleteSessionTx(r.Context(), qtx, id, *body.ExpectedVersion)
 		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		if existing.Version != *body.ExpectedVersion {
-			dto := map[string]any{
-				"id": r.PathValue("id"), "series_id": nil,
-				"course_id": mustUUIDStringOrEmpty(s.a, existing.CourseID), "room_id": uuidOrNull(s.a, existing.RoomID),
-				"teacher_id": mustUUIDStringOrEmpty(s.a, existing.TeacherID), "start_at": existing.StartAt.Time.UTC().Format(time.RFC3339Nano),
-				"end_at": existing.EndAt.Time.UTC().Format(time.RFC3339Nano), "version": existing.Version,
-			}
-			if existing.SeriesID.Valid {
-				dto["series_id"] = mustUUIDStringOrEmpty(s.a, existing.SeriesID)
-			}
-			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": dto})
-			return 0, nil, errors.New("stale_edit")
-		}
-		if _, err := qtx.SessionHardDelete(r.Context(), sqldb.SessionHardDeleteParams{ID: id, Version: *body.ExpectedVersion}); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"message": "session already deleted or version mismatch"})
+			var scheduleErr *scheduling.Err
+			if errors.As(err, &scheduleErr) && scheduleErr.Code == "stale_edit" {
+				dto := map[string]any{
+					"id": r.PathValue("id"), "series_id": nil,
+					"course_id": mustUUIDStringOrEmpty(s.a, existing.CourseID), "room_id": uuidOrNull(s.a, existing.RoomID),
+					"teacher_id": mustUUIDStringOrEmpty(s.a, existing.TeacherID), "start_at": existing.StartAt.Time.UTC().Format(time.RFC3339Nano),
+					"end_at": existing.EndAt.Time.UTC().Format(time.RFC3339Nano), "version": existing.Version,
+				}
+				if existing.SeriesID.Valid {
+					dto["series_id"] = mustUUIDStringOrEmpty(s.a, existing.SeriesID)
+				}
+				s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": dto})
 				return 0, nil, err
 			}
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -791,10 +783,7 @@ func (s *server) handleSessionAttendanceDelete(w http.ResponseWriter, r *http.Re
 
 	if s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.SessionAttendanceDelete(r.Context(), sqldb.SessionAttendanceDeleteParams{
-			SessionID: sessionID,
-			StudentID: studentID,
-		}); err != nil {
+		if err := s.deps.Scheduling.DeleteSessionAttendanceTx(r.Context(), qtx, sessionID, studentID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err

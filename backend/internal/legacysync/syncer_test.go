@@ -22,6 +22,8 @@ import (
 	"github.com/pressly/goose/v3"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 func randString(n int) string {
@@ -252,6 +254,92 @@ func TestSyncer_ConcurrentSyncNoDuplicateSessions(t *testing.T) {
 	}
 }
 
+func TestScheduleDB_ConcurrentLegacySyncAndRosterChangePreservesBusyRanges(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	pool := newPool(t, databaseURL)
+	t.Cleanup(pool.Close)
+	q := sqldb.New(pool)
+	ctx := context.Background()
+	var teacherID, courseID, studentID pgtype.UUID
+	suffix := randString(8)
+	if err := pool.QueryRow(ctx, `INSERT INTO users(username,role,password_hash) VALUES($1,'Teacher','x') RETURNING id`, "legacy-race-teacher-"+suffix).Scan(&teacherID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO courses(code,name,teacher_id) VALUES($1,'Legacy race',$2) RETURNING id`, "LEGACY-RACE-"+suffix, teacherID).Scan(&courseID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO students(wcode,full_name) VALUES($1,'Legacy race student') RETURNING id`, "legacy-race-student-"+suffix).Scan(&studentID); err != nil {
+		t.Fatal(err)
+	}
+	loc, _ := time.LoadLocation("Asia/Bangkok")
+	day := time.Now().In(loc).AddDate(0, 0, 18)
+	rows := []ParsedRow{{Date: day, Begin: "09:00", End: "10:00", Classroom: "[NOT SET]"}}
+	initialStart := time.Date(day.Year(), day.Month(), day.Day(), 8, 0, 0, 0, loc).UTC()
+	if _, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+		CourseID: courseID, TeacherID: teacherID,
+		StartAt: pgtype.Timestamptz{Time: initialStart, Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: initialStart.Add(time.Hour), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	syncer := NewSyncer(pool, q, slog.New(slog.NewTextHandler(os.Stderr, nil)), loc)
+	seriesSvc, err := series.NewService(pool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulingSvc, err := scheduling.NewService(pool, "Asia/Bangkok", seriesSvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raceCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	run := func(fn func(context.Context) error, ready <-chan struct{}, result chan<- error, started *sync.WaitGroup) {
+		started.Done()
+		<-ready
+		result <- fn(raceCtx)
+	}
+	ready := make(chan struct{})
+	result := make(chan error, 2)
+	var started sync.WaitGroup
+	started.Add(2)
+	go run(func(ctx context.Context) error { _, err := syncer.SyncCourse(ctx, courseID, rows, nil); return err }, ready, result, &started)
+	go run(func(ctx context.Context) error {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := schedulingSvc.AddCourseStudentTx(ctx, tx, q.WithTx(tx), courseID, studentID, scheduling.CourseStudentStatusEnrolled); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}, ready, result, &started)
+	started.Wait()
+	close(ready)
+	for range 2 {
+		if err := <-result; err != nil {
+			t.Fatalf("race error: %v", err)
+		}
+	}
+	var count int
+	var matches bool
+	if err := pool.QueryRow(ctx, `SELECT count(*),COALESCE(bool_and(sbr.start_at=s.start_at AND sbr.end_at=s.end_at),false) FROM student_busy_ranges sbr JOIN sessions s ON s.id=sbr.session_id WHERE sbr.student_id=$1 AND sbr.deleted_at IS NULL AND s.deleted_at IS NULL`, studentID).Scan(&count, &matches); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || !matches {
+		t.Fatalf("busy-range invariant: count=%d matches=%v", count, matches)
+	}
+	var totalSessions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE course_id=$1`, courseID).Scan(&totalSessions); err != nil {
+		t.Fatal(err)
+	}
+	if totalSessions != 1 {
+		t.Fatalf("legacy sync retained replaced sessions: total=%d want=1 (migration 00028 requires hard delete)", totalSessions)
+	}
+}
+
 func TestSyncer_SetsSeriesIDToNull(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
@@ -352,7 +440,7 @@ func TestSyncer_ReplacesExistingSessions(t *testing.T) {
 		t.Errorf("expected 1 session created, got %d", result.SessionsCreated)
 	}
 
-	// Verify only 1 active session (old should be soft-deleted)
+	// Verify only the replacement remains (migration 00028 requires hard delete).
 	var activeCount int
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE course_id = $1 AND deleted_at IS NULL`, courseID).Scan(&activeCount)
 	if err != nil {
@@ -362,14 +450,14 @@ func TestSyncer_ReplacesExistingSessions(t *testing.T) {
 		t.Errorf("expected 1 active session, got %d", activeCount)
 	}
 
-	// Old session should have deleted_at set
+	// Old session and its children are removed, not retained as tombstones.
 	var deletedCount int
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE course_id = $1 AND deleted_at IS NOT NULL`, courseID).Scan(&deletedCount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deletedCount != 1 {
-		t.Errorf("expected 1 soft-deleted session, got %d", deletedCount)
+	if deletedCount != 0 {
+		t.Errorf("expected no soft-deleted sessions, got %d", deletedCount)
 	}
 }
 

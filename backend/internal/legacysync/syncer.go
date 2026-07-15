@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 )
 
 type Syncer struct {
@@ -47,12 +48,57 @@ func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []Pa
 
 	qtx := s.q.WithTx(tx)
 
-	if _, err := tx.Exec(ctx, `SELECT id FROM courses WHERE id = $1 FOR UPDATE`, courseID); err != nil {
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{courseID}}); err != nil {
 		return nil, fmt.Errorf("lock course: %w", err)
 	}
+	// Re-read after the course lock wait and acquire every trigger-relevant
+	// resource in the shared course→student→teacher→room→session order.
+	lockedCourse, err := qtx.CourseGetLegacyFields(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("reload course: %w", err)
+	}
+	if !lockedCourse.TeacherID.Valid {
+		return nil, fmt.Errorf("course has no teacher assigned")
+	}
+	teacherID = lockedCourse.TeacherID
+	students, err := qtx.CourseStudentsList(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("list course students: %w", err)
+	}
+	studentIDs := make([]pgtype.UUID, 0, len(students))
+	for _, student := range students {
+		studentIDs = append(studentIDs, student.StudentID)
+	}
+	existing, err := qtx.SessionListActiveByCourse(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("list existing sessions: %w", err)
+	}
+	sessionIDs := make([]pgtype.UUID, 0, len(existing))
+	roomIDs := make([]pgtype.UUID, 0, len(existing)+len(rows))
+	for _, session := range existing {
+		sessionIDs = append(sessionIDs, session.ID)
+		roomIDs = append(roomIDs, session.RoomID)
+	}
+	for _, row := range rows {
+		if matched := MatchRoom(row.Classroom, rooms); matched != nil {
+			if roomID, roomErr := pgTypeUUID(matched.ID); roomErr == nil {
+				roomIDs = append(roomIDs, roomID)
+			}
+		}
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{teacherID},
+		RoomIDs:    roomIDs,
+		SessionIDs: sessionIDs,
+	}); err != nil {
+		return nil, fmt.Errorf("lock schedule resources: %w", err)
+	}
 
-	if _, err := tx.Exec(ctx, `UPDATE sessions SET deleted_at = NOW() WHERE course_id = $1 AND deleted_at IS NULL`, courseID); err != nil {
-		return nil, fmt.Errorf("soft-delete existing sessions: %w", err)
+	// Migration 00028 made session children cascade on hard delete. Keeping
+	// soft-deleted rows here would retain stale attendance and busy ranges.
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE course_id = $1`, courseID); err != nil {
+		return nil, fmt.Errorf("hard-delete existing sessions: %w", err)
 	}
 
 	created := 0

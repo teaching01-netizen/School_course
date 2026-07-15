@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 )
 
 type CourseStudentStatus string
@@ -18,6 +19,13 @@ const (
 )
 
 func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, studentID pgtype.UUID, status CourseStudentStatus) error {
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{courseID},
+		StudentIDs: []pgtype.UUID{studentID},
+	}); err != nil {
+		return err
+	}
+
 	alreadyRostered, err := courseStudentExists(ctx, tx, courseID, studentID)
 	if err != nil {
 		return err
@@ -61,7 +69,48 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 	return nil
 }
 
+func (s *Service) RemoveCourseStudentTx(ctx context.Context, qtx *sqldb.Queries, courseID, studentID pgtype.UUID) error {
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{courseID},
+		StudentIDs: []pgtype.UUID{studentID},
+	}); err != nil {
+		return err
+	}
+	return qtx.CourseStudentRemove(ctx, sqldb.CourseStudentRemoveParams{CourseID: courseID, StudentID: studentID})
+}
+
+func (s *Service) ConvertCourseStudentTx(ctx context.Context, qtx *sqldb.Queries, courseID, studentID pgtype.UUID) (int64, error) {
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{courseID},
+		StudentIDs: []pgtype.UUID{studentID},
+	}); err != nil {
+		return 0, err
+	}
+	return qtx.CourseStudentUpdateStatusRow(ctx, sqldb.CourseStudentUpdateStatusRowParams{
+		CourseID: courseID, StudentID: studentID, NewStatus: "enrolled", OldStatus: "draft",
+	})
+}
+
 func (s *Service) UpsertSessionAttendanceTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID, status string) error {
+	session, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{session.CourseID},
+		StudentIDs: []pgtype.UUID{studentID},
+		SessionIDs: []pgtype.UUID{sessionID},
+	}); err != nil {
+		return err
+	}
+	lockedSession, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if lockedSession.DeletedAt.Valid || lockedSession.CourseID != session.CourseID {
+		return &Err{Code: "stale_edit", Message: "session has been modified"}
+	}
+
 	if status == "included" {
 		preflightIn, ok, err := s.sessionIncludedStudentPreflightInput(ctx, qtx, sessionID, studentID)
 		if err != nil {
@@ -87,6 +136,28 @@ func (s *Service) UpsertSessionAttendanceTx(ctx context.Context, tx pgx.Tx, qtx 
 	}
 
 	return qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{SessionID: sessionID, StudentID: studentID, Status: status})
+}
+
+func (s *Service) DeleteSessionAttendanceTx(ctx context.Context, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID) error {
+	session, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{session.CourseID},
+		StudentIDs: []pgtype.UUID{studentID},
+		SessionIDs: []pgtype.UUID{sessionID},
+	}); err != nil {
+		return err
+	}
+	lockedSession, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if lockedSession.DeletedAt.Valid || lockedSession.CourseID != session.CourseID {
+		return &Err{Code: "stale_edit", Message: "session has been modified"}
+	}
+	return qtx.SessionAttendanceDelete(ctx, sqldb.SessionAttendanceDeleteParams{SessionID: sessionID, StudentID: studentID})
 }
 
 func withSavepoint(ctx context.Context, tx pgx.Tx, fn func(qsp *sqldb.Queries) error) error {

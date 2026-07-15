@@ -733,6 +733,51 @@ func (s *Service) CreateSession(ctx context.Context, p CreateSessionParams) (Cre
 	return result, nil
 }
 
+func (s *Service) DeleteSessionTx(ctx context.Context, qtx *sqldb.Queries, sessionID pgtype.UUID, expectedVersion int32) (sqldb.SessionGetByIDRow, error) {
+	discovered, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return sqldb.SessionGetByIDRow{}, err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{discovered.CourseID}}); err != nil {
+		return sqldb.SessionGetByIDRow{}, err
+	}
+	students, _, err := effectiveStudentIDsForSession(ctx, qtx, sessionID, discovered.CourseID, false)
+	if err != nil {
+		return sqldb.SessionGetByIDRow{}, err
+	}
+	studentIDs := make([]pgtype.UUID, 0)
+	if students == nil {
+		roster, listErr := qtx.CourseStudentsList(ctx, discovered.CourseID)
+		if listErr != nil {
+			return sqldb.SessionGetByIDRow{}, listErr
+		}
+		for _, student := range roster {
+			studentIDs = append(studentIDs, student.StudentID)
+		}
+	} else {
+		studentIDs = append(studentIDs, (*students)...)
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{discovered.TeacherID},
+		RoomIDs:    []pgtype.UUID{discovered.RoomID},
+		SessionIDs: []pgtype.UUID{sessionID},
+	}); err != nil {
+		return sqldb.SessionGetByIDRow{}, err
+	}
+	existing, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return sqldb.SessionGetByIDRow{}, err
+	}
+	if existing.DeletedAt.Valid || !sameSessionIdentity(discovered, existing) || existing.Version != expectedVersion {
+		return existing, &Err{Code: "stale_edit", Message: "session has been modified"}
+	}
+	if _, err := qtx.SessionHardDelete(ctx, sqldb.SessionHardDeleteParams{ID: sessionID, Version: expectedVersion}); err != nil {
+		return existing, err
+	}
+	return existing, nil
+}
+
 type EditOccurrenceParams struct {
 	SessionID       pgtype.UUID
 	StartAt         *pgtype.Timestamptz
@@ -770,8 +815,32 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	if p.TeacherID != nil && p.TeacherID.Valid {
 		proposedTeacherID = *p.TeacherID
 	}
+	courseIDs := []pgtype.UUID{discovered.CourseID, proposedCourseID}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: courseIDs}); err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	// Course locks freeze both rosters while the effective student set is
+	// discovered. Lock those students before teacher/room/session rows so a
+	// concurrent attendance or roster trigger cannot retain the old interval.
+	studentIDs := make([]pgtype.UUID, 0)
+	for _, courseID := range courseIDs {
+		students, listErr := qtx.CourseStudentsList(ctx, courseID)
+		if listErr != nil {
+			return EditOccurrenceResult{}, listErr
+		}
+		for _, student := range students {
+			studentIDs = append(studentIDs, student.StudentID)
+		}
+	}
+	overrideStudents, _, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, proposedCourseID, discovered.CourseID != proposedCourseID)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	if overrideStudents != nil {
+		studentIDs = append(studentIDs, (*overrideStudents)...)
+	}
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
-		CourseIDs:  []pgtype.UUID{discovered.CourseID, proposedCourseID},
+		StudentIDs: studentIDs,
 		TeacherIDs: []pgtype.UUID{discovered.TeacherID, proposedTeacherID},
 		RoomIDs:    []pgtype.UUID{discovered.RoomID, proposedRoomID},
 		SessionIDs: []pgtype.UUID{p.SessionID},

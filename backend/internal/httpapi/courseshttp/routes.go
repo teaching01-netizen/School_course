@@ -472,7 +472,7 @@ func (s *server) handleCourseStudentsRemove(w http.ResponseWriter, r *http.Reque
 
 	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.CourseStudentRemove(r.Context(), sqldb.CourseStudentRemoveParams{CourseID: courseID, StudentID: studentID}); err != nil {
+		if err := s.deps.Scheduling.RemoveCourseStudentTx(r.Context(), qtx, courseID, studentID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -589,12 +589,7 @@ func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Requ
 		qtx := s.deps.Q.WithTx(tx)
 
 		// Only update if currently draft.
-		rows, err := qtx.CourseStudentUpdateStatusRow(r.Context(), sqldb.CourseStudentUpdateStatusRowParams{
-			CourseID:  courseID,
-			StudentID: studentID,
-			NewStatus: "enrolled",
-			OldStatus: "draft",
-		})
+		rows, err := s.deps.Scheduling.ConvertCourseStudentTx(r.Context(), qtx, courseID, studentID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

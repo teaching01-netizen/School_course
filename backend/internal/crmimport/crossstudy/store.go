@@ -9,10 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 )
 
 type Store struct {
 	db *pgxpool.Pool
+}
+
+func scheduleUUID(id uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: [16]byte(id), Valid: id != uuid.Nil}
 }
 
 func NewStore(db *pgxpool.Pool) *Store {
@@ -22,6 +29,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 // ExcludeStudent removes a student from course_students.
 // The trigger on course_students automatically soft-deletes student_busy_ranges.
 func (s *Store) ExcludeStudent(ctx context.Context, tx pgx.Tx, courseID, studentID uuid.UUID) error {
+	// The caller holds the affected course and explicit student locks.
 	_, err := tx.Exec(ctx, `DELETE FROM course_students WHERE course_id = $1 AND student_id = $2`, courseID, studentID)
 	return err
 }
@@ -29,6 +37,7 @@ func (s *Store) ExcludeStudent(ctx context.Context, tx pgx.Tx, courseID, student
 // IncludeStudent adds a student to course_students.
 // The trigger on course_students automatically inserts student_busy_ranges.
 func (s *Store) IncludeStudent(ctx context.Context, tx pgx.Tx, courseID, studentID uuid.UUID) error {
+	// The caller holds the affected course and explicit student locks.
 	_, err := tx.Exec(ctx, `INSERT INTO course_students (course_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, courseID, studentID)
 	return err
 }
@@ -79,6 +88,7 @@ func (s *Store) deleteCrossStudyOverride(ctx context.Context, tx pgx.Tx, courseI
 }
 
 func (s *Store) deleteCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx, assignmentID uuid.UUID) error {
+	// The caller holds all assignment course locks and the explicit student lock.
 	_, err := tx.Exec(ctx, `
 		DELETE FROM session_attendance
 		WHERE override_source = 'cross_study'
@@ -88,6 +98,7 @@ func (s *Store) deleteCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx
 }
 
 func (s *Store) insertCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx, assignmentID, studentID uuid.UUID, input SaveAssignmentInput) error {
+	// The caller holds both destination course locks and the explicit student lock.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO session_attendance
 			(session_id, student_id, status, override_source, cross_study_assignment_id)
@@ -329,6 +340,27 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	}
 	hasExistingAssignment = err == nil
 	storageSourceCourseID := input.DestCourseAID
+
+	affectedCourses := []uuid.UUID{input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID}
+	if hasExistingAssignment {
+		affectedCourses = append(affectedCourses, existingSourceCourseID, existingDestCourseAID, existingDestCourseBID, existingAssignedCourseID)
+	}
+	if input.CRMCourseName != "" {
+		matching, matchErr := s.coursesMatchingCRMCourseName(ctx, tx, input.CRMCourseName)
+		if matchErr != nil {
+			return fmt.Errorf("find affected source courses: %w", matchErr)
+		}
+		affectedCourses = append(affectedCourses, matching...)
+	}
+	courseLocks := make([]pgtype.UUID, 0, len(affectedCourses))
+	for _, id := range affectedCourses {
+		courseLocks = append(courseLocks, scheduleUUID(id))
+	}
+	if err := schedulelock.LockResources(ctx, sqldb.New(tx), schedulelock.ResourceLocks{
+		CourseIDs: courseLocks, StudentIDs: []pgtype.UUID{scheduleUUID(studentID)},
+	}); err != nil {
+		return fmt.Errorf("lock cross-study roster resources: %w", err)
+	}
 
 	destAAlreadyEnrolled, err := s.courseStudentExists(ctx, tx, input.DestCourseAID, studentID)
 	if err != nil {
@@ -606,6 +638,41 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("lookup student for override cleanup: %w", err)
 	}
 
+	// Discover every course this assignment may mutate before taking the
+	// canonical course→student locks.
+	excludeRows, err := tx.Query(ctx, `
+		SELECT course_id FROM course_roster_overrides
+		WHERE cross_study_assignment_id = $1
+		  AND action = 'exclude'::override_action
+		  AND override_source = 'cross_study'
+		  AND deleted_at IS NULL
+	`, assignmentID)
+	if err != nil {
+		return fmt.Errorf("query excluded courses: %w", err)
+	}
+	var excludedCourseIDs []uuid.UUID
+	for excludeRows.Next() {
+		var cid uuid.UUID
+		if err := excludeRows.Scan(&cid); err != nil {
+			excludeRows.Close()
+			return fmt.Errorf("scan excluded course: %w", err)
+		}
+		excludedCourseIDs = append(excludedCourseIDs, cid)
+	}
+	excludeRows.Close()
+	courseIDs := []uuid.UUID{srcCourseID, destCourseAID, destCourseBID, asgnCourseID}
+	courseIDs = append(courseIDs, excludedCourseIDs...)
+	courseLocks := make([]pgtype.UUID, 0, len(courseIDs))
+	for _, courseID := range courseIDs {
+		courseLocks = append(courseLocks, scheduleUUID(courseID))
+	}
+	if err := schedulelock.LockResources(ctx, sqldb.New(tx), schedulelock.ResourceLocks{
+		CourseIDs: courseLocks, StudentIDs: []pgtype.UUID{scheduleUUID(studentID)},
+	}); err != nil {
+		return fmt.Errorf("lock cross-study delete resources: %w", err)
+	}
+
+	// Course and student locks are held for this direct attendance write.
 	if err := s.deleteCrossStudySessionAttendance(ctx, tx, assignmentID); err != nil {
 		return fmt.Errorf("delete scoped session attendance: %w", err)
 	}
@@ -639,27 +706,6 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 	// Restore all source courses that were excluded by this cross-study assignment.
-	excludeRows, err := tx.Query(ctx, `
-		SELECT course_id FROM course_roster_overrides
-		WHERE cross_study_assignment_id = $1
-		  AND action = 'exclude'::override_action
-		  AND override_source = 'cross_study'
-		  AND deleted_at IS NULL
-	`, assignmentID)
-	if err != nil {
-		return fmt.Errorf("query excluded courses: %w", err)
-	}
-	var excludedCourseIDs []uuid.UUID
-	for excludeRows.Next() {
-		var cid uuid.UUID
-		if err := excludeRows.Scan(&cid); err != nil {
-			excludeRows.Close()
-			return fmt.Errorf("scan excluded course: %w", err)
-		}
-		excludedCourseIDs = append(excludedCourseIDs, cid)
-	}
-	excludeRows.Close()
-
 	for _, courseID := range excludedCourseIDs {
 		required, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, courseID, assignmentID)
 		if err != nil {
