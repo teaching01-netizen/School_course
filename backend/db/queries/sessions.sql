@@ -77,6 +77,19 @@ WITH del AS (
 SELECT count(*)::int4 AS canceled
 FROM del;
 
+-- name: SessionReparentFutureBySeries :one
+WITH moved AS (
+  UPDATE sessions
+  SET series_id = sqlc.arg(new_series_id),
+      updated_at = now(),
+      version = version + 1
+  WHERE series_id = sqlc.arg(old_series_id)
+    AND start_at >= sqlc.arg(start_at)
+  RETURNING 1
+)
+SELECT count(*)::int4 AS moved
+FROM moved;
+
 
 -- name: SessionAttendanceUpsert :exec
 INSERT INTO session_attendance (session_id, student_id, status)

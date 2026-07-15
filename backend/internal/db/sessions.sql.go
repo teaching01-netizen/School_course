@@ -459,6 +459,33 @@ func (q *Queries) SessionLockOverlappingForInsert(ctx context.Context, arg Sessi
 	return items, nil
 }
 
+const sessionReparentFutureBySeries = `-- name: SessionReparentFutureBySeries :one
+WITH moved AS (
+  UPDATE sessions
+  SET series_id = $1,
+      updated_at = now(),
+      version = version + 1
+  WHERE series_id = $2
+    AND start_at >= $3
+  RETURNING 1
+)
+SELECT count(*)::int4 AS moved
+FROM moved
+`
+
+type SessionReparentFutureBySeriesParams struct {
+	NewSeriesID pgtype.UUID        `json:"new_series_id"`
+	OldSeriesID pgtype.UUID        `json:"old_series_id"`
+	StartAt     pgtype.Timestamptz `json:"start_at"`
+}
+
+func (q *Queries) SessionReparentFutureBySeries(ctx context.Context, arg SessionReparentFutureBySeriesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sessionReparentFutureBySeries, arg.NewSeriesID, arg.OldSeriesID, arg.StartAt)
+	var moved int32
+	err := row.Scan(&moved)
+	return moved, err
+}
+
 const sessionUpdateOccurrence = `-- name: SessionUpdateOccurrence :one
 UPDATE sessions
 SET course_id = $2,

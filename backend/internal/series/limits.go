@@ -3,7 +3,6 @@ package series
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 )
 
@@ -127,53 +126,20 @@ func legacyRetainedBound(count int32, emptyEndDate LocalDate) legacyBound {
 	return legacyBound{EndDate: &emptyEndDate}
 }
 
-// materializeLegacyBounded is only for an unchanged definition inherited while
-// splitting a persisted series. It bypasses current policy limits but never emits
-// more than MaxOccurrences and checks cancellation on every iteration.
-func materializeLegacyBounded(ctx context.Context, in MaterializeInput) ([]Occurrence, error) {
-	if in.Location == nil {
-		return nil, newValidationError("location_required", "location required")
+func inheritedSuccessorBounds(endDate *LocalDate, count *int32, retainedCount int32) (*LocalDate, *int, error) {
+	var inheritedEnd *LocalDate
+	if endDate != nil {
+		copy := *endDate
+		inheritedEnd = &copy
 	}
-	if len(in.Weekdays) == 0 {
-		return nil, newValidationError("weekdays_required", "weekdays required")
-	}
-	if in.Count == nil || *in.Count <= 0 {
-		return nil, newValidationError("invalid_legacy_count", "persisted count must be > 0")
-	}
-	if in.DurationMinutes <= 0 || int64(in.DurationMinutes) > math.MaxInt64/int64(time.Minute) {
-		return nil, newValidationError("invalid_legacy_duration", "persisted duration is unsupported")
-	}
-	if in.StartLocalTime.Hour < 0 || in.StartLocalTime.Hour > 23 || in.StartLocalTime.Minute < 0 || in.StartLocalTime.Minute > 59 {
-		return nil, newValidationError("invalid_start_local_time", "invalid start_local_time")
-	}
-	weekdaySet := make(map[time.Weekday]struct{}, len(in.Weekdays))
-	for _, weekday := range in.Weekdays {
-		if weekday < time.Sunday || weekday > time.Saturday {
-			return nil, newValidationError("invalid_weekday", "invalid weekday %d", int(weekday))
+	var remainingCount *int
+	if count != nil {
+		remaining := *count - retainedCount
+		if remaining <= 0 {
+			return nil, nil, newValidationError("no_remaining_occurrences", "no occurrences remain at or after pivot_date")
 		}
-		weekdaySet[weekday] = struct{}{}
+		value := int(remaining)
+		remainingCount = &value
 	}
-	start := time.Date(in.StartDate.Year, in.StartDate.Month, in.StartDate.Day, 0, 0, 0, 0, in.Location)
-	if start.Year() != in.StartDate.Year || start.Month() != in.StartDate.Month || start.Day() != in.StartDate.Day {
-		return nil, newValidationError("invalid_start_date", "invalid start_date")
-	}
-	target := *in.Count
-	if target > MaxOccurrences {
-		target = MaxOccurrences
-	}
-	out := make([]Occurrence, 0, target)
-	for day := start; len(out) < target; day = day.AddDate(0, 0, 1) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if _, ok := weekdaySet[day.Weekday()]; !ok {
-			continue
-		}
-		startLocal := time.Date(day.Year(), day.Month(), day.Day(), in.StartLocalTime.Hour, in.StartLocalTime.Minute, 0, 0, in.Location)
-		out = append(out, Occurrence{
-			StartUTC: startLocal.UTC(),
-			EndUTC:   startLocal.Add(time.Duration(in.DurationMinutes) * time.Minute).UTC(),
-		})
-	}
-	return out, nil
+	return inheritedEnd, remainingCount, nil
 }

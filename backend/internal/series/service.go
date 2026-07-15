@@ -230,78 +230,57 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	if len(p.Weekdays) > 0 {
 		newWeekdays = p.Weekdays
 	}
-	inheritsLegacyDefinition := old.Count.Valid && len(p.Weekdays) == 0 && p.StartLocalTime == nil && p.DurationMinutes == nil && p.EndDate == nil && p.Count == nil
-	var legacyRemainingCount int32
+	unchangedDefinition := len(p.Weekdays) == 0 && p.StartLocalTime == nil && p.DurationMinutes == nil && p.EndDate == nil && p.Count == nil
 
 	pivotLocalStart := time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, clock.Hour, clock.Minute, 0, 0, s.loc)
 	pivotUTC := pivotLocalStart.UTC()
-
-	// Cancel future occurrences in old series.
-	if err := qtx.SessionHardDeleteFutureBySeries(ctx, sqldb.SessionHardDeleteFutureBySeriesParams{
-		SeriesID: old.ID,
-		StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
-	}); err != nil {
-		return SplitResult{}, err
-	}
-
-	// Update old end bound to "before pivot".
 	dayBefore := pivotLocalStart.AddDate(0, 0, -1)
 	dayBeforeDate := pgtype.Date{Time: time.Date(dayBefore.Year(), dayBefore.Month(), dayBefore.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
-	if old.EndDate.Valid {
-		if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
-			return SplitResult{}, err
-		}
-	} else if old.Count.Valid {
+
+	var retainedCount int32
+	if old.Count.Valid {
 		startDate := LocalDateFromPgDate(old.StartDate)
-		before, err := retainedLegacyCount(ctx, oldWeekdays, startDate, p.PivotDate, old.Count.Int32)
+		retainedCount, err = retainedLegacyCount(ctx, oldWeekdays, startDate, p.PivotDate, old.Count.Int32)
 		if err != nil {
 			return SplitResult{}, err
 		}
-		legacyRemainingCount = old.Count.Int32 - before
-		bound := legacyRetainedBound(before, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
-		if bound.Count != nil {
-			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: old.Version}); err != nil {
-				return SplitResult{}, err
-			}
-		} else {
-			if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
-				return SplitResult{}, err
-			}
-			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{}, Version: old.Version + 1}); err != nil {
-				return SplitResult{}, err
-			}
-		}
-	} else {
+	}
+	if !old.EndDate.Valid && !old.Count.Valid {
 		return SplitResult{}, fmt.Errorf("series missing end bound")
 	}
 
-	// New series end bound: use overrides if provided, else keep old. Materialize
-	// before converting the validated count and duration to database int32 values.
 	var endLD *LocalDate
-	if p.EndDate != nil {
-		tmp := *p.EndDate
-		endLD = &tmp
-	} else if old.EndDate.Valid {
-		tmp := LocalDateFromPgDate(old.EndDate)
-		endLD = &tmp
-	}
 	var countNew *int
-	if p.Count != nil {
-		v := *p.Count
-		countNew = &v
-	} else if old.Count.Valid {
-		v := int(old.Count.Int32)
-		countNew = &v
-	}
-	if inheritsLegacyDefinition {
-		if legacyRemainingCount <= 0 {
-			return SplitResult{}, newValidationError("no_remaining_occurrences", "no occurrences remain at or after pivot_date")
+	if unchangedDefinition {
+		var oldEnd *LocalDate
+		if old.EndDate.Valid {
+			tmp := LocalDateFromPgDate(old.EndDate)
+			oldEnd = &tmp
 		}
-		v := int(legacyRemainingCount)
-		if v > MaxOccurrences {
-			v = MaxOccurrences
+		var oldCount *int32
+		if old.Count.Valid {
+			value := old.Count.Int32
+			oldCount = &value
 		}
-		countNew = &v
+		endLD, countNew, err = inheritedSuccessorBounds(oldEnd, oldCount, retainedCount)
+		if err != nil {
+			return SplitResult{}, err
+		}
+	} else {
+		if p.EndDate != nil {
+			tmp := *p.EndDate
+			endLD = &tmp
+		} else if old.EndDate.Valid {
+			tmp := LocalDateFromPgDate(old.EndDate)
+			endLD = &tmp
+		}
+		if p.Count != nil {
+			value := *p.Count
+			countNew = &value
+		} else if old.Count.Valid {
+			value := int(old.Count.Int32)
+			countNew = &value
+		}
 	}
 
 	newMaterializeInput := MaterializeInput{
@@ -314,13 +293,39 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		Location:        s.loc,
 	}
 	var occNew []Occurrence
-	if inheritsLegacyDefinition {
-		occNew, err = materializeLegacyBounded(ctx, newMaterializeInput)
-	} else {
+	if !unchangedDefinition {
 		occNew, err = Materialize(ctx, newMaterializeInput)
+		if err != nil {
+			return SplitResult{}, err
+		}
+		if err := qtx.SessionHardDeleteFutureBySeries(ctx, sqldb.SessionHardDeleteFutureBySeriesParams{
+			SeriesID: old.ID,
+			StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
+		}); err != nil {
+			return SplitResult{}, err
+		}
 	}
-	if err != nil {
-		return SplitResult{}, err
+
+	// Clamp the old series to the portion before the pivot. Both-bound series
+	// keep their count because the newly earlier end_date remains authoritative.
+	if old.EndDate.Valid {
+		if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
+			return SplitResult{}, err
+		}
+	} else {
+		bound := legacyRetainedBound(retainedCount, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
+		if bound.Count != nil {
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: old.Version}); err != nil {
+				return SplitResult{}, err
+			}
+		} else {
+			if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
+				return SplitResult{}, err
+			}
+			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{}, Version: old.Version + 1}); err != nil {
+				return SplitResult{}, err
+			}
+		}
 	}
 
 	var newEndDate pgtype.Date
@@ -332,10 +337,8 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		newCount = pgtype.Int4{Int32: int32(*countNew), Valid: true}
 	}
 
-	// Create new series.
 	startDateNew := pgtype.Date{Time: time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
 	startLocalTime := pgtype.Time{Microseconds: int64(clock.Hour)*60*60*1_000_000 + int64(clock.Minute)*60*1_000_000, Valid: true}
-
 	wds := make([]int16, 0, len(newWeekdays))
 	seen := map[time.Weekday]struct{}{}
 	for _, wd := range newWeekdays {
@@ -363,25 +366,37 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	}
 
 	added := 0
-	for _, o := range occNew {
-		_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-			SeriesID:  newSeries.ID,
-			CourseID:  old.CourseID,
-			RoomID:    old.RoomID,
-			TeacherID: old.TeacherID,
-			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
-			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+	if unchangedDefinition {
+		moved, err := qtx.SessionReparentFutureBySeries(ctx, sqldb.SessionReparentFutureBySeriesParams{
+			NewSeriesID: newSeries.ID,
+			OldSeriesID: old.ID,
+			StartAt:     pgtype.Timestamptz{Time: pivotUTC, Valid: true},
 		})
 		if err != nil {
 			return SplitResult{}, err
 		}
-		added++
+		added = int(moved)
+	} else {
+		for _, o := range occNew {
+			_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
+				SeriesID:  newSeries.ID,
+				CourseID:  old.CourseID,
+				RoomID:    old.RoomID,
+				TeacherID: old.TeacherID,
+				StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+				EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+			})
+			if err != nil {
+				return SplitResult{}, err
+			}
+			added++
+		}
 	}
 
 	return SplitResult{
 		OldSeriesID:      old.ID,
 		NewSeriesID:      newSeries.ID,
-		OldSessionsEnded: 0, // v1: not returned from SQL
+		OldSessionsEnded: 0,
 		NewSessionsAdded: added,
 	}, nil
 }

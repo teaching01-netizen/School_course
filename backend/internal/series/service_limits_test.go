@@ -60,21 +60,49 @@ func TestRetainedLegacyCountForMaintenance(t *testing.T) {
 	})
 }
 
-func TestMaterializeInheritedLegacyIsBounded(t *testing.T) {
-	occ, err := materializeLegacyBounded(context.Background(), MaterializeInput{
-		Weekdays:        []time.Weekday{time.Monday},
-		StartDate:       date(2026, 1, 5),
-		Count:           ptrInt(1500),
-		StartLocalTime:  mustClock("10:00"),
-		DurationMinutes: 1441,
-		Location:        time.UTC,
+func TestInheritedSuccessorBoundsPreserveLegacyDefinition(t *testing.T) {
+	t.Run("count is never truncated", func(t *testing.T) {
+		count := int32(1500)
+		end, remaining, err := inheritedSuccessorBounds(nil, &count, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end != nil {
+			t.Fatalf("end = %v, want nil", end)
+		}
+		if remaining == nil || *remaining != 1400 {
+			t.Fatalf("remaining = %v, want 1400", remaining)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(occ) != MaxOccurrences {
-		t.Fatalf("got %d occurrences, want %d", len(occ), MaxOccurrences)
-	}
+
+	t.Run("end date beyond current horizon is preserved", func(t *testing.T) {
+		legacyEnd := date(2040, 1, 1)
+		end, remaining, err := inheritedSuccessorBounds(&legacyEnd, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end == nil || *end != legacyEnd {
+			t.Fatalf("end = %v, want %v", end, legacyEnd)
+		}
+		if remaining != nil {
+			t.Fatalf("remaining = %v, want nil", remaining)
+		}
+	})
+
+	t.Run("both bounds are retained so earlier one still wins", func(t *testing.T) {
+		legacyEnd := date(2027, 1, 1)
+		count := int32(1500)
+		end, remaining, err := inheritedSuccessorBounds(&legacyEnd, &count, 25)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end == nil || *end != legacyEnd {
+			t.Fatalf("end = %v, want %v", end, legacyEnd)
+		}
+		if remaining == nil || *remaining != 1475 {
+			t.Fatalf("remaining = %v, want 1475", remaining)
+		}
+	})
 }
 
 func TestValidateMaterializedOccurrences(t *testing.T) {
