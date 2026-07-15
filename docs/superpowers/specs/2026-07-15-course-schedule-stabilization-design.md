@@ -51,7 +51,7 @@ Passing unit tests do not currently cover these behaviors. Database-backed concu
 ### Availability
 
 - If a teacher or room has no active availability windows, scheduling remains default-open.
-- If at least one active window exists, every not-yet-started active session for that resource must be fully contained in an active window.
+- If at least one active window exists, every not-yet-started active session for that resource must be fully contained in the union of active windows. Adjacent or overlapping windows may collectively cover one session.
 - An availability mutation that would invalidate a not-yet-started session is rejected atomically with HTTP `409`. Historical and already-started sessions are not reinterpreted using a new availability policy.
 
 ### Series
@@ -112,7 +112,7 @@ target_total = requested_count if supplied, otherwise original_count
 remaining = target_total - retained_before_pivot
 ```
 
-`remaining` must be positive and within recurrence limits. The predecessor stores the retained count; the successor stores the remaining count. If the retained count is zero, the existing series is edited in place rather than creating an invalid empty predecessor.
+`remaining` must be positive and within recurrence limits. The predecessor stores the retained count; the successor stores the remaining count. If the retained count is zero, the existing series is edited in place rather than creating an invalid empty predecessor. For response compatibility, both `old_series_id` and `new_series_id` contain the existing series ID in this in-place case.
 
 Future deletion uses the original occurrence time on the pivot date. Materialization of the successor uses the proposed time. Past sessions are never deleted or recreated.
 
@@ -148,6 +148,8 @@ CAS/version checks move inside the idempotent transaction after key acquisition.
 Schedule mutations no longer depend on serializable isolation, removing the unhandled `40001` path from these endpoints. Other serializable users remain unchanged and are outside this release unless directly exercised by schedule tests.
 
 Only committed mutation responses are cached. Validation and conflict responses roll back the idempotency record and may be retried after correction with the same key. A replay may emit the existing best-effort realtime invalidation, but it must not repeat database mutations, audit inserts, or other durable side effects.
+
+`docs/idempotency.md` is updated in the same release so its success/error caching description matches this committed-mutation-only contract.
 
 ### 8. Recurrence limits
 
