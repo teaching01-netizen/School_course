@@ -152,3 +152,22 @@ func TestValidateMaterializedOccurrences(t *testing.T) {
 		assertValidationError(t, err, "invalid_materialized_occurrences")
 	})
 }
+
+func TestCreateSeriesAndMaterializeTx_ZeroOccurrencesIsValidationError(t *testing.T) {
+	svc := &Service{loc: time.UTC}
+	_, err := svc.CreateSeriesAndMaterializeTx(context.Background(), nil, CreateParams{
+		Weekdays:        []time.Weekday{time.Monday},
+		StartDate:       date(2026, 1, 6), // Tuesday
+		EndDate:         ptrDate(date(2026, 1, 6)),
+		StartLocalTime:  mustClock("10:00"),
+		DurationMinutes: 60,
+	})
+	assertValidationError(t, err, "no_occurrences")
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatal("expected typed validation error")
+	}
+	if validationErr.Message != "recurrence produces no occurrences" {
+		t.Fatalf("message = %q", validationErr.Message)
+	}
+}

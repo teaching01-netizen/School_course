@@ -99,7 +99,7 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Q
 		}
 	}
 	if len(occ) == 0 {
-		return CreateResult{}, fmt.Errorf("no occurrences to materialize")
+		return CreateResult{}, newValidationError("no_occurrences", "recurrence produces no occurrences")
 	}
 
 	// Compute the overall time span for student busy range locking.
