@@ -119,5 +119,8 @@ func Materialize(ctx context.Context, in MaterializeInput) ([]Occurrence, error)
 			EndUTC:   endLocal.UTC(),
 		})
 	}
+	if len(out) == 0 {
+		return nil, newValidationError("no_occurrences", "recurrence produces no occurrences")
+	}
 	return out, nil
 }

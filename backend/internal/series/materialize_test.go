@@ -226,6 +226,25 @@ func TestMaterialize_CanceledContext(t *testing.T) {
 	}
 }
 
+func TestMaterialize_EmptyValidRangeIsValidationError(t *testing.T) {
+	_, err := Materialize(context.Background(), MaterializeInput{
+		Weekdays:        []time.Weekday{time.Monday},
+		StartDate:       date(2026, 1, 6), // Tuesday
+		EndDate:         ptrDate(date(2026, 1, 6)),
+		StartLocalTime:  mustClock("10:00"),
+		DurationMinutes: 60,
+		Location:        time.UTC,
+	})
+	assertValidationError(t, err, "no_occurrences")
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatal("expected typed validation error")
+	}
+	if validationErr.Message != "recurrence produces no occurrences" {
+		t.Fatalf("message = %q", validationErr.Message)
+	}
+}
+
 func assertValidationError(t *testing.T, err error, code string) {
 	t.Helper()
 	var validationErr *ValidationError

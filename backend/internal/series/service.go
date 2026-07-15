@@ -98,10 +98,6 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Q
 			return CreateResult{}, err
 		}
 	}
-	if len(occ) == 0 {
-		return CreateResult{}, newValidationError("no_occurrences", "recurrence produces no occurrences")
-	}
-
 	// Compute the overall time span for student busy range locking.
 	minStart, maxEnd := occ[0].StartUTC, occ[0].EndUTC
 	for _, o := range occ {
