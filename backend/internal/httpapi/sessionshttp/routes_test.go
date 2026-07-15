@@ -486,7 +486,7 @@ func TestRegister_BulkUpdate_BadJSON_Returns400(t *testing.T) {
 // TestRegister_PostSessions_ConcurrentOverlap_RaceCondition verifies that
 // concurrent session creation requests for the same room+teacher+time slot
 // produce exactly 1 success and N-1 schedule_conflict responses. This
-// exercises the SERIALIZABLE isolation introduced in WithSerializableIdempotentTx.
+// exercises canonical resource locks under read-committed transactions.
 func TestRegister_PostSessions_ConcurrentOverlap_RaceCondition(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

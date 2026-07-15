@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 	"warwick-institute/internal/series"
 )
 
@@ -590,6 +591,32 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		return CreateSessionResult{}, fmt.Errorf("invalid time range")
 	}
 
+	// The course lock freezes roster membership while we discover the effective
+	// students. The second call continues in canonical order with those student
+	// rows and the remaining schedule resources.
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{p.CourseID}}); err != nil {
+		return CreateSessionResult{}, err
+	}
+	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
+	if err != nil {
+		return CreateSessionResult{}, err
+	}
+	studentIDs := make([]pgtype.UUID, len(students))
+	for i, student := range students {
+		studentIDs[i] = student.StudentID
+	}
+	locks := schedulelock.ResourceLocks{
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{p.TeacherID},
+		RoomIDs:    []pgtype.UUID{p.RoomID},
+	}
+	if p.SeriesID != nil {
+		locks.SeriesIDs = []pgtype.UUID{*p.SeriesID}
+	}
+	if err := schedulelock.LockResources(ctx, qtx, locks); err != nil {
+		return CreateSessionResult{}, err
+	}
+
 	courseIDStr, err := uuidString(p.CourseID)
 	if err != nil {
 		return CreateSessionResult{}, err
@@ -634,17 +661,7 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		return CreateSessionResult{}, serr
 	}
 
-	// Lock student busy ranges.
-	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
-	if err != nil {
-		return CreateSessionResult{}, err
-	}
-
 	if len(students) > 0 {
-		studentIDs := make([]pgtype.UUID, len(students))
-		for i, st := range students {
-			studentIDs[i] = st.StudentID
-		}
 		_, err = qtx.StudentBusyRangesLockOverlapping(ctx, sqldb.StudentBusyRangesLockOverlappingParams{
 			Column1:     studentIDs,
 			Tstzrange:   p.StartAt.Time.UTC(),
@@ -655,13 +672,18 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		}
 	}
 
-	row, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-		SeriesID:  seriesID,
-		CourseID:  p.CourseID,
-		RoomID:    p.RoomID,
-		TeacherID: p.TeacherID,
-		StartAt:   p.StartAt,
-		EndAt:     p.EndAt,
+	var row sqldb.SessionCreateRow
+	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+		var createErr error
+		row, createErr = qsp.SessionCreate(ctx, sqldb.SessionCreateParams{
+			SeriesID:  seriesID,
+			CourseID:  p.CourseID,
+			RoomID:    p.RoomID,
+			TeacherID: p.TeacherID,
+			StartAt:   p.StartAt,
+			EndAt:     p.EndAt,
+		})
+		return createErr
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -695,147 +717,20 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 }
 
 func (s *Service) CreateSession(ctx context.Context, p CreateSessionParams) (CreateSessionResult, error) {
-	if !p.StartAt.Valid || !p.EndAt.Valid || !p.EndAt.Time.After(p.StartAt.Time) {
-		return CreateSessionResult{}, fmt.Errorf("invalid time range")
-	}
-
-	courseIDStr, err := uuidString(p.CourseID)
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CreateSessionResult{}, err
 	}
-	roomIDStr, err := uuidStringPtr(p.RoomID)
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	result, err := s.CreateSessionTx(ctx, tx, s.q.WithTx(tx), p)
 	if err != nil {
 		return CreateSessionResult{}, err
 	}
-	teacherIDStr, err := uuidString(p.TeacherID)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return CreateSessionResult{}, err
 	}
-	var seriesIDStr *string
-	var seriesID pgtype.UUID
-	if p.SeriesID != nil && p.SeriesID.Valid {
-		seriesID = *p.SeriesID
-		v, err := uuidString(seriesID)
-		if err != nil {
-			return CreateSessionResult{}, err
-		}
-		seriesIDStr = &v
-	}
-
-	preflightIn := preflightInput{
-		CourseID:  p.CourseID,
-		RoomID:    p.RoomID,
-		TeacherID: p.TeacherID,
-		StartUTC:  p.StartAt.Time.UTC(),
-		EndUTC:    p.EndAt.Time.UTC(),
-		Requested: ConflictRequested{
-			StartAt:   p.StartAt.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:     p.EndAt.Time.UTC().Format(time.RFC3339Nano),
-			CourseID:  courseIDStr,
-			RoomID:    roomIDStr,
-			TeacherID: teacherIDStr,
-			SeriesID:  seriesIDStr,
-		},
-	}
-
-	const maxRetries = 2
-	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
-		}
-		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-		if err != nil {
-			return CreateSessionResult{}, err
-		}
-
-		qtx := s.q.WithTx(tx)
-
-		// Preflight inside the serializable transaction.
-		if serr := s.preflightSlot(ctx, tx, qtx, preflightIn); serr != nil {
-			_ = tx.Rollback(ctx)
-			return CreateSessionResult{}, serr
-		}
-
-		// Lock student busy ranges.
-		students, err := qtx.CourseStudentsList(ctx, p.CourseID)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return CreateSessionResult{}, err
-		}
-
-		if len(students) > 0 {
-			studentIDs := make([]pgtype.UUID, len(students))
-			for i, s := range students {
-				studentIDs[i] = s.StudentID
-			}
-			_, err = qtx.StudentBusyRangesLockOverlapping(ctx, sqldb.StudentBusyRangesLockOverlappingParams{
-				Column1:     studentIDs,
-				Tstzrange:   p.StartAt.Time.UTC(),
-				Tstzrange_2: p.EndAt.Time.UTC(),
-			})
-			if err != nil {
-				_ = tx.Rollback(ctx)
-				return CreateSessionResult{}, err
-			}
-		}
-
-		row, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-			SeriesID:  seriesID,
-			CourseID:  p.CourseID,
-			RoomID:    p.RoomID,
-			TeacherID: p.TeacherID,
-			StartAt:   p.StartAt,
-			EndAt:     p.EndAt,
-		})
-		if err != nil {
-			lastErr = err
-			var pgErr *pgconn.PgError
-			if isRetryableSchedulingErr(err) && attempt < maxRetries {
-				_ = tx.Rollback(ctx)
-				continue
-			}
-			_ = tx.Rollback(ctx)
-			if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
-				if se := s.preflightSlot(ctx, s.db, s.q, preflightIn); se != nil {
-					return CreateSessionResult{}, se
-				}
-				// Preflight found no conflict — the concurrent tx hasn't committed yet.
-				// Return a synthetic conflict error so the caller always gets a
-				// schedule_conflict response, not a raw database error.
-				slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
-					"room_id", uuidStringOrEmpty(p.RoomID),
-					"teacher_id", uuidStringOrEmpty(p.TeacherID),
-					"start_at", p.StartAt.Time.UTC(),
-					"end_at", p.EndAt.Time.UTC(),
-				)
-				return CreateSessionResult{}, &Err{
-					Code:    "schedule_conflict",
-					Message: "schedule conflict detected by database constraint",
-					Details: ConflictDetails{
-						Kind:      conflictKindFromInput(preflightIn),
-						Conflicts: nil,
-						Requested: preflightIn.Requested,
-					},
-				}
-			}
-			return CreateSessionResult{}, err
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			lastErr = err
-			if isRetryableSchedulingErr(err) && attempt < maxRetries {
-				_ = tx.Rollback(ctx)
-				continue
-			}
-			_ = tx.Rollback(ctx)
-			return CreateSessionResult{}, err
-		}
-
-		return CreateSessionResult{SessionID: row.ID}, nil
-	}
-
-	return CreateSessionResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
+	return result, nil
 }
 
 type EditOccurrenceParams struct {
@@ -854,10 +749,43 @@ type EditOccurrenceResult struct {
 
 // EditOccurrenceTimeTx edits a session occurrence using an existing tx-bound handle.
 func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, p EditOccurrenceParams) (EditOccurrenceResult, error) {
-	// Fetch existing session inside the caller's tx for consistent reads.
+	// This first read only discovers the old identity needed to assemble the
+	// canonical lock set. It is not used for preflight or writes.
+	discovered, err := qtx.SessionGetByID(ctx, p.SessionID)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	proposedCourseID := discovered.CourseID
+	if p.CourseID != nil && p.CourseID.Valid {
+		proposedCourseID = *p.CourseID
+	}
+	proposedRoomID := discovered.RoomID
+	if p.RoomID != nil {
+		proposedRoomID = *p.RoomID
+	}
+	proposedTeacherID := discovered.TeacherID
+	if p.TeacherID != nil && p.TeacherID.Valid {
+		proposedTeacherID = *p.TeacherID
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{discovered.CourseID, proposedCourseID},
+		TeacherIDs: []pgtype.UUID{discovered.TeacherID, proposedTeacherID},
+		RoomIDs:    []pgtype.UUID{discovered.RoomID, proposedRoomID},
+		SessionIDs: []pgtype.UUID{p.SessionID},
+		SeriesIDs:  []pgtype.UUID{discovered.SeriesID},
+	}); err != nil {
+		return EditOccurrenceResult{}, err
+	}
+
+	// A read committed statement after any lock wait gets a fresh snapshot.
+	// Reject if identity changed while we were waiting; the caller must retry
+	// from the newly returned version/resources.
 	existing, err := qtx.SessionGetByID(ctx, p.SessionID)
 	if err != nil {
 		return EditOccurrenceResult{}, err
+	}
+	if !sameSessionIdentity(discovered, existing) || existing.Version != p.ExpectedVersion {
+		return EditOccurrenceResult{}, &Err{Code: "stale_edit", Message: "session has been modified"}
 	}
 
 	newCourseID := existing.CourseID
@@ -937,14 +865,19 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		return EditOccurrenceResult{}, serr
 	}
 
-	row, err := qtx.SessionUpdateOccurrence(ctx, sqldb.SessionUpdateOccurrenceParams{
-		ID:        p.SessionID,
-		CourseID:  newCourseID,
-		RoomID:    newRoomID,
-		TeacherID: newTeacherID,
-		StartAt:   newStartAt,
-		EndAt:     newEndAt,
-		Version:   p.ExpectedVersion,
+	var row sqldb.SessionUpdateOccurrenceRow
+	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+		var updateErr error
+		row, updateErr = qsp.SessionUpdateOccurrence(ctx, sqldb.SessionUpdateOccurrenceParams{
+			ID:        p.SessionID,
+			CourseID:  newCourseID,
+			RoomID:    newRoomID,
+			TeacherID: newTeacherID,
+			StartAt:   newStartAt,
+			EndAt:     newEndAt,
+			Version:   p.ExpectedVersion,
+		})
+		return updateErr
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -991,191 +924,34 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	return EditOccurrenceResult{SessionID: row.ID}, nil
 }
 
+func sameSessionIdentity(a, b sqldb.SessionGetByIDRow) bool {
+	return a.ID == b.ID &&
+		a.SeriesID == b.SeriesID &&
+		a.CourseID == b.CourseID &&
+		a.RoomID == b.RoomID &&
+		a.TeacherID == b.TeacherID &&
+		a.StartAt.Valid == b.StartAt.Valid &&
+		a.EndAt.Valid == b.EndAt.Valid &&
+		(!a.StartAt.Valid || a.StartAt.Time.Equal(b.StartAt.Time)) &&
+		(!a.EndAt.Valid || a.EndAt.Time.Equal(b.EndAt.Time)) &&
+		a.Version == b.Version
+}
+
 func (s *Service) EditOccurrenceTime(ctx context.Context, p EditOccurrenceParams) (EditOccurrenceResult, error) {
-	const maxRetries = 2
-	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
-		}
-
-		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-		if err != nil {
-			return EditOccurrenceResult{}, err
-		}
-
-		qtx := s.q.WithTx(tx)
-
-		// Fetch existing session inside the serializable tx for consistent reads.
-		// The previous implementation read outside the tx, making the data stale
-		// by the time the serializable tx opened (TOCTOU race).
-		existing, err := qtx.SessionGetByID(ctx, p.SessionID)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-
-		newCourseID := existing.CourseID
-		if p.CourseID != nil && p.CourseID.Valid {
-			newCourseID = *p.CourseID
-		}
-		newRoomID := existing.RoomID
-		if p.RoomID != nil {
-			newRoomID = *p.RoomID
-		}
-		newTeacherID := existing.TeacherID
-		if p.TeacherID != nil && p.TeacherID.Valid {
-			newTeacherID = *p.TeacherID
-		}
-		newStartAt := existing.StartAt
-		if p.StartAt != nil && p.StartAt.Valid {
-			newStartAt = *p.StartAt
-		}
-		newEndAt := existing.EndAt
-		if p.EndAt != nil && p.EndAt.Valid {
-			newEndAt = *p.EndAt
-		}
-		if !newStartAt.Valid || !newEndAt.Valid || !newEndAt.Time.After(newStartAt.Time) {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, fmt.Errorf("invalid time range")
-		}
-
-		courseIDStr, err := uuidString(newCourseID)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-		roomIDStr, err := uuidStringPtr(newRoomID)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-		teacherIDStr, err := uuidString(newTeacherID)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-		var seriesIDStr *string
-		if existing.SeriesID.Valid {
-			v, err := uuidString(existing.SeriesID)
-			if err != nil {
-				_ = tx.Rollback(ctx)
-				return EditOccurrenceResult{}, err
-			}
-			seriesIDStr = &v
-		}
-
-		preflightIn := preflightInput{
-			CourseID:      newCourseID,
-			RoomID:        newRoomID,
-			TeacherID:     newTeacherID,
-			StartUTC:      newStartAt.Time.UTC(),
-			EndUTC:        newEndAt.Time.UTC(),
-			IgnoreSession: &p.SessionID,
-			Requested: ConflictRequested{
-				StartAt:   newStartAt.Time.UTC().Format(time.RFC3339Nano),
-				EndAt:     newEndAt.Time.UTC().Format(time.RFC3339Nano),
-				CourseID:  courseIDStr,
-				RoomID:    roomIDStr,
-				TeacherID: teacherIDStr,
-				SeriesID:  seriesIDStr,
-			},
-		}
-
-		courseChanged := existing.CourseID.Valid && newCourseID.Valid && existing.CourseID.Bytes != newCourseID.Bytes
-
-		studentIDsPtr, hasOverrides, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, newCourseID, courseChanged)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-		if hasOverrides {
-			preflightIn.StudentIDs = studentIDsPtr
-		}
-
-		if serr := s.preflightSlot(ctx, tx, qtx, preflightIn); serr != nil {
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, serr
-		}
-
-		row, err := qtx.SessionUpdateOccurrence(ctx, sqldb.SessionUpdateOccurrenceParams{
-			ID:        p.SessionID,
-			CourseID:  newCourseID,
-			RoomID:    newRoomID,
-			TeacherID: newTeacherID,
-			StartAt:   newStartAt,
-			EndAt:     newEndAt,
-			Version:   p.ExpectedVersion,
-		})
-		if err != nil {
-			lastErr = err
-			if errors.Is(err, pgx.ErrNoRows) {
-				_ = tx.Rollback(ctx)
-				return EditOccurrenceResult{}, fmt.Errorf("stale_edit: session %s has been modified", p.SessionID)
-			}
-			if isRetryableSchedulingErr(err) && attempt < maxRetries {
-				_ = tx.Rollback(ctx)
-				continue
-			}
-			_ = tx.Rollback(ctx)
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
-				// Best-effort: rebuild the effective roster outside the rolled-back tx.
-				in2 := preflightIn
-				studentIDsPtr2, hasOverrides2, err2 := effectiveStudentIDsForSession(ctx, s.q, p.SessionID, newCourseID, courseChanged)
-				if err2 == nil && hasOverrides2 {
-					in2.StudentIDs = studentIDsPtr2
-				}
-				if se := s.preflightSlot(ctx, s.db, s.q, in2); se != nil {
-					return EditOccurrenceResult{}, se
-				}
-				// Preflight found no conflict — the concurrent tx hasn't committed yet.
-				// Return a synthetic conflict error so the caller always gets a
-				// schedule_conflict response, not a raw database error.
-				slog.Warn("scheduling: exclusion constraint fired but preflight clear (concurrent tx pending)",
-					"session_id", uuidStringOrEmpty(p.SessionID),
-					"room_id", uuidStringOrEmpty(newRoomID),
-					"teacher_id", uuidStringOrEmpty(newTeacherID),
-					"start_at", newStartAt.Time.UTC(),
-					"end_at", newEndAt.Time.UTC(),
-				)
-				return EditOccurrenceResult{}, &Err{
-					Code:    "schedule_conflict",
-					Message: "schedule conflict detected by database constraint",
-					Details: ConflictDetails{
-						Kind:      conflictKindFromInput(in2),
-						Conflicts: nil,
-						Requested: in2.Requested,
-					},
-				}
-			}
-			return EditOccurrenceResult{}, err
-		}
-
-		if courseChanged {
-			if err := qtx.SessionAttendanceDeleteNotInCourse(ctx, sqldb.SessionAttendanceDeleteNotInCourseParams{
-				SessionID: p.SessionID,
-				CourseID:  newCourseID,
-			}); err != nil {
-				_ = tx.Rollback(ctx)
-				return EditOccurrenceResult{}, err
-			}
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			lastErr = err
-			if isRetryableSchedulingErr(err) && attempt < maxRetries {
-				_ = tx.Rollback(ctx)
-				continue
-			}
-			_ = tx.Rollback(ctx)
-			return EditOccurrenceResult{}, err
-		}
-
-		return EditOccurrenceResult{SessionID: row.ID}, nil
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return EditOccurrenceResult{}, err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	return EditOccurrenceResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
+	result, err := s.EditOccurrenceTimeTx(ctx, tx, s.q.WithTx(tx), p)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	return result, nil
 }
 
 type preflightInput struct {

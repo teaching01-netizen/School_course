@@ -1195,6 +1195,84 @@ func TestCreateSession_ConcurrentOverlap_RaceCondition(t *testing.T) {
 	}
 }
 
+func TestScheduleDB_ResourceSwapEditsDoNotDeadlock(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	seedCtx, seedCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer seedCancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	teacherA, err := q.AdminUserCreate(seedCtx, sqldb.AdminUserCreateParams{Username: "teacher-swap-a-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherB, err := q.AdminUserCreate(seedCtx, sqldb.AdminUserCreateParams{Username: "teacher-swap-b-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomA, err := q.RoomCreate(seedCtx, sqldb.RoomCreateParams{Name: "R-swap-a-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomB, err := q.RoomCreate(seedCtx, sqldb.RoomCreateParams{Name: "R-swap-b-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	courseA, err := q.CourseCreate(seedCtx, sqldb.CourseCreateParams{Code: "C-swap-a-" + suffix, Name: "Course swap A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	courseB, err := q.CourseCreate(seedCtx, sqldb.CourseCreateParams{Code: "C-swap-b-" + suffix, Name: "Course swap B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	day := time.Now().UTC().AddDate(0, 0, 14)
+	start := pgtype.Timestamptz{Time: time.Date(day.Year(), day.Month(), day.Day(), 10, 0, 0, 0, time.UTC), Valid: true}
+	end := pgtype.Timestamptz{Time: start.Time.Add(time.Hour), Valid: true}
+	sessionA, err := q.SessionCreate(seedCtx, sqldb.SessionCreateParams{CourseID: courseA.ID, TeacherID: teacherA, RoomID: roomA.ID, StartAt: start, EndAt: end})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionB, err := q.SessionCreate(seedCtx, sqldb.SessionCreateParams{CourseID: courseB.ID, TeacherID: teacherB, RoomID: roomB.ID, StartAt: start, EndAt: end})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ready := make(chan struct{})
+	result := make(chan error, 2)
+	var started sync.WaitGroup
+	started.Add(2)
+	run := func(p EditOccurrenceParams) {
+		started.Done()
+		<-ready
+		_, editErr := svc.EditOccurrenceTime(ctx, p)
+		result <- editErr
+	}
+	go run(EditOccurrenceParams{SessionID: sessionA.ID, CourseID: &courseB.ID, TeacherID: &teacherB, RoomID: &roomB.ID, ExpectedVersion: sessionA.Version})
+	go run(EditOccurrenceParams{SessionID: sessionB.ID, CourseID: &courseA.ID, TeacherID: &teacherA, RoomID: &roomA.ID, ExpectedVersion: sessionB.Version})
+	started.Wait()
+	close(ready)
+
+	for i := 0; i < 2; i++ {
+		err := <-result
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			t.Fatalf("resource swap did not finish within finite context: %v", err)
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "40P01" {
+			t.Fatalf("resource swap deadlocked: %v", err)
+		}
+	}
+}
+
 func TestSessionListActiveByRange_OverlapSemantics_ReturnsOnlyOverlapping(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

@@ -265,9 +265,7 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var createdID string
-	// TODO(schedulelock): Task 5 must switch this to WithIdempotentTx in the
-	// same change that adds canonical resource locks and savepoint-safe writes.
-	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := s.deps.Scheduling.CreateSessionTx(r.Context(), tx, qtx, scheduling.CreateSessionParams{
 			SeriesID:  seriesID,
@@ -460,29 +458,8 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 	}
 
 	var updatedID string
-	// TODO(schedulelock): Task 5 must switch this to WithIdempotentTx in the
-	// same change that adds canonical resource locks and savepoint-safe writes.
-	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		existing, err := qtx.SessionGetByID(r.Context(), id)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		if existing.Version != *body.ExpectedVersion {
-			dto := map[string]any{
-				"id": r.PathValue("id"), "series_id": nil,
-				"course_id": mustUUIDStringOrEmpty(s.a, existing.CourseID), "room_id": uuidOrNull(s.a, existing.RoomID),
-				"teacher_id": mustUUIDStringOrEmpty(s.a, existing.TeacherID), "start_at": existing.StartAt.Time.UTC().Format(time.RFC3339Nano),
-				"end_at": existing.EndAt.Time.UTC().Format(time.RFC3339Nano), "version": existing.Version,
-			}
-			if existing.SeriesID.Valid {
-				dto["series_id"] = mustUUIDStringOrEmpty(s.a, existing.SeriesID)
-			}
-			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": dto})
-			return 0, nil, errors.New("stale_edit")
-		}
 		item, err := s.deps.Scheduling.EditOccurrenceTimeTx(r.Context(), tx, qtx, scheduling.EditOccurrenceParams{
 			SessionID:       id,
 			StartAt:         startAtPtr,
@@ -495,6 +472,21 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
+				if se.Code == "stale_edit" {
+					if current, getErr := qtx.SessionGetByID(r.Context(), id); getErr == nil {
+						dto := map[string]any{
+							"id": r.PathValue("id"), "series_id": nil,
+							"course_id": mustUUIDStringOrEmpty(s.a, current.CourseID), "room_id": uuidOrNull(s.a, current.RoomID),
+							"teacher_id": mustUUIDStringOrEmpty(s.a, current.TeacherID), "start_at": current.StartAt.Time.UTC().Format(time.RFC3339Nano),
+							"end_at": current.EndAt.Time.UTC().Format(time.RFC3339Nano), "version": current.Version,
+						}
+						if current.SeriesID.Valid {
+							dto["series_id"] = mustUUIDStringOrEmpty(s.a, current.SeriesID)
+						}
+						s.a.WriteErrDetails(w, http.StatusConflict, se.Code, "Stale edit", map[string]any{"current": dto})
+						return 0, nil, err
+					}
+				}
 				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
 				return 0, nil, err
 			}
