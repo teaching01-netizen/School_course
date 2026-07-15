@@ -12,6 +12,7 @@
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
     "test": "vitest run",
     "test:absence": "vitest run src/features/absences src/components/absences/__tests__ src/pages/__tests__/AbsenceForm",
+    "test:schedule": "vitest run src/pages/__tests__/Schedule.test.tsx src/pages/__tests__/Schedule.seriesStabilization.test.tsx src/components/__tests__/SessionActions.test.tsx src/components/__tests__/SeriesFormFields.test.tsx src/test/usePreflight.test.ts src/pages/__tests__/SlotFinder.test.tsx",
     "test:coverage": "vitest run src/features/absences src/components/absences/__tests__ src/pages/__tests__/AbsenceForm --coverage",
     "test:e2e": "playwright test",
     "test:e2e:absence": "playwright test e2e/absence-form.spec.ts e2e/absence-form-accessibility.spec.ts",

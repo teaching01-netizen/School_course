@@ -603,6 +603,7 @@ export default function Schedule() {
     if (!editSeriesOpen || !editSeriesForm || editSeriesLoading) { editSeriesPreflight.reset(); return; }
     if (!editSeriesValidatedForm) { editSeriesPreflight.reset(); return; }
     await editSeriesPreflight.check({
+      series_id: editSeriesForm.series_id,
       course_id: editSeriesForm.course_id,
       teacher_id: editSeriesForm.teacher_id,
       room_id: editSeriesValidatedForm.room_id,
@@ -621,7 +622,7 @@ export default function Schedule() {
     editSeriesOpen, editSeriesLoading, editSeriesUseCount, editSeriesPivotDate,
     editSeriesForm?.course_id, editSeriesForm?.room_id, editSeriesForm?.teacher_id,
     editSeriesForm?.start_local_time, editSeriesForm?.duration_minutes, editSeriesForm?.end_date,
-    editSeriesForm?.count, ...(editSeriesForm?.weekdays ?? []),
+    editSeriesForm?.count, ...(editSeriesForm?.weekdays ?? [false, false, false, false, false, false, false]),
   ]);
 
   // --- Edit Series (Entire) preflight ---
@@ -629,6 +630,7 @@ export default function Schedule() {
     if (!editSeriesEntireOpen || !editSeriesEntireForm || editSeriesEntireLoading) { editSeriesEntirePreflight.reset(); return; }
     if (!editSeriesEntireValidatedForm) { editSeriesEntirePreflight.reset(); return; }
     await editSeriesEntirePreflight.check({
+      series_id: editSeriesEntireForm.series_id,
       course_id: editSeriesEntireForm.course_id,
       teacher_id: editSeriesEntireForm.teacher_id,
       room_id: editSeriesEntireValidatedForm.room_id,
@@ -647,7 +649,7 @@ export default function Schedule() {
     editSeriesEntireOpen, editSeriesEntireLoading, editSeriesEntireUseCount, editSeriesEntireFromDate,
     editSeriesEntireForm?.course_id, editSeriesEntireForm?.room_id, editSeriesEntireForm?.teacher_id,
     editSeriesEntireForm?.start_local_time, editSeriesEntireForm?.duration_minutes, editSeriesEntireForm?.end_date,
-    editSeriesEntireForm?.count, ...(editSeriesEntireForm?.weekdays ?? []),
+    editSeriesEntireForm?.count, ...(editSeriesEntireForm?.weekdays ?? [false, false, false, false, false, false, false]),
   ]);
 
   // --- Create Series submit ---

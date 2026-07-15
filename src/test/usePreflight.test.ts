@@ -218,4 +218,27 @@ describe("usePreflight", () => {
     expect(body.duration_minutes).toBe(60);
     expect(body.count).toBeNull();
   });
+
+  it("series preflight includes series_id when supplied", async () => {
+    mockApiJson.mockResolvedValue({ status: "available", occurrences_planned: 3 });
+    const { result } = renderHook(() => usePreflight("preflight_series"));
+
+    await act(async () => {
+      await result.current.check({
+        series_id: "series-1",
+        course_id: "course-1",
+        teacher_id: "teacher-1",
+        room_id: null,
+        weekdays: [1],
+        start_local_time: "09:00",
+        duration_minutes: 60,
+        start_date: "2026-08-03",
+        count: 10,
+        start_at: "",
+        end_at: "",
+      });
+    });
+
+    expect(JSON.parse(mockApiJson.mock.calls[0][1].body).series_id).toBe("series-1");
+  });
 });

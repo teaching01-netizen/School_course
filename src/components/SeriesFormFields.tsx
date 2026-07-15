@@ -1,5 +1,9 @@
 import Input from "./ui/Input";
 import FormField from "./ui/FormField";
+import {
+  MAX_SERIES_OCCURRENCES,
+  MAX_SESSION_DURATION_MINUTES,
+} from "@/features/scheduling/recurrenceLimits";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -86,6 +90,8 @@ export default function SeriesFormFields({
             <Input
               type="number"
               size="sm"
+              min={1}
+              max={MAX_SESSION_DURATION_MINUTES}
               value={durationMinutes}
               onChange={(e) => onDurationMinutesChange(Number(e.target.value))}
             />
@@ -120,7 +126,14 @@ export default function SeriesFormFields({
 
         {useCount ? (
           <FormField name={`${prefix}count`} label="Count (total occurrences)">
-            <Input type="number" size="sm" value={count} onChange={(e) => onCountChange(Number(e.target.value))} />
+            <Input
+              type="number"
+              size="sm"
+              min={1}
+              max={MAX_SERIES_OCCURRENCES}
+              value={count}
+              onChange={(e) => onCountChange(Number(e.target.value))}
+            />
           </FormField>
         ) : (
           <FormField name={`${prefix}end_date`} label="End date">

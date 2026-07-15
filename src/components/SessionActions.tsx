@@ -1,5 +1,6 @@
 import Button from "./ui/Button";
 import type { Session } from "@/types";
+import { isFutureSession } from "@/features/scheduling/recurrenceLimits";
 
 interface SessionActionsProps {
   session: Session;
@@ -26,7 +27,9 @@ export default function SessionActions({
           <Button variant="danger" size="sm" onClick={() => onCancel(session)} disabled={cancelingId === session.id}>
             {cancelingId === session.id ? "Canceling…" : "Cancel"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onEditSeriesTandF(session)}>This & Future</Button>
+          {isFutureSession(session.start_at) ? (
+            <Button variant="ghost" size="sm" onClick={() => onEditSeriesTandF(session)}>This & Future</Button>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={() => onEditSeriesEntire(session)}>Edit Series</Button>
           <Button variant="danger" size="sm" onClick={() => onCancelSeries(session)} disabled={cancelingId === session.id}>
             {cancelingId === session.id ? "Canceling…" : "Cancel Series"}

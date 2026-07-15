@@ -70,6 +70,7 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
       if (endpoint === "preflight_series") {
         url = "/api/v1/scheduling/preflight_series";
         body = {
+          series_id: params.series_id ?? null,
           course_id: params.course_id,
           room_id: params.room_id,
           teacher_id: params.teacher_id,
