@@ -1486,9 +1486,9 @@ func (s *Service) FindAvailableSlots(ctx context.Context, p FindAvailableSlotsPa
 	var rangeLiterals []string
 
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
-		for h := dayStart; h+slotDur/60 <= dayEnd; h++ {
-			slotStart := time.Date(d.Year(), d.Month(), d.Day(), h, 0, 0, 0, s.loc).UTC()
-			slotEnd := slotStart.Add(time.Duration(slotDur) * time.Minute).UTC()
+		for _, candidate := range generateHourlySlots(d, dayStart, dayEnd, slotDur) {
+			slotStart := candidate.Start.UTC()
+			slotEnd := candidate.End.UTC()
 
 			rangeLiterals = append(rangeLiterals, fmt.Sprintf(
 				"tstzrange('%s'::timestamptz, '%s'::timestamptz, '[)')",
@@ -1528,12 +1528,21 @@ WHERE a.teacher_id = $1 AND a.deleted_at IS NULL`, rangeArray)
 		}
 		covered := make(map[int]bool, len(slots))
 		for rows.Next() {
-			var idx int
-			if err := rows.Scan(&idx); err != nil {
+			var ordinal int64
+			if err := rows.Scan(&ordinal); err != nil {
 				rows.Close()
 				return FindAvailableSlotsResult{}, fmt.Errorf("scan teacher availability: %w", err)
 			}
+			idx, ok := ordinalityToIndex(ordinal, len(slots))
+			if !ok {
+				rows.Close()
+				return FindAvailableSlotsResult{}, fmt.Errorf("scan teacher availability: database returned slot ordinal %d outside 1..%d", ordinal, len(slots))
+			}
 			covered[idx] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return FindAvailableSlotsResult{}, fmt.Errorf("iterate teacher availability: %w", err)
 		}
 		rows.Close()
 		for i := range slots {
@@ -1555,12 +1564,21 @@ WHERE s.teacher_id = $1 AND s.deleted_at IS NULL`, rangeArray)
 			return FindAvailableSlotsResult{}, fmt.Errorf("batch teacher overlap: %w", err)
 		}
 		for rows.Next() {
-			var idx int
-			if err := rows.Scan(&idx); err != nil {
+			var ordinal int64
+			if err := rows.Scan(&ordinal); err != nil {
 				rows.Close()
 				return FindAvailableSlotsResult{}, fmt.Errorf("scan teacher overlap: %w", err)
 			}
+			idx, ok := ordinalityToIndex(ordinal, len(slots))
+			if !ok {
+				rows.Close()
+				return FindAvailableSlotsResult{}, fmt.Errorf("scan teacher overlap: database returned slot ordinal %d outside 1..%d", ordinal, len(slots))
+			}
 			blocked[idx] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return FindAvailableSlotsResult{}, fmt.Errorf("iterate teacher overlap: %w", err)
 		}
 		rows.Close()
 	}
@@ -1579,12 +1597,21 @@ WHERE br.student_id = ANY($1::uuid[])
 			return FindAvailableSlotsResult{}, fmt.Errorf("batch student overlap: %w", err)
 		}
 		for rows.Next() {
-			var idx int
-			if err := rows.Scan(&idx); err != nil {
+			var ordinal int64
+			if err := rows.Scan(&ordinal); err != nil {
 				rows.Close()
 				return FindAvailableSlotsResult{}, fmt.Errorf("scan student overlap: %w", err)
 			}
+			idx, ok := ordinalityToIndex(ordinal, len(slots))
+			if !ok {
+				rows.Close()
+				return FindAvailableSlotsResult{}, fmt.Errorf("scan student overlap: database returned slot ordinal %d outside 1..%d", ordinal, len(slots))
+			}
 			blocked[idx] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return FindAvailableSlotsResult{}, fmt.Errorf("iterate student overlap: %w", err)
 		}
 		rows.Close()
 	}
