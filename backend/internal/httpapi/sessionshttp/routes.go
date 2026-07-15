@@ -639,6 +639,10 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
+				if se.Code == "stale_edit" {
+					results = append(results, bulkResult{ID: upd.ID, Status: "stale_edit", Error: err.Error()})
+					continue
+				}
 				results = append(results, bulkResult{ID: upd.ID, Status: "conflict", Error: se.Message, Details: se.Details})
 				continue
 			}

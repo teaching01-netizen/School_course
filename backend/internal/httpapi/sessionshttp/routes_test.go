@@ -236,6 +236,36 @@ func TestScheduleDB_DeleteSession_ReplayPrecedesNotFound(t *testing.T) {
 	assertReplay(t, f.mux, http.MethodDelete, "/api/v1/sessions/"+uuidString(t, session.ID), uuid.New().String(), body)
 }
 
+func TestScheduleDB_BulkUpdate_StaleEditRetainsItemStatus(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	session := f.createSession(t)
+	body := []byte(fmt.Sprintf(`{"updates":[{"id":%q,"expected_version":0}]}`, uuidString(t, session.ID)))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/bulk-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	f.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Results []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Status != "stale_edit" {
+		t.Fatalf("results=%+v, want one stale_edit item", got.Results)
+	}
+	if !strings.Contains(got.Results[0].Error, "stale_edit") {
+		t.Fatalf("error=%q, want stale_edit", got.Results[0].Error)
+	}
+}
+
 func TestRegister_GetSessions_BadStart_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
