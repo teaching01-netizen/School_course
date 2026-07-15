@@ -63,7 +63,7 @@ func TestRetainedLegacyCountForMaintenance(t *testing.T) {
 func TestInheritedSuccessorBoundsPreserveLegacyDefinition(t *testing.T) {
 	t.Run("count is never truncated", func(t *testing.T) {
 		count := int32(1500)
-		end, remaining, err := inheritedSuccessorBounds(nil, &count, 100)
+		end, remaining, err := inheritedSuccessorBounds(date(2026, 1, 1), nil, &count, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +77,7 @@ func TestInheritedSuccessorBoundsPreserveLegacyDefinition(t *testing.T) {
 
 	t.Run("end date beyond current horizon is preserved", func(t *testing.T) {
 		legacyEnd := date(2040, 1, 1)
-		end, remaining, err := inheritedSuccessorBounds(&legacyEnd, nil, 0)
+		end, remaining, err := inheritedSuccessorBounds(date(2030, 1, 1), &legacyEnd, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestInheritedSuccessorBoundsPreserveLegacyDefinition(t *testing.T) {
 	t.Run("both bounds are retained so earlier one still wins", func(t *testing.T) {
 		legacyEnd := date(2027, 1, 1)
 		count := int32(1500)
-		end, remaining, err := inheritedSuccessorBounds(&legacyEnd, &count, 25)
+		end, remaining, err := inheritedSuccessorBounds(date(2026, 6, 1), &legacyEnd, &count, 25)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,6 +101,30 @@ func TestInheritedSuccessorBoundsPreserveLegacyDefinition(t *testing.T) {
 		}
 		if remaining == nil || *remaining != 1475 {
 			t.Fatalf("remaining = %v, want 1475", remaining)
+		}
+	})
+
+	t.Run("end-only rejects pivot after inherited end", func(t *testing.T) {
+		legacyEnd := date(2027, 1, 1)
+		_, _, err := inheritedSuccessorBounds(date(2027, 1, 2), &legacyEnd, nil, 0)
+		assertValidationError(t, err, "no_remaining_occurrences")
+	})
+
+	t.Run("both-bound rejects pivot after inherited end", func(t *testing.T) {
+		legacyEnd := date(2027, 1, 1)
+		count := int32(1500)
+		_, _, err := inheritedSuccessorBounds(date(2027, 1, 2), &legacyEnd, &count, 25)
+		assertValidationError(t, err, "no_remaining_occurrences")
+	})
+
+	t.Run("pivot equal to inherited end remains valid", func(t *testing.T) {
+		legacyEnd := date(2027, 1, 1)
+		end, _, err := inheritedSuccessorBounds(legacyEnd, &legacyEnd, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if end == nil || *end != legacyEnd {
+			t.Fatalf("end = %v, want %v", end, legacyEnd)
 		}
 	})
 }

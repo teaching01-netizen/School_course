@@ -126,9 +126,12 @@ func legacyRetainedBound(count int32, emptyEndDate LocalDate) legacyBound {
 	return legacyBound{EndDate: &emptyEndDate}
 }
 
-func inheritedSuccessorBounds(endDate *LocalDate, count *int32, retainedCount int32) (*LocalDate, *int, error) {
+func inheritedSuccessorBounds(pivotDate LocalDate, endDate *LocalDate, count *int32, retainedCount int32) (*LocalDate, *int, error) {
 	var inheritedEnd *LocalDate
 	if endDate != nil {
+		if endDate.Before(pivotDate) {
+			return nil, nil, newValidationError("no_remaining_occurrences", "no occurrences remain at or after pivot_date")
+		}
 		copy := *endDate
 		inheritedEnd = &copy
 	}

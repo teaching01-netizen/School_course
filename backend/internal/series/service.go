@@ -262,7 +262,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 			value := old.Count.Int32
 			oldCount = &value
 		}
-		endLD, countNew, err = inheritedSuccessorBounds(oldEnd, oldCount, retainedCount)
+		endLD, countNew, err = inheritedSuccessorBounds(p.PivotDate, oldEnd, oldCount, retainedCount)
 		if err != nil {
 			return SplitResult{}, err
 		}
