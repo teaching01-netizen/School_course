@@ -384,6 +384,8 @@ func (Adapter) DecodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 
 Decode and syntactically validate before the wrapper, acquire idempotency, then use `qtx.SessionGetByID`/`qtx.SeriesGetByID` and version checks inside the callback. Apply this ordering to `handleSessionsCreate`, `handleSessionsDelete`, `handleSessionEditOccurrence`, `handleSessionAttendanceUpsert`, `handleSessionAttendanceDelete`, `handleSeriesCreate`, `handleSeriesSplit`, `handleSeriesCancel`, and `handleSeriesEditEntire`. The create/attendance routes have no CAS read but still require body restoration and idempotency acquisition before durable work. Change schedule create/edit wrappers from `WithSerializableIdempotentTx` to `WithIdempotentTx`; Tasks 5–8 supply the explicit lock protocol before any schedule preflight/write.
 
+> **Sequencing adjustment:** retain `WithSerializableIdempotentTx` for session create/edit through Task 4. Task 5 must switch these routes to `WithIdempotentTx` atomically with canonical resource locks and savepoint-safe writes, so no intermediate commit exposes unsafe read-committed schedule writes.
+
 Document exact-byte fingerprints and committed-mutation-only caching in `docs/idempotency.md`.
 
 - [ ] **Step 5: Verify GREEN**

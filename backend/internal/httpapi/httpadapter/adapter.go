@@ -417,13 +417,22 @@ func (a Adapter) WithSerializableIdempotentTx(
 		return false
 	}
 
+	// Match WithIdempotentTx: first delivery and replay use the same stored
+	// PostgreSQL jsonb representation.
+	_, completed, err := idempotency.Acquire(r.Context(), qtx2, userID, scope, key, fingerprint, expiry)
+	if err != nil || completed == nil || completed.StatusCode == nil || len(completed.ResponseBody) == 0 {
+		a.log.Error("serializable idempotent tx: read completed response failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		a.log.Error("serializable idempotent tx: commit failed", "error", err)
 		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return false
 	}
 
-	a.WriteJSON(w, statusCode, resp)
+	a.writeRawJSON(w, statusCode, completed.ResponseBody)
 	return true
 }
 

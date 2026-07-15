@@ -265,7 +265,9 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var createdID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	// TODO(schedulelock): Task 5 must switch this to WithIdempotentTx in the
+	// same change that adds canonical resource locks and savepoint-safe writes.
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := s.deps.Scheduling.CreateSessionTx(r.Context(), tx, qtx, scheduling.CreateSessionParams{
 			SeriesID:  seriesID,
@@ -458,7 +460,9 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 	}
 
 	var updatedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	// TODO(schedulelock): Task 5 must switch this to WithIdempotentTx in the
+	// same change that adds canonical resource locks and savepoint-safe writes.
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		existing, err := qtx.SessionGetByID(r.Context(), id)
 		if err != nil {
