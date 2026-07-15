@@ -1,7 +1,9 @@
 package httpadapter
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,23 @@ import (
 
 	"warwick-institute/internal/idempotency"
 )
+
+func TestDecodeJSON_RestoresExactOriginalBody(t *testing.T) {
+	original := []byte("{\n  \"course_id\": \"course-1\"\n}")
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewReader(original))
+	w := httptest.NewRecorder()
+	var body map[string]any
+	if err := (Adapter{}).DecodeJSON(w, r, &body); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, original) {
+		t.Fatalf("got=%q want=%q", restored, original)
+	}
+}
 
 func TestParseTimestamptz_AcceptsRFC3339AndNano(t *testing.T) {
 	a := Adapter{}

@@ -1,9 +1,12 @@
 package sessionshttp
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -112,6 +115,125 @@ func uuidString(t *testing.T, value pgtype.UUID) string {
 		t.Fatal(err)
 	}
 	return id.String()
+}
+
+func serveMutation(t *testing.T, mux http.Handler, method, path, key string, body []byte) (int, []byte) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", key)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	return w.Code, append([]byte(nil), w.Body.Bytes()...)
+}
+
+func assertReplay(t *testing.T, mux http.Handler, method, path, key string, body []byte) {
+	t.Helper()
+	status1, response1 := serveMutation(t, mux, method, path, key, body)
+	status2, response2 := serveMutation(t, mux, method, path, key, body)
+	if status2 != status1 || !bytes.Equal(response2, response1) {
+		t.Fatalf("replay=(%d,%s) original=(%d,%s)", status2, response2, status1, response1)
+	}
+}
+
+type scheduleHTTPFixture struct {
+	mux       http.Handler
+	q         *sqldb.Queries
+	pool      *pgxpool.Pool
+	courseID  pgtype.UUID
+	teacherID pgtype.UUID
+}
+
+func newScheduleHTTPFixture(t *testing.T) scheduleHTTPFixture {
+	t.Helper()
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	pool := newPool(t, databaseURL)
+	t.Cleanup(pool.Close)
+	q := sqldb.New(pool)
+	seriesSvc, err := series.NewService(pool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulingSvc, err := scheduling.NewService(pool, "Asia/Bangkok", seriesSvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	suffix := uuid.New().String()[:8]
+	adminPgID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "idem-admin-" + suffix, Role: "Admin", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminID, err := uuid.FromBytes(adminPgID.Bytes[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "idem-teacher-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "IDEM-" + suffix, Name: "Idempotency " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, httpdeps.Deps{
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Auth: fakeAuth{user: auth.AuthenticatedUser{ID: adminID, Username: "a", Role: "Admin"}},
+		Q: q, DB: pool, Scheduling: schedulingSvc, InstituteTZ: "Asia/Bangkok",
+	})
+	return scheduleHTTPFixture{mux: mux, q: q, pool: pool, courseID: course.ID, teacherID: teacherID}
+}
+
+func (f scheduleHTTPFixture) createSession(t *testing.T) sqldb.SessionCreateRow {
+	t.Helper()
+	start := time.Now().UTC().AddDate(0, 2, 0).Truncate(time.Hour)
+	item, err := f.q.SessionCreate(context.Background(), sqldb.SessionCreateParams{
+		CourseID: f.courseID, TeacherID: f.teacherID,
+		StartAt: pgtype.Timestamptz{Time: start, Valid: true}, EndAt: pgtype.Timestamptz{Time: start.Add(time.Hour), Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
+func TestScheduleDB_PostSession_ReplaysSameKeySameExactBody(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	start := time.Now().UTC().AddDate(0, 3, 0).Truncate(time.Hour)
+	body := []byte(fmt.Sprintf("{\n  \"course_id\": %q, \"teacher_id\": %q, \"start_at\": %q, \"end_at\": %q\n}", uuidString(t, f.courseID), uuidString(t, f.teacherID), start.Format(time.RFC3339), start.Add(time.Hour).Format(time.RFC3339)))
+	assertReplay(t, f.mux, http.MethodPost, "/api/v1/sessions", uuid.New().String(), body)
+}
+
+func TestScheduleDB_PostSession_RejectsSameKeyDifferentBody(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	start := time.Now().UTC().AddDate(0, 4, 0).Truncate(time.Hour)
+	body1 := []byte(fmt.Sprintf(`{"course_id":%q,"teacher_id":%q,"start_at":%q,"end_at":%q}`, uuidString(t, f.courseID), uuidString(t, f.teacherID), start.Format(time.RFC3339), start.Add(time.Hour).Format(time.RFC3339)))
+	body2 := append([]byte(" \n"), body1...)
+	key := uuid.New().String()
+	status1, _ := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions", key, body1)
+	if status1 != http.StatusCreated {
+		t.Fatalf("first status=%d", status1)
+	}
+	status2, response2 := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions", key, body2)
+	if status2 != http.StatusConflict || !bytes.Contains(response2, []byte(`"code":"idempotency_key_reuse"`)) {
+		t.Fatalf("second=(%d,%s), want 409 idempotency_key_reuse", status2, response2)
+	}
+}
+
+func TestScheduleDB_PatchSession_ReplayPrecedesStaleVersion(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	session := f.createSession(t)
+	start := session.StartAt.Time.Add(2 * time.Hour)
+	body := []byte(fmt.Sprintf(`{"expected_version":1,"start_at":%q,"end_at":%q}`, start.Format(time.RFC3339), start.Add(time.Hour).Format(time.RFC3339)))
+	assertReplay(t, f.mux, http.MethodPatch, "/api/v1/sessions/"+uuidString(t, session.ID), uuid.New().String(), body)
+}
+
+func TestScheduleDB_DeleteSession_ReplayPrecedesNotFound(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	session := f.createSession(t)
+	body := []byte(`{"expected_version":1}`)
+	assertReplay(t, f.mux, http.MethodDelete, "/api/v1/sessions/"+uuidString(t, session.ID), uuid.New().String(), body)
 }
 
 func TestRegister_GetSessions_BadStart_Returns400(t *testing.T) {

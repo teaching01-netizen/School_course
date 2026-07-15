@@ -71,6 +71,11 @@ SHA256(method + ":" + path + "?" + query + ":" + bodyBytes)
 
 This ensures the same key + same exact request → same response, while different payloads are rejected.
 
+`bodyBytes` are the original, bounded request bytes. JSON is fingerprinted before
+any normalization, so changes in whitespace, property order, or other byte-level
+representation are treated as a different request even when the decoded JSON is
+semantically equivalent.
+
 ## Database Schema
 
 The `idempotency_keys` table stores:
@@ -117,5 +122,10 @@ All background jobs **must** use the same DB-backed idempotency mechanism (not i
    - If insert fails due to unique constraint: the key exists.
      - If stored `request_hash` matches: return the cached response (replay).
      - If stored `request_hash` differs: return `409 code:"idempotency_key_reuse"`.
-6. Server runs the mutation. On success/error, server updates the row with `status_code` and `response_body`.
-7. Server returns the response.
+6. Server runs the mutation. Only after the mutation succeeds does the server
+   update the row with `status_code` and `response_body` and commit both changes
+   in the same transaction.
+7. Validation, conflict, and other failed mutations roll back the idempotency row;
+   they are not cached and may be retried after correction with the same key.
+8. Server returns the committed response. Replays return the same stored status
+   and canonical JSON response without repeating durable side effects.

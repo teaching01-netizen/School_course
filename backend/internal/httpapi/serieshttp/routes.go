@@ -332,19 +332,6 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect stale edit explicitly (read-only, outside transaction).
-	existing, err := s.deps.Q.SeriesGetByID(r.Context(), id)
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-	if existing.Version != *body.ExpectedVersion {
-		cur := buildStaleEditPayloadSeries(s.a, r, existing)
-		s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
-		return
-	}
-
 	pivot, err := s.a.ParseLocalDateYYYYMMDD(body.PivotDate)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_pivot_date", "Invalid pivot_date (YYYY-MM-DD)")
@@ -385,6 +372,17 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 	var changedID string
 	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		existing, err := qtx.SeriesGetByID(r.Context(), id)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if existing.Version != *body.ExpectedVersion {
+			cur := buildStaleEditPayloadSeries(s.a, r, existing)
+			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
+			return 0, nil, errors.New("stale_edit")
+		}
 		res, err := s.deps.Scheduling.SplitThisAndFutureTx(r.Context(), tx, qtx, scheduling.SplitSeriesParams{
 			SeriesID:        id,
 			PivotDate:       pivot,
@@ -401,7 +399,7 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
-				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
+				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
 					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})
@@ -467,19 +465,6 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect stale edit explicitly (read-only, outside transaction).
-	existing, err := s.deps.Q.SeriesGetByID(r.Context(), id)
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-	if existing.Version != *body.ExpectedVersion {
-		cur := buildStaleEditPayloadSeries(s.a, r, existing)
-		s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
-		return
-	}
-
 	var cancelScope scheduling.CancelScope
 	switch body.Scope {
 	case string(scheduling.CancelScopeThisAndFuture):
@@ -508,6 +493,17 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 	var changedID string
 	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		existing, err := qtx.SeriesGetByID(r.Context(), id)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if existing.Version != *body.ExpectedVersion {
+			cur := buildStaleEditPayloadSeries(s.a, r, existing)
+			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
+			return 0, nil, errors.New("stale_edit")
+		}
 		res, err := s.deps.Scheduling.CancelSeriesTx(r.Context(), tx, qtx, scheduling.CancelSeriesParams{
 			SeriesID:        id,
 			Scope:           cancelScope,
@@ -520,7 +516,7 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			}
 			switch err.Error() {
 			case "stale_edit":
-				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
+				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
 					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})
@@ -593,19 +589,6 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Detect stale edit explicitly (read-only, outside transaction).
-	existing, err := s.deps.Q.SeriesGetByID(r.Context(), id)
-	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
-	if existing.Version != *body.ExpectedVersion {
-		cur := buildStaleEditPayloadSeries(s.a, r, existing)
-		s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
-		return
-	}
-
 	courseID, err := s.a.ParseUUID(body.CourseID)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
@@ -668,6 +651,17 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 	var changedID string
 	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		existing, err := qtx.SeriesGetByID(r.Context(), id)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if existing.Version != *body.ExpectedVersion {
+			cur := buildStaleEditPayloadSeries(s.a, r, existing)
+			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
+			return 0, nil, errors.New("stale_edit")
+		}
 		res, err := s.deps.Scheduling.EditEntireSeriesFutureOnlyTx(r.Context(), tx, qtx, scheduling.EditEntireSeriesParams{
 			SeriesID:        id,
 			ExpectedVersion: *body.ExpectedVersion,
@@ -687,7 +681,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
-				cur, ferr := s.deps.Q.SeriesGetByID(r.Context(), id)
+				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
 					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})

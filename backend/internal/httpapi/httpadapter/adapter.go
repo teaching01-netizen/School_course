@@ -171,8 +171,13 @@ func (Adapter) ClockFromPgTime(t pgtype.Time) (scheduling.Clock, bool) {
 }
 
 func (Adapter) DecodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 2*1024*1024)
-	return json.NewDecoder(r.Body).Decode(v)
+	limited := http.MaxBytesReader(w, r.Body, 2*1024*1024)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	return json.NewDecoder(bytes.NewReader(body)).Decode(v)
 }
 
 // IdempotencyScope returns a short scope string derived from the URL path.
@@ -310,13 +315,22 @@ func (a Adapter) WithIdempotentTx(
 		return false
 	}
 
+	// Read back PostgreSQL's canonical jsonb bytes so the first response and
+	// every replay are byte-for-byte identical.
+	_, completed, err := idempotency.Acquire(r.Context(), qtx2, userID, scope, key, fingerprint, expiry)
+	if err != nil || completed == nil || completed.StatusCode == nil || len(completed.ResponseBody) == 0 {
+		a.log.Error("idempotent tx: read completed response failed", "error", err)
+		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return false
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		a.log.Error("idempotent tx: commit failed", "error", err)
 		a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return false
 	}
 
-	a.WriteJSON(w, statusCode, resp)
+	a.writeRawJSON(w, statusCode, completed.ResponseBody)
 	return true
 }
 
