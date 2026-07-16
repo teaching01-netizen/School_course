@@ -41,6 +41,7 @@ func main() {
 	}
 
 	log := logging.New(cfg.LogLevel)
+	slog.SetDefault(log)
 	log.Info("starting", "addr", cfg.Addr, "static_dir", cfg.StaticDir)
 
 	dbpool, err := pg.NewPool(context.Background(), cfg.DatabaseURL)
@@ -91,7 +92,7 @@ func main() {
 		log.Error("init series service", "error", err)
 		os.Exit(1)
 	}
-	schedulingSvc, err := scheduling.NewService(dbpool, cfg.InstituteTZ, seriesSvc)
+	schedulingSvc, err := scheduling.NewService(dbpool, cfg.InstituteTZ, seriesSvc, log)
 	if err != nil {
 		log.Error("init scheduling service", "error", err)
 		os.Exit(1)

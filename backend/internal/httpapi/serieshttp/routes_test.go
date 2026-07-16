@@ -392,11 +392,13 @@ func TestScheduleDB_EditEntireSeries_ReplayPrecedesStaleVersion(t *testing.T) {
 }
 
 func TestWriteRecurrenceValidationErr(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	recorder := httptest.NewRecorder()
-	s := &server{a: httpadapter.New(nil, nil)}
+	s := &server{deps: httpdeps.Deps{Log: logger}, a: httpadapter.New(nil, logger)}
 	err := fmt.Errorf("wrapped: %w", &series.ValidationError{Code: "count_exceeds_limit", Message: "count must be at most 1000"})
 
-	if !s.writeRecurrenceValidationErr(recorder, err) {
+	if !s.writeRecurrenceValidationErr(context.Background(), recorder, err) {
 		t.Fatal("validation error was not handled")
 	}
 	if recorder.Code != http.StatusBadRequest {
@@ -414,5 +416,11 @@ func TestWriteRecurrenceValidationErr(t *testing.T) {
 	}
 	if body.Message != "count must be at most 1000" {
 		t.Fatalf("message = %q", body.Message)
+	}
+	if got := logs.String(); !strings.Contains(got, "schedule recurrence rejected") || !strings.Contains(got, `"code":"count_exceeds_limit"`) {
+		t.Fatalf("recurrence rejection log missing bounded fields: %s", got)
+	}
+	if strings.Contains(logs.String(), "student@example.com") || strings.Contains(logs.String(), "SELECT * FROM") {
+		t.Fatalf("recurrence rejection log contains sensitive payload: %s", logs.String())
 	}
 }

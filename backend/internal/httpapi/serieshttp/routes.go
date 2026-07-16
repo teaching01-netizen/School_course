@@ -1,6 +1,7 @@
 package serieshttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -68,10 +69,13 @@ type server struct {
 	a    httpadapter.Adapter
 }
 
-func (s *server) writeRecurrenceValidationErr(w http.ResponseWriter, err error) bool {
+func (s *server) writeRecurrenceValidationErr(ctx context.Context, w http.ResponseWriter, err error) bool {
 	var validationErr *series.ValidationError
 	if !errors.As(err, &validationErr) {
 		return false
+	}
+	if s.deps.Log != nil {
+		s.deps.Log.WarnContext(ctx, "schedule recurrence rejected", "code", validationErr.Code)
 	}
 	s.a.WriteErr(w, http.StatusBadRequest, "invalid_recurrence", validationErr.Message)
 	return true
@@ -195,7 +199,7 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(w, err) {
+			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
 				return 0, nil, err
 			}
 			var se *scheduling.Err
@@ -394,7 +398,7 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(w, err) {
+			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
 				return 0, nil, err
 			}
 			var se *scheduling.Err
@@ -511,7 +515,7 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			ExpectedVersion: *body.ExpectedVersion,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(w, err) {
+			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
 				return 0, nil, err
 			}
 			switch err.Error() {
@@ -676,7 +680,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(w, err) {
+			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
 				return 0, nil, err
 			}
 			var se *scheduling.Err

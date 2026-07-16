@@ -147,7 +147,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	if err != nil {
 		panic(err)
 	}
-	schedulingSvc, err := scheduling.NewService(db, cfg.InstituteTZ, seriesSvc)
+	schedulingSvc, err := scheduling.NewService(db, cfg.InstituteTZ, seriesSvc, log)
 	if err != nil {
 		// Fail fast at startup for invalid timezone config.
 		panic(err)

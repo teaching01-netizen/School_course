@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 )
+
+func logResourceLockFailure(ctx context.Context, logger *slog.Logger, operation string, err error) {
+	logger.ErrorContext(ctx, "schedule resource lock failed", "operation", operation, "error", err)
+}
 
 type ResourceLocks struct {
 	CourseIDs  []pgtype.UUID
@@ -82,9 +87,12 @@ func LockResources(ctx context.Context, q *sqldb.Queries, ids ResourceLocks) err
 			return fmt.Errorf("schedulelock: unknown resource kind %d", kind)
 		}
 		if err != nil {
-			return fmt.Errorf("schedulelock: lock %s resources: %w", kindName, err)
+			wrapped := fmt.Errorf("schedulelock: lock %s resources: %w", kindName, err)
+			logResourceLockFailure(ctx, slog.Default(), "lock_"+kindName, wrapped)
+			return wrapped
 		}
 		if err := ensureAllLocked(kindName, requested, locked); err != nil {
+			logResourceLockFailure(ctx, slog.Default(), "lock_"+kindName, err)
 			return err
 		}
 	}

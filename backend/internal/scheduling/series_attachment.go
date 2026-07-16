@@ -2,18 +2,32 @@ package scheduling
 
 import (
 	"context"
+	"log/slog"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/series"
 )
 
-func validateSeriesOccurrence(ctx context.Context, definition sqldb.SeriesGetByIDRow, p CreateSessionParams) error {
+func logSeriesAttachmentRejected(ctx context.Context, logger *slog.Logger, seriesID pgtype.UUID, reason string) {
+	logger.WarnContext(ctx, "schedule series attachment rejected",
+		"series_id", uuidStringOrEmpty(seriesID),
+		"reason", reason,
+	)
+}
+
+func (s *Service) validateSeriesOccurrence(ctx context.Context, definition sqldb.SeriesGetByIDRow, p CreateSessionParams) error {
+	reject := func(code, message string) error {
+		logSeriesAttachmentRejected(ctx, s.log, definition.ID, code)
+		return &Err{Code: code, Message: message}
+	}
 	mismatch := func() error {
-		return &Err{Code: "series_occurrence_mismatch", Message: "session does not match the recurring series definition"}
+		return reject("series_occurrence_mismatch", "session does not match the recurring series definition")
 	}
 	if definition.DeletedAt.Valid {
-		return &Err{Code: "invalid_series", Message: "series is inactive"}
+		return reject("invalid_series", "series is inactive")
 	}
 	if definition.CourseID.Bytes != p.CourseID.Bytes ||
 		definition.TeacherID.Bytes != p.TeacherID.Bytes ||
@@ -23,7 +37,7 @@ func validateSeriesOccurrence(ctx context.Context, definition sqldb.SeriesGetByI
 	}
 	loc, err := time.LoadLocation(definition.InstituteTz)
 	if err != nil {
-		return &Err{Code: "invalid_series", Message: "series timezone is invalid"}
+		return reject("invalid_series", "series timezone is invalid")
 	}
 	localStart := p.StartAt.Time.In(loc)
 	candidateDate := series.LocalDate{Year: localStart.Year(), Month: localStart.Month(), Day: localStart.Day()}
@@ -56,7 +70,7 @@ func validateSeriesOccurrence(ctx context.Context, definition sqldb.SeriesGetByI
 	if definition.Count.Valid {
 		before, countErr := series.CountOccurrencesBefore(ctx, weekdays, startDate, candidateDate, definition.Count.Int32)
 		if countErr != nil {
-			return &Err{Code: "invalid_series", Message: "series recurrence is invalid"}
+			return reject("invalid_series", "series recurrence is invalid")
 		}
 		if before >= definition.Count.Int32 {
 			return mismatch()

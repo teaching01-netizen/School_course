@@ -41,6 +41,7 @@ type SeriesService interface {
 type Service struct {
 	db          *pgxpool.Pool
 	q           *sqldb.Queries
+	log         *slog.Logger
 	instituteTZ string
 	loc         *time.Location
 	seriesSvc   SeriesService
@@ -167,14 +168,19 @@ func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) 
 	return PreflightSeriesResult{Status: status, OccurrencesPlanned: len(occ)}, nil, nil
 }
 
-func NewService(db *pgxpool.Pool, instituteTZ string, seriesSvc SeriesService) (*Service, error) {
+func NewService(db *pgxpool.Pool, instituteTZ string, seriesSvc SeriesService, logs ...*slog.Logger) (*Service, error) {
 	loc, err := time.LoadLocation(instituteTZ)
 	if err != nil {
 		return nil, err
 	}
+	logger := slog.Default()
+	if len(logs) > 0 && logs[0] != nil {
+		logger = logs[0]
+	}
 	return &Service{
 		db:          db,
 		q:           sqldb.New(db),
+		log:         logger,
 		instituteTZ: instituteTZ,
 		loc:         loc,
 		seriesSvc:   seriesSvc,
@@ -630,11 +636,13 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		row, seriesErr := qtx.SeriesGetByID(ctx, *p.SeriesID)
 		if seriesErr != nil {
 			if errors.Is(seriesErr, pgx.ErrNoRows) {
+				logSeriesAttachmentRejected(ctx, s.log, *p.SeriesID, "invalid_series")
 				return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series does not exist"}
 			}
 			return CreateSessionResult{}, seriesErr
 		}
 		if row.DeletedAt.Valid {
+			logSeriesAttachmentRejected(ctx, s.log, *p.SeriesID, "invalid_series")
 			return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series is inactive"}
 		}
 		discoveredSeries = &row
@@ -677,9 +685,10 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	if discoveredSeries != nil {
 		lockedSeries, seriesErr := qtx.SeriesGetByID(ctx, *p.SeriesID)
 		if seriesErr != nil || lockedSeries.DeletedAt.Valid {
+			logSeriesAttachmentRejected(ctx, s.log, *p.SeriesID, "invalid_series")
 			return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series is inactive"}
 		}
-		if err := validateSeriesOccurrence(ctx, lockedSeries, p); err != nil {
+		if err := s.validateSeriesOccurrence(ctx, lockedSeries, p); err != nil {
 			return CreateSessionResult{}, err
 		}
 	}
