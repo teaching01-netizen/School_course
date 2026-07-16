@@ -1320,49 +1320,19 @@ func TestScheduleDB_AttachedOccurrenceEditAndSeriesCancelDoNotDeadlock(t *testin
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	txEdit, err := dbpool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = txEdit.Rollback(context.Background()) }()
-	txCancel, err := dbpool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = txCancel.Rollback(context.Background()) }()
-	qEdit := q.WithTx(txEdit)
-	qCancel := q.WithTx(txCancel)
-	if _, err := qEdit.SessionsLockOrdered(ctx, []pgtype.UUID{session.ID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := qCancel.SeriesLockOrdered(ctx, []pgtype.UUID{seriesRow.ID}); err != nil {
-		t.Fatal(err)
-	}
-
-	result := make(chan error, 2)
-	go func() {
+	left, right := runRace(t, func(ctx context.Context) error {
 		start := pgtype.Timestamptz{Time: localStart.Add(2 * time.Hour).UTC(), Valid: true}
 		end := pgtype.Timestamptz{Time: localStart.Add(3 * time.Hour).UTC(), Valid: true}
-		_, editErr := svc.EditOccurrenceTimeTx(ctx, txEdit, qEdit, EditOccurrenceParams{SessionID: session.ID, StartAt: &start, EndAt: &end, ExpectedVersion: session.Version})
-		if editErr == nil {
-			editErr = txEdit.Commit(ctx)
-		}
-		result <- editErr
-	}()
-	go func() {
-		_, cancelErr := svc.CancelSeriesTx(ctx, txCancel, qCancel, CancelSeriesParams{
+		_, editErr := svc.EditOccurrenceTime(ctx, EditOccurrenceParams{SessionID: session.ID, StartAt: &start, EndAt: &end, ExpectedVersion: session.Version})
+		return editErr
+	}, func(ctx context.Context) error {
+		_, cancelErr := svc.CancelSeries(ctx, CancelSeriesParams{
 			SeriesID: seriesRow.ID, Scope: CancelScopeEntireSeriesFutureOnly, ExpectedVersion: seriesRow.Version, NowUTC: time.Now().UTC(),
 		})
-		if cancelErr == nil {
-			cancelErr = txCancel.Commit(ctx)
-		}
-		result <- cancelErr
-	}()
+		return cancelErr
+	})
 
-	for i := 0; i < 2; i++ {
-		err := <-result
+	for _, err := range []error{left, right} {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			t.Fatalf("edit/cancel did not finish within finite context: %v", err)
 		}

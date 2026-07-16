@@ -181,6 +181,87 @@ func (q *Queries) SeriesGetByIDForUpdate(ctx context.Context, id pgtype.UUID) (S
 	return i, err
 }
 
+const seriesReplaceDefinition = `-- name: SeriesReplaceDefinition :one
+UPDATE session_series
+SET room_id = $2,
+    teacher_id = $3,
+    weekdays = $4,
+    start_local_time = $5,
+    duration_minutes = $6,
+    start_date = $7,
+    end_date = $8,
+    count = $9,
+    updated_at = now(),
+    version = version + 1
+WHERE id = $1 AND version = $10
+RETURNING id, course_id, room_id, teacher_id, institute_tz, weekdays, start_local_time, duration_minutes, start_date, end_date, count, version, deleted_at, created_at, updated_at
+`
+
+type SeriesReplaceDefinitionParams struct {
+	ID              pgtype.UUID `json:"id"`
+	RoomID          pgtype.UUID `json:"room_id"`
+	TeacherID       pgtype.UUID `json:"teacher_id"`
+	Weekdays        []int16     `json:"weekdays"`
+	StartLocalTime  pgtype.Time `json:"start_local_time"`
+	DurationMinutes int32       `json:"duration_minutes"`
+	StartDate       pgtype.Date `json:"start_date"`
+	EndDate         pgtype.Date `json:"end_date"`
+	Count           pgtype.Int4 `json:"count"`
+	Version         int32       `json:"version"`
+}
+
+type SeriesReplaceDefinitionRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	CourseID        pgtype.UUID        `json:"course_id"`
+	RoomID          pgtype.UUID        `json:"room_id"`
+	TeacherID       pgtype.UUID        `json:"teacher_id"`
+	InstituteTz     string             `json:"institute_tz"`
+	Weekdays        []int16            `json:"weekdays"`
+	StartLocalTime  pgtype.Time        `json:"start_local_time"`
+	DurationMinutes int32              `json:"duration_minutes"`
+	StartDate       pgtype.Date        `json:"start_date"`
+	EndDate         pgtype.Date        `json:"end_date"`
+	Count           pgtype.Int4        `json:"count"`
+	Version         int32              `json:"version"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) SeriesReplaceDefinition(ctx context.Context, arg SeriesReplaceDefinitionParams) (SeriesReplaceDefinitionRow, error) {
+	row := q.db.QueryRow(ctx, seriesReplaceDefinition,
+		arg.ID,
+		arg.RoomID,
+		arg.TeacherID,
+		arg.Weekdays,
+		arg.StartLocalTime,
+		arg.DurationMinutes,
+		arg.StartDate,
+		arg.EndDate,
+		arg.Count,
+		arg.Version,
+	)
+	var i SeriesReplaceDefinitionRow
+	err := row.Scan(
+		&i.ID,
+		&i.CourseID,
+		&i.RoomID,
+		&i.TeacherID,
+		&i.InstituteTz,
+		&i.Weekdays,
+		&i.StartLocalTime,
+		&i.DurationMinutes,
+		&i.StartDate,
+		&i.EndDate,
+		&i.Count,
+		&i.Version,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const seriesUpdateCount = `-- name: SeriesUpdateCount :exec
 UPDATE session_series
 SET count = $2, updated_at = now(), version = version + 1

@@ -112,6 +112,13 @@ func retainedLegacyCount(ctx context.Context, weekdays []time.Weekday, startDate
 	return int32(total), nil
 }
 
+// CountOccurrencesBefore returns the number of recurrence occurrences before
+// candidateDate, capped at persistedCount. It accepts persisted legacy counts
+// above current creation limits so attachment validation remains compatible.
+func CountOccurrencesBefore(ctx context.Context, weekdays []time.Weekday, startDate, candidateDate LocalDate, persistedCount int32) (int32, error) {
+	return retainedLegacyCount(ctx, weekdays, startDate, candidateDate, persistedCount)
+}
+
 const secondsPerDay int64 = 24 * 60 * 60
 
 type legacyBound struct {

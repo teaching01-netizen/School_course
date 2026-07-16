@@ -106,17 +106,17 @@ func (fakeAuth) HandleLogin(_ http.ResponseWriter, _ *http.Request) error  { ret
 func (fakeAuth) HandleLogout(_ http.ResponseWriter, _ *http.Request) error { return nil }
 
 type preflightFixture struct {
-	server      *httptest.Server
-	q           *sqldb.Queries
-	dbpool      *pgxpool.Pool
-	adminID     uuid.UUID
-	courseID    pgtype.UUID
-	courseStr   string
-	teacherID   pgtype.UUID
-	teacherStr  string
-	roomID      pgtype.UUID
-	roomStr     string
-	scheduling  *scheduling.Service
+	server     *httptest.Server
+	q          *sqldb.Queries
+	dbpool     *pgxpool.Pool
+	adminID    uuid.UUID
+	courseID   pgtype.UUID
+	courseStr  string
+	teacherID  pgtype.UUID
+	teacherStr string
+	roomID     pgtype.UUID
+	roomStr    string
+	scheduling *scheduling.Service
 }
 
 func setupTestServer(t *testing.T) *preflightFixture {
@@ -755,6 +755,47 @@ func TestPreflightSeriesHTTP_EditExcludesOwnSessions(t *testing.T) {
 	}
 	resp2 := doRequest(t, fx.server.URL, "POST", "/api/v1/scheduling/preflight_series", bodyNoSeries)
 	requireStatus(t, resp2.StatusCode, http.StatusConflict)
+}
+
+func TestScheduleDB_PreflightCannotIgnoreUnrelatedSeries(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+	created, err := fx.scheduling.CreateSeriesAndMaterialize(ctx, scheduling.CreateSeriesParams{
+		CourseID: fx.courseID, RoomID: fx.roomID, TeacherID: fx.teacherID,
+		Weekdays: []time.Weekday{time.Monday}, StartLocalTime: scheduling.Clock{Hour: 9}, DurationMinutes: 60,
+		StartDate: scheduling.LocalDate{Year: 2026, Month: 5, Day: 25}, Count: func() *int { value := 2; return &value }(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCourse, err := fx.q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "PF-OTHER-" + uuid.New().String()[:8], Name: "Unrelated preflight course"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCourseStr, err := uuidString(otherCourse.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesID, err := uuidString(created.SeriesID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{
+		"course_id": otherCourseStr, "room_id": fx.roomStr, "teacher_id": fx.teacherStr,
+		"weekdays": []int{1}, "start_local_time": "09:00", "duration_minutes": 60,
+		"start_date": "2026-05-25", "count": 2, "series_id": seriesID,
+	}
+	resp := doRequest(t, fx.server.URL, http.MethodPost, "/api/v1/scheduling/preflight_series", body)
+	if resp.StatusCode != http.StatusConflict {
+		var response map[string]any
+		parseResponse(t, resp, &response)
+		t.Fatalf("status=%d body=%v, want 409 invalid_series", resp.StatusCode, response)
+	}
+	var response map[string]any
+	parseResponse(t, resp, &response)
+	if response["code"] != "invalid_series" {
+		t.Fatalf("code=%v, want invalid_series", response["code"])
+	}
 }
 
 func TestPreflightSeriesHTTP_BadRequest(t *testing.T) {

@@ -54,15 +54,22 @@ WHERE session_id = $1
 ORDER BY created_at ASC
 `
 
-func (q *Queries) SessionAttendanceList(ctx context.Context, sessionID pgtype.UUID) ([]SessionAttendance, error) {
+type SessionAttendanceListRow struct {
+	SessionID pgtype.UUID        `json:"session_id"`
+	StudentID pgtype.UUID        `json:"student_id"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) SessionAttendanceList(ctx context.Context, sessionID pgtype.UUID) ([]SessionAttendanceListRow, error) {
 	rows, err := q.db.Query(ctx, sessionAttendanceList, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []SessionAttendance
+	var items []SessionAttendanceListRow
 	for rows.Next() {
-		var i SessionAttendance
+		var i SessionAttendanceListRow
 		if err := rows.Scan(
 			&i.SessionID,
 			&i.StudentID,
@@ -94,6 +101,26 @@ type SessionAttendanceUpsertParams struct {
 func (q *Queries) SessionAttendanceUpsert(ctx context.Context, arg SessionAttendanceUpsertParams) error {
 	_, err := q.db.Exec(ctx, sessionAttendanceUpsert, arg.SessionID, arg.StudentID, arg.Status)
 	return err
+}
+
+const sessionCountActiveBeforeSeriesPivot = `-- name: SessionCountActiveBeforeSeriesPivot :one
+SELECT count(*)::int4
+FROM sessions
+WHERE series_id = $1
+  AND deleted_at IS NULL
+  AND start_at < $2
+`
+
+type SessionCountActiveBeforeSeriesPivotParams struct {
+	SeriesID pgtype.UUID        `json:"series_id"`
+	StartAt  pgtype.Timestamptz `json:"start_at"`
+}
+
+func (q *Queries) SessionCountActiveBeforeSeriesPivot(ctx context.Context, arg SessionCountActiveBeforeSeriesPivotParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sessionCountActiveBeforeSeriesPivot, arg.SeriesID, arg.StartAt)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const sessionCreate = `-- name: SessionCreate :one
@@ -147,6 +174,59 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sessionFindActiveSeriesPivot = `-- name: SessionFindActiveSeriesPivot :one
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
+       s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at,
+       s.start_at > transaction_timestamp() AS is_future
+FROM sessions s
+JOIN session_series ss ON ss.id = s.series_id
+WHERE s.series_id = $1
+  AND s.deleted_at IS NULL
+  AND (s.start_at AT TIME ZONE ss.institute_tz)::date = $2::date
+ORDER BY s.start_at, s.id
+LIMIT 1
+`
+
+type SessionFindActiveSeriesPivotParams struct {
+	SeriesID pgtype.UUID `json:"series_id"`
+	Column2  pgtype.Date `json:"column_2"`
+}
+
+type SessionFindActiveSeriesPivotRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	SeriesID  pgtype.UUID        `json:"series_id"`
+	CourseID  pgtype.UUID        `json:"course_id"`
+	RoomID    pgtype.UUID        `json:"room_id"`
+	TeacherID pgtype.UUID        `json:"teacher_id"`
+	StartAt   pgtype.Timestamptz `json:"start_at"`
+	EndAt     pgtype.Timestamptz `json:"end_at"`
+	Version   int32              `json:"version"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	IsFuture  bool               `json:"is_future"`
+}
+
+func (q *Queries) SessionFindActiveSeriesPivot(ctx context.Context, arg SessionFindActiveSeriesPivotParams) (SessionFindActiveSeriesPivotRow, error) {
+	row := q.db.QueryRow(ctx, sessionFindActiveSeriesPivot, arg.SeriesID, arg.Column2)
+	var i SessionFindActiveSeriesPivotRow
+	err := row.Scan(
+		&i.ID,
+		&i.SeriesID,
+		&i.CourseID,
+		&i.RoomID,
+		&i.TeacherID,
+		&i.StartAt,
+		&i.EndAt,
+		&i.Version,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsFuture,
 	)
 	return i, err
 }
@@ -354,6 +434,40 @@ func (q *Queries) SessionListActiveByRange(ctx context.Context, arg SessionListA
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionListActiveIDsForSeriesFrom = `-- name: SessionListActiveIDsForSeriesFrom :many
+SELECT id
+FROM sessions
+WHERE series_id = $1
+  AND deleted_at IS NULL
+  AND start_at >= $2
+ORDER BY id
+`
+
+type SessionListActiveIDsForSeriesFromParams struct {
+	SeriesID pgtype.UUID        `json:"series_id"`
+	StartAt  pgtype.Timestamptz `json:"start_at"`
+}
+
+func (q *Queries) SessionListActiveIDsForSeriesFrom(ctx context.Context, arg SessionListActiveIDsForSeriesFromParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, sessionListActiveIDsForSeriesFrom, arg.SeriesID, arg.StartAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

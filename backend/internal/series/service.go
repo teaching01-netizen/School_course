@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulelock"
 )
 
 type CreateParams struct {
@@ -201,9 +202,58 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Q
 
 // SplitThisAndFutureTx performs the series split using an existing transaction-bound Queries handle.
 func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, p SplitParams) (SplitResult, error) {
+	discovered, err := qtx.SeriesGetByID(ctx, p.SeriesID)
+	if err != nil {
+		return SplitResult{}, err
+	}
+	if discovered.DeletedAt.Valid {
+		return SplitResult{}, newValidationError("invalid_series", "series is inactive")
+	}
+	pivotDate := pgtype.Date{Time: time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	pivot, err := qtx.SessionFindActiveSeriesPivot(ctx, sqldb.SessionFindActiveSeriesPivotParams{SeriesID: p.SeriesID, Column2: pivotDate})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SplitResult{}, newValidationError("invalid_pivot", "pivot_date must identify an active series occurrence")
+		}
+		return SplitResult{}, err
+	}
+	if !pivot.IsFuture {
+		return SplitResult{}, newValidationError("invalid_pivot", "pivot occurrence must not have started")
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{discovered.CourseID}}); err != nil {
+		return SplitResult{}, err
+	}
+	students, err := qtx.CourseStudentsList(ctx, discovered.CourseID)
+	if err != nil {
+		return SplitResult{}, err
+	}
+	studentIDs := make([]pgtype.UUID, len(students))
+	for i, student := range students {
+		studentIDs[i] = student.StudentID
+	}
+	futureSessionIDs, err := qtx.SessionListActiveIDsForSeriesFrom(ctx, sqldb.SessionListActiveIDsForSeriesFromParams{
+		SeriesID: p.SeriesID,
+		StartAt:  pivot.StartAt,
+	})
+	if err != nil {
+		return SplitResult{}, err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{discovered.TeacherID},
+		RoomIDs:    []pgtype.UUID{discovered.RoomID},
+		SessionIDs: futureSessionIDs,
+		SeriesIDs:  []pgtype.UUID{p.SeriesID},
+	}); err != nil {
+		return SplitResult{}, err
+	}
 	old, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
 	if err != nil {
 		return SplitResult{}, err
+	}
+	lockedPivot, err := qtx.SessionFindActiveSeriesPivot(ctx, sqldb.SessionFindActiveSeriesPivotParams{SeriesID: p.SeriesID, Column2: pivotDate})
+	if err != nil || lockedPivot.ID.Bytes != pivot.ID.Bytes || !lockedPivot.IsFuture {
+		return SplitResult{}, newValidationError("invalid_pivot", "pivot occurrence changed or has started")
 	}
 	if p.ExpectedVersion != 0 && old.Version != p.ExpectedVersion {
 		return SplitResult{}, fmt.Errorf("stale_edit")
@@ -214,7 +264,8 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		oldWeekdays = append(oldWeekdays, time.Weekday(wd))
 	}
 
-	clock := ClockFromPgTime(old.StartLocalTime)
+	originalClock := ClockFromPgTime(old.StartLocalTime)
+	clock := originalClock
 	if p.StartLocalTime != nil {
 		clock = *p.StartLocalTime
 	}
@@ -229,7 +280,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	unchangedDefinition := len(p.Weekdays) == 0 && p.StartLocalTime == nil && p.DurationMinutes == nil && p.EndDate == nil && p.Count == nil
 
 	pivotLocalStart := time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, clock.Hour, clock.Minute, 0, 0, s.loc)
-	pivotUTC := pivotLocalStart.UTC()
+	pivotUTC := pivot.StartAt.Time.UTC()
 	dayBefore := pivotLocalStart.AddDate(0, 0, -1)
 	dayBeforeDate := pgtype.Date{Time: time.Date(dayBefore.Year(), dayBefore.Month(), dayBefore.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
 
@@ -237,6 +288,14 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	if old.Count.Valid {
 		startDate := LocalDateFromPgDate(old.StartDate)
 		retainedCount, err = retainedLegacyCount(ctx, oldWeekdays, startDate, p.PivotDate, old.Count.Int32)
+		if err != nil {
+			return SplitResult{}, err
+		}
+	} else {
+		retainedCount, err = qtx.SessionCountActiveBeforeSeriesPivot(ctx, sqldb.SessionCountActiveBeforeSeriesPivotParams{
+			SeriesID: old.ID,
+			StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
+		})
 		if err != nil {
 			return SplitResult{}, err
 		}
@@ -271,7 +330,11 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 			endLD = &tmp
 		}
 		if p.Count != nil {
-			value := *p.Count
+			partition, partitionErr := partitionCountBoundedSplit(int(retainedCount), *p.Count)
+			if partitionErr != nil {
+				return SplitResult{}, partitionErr
+			}
+			value := partition.Remaining
 			countNew = &value
 		} else if old.Count.Valid {
 			value := int(old.Count.Int32)
@@ -302,24 +365,27 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		}
 	}
 
-	// Clamp the old series to the portion before the pivot. Both-bound series
-	// keep their count because the newly earlier end_date remains authoritative.
-	if old.EndDate.Valid {
-		if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
-			return SplitResult{}, err
-		}
-	} else {
-		bound := legacyRetainedBound(retainedCount, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
-		if bound.Count != nil {
-			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: old.Version}); err != nil {
-				return SplitResult{}, err
-			}
-		} else {
+	inPlace := retainedCount == 0
+	if !inPlace {
+		// Clamp the old series to the portion before the pivot. Both-bound series
+		// keep their count because the newly earlier end_date remains authoritative.
+		if old.EndDate.Valid {
 			if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
 				return SplitResult{}, err
 			}
-			if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{}, Version: old.Version + 1}); err != nil {
-				return SplitResult{}, err
+		} else {
+			bound := legacyRetainedBound(retainedCount, LocalDate{Year: dayBefore.Year(), Month: dayBefore.Month(), Day: dayBefore.Day()})
+			if bound.Count != nil {
+				if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{Int32: *bound.Count, Valid: true}, Version: old.Version}); err != nil {
+					return SplitResult{}, err
+				}
+			} else {
+				if err := qtx.SeriesUpdateEndDate(ctx, sqldb.SeriesUpdateEndDateParams{ID: old.ID, EndDate: dayBeforeDate, Version: old.Version}); err != nil {
+					return SplitResult{}, err
+				}
+				if err := qtx.SeriesUpdateCount(ctx, sqldb.SeriesUpdateCountParams{ID: old.ID, Count: pgtype.Int4{}, Version: old.Version + 1}); err != nil {
+					return SplitResult{}, err
+				}
 			}
 		}
 	}
@@ -343,6 +409,35 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		}
 		seen[wd] = struct{}{}
 		wds = append(wds, int16(wd))
+	}
+	if inPlace {
+		if _, err := qtx.SeriesReplaceDefinition(ctx, sqldb.SeriesReplaceDefinitionParams{
+			ID:              old.ID,
+			RoomID:          old.RoomID,
+			TeacherID:       old.TeacherID,
+			Weekdays:        wds,
+			StartLocalTime:  startLocalTime,
+			DurationMinutes: int32(duration),
+			StartDate:       startDateNew,
+			EndDate:         newEndDate,
+			Count:           newCount,
+			Version:         old.Version,
+		}); err != nil {
+			return SplitResult{}, err
+		}
+		added := 0
+		if !unchangedDefinition {
+			for _, o := range occNew {
+				if _, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
+					SeriesID: old.ID, CourseID: old.CourseID, RoomID: old.RoomID, TeacherID: old.TeacherID,
+					StartAt: pgtype.Timestamptz{Time: o.StartUTC, Valid: true}, EndAt: pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+				}); err != nil {
+					return SplitResult{}, err
+				}
+				added++
+			}
+		}
+		return SplitResult{OldSeriesID: old.ID, NewSeriesID: old.ID, NewSessionsAdded: added}, nil
 	}
 
 	newSeries, err := qtx.SeriesCreate(ctx, sqldb.SeriesCreateParams{
@@ -405,7 +500,7 @@ func (s *Service) SplitThisAndFuture(ctx context.Context, p SplitParams) (SplitR
 			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
 		}
 
-		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			return SplitResult{}, err
 		}
@@ -473,6 +568,36 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 		return EditEntireFutureResult{}, fmt.Errorf("series missing end bound")
 	}
 
+	discovered, err := qtx.SeriesGetByID(ctx, p.SeriesID)
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+	courseIDs := []pgtype.UUID{discovered.CourseID, p.CourseID}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: courseIDs}); err != nil {
+		return EditEntireFutureResult{}, err
+	}
+	studentIDs := make([]pgtype.UUID, 0)
+	for _, courseID := range courseIDs {
+		students, listErr := qtx.CourseStudentsList(ctx, courseID)
+		if listErr != nil {
+			return EditEntireFutureResult{}, listErr
+		}
+		for _, student := range students {
+			studentIDs = append(studentIDs, student.StudentID)
+		}
+	}
+	sessionIDs, err := qtx.SessionListActiveIDsForSeriesFrom(ctx, sqldb.SessionListActiveIDsForSeriesFromParams{
+		SeriesID: p.SeriesID, StartAt: pgtype.Timestamptz{Time: nowUTC, Valid: true},
+	})
+	if err != nil {
+		return EditEntireFutureResult{}, err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs, TeacherIDs: []pgtype.UUID{discovered.TeacherID, p.TeacherID}, RoomIDs: []pgtype.UUID{discovered.RoomID, p.RoomID},
+		SessionIDs: sessionIDs, SeriesIDs: []pgtype.UUID{p.SeriesID},
+	}); err != nil {
+		return EditEntireFutureResult{}, err
+	}
 	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
 	if err != nil {
 		return EditEntireFutureResult{}, err
@@ -573,7 +698,7 @@ func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireFu
 			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
 		}
 
-		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			return EditEntireFutureResult{}, err
 		}
@@ -629,6 +754,45 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 	nowUTC := p.NowUTC
 	if nowUTC.IsZero() {
 		nowUTC = time.Now().UTC()
+	}
+
+	discovered, err := qtx.SeriesGetByID(ctx, p.SeriesID)
+	if err != nil {
+		return CancelResult{}, err
+	}
+	discoveredClock := ClockFromPgTime(discovered.StartLocalTime)
+	lockFrom := nowUTC
+	if p.Scope == CancelScopeThisAndFuture {
+		if p.PivotDate == nil {
+			return CancelResult{}, fmt.Errorf("pivot_date required")
+		}
+		pivot := *p.PivotDate
+		lockFrom = time.Date(pivot.Year, pivot.Month, pivot.Day, discoveredClock.Hour, discoveredClock.Minute, 0, 0, s.loc).UTC()
+	} else if p.Scope != CancelScopeEntireSeriesFutureOnly {
+		return CancelResult{}, fmt.Errorf("bad_scope")
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{discovered.CourseID}}); err != nil {
+		return CancelResult{}, err
+	}
+	students, err := qtx.CourseStudentsList(ctx, discovered.CourseID)
+	if err != nil {
+		return CancelResult{}, err
+	}
+	studentIDs := make([]pgtype.UUID, len(students))
+	for i, student := range students {
+		studentIDs[i] = student.StudentID
+	}
+	sessionIDs, err := qtx.SessionListActiveIDsForSeriesFrom(ctx, sqldb.SessionListActiveIDsForSeriesFromParams{
+		SeriesID: p.SeriesID, StartAt: pgtype.Timestamptz{Time: lockFrom, Valid: true},
+	})
+	if err != nil {
+		return CancelResult{}, err
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs, TeacherIDs: []pgtype.UUID{discovered.TeacherID}, RoomIDs: []pgtype.UUID{discovered.RoomID},
+		SessionIDs: sessionIDs, SeriesIDs: []pgtype.UUID{p.SeriesID},
+	}); err != nil {
+		return CancelResult{}, err
 	}
 
 	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
@@ -717,7 +881,7 @@ func (s *Service) Cancel(ctx context.Context, p CancelParams) (CancelResult, err
 			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
 		}
 
-		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			return CancelResult{}, err
 		}

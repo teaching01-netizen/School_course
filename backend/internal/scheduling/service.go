@@ -116,6 +116,18 @@ type PreflightSeriesResult struct {
 // path (CreateSeriesAndMaterialize), which will reject real conflicts at
 // commit time.
 func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) (PreflightSeriesResult, *Err, error) {
+	if p.SeriesID != nil && p.SeriesID.Valid {
+		definition, err := s.q.SeriesGetByID(ctx, *p.SeriesID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return PreflightSeriesResult{}, &Err{Code: "invalid_series", Message: "series does not exist"}, nil
+			}
+			return PreflightSeriesResult{}, nil, err
+		}
+		if definition.DeletedAt.Valid || definition.CourseID.Bytes != p.CourseID.Bytes {
+			return PreflightSeriesResult{}, &Err{Code: "invalid_series", Message: "series is inactive or belongs to another course"}, nil
+		}
+	}
 	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
 		StartDate:       p.StartDate,
@@ -199,6 +211,25 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		Location:        s.loc,
 	})
 	if err != nil {
+		return CreateSeriesResult{}, err
+	}
+
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{p.CourseID}}); err != nil {
+		return CreateSeriesResult{}, err
+	}
+	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
+	if err != nil {
+		return CreateSeriesResult{}, err
+	}
+	studentIDs := make([]pgtype.UUID, len(students))
+	for i, student := range students {
+		studentIDs[i] = student.StudentID
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{p.TeacherID},
+		RoomIDs:    []pgtype.UUID{p.RoomID},
+	}); err != nil {
 		return CreateSeriesResult{}, err
 	}
 
@@ -425,7 +456,7 @@ type EditEntireSeriesResult struct {
 
 // EditEntireSeriesFutureOnlyTx edits a series' future occurrences using an existing tx-bound handle.
 func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, p EditEntireSeriesParams) (EditEntireSeriesResult, error) {
-	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
+	ser, err := qtx.SeriesGetByID(ctx, p.SeriesID)
 	if err != nil {
 		return EditEntireSeriesResult{}, err
 	}
@@ -591,30 +622,66 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		return CreateSessionResult{}, fmt.Errorf("invalid time range")
 	}
 
-	// The course lock freezes roster membership while we discover the effective
-	// students. The second call continues in canonical order with those student
-	// rows and the remaining schedule resources.
-	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{p.CourseID}}); err != nil {
+	courseIDs := []pgtype.UUID{p.CourseID}
+	teacherIDs := []pgtype.UUID{p.TeacherID}
+	roomIDs := []pgtype.UUID{p.RoomID}
+	var discoveredSeries *sqldb.SeriesGetByIDRow
+	if p.SeriesID != nil && p.SeriesID.Valid {
+		row, seriesErr := qtx.SeriesGetByID(ctx, *p.SeriesID)
+		if seriesErr != nil {
+			if errors.Is(seriesErr, pgx.ErrNoRows) {
+				return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series does not exist"}
+			}
+			return CreateSessionResult{}, seriesErr
+		}
+		if row.DeletedAt.Valid {
+			return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series is inactive"}
+		}
+		discoveredSeries = &row
+		courseIDs = append(courseIDs, row.CourseID)
+		teacherIDs = append(teacherIDs, row.TeacherID)
+		roomIDs = append(roomIDs, row.RoomID)
+	}
+
+	// Course locks freeze roster membership while the effective students are
+	// discovered. The second call continues in canonical order through the
+	// schedule resources and finally the optional parent series.
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: courseIDs}); err != nil {
 		return CreateSessionResult{}, err
 	}
 	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
 	if err != nil {
 		return CreateSessionResult{}, err
 	}
-	studentIDs := make([]pgtype.UUID, len(students))
-	for i, student := range students {
-		studentIDs[i] = student.StudentID
+	studentIDs := make([]pgtype.UUID, 0, len(students))
+	for _, courseID := range courseIDs {
+		roster, rosterErr := qtx.CourseStudentsList(ctx, courseID)
+		if rosterErr != nil {
+			return CreateSessionResult{}, rosterErr
+		}
+		for _, student := range roster {
+			studentIDs = append(studentIDs, student.StudentID)
+		}
 	}
 	locks := schedulelock.ResourceLocks{
 		StudentIDs: studentIDs,
-		TeacherIDs: []pgtype.UUID{p.TeacherID},
-		RoomIDs:    []pgtype.UUID{p.RoomID},
+		TeacherIDs: teacherIDs,
+		RoomIDs:    roomIDs,
 	}
 	if p.SeriesID != nil {
 		locks.SeriesIDs = []pgtype.UUID{*p.SeriesID}
 	}
 	if err := schedulelock.LockResources(ctx, qtx, locks); err != nil {
 		return CreateSessionResult{}, err
+	}
+	if discoveredSeries != nil {
+		lockedSeries, seriesErr := qtx.SeriesGetByID(ctx, *p.SeriesID)
+		if seriesErr != nil || lockedSeries.DeletedAt.Valid {
+			return CreateSessionResult{}, &Err{Code: "invalid_series", Message: "series is inactive"}
+		}
+		if err := validateSeriesOccurrence(ctx, lockedSeries, p); err != nil {
+			return CreateSessionResult{}, err
+		}
 	}
 
 	courseIDStr, err := uuidString(p.CourseID)
@@ -844,13 +911,10 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		TeacherIDs: []pgtype.UUID{discovered.TeacherID, proposedTeacherID},
 		RoomIDs:    []pgtype.UUID{discovered.RoomID, proposedRoomID},
 		SessionIDs: []pgtype.UUID{p.SessionID},
+		SeriesIDs:  []pgtype.UUID{discovered.SeriesID},
 	}); err != nil {
 		return EditOccurrenceResult{}, err
 	}
-	// TODO(schedulelock/task8): add the parent series lock only when every
-	// series edit/cancel path has moved from series-first locking to the same
-	// canonical resource order. Taking it here sooner creates a session->series
-	// inversion with the legacy series writers.
 
 	// A read committed statement after any lock wait gets a fresh snapshot.
 	// Reject if identity changed while we were waiting; the caller must retry

@@ -124,6 +124,8 @@ func assertReplay(t *testing.T, mux http.Handler, method, path, key string, body
 
 type seriesHTTPFixture struct {
 	mux                 http.Handler
+	q                   *sqldb.Queries
+	pool                *pgxpool.Pool
 	courseID, teacherID pgtype.UUID
 }
 
@@ -161,7 +163,7 @@ func newSeriesHTTPFixture(t *testing.T) seriesHTTPFixture {
 	}
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Auth: fakeAuth{auth.AuthenticatedUser{ID: adminID, Username: "a", Role: "Admin"}}, Q: q, DB: pool, Scheduling: schedulingSvc, InstituteTZ: "Asia/Bangkok"})
-	return seriesHTTPFixture{mux: mux, courseID: course.ID, teacherID: teacherID}
+	return seriesHTTPFixture{mux: mux, q: q, pool: pool, courseID: course.ID, teacherID: teacherID}
 }
 
 func pgUUIDString(t *testing.T, value pgtype.UUID) string {
@@ -174,6 +176,10 @@ func pgUUIDString(t *testing.T, value pgtype.UUID) string {
 }
 
 func (f seriesHTTPFixture) createSeries(t *testing.T) (string, time.Time) {
+	return f.createCountSeries(t, 4)
+}
+
+func (f seriesHTTPFixture) createCountSeries(t *testing.T, count int) (string, time.Time) {
 	t.Helper()
 	loc, err := time.LoadLocation("Asia/Bangkok")
 	if err != nil {
@@ -181,7 +187,7 @@ func (f seriesHTTPFixture) createSeries(t *testing.T) (string, time.Time) {
 	}
 	start := time.Now().In(loc).AddDate(0, 0, 2)
 	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc)
-	body := []byte(fmt.Sprintf(`{"course_id":%q,"teacher_id":%q,"weekdays":[%d],"start_local_time":"10:00","duration_minutes":60,"start_date":%q,"count":4}`, pgUUIDString(t, f.courseID), pgUUIDString(t, f.teacherID), int(start.Weekday()), start.Format("2006-01-02")))
+	body := []byte(fmt.Sprintf(`{"course_id":%q,"teacher_id":%q,"weekdays":[%d],"start_local_time":"10:00","duration_minutes":60,"start_date":%q,"count":%d}`, pgUUIDString(t, f.courseID), pgUUIDString(t, f.teacherID), int(start.Weekday()), start.Format("2006-01-02"), count))
 	status, response := serveMutation(t, f.mux, http.MethodPost, "/api/v1/series", uuid.New().String(), body)
 	if status != http.StatusCreated {
 		t.Fatalf("create series=(%d,%s)", status, response)
@@ -193,6 +199,174 @@ func (f seriesHTTPFixture) createSeries(t *testing.T) (string, time.Time) {
 		t.Fatal(err)
 	}
 	return decoded.SeriesID, start
+}
+
+func TestScheduleDB_CountBoundedSplitAtFiveOfTenLeavesTenTotal(t *testing.T) {
+	f := newSeriesHTTPFixture(t)
+	id, first := f.createCountSeries(t, 10)
+	pivot := first.AddDate(0, 0, 28)
+	body := []byte(fmt.Sprintf(`{"pivot_date":%q,"expected_version":1,"count":10}`, pivot.Format("2006-01-02")))
+	status, response := serveMutation(t, f.mux, http.MethodPatch, "/api/v1/series/"+id, uuid.New().String(), body)
+	if status != http.StatusOK {
+		t.Fatalf("split=(%d,%s)", status, response)
+	}
+	rows, err := f.q.SessionListActiveByCourse(context.Background(), f.courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 10 {
+		t.Fatalf("active sessions=%d, want 10", len(rows))
+	}
+	seen := make(map[[16]byte]struct{}, len(rows))
+	for _, row := range rows {
+		seen[row.ID.Bytes] = struct{}{}
+	}
+	if len(seen) != 10 {
+		t.Fatalf("distinct active sessions=%d, want 10", len(seen))
+	}
+}
+
+func TestScheduleDB_LaterClockSplitReplacesOriginalPivotOnce(t *testing.T) {
+	f := newSeriesHTTPFixture(t)
+	id, first := f.createCountSeries(t, 4)
+	pivot := first.AddDate(0, 0, 7)
+	body := []byte(fmt.Sprintf(`{"pivot_date":%q,"expected_version":1,"start_local_time":"12:00"}`, pivot.Format("2006-01-02")))
+	status, response := serveMutation(t, f.mux, http.MethodPatch, "/api/v1/series/"+id, uuid.New().String(), body)
+	if status != http.StatusOK {
+		t.Fatalf("split=(%d,%s)", status, response)
+	}
+	rows, err := f.q.SessionListActiveByCourse(context.Background(), f.courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onPivot []time.Time
+	for _, row := range rows {
+		local := row.StartAt.Time.In(loc)
+		if local.Format("2006-01-02") == pivot.Format("2006-01-02") {
+			onPivot = append(onPivot, local)
+		}
+	}
+	if len(onPivot) != 1 || onPivot[0].Hour() != 12 || onPivot[0].Minute() != 0 {
+		t.Fatalf("pivot starts=%v, want one occurrence at 12:00", onPivot)
+	}
+}
+
+func TestScheduleDB_FirstOccurrenceSplitUsesInPlaceSeries(t *testing.T) {
+	f := newSeriesHTTPFixture(t)
+	id, first := f.createCountSeries(t, 4)
+	body := []byte(fmt.Sprintf(`{"pivot_date":%q,"expected_version":1,"start_local_time":"12:00","count":4}`, first.Format("2006-01-02")))
+	status, response := serveMutation(t, f.mux, http.MethodPatch, "/api/v1/series/"+id, uuid.New().String(), body)
+	if status != http.StatusOK {
+		t.Fatalf("split=(%d,%s)", status, response)
+	}
+	var decoded struct {
+		OldSeriesID string `json:"old_series_id"`
+		NewSeriesID string `json:"new_series_id"`
+	}
+	if err := json.Unmarshal(response, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.OldSeriesID != id || decoded.NewSeriesID != id {
+		t.Fatalf("split ids=(%s,%s), want original %s", decoded.OldSeriesID, decoded.NewSeriesID, id)
+	}
+	seriesRow, err := f.q.SeriesGetByID(context.Background(), mustPgUUID(t, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seriesRow.StartLocalTime.Microseconds != 12*60*60*1_000_000 || !seriesRow.Count.Valid || seriesRow.Count.Int32 != 4 {
+		t.Fatalf("series definition not updated in place: %+v", seriesRow)
+	}
+}
+
+func TestScheduleDB_SplitRejectsInvalidPivotWithoutChangingHistory(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, f seriesHTTPFixture, first time.Time) time.Time
+	}{
+		{name: "missing", setup: func(_ *testing.T, _ seriesHTTPFixture, first time.Time) time.Time {
+			return first.AddDate(0, 0, 3)
+		}},
+		{name: "deleted", setup: func(t *testing.T, f seriesHTTPFixture, first time.Time) time.Time {
+			pivot := first.AddDate(0, 0, 7)
+			if _, err := f.pool.Exec(context.Background(), `UPDATE sessions SET deleted_at=now() WHERE course_id=$1 AND (start_at AT TIME ZONE 'Asia/Bangkok')::date=$2::date`, f.courseID, pivot.Format("2006-01-02")); err != nil {
+				t.Fatal(err)
+			}
+			return pivot
+		}},
+		{name: "wrong-series", setup: func(_ *testing.T, _ seriesHTTPFixture, first time.Time) time.Time {
+			return first.AddDate(0, 0, 3)
+		}},
+		{name: "exact-now", setup: func(t *testing.T, f seriesHTTPFixture, _ time.Time) time.Time {
+			var pivot time.Time
+			if err := f.pool.QueryRow(context.Background(), `
+				WITH chosen AS (SELECT id FROM sessions WHERE course_id=$1 ORDER BY start_at LIMIT 1),
+				updated AS (UPDATE sessions s SET start_at=transaction_timestamp(), end_at=transaction_timestamp()+interval '1 hour' FROM chosen WHERE s.id=chosen.id RETURNING s.start_at)
+				SELECT start_at AT TIME ZONE 'Asia/Bangkok' FROM updated`, f.courseID).Scan(&pivot); err != nil {
+				t.Fatal(err)
+			}
+			return pivot
+		}},
+		{name: "past", setup: func(t *testing.T, f seriesHTTPFixture, _ time.Time) time.Time {
+			var pivot time.Time
+			if err := f.pool.QueryRow(context.Background(), `
+				WITH chosen AS (SELECT id FROM sessions WHERE course_id=$1 ORDER BY start_at LIMIT 1),
+				updated AS (UPDATE sessions s SET start_at=transaction_timestamp()-interval '2 hours', end_at=transaction_timestamp()-interval '1 hour' FROM chosen WHERE s.id=chosen.id RETURNING s.start_at)
+				SELECT start_at AT TIME ZONE 'Asia/Bangkok' FROM updated`, f.courseID).Scan(&pivot); err != nil {
+				t.Fatal(err)
+			}
+			return pivot
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSeriesHTTPFixture(t)
+			id, first := f.createCountSeries(t, 4)
+			pivot := tc.setup(t, f, first)
+			before := scheduleChildCounts(t, f)
+			body := []byte(fmt.Sprintf(`{"pivot_date":%q,"expected_version":1}`, pivot.Format("2006-01-02")))
+			status, response := serveMutation(t, f.mux, http.MethodPatch, "/api/v1/series/"+id, uuid.New().String(), body)
+			if status == http.StatusOK {
+				t.Fatalf("invalid pivot accepted: %s", response)
+			}
+			after := scheduleChildCounts(t, f)
+			if before != after {
+				t.Fatalf("history changed: before=%v after=%v", before, after)
+			}
+		})
+	}
+}
+
+type childCounts struct {
+	Sessions, Attendance, SitIns, Missed int
+}
+
+func scheduleChildCounts(t *testing.T, f seriesHTTPFixture) childCounts {
+	t.Helper()
+	var counts childCounts
+	err := f.pool.QueryRow(context.Background(), `
+		SELECT
+		  (SELECT count(*) FROM sessions WHERE course_id=$1),
+		  (SELECT count(*) FROM session_attendance sa JOIN sessions s ON s.id=sa.session_id WHERE s.course_id=$1),
+		  (SELECT count(*) FROM absence_sit_ins asi JOIN sessions s ON s.id=asi.session_id WHERE s.course_id=$1),
+		  (SELECT count(*) FROM absence_missed_sessions ams JOIN sessions s ON s.id=ams.session_id WHERE s.course_id=$1)`, f.courseID).
+		Scan(&counts.Sessions, &counts.Attendance, &counts.SitIns, &counts.Missed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return counts
+}
+
+func mustPgUUID(t *testing.T, value string) pgtype.UUID {
+	t.Helper()
+	var id pgtype.UUID
+	if err := id.Scan(value); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestScheduleDB_SplitSeries_ReplayPrecedesStaleVersion(t *testing.T) {

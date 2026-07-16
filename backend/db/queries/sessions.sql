@@ -90,6 +90,33 @@ WITH moved AS (
 SELECT count(*)::int4 AS moved
 FROM moved;
 
+-- name: SessionCountActiveBeforeSeriesPivot :one
+SELECT count(*)::int4
+FROM sessions
+WHERE series_id = $1
+  AND deleted_at IS NULL
+  AND start_at < $2;
+
+-- name: SessionFindActiveSeriesPivot :one
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
+       s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at,
+       s.start_at > transaction_timestamp() AS is_future
+FROM sessions s
+JOIN session_series ss ON ss.id = s.series_id
+WHERE s.series_id = $1
+  AND s.deleted_at IS NULL
+  AND (s.start_at AT TIME ZONE ss.institute_tz)::date = $2::date
+ORDER BY s.start_at, s.id
+LIMIT 1;
+
+-- name: SessionListActiveIDsForSeriesFrom :many
+SELECT id
+FROM sessions
+WHERE series_id = $1
+  AND deleted_at IS NULL
+  AND start_at >= $2
+ORDER BY id;
+
 
 -- name: SessionAttendanceUpsert :exec
 INSERT INTO session_attendance (session_id, student_id, status)

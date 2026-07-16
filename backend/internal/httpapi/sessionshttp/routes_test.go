@@ -221,6 +221,116 @@ func TestScheduleDB_PostSession_RejectsSameKeyDifferentBody(t *testing.T) {
 	}
 }
 
+func TestScheduleDB_PostSession_RejectsMissingOrInactiveSeries(t *testing.T) {
+	for _, inactive := range []bool{false, true} {
+		name := "missing"
+		if inactive {
+			name = "inactive"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newScheduleHTTPFixture(t)
+			start := futureLocalStart(t, 12, 10)
+			seriesID := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+			if inactive {
+				seriesID = createSessionSeries(t, f, start, 2)
+				if _, err := f.pool.Exec(context.Background(), `UPDATE session_series SET deleted_at=now() WHERE id=$1`, seriesID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			body := sessionCreateBody(t, seriesID, f.courseID, f.teacherID, start, start.Add(time.Hour))
+			status, response := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions", uuid.New().String(), body)
+			if status != http.StatusConflict || !bytes.Contains(response, []byte(`"code":"invalid_series"`)) {
+				t.Fatalf("response=(%d,%s), want 409 invalid_series", status, response)
+			}
+		})
+	}
+}
+
+func TestScheduleDB_PostSession_RejectsMismatchedSeriesOccurrence(t *testing.T) {
+	cases := []string{"course", "teacher", "clock", "duration", "weekday", "count-bound"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newScheduleHTTPFixture(t)
+			start := futureLocalStart(t, 13, 10)
+			seriesID := createSessionSeries(t, f, start, 2)
+			courseID, teacherID := f.courseID, f.teacherID
+			candidateStart, candidateEnd := start, start.Add(time.Hour)
+			switch name {
+			case "course":
+				other, err := f.q.CourseCreate(context.Background(), sqldb.CourseCreateParams{Code: "MISMATCH-" + uuid.New().String()[:8], Name: "Mismatched series course"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				courseID = other.ID
+			case "teacher":
+				other, err := f.q.AdminUserCreate(context.Background(), sqldb.AdminUserCreateParams{Username: "mismatch-" + uuid.New().String()[:8], Role: "Teacher", PasswordHash: "x"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				teacherID = other
+			case "clock":
+				candidateStart = start.Add(time.Hour)
+				candidateEnd = candidateStart.Add(time.Hour)
+			case "duration":
+				candidateEnd = start.Add(30 * time.Minute)
+			case "weekday":
+				candidateStart = start.AddDate(0, 0, 1)
+				candidateEnd = candidateStart.Add(time.Hour)
+			case "count-bound":
+				candidateStart = start.AddDate(0, 0, 14)
+				candidateEnd = candidateStart.Add(time.Hour)
+			}
+			body := sessionCreateBody(t, seriesID, courseID, teacherID, candidateStart, candidateEnd)
+			status, response := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions", uuid.New().String(), body)
+			if status != http.StatusConflict || !bytes.Contains(response, []byte(`"code":"series_occurrence_mismatch"`)) {
+				t.Fatalf("response=(%d,%s), want 409 series_occurrence_mismatch", status, response)
+			}
+		})
+	}
+}
+
+func TestScheduleDB_PostSession_AcceptsMatchingSeriesOccurrence(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	start := futureLocalStart(t, 14, 10)
+	seriesID := createSessionSeries(t, f, start, 2)
+	body := sessionCreateBody(t, seriesID, f.courseID, f.teacherID, start, start.Add(time.Hour))
+	status, response := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions", uuid.New().String(), body)
+	if status != http.StatusCreated {
+		t.Fatalf("response=(%d,%s), want 201", status, response)
+	}
+}
+
+func futureLocalStart(t *testing.T, days, hour int) time.Time {
+	t.Helper()
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().In(loc).AddDate(0, 0, days)
+	return time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, loc)
+}
+
+func createSessionSeries(t *testing.T, f scheduleHTTPFixture, start time.Time, count int32) pgtype.UUID {
+	t.Helper()
+	row, err := f.q.SeriesCreate(context.Background(), sqldb.SeriesCreateParams{
+		CourseID: f.courseID, TeacherID: f.teacherID, InstituteTz: "Asia/Bangkok",
+		Weekdays: []int16{int16(start.Weekday())}, StartLocalTime: pgtype.Time{Microseconds: int64(start.Hour()) * 60 * 60 * 1_000_000, Valid: true},
+		DurationMinutes: 60,
+		StartDate:       pgtype.Date{Time: time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC), Valid: true},
+		Count:           pgtype.Int4{Int32: count, Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row.ID
+}
+
+func sessionCreateBody(t *testing.T, seriesID, courseID, teacherID pgtype.UUID, start, end time.Time) []byte {
+	t.Helper()
+	return []byte(fmt.Sprintf(`{"series_id":%q,"course_id":%q,"teacher_id":%q,"start_at":%q,"end_at":%q}`,
+		uuidString(t, seriesID), uuidString(t, courseID), uuidString(t, teacherID), start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339)))
+}
+
 func TestScheduleDB_PatchSession_ReplayPrecedesStaleVersion(t *testing.T) {
 	f := newScheduleHTTPFixture(t)
 	session := f.createSession(t)

@@ -42,3 +42,18 @@ SET course_id = $2,
     version = version + 1
 WHERE id = $1 AND version = $10
 RETURNING id, course_id, room_id, teacher_id, institute_tz, weekdays, start_local_time, duration_minutes, start_date, end_date, count, version, deleted_at, created_at, updated_at;
+
+-- name: SeriesReplaceDefinition :one
+UPDATE session_series
+SET room_id = $2,
+    teacher_id = $3,
+    weekdays = $4,
+    start_local_time = $5,
+    duration_minutes = $6,
+    start_date = $7,
+    end_date = $8,
+    count = $9,
+    updated_at = now(),
+    version = version + 1
+WHERE id = $1 AND version = $10
+RETURNING id, course_id, room_id, teacher_id, institute_tz, weekdays, start_local_time, duration_minutes, start_date, end_date, count, version, deleted_at, created_at, updated_at;
