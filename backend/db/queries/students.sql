@@ -31,10 +31,10 @@ WHERE (wcode ILIKE '%' || $1 || '%' OR full_name ILIKE '%' || $1 || '%' OR $1 = 
 -- name: StudentUpdate :one
 UPDATE students
 SET wcode = $2, full_name = $3, notes = $4, updated_at = now()
-WHERE id = $1
+WHERE students.id = $1
   AND ($2 = (SELECT s2.wcode FROM students s2 WHERE s2.id = $1)
        OR NOT EXISTS (SELECT 1 FROM students s3 WHERE s3.wcode = $2 AND s3.id <> $1))
-RETURNING id, wcode, full_name, notes, created_at, updated_at;
+RETURNING students.id, students.wcode, students.full_name, students.notes, students.created_at, students.updated_at;
 
 -- name: StudentUpsertNameByWCode :one
 INSERT INTO students (wcode, full_name, notes)
@@ -50,4 +50,3 @@ FROM students
 GROUP BY wcode
 HAVING COUNT(*) > 1
 ORDER BY cnt DESC;
-

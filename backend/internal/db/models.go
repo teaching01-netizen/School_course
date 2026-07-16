@@ -63,6 +63,7 @@ const (
 	CrmJobTypeStudentSync          CrmJobType = "student_sync"
 	CrmJobTypeCourseReconcileApply CrmJobType = "course_reconcile_apply"
 	CrmJobTypeCourseReconcileDiff  CrmJobType = "course_reconcile_diff"
+	CrmJobTypeCrossStudyProcess    CrmJobType = "cross_study_process"
 )
 
 func (e *CrmJobType) Scan(src interface{}) error {
@@ -209,11 +210,12 @@ type AbsenceSitIn struct {
 }
 
 type AppSetting struct {
-	ID              bool               `json:"id"`
-	InstituteTz     string             `json:"institute_tz"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	AbsencePolicies []byte             `json:"absence_policies"`
+	ID               bool               `json:"id"`
+	InstituteTz      string             `json:"institute_tz"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	AbsencePolicies  []byte             `json:"absence_policies"`
+	SitInEmailConfig []byte             `json:"sit_in_email_config"`
 }
 
 type AuditLog struct {
@@ -259,18 +261,29 @@ type Course struct {
 	CycleID                    pgtype.Text        `json:"cycle_id"`
 	Level                      pgtype.Int2        `json:"level"`
 	RootCourseGroupID          pgtype.UUID        `json:"root_course_group_id"`
+	LegacyCourseID             pgtype.Text        `json:"legacy_course_id"`
+	LegacyLastSyncedAt         pgtype.Timestamptz `json:"legacy_last_synced_at"`
+	CohortID                   pgtype.UUID        `json:"cohort_id"`
+}
+
+type CourseCohort struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type CourseRosterOverride struct {
-	ID              pgtype.UUID        `json:"id"`
-	CourseID        pgtype.UUID        `json:"course_id"`
-	StudentID       pgtype.UUID        `json:"student_id"`
-	Action          OverrideAction     `json:"action"`
-	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	CourseID               pgtype.UUID        `json:"course_id"`
+	StudentID              pgtype.UUID        `json:"student_id"`
+	Action                 OverrideAction     `json:"action"`
+	CreatedByUserID        pgtype.UUID        `json:"created_by_user_id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedByUserID        pgtype.UUID        `json:"updated_by_user_id"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt              pgtype.Timestamptz `json:"deleted_at"`
+	OverrideSource         pgtype.Text        `json:"override_source"`
+	CrossStudyAssignmentID pgtype.UUID        `json:"cross_study_assignment_id"`
 }
 
 type CourseStudent struct {
@@ -279,6 +292,37 @@ type CourseStudent struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	// enrolled: confirmed, paid student (default). draft: tentative prospect, blocks busy ranges.
 	Status string `json:"status"`
+}
+
+type CourseTeacher struct {
+	CourseID  pgtype.UUID `json:"course_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+type CrmCrossStudyAssignment struct {
+	ID                              pgtype.UUID        `json:"id"`
+	SnapshotID                      pgtype.UUID        `json:"snapshot_id"`
+	Wcode                           string             `json:"wcode"`
+	SourceCourseID                  pgtype.UUID        `json:"source_course_id"`
+	DestCourseAID                   pgtype.UUID        `json:"dest_course_a_id"`
+	DestCourseBID                   pgtype.UUID        `json:"dest_course_b_id"`
+	AssignedCourseID                pgtype.UUID        `json:"assigned_course_id"`
+	ExtraNoteSnapshot               string             `json:"extra_note_snapshot"`
+	ExtraNoteHash                   string             `json:"extra_note_hash"`
+	AssignedCourseEnrollmentCreated bool               `json:"assigned_course_enrollment_created"`
+	DestCourseAEnrollmentCreated    bool               `json:"dest_course_a_enrollment_created"`
+	DestCourseBEnrollmentCreated    bool               `json:"dest_course_b_enrollment_created"`
+	SourceCourseEnrollmentRemoved   bool               `json:"source_course_enrollment_removed"`
+	SourceValid                     bool               `json:"source_valid"`
+	Status                          string             `json:"status"`
+	DeletedAt                       pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt                       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                       pgtype.Timestamptz `json:"updated_at"`
+	CrmCourseNameSnapshot           string             `json:"crm_course_name_snapshot"`
+	CrmRowHashSnapshot              string             `json:"crm_row_hash_snapshot"`
+	CrmXlsxRowNumberSnapshot        pgtype.Int4        `json:"crm_xlsx_row_number_snapshot"`
+	DestCourseAWeekdays             []int16            `json:"dest_course_a_weekdays"`
+	DestCourseBWeekdays             []int16            `json:"dest_course_b_weekdays"`
 }
 
 type CrmCycle struct {
@@ -338,6 +382,7 @@ type CrmRow struct {
 	ImportedAt          pgtype.Timestamptz `json:"imported_at"`
 	SnapshotID          pgtype.UUID        `json:"snapshot_id"`
 	XlsxRowNumber       int32              `json:"xlsx_row_number"`
+	ExtraNote           string             `json:"extra_note"`
 }
 
 type CrmSnapshot struct {
@@ -359,6 +404,44 @@ type CrmUploadBlob struct {
 	ID        string             `json:"id"`
 	Data      []byte             `json:"data"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type EmailDeliveryClaim struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkflowID     pgtype.UUID        `json:"workflow_id"`
+	LocalDate      pgtype.Date        `json:"local_date"`
+	RecipientEmail string             `json:"recipient_email"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	Status         string             `json:"status"`
+	AttemptCount   int32              `json:"attempt_count"`
+	SendingAt      pgtype.Timestamptz `json:"sending_at"`
+	AcceptedAt     pgtype.Timestamptz `json:"accepted_at"`
+	FailedAt       pgtype.Timestamptz `json:"failed_at"`
+	LastError      pgtype.Text        `json:"last_error"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EmailTemplate struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	Subject   string             `json:"subject"`
+	Body      string             `json:"body"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	BuiltIn   bool               `json:"built_in"`
+}
+
+type EmailWorkflow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	Name               string             `json:"name"`
+	Enabled            bool               `json:"enabled"`
+	TemplateID         pgtype.UUID        `json:"template_id"`
+	TriggerDescription string             `json:"trigger_description"`
+	Recipients         []string           `json:"recipients"`
+	LastSentAt         pgtype.Timestamptz `json:"last_sent_at"`
+	LastSentCount      int32              `json:"last_sent_count"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type HttpRateLimitEvent struct {
@@ -405,6 +488,17 @@ type RootCourseGroup struct {
 	SitInRuleID pgtype.UUID        `json:"sit_in_rule_id"`
 }
 
+type SatVerbalPolicyMapping struct {
+	ID         pgtype.UUID        `json:"id"`
+	RuleID     string             `json:"rule_id"`
+	CourseID   pgtype.UUID        `json:"course_id"`
+	PolicyRule []byte             `json:"policy_rule"`
+	PolicyHash string             `json:"policy_hash"`
+	Active     bool               `json:"active"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Session struct {
 	ID        pgtype.UUID                      `json:"id"`
 	SeriesID  pgtype.UUID                      `json:"series_id"`
@@ -421,10 +515,12 @@ type Session struct {
 }
 
 type SessionAttendance struct {
-	SessionID pgtype.UUID        `json:"session_id"`
-	StudentID pgtype.UUID        `json:"student_id"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	SessionID              pgtype.UUID        `json:"session_id"`
+	StudentID              pgtype.UUID        `json:"student_id"`
+	Status                 string             `json:"status"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	OverrideSource         pgtype.Text        `json:"override_source"`
+	CrossStudyAssignmentID pgtype.UUID        `json:"cross_study_assignment_id"`
 }
 
 type SessionSeries struct {
@@ -445,6 +541,17 @@ type SessionSeries struct {
 	Version         int32              `json:"version"`
 }
 
+type SitInPriority struct {
+	ID                pgtype.UUID        `json:"id"`
+	RootCourseGroupID pgtype.UUID        `json:"root_course_group_id"`
+	SitInRuleID       pgtype.UUID        `json:"sit_in_rule_id"`
+	PriorityLevel     int16              `json:"priority_level"`
+	Label             string             `json:"label"`
+	TargetRank        pgtype.Int2        `json:"target_rank"`
+	TargetSection     pgtype.Int2        `json:"target_section"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
 type SitInRule struct {
 	ID          pgtype.UUID        `json:"id"`
 	Name        string             `json:"name"`
@@ -463,15 +570,42 @@ type SmsCircuitBreakerState struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SmsOtpDelivery struct {
+	ID               pgtype.UUID        `json:"id"`
+	SessionID        pgtype.UUID        `json:"session_id"`
+	Status           string             `json:"status"`
+	CampaignID       string             `json:"campaign_id"`
+	KeyVersion       pgtype.Text        `json:"key_version"`
+	PayloadNonce     []byte             `json:"payload_nonce"`
+	EncryptedPayload []byte             `json:"encrypted_payload"`
+	AttemptCount     int32              `json:"attempt_count"`
+	RunAfter         pgtype.Timestamptz `json:"run_after"`
+	LockedBy         pgtype.Text        `json:"locked_by"`
+	LockedUntil      pgtype.Timestamptz `json:"locked_until"`
+	SubmittingAt     pgtype.Timestamptz `json:"submitting_at"`
+	AcceptedAt       pgtype.Timestamptz `json:"accepted_at"`
+	FailedAt         pgtype.Timestamptz `json:"failed_at"`
+	UncertainAt      pgtype.Timestamptz `json:"uncertain_at"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	ErrorCode        pgtype.Text        `json:"error_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Student struct {
 	ID           pgtype.UUID        `json:"id"`
 	Wcode        string             `json:"wcode"`
 	FullName     string             `json:"full_name"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
 	Notes        string             `json:"notes"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	ParentPhone  pgtype.Text        `json:"parent_phone"`
-	StudentPhone pgtype.Text        `json:"student_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
 }
 
 type StudentAbsence struct {
@@ -498,6 +632,7 @@ type StudentAbsence struct {
 	SitInOverrideReason pgtype.Text        `json:"sit_in_override_reason"`
 	Version             int32              `json:"version"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	StudentNickname     pgtype.Text        `json:"student_nickname"`
 }
 
 type StudentBusyRange struct {
@@ -571,4 +706,5 @@ type User struct {
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	Email           pgtype.Text        `json:"email"`
 }

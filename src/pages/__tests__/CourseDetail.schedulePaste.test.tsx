@@ -59,7 +59,7 @@ describe("Course detail schedule paste", () => {
     renderCourseDetail();
 
     await user.click(await screen.findByRole("button", { name: "Add…" }));
-    await user.click(screen.getByRole("button", { name: /paste schedule/i }));
+    await user.click(await screen.findByRole("tab", { name: /paste schedule/i }));
     const pasteBox = screen.getByLabelText(/paste schedule rows/i);
     await user.click(pasteBox);
     await user.paste(
@@ -128,7 +128,7 @@ describe("Course detail schedule paste", () => {
     renderCourseDetail();
 
     await user.click(await screen.findByRole("button", { name: "Add…" }));
-    await user.click(screen.getByRole("button", { name: /paste schedule/i }));
+    await user.click(await screen.findByRole("tab", { name: /paste schedule/i }));
     const pasteBox = screen.getByLabelText(/paste schedule rows/i);
     await user.click(pasteBox);
     await user.paste(

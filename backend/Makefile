@@ -8,7 +8,7 @@ dev:
 	go run ./cmd/server
 
 build:
-	go build ./cmd/server
+	go build -o bin/server ./cmd/server
 
 test:
 	go test ./...
@@ -40,4 +40,4 @@ migrate-validate:
 	bash ../scripts/validate-migrations.sh
 
 sqlc:
-	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate

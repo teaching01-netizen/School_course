@@ -58,7 +58,7 @@ describe("CourseDetail create flows", () => {
     renderCourseDetail();
 
     await user.click(await screen.findByRole("button", { name: "Add…" }));
-    await user.click(screen.getByRole("button", { name: /one-off session/i }));
+    await user.click(await screen.findByRole("tab", { name: /one-off session/i }));
 
     const modal = screen.getByRole("dialog", { name: /add to schedule/i });
 

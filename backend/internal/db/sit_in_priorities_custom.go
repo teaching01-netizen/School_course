@@ -6,17 +6,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type SitInPriority struct {
-	ID                pgtype.UUID `json:"id"`
-	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
-	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
-	PriorityLevel     int16       `json:"priority_level"`
-	Label             string      `json:"label"`
-	TargetRank        pgtype.Int2 `json:"target_rank"`
-	TargetSection     pgtype.Int2 `json:"target_section"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-}
-
 func (q *Queries) SitInPrioritiesByRootCourseGroup(ctx context.Context, rootCourseGroupID pgtype.UUID) ([]SitInPriority, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT id, root_course_group_id, sit_in_rule_id, priority_level, label, target_rank, target_section, created_at

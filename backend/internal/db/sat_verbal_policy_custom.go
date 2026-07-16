@@ -7,17 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type SatVerbalPolicyMapping struct {
-	ID         pgtype.UUID        `json:"id"`
-	RuleID     string             `json:"rule_id"`
-	CourseID   pgtype.UUID        `json:"course_id"`
-	PolicyRule []byte             `json:"policy_rule"`
-	PolicyHash string             `json:"policy_hash"`
-	Active     bool               `json:"active"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
-}
-
 type SatVerbalPolicyCourseMapping struct {
 	ID                pgtype.UUID        `json:"id"`
 	RuleID            string             `json:"rule_id"`

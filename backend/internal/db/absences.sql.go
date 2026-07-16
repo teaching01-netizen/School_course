@@ -133,12 +133,12 @@ WHERE sa.wcode = $1
 
 type AbsenceOverlappingSessionsParams struct {
 	Wcode   string             `json:"wcode"`
-	StartAt pgtype.Timestamptz `json:"start_at"`
+	Column2 pgtype.Timestamptz `json:"column_2"`
 	Column3 pgtype.Date        `json:"column_3"`
 }
 
 func (q *Queries) AbsenceOverlappingSessions(ctx context.Context, arg AbsenceOverlappingSessionsParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, absenceOverlappingSessions, arg.Wcode, arg.StartAt, arg.Column3)
+	rows, err := q.db.Query(ctx, absenceOverlappingSessions, arg.Wcode, arg.Column2, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
