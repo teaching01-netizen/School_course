@@ -38,10 +38,12 @@ type ConflictingStudent struct {
 }
 
 type ConflictDetails struct {
-	Kind               ConflictKind         `json:"kind"`
-	Conflicts          []ConflictSession    `json:"conflicts"`
+	Kind                ConflictKind         `json:"kind"`
+	Conflicts           []ConflictSession    `json:"conflicts"`
 	ConflictingStudents []ConflictingStudent `json:"conflicting_students,omitempty"`
-	Requested          ConflictRequested    `json:"requested"`
+	Requested           ConflictRequested    `json:"requested"`
+	Resource            string               `json:"resource,omitempty"`
+	SessionIDs          []string             `json:"session_ids,omitempty"`
 }
 
 // Err is a scheduling-domain error intended to be returned to callers as a stable API response.

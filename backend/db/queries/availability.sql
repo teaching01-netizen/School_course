@@ -57,22 +57,57 @@ SELECT EXISTS (
     SELECT 1 FROM teacher_availability a
     WHERE a.teacher_id = $1 AND a.deleted_at IS NULL
 ) AS has_windows,
-EXISTS (
-    SELECT 1 FROM teacher_availability a
-    WHERE a.teacher_id = $1
-      AND a.deleted_at IS NULL
-      AND a.time_range @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
-) AS is_available;
+CASE WHEN COALESCE((
+    SELECT range_agg(a.time_range) FROM teacher_availability a
+    WHERE a.teacher_id = $1 AND a.deleted_at IS NULL
+), '{}'::tstzmultirange) @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
+THEN true ELSE false END AS is_available;
 
 -- name: CheckRoomAvailability :one
 SELECT EXISTS (
     SELECT 1 FROM room_availability a
     WHERE a.room_id = $1 AND a.deleted_at IS NULL
 ) AS has_windows,
-EXISTS (
-    SELECT 1 FROM room_availability a
-    WHERE a.room_id = $1
-      AND a.deleted_at IS NULL
-      AND a.time_range @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
-) AS is_available;
+CASE WHEN COALESCE((
+    SELECT range_agg(a.time_range) FROM room_availability a
+    WHERE a.room_id = $1 AND a.deleted_at IS NULL
+), '{}'::tstzmultirange) @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
+THEN true ELSE false END AS is_available;
 
+-- name: ListUncoveredFutureSessionsForTeacher :many
+SELECT s.id
+FROM sessions s
+WHERE s.teacher_id = $1
+  AND s.deleted_at IS NULL
+  AND s.start_at > transaction_timestamp()
+  AND EXISTS (
+    SELECT 1 FROM teacher_availability a
+    WHERE a.teacher_id = s.teacher_id AND a.deleted_at IS NULL
+  )
+  AND NOT (
+    COALESCE((
+      SELECT range_agg(a.time_range) FROM teacher_availability a
+      WHERE a.teacher_id = s.teacher_id AND a.deleted_at IS NULL
+    ), '{}'::tstzmultirange) @> s.time_range
+  )
+ORDER BY s.start_at, s.id
+LIMIT 25;
+
+-- name: ListUncoveredFutureSessionsForRoom :many
+SELECT s.id
+FROM sessions s
+WHERE s.room_id = $1
+  AND s.deleted_at IS NULL
+  AND s.start_at > transaction_timestamp()
+  AND EXISTS (
+    SELECT 1 FROM room_availability a
+    WHERE a.room_id = s.room_id AND a.deleted_at IS NULL
+  )
+  AND NOT (
+    COALESCE((
+      SELECT range_agg(a.time_range) FROM room_availability a
+      WHERE a.room_id = s.room_id AND a.deleted_at IS NULL
+    ), '{}'::tstzmultirange) @> s.time_range
+  )
+ORDER BY s.start_at, s.id
+LIMIT 25;

@@ -16,12 +16,11 @@ SELECT EXISTS (
     SELECT 1 FROM room_availability a
     WHERE a.room_id = $1 AND a.deleted_at IS NULL
 ) AS has_windows,
-EXISTS (
-    SELECT 1 FROM room_availability a
-    WHERE a.room_id = $1
-      AND a.deleted_at IS NULL
-      AND a.time_range @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
-) AS is_available
+CASE WHEN COALESCE((
+    SELECT range_agg(a.time_range) FROM room_availability a
+    WHERE a.room_id = $1 AND a.deleted_at IS NULL
+), '{}'::tstzmultirange) @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
+THEN true ELSE false END AS is_available
 `
 
 type CheckRoomAvailabilityParams struct {
@@ -47,12 +46,11 @@ SELECT EXISTS (
     SELECT 1 FROM teacher_availability a
     WHERE a.teacher_id = $1 AND a.deleted_at IS NULL
 ) AS has_windows,
-EXISTS (
-    SELECT 1 FROM teacher_availability a
-    WHERE a.teacher_id = $1
-      AND a.deleted_at IS NULL
-      AND a.time_range @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
-) AS is_available
+CASE WHEN COALESCE((
+    SELECT range_agg(a.time_range) FROM teacher_availability a
+    WHERE a.teacher_id = $1 AND a.deleted_at IS NULL
+), '{}'::tstzmultirange) @> tstzrange($2::timestamptz, $3::timestamptz, '[)')
+THEN true ELSE false END AS is_available
 `
 
 type CheckTeacherAvailabilityParams struct {
@@ -330,6 +328,86 @@ func (q *Queries) ListTeacherAvailabilityByRange(ctx context.Context, arg ListTe
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUncoveredFutureSessionsForRoom = `-- name: ListUncoveredFutureSessionsForRoom :many
+SELECT s.id
+FROM sessions s
+WHERE s.room_id = $1
+  AND s.deleted_at IS NULL
+  AND s.start_at > transaction_timestamp()
+  AND EXISTS (
+    SELECT 1 FROM room_availability a
+    WHERE a.room_id = s.room_id AND a.deleted_at IS NULL
+  )
+  AND NOT (
+    COALESCE((
+      SELECT range_agg(a.time_range) FROM room_availability a
+      WHERE a.room_id = s.room_id AND a.deleted_at IS NULL
+    ), '{}'::tstzmultirange) @> s.time_range
+  )
+ORDER BY s.start_at, s.id
+LIMIT 25
+`
+
+func (q *Queries) ListUncoveredFutureSessionsForRoom(ctx context.Context, roomID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listUncoveredFutureSessionsForRoom, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUncoveredFutureSessionsForTeacher = `-- name: ListUncoveredFutureSessionsForTeacher :many
+SELECT s.id
+FROM sessions s
+WHERE s.teacher_id = $1
+  AND s.deleted_at IS NULL
+  AND s.start_at > transaction_timestamp()
+  AND EXISTS (
+    SELECT 1 FROM teacher_availability a
+    WHERE a.teacher_id = s.teacher_id AND a.deleted_at IS NULL
+  )
+  AND NOT (
+    COALESCE((
+      SELECT range_agg(a.time_range) FROM teacher_availability a
+      WHERE a.teacher_id = s.teacher_id AND a.deleted_at IS NULL
+    ), '{}'::tstzmultirange) @> s.time_range
+  )
+ORDER BY s.start_at, s.id
+LIMIT 25
+`
+
+func (q *Queries) ListUncoveredFutureSessionsForTeacher(ctx context.Context, teacherID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listUncoveredFutureSessionsForTeacher, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

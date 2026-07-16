@@ -1,18 +1,29 @@
 package availabilityhttp
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
-	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/scheduling"
 )
 
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
+}
+
+func (s *server) writeAvailabilityMutationErr(w http.ResponseWriter, err error) {
+	var scheduleErr *scheduling.Err
+	if errors.As(err, &scheduleErr) && scheduleErr.Code == "availability_conflict" {
+		s.a.WriteErrDetails(w, http.StatusConflict, scheduleErr.Code, scheduleErr.Message, scheduleErr.Details)
+		return
+	}
+	status, code, msg := s.a.ClassifyDBErr(err)
+	s.a.WriteErr(w, status, code, msg)
 }
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
@@ -104,14 +115,9 @@ func (s *server) handleTeacherAvailabilityCreate(w http.ResponseWriter, r *http.
 
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		row, err := qtx.CreateTeacherAvailability(r.Context(), sqldb.CreateTeacherAvailabilityParams{
-			TeacherID: teacherID,
-			StartAt:   startAt,
-			EndAt:     endAt,
-		})
+		row, err := s.deps.Scheduling.CreateTeacherAvailabilityTx(r.Context(), tx, qtx, teacherID, startAt, endAt)
 		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
 		id, err := s.a.UUIDString(row.ID)
@@ -152,12 +158,8 @@ func (s *server) handleTeacherAvailabilityDelete(w http.ResponseWriter, r *http.
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.SoftDeleteTeacherAvailability(r.Context(), sqldb.SoftDeleteTeacherAvailabilityParams{
-			ID:        id,
-			TeacherID: teacherID,
-		}); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+		if err := s.deps.Scheduling.DeleteTeacherAvailabilityTx(r.Context(), tx, qtx, teacherID, id); err != nil {
+			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]any{"ok": true}, nil
@@ -241,14 +243,9 @@ func (s *server) handleRoomAvailabilityCreate(w http.ResponseWriter, r *http.Req
 
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		row, err := qtx.CreateRoomAvailability(r.Context(), sqldb.CreateRoomAvailabilityParams{
-			RoomID:  roomID,
-			StartAt: startAt,
-			EndAt:   endAt,
-		})
+		row, err := s.deps.Scheduling.CreateRoomAvailabilityTx(r.Context(), tx, qtx, roomID, startAt, endAt)
 		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
 		id, err := s.a.UUIDString(row.ID)
@@ -289,12 +286,8 @@ func (s *server) handleRoomAvailabilityDelete(w http.ResponseWriter, r *http.Req
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.SoftDeleteRoomAvailability(r.Context(), sqldb.SoftDeleteRoomAvailabilityParams{
-			ID:     id,
-			RoomID: roomID,
-		}); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+		if err := s.deps.Scheduling.DeleteRoomAvailabilityTx(r.Context(), tx, qtx, roomID, id); err != nil {
+			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]any{"ok": true}, nil
