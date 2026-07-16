@@ -28,6 +28,21 @@ DROP TABLE IF EXISTS widgets;
 | `DROP TABLE IF EXISTS` / `DROP INDEX IF EXISTS` in Down | Safe no-op if the object doesn't exist. |
 | `ALTER TABLE ... DROP COLUMN IF EXISTS` in Down | Safe no-op for the same reason. |
 
+## Online index rollout
+
+Indexes on production tables must be deployed before application code that depends on their query plans. Use a separate non-transactional migration so PostgreSQL can build and remove each index without blocking normal writes:
+
+```sql
+-- +goose NO TRANSACTION
+-- +goose Up
+CREATE INDEX CONCURRENTLY IF NOT EXISTS example_active_idx ON example(created_at) WHERE deleted_at IS NULL;
+
+-- +goose Down
+DROP INDEX CONCURRENTLY IF EXISTS example_active_idx;
+```
+
+Run these migrations with a finite `lock_timeout` at the deployment layer. A timeout is a safe failed rollout: investigate the blocker and retry the migration before enabling the dependent application release. Do not fall back to a blocking index build on a live table.
+
 ## Validation
 
 Run the check before opening a PR:

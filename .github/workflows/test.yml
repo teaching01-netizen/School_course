@@ -45,9 +45,38 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test:schedule
       - run: npm run typecheck:e2e
       - run: npm run test:coverage
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e -- --project=chromium
       - run: go -C backend test ./... -count=1
+
+  schedule-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: warwick_schedule_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d warwick_schedule_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: true
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/warwick_schedule_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: make -C backend test-scheduling-db

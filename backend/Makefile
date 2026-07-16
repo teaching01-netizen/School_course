@@ -1,4 +1,4 @@
-.PHONY: dev build test lint fmt migrate-up migrate-down migrate-status migrate-validate sqlc tools
+.PHONY: dev build test test-scheduling-db lint fmt migrate-up migrate-down migrate-status migrate-validate sqlc tools
 
 dev:
 	export $$(grep -v '^\s*#' ../.env 2>/dev/null | grep -v '^\s*$$' | sed 's/[[:space:]]*#.*//' | xargs) 2>/dev/null; \
@@ -12,6 +12,10 @@ build:
 
 test:
 	go test ./...
+
+test-scheduling-db:
+	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL is required"; exit 1; }
+	go test -p 1 ./internal/scheduling ./internal/httpapi/sessionshttp ./internal/httpapi/serieshttp ./internal/httpapi/availabilityhttp ./internal/httpapi/schedulinghttp ./internal/legacysync ./internal/db -run '^TestScheduleDB_' -count=1 -timeout=120s
 
 fmt:
 	gofmt -w .
