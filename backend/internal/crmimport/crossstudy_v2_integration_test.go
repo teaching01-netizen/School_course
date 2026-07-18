@@ -536,6 +536,68 @@ func TestCrossStudy_LoadPendingChanges_DetectsOrphaned(t *testing.T) {
 	}
 }
 
+func TestCrossStudy_ProcessSnapshot_MatchesLegacyUppercaseAssignmentToLowercaseImport(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	sourceID := createTestCourseSimple(t, ctx, dbpool, "CS-CASE-SRC", "Case Source")
+	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-CASE-A", "Case Dest A")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-CASE-B", "Case Dest B")
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{{
+		WCode:      "w240591",
+		CourseName: "Case Source",
+		CycleLabel: "Cycle A",
+		ExtraNote:  "unchanged",
+	}})
+	createTestStudent(t, ctx, dbpool, "w240591", "Case Student")
+
+	store := crossstudy.NewStore(dbpool)
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:            "w240591",
+		SourceCourseID:   sourceID,
+		SnapshotID:       uuidFromPG(t, snapshotID),
+		CRMCourseName:    "Case Source",
+		DestCourseAID:    destAID,
+		DestCourseBID:    destBID,
+		AssignedCourseID: destAID,
+		ExtraNoteText:    "unchanged",
+	}, createTestUser(t, ctx, dbpool)); err != nil {
+		t.Fatalf("SaveAssignment: %v", err)
+	}
+
+	// Reproduce data created before Wcode normalization was applied to the
+	// cross-study table. XLSX import stores the same identity in lowercase.
+	if _, err := dbpool.Exec(ctx, `
+		UPDATE crm_cross_study_assignments
+		SET wcode = 'W240591', status = 'pending'
+		WHERE source_course_id = $1
+	`, destAID); err != nil {
+		t.Fatalf("seed legacy uppercase assignment: %v", err)
+	}
+
+	processor := crossstudy.NewProcessor(dbpool, store, tLogger)
+	if err := processor.ProcessSnapshot(ctx, uuidFromPG(t, snapshotID)); err != nil {
+		t.Fatalf("ProcessSnapshot: %v", err)
+	}
+
+	resp, err := store.LookupStudent(ctx, "W240591")
+	if err != nil {
+		t.Fatalf("LookupStudent: %v", err)
+	}
+	if resp.CurrentAssignment == nil {
+		t.Fatal("expected legacy uppercase assignment to reconnect")
+	}
+	if resp.CurrentAssignment.Status != "active" {
+		t.Fatalf("status = %q, want active", resp.CurrentAssignment.Status)
+	}
+}
+
 // TestCrossStudy_RosterEffect_UpdatesCourseStudents verifies that SaveAssignment
 // immediately updates course_students (and thus student_busy_ranges via triggers)
 // without waiting for a reconcile cycle.

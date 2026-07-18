@@ -145,6 +145,18 @@ func TestDurableOTPDeliveryMigrationDefinesLeaseAndUncertainState(t *testing.T) 
 	}
 }
 
+func TestCrossStudyWCodeRepairNormalizesReconnectAssignments(t *testing.T) {
+	sql := readMigration(t, "00072_normalize_cross_study_wcodes.sql")
+
+	if !strings.Contains(sql, "UPDATE crm_cross_study_assignments") ||
+		!strings.Contains(sql, "LOWER(BTRIM(wcode))") {
+		t.Fatal("00072 must normalize stored cross-study assignment wcodes for reconnect matching")
+	}
+	if !strings.Contains(sql, "CREATE INDEX IF NOT EXISTS crm_cross_study_assignments_wcode_lower_idx") {
+		t.Fatal("00072 must enforce case-insensitive cross-study assignment identity")
+	}
+}
+
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

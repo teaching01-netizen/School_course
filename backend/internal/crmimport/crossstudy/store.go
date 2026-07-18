@@ -3,6 +3,7 @@ package crossstudy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,10 @@ func scheduleUUID(id uuid.UUID) pgtype.UUID {
 
 func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
+}
+
+func normalizeWCode(wcode string) string {
+	return strings.ToLower(strings.TrimSpace(wcode))
 }
 
 // ExcludeStudent removes a student from course_students.
@@ -176,13 +181,14 @@ func assignmentUsesFullCourseEnrollment(input SaveAssignmentInput) bool {
 
 // LookupStudent finds a student and their latest CRM row.
 func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookupResponse, error) {
+	wcode = normalizeWCode(wcode)
 	resp := &StudentLookupResponse{
 		Student: &StudentInfo{},
 		CRMRow:  &CRMRowInfo{},
 	}
 
 	err := s.db.QueryRow(ctx, `
-		SELECT id, wcode, COALESCE(full_name, '') FROM students WHERE wcode = $1
+		SELECT id, wcode, COALESCE(full_name, '') FROM students WHERE LOWER(wcode) = $1
 	`, wcode).Scan(&resp.Student.ID, &resp.Student.WCode, &resp.Student.FullName)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -195,7 +201,7 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 		SELECT cr.snapshot_id, cr.row_hash, cr.xlsx_row_number, cr.course_name, cr.extra_note, cs.created_at
 		FROM crm_rows cr
 		JOIN crm_state cs ON cr.snapshot_id = cs.active_snapshot_id
-		WHERE cr.wcode = $1 AND cs.singleton = true
+		WHERE LOWER(cr.wcode) = $1 AND cs.singleton = true
 		ORDER BY cr.xlsx_row_number ASC
 		LIMIT 1
 	`, wcode)
@@ -235,7 +241,7 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 		       a.dest_course_a_weekdays, a.dest_course_b_weekdays,
 		       a.status, a.extra_note_snapshot, a.source_valid, a.updated_at
 		FROM crm_cross_study_assignments a
-		WHERE a.wcode = $1 AND a.deleted_at IS NULL
+		WHERE LOWER(BTRIM(a.wcode)) = $1 AND a.deleted_at IS NULL
 		ORDER BY a.updated_at DESC LIMIT 1
 	`, wcode)
 
@@ -281,6 +287,10 @@ func lookupCourseRef(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) *Cours
 
 // SaveAssignment creates or updates a cross-study assignment and its roster overrides.
 func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, userID uuid.UUID) error {
+	input.WCode = normalizeWCode(input.WCode)
+	if input.WCode == "" {
+		return fmt.Errorf("wcode is required")
+	}
 	if input.AssignedCourseID != input.DestCourseAID && input.AssignedCourseID != input.DestCourseBID {
 		return fmt.Errorf("assigned_course_id must be one of dest_course_a_id or dest_course_b_id")
 	}
@@ -291,7 +301,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	noteHash := hashExtraNote(input.ExtraNoteText)
 
 	var studentID uuid.UUID
-	err := s.db.QueryRow(ctx, `SELECT id FROM students WHERE wcode = $1`, input.WCode).Scan(&studentID)
+	err := s.db.QueryRow(ctx, `SELECT id FROM students WHERE LOWER(wcode) = $1`, input.WCode).Scan(&studentID)
 	if err != nil {
 		return fmt.Errorf("lookup student: %w", err)
 	}
@@ -320,7 +330,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		       dest_course_b_enrollment_created,
 		       source_course_enrollment_removed
 		FROM crm_cross_study_assignments
-		WHERE wcode = $1 AND deleted_at IS NULL
+		WHERE LOWER(BTRIM(wcode)) = $1 AND deleted_at IS NULL
 		ORDER BY updated_at DESC
 		LIMIT 1
 		FOR UPDATE
@@ -633,7 +643,7 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 	}
 
 	var studentID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM students WHERE wcode = $1`, wcode).Scan(&studentID)
+	err = tx.QueryRow(ctx, `SELECT id FROM students WHERE LOWER(wcode) = $1`, normalizeWCode(wcode)).Scan(&studentID)
 	if err != nil {
 		return fmt.Errorf("lookup student for override cleanup: %w", err)
 	}
@@ -730,7 +740,7 @@ func (s *Store) crossStudyRequiresCourse(ctx context.Context, tx pgx.Tx, student
 		SELECT EXISTS (
 			SELECT 1
 			FROM crm_cross_study_assignments a
-			JOIN students s ON s.wcode = a.wcode
+			JOIN students s ON LOWER(s.wcode) = LOWER(BTRIM(a.wcode))
 			WHERE s.id = $1
 			  AND (a.dest_course_a_id = $2 OR a.dest_course_b_id = $2)
 			  AND a.id <> $3
@@ -809,7 +819,7 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 		FROM crm_cross_study_assignments a
 		LEFT JOIN courses dest_a ON dest_a.id = a.dest_course_a_id
 		LEFT JOIN courses dest_b ON dest_b.id = a.dest_course_b_id
-		LEFT JOIN students s ON s.wcode = a.wcode
+		LEFT JOIN students s ON LOWER(s.wcode) = LOWER(BTRIM(a.wcode))
 		WHERE %s
 		ORDER BY a.updated_at DESC
 	`, where)
@@ -874,7 +884,7 @@ func (s *Store) LoadPendingChanges(ctx context.Context, snapshotID uuid.UUID) ([
 			SELECT cr.extra_note, cr.course_name
 			FROM crm_rows cr
 			WHERE cr.snapshot_id = $1
-			  AND cr.wcode = a.wcode
+			  AND LOWER(cr.wcode) = LOWER(BTRIM(a.wcode))
 			ORDER BY
 			  CASE
 			    WHEN cr.row_hash = a.crm_row_hash_snapshot THEN 0
