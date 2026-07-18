@@ -22,7 +22,7 @@ type sessionIDDTO struct {
 	ID string `json:"id"`
 }
 
-func TestFullChain_FinalSitInSessionExcludedAndRejected(t *testing.T) {
+func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	databaseURL := requireStaffTestDB(t)
 	migrateStaffUpOnce(t, databaseURL)
 	dbpool := newStaffPool(t, databaseURL)
@@ -192,8 +192,8 @@ func TestFullChain_FinalSitInSessionExcludedAndRejected(t *testing.T) {
 	if !containsSessionID(options.Available, nonFinalTargetID) {
 		t.Fatalf("available sessions = %#v, want non-final target %s", options.Available, nonFinalTargetID)
 	}
-	if containsSessionID(options.Available, finalTargetID) {
-		t.Fatalf("available sessions must not include final target %s: %#v", finalTargetID, options.Available)
+	if !containsSessionID(options.Available, finalTargetID) {
+		t.Fatalf("available sessions must include generic-rule final target %s: %#v", finalTargetID, options.Available)
 	}
 	if !containsSessionID(options.PreSelected, nonFinalTargetID) {
 		t.Fatalf("pre-selected sessions = %#v, want non-final target %s", options.PreSelected, nonFinalTargetID)
@@ -213,31 +213,11 @@ func TestFullChain_FinalSitInSessionExcludedAndRejected(t *testing.T) {
 		"missed_session_ids": []string{missedFinalSessionID},
 		"sit_in_session_ids": []string{finalTargetID},
 	})
-	if finalSubmitResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("final sit-in submit status = %d, want 400", finalSubmitResp.StatusCode)
-	}
-	var finalSubmitError map[string]any
-	staffParseResponse(t, finalSubmitResp, &finalSubmitError)
-	if finalSubmitError["error_code"] != "invalid_sessions" {
-		t.Fatalf("final sit-in submit error = %#v, want invalid_sessions", finalSubmitError)
-	}
-
-	validSubmitResp := staffDoRequest(t, server.URL, http.MethodPost, "/api/v1/absences", map[string]any{
-		"wcode":              studentWCode,
-		"subject_id":         subjectID,
-		"course_id":          courseID,
-		"date_from":          "2026-06-10",
-		"date_to":            "2026-06-10",
-		"sit_in_method":      SitInMethodPhysical,
-		"sit_in_course_id":   targetCourseID,
-		"missed_session_ids": []string{missedFinalSessionID},
-		"sit_in_session_ids": []string{nonFinalTargetID},
-	})
-	if validSubmitResp.StatusCode != http.StatusCreated {
-		t.Fatalf("valid sit-in submit status = %d, want 201", validSubmitResp.StatusCode)
+	if finalSubmitResp.StatusCode != http.StatusCreated {
+		t.Fatalf("final sit-in submit status = %d, want 201", finalSubmitResp.StatusCode)
 	}
 	var created map[string]any
-	staffParseResponse(t, validSubmitResp, &created)
+	staffParseResponse(t, finalSubmitResp, &created)
 	if created["sit_in_method"] != SitInMethodPhysical {
 		t.Fatalf("created response = %#v, want physical sit-in", created)
 	}

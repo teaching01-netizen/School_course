@@ -31,6 +31,10 @@ type staffCreateAbsenceRequest struct {
 	Status           *string  `json:"status"` // optional: "pending" (default) or "special_approved"
 }
 
+func shouldValidateStaffSitInSessions(status absences.Status) bool {
+	return status != absences.StatusSpecialApproved
+}
+
 func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
@@ -209,15 +213,23 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
 				return 0, nil, fmt.Errorf("non-physical sit-in with sessions")
 			}
-			count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs, s.deps.InstituteTZ)
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
-			}
-			if count != len(sessionUUIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
-				return 0, nil, fmt.Errorf("invalid sit-in sessions")
+			if shouldValidateStaffSitInSessions(requestedStatus) {
+				excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, course.CourseID)
+				if err != nil {
+					status, code, msg := s.a.ClassifyDBErr(err)
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, err
+				}
+				count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs, s.deps.InstituteTZ, excludeFinal)
+				if err != nil {
+					status, code, msg := s.a.ClassifyDBErr(err)
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, err
+				}
+				if count != len(sessionUUIDs) {
+					s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
+					return 0, nil, fmt.Errorf("invalid sit-in sessions")
+				}
 			}
 			if err := qtx.AbsenceSitInsCreate(r.Context(), row.ID, sessionUUIDs); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"warwick-institute/internal/absences"
 )
 
 func TestDispatchStaffCreate_RouteRegistered(t *testing.T) {
@@ -34,6 +36,15 @@ func TestDispatchStaffCreate_PutMethodReturns404(t *testing.T) {
 	server.handleAbsencesDispatch(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("PUT /absences/staff-create should return 404, got %d", w.Code)
+	}
+}
+
+func TestStaffCreateSitInPolicy_SpecialApprovedBypassesNormalRules(t *testing.T) {
+	if shouldValidateStaffSitInSessions(absences.StatusSpecialApproved) {
+		t.Fatal("special-approved staff leave must allow any selected make-up session")
+	}
+	if !shouldValidateStaffSitInSessions(absences.StatusPending) {
+		t.Fatal("normal staff leave must retain sit-in validation")
 	}
 }
 

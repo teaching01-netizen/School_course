@@ -3,11 +3,13 @@ package absenceshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
@@ -60,6 +62,25 @@ type satVerbalResolveInput struct {
 
 func decodeSatVerbalPolicyRules(raw []byte) ([]satVerbalCourseRule, error) {
 	return satverbalpolicy.DecodeRules(raw)
+}
+
+func mappedSatVerbalFinalClassExcluded(raw []byte) (bool, error) {
+	var rule satVerbalCourseRule
+	if err := json.Unmarshal(raw, &rule); err != nil {
+		return false, err
+	}
+	return rule.LastClassExcluded, nil
+}
+
+func satVerbalCourseFinalClassExcluded(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) (bool, error) {
+	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return mappedSatVerbalFinalClassExcluded(mapping.PolicyRule)
 }
 
 func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*SitInResult, error) {
@@ -162,7 +183,7 @@ func satVerbalResolvePriorities(
 			if err != nil {
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
-			options := satVerbalSessionOptionsForTarget(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, notBefore, input.Cutoff, offered)
+			options := satVerbalSessionOptionsForTarget(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, rule.LastClassExcluded, notBefore, input.Cutoff, offered)
 			if len(options.Available) == 0 && len(options.Unavailable) == 0 {
 				continue
 			}
@@ -522,6 +543,7 @@ func satVerbalSessionOptionsForTarget(
 	missedSessions []sqldb.SessionInRange,
 	missedLessonSlots []satVerbalMissedLessonSlot,
 	sameLessonOnly bool,
+	excludeFinal bool,
 	notBefore time.Time,
 	cutoff time.Time,
 	offered map[pgtype.UUID]struct{},
@@ -544,7 +566,7 @@ func satVerbalSessionOptionsForTarget(
 				continue
 			}
 			session := sessions[slot.Index]
-			if reason, code := satVerbalSessionBlockReason(session, finalID, true, missedSessions, notBefore, cutoff, offered); reason != "" {
+			if reason, code := satVerbalSessionBlockReason(session, finalID, excludeFinal, missedSessions, notBefore, cutoff, offered); reason != "" {
 				out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
 					Session:         &session,
 					MissedSessionID: slot.Missed.ID,
@@ -559,7 +581,7 @@ func satVerbalSessionOptionsForTarget(
 		return out
 	}
 	for _, session := range sessions {
-		if reason, _ := satVerbalSessionBlockReason(session, finalID, true, missedSessions, notBefore, cutoff, offered); reason == "" {
+		if reason, _ := satVerbalSessionBlockReason(session, finalID, excludeFinal, missedSessions, notBefore, cutoff, offered); reason == "" {
 			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
 		}
 	}

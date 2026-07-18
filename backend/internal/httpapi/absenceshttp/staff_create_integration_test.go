@@ -347,7 +347,7 @@ func TestStaffCreate_AdminBypassOldSession(t *testing.T) {
 	t.Log("old session absence created successfully (session timing bypassed)")
 }
 
-func TestStaffCreate_AllowsAdminSpecialCaseUnenrolledCourse(t *testing.T) {
+func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *testing.T) {
 	databaseURL := requireStaffTestDB(t)
 	migrateStaffUpOnce(t, databaseURL)
 	dbpool := newStaffPool(t, databaseURL)
@@ -445,6 +445,7 @@ func TestStaffCreate_AllowsAdminSpecialCaseUnenrolledCourse(t *testing.T) {
 		"sit_in_course_id":   courseID,
 		"sit_in_session_ids": []string{sitInID},
 		"reason_category":    "medical",
+		"status":             "special_approved",
 	}
 
 	mux := http.NewServeMux()

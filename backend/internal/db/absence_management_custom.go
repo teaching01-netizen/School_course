@@ -708,20 +708,20 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 	return count, err
 }
 
-func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) (int, error) {
+func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string, excludeFinal bool) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*)
 		FROM sessions sess
 		WHERE sess.id = ANY($2::uuid[])
 		  AND sess.deleted_at IS NULL
-		  AND EXISTS (
+		  AND (NOT $4 OR EXISTS (
 		    SELECT 1
 		    FROM sessions later
 		    WHERE later.course_id = sess.course_id
 		      AND later.deleted_at IS NULL
 		      AND later.start_at > sess.start_at
-		  )
+		  ))
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM student_absences sa
@@ -732,7 +732,7 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
 		  )
-	`, absenceID, sessionIDs, instituteTZ).Scan(&count)
+	`, absenceID, sessionIDs, instituteTZ, excludeFinal).Scan(&count)
 	return count, err
 }
 

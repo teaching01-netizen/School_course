@@ -142,12 +142,12 @@ func TestBuildPhysicalSitInResult_ZeroCutoff_DoesNotFilter(t *testing.T) {
 
 	result := buildPhysicalSitInResult(&target, missed, available, time.Time{})
 
-	if len(result.Available) != 2 {
-		t.Fatalf("expected 2 available sessions (unlimited cutoff, final target excluded), got %d", len(result.Available))
+	if len(result.Available) != 3 {
+		t.Fatalf("expected all 3 generic-rule sessions, including the final target, got %d", len(result.Available))
 	}
 }
 
-func TestBuildPhysicalSitInResult_FinalTargetSessionExcludedButFinalMissedAllowed(t *testing.T) {
+func TestBuildPhysicalSitInResult_FinalTargetSessionAllowedForGenericRule(t *testing.T) {
 	target := sqldb.SubjectCourseV2{
 		ID:   makeUUID("10000000-0000-0000-0000-000000000001"),
 		Code: "TGT",
@@ -168,8 +168,8 @@ func TestBuildPhysicalSitInResult_FinalTargetSessionExcludedButFinalMissedAllowe
 	if len(result.MissedSession) != 1 {
 		t.Fatalf("expected final missed session to remain recorded, got %d", len(result.MissedSession))
 	}
-	if len(result.Available) != 1 || result.Available[0].ID != "a0000000-0000-0000-0000-000000000011" {
-		t.Fatalf("available = %#v, want only the non-final target session", result.Available)
+	if len(result.Available) != 2 || result.Available[1].ID != "a0000000-0000-0000-0000-000000000012" {
+		t.Fatalf("available = %#v, want final target session included", result.Available)
 	}
 }
 
@@ -400,8 +400,8 @@ func TestBuildPrioritySitInResults_SinglePriority_Works(t *testing.T) {
 	if results[0].SitInCourse == nil {
 		t.Error("expected non-nil SitInCourse")
 	}
-	if len(results[0].Available) != 1 {
-		t.Errorf("expected 1 available, got %d", len(results[0].Available))
+	if len(results[0].Available) != 2 {
+		t.Errorf("expected both generic-rule sessions, including the final target, got %d", len(results[0].Available))
 	}
 }
 

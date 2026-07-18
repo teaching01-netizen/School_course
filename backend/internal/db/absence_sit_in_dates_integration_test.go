@@ -237,7 +237,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Both non-overlapping sessions pass regardless of course
-	count, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromSitInCourse, fromOtherCourse}, "Asia/Bangkok")
+	count, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromSitInCourse, fromOtherCourse}, "Asia/Bangkok", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Overlapping session still fails; wrong-course-but-non-overlapping passes
-	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{overlapping, fromOtherCourse}, "Asia/Bangkok")
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{overlapping, fromOtherCourse}, "Asia/Bangkok", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Single session from other course passes
-	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromOtherCourse}, "Asia/Bangkok")
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{fromOtherCourse}, "Asia/Bangkok", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,12 +263,20 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 		t.Fatalf("expected single session from other course to be valid, got count %d", count)
 	}
 
-	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{finalSitInSession}, "Asia/Bangkok")
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{finalSitInSession}, "Asia/Bangkok", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
 		t.Fatalf("expected final sit-in session to be invalid, got count %d", count)
+	}
+
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{finalSitInSession}, "Asia/Bangkok", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected final sit-in session to be valid when policy allows it, got count %d", count)
 	}
 }
 

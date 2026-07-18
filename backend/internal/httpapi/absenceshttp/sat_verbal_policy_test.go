@@ -38,6 +38,27 @@ func mustDecodeSatVerbalPolicy(t *testing.T, raw string) []satVerbalCourseRule {
 	return rules
 }
 
+func TestMappedSatVerbalFinalClassExcluded_FollowsConfiguredPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "enabled", raw: `{"id":"v1","courseName":"SAT Verbal Rank 3","lastClassExcluded":true}`, want: true},
+		{name: "disabled", raw: `{"id":"v1","courseName":"SAT Verbal Rank 3","lastClassExcluded":false}`, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := mappedSatVerbalFinalClassExcluded([]byte(tc.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveSatVerbalPolicy_MappedCourseUsesRuleIDInsteadOfProductionCourseName(t *testing.T) {
 	section1ID := "91000000-0000-0000-0000-000000000001"
 	section2ID := "92000000-0000-0000-0000-000000000002"
