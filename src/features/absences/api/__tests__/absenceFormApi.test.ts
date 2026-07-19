@@ -208,7 +208,18 @@ describe("public absence API requests", () => {
     await lookupStudentByWcode(" W250389&include=private ");
 
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/student-lookup?wcode=%20W250389%26include%3Dprivate%20",
+      "/api/v1/absences/student-lookup?wcode=+W250389%26include%3Dprivate+",
+      { method: "GET" },
+    );
+  });
+
+  it("sends a nickname param for non-W-Code lookups", async () => {
+    mockApiJson.mockResolvedValueOnce({ wcode: "W250389", subjects: [] });
+
+    await lookupStudentByWcode("JD", { nickname: "JD" });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/student-lookup?wcode=JD&nickname=JD",
       { method: "GET" },
     );
   });

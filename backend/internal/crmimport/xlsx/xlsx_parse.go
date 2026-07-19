@@ -103,7 +103,10 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 	if len(sheets) == 0 {
 		return ParsedXLSX{}, fmt.Errorf("xlsx has no sheets")
 	}
-	sheet := sheets[0]
+	sheet, err := selectImportSheet(f, sheets)
+	if err != nil {
+		return ParsedXLSX{}, err
+	}
 
 	const scanRows = 20
 	headerRowIdx := -1
@@ -210,8 +213,70 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 	return ParsedXLSX{Rows: out}, nil
 }
 
+func selectImportSheet(f *excelize.File, sheets []string) (string, error) {
+	activeSheet := f.GetSheetName(f.GetActiveSheetIndex())
+	orderedSheets := make([]string, 0, len(sheets))
+	if activeSheet != "" {
+		orderedSheets = append(orderedSheets, activeSheet)
+	}
+	for _, sheet := range sheets {
+		if sheet != activeSheet {
+			orderedSheets = append(orderedSheets, sheet)
+		}
+	}
+
+	// Prefer the active visible CRM worksheet, then other visible CRM
+	// worksheets in workbook order. Hidden CRM sheets remain a compatibility
+	// fallback for older exports.
+	for _, wantVisible := range []bool{true, false} {
+		for _, sheet := range orderedSheets {
+			visible, err := f.GetSheetVisible(sheet)
+			if err != nil {
+				return "", fmt.Errorf("read worksheet visibility for %q: %w", sheet, err)
+			}
+			if visible != wantVisible {
+				continue
+			}
+			valid, err := sheetHasRequiredHeaders(f, sheet)
+			if err != nil {
+				return "", err
+			}
+			if valid {
+				return sheet, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("header row not found in first 20 rows of any worksheet")
+}
+
+func sheetHasRequiredHeaders(f *excelize.File, sheet string) (bool, error) {
+	rows, err := f.Rows(sheet)
+	if err != nil {
+		return false, fmt.Errorf("read rows from worksheet %q: %w", sheet, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rowIndex := 0; rowIndex < 20 && rows.Next(); rowIndex++ {
+		cells, err := rows.Columns(excelize.Options{RawCellValue: true})
+		if err != nil {
+			return false, fmt.Errorf("read row from worksheet %q: %w", sheet, err)
+		}
+		if looksLikeHeaderRow(cells) {
+			return true, nil
+		}
+	}
+	if err := rows.Error(); err != nil {
+		return false, fmt.Errorf("scan rows from worksheet %q: %w", sheet, err)
+	}
+	return false, nil
+}
+
 func looksLikeHeaderRow(cells []string) bool {
-	need := map[string]bool{"Student Id": false, "Course Name": false, "Cycle": false}
+	need := make(map[string]bool, len(requiredHeaders))
+	for _, header := range requiredHeaders {
+		need[header] = false
+	}
 	for _, c := range cells {
 		c = strings.TrimSpace(c)
 		if _, ok := need[c]; ok {

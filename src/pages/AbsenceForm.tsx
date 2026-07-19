@@ -259,12 +259,16 @@ export default function AbsenceForm() {
     const cleaned = normalizeLookupWcode(lookupInput);
     if (!cleaned) {
       setLookupLoading(false);
-      setLookupError("Enter your Student ID (W-Code).");
+      setLookupError("Enter your Student ID (W-Code) or nickname.");
       return;
     }
     try {
       setLookupLoading(true);
-      const response = await lookupStudentByWcode(cleaned);
+      const isWcode = /^W\d/i.test(cleaned);
+      const response = await lookupStudentByWcode(
+        cleaned,
+        isWcode ? undefined : { nickname: cleaned },
+      );
       if (requestId !== lookupRequestId.current) return;
       setLookup(response);
       setLookupInput(cleaned);
@@ -613,14 +617,14 @@ export default function AbsenceForm() {
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="wcode-input" className="block text-sm font-semibold text-[var(--color-wi-text)] mb-1.5">
-                      Student ID (W-Code)
-                    </label>
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <input
-                          id="wcode-input"
-                          className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                          placeholder="e.g. W250389"
+                      Student ID (W-Code) or nickname
+                        </label>
+                        <div className="flex gap-3">
+                          <div className="flex-1">
+                            <input
+                              id="wcode-input"
+                              className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                              placeholder="e.g. W250389 or a nickname"
                           value={lookupInput}
                           onChange={(e) => setLookupInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}

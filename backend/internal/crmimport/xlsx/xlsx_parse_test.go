@@ -60,6 +60,127 @@ func TestParseXLSX_HeaderDiscoveryAndRows(t *testing.T) {
 	}
 }
 
+func TestParseXLSX_PrefersVisibleCRMWorksheetOverHiddenOlderWorksheet(t *testing.T) {
+	f := excelize.NewFile()
+	oldSheet := f.GetSheetName(0)
+	newSheet := "Current CRM Export"
+	newSheetIndex, err := f.NewSheet(newSheet)
+	if err != nil {
+		t.Fatalf("create current worksheet: %v", err)
+	}
+
+	writeCRMRow := func(sheet, courseName string, headerRow int) {
+		t.Helper()
+		headers := []string{"Student Id", "First Name", "Last Name", "Course Name", "Cycle"}
+		for i, header := range headers {
+			cell, _ := excelize.CoordinatesToCellName(i+1, headerRow)
+			_ = f.SetCellValue(sheet, cell, header)
+		}
+		values := []any{"W999999", "Synthetic", "Student", courseName, "Cycle 1"}
+		for i, value := range values {
+			cell, _ := excelize.CoordinatesToCellName(i+1, headerRow+1)
+			_ = f.SetCellValue(sheet, cell, value)
+		}
+	}
+
+	writeCRMRow(oldSheet, "Old Hidden Course", 1)
+	_ = f.SetCellValue(newSheet, "A1", "Current export")
+	_ = f.SetCellValue(newSheet, "A2", "Generated for import")
+	writeCRMRow(newSheet, "Current Visible Course", 3)
+	f.SetActiveSheet(newSheetIndex)
+	if err := f.SetSheetVisible(oldSheet, false); err != nil {
+		t.Fatalf("hide older worksheet: %v", err)
+	}
+
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("write xlsx: %v", err)
+	}
+	parsed, err := ParseXLSX(buf.Bytes(), time.UTC)
+	if err != nil {
+		t.Fatalf("ParseXLSX: %v", err)
+	}
+	if len(parsed.Rows) != 1 {
+		t.Fatalf("expected 1 current row, got %d", len(parsed.Rows))
+	}
+	if got := parsed.Rows[0].CourseName; got != "Current Visible Course" {
+		t.Fatalf("CourseName = %q, want current visible worksheet data", got)
+	}
+}
+
+func TestParseXLSX_SkipsPartialVisibleWorksheetForCompleteCRMWorksheet(t *testing.T) {
+	f := excelize.NewFile()
+	partialSheet := f.GetSheetName(0)
+	completeSheet := "Complete CRM Export"
+	_, err := f.NewSheet(completeSheet)
+	if err != nil {
+		t.Fatalf("create complete worksheet: %v", err)
+	}
+
+	partialHeaders := []string{"Student Id", "Course Name", "Cycle"}
+	for i, header := range partialHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(partialSheet, cell, header)
+	}
+	completeHeaders := []string{"Student Id", "First Name", "Last Name", "Course Name", "Cycle"}
+	for i, header := range completeHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(completeSheet, cell, header)
+	}
+	completeRow := []any{"W999998", "Synthetic", "Student", "Complete Course", "Cycle 1"}
+	for i, value := range completeRow {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
+		_ = f.SetCellValue(completeSheet, cell, value)
+	}
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("write xlsx: %v", err)
+	}
+	parsed, err := ParseXLSX(buf.Bytes(), time.UTC)
+	if err != nil {
+		t.Fatalf("ParseXLSX: %v", err)
+	}
+	if len(parsed.Rows) != 1 || parsed.Rows[0].CourseName != "Complete Course" {
+		t.Fatalf("parsed rows = %#v, want complete CRM worksheet row", parsed.Rows)
+	}
+}
+
+func TestParseXLSX_FallsBackToHiddenCRMWorksheetAfterVisibleCoverSheet(t *testing.T) {
+	f := excelize.NewFile()
+	coverSheet := f.GetSheetName(0)
+	crmSheet := "Hidden CRM Export"
+	if _, err := f.NewSheet(crmSheet); err != nil {
+		t.Fatalf("create hidden CRM worksheet: %v", err)
+	}
+	_ = f.SetCellValue(coverSheet, "A1", "CRM export cover")
+
+	headers := []string{"Student Id", "First Name", "Last Name", "Course Name", "Cycle"}
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(crmSheet, cell, header)
+	}
+	values := []any{"W999997", "Synthetic", "Student", "Hidden Course", "Cycle 1"}
+	for i, value := range values {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
+		_ = f.SetCellValue(crmSheet, cell, value)
+	}
+	if err := f.SetSheetVisible(crmSheet, false); err != nil {
+		t.Fatalf("hide CRM worksheet: %v", err)
+	}
+
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("write xlsx: %v", err)
+	}
+	parsed, err := ParseXLSX(buf.Bytes(), time.UTC)
+	if err != nil {
+		t.Fatalf("ParseXLSX: %v", err)
+	}
+	if len(parsed.Rows) != 1 || parsed.Rows[0].CourseName != "Hidden Course" {
+		t.Fatalf("parsed rows = %#v, want hidden CRM worksheet row", parsed.Rows)
+	}
+}
+
 func TestParseXLSX_RejectsMissingHeaders(t *testing.T) {
 	f := excelize.NewFile()
 	sheet := f.GetSheetName(0)
@@ -174,9 +295,9 @@ func TestParseXLSX_NormalizesWCodeToLowerTrimmed(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		input      string
-		wantWCode  string
+		name      string
+		input     string
+		wantWCode string
 	}{
 		{name: "uppercase", input: "W250001", wantWCode: "w250001"},
 		{name: "mixed case", input: "W250abc", wantWCode: "w250abc"},
