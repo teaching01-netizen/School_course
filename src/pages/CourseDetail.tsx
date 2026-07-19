@@ -139,6 +139,8 @@ export default function CourseDetail() {
   const [editSaving, setEditSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [confirmDeleteSession, setConfirmDeleteSession] = useState<Session | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
   const getEditSession = () => sessions.find((s) => s.id === editingSessionId) ?? null;
 
@@ -226,6 +228,40 @@ export default function CourseDetail() {
       addToast("error", err instanceof Error ? err.message : "Update failed");
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleConfirmDeleteSession = async () => {
+    const session = confirmDeleteSession;
+    if (!session) return;
+
+    try {
+      setDeletingSessionId(session.id);
+      await apiJson(`/api/v1/sessions/${session.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ expected_version: session.version }),
+      });
+      addToast("success", "Session permanently deleted");
+      setConfirmDeleteSession(null);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(session.id);
+        return next;
+      });
+      await loadSessions();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.code === "stale_edit") {
+          addToast("error", "Stale edit: reloaded latest session. Please try again.");
+          await loadSessions();
+          return;
+        }
+        addToast("error", `${err.code}: ${err.message}`);
+        return;
+      }
+      addToast("error", err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeletingSessionId(null);
     }
   };
 
@@ -1093,12 +1129,22 @@ export default function CourseDetail() {
                               <Button variant="ghost" size="sm" onClick={() => openEditSession(s)}>
                                 Edit
                               </Button>
-                               <Button
+                              <Button
                                 variant="primary"
                                 size="sm"
                                 onClick={() => navigate('/schedule')}
                               >
                                 Check in
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                aria-label={`Delete session ${course?.code ?? s.course_id}`}
+                                onClick={() => setConfirmDeleteSession(s)}
+                                disabled={deletingSessionId === s.id}
+                                loading={deletingSessionId === s.id}
+                              >
+                                Delete
                               </Button>
                             </div>
                           )}
@@ -1490,6 +1536,17 @@ export default function CourseDetail() {
         loading={deleting}
         onConfirm={() => void onDelete()}
         onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmModal
+        open={!!confirmDeleteSession}
+        title="Delete Session"
+        message="Permanently delete this session? This cannot be undone."
+        variant="danger"
+        confirmLabel="Delete Session"
+        loading={!!deletingSessionId}
+        onConfirm={() => void handleConfirmDeleteSession()}
+        onCancel={() => setConfirmDeleteSession(null)}
       />
 
       <ConfirmModal
