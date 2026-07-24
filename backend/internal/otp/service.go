@@ -28,7 +28,7 @@ const (
 	lockoutTTL     = 60 * time.Minute
 	maxFailures    = 5
 	bcryptCost     = 12
-	resendCooldown = 60 * time.Second
+	resendCooldown = 5 * time.Minute
 )
 
 var (

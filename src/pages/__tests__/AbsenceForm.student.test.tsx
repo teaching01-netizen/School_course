@@ -48,6 +48,21 @@ describe("AbsenceForm Student step", () => {
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("student-lookup"))).toBe(false);
   });
 
+  it("only exposes W-Code lookup and rejects nickname input without sending a lookup", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson);
+
+    const input = await screen.findByRole("textbox", { name: "Student ID (W-Code)" });
+    expect(input).toHaveAttribute("placeholder", "e.g. W250389");
+    expect(screen.queryByText(/nickname/i)).not.toBeInTheDocument();
+
+    await user.type(input, "Johnny");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+
+    expect(screen.getByText("Enter your Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("student-lookup"))).toBe(false);
+  });
+
   it.each(["  w250389  ", "W250389"])(
     "normalizes and searches %j using Enter",
     async (input) => {

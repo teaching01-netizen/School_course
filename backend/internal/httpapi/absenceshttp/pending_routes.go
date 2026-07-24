@@ -47,7 +47,7 @@ type parentVerificationDTO struct {
 	DeliveryRetryAfterSeconds int     `json:"delivery_retry_after_seconds,omitempty"`
 }
 
-const resendCooldown = 60 * time.Second
+const resendCooldown = 5 * time.Minute
 
 type publicRowExecutor interface {
 	QueryRow(context.Context, string, ...any) pgx.Row

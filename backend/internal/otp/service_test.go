@@ -86,3 +86,9 @@ func TestTokenRoundTrip(t *testing.T) {
 		t.Fatalf("Phone = %q", decoded.Phone)
 	}
 }
+
+func TestResendCooldownIsFiveMinutes(t *testing.T) {
+	if resendCooldown != 5*time.Minute {
+		t.Fatalf("resendCooldown = %s, want 5m", resendCooldown)
+	}
+}

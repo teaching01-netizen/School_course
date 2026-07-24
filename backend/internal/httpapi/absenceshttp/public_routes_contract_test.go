@@ -258,6 +258,20 @@ func TestPublicStudentLookupNormalizesCaseAndWhitespace(t *testing.T) {
 	}
 }
 
+func TestPublicStudentLookupRejectsNicknameQuery(t *testing.T) {
+	fixture := newPublicAbsenceContractFixture(t)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/absences/student-lookup?wcode="+url.QueryEscape(fixture.wcode)+"&nickname=Johnny",
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+
+	fixture.server.handleStudentLookup(recorder, req)
+
+	assertPublicContractError(t, recorder, http.StatusBadRequest, "nickname_not_supported")
+}
+
 func TestPublicFormConfigExposesOnlyPublicSections(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/absence-form-config", nil)

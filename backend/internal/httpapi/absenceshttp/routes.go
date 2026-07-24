@@ -706,9 +706,13 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 
 // Public: lookup student by wcode and return their enrolled subjects
 func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
+	if _, hasNickname := r.URL.Query()["nickname"]; hasNickname {
+		s.a.WriteErr(w, http.StatusBadRequest, "nickname_not_supported", "nickname lookup is not supported; use wcode")
+		return
+	}
 	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
-	if wcode == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode parameter is required")
+	if len(wcode) < 2 || !strings.HasPrefix(wcode, "w") {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "a valid wcode parameter is required")
 		return
 	}
 

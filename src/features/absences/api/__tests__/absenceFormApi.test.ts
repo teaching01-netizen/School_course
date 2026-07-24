@@ -213,13 +213,13 @@ describe("public absence API requests", () => {
     );
   });
 
-  it("sends a nickname param for non-W-Code lookups", async () => {
+  it("sends only the W-Code parameter for student lookup", async () => {
     mockApiJson.mockResolvedValueOnce({ wcode: "W250389", subjects: [] });
 
-    await lookupStudentByWcode("JD", { nickname: "JD" });
+    await lookupStudentByWcode("W250389");
 
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/student-lookup?wcode=JD&nickname=JD",
+      "/api/v1/absences/student-lookup?wcode=W250389",
       { method: "GET" },
     );
   });

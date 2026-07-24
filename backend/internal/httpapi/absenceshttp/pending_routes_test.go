@@ -42,6 +42,12 @@ func requireTestDBPending(t *testing.T) string {
 	return url
 }
 
+func TestParentVerificationResendCooldownIsFiveMinutes(t *testing.T) {
+	if resendCooldown != 5*time.Minute {
+		t.Fatalf("resendCooldown = %s, want 5m", resendCooldown)
+	}
+}
+
 func migrateUpOncePending(t *testing.T, databaseURL string) {
 	t.Helper()
 	migrationsOncePending.Do(func() {

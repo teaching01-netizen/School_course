@@ -105,13 +105,9 @@ export async function loadAbsenceFormConfig(): Promise<AbsenceFormConfig> {
   return normalizeAbsenceFormConfig(data);
 }
 
-export function lookupStudentByWcode(
-  wcode: string,
-  options?: { nickname?: string },
-): Promise<StudentLookupResponse> {
+export function lookupStudentByWcode(wcode: string): Promise<StudentLookupResponse> {
   const params = new URLSearchParams();
   params.set("wcode", wcode);
-  if (options?.nickname) params.set("nickname", options.nickname);
   return apiJson<StudentLookupResponse>(
     `/api/v1/absences/student-lookup?${params.toString()}`,
     { method: "GET" },
