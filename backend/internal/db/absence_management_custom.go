@@ -97,7 +97,7 @@ const managedAbsenceListQueryTemplate = `
 		  JOIN subjects sit_sub_inner ON sit_sub_inner.id = sit_courses.subject_id
 		  GROUP BY asi.absence_id
 		) sit_sub ON sit_sub.absence_id = sa.id
-		WHERE ($1 = '' OR sa.wcode ILIKE '%' || $1 || '%' OR COALESCE(sa.student_name, st.full_name, '') ILIKE '%' || $1 || '%')
+		WHERE ($1 = '' OR sa.wcode ILIKE '%' || $1 || '%' OR COALESCE(sa.student_name, st.full_name, '') ILIKE '%' || $1 || '%' OR COALESCE(__STUDENT_NICKNAME_EXPR__, '') ILIKE '%' || $1 || '%')
 		  AND ($2::uuid IS NULL OR sa.subject_id = $2)
 		  AND ($3 = '' OR sa.status = $3)
 		  AND ($4::date IS NULL OR sa.date_to >= $4)

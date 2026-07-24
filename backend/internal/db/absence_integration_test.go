@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,6 +369,65 @@ func TestManagedAbsenceList_FallsBackWithoutStudentNicknameColumn(t *testing.T) 
 	}
 	if !row.StudentNickname.Valid || row.StudentNickname.String != "Student Nickname "+suffix {
 		t.Fatalf("expected fallback student_nickname %q, got %v", "Student Nickname "+suffix, row.StudentNickname)
+	}
+}
+
+func TestManagedAbsenceList_SearchesStudentNickname(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "ABS-NICK-COURSE-" + suffix,
+		Name: "Absence Nickname Search Course " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	student, err := q.StudentCreate(ctx, StudentCreateParams{
+		Wcode:    "WABS-NICK-" + suffix,
+		FullName: "Absence Nickname Full Name " + suffix,
+		Notes:    "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nickname := "Absence Nickname Search " + suffix
+	if _, err := dbpool.Exec(ctx, "UPDATE students SET nickname = $1 WHERE id = $2", nickname, student.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+		Wcode:         student.Wcode,
+		CourseID:      course.ID,
+		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), Valid: true},
+		Reason:        pgtype.Text{String: "travel", Valid: true},
+		SitInCourseID: pgtype.UUID{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, total, err := q.ManagedAbsenceList(ctx, AbsenceFilter{
+		Query: strings.ToLower("Nickname Search " + suffix),
+		Limit: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(rows) != 1 {
+		t.Fatalf("nickname search returned total=%d rows=%d, want total=1 rows=1", total, len(rows))
+	}
+	if rows[0].ID != absence.ID {
+		t.Fatalf("nickname search returned absence %v, want %v", rows[0].ID, absence.ID)
 	}
 }
 
