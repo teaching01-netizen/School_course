@@ -1137,7 +1137,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
 				resolveFrom, resolveTo := resolveDateRangeForSessionStartsInZone(sessionStartAtValues(g.Sessions), dateFrom, dateTo, s.deps.InstituteTZ)
-				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, satVerbalAfterPriority)
+				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, s.deps.InstituteTZ, satVerbalAfterPriority)
 				if resolveErr != nil {
 					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
 				} else if result != nil && result.SitInMethod != SitInMethodNone {

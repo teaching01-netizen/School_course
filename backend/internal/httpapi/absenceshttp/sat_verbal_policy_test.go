@@ -560,6 +560,48 @@ func TestResolveSatVerbalPolicy_SameOccurrenceTargetFinalUnavailableButMissedFin
 	}
 }
 
+func TestSatVerbalSessionOptions_ExcludesEverySessionOnFinalBangkokDay(t *testing.T) {
+	courseID := "42200000-0000-0000-0000-000000000002"
+	earlierDay := session("f4220000-0000-0000-0000-000000000001", courseID, "2026-04-06T18:00:00Z", "2026-04-06T19:00:00Z")
+	firstOnFinalDay := session("f4220000-0000-0000-0000-000000000002", courseID, "2026-04-07T18:00:00Z", "2026-04-07T19:00:00Z")
+	lastOnFinalDay := session("f4220000-0000-0000-0000-000000000003", courseID, "2026-04-08T15:00:00Z", "2026-04-08T16:00:00Z")
+	bangkok, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	options := satVerbalSessionOptionsForTarget(
+		[]sqldb.SessionInRange{lastOnFinalDay, earlierDay, firstOnFinalDay},
+		nil,
+		nil,
+		false,
+		true,
+		time.Time{},
+		time.Time{},
+		bangkok,
+		map[pgtype.UUID]struct{}{},
+	)
+
+	if got := options.Available; len(got) != 1 || got[0].Session.ID != earlierDay.ID {
+		t.Fatalf("available = %#v, want only the session before the final Bangkok day", got)
+	}
+
+	options = satVerbalSessionOptionsForTarget(
+		[]sqldb.SessionInRange{lastOnFinalDay, earlierDay, firstOnFinalDay},
+		nil,
+		nil,
+		false,
+		false,
+		time.Time{},
+		time.Time{},
+		bangkok,
+		map[pgtype.UUID]struct{}{},
+	)
+	if got := options.Available; len(got) != 3 {
+		t.Fatalf("available with final-day exclusion disabled = %#v, want all 3 sessions", got)
+	}
+}
+
 func TestResolveSatVerbalPolicy_BeginnerSection1DoesNotOfferSameLessonBeforeRequestDate(t *testing.T) {
 	section1ID := "11100000-0000-0000-0000-000000000001"
 	section2ID := "22200000-0000-0000-0000-000000000002"

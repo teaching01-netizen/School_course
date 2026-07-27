@@ -297,7 +297,7 @@ func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 
 // resolveSitInForCourse resolves sit-in for a specific student course block.
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
-func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, satVerbalAfterPriority int) (*SitInResult, error) {
+func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, satVerbalAfterPriority int) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
@@ -324,7 +324,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 
-	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, satVerbalAfterPriority); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		return mapped, nil
@@ -456,6 +456,7 @@ func resolveMappedSatVerbalSitIn(
 	enrolled []sqldb.StudentEnrolledCourseV2,
 	dateFrom time.Time,
 	dateTo time.Time,
+	instituteTZ string,
 	afterPriorityLevel int,
 ) (*SitInResult, error) {
 	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
@@ -517,6 +518,7 @@ func resolveMappedSatVerbalSitIn(
 		MissedSessions:     missedSessions,
 		Cutoff:             cutoff,
 		RequestTime:        time.Now(),
+		InstituteTZ:        instituteTZ,
 		AfterPriorityLevel: afterPriorityLevel,
 		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
 			return q.SessionsByCourse(ctx, targetCourseID)

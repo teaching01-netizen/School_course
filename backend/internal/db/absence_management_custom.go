@@ -693,7 +693,8 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		    FROM sessions later
 		    WHERE later.course_id = sess.course_id
 		      AND later.deleted_at IS NULL
-		      AND later.start_at > sess.start_at
+		      AND (later.start_at AT TIME ZONE $4)::date >
+		          (sess.start_at AT TIME ZONE $4)::date
 		  )
 		  AND NOT EXISTS (
 		    SELECT 1
@@ -720,7 +721,8 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 		    FROM sessions later
 		    WHERE later.course_id = sess.course_id
 		      AND later.deleted_at IS NULL
-		      AND later.start_at > sess.start_at
+		      AND (later.start_at AT TIME ZONE $3)::date >
+		          (sess.start_at AT TIME ZONE $3)::date
 		  ))
 		  AND NOT EXISTS (
 		    SELECT 1
@@ -763,7 +765,8 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		    FROM sessions later
 		    WHERE later.course_id = sess.course_id
 		      AND later.deleted_at IS NULL
-		      AND later.start_at > sess.start_at
+		      AND (later.start_at AT TIME ZONE $3)::date >
+		          (sess.start_at AT TIME ZONE $3)::date
 		  )
 		  AND NOT EXISTS (
 		    SELECT 1

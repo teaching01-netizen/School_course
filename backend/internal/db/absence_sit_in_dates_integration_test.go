@@ -95,6 +95,11 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 		time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC),
 	)
+	earlierFinalDaySitInSession := createSession(
+		sitInCourse.ID,
+		time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC),
+	)
 	finalSitInSession := createSession(
 		sitInCourse.ID,
 		time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
@@ -139,6 +144,14 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected final sit-in session to be invalid, got count %d", count)
+	}
+
+	count, err = q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{earlierFinalDaySitInSession}, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected every session on the final sit-in day to be invalid, got count %d", count)
 	}
 
 	count, err = q.ValidSitInSessionCount(ctx, absence.ID, sitInCourse.ID, []pgtype.UUID{overlappingMissedTime, wrongCourse}, "Asia/Bangkok")
@@ -219,6 +232,10 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 		time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
 	)
+	earlierFinalDaySitInSession := createSession(sitInCourse.ID,
+		time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC),
+	)
 	finalSitInSession := createSession(sitInCourse.ID,
 		time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 8, 1, 14, 0, 0, 0, time.UTC),
@@ -269,6 +286,14 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected final sit-in session to be invalid, got count %d", count)
+	}
+
+	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{earlierFinalDaySitInSession}, "Asia/Bangkok", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected every session on the final sit-in day to be invalid, got count %d", count)
 	}
 
 	count, err = q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{finalSitInSession}, "Asia/Bangkok", false)
@@ -339,6 +364,11 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 		time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC),
 	)
+	earlierFinalDayCandidate := createSession(
+		sitInCourse.ID,
+		time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC),
+	)
 	finalCandidate := createSession(
 		sitInCourse.ID,
 		time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
@@ -373,5 +403,8 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	}
 	if got[finalCandidate] {
 		t.Fatal("expected candidate list to exclude final sit-in session")
+	}
+	if got[earlierFinalDayCandidate] {
+		t.Fatal("expected candidate list to exclude every session on the final sit-in day")
 	}
 }
