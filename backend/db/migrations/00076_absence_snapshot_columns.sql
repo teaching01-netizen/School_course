@@ -102,7 +102,7 @@ ALTER TABLE absence_schedule_issues
 
 -- Immutability trigger for absence_sit_ins
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION protect_absence_sit_in_snapshot()
+CREATE OR REPLACE FUNCTION protect_absence_sit_ins_snapshot()
 RETURNS trigger AS $$
 BEGIN
   IF OLD.session_snapshot_at_assignment IS NOT NULL
@@ -119,6 +119,27 @@ BEGIN
       'snapshot_schema_version is immutable';
   END IF;
 
+  IF OLD.snapshot_captured_at IS NOT NULL
+     AND NEW.snapshot_captured_at
+         IS DISTINCT FROM OLD.snapshot_captured_at THEN
+    RAISE EXCEPTION
+      'snapshot_captured_at is immutable';
+  END IF;
+
+  IF OLD.snapshot_source IS NOT NULL
+     AND NEW.snapshot_source
+         IS DISTINCT FROM OLD.snapshot_source THEN
+    RAISE EXCEPTION
+      'snapshot_source is immutable';
+  END IF;
+
+  IF OLD.snapshot_quality IS NOT NULL
+     AND NEW.snapshot_quality
+         IS DISTINCT FROM OLD.snapshot_quality THEN
+    RAISE EXCEPTION
+      'snapshot_quality is immutable';
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -127,7 +148,7 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER absence_sit_ins_snapshot_immutable
 BEFORE UPDATE ON absence_sit_ins
 FOR EACH ROW
-EXECUTE FUNCTION protect_absence_sit_in_snapshot();
+EXECUTE FUNCTION protect_absence_sit_ins_snapshot();
 
 -- Immutability trigger for absence_missed_sessions
 -- +goose StatementBegin
@@ -146,6 +167,27 @@ BEGIN
          IS DISTINCT FROM OLD.snapshot_schema_version THEN
     RAISE EXCEPTION
       'snapshot_schema_version is immutable';
+  END IF;
+
+  IF OLD.snapshot_captured_at IS NOT NULL
+     AND NEW.snapshot_captured_at
+         IS DISTINCT FROM OLD.snapshot_captured_at THEN
+    RAISE EXCEPTION
+      'snapshot_captured_at is immutable';
+  END IF;
+
+  IF OLD.snapshot_source IS NOT NULL
+     AND NEW.snapshot_source
+         IS DISTINCT FROM OLD.snapshot_source THEN
+    RAISE EXCEPTION
+      'snapshot_source is immutable';
+  END IF;
+
+  IF OLD.snapshot_quality IS NOT NULL
+     AND NEW.snapshot_quality
+         IS DISTINCT FROM OLD.snapshot_quality THEN
+    RAISE EXCEPTION
+      'snapshot_quality is immutable';
   END IF;
 
   RETURN NEW;
@@ -170,6 +212,20 @@ BEGIN
       'assignment_snapshot_at_detection is immutable';
   END IF;
 
+  IF OLD.assignment_snapshot_quality IS NOT NULL
+     AND NEW.assignment_snapshot_quality
+         IS DISTINCT FROM OLD.assignment_snapshot_quality THEN
+    RAISE EXCEPTION
+      'assignment_snapshot_quality is immutable';
+  END IF;
+
+  IF OLD.assignment_snapshot_source IS NOT NULL
+     AND NEW.assignment_snapshot_source
+         IS DISTINCT FROM OLD.assignment_snapshot_source THEN
+    RAISE EXCEPTION
+      'assignment_snapshot_source is immutable';
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -183,7 +239,7 @@ EXECUTE FUNCTION protect_absence_schedule_issue_snapshot();
 -- +goose Down
 
 DROP TRIGGER IF EXISTS absence_sit_ins_snapshot_immutable ON absence_sit_ins;
-DROP FUNCTION IF EXISTS protect_absence_sit_in_snapshot();
+DROP FUNCTION IF EXISTS protect_absence_sit_ins_snapshot();
 ALTER TABLE absence_sit_ins
   DROP CONSTRAINT IF EXISTS absence_sit_ins_snapshot_consistency_check,
   DROP CONSTRAINT IF EXISTS absence_sit_ins_snapshot_shape_check,
