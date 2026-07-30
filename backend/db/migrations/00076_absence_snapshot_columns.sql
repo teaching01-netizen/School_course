@@ -152,7 +152,7 @@ EXECUTE FUNCTION protect_absence_sit_ins_snapshot();
 
 -- Immutability trigger for absence_missed_sessions
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION protect_absence_missed_session_snapshot()
+CREATE OR REPLACE FUNCTION protect_absence_missed_sessions_snapshot()
 RETURNS trigger AS $$
 BEGIN
   IF OLD.session_snapshot_at_submission IS NOT NULL
@@ -198,11 +198,11 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER absence_missed_sessions_snapshot_immutable
 BEFORE UPDATE ON absence_missed_sessions
 FOR EACH ROW
-EXECUTE FUNCTION protect_absence_missed_session_snapshot();
+EXECUTE FUNCTION protect_absence_missed_sessions_snapshot();
 
 -- Immutability trigger for absence_schedule_issues
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION protect_absence_schedule_issue_snapshot()
+CREATE OR REPLACE FUNCTION protect_absence_schedule_issues_snapshot()
 RETURNS trigger AS $$
 BEGIN
   IF OLD.assignment_snapshot_at_detection IS NOT NULL
@@ -234,7 +234,7 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER absence_schedule_issues_snapshot_immutable
 BEFORE UPDATE ON absence_schedule_issues
 FOR EACH ROW
-EXECUTE FUNCTION protect_absence_schedule_issue_snapshot();
+EXECUTE FUNCTION protect_absence_schedule_issues_snapshot();
 
 -- +goose Down
 
@@ -251,7 +251,7 @@ ALTER TABLE absence_sit_ins
   DROP COLUMN IF EXISTS session_snapshot_at_assignment;
 
 DROP TRIGGER IF EXISTS absence_missed_sessions_snapshot_immutable ON absence_missed_sessions;
-DROP FUNCTION IF EXISTS protect_absence_missed_session_snapshot();
+DROP FUNCTION IF EXISTS protect_absence_missed_sessions_snapshot();
 ALTER TABLE absence_missed_sessions
   DROP CONSTRAINT IF EXISTS absence_missed_sessions_snapshot_consistency_check,
   DROP CONSTRAINT IF EXISTS absence_missed_sessions_snapshot_shape_check,
@@ -263,7 +263,7 @@ ALTER TABLE absence_missed_sessions
   DROP COLUMN IF EXISTS session_snapshot_at_submission;
 
 DROP TRIGGER IF EXISTS absence_schedule_issues_snapshot_immutable ON absence_schedule_issues;
-DROP FUNCTION IF EXISTS protect_absence_schedule_issue_snapshot();
+DROP FUNCTION IF EXISTS protect_absence_schedule_issues_snapshot();
 ALTER TABLE absence_schedule_issues
   DROP CONSTRAINT IF EXISTS absence_schedule_issues_snapshot_shape_check,
   DROP CONSTRAINT IF EXISTS absence_schedule_issues_snapshot_consistency_check,
