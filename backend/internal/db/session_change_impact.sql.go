@@ -376,7 +376,8 @@ const absenceScheduleIssueUpsert = `-- name: AbsenceScheduleIssueUpsert :exec
 INSERT INTO absence_schedule_issues (
   absence_id, issue_type, severity, status, source_session_id, sit_in_session_id,
   missed_session_id, first_session_change_id, latest_session_change_id,
-  details_json, suggested_resolution_json, fingerprint
+  details_json, suggested_resolution_json, fingerprint,
+  assignment_snapshot_at_detection, assignment_snapshot_quality, assignment_snapshot_source
 )
 VALUES (
   $1,
@@ -390,7 +391,10 @@ VALUES (
   $7,
   $8::text::jsonb,
   $9::text::jsonb,
-  $10
+  $10,
+  $11::text::jsonb,
+  $12,
+  $13
 )
 ON CONFLICT (fingerprint) WHERE status IN ('open', 'needs_review')
 DO UPDATE SET severity = EXCLUDED.severity,
@@ -416,6 +420,9 @@ type AbsenceScheduleIssueUpsertParams struct {
 	DetailsJson             string      `json:"details_json"`
 	SuggestedResolutionJson string      `json:"suggested_resolution_json"`
 	Fingerprint             string      `json:"fingerprint"`
+	SnapshotJson            string      `json:"snapshot_json"`
+	SnapshotQuality         string      `json:"snapshot_quality"`
+	SnapshotSource          pgtype.Text `json:"snapshot_source"`
 }
 
 func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceScheduleIssueUpsertParams) error {
@@ -430,6 +437,9 @@ func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceSch
 		arg.DetailsJson,
 		arg.SuggestedResolutionJson,
 		arg.Fingerprint,
+		arg.SnapshotJson,
+		arg.SnapshotQuality,
+		arg.SnapshotSource,
 	)
 	return err
 }
@@ -595,7 +605,10 @@ SELECT DISTINCT sa.id, sa.wcode, sa.student_name, sa.student_email, sa.student_p
        asi.id AS assignment_id, asi.session_id AS sit_in_session_id,
        ams.session_id AS missed_session_id,
        s.id AS affected_session_id, s.version AS affected_session_version,
-       s.start_at, s.end_at, s.course_id, COALESCE(targets.relation_type, '') AS impact_relation
+       s.start_at, s.end_at, s.course_id, COALESCE(targets.relation_type, '') AS impact_relation,
+       asi.session_snapshot_at_assignment AS assignment_snapshot_json,
+       asi.snapshot_quality AS assignment_snapshot_quality,
+       asi.snapshot_source AS assignment_snapshot_source
 FROM session_changes sc
 JOIN student_absences sa ON (
   EXISTS (SELECT 1 FROM absence_sit_ins x WHERE x.absence_id = sa.id AND x.session_id = sc.session_id)
@@ -613,20 +626,23 @@ WHERE sc.id = $1
 `
 
 type SessionChangeAffectedAbsencesRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Wcode                  string             `json:"wcode"`
-	StudentName            pgtype.Text        `json:"student_name"`
-	StudentEmail           pgtype.Text        `json:"student_email"`
-	StudentPhone           pgtype.Text        `json:"student_phone"`
-	AssignmentID           pgtype.UUID        `json:"assignment_id"`
-	SitInSessionID         pgtype.UUID        `json:"sit_in_session_id"`
-	MissedSessionID        pgtype.UUID        `json:"missed_session_id"`
-	AffectedSessionID      pgtype.UUID        `json:"affected_session_id"`
-	AffectedSessionVersion pgtype.Int4        `json:"affected_session_version"`
-	StartAt                pgtype.Timestamptz `json:"start_at"`
-	EndAt                  pgtype.Timestamptz `json:"end_at"`
-	CourseID               pgtype.UUID        `json:"course_id"`
-	ImpactRelation         string             `json:"impact_relation"`
+	ID                        pgtype.UUID        `json:"id"`
+	Wcode                     string             `json:"wcode"`
+	StudentName               pgtype.Text        `json:"student_name"`
+	StudentEmail              pgtype.Text        `json:"student_email"`
+	StudentPhone              pgtype.Text        `json:"student_phone"`
+	AssignmentID              pgtype.UUID        `json:"assignment_id"`
+	SitInSessionID            pgtype.UUID        `json:"sit_in_session_id"`
+	MissedSessionID           pgtype.UUID        `json:"missed_session_id"`
+	AffectedSessionID         pgtype.UUID        `json:"affected_session_id"`
+	AffectedSessionVersion    pgtype.Int4        `json:"affected_session_version"`
+	StartAt                   pgtype.Timestamptz `json:"start_at"`
+	EndAt                     pgtype.Timestamptz `json:"end_at"`
+	CourseID                  pgtype.UUID        `json:"course_id"`
+	ImpactRelation            string             `json:"impact_relation"`
+	AssignmentSnapshotJson    []byte             `json:"assignment_snapshot_json"`
+	AssignmentSnapshotQuality pgtype.Text        `json:"assignment_snapshot_quality"`
+	AssignmentSnapshotSource  pgtype.Text        `json:"assignment_snapshot_source"`
 }
 
 func (q *Queries) SessionChangeAffectedAbsences(ctx context.Context, id pgtype.UUID) ([]SessionChangeAffectedAbsencesRow, error) {
@@ -653,6 +669,9 @@ func (q *Queries) SessionChangeAffectedAbsences(ctx context.Context, id pgtype.U
 			&i.EndAt,
 			&i.CourseID,
 			&i.ImpactRelation,
+			&i.AssignmentSnapshotJson,
+			&i.AssignmentSnapshotQuality,
+			&i.AssignmentSnapshotSource,
 		); err != nil {
 			return nil, err
 		}

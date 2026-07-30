@@ -660,12 +660,18 @@ type SessionChangeBatch struct {
 }
 
 type SessionChangeImpactRun struct {
-	SessionChangeID pgtype.UUID        `json:"session_change_id"`
-	Status          string             `json:"status"`
-	LastError       pgtype.Text        `json:"last_error"`
-	StartedAt       pgtype.Timestamptz `json:"started_at"`
-	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	SessionChangeID   pgtype.UUID        `json:"session_change_id"`
+	Status            string             `json:"status"`
+	LastError         pgtype.Text        `json:"last_error"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ProcessingAttempt int32              `json:"processing_attempt"`
+	ProcessedAt       pgtype.Timestamptz `json:"processed_at"`
+	AnalysisResult    []byte             `json:"analysis_result"`
+	CreatedIssueIds   []pgtype.UUID      `json:"created_issue_ids"`
+	ErrorCategory     pgtype.Text        `json:"error_category"`
+	Retryable         bool               `json:"retryable"`
 }
 
 type SessionChangeImpactTarget struct {

@@ -30,6 +30,12 @@ type issueInput struct {
 	reasons        []string
 	fingerprint    string
 	deletionTarget bool
+
+	// Assignment snapshot captured at detection time, copied from the
+	// sit-in assignment to protect issue history from later reassignment.
+	snapshotJSON    []byte
+	snapshotQuality string
+	snapshotSource  pgtype.Text
 }
 
 func (run analysisRun) upsertIssue(ctx context.Context, input issueInput) error {
@@ -65,6 +71,7 @@ func (run analysisRun) upsertIssue(ctx context.Context, input issueInput) error 
 		SourceSessionID: sourceSessionID, SitInSessionID: sitInSessionID,
 		MissedSessionID: missedSessionID, SessionChangeID: run.change.ID,
 		DetailsJson: string(detailsJSON), SuggestedResolutionJson: string(suggestedJSON), Fingerprint: input.fingerprint,
+		SnapshotJson: string(input.snapshotJSON), SnapshotQuality: input.snapshotQuality, SnapshotSource: input.snapshotSource,
 	}); err != nil {
 		return fmt.Errorf("upsert schedule issue: %w", err)
 	}

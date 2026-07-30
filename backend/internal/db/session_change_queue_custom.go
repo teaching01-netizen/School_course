@@ -69,8 +69,24 @@ func (q *Queries) SessionChangeImpactRunSetStatus(ctx context.Context, changeID 
 		    last_error = EXCLUDED.last_error,
 		    started_at = CASE WHEN EXCLUDED.status = 'processing' THEN now() ELSE session_change_impact_runs.started_at END,
 		    completed_at = CASE WHEN EXCLUDED.status = 'completed' THEN now() ELSE session_change_impact_runs.completed_at END,
+		    processing_attempt = CASE WHEN EXCLUDED.status = 'processing' THEN session_change_impact_runs.processing_attempt + 1 ELSE session_change_impact_runs.processing_attempt END,
 		    updated_at = now()
 	`, changeID, status, lastError)
+	return err
+}
+
+// SessionChangeImpactRunSetResult records the processing result of an impact analysis run.
+func (q *Queries) SessionChangeImpactRunSetResult(ctx context.Context, changeID pgtype.UUID, resultJSON []byte, issueIDs []pgtype.UUID, errorCategory string, retryable bool) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE session_change_impact_runs
+		SET analysis_result = $2::jsonb,
+		    created_issue_ids = $3,
+		    error_category = NULLIF($4, ''),
+		    retryable = $5,
+		    processed_at = now(),
+		    updated_at = now()
+		WHERE session_change_id = $1
+	`, changeID, resultJSON, issueIDs, errorCategory, retryable)
 	return err
 }
 

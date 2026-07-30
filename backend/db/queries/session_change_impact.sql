@@ -118,7 +118,10 @@ SELECT DISTINCT sa.id, sa.wcode, sa.student_name, sa.student_email, sa.student_p
        asi.id AS assignment_id, asi.session_id AS sit_in_session_id,
        ams.session_id AS missed_session_id,
        s.id AS affected_session_id, s.version AS affected_session_version,
-       s.start_at, s.end_at, s.course_id, COALESCE(targets.relation_type, '') AS impact_relation
+       s.start_at, s.end_at, s.course_id, COALESCE(targets.relation_type, '') AS impact_relation,
+       asi.session_snapshot_at_assignment AS assignment_snapshot_json,
+       asi.snapshot_quality AS assignment_snapshot_quality,
+       asi.snapshot_source AS assignment_snapshot_source
 FROM session_changes sc
 JOIN student_absences sa ON (
   EXISTS (SELECT 1 FROM absence_sit_ins x WHERE x.absence_id = sa.id AND x.session_id = sc.session_id)
@@ -138,7 +141,8 @@ WHERE sc.id = $1;
 INSERT INTO absence_schedule_issues (
   absence_id, issue_type, severity, status, source_session_id, sit_in_session_id,
   missed_session_id, first_session_change_id, latest_session_change_id,
-  details_json, suggested_resolution_json, fingerprint
+  details_json, suggested_resolution_json, fingerprint,
+  assignment_snapshot_at_detection, assignment_snapshot_quality, assignment_snapshot_source
 )
 VALUES (
   sqlc.arg(absence_id),
@@ -152,7 +156,10 @@ VALUES (
   sqlc.arg(session_change_id),
   sqlc.arg(details_json)::text::jsonb,
   sqlc.arg(suggested_resolution_json)::text::jsonb,
-  sqlc.arg(fingerprint)
+  sqlc.arg(fingerprint),
+  sqlc.arg(snapshot_json)::text::jsonb,
+  sqlc.arg(snapshot_quality),
+  sqlc.arg(snapshot_source)
 )
 ON CONFLICT (fingerprint) WHERE status IN ('open', 'needs_review')
 DO UPDATE SET severity = EXCLUDED.severity,
