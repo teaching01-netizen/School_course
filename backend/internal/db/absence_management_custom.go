@@ -7,8 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"warwick-institute/internal/snapshot"
 )
 
 type AbsenceFilter struct {
@@ -688,18 +691,78 @@ func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUI
 }
 
 func (q *Queries) AbsenceMissedSessionsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
-	for _, sid := range sessionIDs {
-		if _, err := q.db.Exec(ctx, `
-			INSERT INTO absence_missed_sessions (absence_id, session_id, session_version_at_submission, original_start_at, original_end_at)
-			SELECT $1, id, version, start_at, end_at
-			FROM sessions
-			WHERE id = $2
-			ON CONFLICT DO NOTHING
-		`, absenceID, sid); err != nil {
-			return fmt.Errorf("insert missed session: %w", err)
-		}
+	inputs := make([]MissedSessionSnapshotInput, len(sessionIDs))
+	for i, sid := range sessionIDs {
+		inputs[i] = MissedSessionSnapshotInput{SessionID: sid}
 	}
-	return nil
+	_, err := q.AbsenceMissedSessionsCreateWithSnapshot(ctx, absenceID, inputs, "Europe/London", DefaultSnapshotBuilder)
+	return err
+}
+
+// DefaultSnapshotBuilder builds a SessionSnapshotV1 from session data retrieved
+// during absence submission. It is the canonical snapshot builder for the db
+// layer and is used by AbsenceMissedSessionsCreate.
+func DefaultSnapshotBuilder(
+	courseCode, courseName, teacherName string,
+	roomName *string,
+	sessionID pgtype.UUID,
+	seriesID pgtype.UUID,
+	courseID pgtype.UUID,
+	roomID pgtype.UUID,
+	teacherID pgtype.UUID,
+	startAt, endAt pgtype.Timestamptz,
+	version int32,
+	capturedAt time.Time,
+	timezone string,
+) ([]byte, int16, error) {
+	s := snapshot.AssignmentSession{
+		ID:         uuidFromPgtypeDB(sessionID),
+		SeriesID:   ptrUUIDDB(uuidFromPgtypeDB(seriesID)),
+		CourseID:   uuidFromPgtypeDB(courseID),
+		RoomID:     ptrUUIDDB(uuidFromPgtypeDB(roomID)),
+		TeacherID:  uuidFromPgtypeDB(teacherID),
+		StartAt:    startAt.Time.UTC(),
+		EndAt:      endAt.Time.UTC(),
+		Version:    version,
+		CourseCode: courseCode,
+		CourseName: courseName,
+		TeacherName: teacherName,
+		RoomName:   roomName,
+	}
+
+	if s.RoomID != nil && *s.RoomID == uuid.Nil {
+		s.RoomID = nil
+	}
+	if s.SeriesID != nil && *s.SeriesID == uuid.Nil {
+		s.SeriesID = nil
+	}
+
+	snap := snapshot.BuildSessionSnapshotV1(s, capturedAt, timezone)
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return data, int16(snap.SchemaVersion), nil
+}
+
+func uuidFromPgtypeDB(u pgtype.UUID) uuid.UUID {
+	if !u.Valid {
+		return uuid.Nil
+	}
+	parsed, err := uuid.FromBytes(u.Bytes[:])
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
+}
+
+func ptrUUIDDB(u uuid.UUID) *uuid.UUID {
+	if u == uuid.Nil {
+		return nil
+	}
+	return &u
 }
 
 // SessionVersionConflictError is returned when a session's version has changed
