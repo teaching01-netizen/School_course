@@ -90,6 +90,16 @@ ALTER TABLE absence_schedule_issues
   )
   NOT VALID;
 
+ALTER TABLE absence_schedule_issues
+  ADD CONSTRAINT absence_schedule_issues_snapshot_consistency_check
+  CHECK (
+    assignment_snapshot_quality = 'unavailable'
+    OR
+    (assignment_snapshot_quality IN ('exact', 'reconstructed')
+      AND assignment_snapshot_at_detection IS NOT NULL)
+  )
+  NOT VALID;
+
 -- Immutability trigger for absence_sit_ins
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION protect_absence_sit_in_snapshot()
@@ -102,11 +112,11 @@ BEGIN
       'session_snapshot_at_assignment is immutable';
   END IF;
 
-  IF OLD.session_version_at_assignment IS NOT NULL
-     AND NEW.session_version_at_assignment
-         IS DISTINCT FROM OLD.session_version_at_assignment THEN
+  IF OLD.snapshot_schema_version IS NOT NULL
+     AND NEW.snapshot_schema_version
+         IS DISTINCT FROM OLD.snapshot_schema_version THEN
     RAISE EXCEPTION
-      'session_version_at_assignment is immutable';
+      'snapshot_schema_version is immutable';
   END IF;
 
   RETURN NEW;
@@ -131,11 +141,11 @@ BEGIN
       'session_snapshot_at_submission is immutable';
   END IF;
 
-  IF OLD.session_version_at_submission IS NOT NULL
-     AND NEW.session_version_at_submission
-         IS DISTINCT FROM OLD.session_version_at_submission THEN
+  IF OLD.snapshot_schema_version IS NOT NULL
+     AND NEW.snapshot_schema_version
+         IS DISTINCT FROM OLD.snapshot_schema_version THEN
     RAISE EXCEPTION
-      'session_version_at_submission is immutable';
+      'snapshot_schema_version is immutable';
   END IF;
 
   RETURN NEW;
@@ -200,6 +210,7 @@ DROP TRIGGER IF EXISTS absence_schedule_issues_snapshot_immutable ON absence_sch
 DROP FUNCTION IF EXISTS protect_absence_schedule_issue_snapshot();
 ALTER TABLE absence_schedule_issues
   DROP CONSTRAINT IF EXISTS absence_schedule_issues_snapshot_shape_check,
+  DROP CONSTRAINT IF EXISTS absence_schedule_issues_snapshot_consistency_check,
   DROP CONSTRAINT IF EXISTS absence_schedule_issues_snapshot_quality_check,
   DROP COLUMN IF EXISTS assignment_snapshot_source,
   DROP COLUMN IF EXISTS assignment_snapshot_quality,
