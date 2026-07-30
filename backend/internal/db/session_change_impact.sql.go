@@ -89,10 +89,12 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        sa.student_phone, s.start_at, s.end_at,
        i.issue_version,
        i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
-       i.assignment_snapshot_source
+       i.assignment_snapshot_source,
+       asi.assigned_at
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
+LEFT JOIN absence_sit_ins asi ON asi.absence_id = i.absence_id AND asi.session_id = i.sit_in_session_id
 WHERE ($1 = '' OR i.status = $1)
 ORDER BY CASE WHEN i.severity = 'critical' THEN 0 ELSE 1 END, i.updated_at DESC
 LIMIT $2 OFFSET $3
@@ -133,6 +135,7 @@ type AbsenceScheduleIssueListRow struct {
 	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
 	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
 	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
+	AssignedAt                    pgtype.Timestamptz `json:"assigned_at"`
 }
 
 func (q *Queries) AbsenceScheduleIssueList(ctx context.Context, arg AbsenceScheduleIssueListParams) ([]AbsenceScheduleIssueListRow, error) {
@@ -173,6 +176,7 @@ func (q *Queries) AbsenceScheduleIssueList(ctx context.Context, arg AbsenceSched
 			&i.AssignmentSnapshotAtDetection,
 			&i.AssignmentSnapshotQuality,
 			&i.AssignmentSnapshotSource,
+			&i.AssignedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -194,10 +198,12 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        sa.student_phone, s.start_at, s.end_at,
        i.issue_version,
        i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
-       i.assignment_snapshot_source
+       i.assignment_snapshot_source,
+       asi.assigned_at
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
+LEFT JOIN absence_sit_ins asi ON asi.absence_id = i.absence_id AND asi.session_id = i.sit_in_session_id
 WHERE i.absence_id = $1
 ORDER BY CASE WHEN i.status = 'open' THEN 0 ELSE 1 END,
          CASE WHEN i.severity = 'critical' THEN 0 ELSE 1 END, i.updated_at DESC
@@ -232,6 +238,7 @@ type AbsenceScheduleIssueListByAbsenceRow struct {
 	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
 	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
 	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
+	AssignedAt                    pgtype.Timestamptz `json:"assigned_at"`
 }
 
 func (q *Queries) AbsenceScheduleIssueListByAbsence(ctx context.Context, absenceID pgtype.UUID) ([]AbsenceScheduleIssueListByAbsenceRow, error) {
@@ -272,6 +279,7 @@ func (q *Queries) AbsenceScheduleIssueListByAbsence(ctx context.Context, absence
 			&i.AssignmentSnapshotAtDetection,
 			&i.AssignmentSnapshotQuality,
 			&i.AssignmentSnapshotSource,
+			&i.AssignedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -293,10 +301,12 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        sa.student_phone, s.start_at, s.end_at,
        i.issue_version,
        i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
-       i.assignment_snapshot_source
+       i.assignment_snapshot_source,
+       asi.assigned_at
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
+LEFT JOIN absence_sit_ins asi ON asi.absence_id = i.absence_id AND asi.session_id = i.sit_in_session_id
 WHERE i.latest_session_change_id = $1
 ORDER BY CASE WHEN i.severity = 'critical' THEN 0 ELSE 1 END, i.updated_at DESC
 `
@@ -330,6 +340,7 @@ type AbsenceScheduleIssueListByChangeRow struct {
 	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
 	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
 	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
+	AssignedAt                    pgtype.Timestamptz `json:"assigned_at"`
 }
 
 func (q *Queries) AbsenceScheduleIssueListByChange(ctx context.Context, latestSessionChangeID pgtype.UUID) ([]AbsenceScheduleIssueListByChangeRow, error) {
@@ -370,6 +381,7 @@ func (q *Queries) AbsenceScheduleIssueListByChange(ctx context.Context, latestSe
 			&i.AssignmentSnapshotAtDetection,
 			&i.AssignmentSnapshotQuality,
 			&i.AssignmentSnapshotSource,
+			&i.AssignedAt,
 		); err != nil {
 			return nil, err
 		}

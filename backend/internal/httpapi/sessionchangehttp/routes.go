@@ -103,7 +103,7 @@ func (s *server) handleSessionChangeDetail(w http.ResponseWriter, r *http.Reques
 	}
 	issueOut := make([]map[string]any, 0, len(issues))
 	for _, issue := range issues {
-		issueOut = append(issueOut, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
+		issueOut = append(issueOut, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
 	}
 	notifications, err := s.deps.Q.NotificationOutboxListForChange(r.Context(), id)
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]map[string]any, 0, len(items))
 		for _, issue := range items {
-			out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
+			out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
 		}
 		s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
 		return
@@ -212,7 +212,7 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, issue := range items {
-		out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
+		out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out, "limit": limit, "offset": offset})
 }
@@ -422,7 +422,7 @@ func (s *server) handleChangePreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status string, sourceSessionID, sitInSessionID, missedSessionID pgtype.UUID, details, suggestions []byte, wcode string, studentName, studentEmail, studentPhone pgtype.Text, startAt, endAt pgtype.Timestamptz, resolutionAction pgtype.Text, issueVersion int32, assignmentSnapshotJSON []byte, assignmentSnapshotQuality string, assignmentSnapshotSource pgtype.Text, latestSessionChangeID pgtype.UUID) map[string]any {
+func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status string, sourceSessionID, sitInSessionID, missedSessionID pgtype.UUID, details, suggestions []byte, wcode string, studentName, studentEmail, studentPhone pgtype.Text, startAt, endAt pgtype.Timestamptz, resolutionAction pgtype.Text, issueVersion int32, assignmentSnapshotJSON []byte, assignmentSnapshotQuality string, assignmentSnapshotSource pgtype.Text, latestSessionChangeID pgtype.UUID, assignedAt pgtype.Timestamptz) map[string]any {
 	// Track deprecated field access for telemetry
 	TrackDeprecatedFieldAccess(s.deps.Log, "start_at/end_at", "")
 
@@ -430,7 +430,7 @@ func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status
 	issueDetails := DecodeIssueDetails(details)
 
 	// Build assignment context from snapshot data
-	assignmentContext := buildAssignmentContext(assignmentSnapshotJSON, assignmentSnapshotQuality, assignmentSnapshotSource, sitInSessionID, missedSessionID, sourceSessionID)
+	assignmentContext := buildAssignmentContext(s, assignmentSnapshotJSON, assignmentSnapshotQuality, assignmentSnapshotSource, sitInSessionID, missedSessionID, sourceSessionID, assignedAt)
 
 	// Build change context from session change data
 	changeContext := buildChangeContext(s, latestSessionChangeID)
@@ -468,9 +468,16 @@ func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status
 }
 
 // buildAssignmentContext constructs the assignment context from available data.
-func buildAssignmentContext(snapshotJSON []byte, quality string, source pgtype.Text, sitInSessionID, missedSessionID, sourceSessionID pgtype.UUID) AssignmentContext {
+func buildAssignmentContext(s *server, snapshotJSON []byte, quality string, source pgtype.Text, sitInSessionID, missedSessionID, sourceSessionID pgtype.UUID, assignedAt pgtype.Timestamptz) AssignmentContext {
 	// Decode the original session snapshot
 	originalSession := DecodeAssignmentSnapshot(snapshotJSON, quality, textOrEmpty(source))
+
+	// Populate assigned_at from the absence_sit_ins table
+	var assignedAtStr *string
+	if assignedAt.Valid {
+		formatted := assignedAt.Time.UTC().Format(time.RFC3339Nano)
+		assignedAtStr = &formatted
+	}
 
 	// Determine the current session state
 	// The "current" session is the sit-in session if it exists, otherwise the source session
@@ -482,10 +489,34 @@ func buildAssignmentContext(snapshotJSON []byte, quality string, source pgtype.T
 		currentSessionID = sourceSessionID
 	}
 
+	var currentSession *CurrentSessionView
+	if currentSessionID.Valid {
+		session, err := s.deps.Q.SessionGetByIDForSnapshot(context.Background(), currentSessionID)
+		if err != nil {
+			// Session not found (deleted) - return with explicit deleted status
+			currentSession = &CurrentSessionView{
+				Status:    "deleted",
+				SessionID: uuidText(s.a, currentSessionID),
+			}
+		} else {
+			currentSession = &CurrentSessionView{
+				Status:      "active",
+				SessionID:   uuidText(s.a, session.ID),
+				Version:     session.Version,
+				StartAt:     timeText(session.StartAt),
+				EndAt:       timeText(session.EndAt),
+				CourseCode:  session.CourseCode,
+				CourseName:  session.CourseName,
+				RoomName:    textPtr(session.RoomName),
+				TeacherName: session.TeacherName,
+			}
+		}
+	}
+
 	return AssignmentContext{
-		AssignedAt:      nil, // Will be populated from sit-in assignment if available
+		AssignedAt:      assignedAtStr,
 		OriginalSession: originalSession,
-		CurrentSession:  nil, // Will be populated from live session query if needed
+		CurrentSession:  currentSession,
 	}
 }
 
@@ -610,6 +641,13 @@ func textValue(value pgtype.Text) any {
 		return nil
 	}
 	return value.String
+}
+
+func textPtr(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }
 
 func (s *server) writeDBError(w http.ResponseWriter, err error) {
