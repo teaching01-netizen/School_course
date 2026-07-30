@@ -326,7 +326,7 @@ func (s *server) handleIssueResolve(w http.ResponseWriter, r *http.Request) {
 	actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
 	if s.a.WithIdempotentTx(w, r, user.ID, "schedule-issues", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		notificationStatus, err := qtx.ResolveScheduleIssue(r.Context(), issueID, candidateID, actorID, body.ExpectedIssueVersion, body.ExpectedSessionVersion, action, body.Reason)
+		notificationStatus, err := qtx.ResolveScheduleIssueWithSnapshot(r.Context(), issueID, candidateID, actorID, body.ExpectedIssueVersion, body.ExpectedSessionVersion, action, body.Reason, s.deps.InstituteTZ, sqldb.DefaultSnapshotBuilder)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				s.a.WriteErr(w, http.StatusConflict, "resolution_conflict", "This issue changed while you were reviewing it")

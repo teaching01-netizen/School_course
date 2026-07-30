@@ -732,7 +732,7 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 			return 0, nil, err
 		}
 		if body.Status == "cancelled" {
-			if err := qtx.AbsenceSitInsReplace(r.Context(), id, nil); err != nil {
+			if err := qtx.AbsenceSitInsReplaceWithSnapshot(r.Context(), id, nil, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
 				status, code, message := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, message)
 				return 0, nil, err
@@ -986,7 +986,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 			}
 			return 0, nil, err
 		}
-		if err := qtx.AbsenceSitInsReplace(r.Context(), id, sessionIDs); err != nil {
+		if err := qtx.AbsenceSitInsReplaceWithSnapshot(r.Context(), id, sessionIDs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
 			status, code, message := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, message)
 			return 0, nil, err

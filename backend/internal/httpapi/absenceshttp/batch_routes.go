@@ -529,7 +529,18 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
 			return createdAbsenceRecord{}, false
 		}
-		if err := qtx.AbsenceSitInsCreate(r.Context(), row.ID, sessionUUIDs); err != nil {
+		sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))
+		for _, sid := range sessionUUIDs {
+			input := sqldb.SitInSnapshotInput{SessionID: sid}
+			if item.SessionVersions != nil {
+				if v, ok := item.SessionVersions[sid.String()]; ok {
+					version := int32(v)
+					input.ExpectedVersion = &version
+				}
+			}
+			sitInInputs = append(sitInInputs, input)
+		}
+		if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), row.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return createdAbsenceRecord{}, false

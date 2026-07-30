@@ -237,7 +237,18 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 					return 0, nil, err
 				}
 			}
-			if err := qtx.AbsenceSitInsCreate(r.Context(), row.ID, sessionUUIDs); err != nil {
+			sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))
+			for _, sid := range sessionUUIDs {
+				input := sqldb.SitInSnapshotInput{SessionID: sid}
+				if body.SessionVersions != nil {
+					if v, ok := body.SessionVersions[sid.String()]; ok {
+						version := int32(v)
+						input.ExpectedVersion = &version
+					}
+				}
+				sitInInputs = append(sitInInputs, input)
+			}
+			if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), row.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err

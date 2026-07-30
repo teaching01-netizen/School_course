@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -195,6 +196,13 @@ func (q *Queries) SessionsByCourse(ctx context.Context, courseID pgtype.UUID) ([
 	return out, nil
 }
 
+// AbsenceSitInsCreate creates sit-in assignments for an absence without snapshot data.
+//
+// Deprecated: Use AbsenceSitInsCreateWithSnapshot instead. This method does not
+// populate snapshot columns, which violates the domain invariant that all new
+// sit-in assignments must carry a session snapshot. This path is retained only
+// for backward compatibility with integration tests and will be removed once all
+// callers migrate.
 func (q *Queries) AbsenceSitInsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
 	if len(sessionIDs) == 0 {
 		return nil
@@ -217,6 +225,92 @@ func (q *Queries) AbsenceSitInsCreate(ctx context.Context, absenceID pgtype.UUID
 	}
 	return nil
 }
+
+// SitInSnapshotInput contains the data needed to create a single sit-in assignment
+// with a session snapshot.
+type SitInSnapshotInput struct {
+	SessionID       pgtype.UUID
+	ExpectedVersion *int32 // nil means no version check
+}
+
+// AbsenceSitInsCreateWithSnapshot creates sit-in assignments with attached session
+// snapshots. For each session:
+//  1. Loads the session with display labels (course, teacher, room)
+//  2. Optionally verifies the session version matches expectedVersion
+//  3. Inserts the absence_sit_ins row with snapshot metadata
+//  4. Writes assignment audit events
+//
+// This is the snapshot-enforcing replacement for AbsenceSitInsCreate.
+func (q *Queries) AbsenceSitInsCreateWithSnapshot(
+	ctx context.Context,
+	absenceID pgtype.UUID,
+	inputs []SitInSnapshotInput,
+	timezone string,
+	snapshotFunc SnapshotBuilderFunc,
+) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	capturedAt := time.Now().UTC()
+
+	for _, input := range inputs {
+		row, err := q.SessionGetByIDForSnapshot(ctx, input.SessionID)
+		if err != nil {
+			return fmt.Errorf("load session for snapshot: %w", err)
+		}
+
+		if input.ExpectedVersion != nil && row.Version != *input.ExpectedVersion {
+			return &SessionVersionConflictError{
+				SessionID:       input.SessionID.String(),
+				ExpectedVersion: int(*input.ExpectedVersion),
+				ActualVersion:   int(row.Version),
+			}
+		}
+
+		var roomName *string
+		if row.RoomName.Valid {
+			roomName = &row.RoomName.String
+		}
+
+		snapshotJSON, schemaVersion, err := snapshotFunc(
+			row.CourseCode, row.CourseName, row.TeacherName, roomName,
+			input.SessionID, row.SeriesID, row.CourseID, row.RoomID, row.TeacherID,
+			row.StartAt, row.EndAt, row.Version, capturedAt, timezone,
+		)
+		if err != nil {
+			return fmt.Errorf("build snapshot for session %s: %w", input.SessionID.String(), err)
+		}
+
+		capturedAtPg := pgtype.Timestamptz{Time: capturedAt, Valid: true}
+		_, err = q.db.Exec(ctx, `
+			WITH inserted AS (
+				INSERT INTO absence_sit_ins (
+					absence_id, session_id, session_version_at_assignment,
+					assigned_at, assignment_source,
+					session_snapshot_at_assignment, snapshot_schema_version,
+					snapshot_captured_at, snapshot_quality, snapshot_source
+				)
+				VALUES ($1, $2, $3, now(), 'absence_submission',
+				        $4, $5, $6, 'exact', 'captured_at_assignment')
+				ON CONFLICT DO NOTHING
+				RETURNING absence_id, session_id
+			)
+			INSERT INTO absence_sit_in_assignment_events (absence_id, new_session_id, action, reason)
+			SELECT absence_id, session_id, 'assigned', 'absence_submission'
+			FROM inserted
+		`,
+			absenceID, input.SessionID, row.Version,
+			snapshotJSON, schemaVersion, capturedAtPg,
+		)
+		if err != nil {
+			return fmt.Errorf("insert sit-in assignment with snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
+// SnapshotBuilderFunc is the function signature for building a session snapshot.
+type SnapshotBuilderFunc = func(courseCode, courseName, teacherName string, roomName *string, sessionID pgtype.UUID, seriesID pgtype.UUID, courseID pgtype.UUID, roomID pgtype.UUID, teacherID pgtype.UUID, startAt, endAt pgtype.Timestamptz, version int32, capturedAt time.Time, tz string) ([]byte, int16, error)
 
 type CourseLevelRow struct {
 	ID          pgtype.UUID `json:"id"`

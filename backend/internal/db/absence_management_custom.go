@@ -620,6 +620,11 @@ func (q *Queries) AbsenceHardDelete(ctx context.Context, id pgtype.UUID, expecte
 	return one, err
 }
 
+// AbsenceSitInsReplace replaces all sit-in assignments for an absence.
+//
+// Deprecated: Use AbsenceSitInsReplaceWithSnapshot instead. This method does not
+// populate snapshot columns on new assignments, which violates the domain invariant
+// that all new sit-in assignments must carry a session snapshot.
 func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
 	type beginner interface {
 		Begin(context.Context) (pgx.Tx, error)
@@ -684,6 +689,123 @@ func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUI
 			return fmt.Errorf("record assigned sit-in: %w", err)
 		}
 	}
+	if tx != nil {
+		return tx.Commit(ctx)
+	}
+	return nil
+}
+
+// AbsenceSitInsReplaceWithSnapshot replaces all sit-in assignments for an absence,
+// building session snapshots for each new assignment.
+//
+// Steps:
+//  1. Lock existing assignment rows
+//  2. Delete old assignments
+//  3. For each new session, load it, build a snapshot, and insert with snapshot metadata
+//  4. Write cancelled events for old assignments
+//  5. Write assigned events for new assignments
+func (q *Queries) AbsenceSitInsReplaceWithSnapshot(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, timezone string, snapshotFunc SnapshotBuilderFunc) error {
+	type beginner interface {
+		Begin(context.Context) (pgx.Tx, error)
+	}
+	work := q
+	var tx pgx.Tx
+	if db, ok := q.db.(beginner); ok {
+		var err error
+		tx, err = db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+		work = New(tx)
+	}
+
+	// 1. Lock existing assignment rows.
+	rows, err := work.db.Query(ctx, `SELECT session_id FROM absence_sit_ins WHERE absence_id = $1 FOR UPDATE`, absenceID)
+	if err != nil {
+		return fmt.Errorf("lock sit-ins: %w", err)
+	}
+	var previous []pgtype.UUID
+	for rows.Next() {
+		var sessionID pgtype.UUID
+		if err := rows.Scan(&sessionID); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan sit-in: %w", err)
+		}
+		previous = append(previous, sessionID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	// 2. Delete old assignments.
+	if _, err := work.db.Exec(ctx, `DELETE FROM absence_sit_ins WHERE absence_id = $1`, absenceID); err != nil {
+		return fmt.Errorf("delete sit-ins: %w", err)
+	}
+
+	// 3. For each new session, build snapshot and insert with snapshot metadata.
+	capturedAt := time.Now().UTC()
+	capturedAtPg := pgtype.Timestamptz{Time: capturedAt, Valid: true}
+
+	for _, sid := range sessionIDs {
+		row, err := work.SessionGetByIDForSnapshot(ctx, sid)
+		if err != nil {
+			return fmt.Errorf("load session for snapshot %s: %w", sid.String(), err)
+		}
+
+		var roomName *string
+		if row.RoomName.Valid {
+			roomName = &row.RoomName.String
+		}
+
+		snapshotJSON, schemaVersion, err := snapshotFunc(
+			row.CourseCode, row.CourseName, row.TeacherName, roomName,
+			sid, row.SeriesID, row.CourseID, row.RoomID, row.TeacherID,
+			row.StartAt, row.EndAt, row.Version, capturedAt, timezone,
+		)
+		if err != nil {
+			return fmt.Errorf("build snapshot for session %s: %w", sid.String(), err)
+		}
+
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_ins (
+				absence_id, session_id, session_version_at_assignment,
+				assigned_at, assignment_source,
+				session_snapshot_at_assignment, snapshot_schema_version,
+				snapshot_captured_at, snapshot_quality, snapshot_source
+			)
+			SELECT $1, id, version, now(), 'absence_override',
+			       $3, $4, $5, 'exact', 'captured_at_assignment'
+			FROM sessions
+			WHERE id = $2
+			ON CONFLICT DO NOTHING
+		`, absenceID, sid, snapshotJSON, schemaVersion, capturedAtPg); err != nil {
+			return fmt.Errorf("insert sit-in with snapshot: %w", err)
+		}
+	}
+
+	// 4. Write cancelled events for old assignments.
+	for _, sid := range previous {
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_in_assignment_events (absence_id, previous_session_id, action, reason)
+			VALUES ($1, $2, 'cancelled', 'absence_override')
+		`, absenceID, sid); err != nil {
+			return fmt.Errorf("record cancelled sit-in: %w", err)
+		}
+	}
+
+	// 5. Write assigned events for new assignments.
+	for _, sid := range sessionIDs {
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_in_assignment_events (absence_id, new_session_id, action, reason)
+			VALUES ($1, $2, 'assigned', 'absence_override')
+		`, absenceID, sid); err != nil {
+			return fmt.Errorf("record assigned sit-in: %w", err)
+		}
+	}
+
 	if tx != nil {
 		return tx.Commit(ctx)
 	}
@@ -1235,4 +1357,221 @@ func (q *Queries) AbsenceBatchStatusUpdate(ctx context.Context, ids []pgtype.UUI
 		}
 	}
 	return results
+}
+
+// ---------------------------------------------------------------------------
+// Sit-in assignment domain service queries
+// ---------------------------------------------------------------------------
+
+// SitInAssignmentRow holds the columns returned by sit-in assignment queries.
+type SitInAssignmentRow struct {
+	ID                          pgtype.UUID
+	AbsenceID                   pgtype.UUID
+	SessionID                   pgtype.UUID
+	CreatedAt                   pgtype.Timestamptz
+	SessionVersionAtAssignment  pgtype.Int4
+	AssignedAt                  pgtype.Timestamptz
+	AssignedBy                  pgtype.UUID
+	AssignmentSource            string
+	SessionSnapshotAtAssignment []byte
+	SnapshotSchemaVersion       pgtype.Int2
+	SnapshotCapturedAt          pgtype.Timestamptz
+	SnapshotQuality             string
+	SnapshotSource              pgtype.Text
+}
+
+// SitInAssignmentGetAllByAbsence returns all sit-in assignments for an absence,
+// ordered by created_at. Use FOR UPDATE via the caller's transaction to lock rows.
+func (q *Queries) SitInAssignmentGetAllByAbsence(ctx context.Context, absenceID pgtype.UUID) ([]SitInAssignmentRow, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT id, absence_id, session_id, created_at,
+		       session_version_at_assignment, assigned_at, assigned_by, assignment_source,
+		       session_snapshot_at_assignment, snapshot_schema_version,
+		       snapshot_captured_at, snapshot_quality, snapshot_source
+		FROM absence_sit_ins
+		WHERE absence_id = $1
+		ORDER BY created_at ASC
+	`, absenceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SitInAssignmentRow
+	for rows.Next() {
+		var r SitInAssignmentRow
+		if err := rows.Scan(
+			&r.ID, &r.AbsenceID, &r.SessionID, &r.CreatedAt,
+			&r.SessionVersionAtAssignment, &r.AssignedAt, &r.AssignedBy, &r.AssignmentSource,
+			&r.SessionSnapshotAtAssignment, &r.SnapshotSchemaVersion,
+			&r.SnapshotCapturedAt, &r.SnapshotQuality, &r.SnapshotSource,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SitInAssignmentLockByAbsence locks all sit-in assignment rows for an absence
+// using SELECT ... FOR UPDATE. Must be called within a transaction.
+func (q *Queries) SitInAssignmentLockByAbsence(ctx context.Context, absenceID pgtype.UUID) error {
+	_, err := q.db.Query(ctx, `
+		SELECT id FROM absence_sit_ins WHERE absence_id = $1 FOR UPDATE
+	`, absenceID)
+	return err
+}
+
+// SitInAssignmentGetByAbsenceAndSession returns a single sit-in assignment by
+// absence and session. Returns pgx.ErrNoRows if not found.
+func (q *Queries) SitInAssignmentGetByAbsenceAndSession(ctx context.Context, absenceID, sessionID pgtype.UUID) (SitInAssignmentRow, error) {
+	var r SitInAssignmentRow
+	err := q.db.QueryRow(ctx, `
+		SELECT id, absence_id, session_id, created_at,
+		       session_version_at_assignment, assigned_at, assigned_by, assignment_source,
+		       session_snapshot_at_assignment, snapshot_schema_version,
+		       snapshot_captured_at, snapshot_quality, snapshot_source
+		FROM absence_sit_ins
+		WHERE absence_id = $1 AND session_id = $2
+	`, absenceID, sessionID).Scan(
+		&r.ID, &r.AbsenceID, &r.SessionID, &r.CreatedAt,
+		&r.SessionVersionAtAssignment, &r.AssignedAt, &r.AssignedBy, &r.AssignmentSource,
+		&r.SessionSnapshotAtAssignment, &r.SnapshotSchemaVersion,
+		&r.SnapshotCapturedAt, &r.SnapshotQuality, &r.SnapshotSource,
+	)
+	return r, err
+}
+
+// SitInAssignmentInsertWithSnapshot inserts a sit-in assignment with snapshot
+// metadata. The snapshot columns are set atomically with the row insert.
+func (q *Queries) SitInAssignmentInsertWithSnapshot(ctx context.Context, arg struct {
+	AbsenceID          pgtype.UUID
+	SessionID          pgtype.UUID
+	SessionVersion     int32
+	AssignedBy         pgtype.UUID
+	Source             string
+	SnapshotJSON       []byte
+	SchemaVersion      int16
+	SnapshotCapturedAt pgtype.Timestamptz
+}) error {
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO absence_sit_ins (
+			absence_id, session_id, session_version_at_assignment,
+			assigned_at, assigned_by, assignment_source,
+			session_snapshot_at_assignment, snapshot_schema_version,
+			snapshot_captured_at, snapshot_quality, snapshot_source
+		) VALUES ($1, $2, $3, now(), $4, $5, $6, $7, $8, 'exact', 'captured_at_assignment')
+		ON CONFLICT DO NOTHING
+	`,
+		arg.AbsenceID, arg.SessionID, arg.SessionVersion,
+		arg.AssignedBy, arg.Source,
+		arg.SnapshotJSON, arg.SchemaVersion, arg.SnapshotCapturedAt,
+	)
+	return err
+}
+
+// SitInAssignmentDeleteByAbsence removes all sit-in assignments for an absence.
+// Must be called within a transaction that holds the row lock.
+func (q *Queries) SitInAssignmentDeleteByAbsence(ctx context.Context, absenceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `DELETE FROM absence_sit_ins WHERE absence_id = $1`, absenceID)
+	return err
+}
+
+// SitInAssignmentEventInsert inserts a sit-in assignment audit event.
+func (q *Queries) SitInAssignmentEventInsert(ctx context.Context, arg struct {
+	AbsenceID         pgtype.UUID
+	PreviousSessionID pgtype.UUID
+	NewSessionID      pgtype.UUID
+	Action            string
+	Reason            string
+	ActorID           pgtype.UUID
+}) error {
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO absence_sit_in_assignment_events
+			(absence_id, previous_session_id, new_session_id, action, reason, actor_id)
+		VALUES ($1, NULLIF($2, '00000000-0000-0000-0000-000000000000'::uuid),
+		        NULLIF($3, '00000000-0000-0000-0000-000000000000'::uuid),
+		        $4, $5, NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid))
+	`, arg.AbsenceID, arg.PreviousSessionID, arg.NewSessionID, arg.Action, arg.Reason, arg.ActorID)
+	return err
+}
+
+// AbsenceScheduleIssueUpdateIssueVersion bumps the issue_version for an
+// absence_schedule_issues row. Returns the new version; returns 0 and pgx.ErrNoRows
+// if the expected version doesn't match.
+func (q *Queries) AbsenceScheduleIssueUpdateIssueVersion(ctx context.Context, issueID pgtype.UUID, expectedVersion int32) (int32, error) {
+	var newVersion int32
+	err := q.db.QueryRow(ctx, `
+		UPDATE absence_schedule_issues
+		SET issue_version = issue_version + 1, updated_at = now()
+		WHERE id = $1 AND issue_version = $2
+		RETURNING issue_version
+	`, issueID, expectedVersion).Scan(&newVersion)
+	return newVersion, err
+}
+
+// AbsenceScheduleIssueGetOpenByAbsence returns the first open or needs_review
+// issue for an absence, or pgx.ErrNoRows if none.
+func (q *Queries) AbsenceScheduleIssueGetOpenByAbsence(ctx context.Context, absenceID pgtype.UUID) (AbsenceScheduleIssueGetRow, error) {
+	var i AbsenceScheduleIssueGetRow
+	err := q.db.QueryRow(ctx, `
+		SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
+		       i.source_session_id, i.sit_in_session_id, i.missed_session_id,
+		       i.first_session_change_id, i.latest_session_change_id,
+		       i.details_json, i.suggested_resolution_json, i.detected_at,
+		       i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
+		       i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
+		       sa.student_phone
+		FROM absence_schedule_issues i
+		JOIN student_absences sa ON sa.id = i.absence_id
+		WHERE i.absence_id = $1 AND i.status IN ('open', 'needs_review')
+		ORDER BY i.detected_at DESC
+		LIMIT 1
+	`, absenceID).Scan(
+		&i.ID, &i.AbsenceID, &i.IssueType, &i.Severity, &i.Status,
+		&i.SourceSessionID, &i.SitInSessionID, &i.MissedSessionID,
+		&i.FirstSessionChangeID, &i.LatestSessionChangeID,
+		&i.DetailsJson, &i.SuggestedResolutionJson, &i.DetectedAt,
+		&i.UpdatedAt, &i.ResolvedAt, &i.ResolvedBy, &i.ResolutionAction,
+		&i.Fingerprint, &i.Wcode, &i.StudentName, &i.StudentEmail,
+		&i.StudentPhone,
+	)
+	return i, err
+}
+
+// AbsenceScheduleIssueGetWithVersion returns an issue with its issue_version
+// for optimistic concurrency checks.
+type AbsenceScheduleIssueVersionRow struct {
+	ID            pgtype.UUID
+	AbsenceID     pgtype.UUID
+	Status        string
+	IssueVersion  int32
+	Fingerprint   string
+}
+
+func (q *Queries) AbsenceScheduleIssueGetWithVersion(ctx context.Context, issueID pgtype.UUID) (AbsenceScheduleIssueVersionRow, error) {
+	var r AbsenceScheduleIssueVersionRow
+	err := q.db.QueryRow(ctx, `
+		SELECT id, absence_id, status, issue_version, fingerprint
+		FROM absence_schedule_issues
+		WHERE id = $1
+	`, issueID).Scan(&r.ID, &r.AbsenceID, &r.Status, &r.IssueVersion, &r.Fingerprint)
+	return r, err
+}
+
+// OutboxInsertAbsenceEvent inserts an outbox event for an absence change.
+func (q *Queries) OutboxInsertAbsenceEvent(ctx context.Context, arg OutboxEventInsertParams) error {
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO outbox_events (event_type, aggregate_id, aggregate_version, payload)
+		VALUES ($1, $2, $3, $4::text::jsonb)
+		ON CONFLICT (event_type, aggregate_id, aggregate_version) DO NOTHING
+	`, arg.EventType, arg.AggregateID, arg.AggregateVersion, arg.Payload)
+	return err
+}
+
+// AbsenceVersionGet returns the current version of an absence row.
+func (q *Queries) AbsenceVersionGet(ctx context.Context, absenceID pgtype.UUID) (int32, error) {
+	var version int32
+	err := q.db.QueryRow(ctx, `SELECT version FROM student_absences WHERE id = $1`, absenceID).Scan(&version)
+	return version, err
 }
