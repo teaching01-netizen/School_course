@@ -3,6 +3,7 @@ package absenceshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,18 +18,19 @@ import (
 )
 
 type staffCreateAbsenceRequest struct {
-	Wcode            string   `json:"wcode"`
-	SubjectID        *string  `json:"subject_id"`
-	CourseID         *string  `json:"course_id"`
-	DateFrom         string   `json:"date_from"`
-	DateTo           string   `json:"date_to"`
-	MissedSessionIDs []string `json:"missed_session_ids"`
-	SitInMethod      *string  `json:"sit_in_method"`
-	SitInCourseID    *string  `json:"sit_in_course_id"`
-	SitInSessionIDs  []string `json:"sit_in_session_ids"`
-	Reason           *string  `json:"reason"`
-	ReasonCategory   *string  `json:"reason_category"`
-	Status           *string  `json:"status"` // optional: "pending" (default) or "special_approved"
+	Wcode            string         `json:"wcode"`
+	SubjectID        *string        `json:"subject_id"`
+	CourseID         *string        `json:"course_id"`
+	DateFrom         string         `json:"date_from"`
+	DateTo           string         `json:"date_to"`
+	MissedSessionIDs []string       `json:"missed_session_ids"`
+	SitInMethod      *string        `json:"sit_in_method"`
+	SitInCourseID    *string        `json:"sit_in_course_id"`
+	SitInSessionIDs  []string       `json:"sit_in_session_ids"`
+	Reason           *string        `json:"reason"`
+	ReasonCategory   *string        `json:"reason_category"`
+	Status           *string        `json:"status"` // optional: "pending" (default) or "special_approved"
+	SessionVersions  map[string]int `json:"session_versions"`
 }
 
 func shouldValidateStaffSitInSessions(status absences.Status) bool {
@@ -262,7 +264,23 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 				return 0, nil, fmt.Errorf("invalid missed sessions")
 			}
-			if err := qtx.AbsenceMissedSessionsCreate(r.Context(), row.ID, missedUUIDs); err != nil {
+			snapshotInputs := make([]sqldb.MissedSessionSnapshotInput, 0, len(missedUUIDs))
+			for _, sid := range missedUUIDs {
+				input := sqldb.MissedSessionSnapshotInput{SessionID: sid}
+				if body.SessionVersions != nil {
+					if v, ok := body.SessionVersions[sid.String()]; ok {
+						version := int32(v)
+						input.ExpectedVersion = &version
+					}
+				}
+				snapshotInputs = append(snapshotInputs, input)
+			}
+			if _, err := qtx.AbsenceMissedSessionsCreateWithSnapshot(r.Context(), row.ID, snapshotInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
+				var versionErr *sqldb.SessionVersionConflictError
+				if errors.As(err, &versionErr) {
+					s.a.WriteErr(w, http.StatusConflict, "session_version_conflict", "Session has been modified since you last loaded it. Please reload and try again.")
+					return 0, nil, err
+				}
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err

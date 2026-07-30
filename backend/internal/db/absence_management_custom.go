@@ -702,6 +702,122 @@ func (q *Queries) AbsenceMissedSessionsCreate(ctx context.Context, absenceID pgt
 	return nil
 }
 
+// SessionVersionConflictError is returned when a session's version has changed
+// since the client last loaded it, indicating a concurrent modification.
+type SessionVersionConflictError struct {
+	SessionID      string
+	ExpectedVersion int
+	ActualVersion   int
+}
+
+func (e *SessionVersionConflictError) Error() string {
+	return fmt.Sprintf("session %s version conflict: expected %d, got %d", e.SessionID, e.ExpectedVersion, e.ActualVersion)
+}
+
+// MissedSessionSnapshotInput contains the data needed to build and store a
+// snapshot for a single missed session at absence submission time.
+type MissedSessionSnapshotInput struct {
+	SessionID       pgtype.UUID
+	ExpectedVersion *int32 // nil means no version check (backward compatibility)
+}
+
+// MissedSessionSnapshotData holds the snapshot JSON and metadata for a single
+// missed session row in absence_missed_sessions.
+type MissedSessionSnapshotData struct {
+	SessionID       pgtype.UUID
+	SnapshotJSON    []byte
+	SchemaVersion   int16
+	CapturedAt      pgtype.Timestamptz
+	Quality         string
+	Source          string
+	Version         int32
+	OriginalStartAt pgtype.Timestamptz
+	OriginalEndAt   pgtype.Timestamptz
+}
+
+// AbsenceMissedSessionsCreateWithSnapshot creates missed session records with
+// attached snapshots. For each session:
+//  1. Loads the session with display labels (course, teacher, room)
+//  2. Optionally verifies the session version matches expectedVersion
+//  3. Inserts the absence_missed_sessions row with snapshot metadata
+//
+// If expectedVersion is non-nil and doesn't match the current session version,
+// returns a *SessionVersionConflictError.
+func (q *Queries) AbsenceMissedSessionsCreateWithSnapshot(
+	ctx context.Context,
+	absenceID pgtype.UUID,
+	inputs []MissedSessionSnapshotInput,
+	timezone string,
+	snapshotFunc func(courseCode, courseName, teacherName string, roomName *string, sessionID pgtype.UUID, seriesID pgtype.UUID, courseID pgtype.UUID, roomID pgtype.UUID, teacherID pgtype.UUID, startAt, endAt pgtype.Timestamptz, version int32, capturedAt time.Time, tz string) ([]byte, int16, error),
+) ([]MissedSessionSnapshotData, error) {
+	capturedAt := time.Now().UTC()
+	results := make([]MissedSessionSnapshotData, 0, len(inputs))
+
+	for _, input := range inputs {
+		row, err := q.SessionGetByIDForSnapshot(ctx, input.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("load session for snapshot: %w", err)
+		}
+
+		if input.ExpectedVersion != nil && row.Version != *input.ExpectedVersion {
+			sessionIDStr := input.SessionID.String()
+			return nil, &SessionVersionConflictError{
+				SessionID:       sessionIDStr,
+				ExpectedVersion: int(*input.ExpectedVersion),
+				ActualVersion:   int(row.Version),
+			}
+		}
+
+		var roomName *string
+		if row.RoomName.Valid {
+			roomName = &row.RoomName.String
+		}
+
+		snapshotJSON, schemaVersion, err := snapshotFunc(
+			row.CourseCode, row.CourseName, row.TeacherName, roomName,
+			input.SessionID, row.SeriesID, row.CourseID, row.RoomID, row.TeacherID,
+			row.StartAt, row.EndAt, row.Version, capturedAt, timezone,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("build snapshot for session %s: %w", input.SessionID.String(), err)
+		}
+
+		_, err = q.db.Exec(ctx, `
+			INSERT INTO absence_missed_sessions (
+				absence_id, session_id,
+				session_version_at_submission, original_start_at, original_end_at,
+				session_snapshot_at_submission, snapshot_schema_version,
+				snapshot_captured_at, snapshot_quality, snapshot_source
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			ON CONFLICT (absence_id, session_id) DO NOTHING
+		`,
+			absenceID, input.SessionID,
+			row.Version, row.StartAt, row.EndAt,
+			string(snapshotJSON), schemaVersion,
+			capturedAt, "exact", "captured_at_submission",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("insert missed session with snapshot: %w", err)
+		}
+
+		capturedAtPg := pgtype.Timestamptz{Time: capturedAt, Valid: true}
+		results = append(results, MissedSessionSnapshotData{
+			SessionID:       input.SessionID,
+			SnapshotJSON:    snapshotJSON,
+			SchemaVersion:   schemaVersion,
+			CapturedAt:      capturedAtPg,
+			Quality:         "exact",
+			Source:          "captured_at_submission",
+			Version:         row.Version,
+			OriginalStartAt: row.StartAt,
+			OriginalEndAt:   row.EndAt,
+		})
+	}
+
+	return results, nil
+}
+
 func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `

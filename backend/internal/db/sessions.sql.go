@@ -270,6 +270,55 @@ func (q *Queries) SessionGetByID(ctx context.Context, id pgtype.UUID) (SessionGe
 	return i, err
 }
 
+const sessionGetByIDForSnapshot = `-- name: SessionGetByIDForSnapshot :one
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
+       s.start_at, s.end_at, s.version,
+       COALESCE(c.code, '') AS course_code,
+       COALESCE(c.name, '') AS course_name,
+       COALESCE(u.username, '') AS teacher_name,
+       r.name AS room_name
+FROM sessions s
+JOIN courses c ON c.id = s.course_id
+JOIN users u ON u.id = s.teacher_id
+LEFT JOIN rooms r ON r.id = s.room_id
+WHERE s.id = $1
+`
+
+type SessionGetByIDForSnapshotRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	SeriesID    pgtype.UUID        `json:"series_id"`
+	CourseID    pgtype.UUID        `json:"course_id"`
+	RoomID      pgtype.UUID        `json:"room_id"`
+	TeacherID   pgtype.UUID        `json:"teacher_id"`
+	StartAt     pgtype.Timestamptz `json:"start_at"`
+	EndAt       pgtype.Timestamptz `json:"end_at"`
+	Version     int32              `json:"version"`
+	CourseCode  string             `json:"course_code"`
+	CourseName  string             `json:"course_name"`
+	TeacherName string             `json:"teacher_name"`
+	RoomName    pgtype.Text        `json:"room_name"`
+}
+
+func (q *Queries) SessionGetByIDForSnapshot(ctx context.Context, id pgtype.UUID) (SessionGetByIDForSnapshotRow, error) {
+	row := q.db.QueryRow(ctx, sessionGetByIDForSnapshot, id)
+	var i SessionGetByIDForSnapshotRow
+	err := row.Scan(
+		&i.ID,
+		&i.SeriesID,
+		&i.CourseID,
+		&i.RoomID,
+		&i.TeacherID,
+		&i.StartAt,
+		&i.EndAt,
+		&i.Version,
+		&i.CourseCode,
+		&i.CourseName,
+		&i.TeacherName,
+		&i.RoomName,
+	)
+	return i, err
+}
+
 const sessionHardDelete = `-- name: SessionHardDelete :one
 DELETE FROM sessions
 WHERE id = $1 AND version = $2

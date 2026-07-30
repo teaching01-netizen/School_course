@@ -19,14 +19,15 @@ import (
 )
 
 type batchAbsenceCreateItem struct {
-	SubjectID        string   `json:"subject_id"`
-	CourseID         string   `json:"course_id"`
-	DateFrom         string   `json:"date_from"`
-	DateTo           string   `json:"date_to"`
-	SitInMethod      *string  `json:"sit_in_method"`
-	SitInCourseID    *string  `json:"sit_in_course_id"`
-	MissedSessionIDs []string `json:"missed_session_ids"`
-	SitInSessionIDs  []string `json:"sit_in_session_ids"`
+	SubjectID        string         `json:"subject_id"`
+	CourseID         string         `json:"course_id"`
+	DateFrom         string         `json:"date_from"`
+	DateTo           string         `json:"date_to"`
+	SitInMethod      *string        `json:"sit_in_method"`
+	SitInCourseID    *string        `json:"sit_in_course_id"`
+	MissedSessionIDs []string       `json:"missed_session_ids"`
+	SitInSessionIDs  []string       `json:"sit_in_session_ids"`
+	SessionVersions  map[string]int `json:"session_versions"`
 }
 
 type batchAbsenceCreateRequest struct {
@@ -556,7 +557,23 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)
 			return createdAbsenceRecord{}, false
 		}
-		if err := qtx.AbsenceMissedSessionsCreate(r.Context(), row.ID, missedUUIDs); err != nil {
+		snapshotInputs := make([]sqldb.MissedSessionSnapshotInput, 0, len(missedUUIDs))
+		for _, sid := range missedUUIDs {
+			input := sqldb.MissedSessionSnapshotInput{SessionID: sid}
+			if item.SessionVersions != nil {
+				if v, ok := item.SessionVersions[sid.String()]; ok {
+					version := int32(v)
+					input.ExpectedVersion = &version
+				}
+			}
+			snapshotInputs = append(snapshotInputs, input)
+		}
+		if _, err := qtx.AbsenceMissedSessionsCreateWithSnapshot(r.Context(), row.ID, snapshotInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
+			var versionErr *sqldb.SessionVersionConflictError
+			if errors.As(err, &versionErr) {
+				s.a.WriteErr(w, http.StatusConflict, "session_version_conflict", "Session has been modified since you last loaded it. Please reload and try again.")
+				return createdAbsenceRecord{}, false
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return createdAbsenceRecord{}, false
