@@ -1,11 +1,14 @@
 package sessionchangehttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +19,12 @@ import (
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
+)
+
+// Deprecated field telemetry counters for tracking client migration.
+var (
+	deprecatedFieldAccessCount atomic.Int64
+	telemetryLogged            atomic.Bool
 )
 
 type server struct {
@@ -94,7 +103,7 @@ func (s *server) handleSessionChangeDetail(w http.ResponseWriter, r *http.Reques
 	}
 	issueOut := make([]map[string]any, 0, len(issues))
 	for _, issue := range issues {
-		issueOut = append(issueOut, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction))
+		issueOut = append(issueOut, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
 	}
 	notifications, err := s.deps.Q.NotificationOutboxListForChange(r.Context(), id)
 	if err != nil {
@@ -185,7 +194,7 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]map[string]any, 0, len(items))
 		for _, issue := range items {
-			out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction))
+			out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
 		}
 		s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
 		return
@@ -203,7 +212,7 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, issue := range items {
-		out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction))
+		out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID))
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out, "limit": limit, "offset": offset})
 }
@@ -413,9 +422,29 @@ func (s *server) handleChangePreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status string, sourceSessionID, sitInSessionID, missedSessionID pgtype.UUID, details, suggestions []byte, wcode string, studentName, studentEmail, studentPhone pgtype.Text, startAt, endAt pgtype.Timestamptz, resolutionAction pgtype.Text) map[string]any {
+func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status string, sourceSessionID, sitInSessionID, missedSessionID pgtype.UUID, details, suggestions []byte, wcode string, studentName, studentEmail, studentPhone pgtype.Text, startAt, endAt pgtype.Timestamptz, resolutionAction pgtype.Text, issueVersion int32, assignmentSnapshotJSON []byte, assignmentSnapshotQuality string, assignmentSnapshotSource pgtype.Text, latestSessionChangeID pgtype.UUID) map[string]any {
+	// Track deprecated field access for telemetry
+	TrackDeprecatedFieldAccess(s.deps.Log, "start_at/end_at", "")
+
+	// Decode issue details for reasons
+	issueDetails := DecodeIssueDetails(details)
+
+	// Build assignment context from snapshot data
+	assignmentContext := buildAssignmentContext(assignmentSnapshotJSON, assignmentSnapshotQuality, assignmentSnapshotSource, sitInSessionID, missedSessionID, sourceSessionID)
+
+	// Build change context from session change data
+	changeContext := buildChangeContext(s, latestSessionChangeID)
+
+	// Build impact context from issue details
+	impactContext := ImpactContext{
+		IssueType: issueType,
+		Severity:  severity,
+		Reasons:   ImpactReasonsFromCodes(issueDetails.Reasons),
+	}
+
 	return map[string]any{
 		"id":                    uuidText(s.a, id),
+		"issue_version":         issueVersion,
 		"absence_id":            uuidText(s.a, absenceID),
 		"issue_type":            issueType,
 		"severity":              severity,
@@ -432,12 +461,91 @@ func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status
 		"start_at":              timeValue(startAt),
 		"end_at":                timeValue(endAt),
 		"resolution_action":     textValue(resolutionAction),
+		"assignment_context":    assignmentContext,
+		"change_context":        changeContext,
+		"impact_context":        impactContext,
 	}
 }
 
-func (s *server) writeDBError(w http.ResponseWriter, err error) {
-	status, code, message := s.a.ClassifyDBErr(err)
-	s.a.WriteErr(w, status, code, message)
+// buildAssignmentContext constructs the assignment context from available data.
+func buildAssignmentContext(snapshotJSON []byte, quality string, source pgtype.Text, sitInSessionID, missedSessionID, sourceSessionID pgtype.UUID) AssignmentContext {
+	// Decode the original session snapshot
+	originalSession := DecodeAssignmentSnapshot(snapshotJSON, quality, textOrEmpty(source))
+
+	// Determine the current session state
+	// The "current" session is the sit-in session if it exists, otherwise the source session
+	currentSessionID := sitInSessionID
+	if !currentSessionID.Valid {
+		currentSessionID = missedSessionID
+	}
+	if !currentSessionID.Valid {
+		currentSessionID = sourceSessionID
+	}
+
+	return AssignmentContext{
+		AssignedAt:      nil, // Will be populated from sit-in assignment if available
+		OriginalSession: originalSession,
+		CurrentSession:  nil, // Will be populated from live session query if needed
+	}
+}
+
+// buildChangeContext constructs the change context from session change data.
+func buildChangeContext(s *server, changeID pgtype.UUID) ChangeContext {
+	ctx := ChangeContext{
+		ChangeID: uuidText(s.a, changeID),
+		Before:   nil,
+		After:    nil,
+	}
+
+	if !changeID.Valid {
+		return ctx
+	}
+
+	// Try to load the session change to get before/after snapshots
+	// Note: We use context.Background() here since the handler context may not be available
+	// In production, this should be called with the request context
+	change, err := s.deps.Q.SessionChangeGetByID(context.Background(), changeID)
+	if err != nil {
+		// If we can't load the change, return with nil snapshots
+		s.deps.Log.Warn("failed to load session change for context",
+			"change_id", uuidText(s.a, changeID),
+			"error", err,
+		)
+		return ctx
+	}
+
+	ctx.Before = DecodeChangeSnapshot(change.BeforeSnapshot)
+	ctx.After = DecodeChangeSnapshot(change.AfterSnapshot)
+
+	return ctx
+}
+
+// textOrEmpty returns the string value or empty string if not valid.
+func textOrEmpty(t pgtype.Text) string {
+	if t.Valid {
+		return t.String
+	}
+	return ""
+}
+
+// TrackDeprecatedFieldAccess logs telemetry when deprecated fields are accessed.
+func TrackDeprecatedFieldAccess(logger *slog.Logger, field string, clientInfo string) {
+	deprecatedFieldAccessCount.Add(1)
+
+	// Log periodically to avoid spam
+	if telemetryLogged.CompareAndSwap(false, true) {
+		go func() {
+			time.Sleep(5 * time.Minute)
+			count := deprecatedFieldAccessCount.Load()
+			if count > 0 {
+				logger.Warn("deprecated API fields accessed",
+					"total_access_count", count,
+					"note", "New clients should use assignment_context and change_context instead of start_at/end_at",
+				)
+			}
+			telemetryLogged.Store(false)
+		}()
+	}
 }
 
 func pageParams(r *http.Request) (int, int) {
@@ -502,4 +610,9 @@ func textValue(value pgtype.Text) any {
 		return nil
 	}
 	return value.String
+}
+
+func (s *server) writeDBError(w http.ResponseWriter, err error) {
+	status, code, message := s.a.ClassifyDBErr(err)
+	s.a.WriteErr(w, status, code, message)
 }

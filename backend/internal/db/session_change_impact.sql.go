@@ -86,7 +86,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
@@ -102,30 +105,34 @@ type AbsenceScheduleIssueListParams struct {
 }
 
 type AbsenceScheduleIssueListRow struct {
-	ID                      pgtype.UUID        `json:"id"`
-	AbsenceID               pgtype.UUID        `json:"absence_id"`
-	IssueType               string             `json:"issue_type"`
-	Severity                string             `json:"severity"`
-	Status                  string             `json:"status"`
-	SourceSessionID         pgtype.UUID        `json:"source_session_id"`
-	SitInSessionID          pgtype.UUID        `json:"sit_in_session_id"`
-	MissedSessionID         pgtype.UUID        `json:"missed_session_id"`
-	FirstSessionChangeID    pgtype.UUID        `json:"first_session_change_id"`
-	LatestSessionChangeID   pgtype.UUID        `json:"latest_session_change_id"`
-	DetailsJson             []byte             `json:"details_json"`
-	SuggestedResolutionJson []byte             `json:"suggested_resolution_json"`
-	DetectedAt              pgtype.Timestamptz `json:"detected_at"`
-	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
-	ResolvedAt              pgtype.Timestamptz `json:"resolved_at"`
-	ResolvedBy              pgtype.UUID        `json:"resolved_by"`
-	ResolutionAction        pgtype.Text        `json:"resolution_action"`
-	Fingerprint             string             `json:"fingerprint"`
-	Wcode                   string             `json:"wcode"`
-	StudentName             pgtype.Text        `json:"student_name"`
-	StudentEmail            pgtype.Text        `json:"student_email"`
-	StudentPhone            pgtype.Text        `json:"student_phone"`
-	StartAt                 pgtype.Timestamptz `json:"start_at"`
-	EndAt                   pgtype.Timestamptz `json:"end_at"`
+	ID                            pgtype.UUID        `json:"id"`
+	AbsenceID                     pgtype.UUID        `json:"absence_id"`
+	IssueType                     string             `json:"issue_type"`
+	Severity                      string             `json:"severity"`
+	Status                        string             `json:"status"`
+	SourceSessionID               pgtype.UUID        `json:"source_session_id"`
+	SitInSessionID                pgtype.UUID        `json:"sit_in_session_id"`
+	MissedSessionID               pgtype.UUID        `json:"missed_session_id"`
+	FirstSessionChangeID          pgtype.UUID        `json:"first_session_change_id"`
+	LatestSessionChangeID         pgtype.UUID        `json:"latest_session_change_id"`
+	DetailsJson                   []byte             `json:"details_json"`
+	SuggestedResolutionJson       []byte             `json:"suggested_resolution_json"`
+	DetectedAt                    pgtype.Timestamptz `json:"detected_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt                    pgtype.Timestamptz `json:"resolved_at"`
+	ResolvedBy                    pgtype.UUID        `json:"resolved_by"`
+	ResolutionAction              pgtype.Text        `json:"resolution_action"`
+	Fingerprint                   string             `json:"fingerprint"`
+	Wcode                         string             `json:"wcode"`
+	StudentName                   pgtype.Text        `json:"student_name"`
+	StudentEmail                  pgtype.Text        `json:"student_email"`
+	StudentPhone                  pgtype.Text        `json:"student_phone"`
+	StartAt                       pgtype.Timestamptz `json:"start_at"`
+	EndAt                         pgtype.Timestamptz `json:"end_at"`
+	IssueVersion                  int32              `json:"issue_version"`
+	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
+	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
+	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
 }
 
 func (q *Queries) AbsenceScheduleIssueList(ctx context.Context, arg AbsenceScheduleIssueListParams) ([]AbsenceScheduleIssueListRow, error) {
@@ -162,6 +169,10 @@ func (q *Queries) AbsenceScheduleIssueList(ctx context.Context, arg AbsenceSched
 			&i.StudentPhone,
 			&i.StartAt,
 			&i.EndAt,
+			&i.IssueVersion,
+			&i.AssignmentSnapshotAtDetection,
+			&i.AssignmentSnapshotQuality,
+			&i.AssignmentSnapshotSource,
 		); err != nil {
 			return nil, err
 		}
@@ -180,7 +191,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
@@ -190,30 +204,34 @@ ORDER BY CASE WHEN i.status = 'open' THEN 0 ELSE 1 END,
 `
 
 type AbsenceScheduleIssueListByAbsenceRow struct {
-	ID                      pgtype.UUID        `json:"id"`
-	AbsenceID               pgtype.UUID        `json:"absence_id"`
-	IssueType               string             `json:"issue_type"`
-	Severity                string             `json:"severity"`
-	Status                  string             `json:"status"`
-	SourceSessionID         pgtype.UUID        `json:"source_session_id"`
-	SitInSessionID          pgtype.UUID        `json:"sit_in_session_id"`
-	MissedSessionID         pgtype.UUID        `json:"missed_session_id"`
-	FirstSessionChangeID    pgtype.UUID        `json:"first_session_change_id"`
-	LatestSessionChangeID   pgtype.UUID        `json:"latest_session_change_id"`
-	DetailsJson             []byte             `json:"details_json"`
-	SuggestedResolutionJson []byte             `json:"suggested_resolution_json"`
-	DetectedAt              pgtype.Timestamptz `json:"detected_at"`
-	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
-	ResolvedAt              pgtype.Timestamptz `json:"resolved_at"`
-	ResolvedBy              pgtype.UUID        `json:"resolved_by"`
-	ResolutionAction        pgtype.Text        `json:"resolution_action"`
-	Fingerprint             string             `json:"fingerprint"`
-	Wcode                   string             `json:"wcode"`
-	StudentName             pgtype.Text        `json:"student_name"`
-	StudentEmail            pgtype.Text        `json:"student_email"`
-	StudentPhone            pgtype.Text        `json:"student_phone"`
-	StartAt                 pgtype.Timestamptz `json:"start_at"`
-	EndAt                   pgtype.Timestamptz `json:"end_at"`
+	ID                            pgtype.UUID        `json:"id"`
+	AbsenceID                     pgtype.UUID        `json:"absence_id"`
+	IssueType                     string             `json:"issue_type"`
+	Severity                      string             `json:"severity"`
+	Status                        string             `json:"status"`
+	SourceSessionID               pgtype.UUID        `json:"source_session_id"`
+	SitInSessionID                pgtype.UUID        `json:"sit_in_session_id"`
+	MissedSessionID               pgtype.UUID        `json:"missed_session_id"`
+	FirstSessionChangeID          pgtype.UUID        `json:"first_session_change_id"`
+	LatestSessionChangeID         pgtype.UUID        `json:"latest_session_change_id"`
+	DetailsJson                   []byte             `json:"details_json"`
+	SuggestedResolutionJson       []byte             `json:"suggested_resolution_json"`
+	DetectedAt                    pgtype.Timestamptz `json:"detected_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt                    pgtype.Timestamptz `json:"resolved_at"`
+	ResolvedBy                    pgtype.UUID        `json:"resolved_by"`
+	ResolutionAction              pgtype.Text        `json:"resolution_action"`
+	Fingerprint                   string             `json:"fingerprint"`
+	Wcode                         string             `json:"wcode"`
+	StudentName                   pgtype.Text        `json:"student_name"`
+	StudentEmail                  pgtype.Text        `json:"student_email"`
+	StudentPhone                  pgtype.Text        `json:"student_phone"`
+	StartAt                       pgtype.Timestamptz `json:"start_at"`
+	EndAt                         pgtype.Timestamptz `json:"end_at"`
+	IssueVersion                  int32              `json:"issue_version"`
+	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
+	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
+	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
 }
 
 func (q *Queries) AbsenceScheduleIssueListByAbsence(ctx context.Context, absenceID pgtype.UUID) ([]AbsenceScheduleIssueListByAbsenceRow, error) {
@@ -250,6 +268,10 @@ func (q *Queries) AbsenceScheduleIssueListByAbsence(ctx context.Context, absence
 			&i.StudentPhone,
 			&i.StartAt,
 			&i.EndAt,
+			&i.IssueVersion,
+			&i.AssignmentSnapshotAtDetection,
+			&i.AssignmentSnapshotQuality,
+			&i.AssignmentSnapshotSource,
 		); err != nil {
 			return nil, err
 		}
@@ -268,7 +290,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
@@ -277,30 +302,34 @@ ORDER BY CASE WHEN i.severity = 'critical' THEN 0 ELSE 1 END, i.updated_at DESC
 `
 
 type AbsenceScheduleIssueListByChangeRow struct {
-	ID                      pgtype.UUID        `json:"id"`
-	AbsenceID               pgtype.UUID        `json:"absence_id"`
-	IssueType               string             `json:"issue_type"`
-	Severity                string             `json:"severity"`
-	Status                  string             `json:"status"`
-	SourceSessionID         pgtype.UUID        `json:"source_session_id"`
-	SitInSessionID          pgtype.UUID        `json:"sit_in_session_id"`
-	MissedSessionID         pgtype.UUID        `json:"missed_session_id"`
-	FirstSessionChangeID    pgtype.UUID        `json:"first_session_change_id"`
-	LatestSessionChangeID   pgtype.UUID        `json:"latest_session_change_id"`
-	DetailsJson             []byte             `json:"details_json"`
-	SuggestedResolutionJson []byte             `json:"suggested_resolution_json"`
-	DetectedAt              pgtype.Timestamptz `json:"detected_at"`
-	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
-	ResolvedAt              pgtype.Timestamptz `json:"resolved_at"`
-	ResolvedBy              pgtype.UUID        `json:"resolved_by"`
-	ResolutionAction        pgtype.Text        `json:"resolution_action"`
-	Fingerprint             string             `json:"fingerprint"`
-	Wcode                   string             `json:"wcode"`
-	StudentName             pgtype.Text        `json:"student_name"`
-	StudentEmail            pgtype.Text        `json:"student_email"`
-	StudentPhone            pgtype.Text        `json:"student_phone"`
-	StartAt                 pgtype.Timestamptz `json:"start_at"`
-	EndAt                   pgtype.Timestamptz `json:"end_at"`
+	ID                            pgtype.UUID        `json:"id"`
+	AbsenceID                     pgtype.UUID        `json:"absence_id"`
+	IssueType                     string             `json:"issue_type"`
+	Severity                      string             `json:"severity"`
+	Status                        string             `json:"status"`
+	SourceSessionID               pgtype.UUID        `json:"source_session_id"`
+	SitInSessionID                pgtype.UUID        `json:"sit_in_session_id"`
+	MissedSessionID               pgtype.UUID        `json:"missed_session_id"`
+	FirstSessionChangeID          pgtype.UUID        `json:"first_session_change_id"`
+	LatestSessionChangeID         pgtype.UUID        `json:"latest_session_change_id"`
+	DetailsJson                   []byte             `json:"details_json"`
+	SuggestedResolutionJson       []byte             `json:"suggested_resolution_json"`
+	DetectedAt                    pgtype.Timestamptz `json:"detected_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt                    pgtype.Timestamptz `json:"resolved_at"`
+	ResolvedBy                    pgtype.UUID        `json:"resolved_by"`
+	ResolutionAction              pgtype.Text        `json:"resolution_action"`
+	Fingerprint                   string             `json:"fingerprint"`
+	Wcode                         string             `json:"wcode"`
+	StudentName                   pgtype.Text        `json:"student_name"`
+	StudentEmail                  pgtype.Text        `json:"student_email"`
+	StudentPhone                  pgtype.Text        `json:"student_phone"`
+	StartAt                       pgtype.Timestamptz `json:"start_at"`
+	EndAt                         pgtype.Timestamptz `json:"end_at"`
+	IssueVersion                  int32              `json:"issue_version"`
+	AssignmentSnapshotAtDetection []byte             `json:"assignment_snapshot_at_detection"`
+	AssignmentSnapshotQuality     string             `json:"assignment_snapshot_quality"`
+	AssignmentSnapshotSource      pgtype.Text        `json:"assignment_snapshot_source"`
 }
 
 func (q *Queries) AbsenceScheduleIssueListByChange(ctx context.Context, latestSessionChangeID pgtype.UUID) ([]AbsenceScheduleIssueListByChangeRow, error) {
@@ -337,6 +366,10 @@ func (q *Queries) AbsenceScheduleIssueListByChange(ctx context.Context, latestSe
 			&i.StudentPhone,
 			&i.StartAt,
 			&i.EndAt,
+			&i.IssueVersion,
+			&i.AssignmentSnapshotAtDetection,
+			&i.AssignmentSnapshotQuality,
+			&i.AssignmentSnapshotSource,
 		); err != nil {
 			return nil, err
 		}
@@ -427,8 +460,7 @@ type AbsenceScheduleIssueUpsertParams struct {
 }
 
 func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceScheduleIssueUpsertParams) (pgtype.UUID, error) {
-	var id pgtype.UUID
-	err := q.db.QueryRow(ctx, absenceScheduleIssueUpsert,
+	row := q.db.QueryRow(ctx, absenceScheduleIssueUpsert,
 		arg.AbsenceID,
 		arg.IssueType,
 		arg.Severity,
@@ -442,7 +474,9 @@ func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceSch
 		arg.SnapshotJson,
 		arg.SnapshotQuality,
 		arg.SnapshotSource,
-	).Scan(&id)
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
 	return id, err
 }
 

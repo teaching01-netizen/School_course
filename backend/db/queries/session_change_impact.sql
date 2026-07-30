@@ -181,7 +181,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
@@ -231,7 +234,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
@@ -245,7 +251,10 @@ SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
        i.details_json, i.suggested_resolution_json, i.detected_at,
        i.updated_at, i.resolved_at, i.resolved_by, i.resolution_action,
        i.fingerprint, sa.wcode, sa.student_name, sa.student_email,
-       sa.student_phone, s.start_at, s.end_at
+       sa.student_phone, s.start_at, s.end_at,
+       i.issue_version,
+       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality,
+       i.assignment_snapshot_source
 FROM absence_schedule_issues i
 JOIN student_absences sa ON sa.id = i.absence_id
 LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
