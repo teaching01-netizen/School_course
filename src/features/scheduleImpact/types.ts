@@ -63,7 +63,9 @@ export type ScheduleImpactIssue = {
   issue_version: number;
   wcode: string;
   student_name: string | null;
+  /** @deprecated Use assignment_context.original_session.snapshot.start_at or change_context.before.start_at */
   start_at: string | null;
+  /** @deprecated Use assignment_context.original_session.snapshot.end_at or change_context.before.end_at */
   end_at: string | null;
   details: { reasons?: string[]; notice_hours?: number; old_start_at?: string; new_start_at?: string };
   suggested_resolutions: ImpactCandidate[];

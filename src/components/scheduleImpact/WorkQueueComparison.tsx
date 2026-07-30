@@ -30,10 +30,12 @@ function getStatusClasses(issue: ScheduleImpactIssue): string {
 export default function WorkQueueComparison({ issue }: { issue: ScheduleImpactIssue }) {
   const before = issue.change_context.before;
   const after = issue.change_context.after;
-  const originalTimeStart = (before?.start_at as string) ?? issue.details.old_start_at ?? issue.start_at;
-  const originalTimeEnd = (before?.end_at as string) ?? issue.details.old_start_at ? null : issue.end_at;
-  const currentTimeStart = (after?.start_at as string) ?? issue.details.new_start_at ?? issue.start_at;
-  const currentTimeEnd = (after?.end_at as string) ?? issue.details.new_start_at ? null : issue.end_at;
+  const originalSnapshot = issue.assignment_context.original_session.snapshot;
+  const originalTimeStart = (originalSnapshot?.start_at as string) ?? (before?.start_at as string) ?? issue.details.old_start_at ?? null;
+  const originalTimeEnd = (originalSnapshot?.end_at as string) ?? (before?.end_at as string) ?? null;
+  const currentSession = issue.assignment_context.current_session;
+  const currentTimeStart = (after?.start_at as string) ?? currentSession?.start_at ?? issue.details.new_start_at ?? null;
+  const currentTimeEnd = (after?.end_at as string) ?? currentSession?.end_at ?? null;
   const impactMessage = issueMessage(issue);
   const hasOverlap = issue.impact_context.reasons.some(
     (r) => r.code === "regular_session_overlap" || r.code === "sit_in_overlap"

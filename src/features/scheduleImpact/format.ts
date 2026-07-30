@@ -70,7 +70,10 @@ export function urgencyFor(issue: ScheduleImpactIssue): string {
     if (hours < 24) return `Starts in ${Math.ceil(hours)}h`;
     return `Starts in ${Math.ceil(hours / 24)} days`;
   }
-  const start = issue.start_at ? new Date(issue.start_at).getTime() : 0;
+  const originalSnapshot = issue.assignment_context.original_session.snapshot;
+  const before = issue.change_context.before;
+  const startAt = (originalSnapshot?.start_at as string) ?? (before?.start_at as string) ?? null;
+  const start = startAt ? new Date(startAt).getTime() : 0;
   const hoursUntil = (start - Date.now()) / 3_600_000;
   if (hoursUntil > 0 && hoursUntil < 24) return `Starts in ${Math.ceil(hoursUntil)}h`;
   return issue.severity === "critical" ? "Needs urgent review" : "Review soon";

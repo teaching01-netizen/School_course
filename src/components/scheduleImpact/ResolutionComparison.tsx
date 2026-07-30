@@ -120,10 +120,10 @@ function OriginalAssignment({ issue }: { issue: ScheduleImpactIssue }) {
 
   const date = snapshot?.start_at
     ? formatFieldDate(snapshot.start_at as string)
-    : formatFieldDate(issue.start_at);
+    : formatFieldDate(null);
   const time = snapshot
     ? formatFieldTime((snapshot.start_at as string) ?? null, (snapshot.end_at as string) ?? null)
-    : formatFieldTime(issue.start_at, issue.end_at);
+    : formatFieldTime(null, null);
   const room = (snapshot?.room_name as string) ?? (snapshot?.room as string) ?? "Not assigned";
   const teacher = (snapshot?.teacher_name as string) ?? (snapshot?.teacher as string) ?? "Not assigned";
 
