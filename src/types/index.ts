@@ -8,6 +8,7 @@ export type * from "@/features/teachers/types";
 export type * from "@/hooks/toastTypes";
 
 export type * from "./shared";
+export type * from "./snapshot";
 
 export { conflictKindLabel, getRequestedLabel } from "@/features/scheduling/domain/conflicts";
 export {
