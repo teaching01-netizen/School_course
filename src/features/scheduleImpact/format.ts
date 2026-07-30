@@ -2,7 +2,7 @@ import type { ScheduleImpactIssue } from "./types";
 
 const messages: Record<string, string> = {
   sit_in_overlap: "This sit-in overlaps with another sit-in.",
-  regular_session_overlap: "This sit-in overlaps with the student’s regular class.",
+  regular_session_overlap: "This sit-in overlaps with the student's regular class.",
   sit_in_ineligible: "The student is no longer eligible for this session.",
   past_time_change: "This session has already started or passed.",
   short_notice_change: "The student has limited notice of this change.",
@@ -34,6 +34,33 @@ export function formatBangkokDateTime(start: string | null, end?: string | null)
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok",
   }).format(new Date(end));
   return `${date} · ${time}–${endTime}`;
+}
+
+export function formatBangkokDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok",
+  }).format(new Date(iso));
+}
+
+export function formatBangkokDateShort(iso: string | null): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric", month: "short", timeZone: "Asia/Bangkok",
+  }).format(new Date(iso));
+}
+
+export function formatBangkokTime(start: string | null, end?: string | null): string {
+  if (!start) return "Not set";
+  const startDate = new Date(start);
+  const timeStart = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok",
+  }).format(startDate);
+  if (!end) return timeStart;
+  const timeEnd = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok",
+  }).format(new Date(end));
+  return `${timeStart}–${timeEnd}`;
 }
 
 export function urgencyFor(issue: ScheduleImpactIssue): string {

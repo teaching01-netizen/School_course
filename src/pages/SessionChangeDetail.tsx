@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Info } from "lucide-react";
 import PageHeading from "../components/ui/PageHeading";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
@@ -66,6 +67,23 @@ function titleCase(value: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 }
 
+function LegacyStateNotice({ snapshot }: { snapshot: Record<string, unknown> | null }) {
+  if (!snapshot) {
+    return (
+      <div className="flex items-start gap-2 rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600" role="note">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>Original assignment details unavailable. This arrangement was created before historical snapshots were recorded.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start gap-2 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="note">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>Original details reconstructed from schedule history</span>
+    </div>
+  );
+}
+
 export default function SessionChangeDetail() {
   const { id = "" } = useParams();
   const { addToast } = useToast();
@@ -106,6 +124,8 @@ export default function SessionChangeDetail() {
   if (query.loading) return <LoadingSkeleton type="table" lines={6} />;
   if (query.error || !change) return <p className="text-sm text-red-600">Could not load this session change.</p>;
 
+  const hasBeforeSnapshot = change.before_snapshot && Object.keys(change.before_snapshot).length > 0;
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <Link to="/operations/schedule-impact?view=history" className="text-sm text-[var(--color-wi-primary)] hover:underline">Back to Schedule Impact</Link>
@@ -120,11 +140,29 @@ export default function SessionChangeDetail() {
         </div>
       </div>
 
-      <section className="mt-5 rounded-sm border border-gray-200 bg-white p-4">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div><p className="text-xs uppercase tracking-wide text-gray-400">Previous schedule</p><p className="mt-1 font-medium text-gray-900">{formatDateTime(change.old_start_at)} - {formatDateTime(change.old_end_at)}</p><p className="text-sm text-gray-600">{change.old_course.code} {change.old_course.name}</p></div>
-          <div><p className="text-xs uppercase tracking-wide text-gray-400">Current schedule</p><p className="mt-1 font-medium text-gray-900">{formatDateTime(change.new_start_at)} - {formatDateTime(change.new_end_at)}</p><p className="text-sm text-gray-600">{change.new_course.code} {change.new_course.name}</p></div>
-          <div className="md:text-right"><p className="text-xs uppercase tracking-wide text-gray-400">Impact status</p><p className="mt-1 text-2xl font-semibold text-gray-900">{change.open_issue_count}</p><p className="text-sm text-gray-500">open issues {change.critical_issue_count > 0 ? `· ${change.critical_issue_count} critical` : ""}</p></div>
+      {/* Original / Current comparison */}
+      <section className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="rounded-sm border border-gray-200 bg-gray-50 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Original schedule</h2>
+          <p className="mt-2 font-medium text-gray-900">{formatDateTime(change.old_start_at)} – {formatDateTime(change.old_end_at)}</p>
+          <p className="text-sm text-gray-600">{change.old_course.code} {change.old_course.name}</p>
+          {!hasBeforeSnapshot ? <div className="mt-3"><LegacyStateNotice snapshot={null} /></div> : null}
+        </div>
+        <div className="rounded-sm border border-gray-200 bg-white p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current schedule</h2>
+          <p className="mt-2 font-medium text-gray-900">{formatDateTime(change.new_start_at)} – {formatDateTime(change.new_end_at)}</p>
+          <p className="text-sm text-gray-600">{change.new_course.code} {change.new_course.name}</p>
+        </div>
+      </section>
+
+      {/* Impact status */}
+      <section className="mt-4 rounded-sm border border-gray-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Impact status</h2>
+            <p className="mt-1 text-2xl font-semibold text-gray-900">{change.open_issue_count}</p>
+            <p className="text-sm text-gray-500">open issues {change.critical_issue_count > 0 ? `· ${change.critical_issue_count} critical` : ""}</p>
+          </div>
         </div>
       </section>
 
