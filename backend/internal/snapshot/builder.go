@@ -30,11 +30,6 @@ func BuildSessionSnapshotV1(session AssignmentSession, capturedAt time.Time, tim
 		Name: ptrString(session.TeacherName),
 	}
 
-	var seriesID *uuid.UUID
-	if session.SeriesID != nil {
-		seriesID = session.SeriesID
-	}
-
 	return SessionSnapshotV1{
 		SchemaVersion:  1,
 		SessionID:      session.ID,
@@ -45,7 +40,9 @@ func BuildSessionSnapshotV1(session AssignmentSession, capturedAt time.Time, tim
 		Course:         course,
 		Room:           room,
 		Teacher:        teacher,
-		SeriesID:       seriesID,
+		SeriesID:       session.SeriesID,
+		// Status is always "active" at capture time; this is the snapshot's
+		// own status, not the session's current status.
 		Status:         "active",
 		CapturedAt:     capturedAt.UTC(),
 	}

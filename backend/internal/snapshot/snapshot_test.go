@@ -342,6 +342,73 @@ func TestDecodeSessionSnapshotV1_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecodeSessionSnapshotV1Raw(t *testing.T) {
+	// Raw decoder should accept invalid snapshots without validation errors
+	invalidSnapshot := `{
+		"schema_version": 99,
+		"session_id": "00000000-0000-0000-0000-000000000000",
+		"session_version": 1,
+		"start_at": "2024-01-01T00:00:00Z",
+		"end_at": "2024-01-01T01:00:00Z",
+		"timezone": "UTC",
+		"course": {"id": "", "code": "X", "name": "X"},
+		"room": {"id": null, "name": null},
+		"teacher": {"id": null, "name": null},
+		"series_id": null,
+		"occurrence_status": "active",
+		"captured_at": "2024-01-01T00:00:00Z"
+	}`
+
+	snapshot, err := DecodeSessionSnapshotV1Raw([]byte(invalidSnapshot))
+	if err != nil {
+		t.Fatalf("raw decoder should not validate, got error: %v", err)
+	}
+
+	if snapshot.SchemaVersion != 99 {
+		t.Errorf("expected schema_version 99, got %d", snapshot.SchemaVersion)
+	}
+
+	// Also test malformed JSON
+	_, err = DecodeSessionSnapshotV1Raw([]byte(`{broken`))
+	if err == nil {
+		t.Error("expected error for malformed JSON")
+	}
+}
+
+func TestStatusRoundTrip(t *testing.T) {
+	original := SessionSnapshotV1{
+		SchemaVersion:  1,
+		SessionID:      uuid.New(),
+		SessionVersion: 1,
+		StartAt:        time.Now().UTC(),
+		EndAt:          time.Now().UTC().Add(1 * time.Hour),
+		Timezone:       "UTC",
+		Course: SnapshotEntity{
+			ID:   uuid.New().String(),
+			Code: "TEST",
+			Name: "Test",
+		},
+		Room:       NullableSnapshotEntity{},
+		Teacher:    NullableSnapshotEntity{},
+		Status:     "active",
+		CapturedAt: time.Now().UTC(),
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("error marshaling: %v", err)
+	}
+
+	decoded, err := DecodeSessionSnapshotV1(data)
+	if err != nil {
+		t.Fatalf("error decoding: %v", err)
+	}
+
+	if original.Status != decoded.Status {
+		t.Errorf("status mismatch: %q != %q", original.Status, decoded.Status)
+	}
+}
+
 func ptrUUID(v uuid.UUID) *uuid.UUID {
 	return &v
 }
