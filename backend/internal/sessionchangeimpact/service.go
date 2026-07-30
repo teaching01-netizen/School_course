@@ -27,6 +27,8 @@ type Service struct {
 	now      func() time.Time
 }
 
+const outboxMaxRetries = 5
+
 type eventPayload struct {
 	ChangeID string `json:"change_id"`
 	BatchID  string `json:"batch_id"`
@@ -81,7 +83,7 @@ func (s *Service) RunOnce(ctx context.Context) error {
 		}
 		if batchStatus == "open" {
 			_ = s.q.SessionChangeImpactRunSetStatus(ctx, pgtype.UUID{Bytes: changeID, Valid: true}, "delayed_by_batch", "waiting for schedule batch completion")
-			return s.q.OutboxRetry(ctx, sqldb.OutboxRetryParams{ID: event.ID, Attempts: event.Attempts, Column3: pgtype.Interval{Microseconds: int64(time.Second / time.Microsecond), Valid: true}, LastError: pgtype.Text{String: "batch is still open", Valid: true}})
+			return s.q.OutboxRetry(ctx, sqldb.OutboxRetryParams{ID: event.ID, Attempts: outboxMaxRetries, Column3: pgtype.Interval{Microseconds: int64(time.Second / time.Microsecond), Valid: true}, LastError: pgtype.Text{String: "batch is still open", Valid: true}})
 		}
 	}
 	changeUUID := pgtype.UUID{Bytes: changeID, Valid: true}
@@ -97,5 +99,5 @@ func (s *Service) retry(ctx context.Context, eventID pgtype.UUID, attempts int32
 	if backoff > 5*time.Minute {
 		backoff = 5 * time.Minute
 	}
-	return s.q.OutboxRetry(ctx, sqldb.OutboxRetryParams{ID: eventID, Attempts: attempts, Column3: pgtype.Interval{Microseconds: backoff.Microseconds(), Valid: true}, LastError: pgtype.Text{String: cause.Error(), Valid: true}})
+	return s.q.OutboxRetry(ctx, sqldb.OutboxRetryParams{ID: eventID, Attempts: outboxMaxRetries, Column3: pgtype.Interval{Microseconds: backoff.Microseconds(), Valid: true}, LastError: pgtype.Text{String: cause.Error(), Valid: true}})
 }

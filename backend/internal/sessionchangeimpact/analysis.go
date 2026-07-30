@@ -84,7 +84,7 @@ func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
 	result := analysisResult{
 		AffectedAbsenceIDs: make([]string, 0, len(affected)),
 		AbsenceCount:       len(affected),
-		IssuesCreated:      len(affected),
+		IssuesCreated:      len(createdIssueIDs),
 	}
 	seen := make(map[pgtype.UUID]struct{}, len(affected))
 	for _, item := range affected {
