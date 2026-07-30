@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
 import TypeaheadSelect, { type TypeaheadOption } from "../components/TypeaheadSelect";
 import MultiTeacherSelect from "../components/MultiTeacherSelect";
@@ -24,6 +24,7 @@ import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
 import FormField from "../components/ui/FormField";
 import ConfirmModal from "../components/ConfirmModal";
+import ImpactAcknowledgementModal, { type ImpactSummary } from "../components/scheduleImpact/ImpactAcknowledgementModal";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import { LegacyLinkSection } from "@/features/courses/components/LegacyLinkSection";
@@ -100,6 +101,23 @@ export default function CourseDetail() {
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => yyyyMmDd(today), [today]);
   const zone = instituteTZ ?? "Asia/Bangkok";
+  const [impactedSessionIDs, setImpactedSessionIDs] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let active = true;
+    if (sessions.length === 0) {
+      setImpactedSessionIDs(new Set());
+      return () => { active = false; };
+    }
+    void apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
+      method: "POST",
+      body: JSON.stringify({ session_ids: sessions.map((session) => session.id) }),
+    }).then((result) => {
+      if (active) setImpactedSessionIDs(new Set(Object.entries(result.sessions).filter(([, value]) => value.open_count > 0).map(([sessionID]) => sessionID)));
+    }).catch(() => {
+      if (active) setImpactedSessionIDs(new Set());
+    });
+    return () => { active = false; };
+  }, [sessions]);
 
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -137,6 +155,7 @@ export default function CourseDetail() {
     requiredFields: [editForm.date, editForm.begin, editForm.end, editForm.teacher_id],
   });
   const [editSaving, setEditSaving] = useState(false);
+  const [editImpact, setEditImpact] = useState<ImpactSummary | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<Session | null>(null);
@@ -185,7 +204,7 @@ export default function CourseDetail() {
     });
   }, [editingSessionId, sessions, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id, editForm.teacher_id]);
 
-  const submitEditSession = async () => {
+  const submitEditSession = async (acknowledgeImpact = false) => {
     const s = getEditSession();
     if (!s) return;
     if (!editGate.canSave) {
@@ -200,18 +219,30 @@ export default function CourseDetail() {
     }
     try {
       setEditSaving(true);
-      await apiJson<{ session: Session }>(`/api/v1/sessions/${s.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_version: s.version,
-          course_id: s.course_id,
-          room_id: editForm.room_id ? editForm.room_id : null,
-          teacher_id: editForm.teacher_id || s.teacher_id,
-          start_at: startISO,
-          end_at: endISO,
-        }),
+      const updateBody: Record<string, unknown> = {
+        expected_version: s.version,
+        course_id: s.course_id,
+        room_id: editForm.room_id ? editForm.room_id : null,
+        teacher_id: editForm.teacher_id || s.teacher_id,
+        start_at: startISO,
+        end_at: endISO,
+      };
+      const preview = await apiJson<{ requires_acknowledgement?: boolean; impact_summary?: ImpactSummary }>(`/api/v1/sessions/${s.id}/change-preview`, {
+        method: "POST",
+        body: JSON.stringify(updateBody),
       });
-      addToast("success", "Updated session");
+      if (preview.requires_acknowledgement && !acknowledgeImpact) {
+        setEditImpact(preview.impact_summary ?? {});
+        return;
+      }
+      if (preview.requires_acknowledgement) {
+        updateBody.acknowledge_impact = true;
+      }
+      const result = await apiJson<{ session: Session; change_id?: string }>(`/api/v1/sessions/${s.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updateBody),
+      });
+      addToast("success", result.change_id ? "Updated session. Impact review queued." : "Updated session");
       cancelEditSession();
       await loadSessions();
     } catch (err) {
@@ -972,14 +1003,16 @@ export default function CourseDetail() {
                               {sessList.map((sess) => {
                                 const room = roomById.get(sess.room_id ?? '');
                                 return (
-                                  <ScheduleSessionCard
-                                    key={sess.id}
-                                    session={sess}
-                                    course={course}
-                                    room={room}
-                                    zone={zone}
-                                    teacherName={teacherById.get(sess.teacher_id)}
-                                  />
+                                  <div key={sess.id}>
+                                    <ScheduleSessionCard
+                                      session={sess}
+                                      course={course}
+                                      room={room}
+                                      zone={zone}
+                                      teacherName={teacherById.get(sess.teacher_id)}
+                                    />
+                                    {impactedSessionIDs.has(sess.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-[11px] font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1059,7 +1092,10 @@ export default function CourseDetail() {
                           {isEditing ? (
                             <Input type="date" size="sm" value={editForm.date} onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))} />
                           ) : (
-                            dateLabel
+                            <div>
+                              <span>{dateLabel}</span>
+                              {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="ml-2 text-[11px] font-medium text-amber-700 hover:underline">Impact open</Link> : null}
+                            </div>
                           )}
                         </td>
                         <td className="py-2 px-3 font-mono text-xs text-gray-700">
@@ -1109,7 +1145,7 @@ export default function CourseDetail() {
                                 <Button
                                   variant="primary"
                                   size="sm"
-                                  onClick={submitEditSession}
+                                  onClick={() => void submitEditSession()}
                                   disabled={editSaving || !editGate.canSave}
                                   loading={editPreflight.loading || editSaving}
                                 >
@@ -1558,6 +1594,8 @@ export default function CourseDetail() {
         onConfirm={() => void handleConfirmRemoveStudent()}
         onCancel={() => setConfirmRemoveStudent(null)}
       />
+
+      {editImpact ? <ImpactAcknowledgementModal summary={editImpact} saving={editSaving} onBack={() => setEditImpact(null)} onConfirm={() => { setEditImpact(null); void submitEditSession(true); }} /> : null}
     </div>
   );
 }

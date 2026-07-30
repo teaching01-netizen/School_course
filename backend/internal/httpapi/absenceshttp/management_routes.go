@@ -94,41 +94,44 @@ type absenceTimelineDTO struct {
 }
 
 type managedAbsenceDTO struct {
-	ID                  string               `json:"id"`
-	Wcode               string               `json:"wcode"`
-	StudentName         *string              `json:"student_name"`
-	StudentEmail        *string              `json:"student_email"`
-	StudentNickname     *string              `json:"student_nickname"`
-	StudentPhone        *string              `json:"student_phone"`
-	CourseID            string               `json:"course_id"`
-	CourseCode          string               `json:"course_code"`
-	CourseName          string               `json:"course_name"`
-	SubjectID           *string              `json:"subject_id"`
-	SubjectCode         *string              `json:"subject_code"`
-	SubjectName         *string              `json:"subject_name"`
-	DateFrom            string               `json:"date_from"`
-	DateTo              string               `json:"date_to"`
-	ReasonCategory      *string              `json:"reason_category"`
-	Reason              *string              `json:"reason"`
-	SitInMethod         *string              `json:"sit_in_method"`
-	SitInCourseID       *string              `json:"sit_in_course_id"`
-	SitInCourseCode     *string              `json:"sit_in_course_code"`
-	SitInCourseName     *string              `json:"sit_in_course_name"`
-	SitInSubjectName    *string              `json:"sit_in_subject_name"`
-	Status              string               `json:"status"`
-	AdminNotes          *string              `json:"admin_notes"`
-	ReviewedBy          *string              `json:"reviewed_by"`
-	ReviewedAt          *string              `json:"reviewed_at"`
-	SitInOverridden     bool                 `json:"sit_in_overridden"`
-	SitInOverriddenBy   *string              `json:"sit_in_overridden_by"`
-	SitInOverrideReason *string              `json:"sit_in_override_reason"`
-	Version             int32                `json:"version"`
-	CreatedAt           string               `json:"created_at"`
-	UpdatedAt           string               `json:"updated_at"`
-	MissedSessions      []absenceSessionDTO  `json:"missed_sessions,omitempty"`
-	SitIns              []absenceSessionDTO  `json:"sit_ins,omitempty"`
-	Timeline            []absenceTimelineDTO `json:"timeline,omitempty"`
-	SmsPreview          *smsPreviewDTO       `json:"sms_preview,omitempty"`
+	ID                         string               `json:"id"`
+	Wcode                      string               `json:"wcode"`
+	StudentName                *string              `json:"student_name"`
+	StudentEmail               *string              `json:"student_email"`
+	StudentNickname            *string              `json:"student_nickname"`
+	StudentPhone               *string              `json:"student_phone"`
+	CourseID                   string               `json:"course_id"`
+	CourseCode                 string               `json:"course_code"`
+	CourseName                 string               `json:"course_name"`
+	SubjectID                  *string              `json:"subject_id"`
+	SubjectCode                *string              `json:"subject_code"`
+	SubjectName                *string              `json:"subject_name"`
+	DateFrom                   string               `json:"date_from"`
+	DateTo                     string               `json:"date_to"`
+	ReasonCategory             *string              `json:"reason_category"`
+	Reason                     *string              `json:"reason"`
+	SitInMethod                *string              `json:"sit_in_method"`
+	SitInCourseID              *string              `json:"sit_in_course_id"`
+	SitInCourseCode            *string              `json:"sit_in_course_code"`
+	SitInCourseName            *string              `json:"sit_in_course_name"`
+	SitInSubjectName           *string              `json:"sit_in_subject_name"`
+	Status                     string               `json:"status"`
+	AdminNotes                 *string              `json:"admin_notes"`
+	ReviewedBy                 *string              `json:"reviewed_by"`
+	ReviewedAt                 *string              `json:"reviewed_at"`
+	SitInOverridden            bool                 `json:"sit_in_overridden"`
+	SitInOverriddenBy          *string              `json:"sit_in_overridden_by"`
+	SitInOverrideReason        *string              `json:"sit_in_override_reason"`
+	Version                    int32                `json:"version"`
+	CreatedAt                  string               `json:"created_at"`
+	UpdatedAt                  string               `json:"updated_at"`
+	OpenScheduleIssueCount     int32                `json:"open_schedule_issue_count"`
+	CriticalScheduleIssueCount int32                `json:"critical_schedule_issue_count"`
+	LatestSessionChangeID      *string              `json:"latest_session_change_id"`
+	MissedSessions             []absenceSessionDTO  `json:"missed_sessions,omitempty"`
+	SitIns                     []absenceSessionDTO  `json:"sit_ins,omitempty"`
+	Timeline                   []absenceTimelineDTO `json:"timeline,omitempty"`
+	SmsPreview                 *smsPreviewDTO       `json:"sms_preview,omitempty"`
 }
 
 type smsPreviewDTO struct {
@@ -148,30 +151,36 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 	id, _ := s.a.UUIDString(row.ID)
 	courseID, _ := s.a.UUIDString(row.CourseID)
 	out := managedAbsenceDTO{
-		ID:                  id,
-		Wcode:               row.Wcode,
-		StudentName:         stringPtrIfValid(row.StudentName),
-		StudentEmail:        stringPtrIfValid(row.StudentEmail),
-		StudentNickname:     stringPtrIfValid(row.StudentNickname),
-		StudentPhone:        stringPtrIfValid(row.StudentPhone),
-		CourseID:            courseID,
-		CourseCode:          row.CourseCode,
-		CourseName:          row.CourseName,
-		DateFrom:            row.DateFrom.Time.Format("2006-01-02"),
-		DateTo:              row.DateTo.Time.Format("2006-01-02"),
-		ReasonCategory:      stringPtrIfValid(row.ReasonCategory),
-		Reason:              stringPtrIfValid(row.Reason),
-		SitInMethod:         stringPtrIfValid(row.SitInMethod),
-		SitInCourseCode:     stringPtrIfValid(row.SitInCourseCode),
-		SitInCourseName:     stringPtrIfValid(row.SitInCourseName),
-		SitInSubjectName:    stringPtrIfValid(row.SitInSubjectName),
-		Status:              row.Status,
-		AdminNotes:          stringPtrIfValid(row.AdminNotes),
-		SitInOverridden:     row.SitInOverridden,
-		SitInOverrideReason: stringPtrIfValid(row.SitInOverrideReason),
-		Version:             row.Version,
-		CreatedAt:           row.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:           row.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		ID:                         id,
+		Wcode:                      row.Wcode,
+		StudentName:                stringPtrIfValid(row.StudentName),
+		StudentEmail:               stringPtrIfValid(row.StudentEmail),
+		StudentNickname:            stringPtrIfValid(row.StudentNickname),
+		StudentPhone:               stringPtrIfValid(row.StudentPhone),
+		CourseID:                   courseID,
+		CourseCode:                 row.CourseCode,
+		CourseName:                 row.CourseName,
+		DateFrom:                   row.DateFrom.Time.Format("2006-01-02"),
+		DateTo:                     row.DateTo.Time.Format("2006-01-02"),
+		ReasonCategory:             stringPtrIfValid(row.ReasonCategory),
+		Reason:                     stringPtrIfValid(row.Reason),
+		SitInMethod:                stringPtrIfValid(row.SitInMethod),
+		SitInCourseCode:            stringPtrIfValid(row.SitInCourseCode),
+		SitInCourseName:            stringPtrIfValid(row.SitInCourseName),
+		SitInSubjectName:           stringPtrIfValid(row.SitInSubjectName),
+		Status:                     row.Status,
+		AdminNotes:                 stringPtrIfValid(row.AdminNotes),
+		SitInOverridden:            row.SitInOverridden,
+		SitInOverrideReason:        stringPtrIfValid(row.SitInOverrideReason),
+		Version:                    row.Version,
+		CreatedAt:                  row.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:                  row.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		OpenScheduleIssueCount:     row.OpenScheduleIssues,
+		CriticalScheduleIssueCount: row.CriticalScheduleIssues,
+	}
+	if row.LatestSessionChangeID.Valid {
+		value, _ := s.a.UUIDString(row.LatestSessionChangeID)
+		out.LatestSessionChangeID = &value
 	}
 	if row.SubjectID.Valid {
 		value, _ := s.a.UUIDString(row.SubjectID)
@@ -210,6 +219,7 @@ func (s *server) parseFilter(w http.ResponseWriter, r *http.Request, defaultLimi
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_bucket", "Unsupported absence bucket")
 		return filter, false
 	}
+	filter.ScheduleImpactOnly = strings.TrimSpace(query.Get("schedule_impact")) == "open"
 	if value := strings.TrimSpace(query.Get("subject_id")); value != "" {
 		id, err := s.a.ParseUUID(value)
 		if err != nil {
@@ -483,6 +493,12 @@ func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, message)
 		return
 	}
+	affectedAbsences, criticalIssues, err := s.deps.Q.OpenAbsenceScheduleIssueSummary(r.Context())
+	if err != nil {
+		status, code, message := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, message)
+		return
+	}
 	absenceIDs := make([]pgtype.UUID, 0, len(rows))
 	for _, row := range rows {
 		absenceIDs = append(absenceIDs, row.ID)
@@ -532,11 +548,13 @@ func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
 		subjects = append(subjects, map[string]string{"id": id, "code": subject.Code, "name": subject.Name})
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
-		"items":       items,
-		"subjects":    subjects,
-		"total_count": total,
-		"offset":      filter.Offset,
-		"limit":       filter.Limit,
+		"items":                          items,
+		"subjects":                       subjects,
+		"total_count":                    total,
+		"offset":                         filter.Offset,
+		"limit":                          filter.Limit,
+		"open_schedule_impact_count":     affectedAbsences,
+		"critical_schedule_impact_count": criticalIssues,
 	})
 }
 

@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, UserPlus } from "lucide-react";
+import { ArrowRight, Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, TriangleAlert, UserPlus } from "lucide-react";
 import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsencePage, AbsenceStatus, ManagedAbsence, SmsPreview } from "../types";
@@ -60,6 +60,65 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
       <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function SessionImpactNotice({
+  affectedCount,
+  criticalCount,
+  impactOnly,
+  onToggle,
+}: {
+  affectedCount: number;
+  criticalCount: number;
+  impactOnly: boolean;
+  onToggle: () => void;
+}) {
+  if (affectedCount === 0) return null;
+
+  const critical = criticalCount > 0;
+  return (
+    <section
+      className={`mb-4 flex flex-col gap-3 rounded-sm border p-4 sm:flex-row sm:items-center sm:justify-between ${
+        critical ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
+      }`}
+      aria-labelledby="session-impact-heading"
+      aria-live="polite"
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${critical ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+          <TriangleAlert className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h2 id="session-impact-heading" className={`font-semibold ${critical ? "text-red-900" : "text-amber-900"}`}>
+            Session changes need attention
+          </h2>
+          <p className={`mt-0.5 text-sm ${critical ? "text-red-800" : "text-amber-800"}`}>
+            {affectedCount} student sit-in plan{affectedCount === 1 ? "" : "s"} may no longer be valid. Review the impact before contacting the student.
+          </p>
+          {critical ? <p className="mt-1 text-xs font-semibold text-red-700">{criticalCount} critical issue{criticalCount === 1 ? "" : "s"} require immediate review.</p> : null}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`inline-flex min-h-9 items-center rounded-sm px-3 py-1.5 text-sm font-semibold text-white ${
+            critical ? "bg-red-700 hover:bg-red-800" : "bg-amber-700 hover:bg-amber-800"
+          }`}
+        >
+          {impactOnly ? "Show all absences" : "Show affected students"}
+        </button>
+        <Link
+          to="/operations/schedule-impact"
+          className={`inline-flex min-h-9 items-center gap-1 rounded-sm border bg-white px-3 py-1.5 text-sm font-semibold ${
+            critical ? "border-red-300 text-red-800 hover:bg-red-100" : "border-amber-300 text-amber-800 hover:bg-amber-100"
+          }`}
+        >
+          Open impact queue <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
+    </section>
   );
 }
 
@@ -169,6 +228,7 @@ export default function Absences() {
   const statusParam = searchParams.get("status") ?? "";
   const bucketParam = searchParams.get("bucket");
   const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && (statusParam === "actioned" || statusParam === "cancelled" || statusParam === "special_approved")) ? "archived" : "active";
+  const impactOnly = searchParams.get("schedule_impact") === "open";
 
   const filters = {
     query: searchParams.get("query") ?? "",
@@ -177,6 +237,7 @@ export default function Absences() {
     bucket,
     dateFrom: searchParams.get("date_from") ?? "",
     dateTo: searchParams.get("date_to") ?? "",
+    impactOnly,
     offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0),
   };
 
@@ -220,6 +281,20 @@ export default function Absences() {
     if (nextBucket === "archived") params.set("bucket", "archived");
     else params.delete("bucket");
     params.delete("status");
+    params.delete("schedule_impact");
+    params.delete("offset");
+    setSearchParams(params);
+  }
+
+  function setScheduleImpactFilter(enabled: boolean) {
+    const params = new URLSearchParams(searchParams);
+    if (enabled) {
+      params.set("schedule_impact", "open");
+      params.delete("status");
+      params.delete("bucket");
+    } else {
+      params.delete("schedule_impact");
+    }
     params.delete("offset");
     setSearchParams(params);
   }
@@ -477,6 +552,9 @@ export default function Absences() {
     setSearchParams(params);
   }
 
+  const openImpactCount = page?.open_schedule_impact_count ?? 0;
+  const criticalImpactCount = page?.critical_schedule_impact_count ?? 0;
+
   if (viewMode === "board") {
     return (
       <div className="w-full">
@@ -492,6 +570,12 @@ export default function Absences() {
             </div>
           </div>
         </div>
+        <SessionImpactNotice
+          affectedCount={openImpactCount}
+          criticalCount={criticalImpactCount}
+          impactOnly={filters.impactOnly}
+          onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
+        />
         <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
           <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
             <FilterField label="Search">
@@ -511,7 +595,10 @@ export default function Absences() {
             </FilterField>
           </div>
         </section>
-        <KanbanView filters={filters} />
+        <KanbanView
+          key={[filters.query, filters.subject, filters.dateFrom, filters.dateTo, String(filters.impactOnly)].join("|")}
+          filters={filters}
+        />
       </div>
     );
   }
@@ -539,6 +626,7 @@ export default function Absences() {
   const emptyMessage = filters.bucket === "archived"
     ? "No archived absences match these filters."
     : "All caught up! No active absences match these filters.";
+  const resolvedEmptyMessage = filters.impactOnly ? "No unresolved session-change impacts." : emptyMessage;
 
   function jumpToPage(event: React.ChangeEvent<HTMLInputElement>) {
     const next = Math.max(1, Math.min(totalPages, Number(event.target.value) || 1));
@@ -571,17 +659,24 @@ export default function Absences() {
         </div>
       </div>
 
+      <SessionImpactNotice
+        affectedCount={openImpactCount}
+        criticalCount={criticalImpactCount}
+        impactOnly={filters.impactOnly}
+        onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
+      />
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
         <div className="flex gap-4 text-sm" aria-label="Absence table sections">
           <button
             type="button"
             onClick={() => setBucket("active")}
             className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
-              filters.bucket === "active"
+              filters.bucket === "active" && !filters.impactOnly
                 ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
                 : "border-transparent text-gray-500 hover:text-gray-900"
             }`}
-            aria-current={filters.bucket === "active" ? "page" : undefined}
+            aria-current={filters.bucket === "active" && !filters.impactOnly ? "page" : undefined}
           >
             Active table
           </button>
@@ -589,17 +684,34 @@ export default function Absences() {
             type="button"
             onClick={() => setBucket("archived")}
             className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
-              filters.bucket === "archived"
+              filters.bucket === "archived" && !filters.impactOnly
                 ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
                 : "border-transparent text-gray-500 hover:text-gray-900"
             }`}
-            aria-current={filters.bucket === "archived" ? "page" : undefined}
+            aria-current={filters.bucket === "archived" && !filters.impactOnly ? "page" : undefined}
           >
             Archived table
           </button>
+          <button
+            type="button"
+            onClick={() => setScheduleImpactFilter(true)}
+            className={`flex items-center gap-1.5 border-b-2 px-1 pb-2 font-medium transition-colors ${
+              filters.impactOnly
+                ? "border-red-600 text-red-700"
+                : "border-transparent text-gray-500 hover:text-gray-900"
+            }`}
+            aria-current={filters.impactOnly ? "page" : undefined}
+          >
+            <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+            Session changes ({openImpactCount})
+          </button>
         </div>
         <p className="pb-2 text-xs text-gray-500">
-          {filters.bucket === "archived" ? "Final records: actioned and cancelled." : "Working queue: pending and reviewed."}
+          {filters.impactOnly
+            ? "Only absences with unresolved session-change impact."
+            : filters.bucket === "archived"
+              ? "Final records: actioned and cancelled."
+              : "Working queue: pending and reviewed."}
         </p>
       </div>
 
@@ -679,9 +791,18 @@ export default function Absences() {
             </tr>
           </thead>
           <tbody>
-            {items.map((absence) => (
-              <tr key={absence.id} className="group cursor-pointer align-middle hover:bg-blue-50/40" onClick={() => navigate(`/absences/${absence.id}`)}>
-                <td className="px-3 py-3" data-label="Select" onClick={(event) => event.stopPropagation()}>
+            {items.map((absence) => {
+              const impacted = (absence.open_schedule_issue_count ?? 0) > 0;
+              const critical = (absence.critical_schedule_issue_count ?? 0) > 0;
+              return (
+              <tr
+                key={absence.id}
+                className={`group cursor-pointer align-middle ${
+                  critical ? "bg-red-50/70 hover:bg-red-50" : impacted ? "bg-amber-50/70 hover:bg-amber-50" : "hover:bg-blue-50/40"
+                }`}
+                onClick={() => navigate(`/absences/${absence.id}`)}
+              >
+                <td className={`px-3 py-3 ${impacted ? critical ? "border-l-4 border-red-600" : "border-l-4 border-amber-500" : ""}`} data-label="Select" onClick={(event) => event.stopPropagation()}>
                   <input aria-label={`Select ${absence.wcode}`} type="checkbox" checked={selected.has(absence.id)} onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
                     if (event.target.checked) next.add(absence.id);
@@ -689,13 +810,21 @@ export default function Absences() {
                     return next;
                   })} />
                 </td>
-                <td className="px-3 py-3" data-label="Status"><StatusBadge status={absence.status} /></td>
+                <td className="px-3 py-3" data-label="Status">
+                  <StatusBadge status={absence.status} />
+                  {impacted ? (
+                    <span className={`mt-1.5 flex items-center gap-1 text-xs font-semibold ${critical ? "text-red-700" : "text-amber-700"}`}>
+                      <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" /> Session changed
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-3 py-3" data-label="Student">
                   <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_nickname ?? absence.student_name ?? absence.wcode)}</span>
                     <div className="min-w-0">
                       <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_nickname ?? absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_nickname ?? absence.student_name ?? "Unknown student"}</Link>
                       <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
+                      {impacted ? <div className={`mt-0.5 text-xs font-medium ${critical ? "text-red-700" : "text-amber-700"}`}>Sit-in needs review</div> : null}
                     </div>
                   </div>
                 </td>
@@ -706,6 +835,16 @@ export default function Absences() {
                 <td className="whitespace-nowrap px-3 py-3 text-gray-500" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
                 <td className="px-3 py-3" data-label="Actions" onClick={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
+                    {impacted && absence.latest_session_change_id ? (
+                      <Link
+                        to="/operations/schedule-impact"
+                        className={`inline-flex min-h-[28px] items-center gap-1 rounded-sm px-2 text-xs font-semibold text-white ${
+                          critical ? "bg-red-700 hover:bg-red-800" : "bg-amber-700 hover:bg-amber-800"
+                        }`}
+                      >
+                        <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" /> Review impact
+                      </Link>
+                    ) : null}
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
@@ -718,10 +857,11 @@ export default function Absences() {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7}><EmptyState message={emptyMessage} action={
+                <td colSpan={7}><EmptyState message={resolvedEmptyMessage} action={
                   <div className="flex justify-center gap-2">
                     <button type="button" onClick={() => setBucket(filters.bucket === "active" ? "archived" : "active")} className="text-sm text-[var(--color-wi-primary)] hover:underline">
                       View {filters.bucket === "active" ? "archive" : "active table"}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"warwick-institute/internal/absences/sitinresolver"
 	"warwick-institute/internal/auth"
 	"warwick-institute/internal/config"
 	"warwick-institute/internal/crmimport"
@@ -35,6 +36,7 @@ import (
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
 	"warwick-institute/internal/httpapi/schedulinghttp"
 	"warwick-institute/internal/httpapi/serieshttp"
+	"warwick-institute/internal/httpapi/sessionchangehttp"
 	"warwick-institute/internal/httpapi/sessionshttp"
 	"warwick-institute/internal/httpapi/sitinruleshttp"
 	"warwick-institute/internal/httpapi/staffabsencehttp"
@@ -48,6 +50,7 @@ import (
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
+	"warwick-institute/internal/sessionchangeimpact"
 	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/users"
 )
@@ -122,7 +125,7 @@ func NewEmailDeps(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, q *sqld
 	}
 }
 
-func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps, otpDelivery *OTPDeliveryDeps, realtimeHub ...*realtime.Hub) http.Handler {
+func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 *crmimport.UploadV2Service, reconcileV2 *reconcile.ReconcileV2Service, worker *queue.QueueWorker, emailDeps EmailDeps, otpDelivery *OTPDeliveryDeps, impact *sessionchangeimpact.Service, realtimeHub ...*realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
 	hub := realtime.NewHub()
 	if len(realtimeHub) > 0 && realtimeHub[0] != nil {
@@ -153,22 +156,24 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		panic(err)
 	}
 	deps := httpdeps.Deps{
-		Log:                log,
-		Auth:               authSvc,
-		Q:                  q,
-		DB:                 db,
-		Scheduling:         schedulingSvc,
-		AdminUsers:         adminUsersSvc,
-		InstituteTZ:        cfg.InstituteTZ,
-		CRMUploadV2:        uploadV2,
-		CRMReconcileV2:     reconcileV2,
-		CRMWorker:          worker,
-		RateLimiter:        ratelimit.NewStore(db),
-		Realtime:           hub,
-		AppOrigin:          cfg.AppOrigin,
-		LegacySyncURL:      cfg.LegacySyncURL,
-		LegacySyncUsername: cfg.LegacySyncUsername,
-		LegacySyncPassword: cfg.LegacySyncPassword,
+		Log:                 log,
+		Auth:                authSvc,
+		Q:                   q,
+		DB:                  db,
+		Scheduling:          schedulingSvc,
+		SessionChangeImpact: impact,
+		SitInResolver:       sitinresolver.New(q, cfg.InstituteTZ),
+		AdminUsers:          adminUsersSvc,
+		InstituteTZ:         cfg.InstituteTZ,
+		CRMUploadV2:         uploadV2,
+		CRMReconcileV2:      reconcileV2,
+		CRMWorker:           worker,
+		RateLimiter:         ratelimit.NewStore(db),
+		Realtime:            hub,
+		AppOrigin:           cfg.AppOrigin,
+		LegacySyncURL:       cfg.LegacySyncURL,
+		LegacySyncUsername:  cfg.LegacySyncUsername,
+		LegacySyncPassword:  cfg.LegacySyncPassword,
 	}
 
 	otpSvc, err := otp.NewService(db, cfg.OTPHMACKey)
@@ -225,6 +230,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	sitinruleshttp.Register(mux, deps)
 	studentshttp.Register(mux, deps)
 	sessionshttp.Register(mux, deps)
+	sessionchangehttp.Register(mux, deps)
 	staffabsencehttp.Register(mux, deps)
 	schedulinghttp.Register(mux, deps)
 	usershttp.Register(mux, deps)

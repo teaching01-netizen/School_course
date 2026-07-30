@@ -230,6 +230,10 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 					s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
 					return 0, nil, fmt.Errorf("invalid sit-in sessions")
 				}
+				if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
+					s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
+					return 0, nil, err
+				}
 			}
 			if err := qtx.AbsenceSitInsCreate(r.Context(), row.ID, sessionUUIDs); err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)

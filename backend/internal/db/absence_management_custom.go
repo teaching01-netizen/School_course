@@ -12,50 +12,54 @@ import (
 )
 
 type AbsenceFilter struct {
-	Query     string
-	IDs       []pgtype.UUID
-	SubjectID pgtype.UUID
-	Status    string
-	Bucket    string
-	DateFrom  pgtype.Date
-	DateTo    pgtype.Date
-	Limit     int32
-	Offset    int32
+	Query              string
+	IDs                []pgtype.UUID
+	SubjectID          pgtype.UUID
+	Status             string
+	Bucket             string
+	ScheduleImpactOnly bool
+	DateFrom           pgtype.Date
+	DateTo             pgtype.Date
+	Limit              int32
+	Offset             int32
 }
 
 type ManagedAbsenceRow struct {
-	ID                  pgtype.UUID
-	Wcode               string
-	StudentName         pgtype.Text
-	StudentEmail        pgtype.Text
-	StudentNickname     pgtype.Text
-	StudentPhone        pgtype.Text
-	ParentPhone         pgtype.Text
-	CourseID            pgtype.UUID
-	CourseCode          string
-	CourseName          string
-	SubjectID           pgtype.UUID
-	SubjectCode         pgtype.Text
-	SubjectName         pgtype.Text
-	DateFrom            pgtype.Date
-	DateTo              pgtype.Date
-	ReasonCategory      pgtype.Text
-	Reason              pgtype.Text
-	SitInMethod         pgtype.Text
-	SitInCourseID       pgtype.UUID
-	SitInCourseCode     pgtype.Text
-	SitInCourseName     pgtype.Text
-	SitInSubjectName    pgtype.Text
-	Status              string
-	AdminNotes          pgtype.Text
-	ReviewedBy          pgtype.UUID
-	ReviewedAt          pgtype.Timestamptz
-	SitInOverridden     bool
-	SitInOverriddenBy   pgtype.UUID
-	SitInOverrideReason pgtype.Text
-	Version             int32
-	CreatedAt           pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
+	ID                     pgtype.UUID
+	Wcode                  string
+	StudentName            pgtype.Text
+	StudentEmail           pgtype.Text
+	StudentNickname        pgtype.Text
+	StudentPhone           pgtype.Text
+	ParentPhone            pgtype.Text
+	CourseID               pgtype.UUID
+	CourseCode             string
+	CourseName             string
+	SubjectID              pgtype.UUID
+	SubjectCode            pgtype.Text
+	SubjectName            pgtype.Text
+	DateFrom               pgtype.Date
+	DateTo                 pgtype.Date
+	ReasonCategory         pgtype.Text
+	Reason                 pgtype.Text
+	SitInMethod            pgtype.Text
+	SitInCourseID          pgtype.UUID
+	SitInCourseCode        pgtype.Text
+	SitInCourseName        pgtype.Text
+	SitInSubjectName       pgtype.Text
+	Status                 string
+	AdminNotes             pgtype.Text
+	ReviewedBy             pgtype.UUID
+	ReviewedAt             pgtype.Timestamptz
+	SitInOverridden        bool
+	SitInOverriddenBy      pgtype.UUID
+	SitInOverrideReason    pgtype.Text
+	Version                int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+	OpenScheduleIssues     int32
+	CriticalScheduleIssues int32
+	LatestSessionChangeID  pgtype.UUID
 }
 
 func normalizedAbsencePaging(p AbsenceFilter) AbsenceFilter {
@@ -83,6 +87,9 @@ const managedAbsenceListQueryTemplate = `
 		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at,
+		       COALESCE(impact.open_issue_count, 0),
+		       COALESCE(impact.critical_issue_count, 0),
+		       impact.latest_session_change_id,
 		       count(*) OVER()
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
@@ -97,14 +104,24 @@ const managedAbsenceListQueryTemplate = `
 		  JOIN subjects sit_sub_inner ON sit_sub_inner.id = sit_courses.subject_id
 		  GROUP BY asi.absence_id
 		) sit_sub ON sit_sub.absence_id = sa.id
+		LEFT JOIN LATERAL (
+		  SELECT count(*)::int4 AS open_issue_count,
+		         count(*) FILTER (WHERE severity = 'critical')::int4 AS critical_issue_count,
+		         (array_agg(latest_session_change_id ORDER BY updated_at DESC))[1] AS latest_session_change_id
+		  FROM absence_schedule_issues
+		  WHERE absence_id = sa.id AND status = 'open'
+		) impact ON true
 		WHERE ($1 = '' OR sa.wcode ILIKE '%' || $1 || '%' OR COALESCE(sa.student_name, st.full_name, '') ILIKE '%' || $1 || '%' OR COALESCE(__STUDENT_NICKNAME_EXPR__, '') ILIKE '%' || $1 || '%')
 		  AND ($2::uuid IS NULL OR sa.subject_id = $2)
 		  AND ($3 = '' OR sa.status = $3)
 		  AND ($4::date IS NULL OR sa.date_to >= $4)
 		  AND ($5::date IS NULL OR sa.date_from <= $5)
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
-		  AND ($9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled', 'special_approved')))
-		ORDER BY sa.created_at DESC, sa.id DESC
+		  AND ($10::boolean OR $9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled', 'special_approved')))
+		  AND (NOT $10::boolean OR COALESCE(impact.open_issue_count, 0) > 0)
+		ORDER BY (COALESCE(impact.open_issue_count, 0) > 0) DESC,
+		         (COALESCE(impact.critical_issue_count, 0) > 0) DESC,
+		         sa.created_at DESC, sa.id DESC
 		LIMIT $6 OFFSET $7
 `
 
@@ -162,7 +179,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs, p.Bucket)
+	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs, p.Bucket, p.ScheduleImpactOnly)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -180,6 +197,7 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
 			&item.ReviewedBy, &item.ReviewedAt, &item.SitInOverridden, &item.SitInOverriddenBy,
 			&item.SitInOverrideReason, &item.Version, &item.CreatedAt, &item.UpdatedAt,
+			&item.OpenScheduleIssues, &item.CriticalScheduleIssues, &item.LatestSessionChangeID,
 			&total,
 		); err != nil {
 			return nil, 0, err
@@ -190,6 +208,18 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 		return nil, 0, err
 	}
 	return out, total, nil
+}
+
+func (q *Queries) OpenAbsenceScheduleIssueSummary(ctx context.Context) (int64, int64, error) {
+	var affectedAbsences int64
+	var criticalIssues int64
+	err := q.db.QueryRow(ctx, `
+		SELECT count(DISTINCT absence_id),
+		       count(*) FILTER (WHERE severity = 'critical')
+		FROM absence_schedule_issues
+		WHERE status = 'open'
+	`).Scan(&affectedAbsences, &criticalIssues)
+	return affectedAbsences, criticalIssues, err
 }
 
 func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (ManagedAbsenceRow, error) {
@@ -591,39 +621,79 @@ func (q *Queries) AbsenceSitInsReplace(ctx context.Context, absenceID pgtype.UUI
 	type beginner interface {
 		Begin(context.Context) (pgx.Tx, error)
 	}
-	db, ok := q.db.(beginner)
-	if !ok {
-		return fmt.Errorf("database does not support transactions")
+	work := q
+	var tx pgx.Tx
+	if db, ok := q.db.(beginner); ok {
+		var err error
+		tx, err = db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+		work = New(tx)
 	}
-
-	tx, err := db.Begin(ctx)
+	rows, err := work.db.Query(ctx, `SELECT session_id FROM absence_sit_ins WHERE absence_id = $1 FOR UPDATE`, absenceID)
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("lock sit-ins: %w", err)
 	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `DELETE FROM absence_sit_ins WHERE absence_id = $1`, absenceID); err != nil {
+	var previous []pgtype.UUID
+	for rows.Next() {
+		var sessionID pgtype.UUID
+		if err := rows.Scan(&sessionID); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan sit-in: %w", err)
+		}
+		previous = append(previous, sessionID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if _, err := work.db.Exec(ctx, `DELETE FROM absence_sit_ins WHERE absence_id = $1`, absenceID); err != nil {
 		return fmt.Errorf("delete sit-ins: %w", err)
 	}
 
 	for _, sid := range sessionIDs {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO absence_sit_ins (absence_id, session_id)
-			VALUES ($1, $2)
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_ins (absence_id, session_id, session_version_at_assignment, assigned_at, assignment_source)
+			SELECT $1, id, version, now(), 'absence_override'
+			FROM sessions
+			WHERE id = $2
 			ON CONFLICT DO NOTHING
 		`, absenceID, sid); err != nil {
 			return fmt.Errorf("insert sit-in: %w", err)
 		}
 	}
-
-	return tx.Commit(ctx)
+	for _, sid := range previous {
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_in_assignment_events (absence_id, previous_session_id, action, reason)
+			VALUES ($1, $2, 'cancelled', 'absence_override')
+		`, absenceID, sid); err != nil {
+			return fmt.Errorf("record cancelled sit-in: %w", err)
+		}
+	}
+	for _, sid := range sessionIDs {
+		if _, err := work.db.Exec(ctx, `
+			INSERT INTO absence_sit_in_assignment_events (absence_id, new_session_id, action, reason)
+			VALUES ($1, $2, 'assigned', 'absence_override')
+		`, absenceID, sid); err != nil {
+			return fmt.Errorf("record assigned sit-in: %w", err)
+		}
+	}
+	if tx != nil {
+		return tx.Commit(ctx)
+	}
+	return nil
 }
 
 func (q *Queries) AbsenceMissedSessionsCreate(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
 	for _, sid := range sessionIDs {
 		if _, err := q.db.Exec(ctx, `
-			INSERT INTO absence_missed_sessions (absence_id, session_id)
-			VALUES ($1, $2)
+			INSERT INTO absence_missed_sessions (absence_id, session_id, session_version_at_submission, original_start_at, original_end_at)
+			SELECT $1, id, version, start_at, end_at
+			FROM sessions
+			WHERE id = $2
 			ON CONFLICT DO NOTHING
 		`, absenceID, sid); err != nil {
 			return fmt.Errorf("insert missed session: %w", err)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"warwick-institute/internal/absences/sitinresolver"
 	"warwick-institute/internal/crmimport"
 	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
@@ -18,6 +19,7 @@ import (
 	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/sessionchangeimpact"
 	"warwick-institute/internal/smartsms"
 	"warwick-institute/internal/users"
 )
@@ -26,13 +28,15 @@ import (
 //
 // Keep this small and stable: it is the interface (test surface) for httpapi route modules.
 type Deps struct {
-	Log         *slog.Logger
-	Auth        httpadapter.AuthService
-	Q           *sqldb.Queries
-	DB          *pgxpool.Pool
-	Scheduling  *scheduling.Service
-	AdminUsers  *users.AdminProvisioningService
-	InstituteTZ string
+	Log                 *slog.Logger
+	Auth                httpadapter.AuthService
+	Q                   *sqldb.Queries
+	DB                  *pgxpool.Pool
+	Scheduling          *scheduling.Service
+	SessionChangeImpact *sessionchangeimpact.Service
+	SitInResolver       *sitinresolver.Service
+	AdminUsers          *users.AdminProvisioningService
+	InstituteTZ         string
 
 	CRMUploadV2    *crmimport.UploadV2Service
 	CRMReconcileV2 *reconcile.ReconcileV2Service

@@ -2,6 +2,7 @@ package sessionshttp
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -376,12 +377,14 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var body struct {
-		StartAt         *string  `json:"start_at"`
-		EndAt           *string  `json:"end_at"`
-		CourseID        *string  `json:"course_id"`
-		RoomID          **string `json:"room_id"`
-		TeacherID       *string  `json:"teacher_id"`
-		ExpectedVersion *int32   `json:"expected_version"`
+		StartAt           *string  `json:"start_at"`
+		EndAt             *string  `json:"end_at"`
+		CourseID          *string  `json:"course_id"`
+		RoomID            **string `json:"room_id"`
+		TeacherID         *string  `json:"teacher_id"`
+		ExpectedVersion   *int32   `json:"expected_version"`
+		AcknowledgeImpact *bool    `json:"acknowledge_impact"`
+		ImpactReason      string   `json:"impact_reason"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -452,6 +455,52 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 	var updatedID string
 	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		current, err := qtx.SessionGetByID(r.Context(), id)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		newStartAt := current.StartAt
+		if startAtPtr != nil {
+			newStartAt = *startAtPtr
+		}
+		newEndAt := current.EndAt
+		if endAtPtr != nil {
+			newEndAt = *endAtPtr
+		}
+		newCourseID := current.CourseID
+		if courseIDPtr != nil {
+			newCourseID = *courseIDPtr
+		}
+		impact, impactErr := qtx.SessionChangePreviewImpact(r.Context(), id, newCourseID, newStartAt, newEndAt)
+		if impactErr != nil {
+			status, code, msg := s.a.ClassifyDBErr(impactErr)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, impactErr
+		}
+		settings, settingsErr := qtx.AppSettingsGetSessionChangeSettings(r.Context())
+		if settingsErr != nil {
+			status, code, msg := s.a.ClassifyDBErr(settingsErr)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, settingsErr
+		}
+		shortNotice := newStartAt.Time.Sub(time.Now()).Hours() <= float64(settings.WarningHours)
+		requiresAcknowledgement := impact.DirectSitInAssignments > 0 || impact.MissedSessionReferences > 0 || impact.PredictedStudentOverlaps > 0 || impact.PotentialEligibilityChanges > 0 || shortNotice
+		if !settings.AllowMoveIntoPast && !newStartAt.Time.After(time.Now()) {
+			s.a.WriteErr(w, http.StatusConflict, "past_time_change", "Moving a session into the past is not permitted")
+			return 0, nil, fmt.Errorf("past time change")
+		}
+		if requiresAcknowledgement && (body.AcknowledgeImpact == nil || !*body.AcknowledgeImpact) {
+			s.a.WriteErrDetails(w, http.StatusConflict, "impact_acknowledgement_required", "This change affects absence plans and requires acknowledgement", map[string]any{
+				"impact_summary": map[string]any{
+					"direct_sit_in_assignments": impact.DirectSitInAssignments, "missed_session_references": impact.MissedSessionReferences,
+					"predicted_student_overlaps": impact.PredictedStudentOverlaps, "potential_eligibility_changes": impact.PotentialEligibilityChanges,
+					"short_notice": shortNotice,
+				},
+			})
+			return 0, nil, fmt.Errorf("impact acknowledgement required")
+		}
 		item, err := s.deps.Scheduling.EditOccurrenceTimeTx(r.Context(), tx, qtx, scheduling.EditOccurrenceParams{
 			SessionID:       id,
 			StartAt:         startAtPtr,
@@ -460,6 +509,8 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 			RoomID:          roomIDPtr,
 			TeacherID:       teacherIDPtr,
 			ExpectedVersion: *body.ExpectedVersion,
+			ActorID:         pgtype.UUID{Bytes: user.ID, Valid: true},
+			ChangeSource:    "session_edit",
 		})
 		if err != nil {
 			var se *scheduling.Err
@@ -521,14 +572,16 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		if updated.SeriesID.Valid {
 			dto["series_id"] = mustUUIDStringOrEmpty(s.a, updated.SeriesID)
 		}
-		return http.StatusOK, map[string]any{"session": dto}, nil
+		changeID, _ := s.a.UUIDString(item.SessionChangeID)
+		return http.StatusOK, map[string]any{"session": dto, "change_id": changeID}, nil
 	}) {
 		s.publishSessionUpdated(updatedID)
 	}
 }
 
 func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.a.MustAdmin(w, r); !ok {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
 		return
 	}
 
@@ -556,13 +609,25 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 		s.a.WriteErr(w, http.StatusBadRequest, "too_many", "Max 100 updates per request")
 		return
 	}
+	batchID, batchStatus, err := s.deps.Q.SessionChangeBatchCreate(r.Context(), int32(len(body.Updates)), pgtype.UUID{Bytes: user.ID, Valid: true}, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	if batchStatus != "open" {
+		batchIDText, _ := s.a.UUIDString(batchID)
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{"batch_id": batchIDText, "status": batchStatus, "results": []any{}})
+		return
+	}
 
 	type bulkResult struct {
-		ID      string         `json:"id"`
-		Status  string         `json:"status"`
-		Session map[string]any `json:"session,omitempty"`
-		Error   string         `json:"error,omitempty"`
-		Details any            `json:"details,omitempty"`
+		ID       string         `json:"id"`
+		Status   string         `json:"status"`
+		ChangeID string         `json:"change_id,omitempty"`
+		Session  map[string]any `json:"session,omitempty"`
+		Error    string         `json:"error,omitempty"`
+		Details  any            `json:"details,omitempty"`
 	}
 
 	results := make([]bulkResult, 0, len(body.Updates))
@@ -627,6 +692,9 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 			RoomID:          roomIDPtr,
 			TeacherID:       teacherIDPtr,
 			ExpectedVersion: upd.ExpectedVersion,
+			ActorID:         pgtype.UUID{Bytes: user.ID, Valid: true},
+			BatchID:         batchID,
+			ChangeSource:    "bulk_session_edit",
 		})
 		if err != nil {
 			var se *scheduling.Err
@@ -669,11 +737,22 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 			dto["series_id"] = mustUUIDStringOrEmpty(s.a, updated.SeriesID)
 		}
 
-		results = append(results, bulkResult{ID: upd.ID, Status: "updated", Session: dto})
+		changeID, _ := s.a.UUIDString(item.SessionChangeID)
+		results = append(results, bulkResult{ID: upd.ID, Status: "updated", ChangeID: changeID, Session: dto})
 		s.publishSessionUpdated(sid)
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
+	succeededCount := int32(0)
+	for _, result := range results {
+		if result.Status == "updated" {
+			succeededCount++
+		}
+	}
+	if err := s.deps.Q.SessionChangeBatchComplete(r.Context(), batchID, succeededCount, int32(len(results))-succeededCount); err != nil {
+		s.deps.Log.Error("session change batch completion failed", "error", err, "batch_id", batchID)
+	}
+	batchIDText, _ := s.a.UUIDString(batchID)
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"batch_id": batchIDText, "results": results})
 }
 
 func (s *server) handleSessionAttendanceList(w http.ResponseWriter, r *http.Request) {

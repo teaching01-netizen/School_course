@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { clampDateRange } from "../utils/time";
@@ -18,6 +19,7 @@ import { PreflightIndicator, getSaveButtonLabel } from "../components/PreflightI
 import SessionOccurrenceForm from "../components/SessionOccurrenceForm";
 import SeriesFormFields from "../components/SeriesFormFields";
 import AttendancePanel from "../components/AttendancePanel";
+import ImpactAcknowledgementModal, { type ImpactSummary } from "../components/scheduleImpact/ImpactAcknowledgementModal";
 import useInstituteMeta from "../hooks/useInstituteMeta";
 import useLookups from "@/features/scheduling/hooks/useLookups";
 import { useCreateSession } from "@/features/scheduling/hooks/useCreateSession";
@@ -65,6 +67,24 @@ export default function Schedule() {
     sessionRequest.url,
   );
   const sessions = sessionRequest.url ? sessionsQuery.data ?? [] : [];
+  const [impactedSessionIDs, setImpactedSessionIDs] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let active = true;
+    if (sessions.length === 0) {
+      setImpactedSessionIDs(new Set());
+      return () => { active = false; };
+    }
+    void apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
+      method: "POST",
+      body: JSON.stringify({ session_ids: sessions.map((session) => session.id) }),
+    }).then((result) => {
+      if (!active) return;
+      setImpactedSessionIDs(new Set(Object.entries(result.sessions).filter(([, summary]) => summary.open_count > 0).map(([sessionID]) => sessionID)));
+    }).catch(() => {
+      if (active) setImpactedSessionIDs(new Set());
+    });
+    return () => { active = false; };
+  }, [sessions]);
   const loading = sessionRequest.url != null && sessionsQuery.isPending;
   const refetchSessions = sessionsQuery.refetch;
   const load = useCallback(async () => {
@@ -97,6 +117,7 @@ export default function Schedule() {
     end_local: "",
   });
   const [inlineSaving, setInlineSaving] = useState(false);
+  const [inlineImpact, setInlineImpact] = useState<ImpactSummary | null>(null);
   const inlinePreflight = usePreflight();
   const inlineGate = usePreflightGate(inlinePreflight, {
     requiredFields: [inlineEditForm.course_id, inlineEditForm.teacher_id, inlineEditForm.start_local, inlineEditForm.end_local],
@@ -338,7 +359,7 @@ export default function Schedule() {
     zone,
   ]);
 
-  const submitInlineEdit = async () => {
+  const submitInlineEdit = async (acknowledgeImpact = false) => {
     if (!inlineEditSession) return;
     if (!inlineGate.canSave) {
       addToast("error", inlineGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
@@ -352,18 +373,30 @@ export default function Schedule() {
     }
     setInlineSaving(true);
     try {
-      await apiJson(`/api/v1/sessions/${inlineEditSession.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_version: inlineEditSession.version,
-          course_id: inlineEditForm.course_id,
-          room_id: inlineEditForm.room_id || null,
-          teacher_id: inlineEditForm.teacher_id,
-          start_at: startISO,
-          end_at: endISO,
-        }),
+      const updateBody: Record<string, unknown> = {
+        expected_version: inlineEditSession.version,
+        course_id: inlineEditForm.course_id,
+        room_id: inlineEditForm.room_id || null,
+        teacher_id: inlineEditForm.teacher_id,
+        start_at: startISO,
+        end_at: endISO,
+      };
+      const preview = await apiJson<{ requires_acknowledgement?: boolean; impact_summary?: ImpactSummary }>(`/api/v1/sessions/${inlineEditSession.id}/change-preview`, {
+        method: "POST",
+        body: JSON.stringify(updateBody),
       });
-      addToast("success", "Updated session");
+      if (preview.requires_acknowledgement && !acknowledgeImpact) {
+        setInlineImpact(preview.impact_summary ?? {});
+        return;
+      }
+      if (preview.requires_acknowledgement) {
+        updateBody.acknowledge_impact = true;
+      }
+      const result = await apiJson<{ change_id?: string }>(`/api/v1/sessions/${inlineEditSession.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updateBody),
+      });
+      addToast("success", result.change_id ? "Updated session. Impact review queued." : "Updated session");
       closeInlineEdit();
       await load();
     } catch (err) {
@@ -841,6 +874,7 @@ export default function Schedule() {
                             <div className="text-xs font-mono text-gray-600">{startLabel}–{endLabel}</div>
                             <div className="text-sm text-gray-900 font-semibold">{inlineLabel}</div>
                             <div className="text-xs text-gray-600">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? teacher.username : s.teacher_id}</div>
+                            {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-xs font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
                             <SessionActions
                               session={s} cancelingId={cancelingId}
                               onAttendance={(sess) => void attendance.openAttendance(sess)}
@@ -921,6 +955,7 @@ export default function Schedule() {
                     <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
                     <td className="py-2 px-2 font-mono text-xs text-gray-600">{teacherById.get(s.teacher_id)?.username ?? s.teacher_id}</td>
                     <td className="py-2 px-2 text-right">
+                      {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mr-2 text-xs font-medium text-amber-700 hover:underline">Impact open</Link> : null}
                       <SessionActions
                         session={s} cancelingId={cancelingId}
                         onAttendance={(sess) => void attendance.openAttendance(sess)}
@@ -1050,6 +1085,9 @@ export default function Schedule() {
           </div>
         </Modal>
       )}
+
+      {edit.pendingImpact ? <ImpactAcknowledgementModal summary={edit.pendingImpact} saving={edit.saving} onBack={edit.dismissImpact} onConfirm={() => void edit.confirmImpact()} /> : null}
+      {inlineImpact ? <ImpactAcknowledgementModal summary={inlineImpact} saving={inlineSaving} onBack={() => setInlineImpact(null)} onConfirm={() => { setInlineImpact(null); void submitInlineEdit(true); }} /> : null}
 
       {seriesOpen && (
         <Modal

@@ -448,7 +448,7 @@ func TestRegister_PatchSession_BadID_Returns400(t *testing.T) {
 	}
 }
 
-func TestRegister_PatchSession_AllowsEditingPastSession(t *testing.T) {
+func TestRegister_PatchSession_BlocksEditingPastSessionByDefault(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
 	dbpool := newPool(t, databaseURL)
@@ -509,14 +509,23 @@ func TestRegister_PatchSession_AllowsEditingPastSession(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusConflict, w.Body.String())
+	}
+	var response struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != "past_time_change" {
+		t.Fatalf("code = %q, want past_time_change", response.Code)
 	}
 	reloaded, err := q.SessionGetByID(ctx, session.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := reloaded.StartAt.Time.UTC(), time.Date(2020, 1, 2, 5, 0, 0, 0, time.UTC); !got.Equal(want) {
+	if got, want := reloaded.StartAt.Time.UTC(), time.Date(2020, 1, 2, 3, 0, 0, 0, time.UTC); !got.Equal(want) {
 		t.Fatalf("start_at = %s, want %s", got, want)
 	}
 }

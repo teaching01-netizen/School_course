@@ -196,26 +196,80 @@ type AbsenceAuditLog struct {
 }
 
 type AbsenceMissedSession struct {
-	ID        pgtype.UUID        `json:"id"`
-	AbsenceID pgtype.UUID        `json:"absence_id"`
-	SessionID pgtype.UUID        `json:"session_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                         pgtype.UUID        `json:"id"`
+	AbsenceID                  pgtype.UUID        `json:"absence_id"`
+	SessionID                  pgtype.UUID        `json:"session_id"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	SessionVersionAtSubmission pgtype.Int4        `json:"session_version_at_submission"`
+	OriginalStartAt            pgtype.Timestamptz `json:"original_start_at"`
+	OriginalEndAt              pgtype.Timestamptz `json:"original_end_at"`
+}
+
+type AbsenceScheduleIssue struct {
+	ID                      pgtype.UUID        `json:"id"`
+	AbsenceID               pgtype.UUID        `json:"absence_id"`
+	IssueType               string             `json:"issue_type"`
+	Severity                string             `json:"severity"`
+	Status                  string             `json:"status"`
+	SourceSessionID         pgtype.UUID        `json:"source_session_id"`
+	SitInSessionID          pgtype.UUID        `json:"sit_in_session_id"`
+	MissedSessionID         pgtype.UUID        `json:"missed_session_id"`
+	FirstSessionChangeID    pgtype.UUID        `json:"first_session_change_id"`
+	LatestSessionChangeID   pgtype.UUID        `json:"latest_session_change_id"`
+	DetailsJson             []byte             `json:"details_json"`
+	SuggestedResolutionJson []byte             `json:"suggested_resolution_json"`
+	DetectedAt              pgtype.Timestamptz `json:"detected_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt              pgtype.Timestamptz `json:"resolved_at"`
+	ResolvedBy              pgtype.UUID        `json:"resolved_by"`
+	ResolutionAction        pgtype.Text        `json:"resolution_action"`
+	Fingerprint             string             `json:"fingerprint"`
+	IssueVersion            int32              `json:"issue_version"`
+	AssignedTo              pgtype.UUID        `json:"assigned_to"`
+	ReviewReason            pgtype.Text        `json:"review_reason"`
+	ReviewDueAt             pgtype.Timestamptz `json:"review_due_at"`
+	ReviewNote              pgtype.Text        `json:"review_note"`
 }
 
 type AbsenceSitIn struct {
-	ID        pgtype.UUID        `json:"id"`
-	AbsenceID pgtype.UUID        `json:"absence_id"`
-	SessionID pgtype.UUID        `json:"session_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                         pgtype.UUID        `json:"id"`
+	AbsenceID                  pgtype.UUID        `json:"absence_id"`
+	SessionID                  pgtype.UUID        `json:"session_id"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	SessionVersionAtAssignment pgtype.Int4        `json:"session_version_at_assignment"`
+	AssignedAt                 pgtype.Timestamptz `json:"assigned_at"`
+	AssignedBy                 pgtype.UUID        `json:"assigned_by"`
+	AssignmentSource           string             `json:"assignment_source"`
+}
+
+type AbsenceSitInAssignmentEvent struct {
+	ID                pgtype.UUID        `json:"id"`
+	AbsenceID         pgtype.UUID        `json:"absence_id"`
+	PreviousSessionID pgtype.UUID        `json:"previous_session_id"`
+	NewSessionID      pgtype.UUID        `json:"new_session_id"`
+	Action            string             `json:"action"`
+	Reason            string             `json:"reason"`
+	SessionChangeID   pgtype.UUID        `json:"session_change_id"`
+	ActorID           pgtype.UUID        `json:"actor_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppSetting struct {
-	ID               bool               `json:"id"`
-	InstituteTz      string             `json:"institute_tz"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	AbsencePolicies  []byte             `json:"absence_policies"`
-	SitInEmailConfig []byte             `json:"sit_in_email_config"`
+	ID                             bool               `json:"id"`
+	InstituteTz                    string             `json:"institute_tz"`
+	CreatedAt                      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                      pgtype.Timestamptz `json:"updated_at"`
+	AbsencePolicies                []byte             `json:"absence_policies"`
+	SitInEmailConfig               []byte             `json:"sit_in_email_config"`
+	SitInChangeSmsEnabled          bool               `json:"sit_in_change_sms_enabled"`
+	SitInChangeSmsTemplate         string             `json:"sit_in_change_sms_template"`
+	SitInChangeEmailEnabled        bool               `json:"sit_in_change_email_enabled"`
+	SitInChangeEmailSubject        string             `json:"sit_in_change_email_subject"`
+	SitInChangeEmailBody           string             `json:"sit_in_change_email_body"`
+	SitInChangeAutoNotifySafeMoves bool               `json:"sit_in_change_auto_notify_safe_moves"`
+	SitInChangeWarningHours        int32              `json:"sit_in_change_warning_hours"`
+	SitInChangeCriticalHours       int32              `json:"sit_in_change_critical_hours"`
+	AllowMoveIntoPast              bool               `json:"allow_move_into_past"`
 }
 
 type AuditLog struct {
@@ -461,6 +515,40 @@ type IdempotencyKey struct {
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 }
 
+type NotificationOutbox struct {
+	ID                pgtype.UUID        `json:"id"`
+	AbsenceID         pgtype.UUID        `json:"absence_id"`
+	AssignmentID      pgtype.UUID        `json:"assignment_id"`
+	SessionVersion    int32              `json:"session_version"`
+	MessageType       string             `json:"message_type"`
+	Recipient         string             `json:"recipient"`
+	Channel           string             `json:"channel"`
+	Payload           []byte             `json:"payload"`
+	Status            string             `json:"status"`
+	ProviderMessageID pgtype.Text        `json:"provider_message_id"`
+	FailureReason     pgtype.Text        `json:"failure_reason"`
+	AttemptCount      int32              `json:"attempt_count"`
+	AvailableAt       pgtype.Timestamptz `json:"available_at"`
+	SentAt            pgtype.Timestamptz `json:"sent_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	IdempotencyKey    string             `json:"idempotency_key"`
+}
+
+type OutboxEvent struct {
+	ID               pgtype.UUID        `json:"id"`
+	EventType        string             `json:"event_type"`
+	AggregateID      pgtype.UUID        `json:"aggregate_id"`
+	AggregateVersion int32              `json:"aggregate_version"`
+	Payload          []byte             `json:"payload"`
+	Status           string             `json:"status"`
+	Attempts         int32              `json:"attempts"`
+	AvailableAt      pgtype.Timestamptz `json:"available_at"`
+	LockedUntil      pgtype.Timestamptz `json:"locked_until"`
+	LastError        pgtype.Text        `json:"last_error"`
+	ProcessedAt      pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type Room struct {
 	ID        pgtype.UUID        `json:"id"`
 	Name      string             `json:"name"`
@@ -521,6 +609,56 @@ type SessionAttendance struct {
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	OverrideSource         pgtype.Text        `json:"override_source"`
 	CrossStudyAssignmentID pgtype.UUID        `json:"cross_study_assignment_id"`
+}
+
+type SessionChange struct {
+	ID             pgtype.UUID        `json:"id"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	SessionVersion int32              `json:"session_version"`
+	BatchID        pgtype.UUID        `json:"batch_id"`
+	ChangedBy      pgtype.UUID        `json:"changed_by"`
+	ChangeSource   string             `json:"change_source"`
+	ChangedFields  []byte             `json:"changed_fields"`
+	BeforeSnapshot []byte             `json:"before_snapshot"`
+	AfterSnapshot  []byte             `json:"after_snapshot"`
+	OldStartAt     pgtype.Timestamptz `json:"old_start_at"`
+	OldEndAt       pgtype.Timestamptz `json:"old_end_at"`
+	NewStartAt     pgtype.Timestamptz `json:"new_start_at"`
+	NewEndAt       pgtype.Timestamptz `json:"new_end_at"`
+	OldCourseID    pgtype.UUID        `json:"old_course_id"`
+	NewCourseID    pgtype.UUID        `json:"new_course_id"`
+	OldRoomID      pgtype.UUID        `json:"old_room_id"`
+	NewRoomID      pgtype.UUID        `json:"new_room_id"`
+	OldTeacherID   pgtype.UUID        `json:"old_teacher_id"`
+	NewTeacherID   pgtype.UUID        `json:"new_teacher_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type SessionChangeBatch struct {
+	ID             pgtype.UUID        `json:"id"`
+	RequestedCount int32              `json:"requested_count"`
+	SucceededCount int32              `json:"succeeded_count"`
+	FailedCount    int32              `json:"failed_count"`
+	Status         string             `json:"status"`
+	RequestedBy    pgtype.UUID        `json:"requested_by"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type SessionChangeImpactRun struct {
+	SessionChangeID pgtype.UUID        `json:"session_change_id"`
+	Status          string             `json:"status"`
+	LastError       pgtype.Text        `json:"last_error"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SessionChangeImpactTarget struct {
+	SessionChangeID pgtype.UUID `json:"session_change_id"`
+	AbsenceID       pgtype.UUID `json:"absence_id"`
+	RelationType    string      `json:"relation_type"`
 }
 
 type SessionSeries struct {

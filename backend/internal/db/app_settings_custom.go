@@ -6,6 +6,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type SessionChangeSettings struct {
+	SmsEnabled          bool
+	SmsTemplate         string
+	EmailEnabled        bool
+	EmailSubject        string
+	EmailBody           string
+	AutoNotifySafeMoves bool
+	WarningHours        int32
+	CriticalHours       int32
+	AllowMoveIntoPast   bool
+}
+
+func (q *Queries) AppSettingsGetSessionChangeSettings(ctx context.Context) (SessionChangeSettings, error) {
+	var settings SessionChangeSettings
+	err := q.db.QueryRow(ctx, `
+		SELECT sit_in_change_sms_enabled, sit_in_change_sms_template,
+		       sit_in_change_email_enabled, sit_in_change_email_subject,
+		       sit_in_change_email_body, sit_in_change_auto_notify_safe_moves,
+		       sit_in_change_warning_hours, sit_in_change_critical_hours,
+		       allow_move_into_past
+		FROM app_settings
+		WHERE id = true
+	`).Scan(
+		&settings.SmsEnabled,
+		&settings.SmsTemplate,
+		&settings.EmailEnabled,
+		&settings.EmailSubject,
+		&settings.EmailBody,
+		&settings.AutoNotifySafeMoves,
+		&settings.WarningHours,
+		&settings.CriticalHours,
+		&settings.AllowMoveIntoPast,
+	)
+	return settings, err
+}
+
 type AppSettingWithPolicies struct {
 	ID              bool               `json:"id"`
 	InstituteTz     string             `json:"institute_tz"`

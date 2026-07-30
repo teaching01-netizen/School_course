@@ -501,6 +501,98 @@ func TestManagedAbsenceList_BucketFiltersActiveAndArchived(t *testing.T) {
 	}
 }
 
+func TestManagedAbsenceList_PrioritizesAndFiltersOpenScheduleImpact(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	course, err := q.CourseCreate(ctx, CourseCreateParams{
+		Code: "ABS-IMPACT-" + suffix,
+		Name: "Absence Impact " + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAbsence := func(wcode string) pgtype.UUID {
+		t.Helper()
+		absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+			Wcode:         wcode + "-" + suffix,
+			CourseID:      course.ID,
+			DateFrom:      pgtype.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			DateTo:        pgtype.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			Reason:        pgtype.Text{String: "medical", Valid: true},
+			SitInCourseID: pgtype.UUID{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return absence.ID
+	}
+
+	impactedID := createAbsence("WIMPACT")
+	unaffectedID := createAbsence("WNOIMPACT")
+	var sessionChangeID pgtype.UUID
+	err = dbpool.QueryRow(ctx, `
+		INSERT INTO session_changes (
+			session_id, session_version, changed_fields, before_snapshot, after_snapshot,
+			old_start_at, old_end_at, new_start_at, new_end_at,
+			old_course_id, new_course_id, old_teacher_id, new_teacher_id
+		)
+		VALUES (
+			gen_random_uuid(), 1, '{"start_at": true}', '{}', '{}',
+			now(), now() + interval '1 hour', now() + interval '1 day', now() + interval '1 day 1 hour',
+			$1, $1, gen_random_uuid(), gen_random_uuid()
+		)
+		RETURNING id
+	`, course.ID).Scan(&sessionChangeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO absence_schedule_issues (
+			absence_id, issue_type, severity, first_session_change_id,
+			latest_session_change_id, fingerprint
+		)
+		VALUES ($1, 'sit_in_time_changed', 'critical', $2, $2, $3)
+	`, impactedID, sessionChangeID, "impact-test-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+
+	ids := []pgtype.UUID{impactedID, unaffectedID}
+	rows, total, err := q.ManagedAbsenceList(ctx, AbsenceFilter{Limit: 25, IDs: ids, Bucket: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got total=%d len=%d", total, len(rows))
+	}
+	if rows[0].ID != impactedID {
+		t.Fatalf("impacted absence was not prioritized: first=%v want=%v", rows[0].ID, impactedID)
+	}
+	if rows[0].OpenScheduleIssues != 1 || rows[0].CriticalScheduleIssues != 1 || rows[0].LatestSessionChangeID != sessionChangeID {
+		t.Fatalf("unexpected impact metadata: %+v", rows[0])
+	}
+
+	filtered, filteredTotal, err := q.ManagedAbsenceList(ctx, AbsenceFilter{
+		Limit:              25,
+		IDs:                ids,
+		Bucket:             "active",
+		ScheduleImpactOnly: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filteredTotal != 1 || len(filtered) != 1 || filtered[0].ID != impactedID {
+		t.Fatalf("expected only impacted absence, got total=%d rows=%+v", filteredTotal, filtered)
+	}
+}
+
 func TestCalendarQueriesExposeReadableSubjectNames(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

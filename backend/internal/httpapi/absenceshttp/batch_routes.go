@@ -524,6 +524,10 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
 			return createdAbsenceRecord{}, false
 		}
+		if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
+			return createdAbsenceRecord{}, false
+		}
 		if err := qtx.AbsenceSitInsCreate(r.Context(), row.ID, sessionUUIDs); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

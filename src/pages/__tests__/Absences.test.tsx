@@ -146,6 +146,20 @@ const PAGE_WITH_SAME_SUBJECT_SIT_IN = {
   ],
 };
 
+const PAGE_WITH_SESSION_IMPACT = {
+  ...PAGE,
+  open_schedule_impact_count: 1,
+  critical_schedule_impact_count: 1,
+  items: [
+    {
+      ...PAGE.items[0],
+      open_schedule_issue_count: 1,
+      critical_schedule_issue_count: 1,
+      latest_session_change_id: "change-1",
+    },
+  ],
+};
+
 function renderPage(path = "/absences?status=pending") {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -185,6 +199,28 @@ describe("Absence inbox", () => {
       expect.stringContaining("bucket=active"),
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("makes unresolved session-change impact clear and filters to affected students", async () => {
+    mockApiJson.mockResolvedValue(PAGE_WITH_SESSION_IMPACT);
+    renderPage();
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("heading", { name: "Session changes need attention" })).toBeInTheDocument();
+    expect(screen.getByText("1 student sit-in plan may no longer be valid. Review the impact before contacting the student.")).toBeInTheDocument();
+    expect(screen.getByText("Sit-in needs review")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /review impact/i })).toHaveAttribute("href", "/operations/schedule-impact");
+
+    await user.click(screen.getByRole("button", { name: "Show affected students" }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("schedule_impact=open"),
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    expect(screen.getByRole("button", { name: "Show all absences" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /session changes \(1\)/i })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders leave session times under subject and picked sit-in times under sit-in", async () => {

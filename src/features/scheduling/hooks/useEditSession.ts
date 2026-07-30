@@ -4,6 +4,7 @@ import { usePreflight } from "./usePreflight";
 import usePreflightGate from "./usePreflightGate";
 import { localDateTimeToUTCISO } from "../domain/time";
 import { utcISOToZoneLocalInput } from "@/utils/timezone";
+import type { ImpactSummary } from "@/components/scheduleImpact/ImpactAcknowledgementModal";
 import type { Session, AttendanceOverride } from "../types";
 
 export interface EditSessionForm {
@@ -26,11 +27,14 @@ export interface UseEditSessionReturn {
   preflight: ReturnType<typeof usePreflight>;
   gate: ReturnType<typeof usePreflightGate>;
   saving: boolean;
+  pendingImpact: ImpactSummary | null;
   attendanceOverrides: AttendanceOverride[];
   attendanceOverridesLoaded: boolean;
   openModal: (sess: Session) => void;
   closeModal: () => void;
   submit: () => Promise<void>;
+  confirmImpact: () => Promise<void>;
+  dismissImpact: () => void;
 }
 
 export function useEditSession(
@@ -41,6 +45,7 @@ export function useEditSession(
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingImpact, setPendingImpact] = useState<ImpactSummary | null>(null);
   const [form, setForm] = useState<EditSessionForm>(emptyForm);
   const [attendanceOverrides, setAttendanceOverrides] = useState<AttendanceOverride[]>([]);
   const [attendanceOverridesLoaded, setAttendanceOverridesLoaded] = useState(false);
@@ -63,6 +68,7 @@ export function useEditSession(
     setSession(sess);
     setAttendanceOverrides([]);
     setAttendanceOverridesLoaded(false);
+    setPendingImpact(null);
     setForm({
       course_id: sess.course_id,
       room_id: sess.room_id ?? "",
@@ -80,6 +86,7 @@ export function useEditSession(
     setForm(emptyForm);
     setAttendanceOverrides([]);
     setAttendanceOverridesLoaded(false);
+    setPendingImpact(null);
   }, []);
 
   // Load attendance overrides when modal opens
@@ -145,7 +152,7 @@ export function useEditSession(
     });
   }, [open, session?.id, form.course_id, form.room_id, form.teacher_id, form.start_local, form.end_local, instituteTZ]);
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (acknowledgeImpact = false) => {
     if (!session) return;
     if (!gate.canSave) return;
     const startISO = localDateTimeToUTCISO(form.start_local, instituteTZ);
@@ -156,18 +163,30 @@ export function useEditSession(
     }
     setSaving(true);
     try {
-      await apiJson(`/api/v1/sessions/${session.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_version: session.version,
-          course_id: form.course_id,
-          room_id: form.room_id || null,
-          teacher_id: form.teacher_id,
-          start_at: startISO,
-          end_at: endISO,
-        }),
+      const updateBody: Record<string, unknown> = {
+        expected_version: session.version,
+        course_id: form.course_id,
+        room_id: form.room_id || null,
+        teacher_id: form.teacher_id,
+        start_at: startISO,
+        end_at: endISO,
+      };
+      const preview = await apiJson<{ requires_acknowledgement?: boolean; impact_summary?: ImpactSummary }>(`/api/v1/sessions/${session.id}/change-preview`, {
+        method: "POST",
+        body: JSON.stringify(updateBody),
       });
-      addToast("success", "Updated session");
+      if (preview.requires_acknowledgement && !acknowledgeImpact) {
+        setPendingImpact(preview.impact_summary ?? {});
+        return;
+      }
+      if (preview.requires_acknowledgement) {
+        updateBody.acknowledge_impact = true;
+      }
+      const result = await apiJson<{ change_id?: string }>(`/api/v1/sessions/${session.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updateBody),
+      });
+      addToast("success", result.change_id ? "Updated session. Impact review queued." : "Updated session");
       closeModal();
       onSuccessRef.current();
     } catch (err) {
@@ -196,7 +215,12 @@ export function useEditSession(
     } finally {
       setSaving(false);
     }
-  }, [session?.id, gate.canSave, form, instituteTZ, addToast, closeModal]);
+  }, [session, gate.canSave, form, instituteTZ, addToast, closeModal]);
+
+  const confirmImpact = useCallback(async () => {
+    setPendingImpact(null);
+    await submit(true);
+  }, [submit]);
 
   return {
     open,
@@ -206,10 +230,13 @@ export function useEditSession(
     preflight,
     gate,
     saving,
+    pendingImpact,
     attendanceOverrides,
     attendanceOverridesLoaded,
     openModal,
     closeModal,
     submit,
+    confirmImpact,
+    dismissImpact: () => setPendingImpact(null),
   };
 }

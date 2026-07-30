@@ -44,6 +44,7 @@ const DETAIL = {
   sit_ins: [{ id: "si-1", session_id: "sess-1", course_id: "sit-1", course_code: "MATH-301", course_name: "Calculus III", room_name: "Room 201", start_at: "2026-06-02T04:00:00Z", end_at: "2026-06-02T05:30:00Z" }],
   timeline: [{ id: "tl-1", action: "submitted", actor_role: "student", details: {}, created_at: "2026-05-27T09:00:00Z" }],
 };
+const NO_IMPACT_ISSUES = { items: [] };
 
 function renderDetail() {
   render(
@@ -64,7 +65,11 @@ describe("Absence detail", () => {
   });
 
   it("reloads the current absence after realtime reconnect", async () => {
-    mockApiJson.mockResolvedValueOnce(DETAIL).mockResolvedValueOnce({ ...DETAIL, status: "reviewed", version: 2 });
+    mockApiJson
+      .mockResolvedValueOnce(DETAIL)
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES)
+      .mockResolvedValueOnce({ ...DETAIL, status: "reviewed", version: 2 })
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
     expect(await screen.findByText("John Smith")).toBeInTheDocument();
 
@@ -83,8 +88,10 @@ describe("Absence detail", () => {
   it("shows the action context and marks a pending record reviewed", async () => {
     mockApiJson
       .mockResolvedValueOnce(DETAIL)
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES)
       .mockResolvedValueOnce({ status: "reviewed", version: 2 })
-      .mockResolvedValueOnce({ ...DETAIL, status: "reviewed", version: 2 });
+      .mockResolvedValueOnce({ ...DETAIL, status: "reviewed", version: 2 })
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
     const user = userEvent.setup();
 
@@ -104,8 +111,10 @@ describe("Absence detail", () => {
   it("saves internal notes using optimistic versioning", async () => {
     mockApiJson
       .mockResolvedValueOnce(DETAIL)
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES)
       .mockResolvedValueOnce({ version: 2, admin_notes: "Called guardian" })
-      .mockResolvedValueOnce({ ...DETAIL, version: 2, admin_notes: "Called guardian" });
+      .mockResolvedValueOnce({ ...DETAIL, version: 2, admin_notes: "Called guardian" })
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
     const user = userEvent.setup();
 
@@ -134,7 +143,7 @@ describe("Absence detail", () => {
         start_at: "2026-06-09T09:00:00Z",
         end_at: "2026-06-09T11:00:00Z",
       }],
-    });
+    }).mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
 
     const summary = await screen.findByRole("heading", { name: /absence summary/i });
@@ -172,7 +181,7 @@ describe("Absence detail", () => {
           end_at: "2026-06-08T11:00:00Z",
         },
       ],
-    });
+    }).mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
 
     const summary = await screen.findByRole("heading", { name: /absence summary/i });
@@ -230,7 +239,7 @@ describe("Absence detail", () => {
           end_at: "2026-06-02T03:00:00Z",
         },
       ],
-    });
+    }).mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
 
     const summary = await screen.findByRole("heading", { name: /absence summary/i });
@@ -256,7 +265,7 @@ describe("Absence detail", () => {
       ...DETAIL,
       reason_category: null,
       reason: "sad",
-    });
+    }).mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
 
     const summary = await screen.findByRole("heading", { name: /absence summary/i });
@@ -274,7 +283,7 @@ describe("Absence detail", () => {
       sit_in_subject_name: "Math advanced",
       sit_in_course_code: "0000000344",
       sit_in_course_name: "Internal placeholder course",
-    });
+    }).mockResolvedValueOnce(NO_IMPACT_ISSUES);
     renderDetail();
 
     const sitInPlan = await screen.findByRole("heading", { name: /sit-in plan/i });
@@ -288,6 +297,7 @@ describe("Absence detail", () => {
   it("warns administrators when a manual sit-in session approaches room capacity", async () => {
     mockApiJson
       .mockResolvedValueOnce(DETAIL)
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES)
       .mockResolvedValueOnce([{ id: "sit-2", code: "MATH-201", name: "Calculus II" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "sess-2", start_at: "2026-06-03T04:00:00Z", end_at: "2026-06-03T05:30:00Z", room_name: "Room 105", capacity_warning: true }]);

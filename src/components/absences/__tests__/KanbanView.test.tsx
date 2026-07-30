@@ -37,11 +37,11 @@ const PENDING_ABSENCE = {
   updated_at: "2026-05-27T09:00:00Z",
 };
 
-function renderKanban() {
+function renderKanban(impactOnly = false) {
   return render(
     <MemoryRouter initialEntries={["/absences?view=board"]}>
       <ToastProvider>
-        <KanbanView filters={{ query: "", subject: "", dateFrom: "", dateTo: "" }} />
+        <KanbanView filters={{ query: "", subject: "", dateFrom: "", dateTo: "", impactOnly }} />
       </ToastProvider>
     </MemoryRouter>,
   );
@@ -79,6 +79,30 @@ describe("KanbanView hard delete", () => {
     expect(await screen.findByText("John Smith")).toBeInTheDocument();
     const deleteBtn = screen.getByRole("button", { name: /delete/i });
     expect(deleteBtn).toBeInTheDocument();
+  });
+
+  it("shows an always-visible session-change warning and passes the impact filter", async () => {
+    const impactedAbsence = {
+      ...PENDING_ABSENCE,
+      open_schedule_issue_count: 1,
+      critical_schedule_issue_count: 1,
+      latest_session_change_id: "change-1",
+    };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url.includes("status=pending")) return { items: [impactedAbsence], total_count: 1, offset: 0, limit: 20 };
+      return { items: [], total_count: 0, offset: 0, limit: 20 };
+    });
+
+    renderKanban(true);
+
+    expect(await screen.findByText("Session changed. Sit-in needs review.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review impact" })).toHaveAttribute("href", "/operations/schedule-impact");
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("schedule_impact=open"),
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
   });
 
   it("shows delete button for cancelled absences in main columns", async () => {

@@ -50,6 +50,7 @@ const adminNavItems = [
 const configNavItems = [
   { path: '/course-levels', label: 'Course Levels' },
   { path: '/admin/operations', label: 'Operations' },
+  { path: '/operations/schedule-impact', label: 'Schedule Impact' },
   { path: '/leave-policy', label: 'Leave Policy' },
   { path: '/email-reminders', label: 'Email Reminders' },
   { path: '/admin/sit-in-test', label: 'Sit-in Test' },
@@ -79,6 +80,8 @@ const pageTitles: Record<string, string> = {
   '/logs': 'Logs',
   '/teacher-dashboard': 'Teacher Dashboard',
   '/course-levels': 'Course Levels',
+  '/operations/schedule-impact': 'Schedule Impact',
+  '/operations/session-changes': 'Schedule Impact',
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -119,6 +122,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     ...cachePolicies.operational,
   });
   const pendingAbsences = user?.role === "Admin" ? statsQuery.data?.pending_count ?? 0 : 0;
+  const impactQuery = useQuery<{ summary: { critical: number } }>({
+    queryKey: ["schedule-impact", "nav-summary"],
+    queryFn: () => apiJson<{ summary: { critical: number } }>("/api/v1/operations/schedule-impact?status=open&limit=1"),
+    enabled: user?.role === "Admin",
+    ...cachePolicies.operational,
+  });
+  const criticalImpactCount = user?.role === "Admin" ? impactQuery.data?.summary.critical ?? 0 : 0;
 
   const handleLogout = async () => {
     try {
@@ -308,6 +318,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                                 }`}
                               >
                                 {item.label}
+                                {item.path === '/operations/schedule-impact' && criticalImpactCount > 0 ? (
+                                  <span aria-label={`${criticalImpactCount} critical schedule impacts`} className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                    {criticalImpactCount}
+                                  </span>
+                                ) : null}
                               </Link>
                             );
                           })}

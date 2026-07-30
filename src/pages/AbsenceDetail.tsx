@@ -15,6 +15,14 @@ const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
 
 type TimeRanged = { start_at: string; end_at: string };
 
+type ScheduleImpactIssue = {
+  id: string;
+  issue_type: string;
+  severity: "warning" | "critical";
+  status: string;
+  latest_session_change_id?: string;
+};
+
 type DayRangeGroup<T extends TimeRanged> = {
   date: string;
   start_at: string;
@@ -136,6 +144,8 @@ export default function AbsenceDetail() {
   const [cancelReasonCategory, setCancelReasonCategory] = useState("");
   const [cancelReasonDetail, setCancelReasonDetail] = useState("");
   const [overrideOpen, setOverrideOpen] = useState(false);
+  const [impactIssues, setImpactIssues] = useState<ScheduleImpactIssue[]>([]);
+  const openImpactIssues = impactIssues.filter((issue) => issue.status === "open");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,6 +154,15 @@ export default function AbsenceDetail() {
       setAbsence(result);
       setNotes(result.admin_notes ?? "");
       setNotesDirty(false);
+      try {
+        const impactResult = await apiJson<{ items: ScheduleImpactIssue[] }>(
+          `/api/v1/operations/schedule-issues?absence_id=${encodeURIComponent(id ?? "")}`,
+          { method: "GET" },
+        );
+        setImpactIssues(Array.isArray(impactResult?.items) ? impactResult.items : []);
+      } catch {
+        setImpactIssues([]);
+      }
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load absence");
     } finally {
@@ -249,6 +268,18 @@ export default function AbsenceDetail() {
           <Button size="sm" variant="secondary" onClick={() => void openOverride()}>Override Sit-in</Button>
         </div>
       </div>
+
+      {openImpactIssues.length > 0 ? (
+        <section className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-4" aria-live="polite">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-amber-900">Schedule change needs review</h2>
+              <p className="mt-1 text-sm text-amber-800">{openImpactIssues.length} open impact {openImpactIssues.length === 1 ? "issue affects" : "issues affect"} this absence plan.</p>
+            </div>
+            <Link to="/operations/schedule-impact" className="text-sm font-medium text-amber-900 underline underline-offset-2">Review Schedule Impact</Link>
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-4 grid gap-4">
         <section className="rounded-sm border border-gray-200 bg-white">

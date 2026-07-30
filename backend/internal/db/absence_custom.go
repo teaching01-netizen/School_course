@@ -200,11 +200,22 @@ func (q *Queries) AbsenceSitInsCreate(ctx context.Context, absenceID pgtype.UUID
 		return nil
 	}
 	_, err := q.db.Exec(ctx, `
-		INSERT INTO absence_sit_ins (absence_id, session_id)
-		SELECT $1, unnest($2::uuid[])
-		ON CONFLICT DO NOTHING
+		WITH inserted AS (
+			INSERT INTO absence_sit_ins (absence_id, session_id, session_version_at_assignment, assigned_at)
+			SELECT $1, sess.id, sess.version, now()
+			FROM sessions sess
+			WHERE sess.id = ANY($2::uuid[])
+			ON CONFLICT DO NOTHING
+			RETURNING absence_id, session_id
+		)
+		INSERT INTO absence_sit_in_assignment_events (absence_id, new_session_id, action, reason)
+		SELECT absence_id, session_id, 'assigned', 'absence_submission'
+		FROM inserted
 	`, absenceID, sessionIDs)
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 type CourseLevelRow struct {

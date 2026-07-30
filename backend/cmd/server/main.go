@@ -30,6 +30,8 @@ import (
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
+	"warwick-institute/internal/sessionchangedelivery"
+	"warwick-institute/internal/sessionchangeimpact"
 	"warwick-institute/internal/smartsms"
 )
 
@@ -149,10 +151,23 @@ func main() {
 		os.Exit(1)
 	}
 	realtimeReadyCancel()
+	impactSvc := sessionchangeimpact.New(dbpool, q, cfg.InstituteTZ, realtimeHub, log)
+	impactCtx, impactCancel := context.WithCancel(context.Background())
+	for range 3 {
+		go impactSvc.Run(impactCtx)
+	}
+	notificationSMS, err := newScheduleImpactSMS(cfg)
+	if err != nil {
+		log.Error("init schedule impact SMS delivery", "error", err)
+		os.Exit(1)
+	}
+	notificationWorker := sessionchangedelivery.New(q, notificationSMS, emailDeps.Service, log)
+	notificationCtx, notificationCancel := context.WithCancel(context.Background())
+	go notificationWorker.Run(notificationCtx)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps, otpDeliveryDeps, realtimeHub),
+		Handler:           httpapi.NewHandler(log, cfg, dbpool, uploadV2Svc, reconcileV2Svc, worker, emailDeps, otpDeliveryDeps, impactSvc, realtimeHub),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -205,6 +220,8 @@ func main() {
 
 	workerCancel()
 	worker.Stop()
+	impactCancel()
+	notificationCancel()
 }
 
 func newOTPDeliveryRuntime(log *slog.Logger, cfg config.Config, db *pgxpool.Pool) (*httpapi.OTPDeliveryDeps, context.CancelFunc, error) {
@@ -254,6 +271,15 @@ func newOTPDeliveryRuntime(log *slog.Logger, cfg config.Config, db *pgxpool.Pool
 	return &httpapi.OTPDeliveryDeps{
 		SMS: sms, Sender: sender, Dispatcher: dispatcher, Store: store, CircuitBreaker: circuitBreaker,
 	}, cancel, nil
+}
+
+func newScheduleImpactSMS(cfg config.Config) (smartsms.SMSProvider, error) {
+	if cfg.SMSServiceUsername == "" || cfg.SMSServicePassword == "" {
+		return &smartsms.MockProvider{}, nil
+	}
+	return smartsms.New(smartsms.Config{
+		BaseURL: cfg.SMSServiceBaseURL, Username: cfg.SMSServiceUsername, Password: cfg.SMSServicePassword,
+	})
 }
 
 func crossStudyJobHandler(proc *crossstudy.Processor) queue.JobHandler {

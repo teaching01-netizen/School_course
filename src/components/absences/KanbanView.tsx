@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { TriangleAlert } from "lucide-react";
 import { apiJson, ApiRequestError } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import { useRealtime } from "../../hooks/useRealtime";
@@ -53,8 +54,19 @@ function AbsenceCard({
   onDeleteClick: (a: ManagedAbsence) => void;
 }) {
   const navigate = useNavigate();
+  const impacted = (absence.open_schedule_issue_count ?? 0) > 0;
+  const critical = (absence.critical_schedule_issue_count ?? 0) > 0;
   return (
-    <div role="link" tabIndex={0} aria-label={`View absence for ${absence.student_name ?? absence.wcode}`} className="group relative rounded-sm border border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow hover:shadow-md cursor-pointer" onClick={() => navigate(`/absences/${absence.id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/absences/${absence.id}`); } }}>
+    <div
+      role="link"
+      tabIndex={0}
+      aria-label={`View absence for ${absence.student_name ?? absence.wcode}`}
+      className={`group relative cursor-pointer rounded-sm border p-3 text-sm shadow-sm transition-shadow hover:shadow-md ${
+        critical ? "border-red-400 bg-red-50/70" : impacted ? "border-amber-400 bg-amber-50/70" : "border-gray-200 bg-white"
+      }`}
+      onClick={() => navigate(`/absences/${absence.id}`)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/absences/${absence.id}`); } }}
+    >
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-xs font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
         <div className="min-w-0 flex-1">
@@ -62,6 +74,23 @@ function AbsenceCard({
           <p className="font-mono text-xs text-gray-500">{absence.wcode}</p>
         </div>
       </div>
+      {impacted ? (
+        <div className={`mt-2 rounded-sm border p-2 ${critical ? "border-red-300 bg-red-100 text-red-900" : "border-amber-300 bg-amber-100 text-amber-900"}`}>
+          <div className="flex items-center gap-1.5 text-xs font-semibold">
+            <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Session changed. Sit-in needs review.
+          </div>
+          {absence.latest_session_change_id ? (
+            <Link
+              to="/operations/schedule-impact"
+              className="mt-1.5 inline-flex items-center text-xs font-semibold underline underline-offset-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              Review impact
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-start gap-1.5">
         <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_code ?? "-"}</span>
         <span className="block whitespace-pre-line text-xs leading-tight text-gray-600">{formatAbsenceSummaryDates(absence)}</span>
@@ -91,7 +120,7 @@ function AbsenceCard({
   );
 }
 
-export default function KanbanView({ filters }: { filters: { query: string; subject: string; dateFrom: string; dateTo: string } }) {
+export default function KanbanView({ filters }: { filters: { query: string; subject: string; dateFrom: string; dateTo: string; impactOnly?: boolean } }) {
   const { addToast } = useToast();
   const [columns, setColumns] = useState<Record<AbsenceStatus, ManagedAbsence[]>>(() => ({ pending: [], reviewed: [], actioned: [], cancelled: [], special_approved: [] }));
   const [offsets, setOffsets] = useState<Record<AbsenceStatus, number>>(() => ({ pending: 0, reviewed: 0, actioned: 0, cancelled: 0, special_approved: 0 }));
@@ -117,6 +146,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
     if (filters.subject) params.set("subject_id", filters.subject);
     if (filters.dateFrom) params.set("date_from", filters.dateFrom);
     if (filters.dateTo) params.set("date_to", filters.dateTo);
+    if (filters.impactOnly) params.set("schedule_impact", "open");
     return params.toString();
   }
 

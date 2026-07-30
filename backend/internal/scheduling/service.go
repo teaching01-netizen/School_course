@@ -862,10 +862,14 @@ type EditOccurrenceParams struct {
 	RoomID          *pgtype.UUID
 	TeacherID       *pgtype.UUID
 	ExpectedVersion int32
+	ActorID         pgtype.UUID
+	BatchID         pgtype.UUID
+	ChangeSource    string
 }
 
 type EditOccurrenceResult struct {
-	SessionID pgtype.UUID
+	SessionID       pgtype.UUID
+	SessionChangeID pgtype.UUID
 }
 
 // EditOccurrenceTimeTx edits a session occurrence using an existing tx-bound handle.
@@ -1069,7 +1073,12 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		}
 	}
 
-	return EditOccurrenceResult{SessionID: row.ID}, nil
+	changeID, err := s.recordSessionChange(ctx, qtx, existing, row, p)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+
+	return EditOccurrenceResult{SessionID: row.ID, SessionChangeID: changeID}, nil
 }
 
 func sameSessionIdentity(a, b sqldb.SessionGetByIDRow) bool {

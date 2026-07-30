@@ -55,6 +55,9 @@ export type StudentAbsence = {
   sit_in_overridden?: boolean;
   sit_in_overridden_by?: string | null;
   sit_in_override_reason?: string | null;
+  open_schedule_issue_count?: number;
+  critical_schedule_issue_count?: number;
+  latest_session_change_id?: string | null;
   version: number;
   updated_at: string;
 };
@@ -96,6 +99,8 @@ export type AbsencePage = {
   total_count: number;
   offset: number;
   limit: number;
+  open_schedule_impact_count?: number;
+  critical_schedule_impact_count?: number;
 };
 
 export type AbsenceStats = {

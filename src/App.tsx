@@ -40,6 +40,8 @@ const AbsenceDashboard = lazy(() => import('./pages/AbsenceDashboard'));
 const AbsenceSettings = lazy(() => import('./pages/AbsenceSettings'));
 const OperationsCalendar = lazy(() => import('./pages/OperationsCalendar'));
 const OperationsHub = lazy(() => import('./pages/operations/OperationsHub'));
+const SessionChanges = lazy(() => import('./pages/SessionChanges'));
+const SessionChangeDetail = lazy(() => import('./pages/SessionChangeDetail'));
 const LeavePolicy = lazy(() => import('./pages/LeavePolicy'));
 const EmailReminders = lazy(() => import('./pages/EmailReminders'));
 const SitInTestPage = lazy(() => import('./pages/SitInTestPage'));
@@ -170,6 +172,9 @@ function App() {
                 <Route path="/absences/calendar" element={<OperationsCalendar />} />
                 <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />
                 <Route path="/admin/operations" element={<OperationsHub />} />
+                <Route path="/operations/schedule-impact" element={<SessionChanges />} />
+                <Route path="/operations/session-changes" element={<Navigate to="/operations/schedule-impact?view=history" replace />} />
+                <Route path="/operations/session-changes/:id" element={<SessionChangeDetail />} />
                 <Route path="/leave-policy" element={<LeavePolicy />} />
                 <Route path="/email-reminders" element={<EmailReminders />} />
                 <Route path="/admin/sit-in-test" element={<SitInTestPage />} />
