@@ -37,3 +37,4 @@ copy/
 # Go build outputs
 backend/bin/
 backend/tmp/
+.worktrees/
