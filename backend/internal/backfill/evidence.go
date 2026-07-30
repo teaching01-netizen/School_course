@@ -87,9 +87,10 @@ func (ef *EvidenceFinder) findAssignmentEvent(
 	ctx context.Context,
 	assignment *EligibleAssignment,
 ) (*EvidenceResult, error) {
-	// Assignment events don't store snapshots directly, but they record
-	// the session version at assignment time. If we can find the event,
-	// we can use it to identify which version was assigned.
+	if assignment.SessionVersionAtAssignment == nil {
+		return nil, nil
+	}
+
 	var capturedAt pgtype.Timestamptz
 	var sessionVersion int32
 
@@ -100,12 +101,21 @@ func (ef *EvidenceFinder) findAssignmentEvent(
 		WHERE ase.absence_id = $1
 		  AND ase.new_session_id = $2
 		  AND ase.action = 'assigned'
+		  AND s.version = $3
 		ORDER BY ase.created_at DESC
 		LIMIT 1
-	`, assignment.AbsenceID, assignment.SessionID).Scan(&capturedAt, &sessionVersion)
+	`, assignment.AbsenceID, assignment.SessionID, *assignment.SessionVersionAtAssignment).Scan(&capturedAt, &sessionVersion)
 
 	if err != nil {
-		// No assignment event found
+		return nil, nil
+	}
+
+	// Load full session data to build the snapshot.
+	snapshotData, err := ef.loadSessionSnapshot(ctx, assignment.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("load session snapshot for assignment event: %w", err)
+	}
+	if snapshotData == nil {
 		return nil, nil
 	}
 
@@ -117,6 +127,7 @@ func (ef *EvidenceFinder) findAssignmentEvent(
 	return &EvidenceResult{
 		Quality:    QualityExact,
 		Source:     SourceAssignmentEvent,
+		Snapshot:   snapshotData,
 		Version:    &sessionVersion,
 		CapturedAt: &capturedAt.Time,
 	}, nil
@@ -339,4 +350,72 @@ func ptrUUID(u uuid.UUID) *uuid.UUID {
 		return nil
 	}
 	return &u
+}
+
+// loadSessionSnapshot loads session data with joined entities and builds a
+// snapshot. Returns nil if the session is not found or deleted.
+func (ef *EvidenceFinder) loadSessionSnapshot(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (json.RawMessage, error) {
+	var (
+		courseCode  string
+		courseName  string
+		teacherName string
+		roomName    *string
+		sessID      pgtype.UUID
+		seriesID    pgtype.UUID
+		courseID    pgtype.UUID
+		roomID      pgtype.UUID
+		teacherID   pgtype.UUID
+		startAt     pgtype.Timestamptz
+		endAt       pgtype.Timestamptz
+		version     int32
+	)
+
+	err := ef.pool.QueryRow(ctx, `
+		SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
+		       s.start_at, s.end_at, s.version,
+		       COALESCE(c.code, '') AS course_code,
+		       COALESCE(c.name, '') AS course_name,
+		       COALESCE(u.username, '') AS teacher_name,
+		       r.name AS room_name
+		FROM sessions s
+		JOIN courses c ON c.id = s.course_id
+		JOIN users u ON u.id = s.teacher_id
+		LEFT JOIN rooms r ON r.id = s.room_id
+		WHERE s.id = $1 AND s.deleted_at IS NULL
+	`, sessionID).Scan(
+		&sessID, &seriesID, &courseID, &roomID, &teacherID,
+		&startAt, &endAt, &version,
+		&courseCode, &courseName, &teacherName, &roomName,
+	)
+	if err != nil {
+		return nil, nil
+	}
+
+	session := snapshot.AssignmentSession{
+		ID:         uuidFromPgtype(sessID),
+		SeriesID:   ptrUUID(uuidFromPgtype(seriesID)),
+		CourseID:   uuidFromPgtype(courseID),
+		RoomID:     ptrUUID(uuidFromPgtype(roomID)),
+		TeacherID:  uuidFromPgtype(teacherID),
+		StartAt:    startAt.Time.UTC(),
+		EndAt:      endAt.Time.UTC(),
+		Version:    version,
+		CourseCode: courseCode,
+		CourseName: courseName,
+		TeacherName: teacherName,
+		RoomName:   roomName,
+	}
+
+	capturedAt := time.Now().UTC()
+	snap := snapshot.BuildSessionSnapshotV1(session, capturedAt, "Asia/Bangkok")
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
+	}
+
+	return data, nil
 }

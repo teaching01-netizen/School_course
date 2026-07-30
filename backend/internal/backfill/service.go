@@ -54,6 +54,7 @@ func (s *Service) Run(ctx context.Context) (*BackfillReport, error) {
 	var batchCount int
 	var totalDuration time.Duration
 
+batchLoop:
 	for {
 		// Check context
 		if err := ctx.Err(); err != nil {
@@ -103,7 +104,7 @@ func (s *Service) Run(ctx context.Context) (*BackfillReport, error) {
 		if s.config.RateLimit > 0 {
 			select {
 			case <-ctx.Done():
-				break
+				break batchLoop
 			case <-time.After(s.config.RateLimit):
 			}
 		}
