@@ -13,6 +13,47 @@ export type ImpactCandidate = {
   generated_at: string;
 };
 
+export type OriginalSessionView = {
+  quality: "exact" | "reconstructed" | "unavailable";
+  source: string;
+  snapshot: Record<string, unknown> | null;
+};
+
+export type CurrentSessionView = {
+  status: "active" | "deleted" | "unknown";
+  session_id: string;
+  version: number;
+  start_at: string;
+  end_at: string;
+  course_code: string;
+  course_name: string;
+  room_name: string | null;
+  teacher_name: string;
+};
+
+export type AssignmentContext = {
+  assigned_at: string | null;
+  original_session: OriginalSessionView;
+  current_session: CurrentSessionView | null;
+};
+
+export type ChangeContext = {
+  change_id: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+};
+
+export type ImpactReason = {
+  code: string;
+  message: string;
+};
+
+export type ImpactContext = {
+  issue_type: string;
+  severity: string;
+  reasons: ImpactReason[];
+};
+
 export type ScheduleImpactIssue = {
   id: string;
   absence_id: string;
@@ -22,19 +63,14 @@ export type ScheduleImpactIssue = {
   issue_version: number;
   wcode: string;
   student_name: string | null;
-  course_code: string;
-  course_name: string;
   start_at: string | null;
   end_at: string | null;
-  updated_at: string;
   details: { reasons?: string[]; notice_hours?: number; old_start_at?: string; new_start_at?: string };
   suggested_resolutions: ImpactCandidate[];
-  latest_session_change_id: string;
-  impact_analysis_status: string | null;
-  assigned_to: string | null;
-  review_reason: string | null;
-  review_due_at: string | null;
   resolution_action: string | null;
+  assignment_context: AssignmentContext;
+  change_context: ChangeContext;
+  impact_context: ImpactContext;
 };
 
 export type ScheduleImpactSummary = {

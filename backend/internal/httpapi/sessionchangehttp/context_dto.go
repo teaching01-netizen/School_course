@@ -4,8 +4,38 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"warwick-institute/internal/snapshot"
 )
+
+// issueDTOInput groups the fields needed to build an issue DTO,
+// avoiding 21 positional parameters in issueDTO.
+type issueDTOInput struct {
+	ID                          pgtype.UUID
+	AbsenceID                   pgtype.UUID
+	IssueType                   string
+	Severity                    string
+	Status                      string
+	SourceSessionID             pgtype.UUID
+	SitInSessionID              pgtype.UUID
+	MissedSessionID             pgtype.UUID
+	Details                     []byte
+	Suggestions                 []byte
+	Wcode                       string
+	StudentName                 pgtype.Text
+	StudentEmail                pgtype.Text
+	StudentPhone                pgtype.Text
+	StartAt                     pgtype.Timestamptz
+	EndAt                       pgtype.Timestamptz
+	ResolutionAction            pgtype.Text
+	IssueVersion                int32
+	AssignmentSnapshotJSON      []byte
+	AssignmentSnapshotQuality   string
+	AssignmentSnapshotSource    pgtype.Text
+	LatestSessionChangeID       pgtype.UUID
+	AssignedAt                  pgtype.Timestamptz
+}
 
 // ScheduleImpactIssue represents the extended issue response with historical context.
 // Deprecated fields (start_at, end_at, room, teacher) are preserved for backward compatibility.

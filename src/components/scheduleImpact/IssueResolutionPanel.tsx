@@ -90,7 +90,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
         <section>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${issue.severity === "critical" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>{issue.severity === "critical" ? "Critical" : "Warning"}</span>
-            <span className="text-xs font-medium text-gray-500">{issue.course_code} · {issue.wcode}</span>
+            <span className="text-xs font-medium text-gray-500">{(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""} · {issue.wcode}</span>
           </div>
           <h2 className="mt-2 text-lg font-semibold text-gray-900">{issue.student_name ?? issue.wcode}</h2>
           <p className="mt-2 text-sm font-medium text-gray-800">{issueMessage(issue)}</p>
@@ -100,7 +100,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
         <section className="border-y border-gray-200 py-4">
           <h3 className="text-sm font-semibold text-gray-900">Current plan</h3>
           <p className="mt-1 text-sm text-gray-700">{formatBangkokDateTime(issue.start_at, issue.end_at)}</p>
-          {issue.status === "needs_review" ? <p className="mt-2 text-sm text-amber-800">Marked for review{issue.assigned_to ? ` by ${issue.assigned_to}` : ""}{issue.review_reason ? ` · ${issue.review_reason}` : ""}</p> : null}
+          {issue.status === "needs_review" ? <p className="mt-2 text-sm text-amber-800">Marked for review</p> : null}
         </section>
 
         <section>
@@ -126,7 +126,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
 
         <section className="border-t border-gray-200 pt-4"><h3 className="text-sm font-semibold text-gray-900">Activity</h3>{activity.length ? <ol className="mt-2 space-y-2">{activity.map((item, index) => <li key={`${item.created_at}-${index}`} className="text-sm text-gray-700"><span className="font-medium">{item.action.replace(/_/g, " ")}</span>{item.reason ? ` · ${item.reason}` : ""}<span className="block text-xs text-gray-500">{formatBangkokDateTime(item.created_at, null)}</span></li>)}</ol> : <p className="mt-2 text-sm text-gray-500">No previous activity is recorded for this arrangement.</p>}</section>
 
-        <details className="border-t border-gray-200 pt-4"><summary className="cursor-pointer text-sm font-medium text-gray-700">Technical details</summary><dl className="mt-3 space-y-1 text-xs text-gray-500"><div><dt className="inline font-semibold">Issue ID: </dt><dd className="inline break-all">{issue.id}</dd></div><div><dt className="inline font-semibold">Issue version: </dt><dd className="inline">{issue.issue_version}</dd></div><div><dt className="inline font-semibold">Analysis: </dt><dd className="inline">{issue.impact_analysis_status ?? "completed"}</dd></div><div><dt className="inline font-semibold">Timezone: </dt><dd className="inline">Asia/Bangkok</dd></div></dl></details>
+        <details className="border-t border-gray-200 pt-4"><summary className="cursor-pointer text-sm font-medium text-gray-700">Technical details</summary><dl className="mt-3 space-y-1 text-xs text-gray-500"><div><dt className="inline font-semibold">Issue ID: </dt><dd className="inline break-all">{issue.id}</dd></div><div><dt className="inline font-semibold">Issue version: </dt><dd className="inline">{issue.issue_version}</dd></div><div><dt className="inline font-semibold">Timezone: </dt><dd className="inline">Asia/Bangkok</dd></div></dl></details>
 
         <p className="flex items-center gap-1 text-xs text-gray-500"><Bell className="h-3.5 w-3.5" aria-hidden="true" />Notification status is confirmed after the decision is saved.</p>
         {issue.status === "open" ? null : <p className="flex items-center gap-1 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />This issue is no longer open.</p>}

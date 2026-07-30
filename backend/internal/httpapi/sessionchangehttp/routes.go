@@ -103,7 +103,31 @@ func (s *server) handleSessionChangeDetail(w http.ResponseWriter, r *http.Reques
 	}
 	issueOut := make([]map[string]any, 0, len(issues))
 	for _, issue := range issues {
-		issueOut = append(issueOut, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
+		issueOut = append(issueOut, s.issueDTO(r.Context(), issueDTOInput{
+			ID:                         issue.ID,
+			AbsenceID:                  issue.AbsenceID,
+			IssueType:                  issue.IssueType,
+			Severity:                   issue.Severity,
+			Status:                     issue.Status,
+			SourceSessionID:            issue.SourceSessionID,
+			SitInSessionID:             issue.SitInSessionID,
+			MissedSessionID:            issue.MissedSessionID,
+			Details:                    issue.DetailsJson,
+			Suggestions:                issue.SuggestedResolutionJson,
+			Wcode:                      issue.Wcode,
+			StudentName:                issue.StudentName,
+			StudentEmail:               issue.StudentEmail,
+			StudentPhone:               issue.StudentPhone,
+			StartAt:                    issue.StartAt,
+			EndAt:                      issue.EndAt,
+			ResolutionAction:           issue.ResolutionAction,
+			IssueVersion:               issue.IssueVersion,
+			AssignmentSnapshotJSON:     issue.AssignmentSnapshotAtDetection,
+			AssignmentSnapshotQuality:  issue.AssignmentSnapshotQuality,
+			AssignmentSnapshotSource:   issue.AssignmentSnapshotSource,
+			LatestSessionChangeID:      issue.LatestSessionChangeID,
+			AssignedAt:                 issue.AssignedAt,
+		}))
 	}
 	notifications, err := s.deps.Q.NotificationOutboxListForChange(r.Context(), id)
 	if err != nil {
@@ -194,7 +218,31 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]map[string]any, 0, len(items))
 		for _, issue := range items {
-			out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
+			out = append(out, s.issueDTO(r.Context(), issueDTOInput{
+				ID:                         issue.ID,
+				AbsenceID:                  issue.AbsenceID,
+				IssueType:                  issue.IssueType,
+				Severity:                   issue.Severity,
+				Status:                     issue.Status,
+				SourceSessionID:            issue.SourceSessionID,
+				SitInSessionID:             issue.SitInSessionID,
+				MissedSessionID:            issue.MissedSessionID,
+				Details:                    issue.DetailsJson,
+				Suggestions:                issue.SuggestedResolutionJson,
+				Wcode:                      issue.Wcode,
+				StudentName:                issue.StudentName,
+				StudentEmail:               issue.StudentEmail,
+				StudentPhone:               issue.StudentPhone,
+				StartAt:                    issue.StartAt,
+				EndAt:                      issue.EndAt,
+				ResolutionAction:           issue.ResolutionAction,
+				IssueVersion:               issue.IssueVersion,
+				AssignmentSnapshotJSON:     issue.AssignmentSnapshotAtDetection,
+				AssignmentSnapshotQuality:  issue.AssignmentSnapshotQuality,
+				AssignmentSnapshotSource:   issue.AssignmentSnapshotSource,
+				LatestSessionChangeID:      issue.LatestSessionChangeID,
+				AssignedAt:                 issue.AssignedAt,
+			}))
 		}
 		s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
 		return
@@ -212,7 +260,31 @@ func (s *server) handleIssueList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, issue := range items {
-		out = append(out, s.issueDTO(issue.ID, issue.AbsenceID, issue.IssueType, issue.Severity, issue.Status, issue.SourceSessionID, issue.SitInSessionID, issue.MissedSessionID, issue.DetailsJson, issue.SuggestedResolutionJson, issue.Wcode, issue.StudentName, issue.StudentEmail, issue.StudentPhone, issue.StartAt, issue.EndAt, issue.ResolutionAction, issue.IssueVersion, issue.AssignmentSnapshotAtDetection, issue.AssignmentSnapshotQuality, issue.AssignmentSnapshotSource, issue.LatestSessionChangeID, issue.AssignedAt))
+		out = append(out, s.issueDTO(r.Context(), issueDTOInput{
+			ID:                         issue.ID,
+			AbsenceID:                  issue.AbsenceID,
+			IssueType:                  issue.IssueType,
+			Severity:                   issue.Severity,
+			Status:                     issue.Status,
+			SourceSessionID:            issue.SourceSessionID,
+			SitInSessionID:             issue.SitInSessionID,
+			MissedSessionID:            issue.MissedSessionID,
+			Details:                    issue.DetailsJson,
+			Suggestions:                issue.SuggestedResolutionJson,
+			Wcode:                      issue.Wcode,
+			StudentName:                issue.StudentName,
+			StudentEmail:               issue.StudentEmail,
+			StudentPhone:               issue.StudentPhone,
+			StartAt:                    issue.StartAt,
+			EndAt:                      issue.EndAt,
+			ResolutionAction:           issue.ResolutionAction,
+			IssueVersion:               issue.IssueVersion,
+			AssignmentSnapshotJSON:     issue.AssignmentSnapshotAtDetection,
+			AssignmentSnapshotQuality:  issue.AssignmentSnapshotQuality,
+			AssignmentSnapshotSource:   issue.AssignmentSnapshotSource,
+			LatestSessionChangeID:      issue.LatestSessionChangeID,
+			AssignedAt:                 issue.AssignedAt,
+		}))
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out, "limit": limit, "offset": offset})
 }
@@ -422,45 +494,45 @@ func (s *server) handleChangePreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status string, sourceSessionID, sitInSessionID, missedSessionID pgtype.UUID, details, suggestions []byte, wcode string, studentName, studentEmail, studentPhone pgtype.Text, startAt, endAt pgtype.Timestamptz, resolutionAction pgtype.Text, issueVersion int32, assignmentSnapshotJSON []byte, assignmentSnapshotQuality string, assignmentSnapshotSource pgtype.Text, latestSessionChangeID pgtype.UUID, assignedAt pgtype.Timestamptz) map[string]any {
+func (s *server) issueDTO(ctx context.Context, in issueDTOInput) map[string]any {
 	// Track deprecated field access for telemetry
 	TrackDeprecatedFieldAccess(s.deps.Log, "start_at/end_at", "")
 
 	// Decode issue details for reasons
-	issueDetails := DecodeIssueDetails(details)
+	issueDetails := DecodeIssueDetails(in.Details)
 
 	// Build assignment context from snapshot data
-	assignmentContext := buildAssignmentContext(s, assignmentSnapshotJSON, assignmentSnapshotQuality, assignmentSnapshotSource, sitInSessionID, missedSessionID, sourceSessionID, assignedAt)
+	assignmentContext := buildAssignmentContext(ctx, s, in.AssignmentSnapshotJSON, in.AssignmentSnapshotQuality, in.AssignmentSnapshotSource, in.SitInSessionID, in.MissedSessionID, in.SourceSessionID, in.AssignedAt)
 
 	// Build change context from session change data
-	changeContext := buildChangeContext(s, latestSessionChangeID)
+	changeContext := buildChangeContext(ctx, s, in.LatestSessionChangeID)
 
 	// Build impact context from issue details
 	impactContext := ImpactContext{
-		IssueType: issueType,
-		Severity:  severity,
+		IssueType: in.IssueType,
+		Severity:  in.Severity,
 		Reasons:   ImpactReasonsFromCodes(issueDetails.Reasons),
 	}
 
 	return map[string]any{
-		"id":                    uuidText(s.a, id),
-		"issue_version":         issueVersion,
-		"absence_id":            uuidText(s.a, absenceID),
-		"issue_type":            issueType,
-		"severity":              severity,
-		"status":                status,
-		"source_session_id":     uuidValue(s.a, sourceSessionID),
-		"sit_in_session_id":     uuidValue(s.a, sitInSessionID),
-		"missed_session_id":     uuidValue(s.a, missedSessionID),
-		"details":               json.RawMessage(details),
-		"suggested_resolutions": json.RawMessage(suggestions),
-		"wcode":                 wcode,
-		"student_name":          textValue(studentName),
-		"student_email":         textValue(studentEmail),
-		"student_phone":         textValue(studentPhone),
-		"start_at":              timeValue(startAt),
-		"end_at":                timeValue(endAt),
-		"resolution_action":     textValue(resolutionAction),
+		"id":                    uuidText(s.a, in.ID),
+		"issue_version":         in.IssueVersion,
+		"absence_id":            uuidText(s.a, in.AbsenceID),
+		"issue_type":            in.IssueType,
+		"severity":              in.Severity,
+		"status":                in.Status,
+		"source_session_id":     uuidValue(s.a, in.SourceSessionID),
+		"sit_in_session_id":     uuidValue(s.a, in.SitInSessionID),
+		"missed_session_id":     uuidValue(s.a, in.MissedSessionID),
+		"details":               json.RawMessage(in.Details),
+		"suggested_resolutions": json.RawMessage(in.Suggestions),
+		"wcode":                 in.Wcode,
+		"student_name":          textValue(in.StudentName),
+		"student_email":         textValue(in.StudentEmail),
+		"student_phone":         textValue(in.StudentPhone),
+		"start_at":              timeValue(in.StartAt),
+		"end_at":                timeValue(in.EndAt),
+		"resolution_action":     textValue(in.ResolutionAction),
 		"assignment_context":    assignmentContext,
 		"change_context":        changeContext,
 		"impact_context":        impactContext,
@@ -468,7 +540,7 @@ func (s *server) issueDTO(id, absenceID pgtype.UUID, issueType, severity, status
 }
 
 // buildAssignmentContext constructs the assignment context from available data.
-func buildAssignmentContext(s *server, snapshotJSON []byte, quality string, source pgtype.Text, sitInSessionID, missedSessionID, sourceSessionID pgtype.UUID, assignedAt pgtype.Timestamptz) AssignmentContext {
+func buildAssignmentContext(ctx context.Context, s *server, snapshotJSON []byte, quality string, source pgtype.Text, sitInSessionID, missedSessionID, sourceSessionID pgtype.UUID, assignedAt pgtype.Timestamptz) AssignmentContext {
 	// Decode the original session snapshot
 	originalSession := DecodeAssignmentSnapshot(snapshotJSON, quality, textOrEmpty(source))
 
@@ -491,7 +563,7 @@ func buildAssignmentContext(s *server, snapshotJSON []byte, quality string, sour
 
 	var currentSession *CurrentSessionView
 	if currentSessionID.Valid {
-		session, err := s.deps.Q.SessionGetByIDForSnapshot(context.Background(), currentSessionID)
+		session, err := s.deps.Q.SessionGetByIDForSnapshot(ctx, currentSessionID)
 		if err != nil {
 			// Session not found (deleted) - return with explicit deleted status
 			currentSession = &CurrentSessionView{
@@ -521,34 +593,32 @@ func buildAssignmentContext(s *server, snapshotJSON []byte, quality string, sour
 }
 
 // buildChangeContext constructs the change context from session change data.
-func buildChangeContext(s *server, changeID pgtype.UUID) ChangeContext {
-	ctx := ChangeContext{
+func buildChangeContext(ctx context.Context, s *server, changeID pgtype.UUID) ChangeContext {
+	result := ChangeContext{
 		ChangeID: uuidText(s.a, changeID),
 		Before:   nil,
 		After:    nil,
 	}
 
 	if !changeID.Valid {
-		return ctx
+		return result
 	}
 
 	// Try to load the session change to get before/after snapshots
-	// Note: We use context.Background() here since the handler context may not be available
-	// In production, this should be called with the request context
-	change, err := s.deps.Q.SessionChangeGetByID(context.Background(), changeID)
+	change, err := s.deps.Q.SessionChangeGetByID(ctx, changeID)
 	if err != nil {
 		// If we can't load the change, return with nil snapshots
 		s.deps.Log.Warn("failed to load session change for context",
 			"change_id", uuidText(s.a, changeID),
 			"error", err,
 		)
-		return ctx
+		return result
 	}
 
-	ctx.Before = DecodeChangeSnapshot(change.BeforeSnapshot)
-	ctx.After = DecodeChangeSnapshot(change.AfterSnapshot)
+	result.Before = DecodeChangeSnapshot(change.BeforeSnapshot)
+	result.After = DecodeChangeSnapshot(change.AfterSnapshot)
 
-	return ctx
+	return result
 }
 
 // textOrEmpty returns the string value or empty string if not valid.

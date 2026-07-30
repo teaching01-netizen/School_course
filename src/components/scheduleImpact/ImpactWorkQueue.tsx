@@ -53,7 +53,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
             <tbody>
               {items.map((issue) => (
                 <tr key={issue.id} className={selectedID === issue.id ? "bg-blue-50/70" : ""}>
-                  <td><button type="button" onClick={() => onOpen(issue)} className="text-left font-medium text-gray-900 hover:text-[var(--color-wi-primary)]">{issue.student_name ?? issue.wcode}<span className="block text-xs font-normal text-gray-500">{issue.course_code}</span></button></td>
+                  <td><button type="button" onClick={() => onOpen(issue)} className="text-left font-medium text-gray-900 hover:text-[var(--color-wi-primary)]">{issue.student_name ?? issue.wcode}<span className="block text-xs font-normal text-gray-500">{(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""}</span></button></td>
                   <td><span className="mr-2 align-middle"><SeverityTag issue={issue} /></span>{issueMessage(issue)}</td>
                   <td className="whitespace-nowrap text-gray-700">{formatBangkokDateTime(issue.start_at, issue.end_at)}</td>
                   <td className="whitespace-nowrap text-gray-700">{urgencyFor(issue)}</td>
@@ -80,10 +80,10 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
                   <div className="flex flex-wrap items-center gap-2">
                     <SeverityTag issue={issue} />
                     <span className="font-semibold text-gray-900">{issue.student_name ?? issue.wcode}</span>
-                    <span className="text-sm text-gray-500">{issue.course_code}{issue.course_name ? ` · ${issue.course_name}` : ""}</span>
+                    <span className="text-sm text-gray-500">{(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""}{((issue.assignment_context.current_session?.course_name ?? issue.assignment_context.original_session.snapshot?.course_name) as string) ? ` · ${(issue.assignment_context.current_session?.course_name ?? issue.assignment_context.original_session.snapshot?.course_name as string)}` : ""}</span>
                   </div>
                   <p className="mt-2 text-sm font-medium text-gray-800">{issueMessage(issue)}</p>
-                  <p className="mt-1 text-sm text-gray-500">{issue.status === "needs_review" ? `Marked for review${issue.assigned_to ? ` · ${issue.assigned_to}` : ""}` : "Open the issue to compare options and confirm the safest action."}</p>
+                  <p className="mt-1 text-sm text-gray-500">{issue.status === "needs_review" ? "Marked for review" : "Open the issue to compare options and confirm the safest action."}</p>
                 </button>
                 <p className={`shrink-0 text-sm font-medium ${issue.severity === "critical" ? "text-red-700" : "text-amber-800"}`}>{urgencyFor(issue)}</p>
               </div>
