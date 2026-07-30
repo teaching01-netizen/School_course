@@ -7,7 +7,7 @@ export interface SessionSnapshotV1 {
   timezone: string;
   course: {
     id: string;
-    code: string | null;
+    code: string;
     name: string;
   };
   room: {
@@ -25,7 +25,7 @@ export interface SessionSnapshotV1 {
 
 export interface SnapshotEntity {
   id: string;
-  code: string | null;
+  code: string;
   name: string;
 }
 
