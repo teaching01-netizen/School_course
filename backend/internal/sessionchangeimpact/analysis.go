@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,20 @@ type analysisResult struct {
 	AffectedAbsenceIDs []string `json:"affected_absence_ids"`
 	AbsenceCount       int      `json:"absence_count"`
 	IssuesCreated      int      `json:"issues_created"`
+}
+
+func categorizeError(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "session change settings") || strings.Contains(msg, "affected absences") || strings.Contains(msg, "load session change"):
+		return "database_error"
+	case strings.Contains(msg, "validate") || strings.Contains(msg, "suggest") || strings.Contains(msg, "resolver"):
+		return "validation_error"
+	case strings.Contains(msg, "upsert schedule issue") || strings.Contains(msg, "snapshot"):
+		return "snapshot_error"
+	default:
+		return "analysis_error"
+	}
 }
 
 func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
@@ -53,8 +68,15 @@ func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
 		return fmt.Errorf("load session change: %w", err)
 	}
 	run := analysisRun{q: qtx, resolver: s.resolver.WithQueries(qtx), now: s.now, change: change}
-	affected, err := run.analyze(ctx)
+	affected, createdIssueIDs, err := run.analyze(ctx)
 	if err != nil {
+		if setErr := qtx.SessionChangeImpactRunSetStatus(ctx, changeID, "failed", err.Error()); setErr != nil {
+			return fmt.Errorf("mark impact analysis as failed: %w", setErr)
+		}
+		category := categorizeError(err)
+		if setErr := qtx.SessionChangeImpactRunSetResult(ctx, changeID, nil, nil, category, true); setErr != nil {
+			return fmt.Errorf("record impact analysis error: %w", setErr)
+		}
 		return err
 	}
 
@@ -79,7 +101,7 @@ func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
 	if err := qtx.SessionChangeImpactRunSetStatus(ctx, changeID, "completed", ""); err != nil {
 		return fmt.Errorf("mark impact analysis as completed: %w", err)
 	}
-	if err := qtx.SessionChangeImpactRunSetResult(ctx, changeID, resultJSON, nil, "", true); err != nil {
+	if err := qtx.SessionChangeImpactRunSetResult(ctx, changeID, resultJSON, createdIssueIDs, "", true); err != nil {
 		return fmt.Errorf("record impact analysis result: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -89,15 +111,16 @@ func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
 	return nil
 }
 
-func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffectedAbsencesRow, error) {
+func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffectedAbsencesRow, []pgtype.UUID, error) {
 	settings, err := run.q.AppSettingsGetSessionChangeSettings(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("load session change settings: %w", err)
+		return nil, nil, fmt.Errorf("load session change settings: %w", err)
 	}
 	affected, err := run.q.SessionChangeAffectedAbsences(ctx, run.change.ID)
 	if err != nil {
-		return nil, fmt.Errorf("load affected absences: %w", err)
+		return nil, nil, fmt.Errorf("load affected absences: %w", err)
 	}
+	var createdIssueIDs []pgtype.UUID
 	activeByAbsence := make(map[pgtype.UUID][]string, len(affected))
 	for _, item := range affected {
 		if item.ImpactRelation != "" {
@@ -107,15 +130,17 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			}
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, pgtype.UUID{}, pgtype.UUID{})
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			if err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: []string{"session_deleted"}, fingerprint: fingerprint, deletionTarget: true, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource}); err != nil {
-				return nil, err
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: []string{"session_deleted"}, fingerprint: fingerprint, deletionTarget: true, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			if err != nil {
+				return nil, nil, err
 			}
+			createdIssueIDs = append(createdIssueIDs, issueID)
 			continue
 		}
 		if item.AssignmentID.Valid {
 			validation, validationErr := run.resolver.ValidateAssignment(ctx, item.ID, item.SitInSessionID)
 			if validationErr != nil {
-				return nil, validationErr
+				return nil, nil, fmt.Errorf("validate assignment: %w", validationErr)
 			}
 			issueType := "sit_in_session_changed"
 			severity := "warning"
@@ -125,32 +150,39 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			}
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			if err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: severity, reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource}); err != nil {
-				return nil, err
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: severity, reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			if err != nil {
+				return nil, nil, err
 			}
+			createdIssueIDs = append(createdIssueIDs, issueID)
 		}
 		if item.MissedSessionID.Valid {
 			fingerprint := issueFingerprint(item.ID, "missed_session_changed", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			if err := run.upsertIssue(ctx, issueInput{item: item, issueType: "missed_session_changed", severity: "warning", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource}); err != nil {
-				return nil, err
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "missed_session_changed", severity: "warning", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			if err != nil {
+				return nil, nil, err
 			}
+			createdIssueIDs = append(createdIssueIDs, issueID)
 		}
 	}
 	if run.change.ChangeSource != "session_delete" {
-		if err := run.addTimingIssues(ctx, settings.WarningHours, settings.CriticalHours, affected, activeByAbsence); err != nil {
-			return nil, err
+		timingIDs, err := run.addTimingIssues(ctx, settings.WarningHours, settings.CriticalHours, affected, activeByAbsence)
+		if err != nil {
+			return nil, nil, err
 		}
+		createdIssueIDs = append(createdIssueIDs, timingIDs...)
 	}
 	if err := run.resolveSuperseded(ctx, affected, activeByAbsence); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return affected, nil
+	return affected, createdIssueIDs, nil
 }
 
-func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, criticalHours int32, affected []sqldb.SessionChangeAffectedAbsencesRow, activeByAbsence map[pgtype.UUID][]string) error {
+func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, criticalHours int32, affected []sqldb.SessionChangeAffectedAbsencesRow, activeByAbsence map[pgtype.UUID][]string) ([]pgtype.UUID, error) {
+	var issueIDs []pgtype.UUID
 	if !run.change.NewStartAt.Valid {
-		return nil
+		return nil, nil
 	}
 	noticeHours := run.change.NewStartAt.Time.Sub(run.now()).Hours()
 	if noticeHours <= float64(warningHours) {
@@ -161,21 +193,25 @@ func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, critic
 		for _, item := range affected {
 			fingerprint := issueFingerprint(item.ID, "short_notice_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			if err := run.upsertIssue(ctx, issueInput{item: item, issueType: "short_notice_change", severity: severity, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource}); err != nil {
-				return err
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "short_notice_change", severity: severity, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			if err != nil {
+				return nil, err
 			}
+			issueIDs = append(issueIDs, issueID)
 		}
 	}
 	if !run.change.NewStartAt.Time.After(run.now()) {
 		for _, item := range affected {
 			fingerprint := issueFingerprint(item.ID, "past_time_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			if err := run.upsertIssue(ctx, issueInput{item: item, issueType: "past_time_change", severity: "critical", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource}); err != nil {
-				return err
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "past_time_change", severity: "critical", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			if err != nil {
+				return nil, err
 			}
+			issueIDs = append(issueIDs, issueID)
 		}
 	}
-	return nil
+	return issueIDs, nil
 }
 
 func (run analysisRun) resolveSuperseded(ctx context.Context, affected []sqldb.SessionChangeAffectedAbsencesRow, activeByAbsence map[pgtype.UUID][]string) error {

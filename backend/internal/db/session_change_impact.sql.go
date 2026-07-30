@@ -372,7 +372,7 @@ func (q *Queries) AbsenceScheduleIssueResolve(ctx context.Context, arg AbsenceSc
 	return err
 }
 
-const absenceScheduleIssueUpsert = `-- name: AbsenceScheduleIssueUpsert :exec
+const absenceScheduleIssueUpsert = `-- name: AbsenceScheduleIssueUpsert :one
 INSERT INTO absence_schedule_issues (
   absence_id, issue_type, severity, status, source_session_id, sit_in_session_id,
   missed_session_id, first_session_change_id, latest_session_change_id,
@@ -407,6 +407,7 @@ WHERE absence_schedule_issues.severity IS DISTINCT FROM EXCLUDED.severity
    OR absence_schedule_issues.latest_session_change_id IS DISTINCT FROM EXCLUDED.latest_session_change_id
    OR absence_schedule_issues.details_json IS DISTINCT FROM EXCLUDED.details_json
    OR absence_schedule_issues.suggested_resolution_json IS DISTINCT FROM EXCLUDED.suggested_resolution_json
+RETURNING id
 `
 
 type AbsenceScheduleIssueUpsertParams struct {
@@ -425,8 +426,9 @@ type AbsenceScheduleIssueUpsertParams struct {
 	SnapshotSource          pgtype.Text `json:"snapshot_source"`
 }
 
-func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceScheduleIssueUpsertParams) error {
-	_, err := q.db.Exec(ctx, absenceScheduleIssueUpsert,
+func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceScheduleIssueUpsertParams) (pgtype.UUID, error) {
+	var id pgtype.UUID
+	err := q.db.QueryRow(ctx, absenceScheduleIssueUpsert,
 		arg.AbsenceID,
 		arg.IssueType,
 		arg.Severity,
@@ -440,8 +442,8 @@ func (q *Queries) AbsenceScheduleIssueUpsert(ctx context.Context, arg AbsenceSch
 		arg.SnapshotJson,
 		arg.SnapshotQuality,
 		arg.SnapshotSource,
-	)
-	return err
+	).Scan(&id)
+	return id, err
 }
 
 const notificationOutboxInsert = `-- name: NotificationOutboxInsert :exec

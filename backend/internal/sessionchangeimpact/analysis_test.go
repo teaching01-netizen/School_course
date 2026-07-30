@@ -2,6 +2,8 @@ package sessionchangeimpact
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -180,5 +182,33 @@ func TestIssueDetails_DeletionTarget(t *testing.T) {
 
 	if decoded.DeletedSessionID != "session-123" {
 		t.Errorf("expected deleted session ID 'session-123', got %q", decoded.DeletedSessionID)
+	}
+}
+
+func TestCategorizeError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{"database error - settings", errors.New("load session change settings: connection refused"), "database_error"},
+		{"database error - affected", errors.New("load affected absences: timeout"), "database_error"},
+		{"database error - session change", errors.New("load session change: not found"), "database_error"},
+		{"validation error - validate", errors.New("validate assignment: invalid"), "validation_error"},
+		{"validation error - suggest", errors.New("suggest replacements: no candidates"), "validation_error"},
+		{"validation error - resolver", errors.New("resolver failed"), "validation_error"},
+		{"snapshot error - upsert", errors.New("upsert schedule issue: conflict"), "snapshot_error"},
+		{"snapshot error - snapshot", errors.New("snapshot capture failed"), "snapshot_error"},
+		{"unknown error", errors.New("something unexpected"), "analysis_error"},
+		{"wrapped database error", fmt.Errorf("wrap: %w", errors.New("load session change settings: db down")), "database_error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := categorizeError(tt.err)
+			if result != tt.expected {
+				t.Errorf("categorizeError(%q) = %q, want %q", tt.err.Error(), result, tt.expected)
+			}
+		})
 	}
 }

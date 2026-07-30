@@ -38,25 +38,25 @@ type issueInput struct {
 	snapshotSource  pgtype.Text
 }
 
-func (run analysisRun) upsertIssue(ctx context.Context, input issueInput) error {
+func (run analysisRun) upsertIssue(ctx context.Context, input issueInput) (pgtype.UUID, error) {
 	details := issueDetails{Reasons: input.reasons, SessionVersion: input.item.AffectedSessionVersion.Int32, OldStartAt: run.change.OldStartAt.Time.UTC().Format(time.RFC3339Nano), NewStartAt: run.change.NewStartAt.Time.UTC().Format(time.RFC3339Nano)}
 	if input.deletionTarget {
 		details.DeletedSessionID = uuidString(run.change.SessionID)
 	}
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
-		return fmt.Errorf("marshal issue details: %w", err)
+		return pgtype.UUID{}, fmt.Errorf("marshal issue details: %w", err)
 	}
 	suggestions := []sitinresolver.Candidate{}
 	if len(input.reasons) > 0 && !input.deletionTarget {
 		suggestions, err = run.resolver.SuggestReplacements(ctx, input.item.ID, []pgtype.UUID{input.item.SitInSessionID}, 3)
 		if err != nil {
-			return err
+			return pgtype.UUID{}, err
 		}
 	}
 	suggestedJSON, err := json.Marshal(suggestions)
 	if err != nil {
-		return fmt.Errorf("marshal issue suggestions: %w", err)
+		return pgtype.UUID{}, fmt.Errorf("marshal issue suggestions: %w", err)
 	}
 	sourceSessionID := run.change.SessionID
 	sitInSessionID := input.item.SitInSessionID
@@ -66,16 +66,17 @@ func (run analysisRun) upsertIssue(ctx context.Context, input issueInput) error 
 		sitInSessionID = pgtype.UUID{}
 		missedSessionID = pgtype.UUID{}
 	}
-	if err := run.q.AbsenceScheduleIssueUpsert(ctx, sqldb.AbsenceScheduleIssueUpsertParams{
+	issueID, err := run.q.AbsenceScheduleIssueUpsert(ctx, sqldb.AbsenceScheduleIssueUpsertParams{
 		AbsenceID: input.item.ID, IssueType: input.issueType, Severity: input.severity,
 		SourceSessionID: sourceSessionID, SitInSessionID: sitInSessionID,
 		MissedSessionID: missedSessionID, SessionChangeID: run.change.ID,
 		DetailsJson: string(detailsJSON), SuggestedResolutionJson: string(suggestedJSON), Fingerprint: input.fingerprint,
 		SnapshotJson: string(input.snapshotJSON), SnapshotQuality: input.snapshotQuality, SnapshotSource: input.snapshotSource,
-	}); err != nil {
-		return fmt.Errorf("upsert schedule issue: %w", err)
+	})
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("upsert schedule issue: %w", err)
 	}
-	return nil
+	return issueID, nil
 }
 
 func issueTypeForReason(reasons []string) string {

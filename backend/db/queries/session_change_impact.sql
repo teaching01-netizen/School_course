@@ -137,7 +137,7 @@ LEFT JOIN absence_missed_sessions ams ON ams.absence_id = sa.id AND ams.session_
 LEFT JOIN sessions s ON s.id = COALESCE(asi.session_id, ams.session_id, sc.session_id)
 WHERE sc.id = $1;
 
--- name: AbsenceScheduleIssueUpsert :exec
+-- name: AbsenceScheduleIssueUpsert :one
 INSERT INTO absence_schedule_issues (
   absence_id, issue_type, severity, status, source_session_id, sit_in_session_id,
   missed_session_id, first_session_change_id, latest_session_change_id,
@@ -171,7 +171,8 @@ DO UPDATE SET severity = EXCLUDED.severity,
 WHERE absence_schedule_issues.severity IS DISTINCT FROM EXCLUDED.severity
    OR absence_schedule_issues.latest_session_change_id IS DISTINCT FROM EXCLUDED.latest_session_change_id
    OR absence_schedule_issues.details_json IS DISTINCT FROM EXCLUDED.details_json
-   OR absence_schedule_issues.suggested_resolution_json IS DISTINCT FROM EXCLUDED.suggested_resolution_json;
+   OR absence_schedule_issues.suggested_resolution_json IS DISTINCT FROM EXCLUDED.suggested_resolution_json
+RETURNING id;
 
 -- name: AbsenceScheduleIssueList :many
 SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status,
