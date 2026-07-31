@@ -127,7 +127,9 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 		`, absenceID, previousSessionID, candidateSessionID, strings.TrimSpace(reason), latestChangeID, actorID); err != nil {
 			return "", err
 		}
-	} else if action == "cancel" && assignmentID.Valid {
+	}
+	notifyAssignmentID := assignmentID
+	if action == "cancel" && assignmentID.Valid {
 		if _, err := q.db.Exec(ctx, `DELETE FROM absence_sit_ins WHERE id = $1`, assignmentID); err != nil {
 			return "", err
 		}
@@ -139,6 +141,9 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 			`, absenceID, previousSessionID, strings.TrimSpace(reason), latestChangeID, actorID); err != nil {
 			return "", err
 		}
+		// The assignment row was deleted above; new notification rows must not
+		// reference it (notification_outbox.assignment_id_fkey).
+		notifyAssignmentID = pgtype.UUID{}
 	}
 	notificationStatus := "not_required"
 	shouldNotify := action == "reassign" || ((action == "keep" || action == "cancel") && assignmentID.Valid)
@@ -175,7 +180,7 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 		}
 		if smsReady && studentPhone.Valid && strings.TrimSpace(studentPhone.String) != "" {
 			if err := q.NotificationOutboxInsert(ctx, NotificationOutboxInsertParams{
-				AbsenceID: absenceID, AssignmentID: assignmentID, SessionVersion: candidateVersion,
+				AbsenceID: absenceID, AssignmentID: notifyAssignmentID, SessionVersion: candidateVersion,
 				MessageType: messageType, Recipient: studentPhone.String, Channel: "sms",
 				Payload: string(payload), IdempotencyKey: notificationKey(issueID, action, "sms"),
 			}); err != nil {
@@ -185,7 +190,7 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 		}
 		if emailReady && studentEmail.Valid && strings.TrimSpace(studentEmail.String) != "" {
 			if err := q.NotificationOutboxInsert(ctx, NotificationOutboxInsertParams{
-				AbsenceID: absenceID, AssignmentID: assignmentID, SessionVersion: candidateVersion,
+				AbsenceID: absenceID, AssignmentID: notifyAssignmentID, SessionVersion: candidateVersion,
 				MessageType: messageType, Recipient: studentEmail.String, Channel: "email",
 				Payload: string(payload), IdempotencyKey: notificationKey(issueID, action, "email"),
 			}); err != nil {
@@ -347,10 +352,10 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 				snapshot_captured_at, snapshot_quality, snapshot_source
 			)
 			VALUES ($1, $2, $3, now(), $4, 'impact_resolution',
-			        $5, $6, $7, 'exact', 'captured_at_assignment')
+			        $5::text::jsonb, $6, $7, 'exact', 'captured_at_assignment')
 			RETURNING id
 		`, absenceID, candidateSessionID, candidateVersion, actorID,
-			snapshotJSON, schemaVersion, capturedAtPg).Scan(&assignmentID); err != nil {
+			string(snapshotJSON), schemaVersion, capturedAtPg).Scan(&assignmentID); err != nil {
 			return "", err
 		}
 		if _, err := q.db.Exec(ctx, `
@@ -362,7 +367,9 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 		`, absenceID, previousSessionID, candidateSessionID, strings.TrimSpace(reason), latestChangeID, actorID); err != nil {
 			return "", err
 		}
-	} else if action == "cancel" && assignmentID.Valid {
+	}
+	notifyAssignmentID := assignmentID
+	if action == "cancel" && assignmentID.Valid {
 		if _, err := q.db.Exec(ctx, `DELETE FROM absence_sit_ins WHERE id = $1`, assignmentID); err != nil {
 			return "", err
 		}
@@ -374,6 +381,9 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 			`, absenceID, previousSessionID, strings.TrimSpace(reason), latestChangeID, actorID); err != nil {
 			return "", err
 		}
+		// The assignment row was deleted above; new notification rows must not
+		// reference it (notification_outbox.assignment_id_fkey).
+		notifyAssignmentID = pgtype.UUID{}
 	}
 	notificationStatus := "not_required"
 	shouldNotify := action == "reassign" || ((action == "keep" || action == "cancel") && assignmentID.Valid)
@@ -410,7 +420,7 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 		}
 		if smsReady && studentPhone.Valid && strings.TrimSpace(studentPhone.String) != "" {
 			if err := q.NotificationOutboxInsert(ctx, NotificationOutboxInsertParams{
-				AbsenceID: absenceID, AssignmentID: assignmentID, SessionVersion: candidateVersion,
+				AbsenceID: absenceID, AssignmentID: notifyAssignmentID, SessionVersion: candidateVersion,
 				MessageType: messageType, Recipient: studentPhone.String, Channel: "sms",
 				Payload: string(payload), IdempotencyKey: notificationKey(issueID, action, "sms"),
 			}); err != nil {
@@ -420,7 +430,7 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 		}
 		if emailReady && studentEmail.Valid && strings.TrimSpace(studentEmail.String) != "" {
 			if err := q.NotificationOutboxInsert(ctx, NotificationOutboxInsertParams{
-				AbsenceID: absenceID, AssignmentID: assignmentID, SessionVersion: candidateVersion,
+				AbsenceID: absenceID, AssignmentID: notifyAssignmentID, SessionVersion: candidateVersion,
 				MessageType: messageType, Recipient: studentEmail.String, Channel: "email",
 				Payload: string(payload), IdempotencyKey: notificationKey(issueID, action, "email"),
 			}); err != nil {
