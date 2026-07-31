@@ -16,6 +16,22 @@
 .swarm/
 .understand/
 .understand-anything/
+.agent/
+.agents/
+.ai/
+.claude/
+.kilo/
+.kilocode/
+.mimicode/
+.qoder/
+.roo/
+.rovodev/
+.goose/
+.qwen/
+.trae/
+.windsurf/
+.kiro/
+.factory/
 agent/
 
 # deps / builds
@@ -33,6 +49,14 @@ scripts/
 # planning / specs
 specs/
 copy/
+
+# doc folders
+doc/
+**/doc/
+
+# ai folders
+ai/
+**/ai/
 
 # Go build outputs
 backend/bin/

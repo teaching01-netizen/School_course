@@ -1,0 +1,95 @@
+# ============================================
+# .gitignore Template — Warwick Institute
+# Full-stack: Go backend + React/Vite frontend
+# ============================================
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Dependencies / Builds ---
+node_modules/
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+
+# --- Go ---
+backend/bin/
+backend/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# --- Agent / IDE Tooling ---
+.agent/
+.agents/
+.ai/
+.codeboarding/
+.claude/
+.deepseek/
+.factory/
+.goose/
+.kilo/
+.kilocode/
+.kiro/
+.mimicode/
+.opencode/
+.openclaw/
+.orchestration/
+.planning/
+.qoder/
+.qwen/
+.roo/
+.rovodev/
+.swarm/
+.trae/
+.understand/
+.understand-anything/
+.windsurf/
+agent/
+
+# --- Local Tools ---
+.tools/
+.worktrees/
+
+# --- Dev Scripts ---
+scripts/
+
+# --- Design / Docs ---
+artifacts/
+docs/
+doc/
+**/doc/
+ai/
+**/ai/
+
+# --- Planning / Specs ---
+specs/
+copy/
+
+# --- Database ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Misc ---
+*.swp
+*.swo
+*~
+.cache/
+tmp/
+temp/
