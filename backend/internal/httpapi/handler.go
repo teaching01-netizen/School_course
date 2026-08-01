@@ -246,8 +246,19 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	realtimehttp.Register(mux, deps)
 
 	// Static SPA (filesystem, not embedded): serve index.html fallback for client-side routing.
-	staticDir := cfg.StaticDir
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", staticHandler(cfg.StaticDir))
+
+	return withRequestTimeout(mux)
+}
+
+// staticHandler serves the built SPA from staticDir. Exact file hits are served
+// directly. Extension-less paths (client-side routes such as /operations/schedule-impact)
+// fall back to index.html. Missing paths that carry a file extension (e.g. a stale
+// /assets/*.js hash from a previous deploy) return a real 404 — serving index.html
+// there makes browsers reject it under strict MIME checking ("Failed to load module
+// script ... MIME type of text/html") and breaks lazy-loaded routes.
+func staticHandler(staticDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
 			return
@@ -260,13 +271,31 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		}
 		full := filepath.Join(staticDir, strings.TrimPrefix(cleanPath, "/"))
 		if st, err := os.Stat(full); err == nil && !st.IsDir() {
+			setStaticCacheControl(w, r.URL.Path)
 			http.ServeFile(w, r, full)
 			return
 		}
 
-		// SPA fallback.
-		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
-	})
+		// A missing path with a file extension is a genuine 404 (missing asset),
+		// never a client-side route.
+		if filepath.Ext(cleanPath) != "" {
+			http.NotFound(w, r)
+			return
+		}
 
-	return withRequestTimeout(mux)
+		// SPA fallback: index.html must always be revalidated so browsers pick up
+		// the new build's chunk hashes after a deploy instead of pinning a stale bundle.
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	}
+}
+
+// setStaticCacheControl applies cache headers for existing files: Vite content-hashes
+// build assets so they are immutable; everything else (index.html shell) revalidates.
+func setStaticCacheControl(w http.ResponseWriter, path string) {
+	if strings.HasPrefix(path, "/assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
 }
