@@ -30,3 +30,29 @@ type UpdateCourseResult struct {
 	CourseID pgtype.UUID
 	Version  int32
 }
+
+// CreateCourseCommand is the full intent of a course creation: the course row
+// is inserted together with its teacher set inside one transaction. SubjectID
+// selects the "course generation" variant (CourseCreateV2, which derives the
+// code from course_no and names the course after the subject template); when
+// it is invalid the plain code/name variant (CourseCreate) is used, matching
+// the historical HTTP behavior.
+type CreateCourseCommand struct {
+	ActorID        pgtype.UUID
+	Code           string
+	Name           string
+	LegacyCourseID *string
+	Teachers       []TeacherAssignment
+
+	Year         pgtype.Int2
+	SubjectID    pgtype.UUID
+	Hour         pgtype.Int4
+	StudentCount pgtype.Int4
+	CourseType   string
+}
+
+// CreateCourseResult reports the outcome of a successful course creation.
+type CreateCourseResult struct {
+	CourseID pgtype.UUID
+	Version  int32
+}

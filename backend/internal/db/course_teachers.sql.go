@@ -11,6 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const courseCreateAggregate = `-- name: CourseCreateAggregate :one
+UPDATE courses
+SET
+    code = $2,
+    name = $3,
+    legacy_course_id = $4,
+    teacher_id = $5,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, version
+`
+
+type CourseCreateAggregateParams struct {
+	ID             pgtype.UUID `json:"id"`
+	Code           string      `json:"code"`
+	Name           string      `json:"name"`
+	LegacyCourseID pgtype.Text `json:"legacy_course_id"`
+	TeacherID      pgtype.UUID `json:"teacher_id"`
+}
+
+type CourseCreateAggregateRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Version int32       `json:"version"`
+}
+
+// Mirror of CourseUpdateAggregate for freshly created courses: sets the
+// compat primary projection (courses.teacher_id) and code/name/legacy link
+// WITHOUT bumping version, so a new course starts at version 1 and the first
+// edit is the first optimistic-concurrency bump.
+func (q *Queries) CourseCreateAggregate(ctx context.Context, arg CourseCreateAggregateParams) (CourseCreateAggregateRow, error) {
+	row := q.db.QueryRow(ctx, courseCreateAggregate,
+		arg.ID,
+		arg.Code,
+		arg.Name,
+		arg.LegacyCourseID,
+		arg.TeacherID,
+	)
+	var i CourseCreateAggregateRow
+	err := row.Scan(&i.ID, &i.Version)
+	return i, err
+}
+
 const courseFutureSessionUsageByTeachers = `-- name: CourseFutureSessionUsageByTeachers :many
 SELECT
     s.teacher_id,

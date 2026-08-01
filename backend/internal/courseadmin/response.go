@@ -61,3 +61,11 @@ func loadCourseResponse(ctx context.Context, qtx *sqldb.Queries, courseID pgtype
 	}
 	return resp, nil
 }
+
+// GetCourseResponse returns the current course representation (core row plus
+// teacher set) inside the caller's transaction. It is the exported seam that
+// lets the HTTP layer assemble success payloads after a service mutation
+// without duplicating the teacher-assembly SQL.
+func (s *Service) GetCourseResponse(ctx context.Context, qtx *sqldb.Queries, courseID pgtype.UUID) (*CourseResponse, error) {
+	return loadCourseResponse(ctx, qtx, courseID)
+}

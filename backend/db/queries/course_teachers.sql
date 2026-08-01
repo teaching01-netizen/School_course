@@ -71,3 +71,18 @@ SET
     updated_at = now()
 WHERE id = $1
 RETURNING id, version;
+
+-- name: CourseCreateAggregate :one
+-- Mirror of CourseUpdateAggregate for freshly created courses: sets the
+-- compat primary projection (courses.teacher_id) and code/name/legacy link
+-- WITHOUT bumping version, so a new course starts at version 1 and the first
+-- edit is the first optimistic-concurrency bump.
+UPDATE courses
+SET
+    code = $2,
+    name = $3,
+    legacy_course_id = $4,
+    teacher_id = $5,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, version;

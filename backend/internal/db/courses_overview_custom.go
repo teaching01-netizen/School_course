@@ -25,6 +25,7 @@ type CourseOverviewRow struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	LegacyCourseID     pgtype.Text        `json:"legacy_course_id"`
 	LegacyLastSyncedAt pgtype.Timestamptz `json:"legacy_last_synced_at"`
+	Version            pgtype.Int4        `json:"version"`
 }
 
 type CourseCreateV2Params struct {

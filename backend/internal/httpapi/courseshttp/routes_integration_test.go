@@ -24,6 +24,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"warwick-institute/internal/auth"
+	"warwick-institute/internal/courseadmin"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpdeps"
 	sessionsroutes "warwick-institute/internal/httpapi/sessionshttp"
@@ -186,6 +187,7 @@ func setupTestServer(t *testing.T) *testFixture {
 		Q:           q,
 		DB:          dbpool,
 		Scheduling:  schedulingSvc,
+		CourseAdmin: courseadmin.NewService(),
 		InstituteTZ: "Asia/Bangkok",
 	}
 

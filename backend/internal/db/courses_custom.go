@@ -32,9 +32,9 @@ func (q *Queries) CourseList(ctx context.Context) ([]Course, error) {
 }
 
 type LegacyCourseFields struct {
-	LegacyCourseID    pgtype.Text        `json:"legacy_course_id"`
+	LegacyCourseID     pgtype.Text        `json:"legacy_course_id"`
 	LegacyLastSyncedAt pgtype.Timestamptz `json:"legacy_last_synced_at"`
-	TeacherID         pgtype.UUID        `json:"teacher_id"`
+	TeacherID          pgtype.UUID        `json:"teacher_id"`
 }
 
 func (q *Queries) CourseGetLegacyFields(ctx context.Context, courseID pgtype.UUID) (LegacyCourseFields, error) {
@@ -55,7 +55,8 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		       c.subject_id, COALESCE(s.code, ''), COALESCE(s.name, ''),
 		       c.hour, c.student_count, c.course_type,
 		       c.created_at, c.updated_at,
-		       c.legacy_course_id, c.legacy_last_synced_at
+		       c.legacy_course_id, c.legacy_last_synced_at,
+		       c.version
 		FROM courses c
 		LEFT JOIN users u ON u.id = c.teacher_id
 		LEFT JOIN subjects s ON s.id = c.subject_id
@@ -66,6 +67,7 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		&row.Hour, &row.StudentCount, &row.CourseType,
 		&row.CreatedAt, &row.UpdatedAt,
 		&row.LegacyCourseID, &row.LegacyLastSyncedAt,
+		&row.Version,
 	)
 	return row, err
 }

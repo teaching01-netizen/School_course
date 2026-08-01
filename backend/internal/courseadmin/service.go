@@ -126,6 +126,77 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 	}, nil
 }
 
+// CreateCourseTx atomically creates a course and its teacher set inside the
+// caller's transaction. It deliberately shares UpdateCourseTx's validation and
+// insertion helpers — same structural rules, same teacher eligibility check,
+// same CourseTeacherInsert rows, same compat primary projection — so create
+// and update can never drift apart. SubjectID selects the "course generation"
+// variant (code derived from course_no, empty name); when it is invalid the
+// plain code/name variant is used, matching the historical HTTP behavior.
+func (s *Service) CreateCourseTx(ctx context.Context, qtx *sqldb.Queries, command CreateCourseCommand) (CreateCourseResult, error) {
+	if err := validateTeacherAssignments(command.Teachers); err != nil {
+		return CreateCourseResult{}, err
+	}
+
+	var courseID pgtype.UUID
+	var code, name string
+	if command.SubjectID.Valid {
+		row, err := qtx.CourseCreateV2(ctx, sqldb.CourseCreateV2Params{
+			Year:         command.Year,
+			TeacherID:    pgtype.UUID{Valid: false}, // primary comes from the assignment set below
+			SubjectID:    command.SubjectID,
+			Hour:         command.Hour,
+			StudentCount: command.StudentCount,
+			CourseType:   command.CourseType,
+		})
+		if err != nil {
+			return CreateCourseResult{}, err
+		}
+		courseID = row.ID
+		code = row.Code
+		name = row.Name
+	} else {
+		row, err := qtx.CourseCreate(ctx, sqldb.CourseCreateParams{Code: command.Code, Name: command.Name})
+		if err != nil {
+			return CreateCourseResult{}, err
+		}
+		courseID = row.ID
+		code = command.Code
+		name = command.Name
+	}
+
+	if err := validateTeachersExistAndCanTeach(ctx, qtx, command.Teachers); err != nil {
+		return CreateCourseResult{}, err
+	}
+
+	for _, assignment := range command.Teachers {
+		if err := qtx.CourseTeacherInsert(ctx, sqldb.CourseTeacherInsertParams{
+			CourseID:  courseID,
+			TeacherID: assignment.TeacherID,
+			IsPrimary: assignment.IsPrimary,
+		}); err != nil {
+			return CreateCourseResult{}, fmt.Errorf("insert course teacher %s: %w", assignment.TeacherID.String(), err)
+		}
+	}
+
+	created, err := qtx.CourseCreateAggregate(ctx, sqldb.CourseCreateAggregateParams{
+		ID:             courseID,
+		Code:           code,
+		Name:           name,
+		LegacyCourseID: nullableText(command.LegacyCourseID),
+		TeacherID:      primaryTeacherID(command.Teachers),
+	})
+	if err != nil {
+		return CreateCourseResult{}, fmt.Errorf("set course aggregate: %w", err)
+	}
+
+	if err := insertCourseCreateAudit(ctx, qtx, command, courseID, created.Version); err != nil {
+		return CreateCourseResult{}, fmt.Errorf("insert course audit: %w", err)
+	}
+
+	return CreateCourseResult{CourseID: courseID, Version: created.Version}, nil
+}
+
 // validateTeachersExistAndCanTeach batch-loads every submitted teacher and
 // collects all ineligible teachers into a single invalid_teacher error.
 // A teacher is eligible when the user exists, is not soft-deleted
@@ -226,6 +297,21 @@ func insertCourseAudit(ctx context.Context, qtx *sqldb.Queries, command UpdateCo
 			"primary_teacher_before": primaryOfRows(existing),
 			"primary_teacher_after":  uuidOrNil(primaryTeacherID(command.Teachers)),
 			"version":                newVersion,
+		},
+	})
+	return err
+}
+
+// insertCourseCreateAudit records the course creation in the same transaction.
+func insertCourseCreateAudit(ctx context.Context, qtx *sqldb.Queries, command CreateCourseCommand, courseID pgtype.UUID, version int32) error {
+	_, err := qtx.AuditInsert(ctx, sqldb.AuditInsertParams{
+		ActorUserID: command.ActorID,
+		Action:      "course.created",
+		Payload: map[string]any{
+			"course_id":       uuidString(courseID),
+			"teacher_count":   len(command.Teachers),
+			"primary_teacher": uuidOrNil(primaryTeacherID(command.Teachers)),
+			"version":         version,
 		},
 	})
 	return err

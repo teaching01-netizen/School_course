@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/absences/sitinresolver"
+	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/crmimport"
 	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
@@ -33,6 +34,7 @@ type Deps struct {
 	Q                   *sqldb.Queries
 	DB                  *pgxpool.Pool
 	Scheduling          *scheduling.Service
+	CourseAdmin         *courseadmin.Service
 	SessionChangeImpact *sessionchangeimpact.Service
 	SitInResolver       *sitinresolver.Service
 	AdminUsers          *users.AdminProvisioningService

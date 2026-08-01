@@ -719,10 +719,18 @@ func TestUpdateCourseTx_AtomicityOnAggregateFailure(t *testing.T) {
 		t.Fatal("expected code collision to fail the update")
 	}
 
-	// Rollback must restore the original teacher set and version.
+	// Rollback must restore the original teacher set and version. courseTeacherIDs
+	// maps teacher → is_primary, so membership is checked with the comma-ok idiom
+	// and the primary flag is asserted separately.
 	stored := f.courseTeacherIDs(t, courseA)
-	if !stored[teacherA.Bytes] || !stored[teacherB.Bytes] {
-		t.Fatalf("teacher set must be unchanged after rollback, got %v", stored)
+	if _, ok := stored[teacherA.Bytes]; !ok {
+		t.Fatalf("teacherA must still be assigned after rollback, got %v", stored)
+	}
+	if _, ok := stored[teacherB.Bytes]; !ok {
+		t.Fatalf("teacherB must still be assigned after rollback, got %v", stored)
+	}
+	if !stored[teacherA.Bytes] {
+		t.Fatalf("teacherA must remain primary after rollback, got %v", stored)
 	}
 	if v := f.courseVersion(t, courseA); v != 2 {
 		t.Fatalf("expected version 2 after rollback, got %d", v)

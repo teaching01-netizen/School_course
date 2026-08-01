@@ -14,6 +14,7 @@ import (
 	"warwick-institute/internal/absences/sitinresolver"
 	"warwick-institute/internal/auth"
 	"warwick-institute/internal/config"
+	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/crmimport"
 	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/queue"
@@ -155,12 +156,14 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		// Fail fast at startup for invalid timezone config.
 		panic(err)
 	}
+	courseAdminSvc := courseadmin.NewService()
 	deps := httpdeps.Deps{
 		Log:                 log,
 		Auth:                authSvc,
 		Q:                   q,
 		DB:                  db,
 		Scheduling:          schedulingSvc,
+		CourseAdmin:         courseAdminSvc,
 		SessionChangeImpact: impact,
 		SitInResolver:       sitinresolver.New(q, cfg.InstituteTZ),
 		AdminUsers:          adminUsersSvc,
