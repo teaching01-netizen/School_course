@@ -331,6 +331,7 @@ type Course struct {
 	LegacyCourseID             pgtype.Text        `json:"legacy_course_id"`
 	LegacyLastSyncedAt         pgtype.Timestamptz `json:"legacy_last_synced_at"`
 	CohortID                   pgtype.UUID        `json:"cohort_id"`
+	Version                    int32              `json:"version"`
 }
 
 type CourseCohort struct {
@@ -364,6 +365,7 @@ type CourseStudent struct {
 type CourseTeacher struct {
 	CourseID  pgtype.UUID `json:"course_id"`
 	TeacherID pgtype.UUID `json:"teacher_id"`
+	IsPrimary bool        `json:"is_primary"`
 }
 
 type CrmCrossStudyAssignment struct {
