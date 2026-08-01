@@ -36,6 +36,7 @@ export type QueueItem = {
       end_at: string;
       course_code: string;
       course_name: string;
+      subject_name: string;
       room_name: string;
       teacher_name: string;
     };
@@ -71,6 +72,7 @@ export type ProcessingItem = {
   id: string;
   course_code: string;
   course_name: string;
+  subject_name: string;
   created_at: string;
   status: "pending" | "processing" | "failed" | "delayed_by_batch";
   last_error: string | null;
@@ -80,6 +82,7 @@ export type HistoryItem = {
   id: string;
   new_course_code: string;
   new_course_name: string;
+  new_course_subject: string;
   old_start_at: string;
   old_end_at: string;
   new_start_at: string;
@@ -126,6 +129,7 @@ const defaultQueueItems: QueueItem[] = [
         end_at: "2026-07-31T14:00:00Z",
         course_code: "MATH101",
         course_name: "Mathematics",
+        subject_name: "Mathematics",
         room_name: "Room 7",
         teacher_name: "Mr Smith",
       },
@@ -183,6 +187,7 @@ const defaultQueueItems: QueueItem[] = [
         end_at: "2026-08-01T10:00:00Z",
         course_code: "ENG201",
         course_name: "English",
+        subject_name: "English",
         room_name: "Room 1",
         teacher_name: "Ms Green",
       },
@@ -239,6 +244,7 @@ const defaultQueueItems: QueueItem[] = [
         end_at: "2026-08-02T15:00:00Z",
         course_code: "SCI301",
         course_name: "Science",
+        subject_name: "Science",
         room_name: "Room 9",
         teacher_name: "Dr Brown",
       },
@@ -297,6 +303,7 @@ const defaultProcessing: ProcessingItem[] = [
     id: "change-4",
     course_code: "CHEM101",
     course_name: "Chemistry",
+    subject_name: "Chemistry",
     created_at: "2026-07-30T08:00:00Z",
     status: "processing",
     last_error: null,
@@ -305,6 +312,7 @@ const defaultProcessing: ProcessingItem[] = [
     id: "change-5",
     course_code: "PHYS201",
     course_name: "Physics",
+    subject_name: "Physics",
     created_at: "2026-07-29T14:00:00Z",
     status: "failed",
     last_error: "Network timeout",
@@ -316,6 +324,7 @@ const defaultHistory: HistoryItem[] = [
     id: "change-6",
     new_course_code: "HIST101",
     new_course_name: "History",
+    new_course_subject: "History",
     old_start_at: "2026-07-20T09:00:00Z",
     old_end_at: "2026-07-20T10:00:00Z",
     new_start_at: "2026-07-20T11:00:00Z",
@@ -328,6 +337,7 @@ const defaultHistory: HistoryItem[] = [
     id: "change-7",
     new_course_code: "ART201",
     new_course_name: "Art",
+    new_course_subject: "Art",
     old_start_at: "2026-07-21T14:00:00Z",
     old_end_at: "2026-07-21T15:00:00Z",
     new_start_at: "2026-07-21T14:00:00Z",

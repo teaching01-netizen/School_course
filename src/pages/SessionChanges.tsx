@@ -253,7 +253,7 @@ function ProcessingView({ loading, items, error }: { loading: boolean; items: Im
             <div key={item.id} className="px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-medium text-gray-900">
-                  {item.course_code || "Schedule change"}{item.course_name ? ` · ${item.course_name}` : ""}
+                  {item.subject_name || "Schedule change"}
                 </p>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                   isFailed ? "bg-red-50 text-red-700"
@@ -319,7 +319,7 @@ function HistoryView({ loading, items, error }: { loading: boolean; items: Histo
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900">
                     <Link to={`/operations/session-changes/${item.id}`} className="text-[var(--color-wi-primary)] hover:underline">
-                      {item.new_course_code || "Schedule change"}{item.new_course_name ? ` · ${item.new_course_name}` : ""}
+                      {item.new_course_subject || "Schedule change"}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">

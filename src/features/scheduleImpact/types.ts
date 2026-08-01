@@ -32,6 +32,8 @@ export type CurrentSessionView = {
   end_at: string;
   course_code: string;
   course_name: string;
+  /** Present for active sessions; absent for deleted sessions. */
+  subject_name?: string;
   room_name: string | null;
   teacher_name: string;
 };
@@ -101,6 +103,7 @@ export type ImpactProcessingChange = {
   id: string;
   course_code: string;
   course_name: string;
+  subject_name: string;
   created_at: string;
   status: "pending" | "processing" | "failed" | "delayed_by_batch";
   last_error: string | null;
@@ -181,6 +184,7 @@ export type HistoryItem = {
   id: string;
   new_course_code: string;
   new_course_name: string;
+  new_course_subject: string;
   old_start_at: string;
   old_end_at: string;
   new_start_at: string;

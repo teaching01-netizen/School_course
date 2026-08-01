@@ -17,27 +17,37 @@ type ScheduleImpactQueueFilter struct {
 }
 
 type ScheduleImpactQueueRow struct {
-	ID                    pgtype.UUID
-	AbsenceID             pgtype.UUID
-	IssueType             string
-	Severity              string
-	Status                string
-	IssueVersion          int32
-	WCode                 string
-	StudentName           pgtype.Text
-	CourseCode            string
-	CourseName            string
-	StartAt               pgtype.Timestamptz
-	EndAt                 pgtype.Timestamptz
-	UpdatedAt             pgtype.Timestamptz
-	Details               []byte
-	SuggestedResolutions  []byte
-	LatestSessionChangeID pgtype.UUID
-	ImpactAnalysisStatus  pgtype.Text
-	AssignedToUsername    pgtype.Text
-	ReviewReason          pgtype.Text
-	ReviewDueAt           pgtype.Timestamptz
-	ResolutionAction      pgtype.Text
+	ID                          pgtype.UUID
+	AbsenceID                   pgtype.UUID
+	IssueType                   string
+	Severity                    string
+	Status                      string
+	IssueVersion                int32
+	SourceSessionID             pgtype.UUID
+	SitInSessionID              pgtype.UUID
+	MissedSessionID             pgtype.UUID
+	WCode                       string
+	StudentName                 pgtype.Text
+	StudentEmail                pgtype.Text
+	StudentPhone                pgtype.Text
+	CourseCode                  string
+	CourseName                  string
+	SubjectName                 string
+	StartAt                     pgtype.Timestamptz
+	EndAt                       pgtype.Timestamptz
+	UpdatedAt                   pgtype.Timestamptz
+	Details                     []byte
+	SuggestedResolutions        []byte
+	AssignmentSnapshotJSON      []byte
+	AssignmentSnapshotQuality   string
+	AssignmentSnapshotSource    pgtype.Text
+	AssignedAt                  pgtype.Timestamptz
+	LatestSessionChangeID       pgtype.UUID
+	ImpactAnalysisStatus        pgtype.Text
+	AssignedToUsername          pgtype.Text
+	ReviewReason                pgtype.Text
+	ReviewDueAt                 pgtype.Timestamptz
+	ResolutionAction            pgtype.Text
 }
 
 type ScheduleImpactSummary struct {
@@ -93,14 +103,20 @@ func (q *Queries) SessionChangeImpactRunSetResult(ctx context.Context, changeID 
 func (q *Queries) ScheduleImpactQueue(ctx context.Context, filter ScheduleImpactQueueFilter) ([]ScheduleImpactQueueRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT i.id, i.absence_id, i.issue_type, i.severity, i.status, i.issue_version,
-		       sa.wcode, sa.student_name, COALESCE(c.code, ''), COALESCE(c.name, ''),
+		       i.source_session_id, i.sit_in_session_id, i.missed_session_id,
+		       sa.wcode, sa.student_name, sa.student_email, sa.student_phone,
+		       COALESCE(c.code, ''), COALESCE(c.name, ''), COALESCE(subj.name, ''),
 		       s.start_at, s.end_at, i.updated_at, i.details_json, i.suggested_resolution_json,
+		       i.assignment_snapshot_at_detection, i.assignment_snapshot_quality, i.assignment_snapshot_source,
+		       asi.assigned_at,
 		       i.latest_session_change_id, run.status, assignee.username,
 		       i.review_reason, i.review_due_at, i.resolution_action
 		FROM absence_schedule_issues i
 		JOIN student_absences sa ON sa.id = i.absence_id
 		LEFT JOIN sessions s ON s.id = COALESCE(i.sit_in_session_id, i.missed_session_id, i.source_session_id)
 		LEFT JOIN courses c ON c.id = s.course_id
+		LEFT JOIN subjects subj ON subj.id = c.subject_id
+		LEFT JOIN absence_sit_ins asi ON asi.absence_id = i.absence_id AND asi.session_id = i.sit_in_session_id
 		LEFT JOIN session_change_impact_runs run ON run.session_change_id = i.latest_session_change_id
 		LEFT JOIN users assignee ON assignee.id = i.assigned_to
 		WHERE i.status IN ('open', 'needs_review')
@@ -122,8 +138,12 @@ func (q *Queries) ScheduleImpactQueue(ctx context.Context, filter ScheduleImpact
 		var item ScheduleImpactQueueRow
 		if err := rows.Scan(
 			&item.ID, &item.AbsenceID, &item.IssueType, &item.Severity, &item.Status, &item.IssueVersion,
-			&item.WCode, &item.StudentName, &item.CourseCode, &item.CourseName,
+			&item.SourceSessionID, &item.SitInSessionID, &item.MissedSessionID,
+			&item.WCode, &item.StudentName, &item.StudentEmail, &item.StudentPhone,
+			&item.CourseCode, &item.CourseName, &item.SubjectName,
 			&item.StartAt, &item.EndAt, &item.UpdatedAt, &item.Details, &item.SuggestedResolutions,
+			&item.AssignmentSnapshotJSON, &item.AssignmentSnapshotQuality, &item.AssignmentSnapshotSource,
+			&item.AssignedAt,
 			&item.LatestSessionChangeID, &item.ImpactAnalysisStatus, &item.AssignedToUsername,
 			&item.ReviewReason, &item.ReviewDueAt, &item.ResolutionAction,
 		); err != nil {

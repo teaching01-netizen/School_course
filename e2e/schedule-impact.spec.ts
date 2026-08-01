@@ -49,6 +49,7 @@ function makeQueueItem(overrides: Partial<QueueItem> & { id: string }): QueueIte
         end_at: "2026-07-31T11:00:00Z",
         course_code: "COURSE",
         course_name: "Course",
+        subject_name: "Course",
         room_name: "Room 1",
         teacher_name: "Teacher",
       },
@@ -218,7 +219,7 @@ test.describe("Schedule Impact — Resolution panel", () => {
     await expect(page.getByRole("heading", { name: "Resolve issue" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Alice Johnson", exact: true })).toBeVisible();
     await expect(page.getByLabel("Resolve issue").getByText("Critical")).toBeVisible();
-    await expect(page.getByLabel("Resolve issue").getByText("MATH101")).toBeVisible();
+    await expect(page.getByLabel("Resolve issue").getByText("Mathematics")).toBeVisible();
   });
 
   test("'What changed' section shows original vs current session", async ({ page }) => {
@@ -265,8 +266,9 @@ test.describe("Schedule Impact — Resolution panel", () => {
       .click();
 
     await expect(page.getByText("Choose a replacement")).toBeVisible();
-    await expect(page.getByText("Mathematics")).toBeVisible();
-    await expect(page.getByText("English")).toBeVisible();
+    const candidateOptions = page.getByRole("radiogroup", { name: "Replacement session options" });
+    await expect(candidateOptions.getByText("Room 5")).toBeVisible();
+    await expect(candidateOptions.getByText("Room 2")).toBeVisible();
   });
 
   test("safe candidate is selectable, unsafe candidate shows Cannot be selected", async ({
@@ -399,7 +401,7 @@ test.describe("Schedule Impact — Processing tab", () => {
     await page.goto("/operations/schedule-impact");
 
     await page.getByRole("button", { name: "Processing" }).click();
-    await expect(page.getByText("CHEM101")).toBeVisible();
+    await expect(page.getByText("Chemistry")).toBeVisible();
     // Use exact match to avoid ambiguity with the tab button
     await expect(page.getByText("processing", { exact: true })).toBeVisible();
   });
@@ -409,7 +411,7 @@ test.describe("Schedule Impact — Processing tab", () => {
     await page.goto("/operations/schedule-impact");
 
     await page.getByRole("button", { name: "Processing" }).click();
-    await expect(page.getByText("PHYS201")).toBeVisible();
+    await expect(page.getByText("Physics")).toBeVisible();
     await expect(page.getByRole("button", { name: "Retry analysis" })).toBeVisible();
   });
 
@@ -434,8 +436,8 @@ test.describe("Schedule Impact — History tab", () => {
     await page.goto("/operations/schedule-impact");
 
     await page.getByRole("button", { name: "History" }).click();
-    await expect(page.getByText("HIST101")).toBeVisible();
-    await expect(page.getByText("ART201")).toBeVisible();
+    await expect(page.getByRole("link", { name: "History", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Art", exact: true })).toBeVisible();
   });
 
   test("table has correct columns", async ({ page }) => {

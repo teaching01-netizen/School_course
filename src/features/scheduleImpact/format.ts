@@ -14,6 +14,18 @@ export function issueMessage(issue: ScheduleImpactIssue): string {
   return messages[issue.issue_type] ?? "This student arrangement needs attention.";
 }
 
+/**
+ * Display label for the course behind an issue: the subject name of the
+ * current session when known, falling back to the originally assigned
+ * session's course name (e.g. for deleted sessions).
+ */
+export function subjectNameFor(issue: ScheduleImpactIssue): string {
+  const current = issue.assignment_context.current_session;
+  if (current?.subject_name) return current.subject_name;
+  const snapshot = issue.assignment_context.original_session.snapshot;
+  return (snapshot?.course_name as string) ?? "";
+}
+
 export function issueConsequence(issue: ScheduleImpactIssue): string {
   if (issue.issue_type === "short_notice_change") return "The student needs a clear update before the session begins.";
   if (issue.issue_type === "past_time_change") return "The original arrangement can no longer be used.";

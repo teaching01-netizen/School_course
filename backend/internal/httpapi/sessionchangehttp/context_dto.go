@@ -81,6 +81,7 @@ type CurrentSessionView struct {
 	EndAt       string  `json:"end_at"`
 	CourseCode  string  `json:"course_code"`
 	CourseName  string  `json:"course_name"`
+	SubjectName string  `json:"subject_name"`
 	RoomName    *string `json:"room_name"`
 	TeacherName string  `json:"teacher_name"`
 }

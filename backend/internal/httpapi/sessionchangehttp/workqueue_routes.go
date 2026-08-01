@@ -1,7 +1,6 @@
 package sessionchangehttp
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -50,16 +49,40 @@ func (s *server) handleScheduleImpactQueue(w http.ResponseWriter, r *http.Reques
 	notificationsConfigured := (settings.SmsEnabled && strings.TrimSpace(settings.SmsTemplate) != "") || (settings.EmailEnabled && strings.TrimSpace(settings.EmailSubject) != "" && strings.TrimSpace(settings.EmailBody) != "")
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		out = append(out, map[string]any{
-			"id": uuidText(s.a, item.ID), "absence_id": uuidText(s.a, item.AbsenceID), "issue_type": item.IssueType,
-			"severity": item.Severity, "status": item.Status, "issue_version": item.IssueVersion,
-			"wcode": item.WCode, "student_name": textValue(item.StudentName), "course_code": item.CourseCode,
-			"course_name": item.CourseName, "start_at": timeValue(item.StartAt), "end_at": timeValue(item.EndAt),
-			"updated_at": timeText(item.UpdatedAt), "details": json.RawMessage(item.Details),
-			"suggested_resolutions": json.RawMessage(item.SuggestedResolutions), "latest_session_change_id": uuidText(s.a, item.LatestSessionChangeID),
-			"impact_analysis_status": textValue(item.ImpactAnalysisStatus), "assigned_to": textValue(item.AssignedToUsername),
-			"review_reason": textValue(item.ReviewReason), "review_due_at": timeValue(item.ReviewDueAt), "resolution_action": textValue(item.ResolutionAction),
+		dto := s.issueDTO(r.Context(), issueDTOInput{
+			ID:                         item.ID,
+			AbsenceID:                  item.AbsenceID,
+			IssueType:                  item.IssueType,
+			Severity:                   item.Severity,
+			Status:                     item.Status,
+			SourceSessionID:            item.SourceSessionID,
+			SitInSessionID:             item.SitInSessionID,
+			MissedSessionID:            item.MissedSessionID,
+			Details:                    item.Details,
+			Suggestions:                item.SuggestedResolutions,
+			Wcode:                      item.WCode,
+			StudentName:                item.StudentName,
+			StudentEmail:               item.StudentEmail,
+			StudentPhone:               item.StudentPhone,
+			StartAt:                    item.StartAt,
+			EndAt:                      item.EndAt,
+			ResolutionAction:           item.ResolutionAction,
+			IssueVersion:               item.IssueVersion,
+			AssignmentSnapshotJSON:     item.AssignmentSnapshotJSON,
+			AssignmentSnapshotQuality:  item.AssignmentSnapshotQuality,
+			AssignmentSnapshotSource:   item.AssignmentSnapshotSource,
+			LatestSessionChangeID:      item.LatestSessionChangeID,
+			AssignedAt:                 item.AssignedAt,
 		})
+		dto["course_code"] = item.CourseCode
+		dto["course_name"] = item.CourseName
+		dto["subject_name"] = item.SubjectName
+		dto["updated_at"] = timeText(item.UpdatedAt)
+		dto["impact_analysis_status"] = textValue(item.ImpactAnalysisStatus)
+		dto["assigned_to"] = textValue(item.AssignedToUsername)
+		dto["review_reason"] = textValue(item.ReviewReason)
+		dto["review_due_at"] = timeValue(item.ReviewDueAt)
+		out = append(out, dto)
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out, "limit": limit, "offset": offset, "summary": map[string]any{
 		"need_attention": summary.OpenCount, "critical": summary.CriticalCount, "warnings": summary.WarningCount,
@@ -78,7 +101,7 @@ func (s *server) handleScheduleImpactProcessing(w http.ResponseWriter, r *http.R
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		out = append(out, map[string]any{"id": uuidText(s.a, item.ID), "course_code": item.CourseCode, "course_name": item.CourseName, "created_at": timeText(item.CreatedAt), "status": item.Status, "last_error": textValue(item.LastError)})
+		out = append(out, map[string]any{"id": uuidText(s.a, item.ID), "course_code": item.CourseCode, "course_name": item.CourseName, "subject_name": item.SubjectName, "created_at": timeText(item.CreatedAt), "status": item.Status, "last_error": textValue(item.LastError)})
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
 }

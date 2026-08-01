@@ -13,10 +13,12 @@ SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
        s.start_at, s.end_at, s.version,
        COALESCE(c.code, '') AS course_code,
        COALESCE(c.name, '') AS course_name,
+       COALESCE(subj.name, '') AS subject_name,
        COALESCE(u.username, '') AS teacher_name,
        r.name AS room_name
 FROM sessions s
 JOIN courses c ON c.id = s.course_id
+LEFT JOIN subjects subj ON subj.id = c.subject_id
 JOIN users u ON u.id = s.teacher_id
 LEFT JOIN rooms r ON r.id = s.room_id
 WHERE s.id = $1;

@@ -479,9 +479,9 @@ describe("SessionChanges processing view", () => {
     setupApiMock({
       processing: {
         items: [
-          { id: "change-1", course_code: "MATH101", course_name: "Mathematics", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "resolver exploded" },
-          { id: "change-2", course_code: "ENG201", course_name: "English", created_at: "2026-07-31T03:00:00Z", status: "processing", last_error: null },
-          { id: "change-3", course_code: "SCI301", course_name: "Science", created_at: "2026-07-31T03:00:00Z", status: "delayed_by_batch", last_error: null },
+          { id: "change-1", course_code: "MATH101", course_name: "Mathematics", subject_name: "Mathematics", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "resolver exploded" },
+          { id: "change-2", course_code: "ENG201", course_name: "English", subject_name: "English", created_at: "2026-07-31T03:00:00Z", status: "processing", last_error: null },
+          { id: "change-3", course_code: "SCI301", course_name: "Science", subject_name: "Science", created_at: "2026-07-31T03:00:00Z", status: "delayed_by_batch", last_error: null },
         ],
       },
     });
@@ -502,11 +502,11 @@ describe("SessionChanges processing view", () => {
     const user = userEvent.setup();
     let finishRetry: (value: unknown) => void = () => {};
     setupApiMock({
-      processing: { items: [{ id: "change-1", course_code: "MATH101", course_name: "", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "boom" }] },
+      processing: { items: [{ id: "change-1", course_code: "MATH101", course_name: "", subject_name: "Mathematics", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "boom" }] },
     });
     mockApiJson.mockImplementation((url: string) => {
       if (url.endsWith("/reprocess")) return new Promise((resolve) => { finishRetry = resolve; });
-      if (url === "/api/v1/operations/schedule-impact/processing") return Promise.resolve({ items: [{ id: "change-1", course_code: "MATH101", course_name: "", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "boom" }] });
+      if (url === "/api/v1/operations/schedule-impact/processing") return Promise.resolve({ items: [{ id: "change-1", course_code: "MATH101", course_name: "", subject_name: "Mathematics", created_at: "2026-07-31T03:00:00Z", status: "failed", last_error: "boom" }] });
       return Promise.reject(new Error(`unexpected: ${url}`));
     });
     renderScheduleImpact(<SessionChanges />, { routes: ["/operations/schedule-impact?view=processing"] });
@@ -539,8 +539,8 @@ describe("SessionChanges history view", () => {
     setupApiMock({
       history: {
         items: [
-          buildHistoryItem({ id: "change-1", new_course_code: "MATH101", open_issue_count: 2, critical_issue_count: 1 }),
-          buildHistoryItem({ id: "change-2", new_course_code: "ENG201", open_issue_count: 0, critical_issue_count: 0 }),
+          buildHistoryItem({ id: "change-1", new_course_code: "MATH101", new_course_subject: "Mathematics", open_issue_count: 2, critical_issue_count: 1 }),
+          buildHistoryItem({ id: "change-2", new_course_code: "ENG201", new_course_subject: "English", open_issue_count: 0, critical_issue_count: 0 }),
         ],
       },
     });
@@ -548,7 +548,7 @@ describe("SessionChanges history view", () => {
 
     expect(await screen.findByText("3 unresolved")).toBeInTheDocument();
     expect(screen.getByText("Completed")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /MATH101/ })).toHaveAttribute("href", "/operations/session-changes/change-1");
+    expect(screen.getByRole("link", { name: /Mathematics/ })).toHaveAttribute("href", "/operations/session-changes/change-1");
   });
 
   it("shows an em dash for rows with no affected arrangements", async () => {

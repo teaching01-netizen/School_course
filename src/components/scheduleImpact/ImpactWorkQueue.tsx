@@ -1,6 +1,6 @@
 import { AlertTriangle, Clock3, Info } from "lucide-react";
 import Button from "../ui/Button";
-import { issueMessage, urgencyFor } from "../../features/scheduleImpact/format";
+import { issueMessage, subjectNameFor, urgencyFor } from "../../features/scheduleImpact/format";
 import type { ScheduleImpactIssue } from "../../features/scheduleImpact/types";
 import WorkQueueComparison from "./WorkQueueComparison";
 
@@ -61,7 +61,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
                       <button type="button" onClick={() => onOpen(issue)} className="text-left font-medium text-gray-900 hover:text-[var(--color-wi-primary)]">
                         {issue.student_name ?? issue.wcode}
                         <span className="block text-xs font-normal text-gray-500">
-                          {(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""}
+                          {subjectNameFor(issue)}
                         </span>
                       </button>
                     </td>
@@ -99,10 +99,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
                     <SeverityTag issue={issue} />
                     {originalQuality !== "exact" ? <LegacyBadge quality={originalQuality} /> : null}
                     <span className="font-semibold text-gray-900">{issue.student_name ?? issue.wcode}</span>
-                    <span className="text-sm text-gray-500">
-                      {(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""}
-                      {((issue.assignment_context.current_session?.course_name ?? issue.assignment_context.original_session.snapshot?.course_name) as string) ? ` · ${(issue.assignment_context.current_session?.course_name ?? issue.assignment_context.original_session.snapshot?.course_name as string)}` : ""}
-                    </span>
+                    <span className="text-sm text-gray-500">{subjectNameFor(issue)}</span>
                   </div>
                   <p className="mt-2 text-sm font-medium text-gray-800">{issueMessage(issue)}</p>
                   <p className="mt-1 text-sm text-gray-500">

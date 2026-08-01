@@ -5,7 +5,7 @@ import Button from "../ui/Button";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 import ResolutionComparison from "./ResolutionComparison";
 import { apiJson } from "../../api/client";
-import { formatBangkokDateTime } from "../../features/scheduleImpact/format";
+import { formatBangkokDateTime, subjectNameFor } from "../../features/scheduleImpact/format";
 import { emitImpactEvent, IMPACT_EVENTS } from "../../features/scheduleImpact/observability";
 import type { ImpactCandidate, ResolutionAction, ResolutionResponse, ScheduleImpactIssue } from "../../features/scheduleImpact/types";
 
@@ -143,7 +143,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
         <section>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${issue.severity === "critical" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>{issue.severity === "critical" ? "Critical" : "Warning"}</span>
-            <span className="text-xs font-medium text-gray-500">{(issue.assignment_context.current_session?.course_code ?? issue.assignment_context.original_session.snapshot?.course_code as string) ?? ""} · {issue.wcode}</span>
+            <span className="text-xs font-medium text-gray-500">{subjectNameFor(issue)} · {issue.wcode}</span>
           </div>
           <h2 className="mt-2 text-lg font-semibold text-gray-900">{issue.student_name ?? issue.wcode}</h2>
         </section>

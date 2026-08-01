@@ -96,15 +96,18 @@ WHERE sc.id = $1;
 -- name: SessionChangeList :many
 SELECT sc.id, sc.session_id, sc.session_version, sc.changed_by, sc.change_source,
        sc.old_start_at, sc.old_end_at, sc.new_start_at, sc.new_end_at,
-       COALESCE(old_course.code, ''), COALESCE(old_course.name, ''), COALESCE(new_course.code, ''), COALESCE(new_course.name, ''),
+       COALESCE(old_course.code, ''), COALESCE(old_course.name, ''),
+       COALESCE(new_course.code, ''), COALESCE(new_course.name, ''),
+       COALESCE(new_subject.name, '') AS new_course_subject,
        sc.created_at,
        count(i.id) FILTER (WHERE i.status = 'open')::int4 AS open_issue_count,
        count(i.id) FILTER (WHERE i.status = 'open' AND i.severity = 'critical')::int4 AS critical_issue_count
 FROM session_changes sc
 LEFT JOIN courses old_course ON old_course.id = sc.old_course_id
 LEFT JOIN courses new_course ON new_course.id = sc.new_course_id
+LEFT JOIN subjects new_subject ON new_subject.id = new_course.subject_id
 LEFT JOIN absence_schedule_issues i ON i.latest_session_change_id = sc.id
-GROUP BY sc.id, old_course.code, old_course.name, new_course.code, new_course.name
+GROUP BY sc.id, old_course.code, old_course.name, new_course.code, new_course.name, new_subject.name
 ORDER BY sc.created_at DESC
 LIMIT $1 OFFSET $2;
 
