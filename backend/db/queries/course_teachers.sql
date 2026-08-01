@@ -71,11 +71,3 @@ SET
     updated_at = now()
 WHERE id = $1
 RETURNING id, version;
-
--- name: CourseTeacherExists :one
-SELECT EXISTS (
-    SELECT 1
-    FROM course_teachers
-    WHERE course_id = $1
-      AND teacher_id = $2
-);

@@ -92,27 +92,6 @@ func (q *Queries) CourseLockForTeacherUpdate(ctx context.Context, id pgtype.UUID
 	return i, err
 }
 
-const courseTeacherExists = `-- name: CourseTeacherExists :one
-SELECT EXISTS (
-    SELECT 1
-    FROM course_teachers
-    WHERE course_id = $1
-      AND teacher_id = $2
-)
-`
-
-type CourseTeacherExistsParams struct {
-	CourseID  pgtype.UUID `json:"course_id"`
-	TeacherID pgtype.UUID `json:"teacher_id"`
-}
-
-func (q *Queries) CourseTeacherExists(ctx context.Context, arg CourseTeacherExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, courseTeacherExists, arg.CourseID, arg.TeacherID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const courseTeacherInsert = `-- name: CourseTeacherInsert :exec
 INSERT INTO course_teachers (
     course_id,

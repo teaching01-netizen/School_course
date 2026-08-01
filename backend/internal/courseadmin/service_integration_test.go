@@ -150,7 +150,7 @@ func (f *testFixture) runUpdate(t *testing.T, svc *Service, cmd UpdateCourseComm
 	}
 	defer tx.Rollback(ctx)
 	qtx := sqldb.New(tx)
-	result, err := svc.UpdateCourseTx(ctx, tx, qtx, cmd)
+	result, err := svc.UpdateCourseTx(ctx, qtx, cmd)
 	if err != nil {
 		return UpdateCourseResult{}, err
 	}

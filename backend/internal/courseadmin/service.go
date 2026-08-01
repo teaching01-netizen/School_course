@@ -7,7 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
@@ -28,9 +27,10 @@ func NewService() *Service {
 }
 
 // UpdateCourseTx atomically replaces the course's teacher set. The caller owns
-// the transaction (tx) and rolls back on any returned error; every write
-// failure aborts immediately — nothing is logged-and-continued.
-func (s *Service) UpdateCourseTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, command UpdateCourseCommand) (UpdateCourseResult, error) {
+// the transaction (via qtx, e.g. deps.Q.WithTx(tx)) and rolls back on any
+// returned error; every write failure aborts immediately — nothing is
+// logged-and-continued.
+func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, command UpdateCourseCommand) (UpdateCourseResult, error) {
 	if err := validateTeacherAssignments(command.Teachers); err != nil {
 		return UpdateCourseResult{}, err
 	}
