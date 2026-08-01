@@ -12,6 +12,11 @@ ALTER TABLE courses
 ALTER TABLE course_teachers
     ADD COLUMN IF NOT EXISTS is_primary boolean NOT NULL DEFAULT false;
 
+-- Operating assumption: this migration must run with course_teachers
+-- is_primary writers quiesced (deploy window). This file runs with
+-- NO TRANSACTION, so the reset + backfill below assume no concurrent
+-- application writes to is_primary.
+
 -- Reset primaries so the backfill below is the single source of truth on re-run.
 UPDATE course_teachers
 SET is_primary = false

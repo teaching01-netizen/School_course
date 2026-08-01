@@ -8,6 +8,11 @@ SELECT id, code, name, created_at, updated_at
 FROM courses
 WHERE id = $1;
 
+-- name: CourseGetCoreByID :one
+SELECT id, version, code, name, teacher_id
+FROM courses
+WHERE id = $1;
+
 -- name: CourseListActive :many
 SELECT c.id, c.code, c.name, COALESCE(s.name, '') AS subject_name, c.created_at, c.updated_at
 FROM courses c

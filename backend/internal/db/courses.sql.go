@@ -80,6 +80,33 @@ func (q *Queries) CourseGetByID(ctx context.Context, id pgtype.UUID) (CourseGetB
 	return i, err
 }
 
+const courseGetCoreByID = `-- name: CourseGetCoreByID :one
+SELECT id, version, code, name, teacher_id
+FROM courses
+WHERE id = $1
+`
+
+type CourseGetCoreByIDRow struct {
+	ID        pgtype.UUID `json:"id"`
+	Version   int32       `json:"version"`
+	Code      string      `json:"code"`
+	Name      string      `json:"name"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+func (q *Queries) CourseGetCoreByID(ctx context.Context, id pgtype.UUID) (CourseGetCoreByIDRow, error) {
+	row := q.db.QueryRow(ctx, courseGetCoreByID, id)
+	var i CourseGetCoreByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Code,
+		&i.Name,
+		&i.TeacherID,
+	)
+	return i, err
+}
+
 const courseListActive = `-- name: CourseListActive :many
 SELECT c.id, c.code, c.name, COALESCE(s.name, '') AS subject_name, c.created_at, c.updated_at
 FROM courses c
