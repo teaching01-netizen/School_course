@@ -161,9 +161,19 @@ func newSeriesHTTPFixture(t *testing.T) seriesHTTPFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, q, course.ID, teacherID)
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Auth: fakeAuth{auth.AuthenticatedUser{ID: adminID, Username: "a", Role: "Admin"}}, Q: q, DB: pool, Scheduling: schedulingSvc, InstituteTZ: "Asia/Bangkok"})
 	return seriesHTTPFixture{mux: mux, q: q, pool: pool, courseID: course.ID, teacherID: teacherID}
+}
+
+// addTeacherToCourse seeds a course_teachers row so scheduling's membership
+// enforcement accepts the teacher for the course in these integration tests.
+func addTeacherToCourse(t *testing.T, q *sqldb.Queries, courseID, teacherID pgtype.UUID) {
+	t.Helper()
+	if err := q.CourseTeacherInsert(context.Background(), sqldb.CourseTeacherInsertParams{CourseID: courseID, TeacherID: teacherID, IsPrimary: false}); err != nil {
+		t.Fatalf("seed course_teachers (%s, %s): %v", courseID, teacherID, err)
+	}
 }
 
 func pgUUIDString(t *testing.T, value pgtype.UUID) string {

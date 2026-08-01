@@ -3,6 +3,25 @@
 -- transaction (delete-all + reinsert), so reads here are either row locks
 -- or snapshots taken inside the same transaction.
 
+-- name: CourseTeacherExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM course_teachers
+    WHERE course_id = $1
+      AND teacher_id = $2
+);
+
+-- name: CourseTeacherSetExists :one
+-- Reports whether the course has any assigned teachers at all. Used by the
+-- advisory preflight to stay lenient toward legacy courses whose teacher set
+-- was never populated (the transactional check remains authoritative and
+-- rejects any teacher for an empty set).
+SELECT EXISTS (
+    SELECT 1
+    FROM course_teachers
+    WHERE course_id = $1
+);
+
 -- name: CourseLockForTeacherUpdate :one
 SELECT
     id,

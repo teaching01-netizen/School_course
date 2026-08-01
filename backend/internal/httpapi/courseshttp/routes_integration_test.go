@@ -219,6 +219,7 @@ func setupTestServer(t *testing.T) *testFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacher)
 
 	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{
 		Name:     "R-" + uuid.New().String()[:8],
@@ -256,6 +257,15 @@ func uuidString(u pgtype.UUID) (string, error) {
 		return "", err
 	}
 	return id.String(), nil
+}
+
+// addTeacherToCourse seeds a course_teachers row so scheduling's membership
+// enforcement accepts the teacher for the course in these integration tests.
+func addTeacherToCourse(t *testing.T, ctx context.Context, q *sqldb.Queries, courseID, teacherID pgtype.UUID) {
+	t.Helper()
+	if err := q.CourseTeacherInsert(ctx, sqldb.CourseTeacherInsertParams{CourseID: courseID, TeacherID: teacherID, IsPrimary: false}); err != nil {
+		t.Fatalf("seed course_teachers (%s, %s): %v", courseID, teacherID, err)
+	}
 }
 
 // doRequest is a convenience for making JSON requests to the test server.
@@ -462,6 +472,7 @@ func TestStudentAddEndpoints_BlockedByPreflight_WhenBusyRangeExists(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, fx.q, courseB.ID, teacherB)
 
 	// Create a student.
 	student, err := fx.q.StudentCreate(ctx, sqldb.StudentCreateParams{

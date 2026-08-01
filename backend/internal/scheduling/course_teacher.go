@@ -1,0 +1,47 @@
+package scheduling
+
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	sqldb "warwick-institute/internal/db"
+)
+
+// ErrTeacherNotAssigned is the stable error code for scheduling writes whose
+// teacher is not part of the course's assigned teacher set (course_teachers).
+const ErrTeacherNotAssigned = "teacher_not_assigned_to_course"
+
+// checkCourseTeacherMembership verifies that teacherID belongs to the course's
+// assigned teacher set. It must run inside the authoritative write transaction
+// after the course row has been locked, so a concurrent teacher-set replacement
+// cannot slip a session past the check. Returns a stable Err when the teacher
+// is not assigned; an empty set rejects every teacher.
+func checkCourseTeacherMembership(ctx context.Context, qtx *sqldb.Queries, courseID, teacherID pgtype.UUID) error {
+	assigned, err := qtx.CourseTeacherExists(ctx, sqldb.CourseTeacherExistsParams{CourseID: courseID, TeacherID: teacherID})
+	if err != nil {
+		return err
+	}
+	if assigned {
+		return nil
+	}
+	courseIDStr, err := uuidString(courseID)
+	if err != nil {
+		return err
+	}
+	teacherIDStr, err := uuidString(teacherID)
+	if err != nil {
+		return err
+	}
+	return &Err{
+		Code:    ErrTeacherNotAssigned,
+		Message: "The selected teacher is not assigned to this course.",
+		Details: ConflictDetails{
+			Kind: ConflictKindTeacherNotAssigned,
+			Requested: ConflictRequested{
+				CourseID:  courseIDStr,
+				TeacherID: teacherIDStr,
+			},
+		},
+	}
+}

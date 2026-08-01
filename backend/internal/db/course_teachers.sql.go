@@ -109,7 +109,6 @@ func (q *Queries) CourseFutureSessionUsageByTeachers(ctx context.Context, arg Co
 }
 
 const courseLockForTeacherUpdate = `-- name: CourseLockForTeacherUpdate :one
-
 SELECT
     id,
     version
@@ -123,15 +122,37 @@ type CourseLockForTeacherUpdateRow struct {
 	Version int32       `json:"version"`
 }
 
-// Course teacher membership queries for the courseadmin domain service.
-// The entire teacher set of a course is replaced atomically inside one
-// transaction (delete-all + reinsert), so reads here are either row locks
-// or snapshots taken inside the same transaction.
 func (q *Queries) CourseLockForTeacherUpdate(ctx context.Context, id pgtype.UUID) (CourseLockForTeacherUpdateRow, error) {
 	row := q.db.QueryRow(ctx, courseLockForTeacherUpdate, id)
 	var i CourseLockForTeacherUpdateRow
 	err := row.Scan(&i.ID, &i.Version)
 	return i, err
+}
+
+const courseTeacherExists = `-- name: CourseTeacherExists :one
+
+SELECT EXISTS (
+    SELECT 1
+    FROM course_teachers
+    WHERE course_id = $1
+      AND teacher_id = $2
+)
+`
+
+type CourseTeacherExistsParams struct {
+	CourseID  pgtype.UUID `json:"course_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+// Course teacher membership queries for the courseadmin domain service.
+// The entire teacher set of a course is replaced atomically inside one
+// transaction (delete-all + reinsert), so reads here are either row locks
+// or snapshots taken inside the same transaction.
+func (q *Queries) CourseTeacherExists(ctx context.Context, arg CourseTeacherExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, courseTeacherExists, arg.CourseID, arg.TeacherID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const courseTeacherInsert = `-- name: CourseTeacherInsert :exec
@@ -152,6 +173,25 @@ type CourseTeacherInsertParams struct {
 func (q *Queries) CourseTeacherInsert(ctx context.Context, arg CourseTeacherInsertParams) error {
 	_, err := q.db.Exec(ctx, courseTeacherInsert, arg.CourseID, arg.TeacherID, arg.IsPrimary)
 	return err
+}
+
+const courseTeacherSetExists = `-- name: CourseTeacherSetExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM course_teachers
+    WHERE course_id = $1
+)
+`
+
+// Reports whether the course has any assigned teachers at all. Used by the
+// advisory preflight to stay lenient toward legacy courses whose teacher set
+// was never populated (the transactional check remains authoritative and
+// rejects any teacher for an empty set).
+func (q *Queries) CourseTeacherSetExists(ctx context.Context, courseID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, courseTeacherSetExists, courseID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const courseTeachersDeleteAll = `-- name: CourseTeachersDeleteAll :exec

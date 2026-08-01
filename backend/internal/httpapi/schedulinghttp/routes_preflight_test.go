@@ -188,6 +188,7 @@ func setupTestServer(t *testing.T) *preflightFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacher)
 
 	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{
 		Name:     "R-PF-" + uuid.New().String()[:8],
@@ -244,6 +245,15 @@ func uuidString(u pgtype.UUID) (string, error) {
 		return "", err
 	}
 	return id.String(), nil
+}
+
+// addTeacherToCourse seeds a course_teachers row so scheduling's membership
+// enforcement accepts the teacher for the course in these integration tests.
+func addTeacherToCourse(t *testing.T, ctx context.Context, q *sqldb.Queries, courseID, teacherID pgtype.UUID) {
+	t.Helper()
+	if err := q.CourseTeacherInsert(ctx, sqldb.CourseTeacherInsertParams{CourseID: courseID, TeacherID: teacherID, IsPrimary: false}); err != nil {
+		t.Fatalf("seed course_teachers (%s, %s): %v", courseID, teacherID, err)
+	}
 }
 
 func doRequest(t *testing.T, baseURL, method, path string, body any) *http.Response {
@@ -355,6 +365,7 @@ func TestPreflightHTTP_BlockedRoomOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, fx.q, otherCourse.ID, otherTeacher)
 
 	if _, err := fx.scheduling.CreateSession(ctx, scheduling.CreateSessionParams{
 		CourseID:  otherCourse.ID,
@@ -419,6 +430,7 @@ func TestPreflightHTTP_BlockedTeacherOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, fx.q, otherCourse.ID, fx.teacherID)
 
 	if _, err := fx.scheduling.CreateSession(ctx, scheduling.CreateSessionParams{
 		CourseID:  otherCourse.ID,
@@ -492,6 +504,7 @@ func TestPreflightHTTP_BlockedStudentOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, fx.q, otherCourse.ID, otherTeacher)
 
 	student, err := fx.q.StudentCreate(ctx, sqldb.StudentCreateParams{
 		Wcode: "S-PF-" + suffix, FullName: "Preflight Student",
@@ -653,6 +666,7 @@ func TestPreflightSeriesHTTP_Blocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, fx.q, otherCourse.ID, otherTeacher)
 
 	// Blocking session at series occurrence time (09:00-10:00 Bangkok = 02:00-03:00 UTC).
 	// Series has Mon+Wed 09:00-10:00 Bangkok from 2026-05-20 → first Mon is 2026-05-25.

@@ -111,6 +111,32 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 		in.Requested.EndAt = in.EndUTC.UTC().Format(time.RFC3339Nano)
 	}
 
+	// Teacher membership (advisory): a course with an assigned teacher set only
+	// accepts sessions from that set, so an unassigned teacher is surfaced as a
+	// conflict before any availability/overlap checks. Courses with NO teachers
+	// assigned are skipped here (legacy leniency — blocking every legacy course
+	// in the UI would be a regression); the transactional check remains
+	// authoritative and rejects any teacher for an empty set.
+	if in.CourseID.Valid && in.TeacherID.Valid {
+		hasTeachers, err := q.CourseTeacherSetExists(ctx, in.CourseID)
+		if err != nil {
+			return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested}}
+		}
+		if hasTeachers {
+			assigned, err := q.CourseTeacherExists(ctx, sqldb.CourseTeacherExistsParams{CourseID: in.CourseID, TeacherID: in.TeacherID})
+			if err != nil {
+				return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested}}
+			}
+			if !assigned {
+				return &Err{
+					Code:    ErrTeacherNotAssigned,
+					Message: "The selected teacher is not assigned to this course.",
+					Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested},
+				}
+			}
+		}
+	}
+
 	// Availability (when windows exist).
 	if ok, err := q.IsTeacherAvailable(ctx, in.TeacherID, in.StartUTC, in.EndUTC); err != nil {
 		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherAvailability, Conflicts: nil, Requested: in.Requested}}

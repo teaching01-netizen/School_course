@@ -188,6 +188,15 @@ func createTestCourse(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool, c
 	return course.ID
 }
 
+// addTestTeacherToCourse seeds a course_teachers row so scheduling's membership
+// enforcement accepts the teacher for the course in these integration tests.
+func addTestTeacherToCourse(t *testing.T, ctx context.Context, q *sqldb.Queries, courseID, teacherID pgtype.UUID) {
+	t.Helper()
+	if err := q.CourseTeacherInsert(ctx, sqldb.CourseTeacherInsertParams{CourseID: courseID, TeacherID: teacherID, IsPrimary: false}); err != nil {
+		t.Fatalf("seed course_teachers (%s, %s): %v", courseID, teacherID, err)
+	}
+}
+
 func uuidStringFromPg(t *testing.T, id pgtype.UUID) string {
 	t.Helper()
 	parsed, err := uuid.FromBytes(id.Bytes[:])
@@ -1260,6 +1269,8 @@ func TestReconcileApply_StudentScheduleConflictIncludesStudentAndCourseDetails(t
 			t.Fatal(err)
 		}
 	}
+	addTestTeacherToCourse(t, ctx, q, targetCourseID, teacherA)
+	addTestTeacherToCourse(t, ctx, q, conflictCourseID, teacherB)
 
 	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
 	if err != nil {

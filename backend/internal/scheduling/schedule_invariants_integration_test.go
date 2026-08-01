@@ -62,6 +62,7 @@ func seedOccupancyFixture(t *testing.T, q *sqldb.Queries, prefix string) occupan
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacher)
 	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{Wcode: prefix + "-student-" + suffix, FullName: prefix + " Student"})
 	if err != nil {
 		t.Fatal(err)

@@ -127,6 +127,7 @@ func TestCreateSession_RoomOverlap_ReturnsExplainableDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	start1 := pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), Valid: true}
 	end1 := pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC), Valid: true}
@@ -216,6 +217,7 @@ func TestCreateSession_TeacherAvailabilityViolation_ReturnsExplainableDetails(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	// Create a narrow teacher availability window that does NOT cover the requested session.
 	_, err = q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
@@ -276,6 +278,7 @@ func TestExplainFromDBErrByRepreflight_OnExclusion_ReturnsExplainableDetails(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	// Create an existing session to overlap with the candidate slot.
 	start1 := pgtype.Timestamptz{Time: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), Valid: true}
@@ -361,6 +364,7 @@ func TestCancelSeries_ThisAndFuture_CancelsFutureSessionsAndClampsSeries(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	startDate := LocalDate{Year: 2026, Month: 5, Day: 19}
 	endDate := LocalDate{Year: 2026, Month: 5, Day: 25}
@@ -456,6 +460,7 @@ func TestCancelSeries_EntireSeriesFutureOnly_CancelsAtLeastOneFutureSession(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	startDate := LocalDate{Year: 2026, Month: 5, Day: 19}
 	endDate := LocalDate{Year: 2026, Month: 5, Day: 25}
@@ -532,6 +537,7 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherA)
 
 	// Create availability windows for both teachers.
 	_, err = q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
@@ -567,6 +573,7 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, courseB.ID, teacherB)
 	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: courseB.ID, StudentID: student.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -686,6 +693,8 @@ func TestAddCourseStudent_DoesNotTreatCourseDateSpanAsSingleBusyRange(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, targetCourse.ID, targetTeacher)
+	addTeacherToCourse(t, ctx, q, conflictCourse.ID, conflictTeacher)
 	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{Wcode: "S-SPAN-" + suffix, FullName: "Student Span"})
 	if err != nil {
 		t.Fatal(err)
@@ -783,6 +792,7 @@ func TestPreflight_IncludedNonRosterStudentChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherA)
 
 	// Create availability windows for both teachers.
 	_, err = q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
@@ -822,6 +832,7 @@ func TestPreflight_IncludedNonRosterStudentChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, courseB.ID, teacherB)
 	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: courseB.ID, StudentID: studentB.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -933,6 +944,7 @@ func TestPreflight_UnknownStudentID_DoesNotConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	// Create teacher availability window.
 	_, err = q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
@@ -1033,6 +1045,8 @@ func TestEditOccurrence_RespectsSessionAttendanceExcludes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, courseA.ID, teacherA)
+	addTeacherToCourse(t, ctx, q, courseB.ID, teacherB)
 
 	// Availability windows for both teachers.
 	_, err = q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
@@ -1135,6 +1149,7 @@ func TestCreateSession_ConcurrentOverlap_RaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	const numRequests = 10
 	errCh := make(chan error, numRequests)
@@ -1232,6 +1247,8 @@ func TestScheduleDB_ResourceSwapEditsDoNotDeadlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, seedCtx, q, courseA.ID, teacherA)
+	addTeacherToCourse(t, seedCtx, q, courseB.ID, teacherB)
 
 	day := time.Now().UTC().AddDate(0, 0, 14)
 	start := pgtype.Timestamptz{Time: time.Date(day.Year(), day.Month(), day.Day(), 10, 0, 0, 0, time.UTC), Valid: true}
@@ -1297,6 +1314,7 @@ func TestScheduleDB_AttachedOccurrenceEditAndSeriesCancelDoNotDeadlock(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, seedCtx, q, course.ID, teacherID)
 	loc, err := time.LoadLocation("Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
@@ -1361,6 +1379,7 @@ func TestScheduleDB_EditOccurrenceRejectsSoftDeletedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 	start := time.Now().UTC().AddDate(0, 0, 20).Truncate(time.Hour)
 	session, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{CourseID: course.ID, TeacherID: teacherID, StartAt: pgtype.Timestamptz{Time: start, Valid: true}, EndAt: pgtype.Timestamptz{Time: start.Add(time.Hour), Valid: true}})
 	if err != nil {
@@ -1430,6 +1449,7 @@ func TestSessionListActiveByRange_OverlapSemantics_ReturnsOnlyOverlapping(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	// Session A (overlapping): May 19 10:00-11:00 — should be returned by range [May 18, May 26]
 	sessionA, err := svc.CreateSession(ctx, CreateSessionParams{
@@ -1524,6 +1544,7 @@ func TestCreateSeries_ConcurrentOverlap_RaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 
 	startDate := LocalDate{Year: 2026, Month: 5, Day: 18}
 	endDate := LocalDate{Year: 2026, Month: 5, Day: 18}
@@ -1624,6 +1645,7 @@ func TestEditEntireSeriesFutureOnly_UpdatesFutureOccurrencesWithoutTouchingPast(
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherOld)
 
 	startDate := LocalDate{Year: 2026, Month: 5, Day: 19}
 	endDate := LocalDate{Year: 2026, Month: 5, Day: 25}

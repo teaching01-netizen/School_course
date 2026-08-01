@@ -223,6 +223,11 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{p.CourseID}}); err != nil {
 		return CreateSeriesResult{}, err
 	}
+	// The course lock freezes the teacher set; every materialized occurrence
+	// inherits p.TeacherID, so validate membership once before any writes.
+	if err := checkCourseTeacherMembership(ctx, qtx, p.CourseID, p.TeacherID); err != nil {
+		return CreateSeriesResult{}, err
+	}
 	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
 	if err != nil {
 		return CreateSeriesResult{}, err
@@ -657,6 +662,13 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: courseIDs}); err != nil {
 		return CreateSessionResult{}, err
 	}
+	// The course lock above also freezes the teacher set, so the membership
+	// check runs against a stable snapshot. The invariant is on the session
+	// being created: p.TeacherID must belong to course_teachers(p.CourseID),
+	// regardless of any parent series' course.
+	if err := checkCourseTeacherMembership(ctx, qtx, p.CourseID, p.TeacherID); err != nil {
+		return CreateSessionResult{}, err
+	}
 	students, err := qtx.CourseStudentsList(ctx, p.CourseID)
 	if err != nil {
 		return CreateSessionResult{}, err
@@ -964,6 +976,19 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		return EditOccurrenceResult{}, fmt.Errorf("invalid time range")
 	}
 
+	// Teacher membership is validated only when the edit actually moves the
+	// session to a different teacher and/or course: the NEW teacher must
+	// belong to the NEW course's assigned teacher set. A time-only or
+	// room-only edit keeps the existing identity, so the old teacher does not
+	// need to remain assigned (historical sessions are never backfilled).
+	teacherChanged := p.TeacherID != nil && p.TeacherID.Valid && newTeacherID.Bytes != existing.TeacherID.Bytes
+	courseChanged := existing.CourseID.Valid && newCourseID.Valid && existing.CourseID.Bytes != newCourseID.Bytes
+	if teacherChanged || courseChanged {
+		if err := checkCourseTeacherMembership(ctx, qtx, newCourseID, newTeacherID); err != nil {
+			return EditOccurrenceResult{}, err
+		}
+	}
+
 	courseIDStr, err := uuidString(newCourseID)
 	if err != nil {
 		return EditOccurrenceResult{}, err
@@ -1001,8 +1026,6 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 			SeriesID:  seriesIDStr,
 		},
 	}
-
-	courseChanged := existing.CourseID.Valid && newCourseID.Valid && existing.CourseID.Bytes != newCourseID.Bytes
 
 	studentIDsPtr, hasOverrides, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, newCourseID, courseChanged)
 	if err != nil {

@@ -10,6 +10,7 @@ const (
 	ConflictKindStudentOverlap      ConflictKind = "student_overlap"
 	ConflictKindTeacherAvailability ConflictKind = "teacher_availability"
 	ConflictKindRoomAvailability    ConflictKind = "room_availability"
+	ConflictKindTeacherNotAssigned  ConflictKind = "teacher_not_assigned_to_course"
 )
 
 type ConflictSession struct {

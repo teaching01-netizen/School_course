@@ -177,12 +177,22 @@ func newScheduleHTTPFixture(t *testing.T) scheduleHTTPFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherID)
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Auth: fakeAuth{user: auth.AuthenticatedUser{ID: adminID, Username: "a", Role: "Admin"}},
 		Q: q, DB: pool, Scheduling: schedulingSvc, InstituteTZ: "Asia/Bangkok",
 	})
 	return scheduleHTTPFixture{mux: mux, q: q, pool: pool, courseID: course.ID, teacherID: teacherID}
+}
+
+// addTeacherToCourse seeds a course_teachers row so scheduling's membership
+// enforcement accepts the teacher for the course in these integration tests.
+func addTeacherToCourse(t *testing.T, ctx context.Context, q *sqldb.Queries, courseID, teacherID pgtype.UUID) {
+	t.Helper()
+	if err := q.CourseTeacherInsert(ctx, sqldb.CourseTeacherInsertParams{CourseID: courseID, TeacherID: teacherID, IsPrimary: false}); err != nil {
+		t.Fatalf("seed course_teachers (%s, %s): %v", courseID, teacherID, err)
+	}
 }
 
 func (f scheduleHTTPFixture) createSession(t *testing.T) sqldb.SessionCreateRow {
@@ -261,12 +271,14 @@ func TestScheduleDB_PostSession_RejectsMismatchedSeriesOccurrence(t *testing.T) 
 				if err != nil {
 					t.Fatal(err)
 				}
+				addTeacherToCourse(t, context.Background(), f.q, other.ID, f.teacherID)
 				courseID = other.ID
 			case "teacher":
 				other, err := f.q.AdminUserCreate(context.Background(), sqldb.AdminUserCreateParams{Username: "mismatch-" + uuid.New().String()[:8], Role: "Teacher", PasswordHash: "x"})
 				if err != nil {
 					t.Fatal(err)
 				}
+				addTeacherToCourse(t, context.Background(), f.q, f.courseID, other)
 				teacherID = other
 			case "clock":
 				candidateStart = start.Add(time.Hour)
@@ -676,6 +688,7 @@ func TestRegister_PostSessions_ConcurrentOverlap_RaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacher)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mux := http.NewServeMux()
