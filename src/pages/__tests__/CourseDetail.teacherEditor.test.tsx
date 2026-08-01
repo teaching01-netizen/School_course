@@ -240,8 +240,10 @@ describe("CourseDetail teacher editor", () => {
     renderCourseDetail();
     await startEditing(user);
 
-    // Stale form state before the conflict.
-    await user.click(screen.getByRole("radio", { name: /Teacher Two/ }));
+    // Stale form state before the conflict: choose a primary that differs from
+    // the reloaded course (Teacher Two is primary in `latest`), so the radio
+    // assertions below can only pass if the form is actually re-seeded.
+    await user.click(screen.getByRole("radio", { name: /No primary teacher/ }));
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -251,6 +253,7 @@ describe("CourseDetail teacher editor", () => {
     // Teacher set (incl. primary) matches the reloaded course: Teacher Two is now primary.
     expect(screen.getByRole("radio", { name: /Teacher Two/ })).toBeChecked();
     expect(screen.getByRole("radio", { name: /Teacher One/ })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: /No primary teacher/ })).not.toBeChecked();
   });
 
   it("shows a friendly message when a teacher is in use", async () => {

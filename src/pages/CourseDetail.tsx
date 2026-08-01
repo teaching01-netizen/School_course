@@ -389,11 +389,15 @@ export default function CourseDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const seedEditForm = (c: Course) => {
+    setEditCode(c.code);
+    setEditName(c.name);
+    setEditTeachers((c.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
+  };
+
   const startEditing = () => {
     if (!course) return;
-    setEditCode(course.code);
-    setEditName(course.name);
-    setEditTeachers((course.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
+    seedEditForm(course);
     setIsEditing(true);
   };
 
@@ -428,16 +432,12 @@ export default function CourseDetail() {
         const current = (err.details as { current?: Course } | undefined)?.current;
         if (current) {
           setCourse(current);
-          setEditCode(current.code);
-          setEditName(current.name);
-          setEditTeachers((current.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
+          seedEditForm(current);
         } else {
           try {
             const latest = await getCourse(id);
             setCourse(latest);
-            setEditCode(latest.code);
-            setEditName(latest.name);
-            setEditTeachers((latest.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
+            seedEditForm(latest);
           } catch {
             addToast("error", "Could not reload the latest course version. Please try again.");
             return;
