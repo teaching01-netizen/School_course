@@ -471,6 +471,17 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 	if err != nil {
 		return EditEntireSeriesResult{}, err
 	}
+	// The edit-entire operation rewrites every future occurrence to the new
+	// teacher/course, so when either changes the NEW teacher must belong to the
+	// NEW course's teacher set. NOTE: the course row lock that serializes this
+	// against concurrent teacher-set replacements is taken later, inside
+	// seriesSvc.EditEntireSeriesFutureOnlyTx — this check is a correctness gate
+	// on the same invariant, not a race-free guarantee of its own.
+	if seriesTeacherOrCourseChanged(ser.CourseID, ser.TeacherID, p.CourseID, p.TeacherID) {
+		if err := checkCourseTeacherMembership(ctx, qtx, p.CourseID, p.TeacherID); err != nil {
+			return EditEntireSeriesResult{}, err
+		}
+	}
 	startLD := localDateFromPgDate(ser.StartDate)
 	occ, err := series.Materialize(ctx, series.MaterializeInput{
 		Weekdays:        p.Weekdays,
@@ -543,6 +554,16 @@ func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireSe
 	ser, err := s.q.SeriesGetByID(ctx, p.SeriesID)
 	if err != nil {
 		return EditEntireSeriesResult{}, err
+	}
+	// Same membership gate as EditEntireSeriesFutureOnlyTx: future occurrences
+	// are rewritten to the new teacher/course, so the new teacher must belong
+	// to the new course's teacher set when either changes. The course row lock
+	// is taken later inside the series service; this check is a correctness
+	// gate on the same invariant.
+	if seriesTeacherOrCourseChanged(ser.CourseID, ser.TeacherID, p.CourseID, p.TeacherID) {
+		if err := checkCourseTeacherMembership(ctx, s.q, p.CourseID, p.TeacherID); err != nil {
+			return EditEntireSeriesResult{}, err
+		}
 	}
 	startLD := localDateFromPgDate(ser.StartDate)
 	occ, err := series.Materialize(ctx, series.MaterializeInput{

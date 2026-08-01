@@ -558,6 +558,88 @@ func TestCourseTeacherMembership_TeacherRemovalRace(t *testing.T) {
 	}
 }
 
+// TestCourseTeacherMembership_EditEntireSeriesFutureTeacherValidates closes
+// the PR5 gap where an edit-entire-series operation could rewrite future
+// occurrences to a teacher outside the course's teacher set: the new teacher
+// must belong to the set; a time-only edit that keeps the teacher does not
+// re-validate (the old teacher may have left the set since creation).
+func TestCourseTeacherMembership_EditEntireSeriesFutureTeacherValidates(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	teacherA := createMembershipTeacher(t, ctx, q, "mem-entire-a")
+	teacherB := createMembershipTeacher(t, ctx, q, "mem-entire-b")
+	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-mem-entire-" + uuid.New().String()[:8], Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-ENTIRE-" + uuid.New().String()[:8], Name: "Membership entire"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherA)
+
+	startDate := LocalDate{Year: 2026, Month: 5, Day: 19}
+	endDate := LocalDate{Year: 2026, Month: 5, Day: 25}
+	createRes, err := svc.CreateSeriesAndMaterialize(ctx, CreateSeriesParams{
+		CourseID:        course.ID,
+		RoomID:          room.ID,
+		TeacherID:       teacherA,
+		Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+		StartLocalTime:  Clock{Hour: 10, Minute: 0},
+		DurationMinutes: 60,
+		StartDate:       startDate,
+		EndDate:         &endDate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ser, err := q.SeriesGetByID(ctx, createRes.SeriesID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nowUTC := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+
+	// Change the future teacher to unassigned teacherB → reject.
+	_, err = svc.EditEntireSeriesFutureOnly(ctx, EditEntireSeriesParams{
+		SeriesID:        createRes.SeriesID,
+		ExpectedVersion: ser.Version,
+		NowUTC:          nowUTC,
+		CourseID:        course.ID,
+		RoomID:          room.ID,
+		TeacherID:       teacherB,
+		Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+		StartLocalTime:  Clock{Hour: 10, Minute: 0},
+		DurationMinutes: 60,
+		EndDate:         &endDate,
+	})
+	assertTeacherNotAssigned(t, err, course.ID, teacherB)
+
+	// Assign teacherB, then the same edit succeeds.
+	addTeacherToCourse(t, ctx, q, course.ID, teacherB)
+	if _, err := svc.EditEntireSeriesFutureOnly(ctx, EditEntireSeriesParams{
+		SeriesID:        createRes.SeriesID,
+		ExpectedVersion: ser.Version,
+		NowUTC:          nowUTC,
+		CourseID:        course.ID,
+		RoomID:          room.ID,
+		TeacherID:       teacherB,
+		Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+		StartLocalTime:  Clock{Hour: 10, Minute: 0},
+		DurationMinutes: 60,
+		EndDate:         &endDate,
+	}); err != nil {
+		t.Fatalf("edit-entire to assigned teacher B failed: %v", err)
+	}
+}
+
 func isErrCode(err error, code string) bool {
 	var se *Err
 	return errors.As(err, &se) && se.Code == code

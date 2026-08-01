@@ -12,6 +12,17 @@ import (
 // teacher is not part of the course's assigned teacher set (course_teachers).
 const ErrTeacherNotAssigned = "teacher_not_assigned_to_course"
 
+// seriesTeacherOrCourseChanged reports whether an edit-entire-series request
+// moves the series to a different teacher and/or course than the current
+// series row. Only changed identities need membership revalidation — the
+// existing teacher may legitimately have left the set since the series was
+// created (historical sessions are never backfilled).
+func seriesTeacherOrCourseChanged(currentCourseID, currentTeacherID, newCourseID, newTeacherID pgtype.UUID) bool {
+	teacherChanged := newTeacherID.Valid && currentTeacherID.Valid && newTeacherID.Bytes != currentTeacherID.Bytes
+	courseChanged := newCourseID.Valid && currentCourseID.Valid && newCourseID.Bytes != currentCourseID.Bytes
+	return teacherChanged || courseChanged
+}
+
 // checkCourseTeacherMembership verifies that teacherID belongs to the course's
 // assigned teacher set. It must run inside the authoritative write transaction
 // after the course row has been locked, so a concurrent teacher-set replacement

@@ -69,12 +69,12 @@ export default function CourseCreate() {
         method: "POST",
         body: JSON.stringify({
           year: Number.parseInt(year, 10),
-          teacher_id: teacherIDs[0] || "",
-          teacher_ids: teacherIDs,
           subject_id: subjectID,
           hour,
           student_count: studentCount,
           course_type: courseType,
+          // Versioned contract: the first selected teacher is the primary.
+          teachers: teacherIDs.map((id, index) => ({ teacher_id: id, is_primary: index === 0 })),
         }),
       });
       addToast("success", "Course created");

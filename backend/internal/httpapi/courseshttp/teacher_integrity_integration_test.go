@@ -430,7 +430,7 @@ func TestPatchCourse_NotFound(t *testing.T) {
 	}
 }
 
-func TestLegacyPut_TeacherIDs_AdaptsFirstToPrimary(t *testing.T) {
+func TestCoursesList_TeachersIncludePrimaryFlag(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
 
@@ -439,18 +439,73 @@ func TestLegacyPut_TeacherIDs_AdaptsFirstToPrimary(t *testing.T) {
 	teacherAStr := teacherIDString(t, teacherA)
 	teacherBStr := teacherIDString(t, teacherB)
 
-	// Legacy request shape: teacher_ids only, no expected_version.
+	resp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 1,
+		"code":             courseCode("LIST"),
+		"name":             "List shape",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherAStr, "is_primary": true},
+			{"teacher_id": teacherBStr, "is_primary": false},
+		},
+	})
+	assertResponseCode(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	listResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses", nil)
+	assertResponseCode(t, listResp, http.StatusOK)
+	var list []map[string]any
+	parseResponse(t, listResp, &list)
+
+	var found map[string]any
+	for _, c := range list {
+		if c["id"] == fx.courseIDStr {
+			found = c
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("fixture course %q not in list", fx.courseIDStr)
+	}
+	teachers, ok := found["teachers"].([]any)
+	if !ok || len(teachers) != 2 {
+		t.Fatalf("expected 2 teachers in list entry, got %#v", found["teachers"])
+	}
+	flags := map[string]bool{}
+	for _, raw := range teachers {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected teacher entry %#v", raw)
+		}
+		flags[entry["id"].(string)] = entry["is_primary"].(bool)
+	}
+	if !flags[teacherAStr] || flags[teacherBStr] {
+		t.Fatalf("list is_primary flags wrong: %v", flags)
+	}
+}
+
+func TestPut_TeachersArray_ReplacesSet(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+
+	teacherA := createTeacherUser(t, ctx, fx.q)
+	teacherB := createTeacherUser(t, ctx, fx.q)
+	teacherAStr := teacherIDString(t, teacherA)
+	teacherBStr := teacherIDString(t, teacherB)
+
+	// PUT with the versioned teachers array: replaces the set (version 1 → 2),
+	// first-listed primary mirrors into courses.teacher_id.
 	resp := doRequest(t, fx.server.URL, "PUT", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
-		"code":        courseCode("LEGACY"),
-		"name":        "Legacy update",
-		"teacher_ids": []string{teacherAStr, teacherBStr},
+		"code": courseCode("LEGACY"),
+		"name": "Versioned update",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherAStr, "is_primary": true},
+			{"teacher_id": teacherBStr, "is_primary": false},
+		},
 	})
 	assertResponseCode(t, resp, http.StatusOK)
 
 	var out map[string]any
 	parseResponse(t, resp, &out)
-	// The legacy response keeps the rich shape; the compat primary projection
-	// is courses.teacher_id and version/teachers are now included too.
 	if out["teacher_id"] != teacherAStr {
 		t.Fatalf("expected teacher_id %q, got %v", teacherAStr, out["teacher_id"])
 	}
@@ -459,7 +514,7 @@ func TestLegacyPut_TeacherIDs_AdaptsFirstToPrimary(t *testing.T) {
 	}
 	teachers, ok := out["teachers"].([]any)
 	if !ok || len(teachers) != 2 {
-		t.Fatalf("expected 2 teachers in legacy response, got %#v", out["teachers"])
+		t.Fatalf("expected 2 teachers in response, got %#v", out["teachers"])
 	}
 
 	stored := courseTeacherMap(t, fx, fx.courseID)
@@ -468,7 +523,7 @@ func TestLegacyPut_TeacherIDs_AdaptsFirstToPrimary(t *testing.T) {
 	}
 }
 
-func TestLegacyPost_CreateWithTeacherIDs(t *testing.T) {
+func TestPost_CreateWithTeachersArray(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
 
@@ -478,9 +533,12 @@ func TestLegacyPost_CreateWithTeacherIDs(t *testing.T) {
 	teacherBStr := teacherIDString(t, teacherB)
 
 	resp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
-		"code":        courseCode("LEGCREATE"),
-		"name":        "Legacy create",
-		"teacher_ids": []string{teacherAStr, teacherBStr},
+		"code": courseCode("LEGCREATE"),
+		"name": "Versioned create",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherAStr, "is_primary": true},
+			{"teacher_id": teacherBStr, "is_primary": false},
+		},
 	})
 	assertResponseCode(t, resp, http.StatusCreated)
 
@@ -511,7 +569,40 @@ func TestLegacyPost_CreateWithTeacherIDs(t *testing.T) {
 	}
 }
 
-func TestLegacyPost_CreateWithTeacherIDs_V2GenerationShape(t *testing.T) {
+func TestPost_CreateWithEmptyTeachersArray(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+
+	// An empty teachers array creates a course with no assigned teachers.
+	resp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
+		"code":     courseCode("EMPTYCREATE"),
+		"name":     "No teachers",
+		"teachers": []map[string]any{},
+	})
+	assertResponseCode(t, resp, http.StatusCreated)
+
+	var out map[string]any
+	parseResponse(t, resp, &out)
+	id, ok := out["id"].(string)
+	if !ok || id == "" {
+		t.Fatalf("expected created id, got %#v", out["id"])
+	}
+	if out["version"] != float64(1) {
+		t.Fatalf("expected fresh course version 1, got %v", out["version"])
+	}
+	if teachers, ok := out["teachers"].([]any); !ok || len(teachers) != 0 {
+		t.Fatalf("expected empty teachers in response, got %#v", out["teachers"])
+	}
+	courseID, err := fx.q.CourseGetByID(ctx, mustParseUUID(t, id))
+	if err != nil {
+		t.Fatalf("fetch created course: %v", err)
+	}
+	if stored := courseTeacherMap(t, fx, courseID.ID); len(stored) != 0 {
+		t.Fatalf("expected no stored teachers, got %v", stored)
+	}
+}
+
+func TestPost_CreateWithTeachersArray_V2GenerationShape(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
 
@@ -523,17 +614,18 @@ func TestLegacyPost_CreateWithTeacherIDs_V2GenerationShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// teacher_id + subject_id selects the course-generation variant; code is
-	// derived from course_no, name is empty, teacher_ids still insert. The
-	// year column is constrained to 0-99 (two-digit year, as the UI sends).
+	// teachers + subject_id selects the course-generation variant; code is
+	// derived from course_no, name is empty. The year column is constrained to
+	// 0-99 (two-digit year, as the UI sends).
 	resp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
-		"teacher_id":    teacherStr,
 		"subject_id":    subject.ID.String(),
 		"year":          26,
-		"teacher_ids":   []string{teacherStr},
 		"hour":          2,
 		"student_count": 5,
 		"course_type":   "Private",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
 	})
 	assertResponseCode(t, resp, http.StatusCreated)
 
@@ -582,8 +674,8 @@ func TestPatchCourse_BadJSONAndBadID(t *testing.T) {
 }
 
 // TestLegacyPut_RenameOnly_PreservesTeacherSet covers the regression where a
-// legacy PUT carrying neither teacher_id nor teacher_ids (a metadata-only
-// rename) wiped the existing teacher set instead of preserving it.
+// PUT carrying no `teachers` key (a metadata-only rename) wiped the existing
+// teacher set instead of preserving it.
 func TestLegacyPut_RenameOnly_PreservesTeacherSet(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
@@ -685,18 +777,22 @@ func TestDuplicateCourseCode_Returns409(t *testing.T) {
 
 	// First course takes the code.
 	resp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
-		"code":        dupCode,
-		"name":        "First",
-		"teacher_ids": []string{teacherStr},
+		"code": dupCode,
+		"name": "First",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
 	})
 	assertResponseCode(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
 	// Second POST with the same code → 409 conflict, not 500.
 	resp2 := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
-		"code":        dupCode,
-		"name":        "Second",
-		"teacher_ids": []string{teacherStr},
+		"code": dupCode,
+		"name": "Second",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
 	})
 	assertResponseCode(t, resp2, http.StatusConflict)
 	var out2 map[string]any

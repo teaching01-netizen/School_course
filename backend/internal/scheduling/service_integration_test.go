@@ -1745,7 +1745,10 @@ func TestEditEntireSeriesFutureOnly_UpdatesFutureOccurrencesWithoutTouchingPast(
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Both teachers must be assigned: the future edit rewrites occurrences to
+	// teacherNew, which membership enforcement requires to be in the set.
 	addTeacherToCourse(t, ctx, q, course.ID, teacherOld)
+	addTeacherToCourse(t, ctx, q, course.ID, teacherNew)
 
 	startDate := LocalDate{Year: 2026, Month: 5, Day: 19}
 	endDate := LocalDate{Year: 2026, Month: 5, Day: 25}

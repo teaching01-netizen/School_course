@@ -53,6 +53,20 @@ ORDER BY
     u.username,
     ct.teacher_id;
 
+-- name: CourseTeachersListForCourses :many
+-- Batch teacher read for the course list endpoint: returns every assigned
+-- teacher (with the is_primary flag) for a set of course ids in one query,
+-- ordered by username so the list response is deterministic.
+SELECT
+    ct.course_id,
+    ct.teacher_id,
+    ct.is_primary,
+    u.username
+FROM course_teachers ct
+JOIN users u ON u.id = ct.teacher_id
+WHERE ct.course_id = ANY($1::uuid[])
+ORDER BY u.username;
+
 -- name: CourseFutureSessionUsageByTeachers :many
 SELECT
     s.teacher_id,

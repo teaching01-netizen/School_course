@@ -80,28 +80,30 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 	for i, c := range items {
 		courseIDs[i] = c.ID
 	}
-	// Batch-fetch teachers from course_teachers.
-	type teacherEntry struct {
-		CourseID string `db:"course_id"`
-		ID       string `db:"id"`
-		Username string `db:"username"`
-	}
-	var teacherRows []teacherEntry
-	if len(courseIDs) > 0 {
-		trows, tErr := s.deps.DB.Query(r.Context(), `SELECT ct.course_id::text, u.id::text, u.username FROM course_teachers ct JOIN users u ON u.id = ct.teacher_id WHERE ct.course_id = ANY($1) ORDER BY u.username`, courseIDs)
-		if tErr == nil {
-			for trows.Next() {
-				var te teacherEntry
-				if err := trows.Scan(&te.CourseID, &te.ID, &te.Username); err == nil {
-					teacherRows = append(teacherRows, te)
-				}
-			}
-			trows.Close()
-		}
-	}
+	// Batch-fetch teachers from course_teachers with the typed query so the
+	// list endpoint reads the same teacher set (including is_primary) as every
+	// other read path, and scan errors are surfaced instead of silently skipped.
 	teachersByCourse := make(map[string][]map[string]any, len(items))
-	for _, te := range teacherRows {
-		teachersByCourse[te.CourseID] = append(teachersByCourse[te.CourseID], map[string]any{"id": te.ID, "username": te.Username})
+	if len(courseIDs) > 0 {
+		teacherRows, tErr := s.deps.Q.CourseTeachersListForCourses(r.Context(), courseIDs)
+		if tErr != nil {
+			status, code, msg := s.a.ClassifyDBErr(tErr)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		for _, te := range teacherRows {
+			tid, err := s.a.UUIDString(te.TeacherID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return
+			}
+			cid, err := s.a.UUIDString(te.CourseID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return
+			}
+			teachersByCourse[cid] = append(teachersByCourse[cid], map[string]any{"id": tid, "username": te.Username, "is_primary": te.IsPrimary})
+		}
 	}
 
 	type courseDTO struct {
@@ -261,12 +263,10 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 
 		Year         int16                      `json:"year"`
-		TeacherID    string                     `json:"teacher_id"`
 		SubjectID    string                     `json:"subject_id"`
 		Hour         int32                      `json:"hour"`
 		StudentCount int32                      `json:"student_count"`
 		CourseType   string                     `json:"course_type"`
-		TeacherIDs   []string                   `json:"teacher_ids"`
 		Teachers     []teacherAssignmentRequest `json:"teachers"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
@@ -274,23 +274,10 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var teachers []courseadmin.TeacherAssignment
-	var err error
-	if body.Teachers == nil {
-		// Legacy transition shape (teacher_id/teacher_ids only): adapt to the
-		// versioned contract and keep serving POST. Removed in PR6.
-		teachers, err = legacyTeacherAssignments(s.a, body.TeacherIDs, body.TeacherID)
-		if err != nil {
-			writeCourseAdminError(w, s.a, err)
-			return
-		}
-		s.deps.Log.Info("legacy course teacher payload", "metric", "course_teacher_legacy_payload_total", "operation", "create")
-	} else {
-		teachers, err = parseTeacherAssignments(s.a, body.Teachers)
-		if err != nil {
-			writeCourseAdminError(w, s.a, err)
-			return
-		}
+	teachers, err := parseTeacherAssignments(s.a, body.Teachers)
+	if err != nil {
+		writeCourseAdminError(w, s.a, err)
+		return
 	}
 
 	command := courseadmin.CreateCourseCommand{
@@ -304,9 +291,11 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		CourseType:   body.CourseType,
 	}
 	// The course-generation variant (CourseCreateV2: code derived from
-	// course_no, name kept empty) requires both teacher_id and subject_id,
-	// matching the historical branch condition.
-	if body.TeacherID != "" && body.SubjectID != "" {
+	// course_no, name kept empty) requires a subject_id and at least one
+	// teacher, matching the historical branch condition (teacher_id +
+	// subject_id). The teacher set's primary — or the first teacher when none
+	// is flagged primary — is the compatibility primary of the new course.
+	if len(teachers) > 0 && body.SubjectID != "" {
 		subjectID, err := s.a.ParseUUID(body.SubjectID)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
@@ -710,30 +699,17 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var teachers []courseadmin.TeacherAssignment
-	switch {
-	case body.Teachers != nil:
+	if body.Teachers != nil {
 		// Versioned contract: the explicit teacher set replaces the current one.
 		teachers, err = parseTeacherAssignments(s.a, *body.Teachers)
 		if err != nil {
 			writeCourseAdminError(w, s.a, err)
 			return
 		}
-	case body.TeacherID != nil || body.TeacherIDs != nil:
-		// Legacy transition shape (teacher_id/teacher_ids only): adapt to the
-		// versioned contract and keep serving PUT. Removed in PR6. A
-		// present-but-empty `teacher_ids: []` is the intentional "clear the
-		// set" signal.
-		teachers, err = legacyTeacherAssignments(s.a, body.TeacherIDs, strPtrOr(body.TeacherID, ""))
-		if err != nil {
-			writeCourseAdminError(w, s.a, err)
-			return
-		}
-		s.deps.Log.Info("legacy course teacher payload", "metric", "course_teacher_legacy_payload_total", "operation", "update", "course_id", r.PathValue("id"))
-	default:
-		// No teacher fields at all: metadata-only update. Teachers stays nil,
-		// so the service updates code/name/legacy link and bumps the version
-		// while leaving the existing teacher set untouched.
 	}
+	// With no `teachers` key the PUT is metadata-only: Teachers stays nil, so
+	// the service updates code/name/legacy link and bumps the version while
+	// leaving the existing teacher set untouched.
 
 	command := courseadmin.UpdateCourseCommand{
 		CourseID:        courseID,
@@ -929,13 +905,6 @@ func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func strPtrOr(s *string, fallback string) string {
-	if s != nil {
-		return *s
-	}
-	return fallback
-}
-
 // normalizeLegacyCourseID maps the optional legacy_course_id request field to
 // the service contract: an empty (or whitespace-only) value means "no link"
 // and becomes nil.
@@ -947,39 +916,6 @@ func normalizeLegacyCourseID(s *string) *string {
 		return nil
 	}
 	return s
-}
-
-// legacyTeacherAssignments adapts the pre-versioned teacher_id/teacher_ids
-// request shape to the domain assignment set: teacher_ids[0] becomes the
-// primary teacher and the rest become non-primary (plan §17 Phase 4: first
-// teacher = primary, remaining = non-primary). A client that sends only
-// teacher_id (no teacher_ids) is treated as a single-primary set. Strict by
-// contract: an invalid UUID fails the whole request — never silently skipped.
-func legacyTeacherAssignments(a httpadapter.Adapter, teacherIDs []string, teacherID string) ([]courseadmin.TeacherAssignment, error) {
-	ids := teacherIDs
-	if len(ids) == 0 && teacherID != "" {
-		ids = []string{teacherID}
-	}
-	if len(ids) == 0 {
-		return []courseadmin.TeacherAssignment{}, nil
-	}
-	out := make([]courseadmin.TeacherAssignment, 0, len(ids))
-	for index, raw := range ids {
-		tid, err := a.ParseUUID(raw)
-		if err != nil {
-			return nil, &courseadmin.Error{
-				Code:    "invalid_teacher",
-				Message: "One or more teachers are invalid.",
-				Details: map[string]any{
-					"index":      index,
-					"teacher_id": raw,
-					"reason":     "invalid_id",
-				},
-			}
-		}
-		out = append(out, courseadmin.TeacherAssignment{TeacherID: tid, IsPrimary: index == 0})
-	}
-	return out, nil
 }
 
 // courseOverviewResponse builds the legacy rich course payload (all overview

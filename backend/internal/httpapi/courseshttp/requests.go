@@ -12,27 +12,21 @@ type teacherAssignmentRequest struct {
 	IsPrimary bool   `json:"is_primary"`
 }
 
-// updateCourseRequest is the request body for the course update contract.
+// updateCourseRequest is the request body for the course update contract
+// (PATCH and the metadata-only/versioned PUT paths).
 //
-// PATCH /api/v1/courses/{id} (versioned): the teacher set is REQUIRED — an
-// absent or null `teachers` key is rejected with 400 bad_request. A non-nil
-// empty array `teachers: []` is the explicit "clear the set" intent. TeacherID
-// and TeacherIDs are legacy-transition fields accepted only by the PUT adapter
-// (removed in PR6); PATCH ignores them.
+// PATCH /api/v1/courses/{id}: the teacher set is REQUIRED — an absent or null
+// `teachers` key is rejected with 400 bad_request. A non-nil empty array
+// `teachers: []` is the explicit "clear the set" intent.
 //
-// PUT /api/v1/courses/{id} (legacy adapter): with no `teachers` key the request
-// falls back to the teacher_id/teacher_ids shape. When neither the versioned
-// `teachers` key nor any legacy teacher field is present the update is
-// metadata-only (code/name/legacy_course_id) and the existing teacher set is
-// left untouched. An explicitly present-but-empty `teacher_ids: []` still
-// means "clear the set".
+// PUT /api/v1/courses/{id}: with no `teachers` key the update is metadata-only
+// (code/name/legacy_course_id) and the existing teacher set is left untouched;
+// with a `teachers` key the set is replaced exactly as on PATCH.
 type updateCourseRequest struct {
 	ExpectedVersion int32                       `json:"expected_version"`
 	Code            string                      `json:"code"`
 	Name            string                      `json:"name"`
 	LegacyCourseID  *string                     `json:"legacy_course_id"`
-	TeacherID       *string                     `json:"teacher_id"`
-	TeacherIDs      []string                    `json:"teacher_ids"`
 	Teachers        *[]teacherAssignmentRequest `json:"teachers"`
 }
 

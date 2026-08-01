@@ -251,6 +251,53 @@ func (q *Queries) CourseTeachersList(ctx context.Context, courseID pgtype.UUID) 
 	return items, nil
 }
 
+const courseTeachersListForCourses = `-- name: CourseTeachersListForCourses :many
+SELECT
+    ct.course_id,
+    ct.teacher_id,
+    ct.is_primary,
+    u.username
+FROM course_teachers ct
+JOIN users u ON u.id = ct.teacher_id
+WHERE ct.course_id = ANY($1::uuid[])
+ORDER BY u.username
+`
+
+type CourseTeachersListForCoursesRow struct {
+	CourseID  pgtype.UUID `json:"course_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+	IsPrimary bool        `json:"is_primary"`
+	Username  string      `json:"username"`
+}
+
+// Batch teacher read for the course list endpoint: returns every assigned
+// teacher (with the is_primary flag) for a set of course ids in one query,
+// ordered by username so the list response is deterministic.
+func (q *Queries) CourseTeachersListForCourses(ctx context.Context, dollar_1 []pgtype.UUID) ([]CourseTeachersListForCoursesRow, error) {
+	rows, err := q.db.Query(ctx, courseTeachersListForCourses, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CourseTeachersListForCoursesRow
+	for rows.Next() {
+		var i CourseTeachersListForCoursesRow
+		if err := rows.Scan(
+			&i.CourseID,
+			&i.TeacherID,
+			&i.IsPrimary,
+			&i.Username,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const courseUpdateAggregate = `-- name: CourseUpdateAggregate :one
 UPDATE courses
 SET
