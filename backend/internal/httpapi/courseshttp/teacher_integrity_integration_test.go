@@ -112,10 +112,13 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 		t.Fatalf("expected version 2, got %v", out["version"])
 	}
 	// PATCH returns the same rich overview shape as GET/PUT: the compat
-	// primary lives in teacher_id (mirrors courses.teacher_id), not the sparse
-	// primary_teacher_id key.
+	// primary lives in teacher_id (mirrors courses.teacher_id), with the
+	// frontend-facing primary_teacher_id key mirroring the same value.
 	if out["teacher_id"] != teacherAStr {
 		t.Fatalf("expected teacher_id %q, got %v", teacherAStr, out["teacher_id"])
+	}
+	if out["primary_teacher_id"] != teacherAStr {
+		t.Fatalf("expected primary_teacher_id %q, got %v", teacherAStr, out["primary_teacher_id"])
 	}
 	if out["teacher_name"] == "" {
 		t.Fatalf("expected teacher_name in rich PATCH response, got %q", out["teacher_name"])
@@ -157,6 +160,9 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 	if out2["version"] != float64(3) || out2["teacher_id"] != teacherBStr {
 		t.Fatalf("expected version 3 with teacher_id %q, got %v/%v", teacherBStr, out2["version"], out2["teacher_id"])
 	}
+	if out2["primary_teacher_id"] != teacherBStr {
+		t.Fatalf("expected primary_teacher_id %q after primary swap, got %v", teacherBStr, out2["primary_teacher_id"])
+	}
 
 	// GET must include the current version in the response.
 	getResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses/"+fx.courseIDStr, nil)
@@ -165,6 +171,9 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 	parseResponse(t, getResp, &getOut)
 	if getOut["version"] != float64(3) {
 		t.Fatalf("expected GET version 3, got %v", getOut["version"])
+	}
+	if getOut["primary_teacher_id"] != teacherBStr {
+		t.Fatalf("expected GET primary_teacher_id %q, got %v", teacherBStr, getOut["primary_teacher_id"])
 	}
 	if teachers, ok := getOut["teachers"].([]any); !ok || len(teachers) != 1 {
 		t.Fatalf("expected 1 teacher in GET response, got %#v", getOut["teachers"])
@@ -205,6 +214,9 @@ func TestPatchCourse_EmptyTeacherSet(t *testing.T) {
 	}
 	if out["teacher_id"] != nil {
 		t.Fatalf("expected nil teacher_id, got %v", out["teacher_id"])
+	}
+	if out["primary_teacher_id"] != nil {
+		t.Fatalf("expected nil primary_teacher_id, got %v", out["primary_teacher_id"])
 	}
 	if teachers, ok := out["teachers"].([]any); !ok || len(teachers) != 0 {
 		t.Fatalf("expected empty teachers, got %#v", out["teachers"])

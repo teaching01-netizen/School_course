@@ -1010,6 +1010,7 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		"name":                  item.Name,
 		"year":                  year,
 		"teacher_id":            teacherID,
+		"primary_teacher_id":    teacherID,
 		"teacher_name":          item.TeacherName,
 		"subject_id":            subjectID,
 		"subject_code":          item.SubjectCode,
