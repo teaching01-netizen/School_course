@@ -35,7 +35,6 @@ type SeriesService interface {
 	CancelTx(ctx context.Context, qtx *sqldb.Queries, p series.CancelParams) (series.CancelResult, error)
 	Cancel(ctx context.Context, p series.CancelParams) (series.CancelResult, error)
 	EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Queries, p series.EditEntireFutureParams) (series.EditEntireFutureResult, error)
-	EditEntireSeriesFutureOnly(ctx context.Context, p series.EditEntireFutureParams) (series.EditEntireFutureResult, error)
 }
 
 type Service struct {
@@ -471,12 +470,20 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 	if err != nil {
 		return EditEntireSeriesResult{}, err
 	}
+	// Lock the current and replacement course rows BEFORE the membership check
+	// (both courses, so this acquisition is a prefix of the series service's
+	// sorted lock set — no subset-then-superset order, no deadlock). A
+	// concurrent teacher-set replacement (UpdateCourseTx, which FOR UPDATEs the
+	// same courses row) serializes behind this lock, so the check below is
+	// race-free: it can no longer commit between the check and the series
+	// service's own (now redundant-but-harmless) re-lock.
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{ser.CourseID, p.CourseID}}); err != nil {
+		return EditEntireSeriesResult{}, err
+	}
 	// The edit-entire operation rewrites every future occurrence to the new
 	// teacher/course, so when either changes the NEW teacher must belong to the
-	// NEW course's teacher set. NOTE: the course row lock that serializes this
-	// against concurrent teacher-set replacements is taken later, inside
-	// seriesSvc.EditEntireSeriesFutureOnlyTx — this check is a correctness gate
-	// on the same invariant, not a race-free guarantee of its own.
+	// NEW course's teacher set. The course row lock taken above serializes this
+	// against concurrent teacher-set replacements on the new course.
 	if err := enforceSeriesTeacherMembership(ctx, qtx, ser.CourseID, ser.TeacherID, p.CourseID, p.TeacherID); err != nil {
 		return EditEntireSeriesResult{}, err
 	}
@@ -549,84 +556,48 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 }
 
 func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireSeriesParams) (EditEntireSeriesResult, error) {
-	ser, err := s.q.SeriesGetByID(ctx, p.SeriesID)
-	if err != nil {
-		return EditEntireSeriesResult{}, err
-	}
-	// Same membership gate as EditEntireSeriesFutureOnlyTx: future occurrences
-	// are rewritten to the new teacher/course, so the new teacher must belong
-	// to the new course's teacher set when either changes. The course row lock
-	// is taken later inside the series service; this check is a correctness
-	// gate on the same invariant.
-	if err := enforceSeriesTeacherMembership(ctx, s.q, ser.CourseID, ser.TeacherID, p.CourseID, p.TeacherID); err != nil {
-		return EditEntireSeriesResult{}, err
-	}
-	startLD := localDateFromPgDate(ser.StartDate)
-	occ, err := series.Materialize(ctx, series.MaterializeInput{
-		Weekdays:        p.Weekdays,
-		StartDate:       startLD,
-		EndDate:         p.EndDate,
-		Count:           p.Count,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		Location:        s.loc,
-	})
-	if err != nil {
-		return EditEntireSeriesResult{}, err
-	}
-
-	ps, err := newPreflightStrings(p.CourseID, p.RoomID, p.TeacherID)
-	if err != nil {
-		return EditEntireSeriesResult{}, err
-	}
-	seriesIDStr, err := uuidString(p.SeriesID)
-	if err != nil {
-		return EditEntireSeriesResult{}, err
-	}
-
-	nowUTC := p.NowUTC
-	if nowUTC.IsZero() {
-		nowUTC = time.Now().UTC()
-	}
-
-	candidates := make([]preflightInput, 0, 64)
-	for _, o := range occ {
-		if o.StartUTC.Before(nowUTC) {
-			continue
+	// Delegate to the Tx variant inside a serializable retry loop, so the
+	// course lock, the membership check and the edit all run in ONE
+	// transaction. Without this wrapper transaction the membership check would
+	// run on an autocommit connection and the course lock could not be held
+	// across the check and the series edit (the C2 race).
+	const maxRetries = 2
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
 		}
-		candidates = append(candidates, preflightInput{
-			CourseID:  p.CourseID,
-			RoomID:    p.RoomID,
-			TeacherID: p.TeacherID,
-			StartUTC:  o.StartUTC,
-			EndUTC:    o.EndUTC,
-			Requested: ps.conflictRequested(o.StartUTC, o.EndUTC, &seriesIDStr),
-		})
+
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return EditEntireSeriesResult{}, err
+		}
+
+		qtx := s.q.WithTx(tx)
+
+		res, err := s.EditEntireSeriesFutureOnlyTx(ctx, tx, qtx, p)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isRetryableSchedulingErr(err) && attempt < maxRetries {
+				continue
+			}
+			return EditEntireSeriesResult{}, err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isRetryableSchedulingErr(err) && attempt < maxRetries {
+				continue
+			}
+			return EditEntireSeriesResult{}, err
+		}
+
+		return EditEntireSeriesResult{SeriesID: res.SeriesID, SessionsCanceled: res.SessionsCanceled, SessionsAdded: res.SessionsAdded}, nil
 	}
 
-	res, err := s.seriesSvc.EditEntireSeriesFutureOnly(ctx, series.EditEntireFutureParams{
-		SeriesID:        p.SeriesID,
-		ExpectedVersion: p.ExpectedVersion,
-		NowUTC:          nowUTC,
-		CourseID:        p.CourseID,
-		RoomID:          p.RoomID,
-		TeacherID:       p.TeacherID,
-		Weekdays:        p.Weekdays,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		EndDate:         p.EndDate,
-		Count:           p.Count,
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "stale_edit") {
-			return EditEntireSeriesResult{}, &Err{Code: "stale_edit", Message: err.Error()}
-		}
-		if se := s.explainFromDBErrByRepreflight(ctx, err, candidates); se != nil {
-			return EditEntireSeriesResult{}, se
-		}
-		return EditEntireSeriesResult{}, err
-	}
-	return EditEntireSeriesResult{SeriesID: res.SeriesID, SessionsCanceled: res.SessionsCanceled, SessionsAdded: res.SessionsAdded}, nil
+	return EditEntireSeriesResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
 }
 
 type CreateSessionParams struct {

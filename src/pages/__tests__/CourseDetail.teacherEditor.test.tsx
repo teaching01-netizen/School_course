@@ -292,6 +292,42 @@ describe("CourseDetail teacher editor", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
+  it("echoes legacy_course_id from the PATCH response on the next edit", async () => {
+    // C1 regression: the PATCH response carries the full overview shape, so
+    // the course state the frontend holds after a save still has its
+    // legacy_course_id, and the next edit sends it back instead of null.
+    let patchCount = 0;
+    mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/courses/course-1" && init?.method === "PATCH") {
+        patchCount += 1;
+        return Promise.resolve(makeCourse({ legacy_course_id: "LEG-7090", name: patchCount === 1 ? "Math" : "Math Renamed" }));
+      }
+      if (path === "/api/v1/courses/course-1") return Promise.resolve(makeCourse({ legacy_course_id: "LEG-7090" }));
+      if (path === "/api/v1/courses/course-1/crm-filter") return Promise.resolve({ enabled: false, locked: false, filter: null });
+      if (path === "/api/v1/courses/course-1/students") return Promise.resolve([]);
+      if (path === "/api/v1/courses/course-1/sessions") return Promise.resolve([]);
+      if (path === "/api/v1/rooms") return Promise.resolve([{ id: "room-1", name: "Room 101", capacity: 20 }]);
+      if (path === "/api/v1/users?role=Teacher") return Promise.resolve(makeTeacherUsers());
+      if (path === "/api/v1/meta/time") return Promise.resolve({ institute_tz: "Asia/Bangkok", server_now: "2026-05-31T02:00:00Z" });
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+
+    const user = userEvent.setup();
+    renderCourseDetail();
+    await startEditing(user);
+
+    // First save: the PATCH response (with legacy_course_id) replaces course state.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Course updated");
+    expect(patchBody().legacy_course_id).toBe("LEG-7090");
+
+    // Second edit: the re-seeded form must echo the same legacy link, not null.
+    await startEditing(user);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patchCallCount()).toBe(2));
+    expect(patchBody().legacy_course_id).toBe("LEG-7090");
+  });
+
   it("keeps the edit form open on other API validation errors", async () => {
     mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
       if (path === "/api/v1/courses/course-1" && init?.method === "PATCH") {

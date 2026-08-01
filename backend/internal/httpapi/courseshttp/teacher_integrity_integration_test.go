@@ -111,8 +111,14 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 	if out["version"] != float64(2) {
 		t.Fatalf("expected version 2, got %v", out["version"])
 	}
-	if out["primary_teacher_id"] != teacherAStr {
-		t.Fatalf("expected primary %q, got %v", teacherAStr, out["primary_teacher_id"])
+	// PATCH returns the same rich overview shape as GET/PUT: the compat
+	// primary lives in teacher_id (mirrors courses.teacher_id), not the sparse
+	// primary_teacher_id key.
+	if out["teacher_id"] != teacherAStr {
+		t.Fatalf("expected teacher_id %q, got %v", teacherAStr, out["teacher_id"])
+	}
+	if out["teacher_name"] == "" {
+		t.Fatalf("expected teacher_name in rich PATCH response, got %q", out["teacher_name"])
 	}
 	teachers, ok := out["teachers"].([]any)
 	if !ok || len(teachers) != 2 {
@@ -148,8 +154,8 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 	assertResponseCode(t, resp2, http.StatusOK)
 	var out2 map[string]any
 	parseResponse(t, resp2, &out2)
-	if out2["version"] != float64(3) || out2["primary_teacher_id"] != teacherBStr {
-		t.Fatalf("expected version 3 with primary %q, got %v/%v", teacherBStr, out2["version"], out2["primary_teacher_id"])
+	if out2["version"] != float64(3) || out2["teacher_id"] != teacherBStr {
+		t.Fatalf("expected version 3 with teacher_id %q, got %v/%v", teacherBStr, out2["version"], out2["teacher_id"])
 	}
 
 	// GET must include the current version in the response.
@@ -197,8 +203,8 @@ func TestPatchCourse_EmptyTeacherSet(t *testing.T) {
 	if out["version"] != float64(3) {
 		t.Fatalf("expected version 3, got %v", out["version"])
 	}
-	if out["primary_teacher_id"] != nil {
-		t.Fatalf("expected nil primary, got %v", out["primary_teacher_id"])
+	if out["teacher_id"] != nil {
+		t.Fatalf("expected nil teacher_id, got %v", out["teacher_id"])
 	}
 	if teachers, ok := out["teachers"].([]any); !ok || len(teachers) != 0 {
 		t.Fatalf("expected empty teachers, got %#v", out["teachers"])
@@ -328,6 +334,18 @@ func TestPatchCourse_StaleEdit(t *testing.T) {
 	}
 	if current["version"] != float64(2) {
 		t.Fatalf("expected details.current.version 2, got %v", current["version"])
+	}
+	// The stale_edit current must carry the rich overview shape (not the sparse
+	// CourseResponse) so the client's re-seed keeps legacy_course_id and the
+	// subject/teacher fields instead of echoing null on the next save.
+	if current["teacher_id"] != teacherStr {
+		t.Fatalf("expected details.current.teacher_id %q (rich shape), got %v", teacherStr, current["teacher_id"])
+	}
+	if _, has := current["legacy_course_id"]; !has {
+		t.Fatalf("expected details.current to include legacy_course_id, got %#v", current)
+	}
+	if current["course_no"] == nil {
+		t.Fatalf("expected details.current.course_no (rich shape), got %#v", current)
 	}
 
 	// Stale edit must not have written anything.
@@ -854,6 +872,63 @@ func TestDuplicateCourseCode_Returns409(t *testing.T) {
 	parseResponse(t, resp3, &out3)
 	if out3["code"] != "conflict" {
 		t.Fatalf("expected code conflict on duplicate PATCH, got %v", out3["code"])
+	}
+}
+
+// TestPatchCourse_PreservesLegacyCourseIDAcrossEdits is the C1 regression: the
+// PATCH success response must carry the full overview shape (legacy_course_id
+// included), because the frontend echoes course.legacy_course_id back on the
+// next edit. A sparse response made the second edit send null and wipe the
+// legacy link via CourseUpdateAggregate.
+func TestPatchCourse_PreservesLegacyCourseIDAcrossEdits(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+
+	teacher := createTeacherUser(t, ctx, fx.q)
+	teacherStr := teacherIDString(t, teacher)
+	legacyID := "LEG-" + uuid.New().String()[:6]
+
+	// First edit: set the teacher set and a legacy_course_id.
+	resp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 1,
+		"code":             courseCode("LEGPATCH"),
+		"name":             "Legacy course",
+		"legacy_course_id": legacyID,
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
+	})
+	assertResponseCode(t, resp, http.StatusOK)
+	var out map[string]any
+	parseResponse(t, resp, &out)
+	if out["legacy_course_id"] != legacyID {
+		t.Fatalf("expected legacy_course_id %q in PATCH response, got %v", legacyID, out["legacy_course_id"])
+	}
+
+	// Second edit (rename) echoing the legacy_course_id the client holds after
+	// setCourse(updated) — exactly the frontend's next-save payload. The link
+	// must survive in both the response and the DB.
+	resp2 := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 2,
+		"code":             courseCode("LEGPATCH"),
+		"name":             "Legacy course renamed",
+		"legacy_course_id": legacyID,
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
+	})
+	assertResponseCode(t, resp2, http.StatusOK)
+	var out2 map[string]any
+	parseResponse(t, resp2, &out2)
+	if out2["legacy_course_id"] != legacyID {
+		t.Fatalf("expected legacy_course_id %q preserved in second PATCH response, got %v", legacyID, out2["legacy_course_id"])
+	}
+	var stored pgtype.Text
+	if err := fx.dbpool.QueryRow(ctx, `SELECT legacy_course_id FROM courses WHERE id = $1`, fx.courseID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Valid || stored.String != legacyID {
+		t.Fatalf("expected legacy_course_id %q in DB, got %v", legacyID, stored)
 	}
 }
 

@@ -640,6 +640,127 @@ func TestCourseTeacherMembership_EditEntireSeriesFutureTeacherValidates(t *testi
 	}
 }
 
+// TestCourseTeacherMembership_EditEntireSeriesTeacherRemovalRace asserts the
+// C2 invariant under real concurrency: an edit-entire-series operation must
+// never commit future occurrences to a teacher that a concurrent teacher-set
+// replacement is removing. The scheduling wrapper now takes the course row
+// lock BEFORE the membership check (both write paths serialize on the same
+// FOR UPDATE row via UpdateCourseTx), so exactly two outcomes are valid:
+//   - edit wins: the new teacher was still assigned when the check ran under
+//     the course lock -> the edit commits AND the removal is blocked by
+//     teacher_in_use (the new teacher now owns the future occurrences);
+//   - removal wins: the removal commits first AND the edit is rejected with
+//     teacher_not_assigned_to_course.
+//
+// The invalid double-success outcome (future occurrences written to a teacher
+// who just left the set) must never occur.
+func TestCourseTeacherMembership_EditEntireSeriesTeacherRemovalRace(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	admin := courseadmin.NewService()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		// Fresh course + series + teachers per attempt so no state leaks
+		// between races. The series runs 30 days out, so every occurrence is
+		// in the future relative to nowUTC.
+		teacherA := createMembershipTeacher(t, ctx, q, "mem-entire-race-a")
+		teacherB := createMembershipTeacher(t, ctx, q, "mem-entire-race-b")
+		room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-mem-entire-race-" + uuid.New().String()[:8], Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-ENTIRE-RACE-" + uuid.New().String()[:8], Name: "Membership entire race"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		addTeacherToCourse(t, ctx, q, course.ID, teacherA)
+		addTeacherToCourse(t, ctx, q, course.ID, teacherB)
+
+		futureStart := time.Now().UTC().AddDate(0, 0, 30)
+		startDate := LocalDate{Year: futureStart.Year(), Month: time.Month(futureStart.Month()), Day: futureStart.Day()}
+		futureEnd := futureStart.AddDate(0, 0, 6)
+		endDate := LocalDate{Year: futureEnd.Year(), Month: time.Month(futureEnd.Month()), Day: futureEnd.Day()}
+
+		createRes, err := svc.CreateSeriesAndMaterialize(ctx, CreateSeriesParams{
+			CourseID:        course.ID,
+			RoomID:          room.ID,
+			TeacherID:       teacherA,
+			Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+			StartLocalTime:  Clock{Hour: 10, Minute: 0},
+			DurationMinutes: 60,
+			StartDate:       startDate,
+			EndDate:         &endDate,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ser, err := q.SeriesGetByID(ctx, createRes.SeriesID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		actor := createMembershipActor(t, ctx, q, "mem-entire-race")
+
+		// Per-side result channels keep the outcome attribution deterministic
+		// (same pattern as the create-vs-removal race test).
+		editResult := make(chan error, 1)
+		removeResult := make(chan error, 1)
+		ready := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-ready
+			_, err := svc.EditEntireSeriesFutureOnly(ctx, EditEntireSeriesParams{
+				SeriesID:        createRes.SeriesID,
+				ExpectedVersion: ser.Version,
+				NowUTC:          time.Now().UTC(),
+				CourseID:        course.ID,
+				RoomID:          room.ID,
+				TeacherID:       teacherB,
+				Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+				StartLocalTime:  Clock{Hour: 10, Minute: 0},
+				DurationMinutes: 60,
+				EndDate:         &endDate,
+			})
+			editResult <- err
+		}()
+		go func() {
+			defer wg.Done()
+			<-ready
+			removeResult <- replaceTeacherSetTx(t, admin, dbpool, course.ID, []courseadmin.TeacherAssignment{
+				{TeacherID: teacherA, IsPrimary: true},
+			}, actor)
+		}()
+		close(ready)
+		wg.Wait()
+		editErr := <-editResult
+		removeErr := <-removeResult
+
+		editOK := editErr == nil
+		removeOK := removeErr == nil
+		editRejected := isErrCode(editErr, ErrTeacherNotAssigned)
+		removeBlocked := isCourseadminCode(removeErr, "teacher_in_use")
+
+		if editOK && removeOK {
+			t.Fatalf("attempt %d: INVALID outcome — edit-entire committed future occurrences to teacherB while the removal committed too", i)
+		}
+		if editRejected && removeBlocked {
+			t.Fatalf("attempt %d: both writers rejected (edit=%v removal=%v) — not a valid outcome", i, editErr, removeErr)
+		}
+		if !(editOK && removeBlocked) && !(editRejected && removeOK) {
+			t.Fatalf("attempt %d: unexpected outcome — edit=%v removal=%v", i, editErr, removeErr)
+		}
+	}
+}
+
 func isErrCode(err error, code string) bool {
 	var se *Err
 	return errors.As(err, &se) && se.Code == code

@@ -1,6 +1,7 @@
 package courseshttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -668,16 +669,24 @@ func (s *server) handleCoursesPatch(w http.ResponseWriter, r *http.Request) {
 		qtx := s.deps.Q.WithTx(tx)
 		result, err := s.deps.CourseAdmin.UpdateCourseTx(r.Context(), qtx, command)
 		if err != nil {
+			// The stale_edit details.current the client re-seeds its form from
+			// must be the same rich shape as a success response — a sparse
+			// current would echo legacy_course_id: null back on the next save.
+			var e *courseadmin.Error
+			if errors.As(err, &e) {
+				s.enrichStaleEditCurrent(r.Context(), qtx, courseID, e)
+			}
 			writeCourseAdminError(w, s.a, err)
 			return 0, nil, err
 		}
-		current, err := s.deps.CourseAdmin.GetCourseResponse(r.Context(), qtx, result.CourseID)
+		out, err := s.loadCourseOverviewResponse(r.Context(), qtx, result.CourseID)
 		if err != nil {
-			s.deps.Log.Error("load course response after update failed", "error", err, "course_id", r.PathValue("id"))
-			writeCourseAdminError(w, s.a, err)
+			s.deps.Log.Error("load course overview after patch failed", "error", err, "course_id", r.PathValue("id"))
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		return http.StatusOK, current, nil
+		return http.StatusOK, out, nil
 	}) {
 		s.publishCourseUpdated(r.PathValue("id"))
 	}
@@ -739,25 +748,18 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := s.deps.CourseAdmin.UpdateCourseTx(r.Context(), qtx, command)
 		if err != nil {
+			var e *courseadmin.Error
+			if errors.As(err, &e) {
+				s.enrichStaleEditCurrent(r.Context(), qtx, courseID, e)
+			}
 			writeCourseAdminError(w, s.a, err)
 			return 0, nil, err
 		}
-		current, err := s.deps.CourseAdmin.GetCourseResponse(r.Context(), qtx, result.CourseID)
+		out, err := s.loadCourseOverviewResponse(r.Context(), qtx, result.CourseID)
 		if err != nil {
-			s.deps.Log.Error("load course response after update failed", "error", err, "course_id", r.PathValue("id"))
-			writeCourseAdminError(w, s.a, err)
-			return 0, nil, err
-		}
-		item, err := qtx.CourseGetFull(r.Context(), courseID)
-		if err != nil {
+			s.deps.Log.Error("load course overview after update failed", "error", err, "course_id", r.PathValue("id"))
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		out, err := s.courseOverviewResponse(item, current.Teachers)
-		if err != nil {
-			s.deps.Log.Error("uuid conversion failed", "error", err, "course_id", r.PathValue("id"))
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return 0, nil, err
 		}
 		return http.StatusOK, out, nil
@@ -917,6 +919,42 @@ func normalizeLegacyCourseID(s *string) *string {
 		return nil
 	}
 	return s
+}
+
+// loadCourseOverviewResponse builds the rich course payload (full overview row
+// plus teacher set) inside the caller's transaction. Every mutation response —
+// PATCH, PUT, and the stale_edit current — shares this shape with GET so a
+// client that echoes fields like legacy_course_id back on the next edit never
+// drops them: a sparse response would make the next save send null.
+func (s *server) loadCourseOverviewResponse(ctx context.Context, qtx *sqldb.Queries, courseID pgtype.UUID) (map[string]any, error) {
+	item, err := qtx.CourseGetFull(ctx, courseID)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.deps.CourseAdmin.GetCourseResponse(ctx, qtx, courseID)
+	if err != nil {
+		return nil, err
+	}
+	return s.courseOverviewResponse(item, current.Teachers)
+}
+
+// enrichStaleEditCurrent upgrades the sparse details.current of a stale_edit
+// error to the full courseOverviewResponse shape, so the client's re-seed of
+// the edit form keeps legacy_course_id and the overview fields instead of
+// echoing null on the next save. It reads through the still-open transaction
+// (the course row is already locked by UpdateCourseTx's version precheck, so
+// the snapshot is consistent); on any read failure the original sparse current
+// is left untouched rather than failing the whole request.
+func (s *server) enrichStaleEditCurrent(ctx context.Context, qtx *sqldb.Queries, courseID pgtype.UUID, e *courseadmin.Error) {
+	if e == nil || e.Code != "stale_edit" {
+		return
+	}
+	rich, err := s.loadCourseOverviewResponse(ctx, qtx, courseID)
+	if err != nil {
+		s.deps.Log.Error("enrich stale_edit current failed", "error", err, "course_id", courseID.String())
+		return
+	}
+	e.Details["current"] = rich
 }
 
 // courseOverviewResponse builds the legacy rich course payload (all overview
