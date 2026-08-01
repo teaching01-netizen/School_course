@@ -46,7 +46,11 @@ func createMembershipActor(t *testing.T, ctx context.Context, q *sqldb.Queries, 
 
 // replaceTeacherSetTx atomically replaces the course's teacher set through the
 // courseadmin service inside its own transaction. Passing an empty non-nil
-// slice clears the set entirely (i.e. removes every teacher).
+// slice clears the set entirely (i.e. removes every teacher). It returns the
+// error instead of calling t.Fatal so callers — including the removal goroutine
+// in the race test, which reports through a channel — stay in control of
+// failure handling (t.Fatal inside a goroutine would leave the main goroutine
+// blocked on the result channel).
 func replaceTeacherSetTx(t *testing.T, admin *courseadmin.Service, pool *pgxpool.Pool, courseID pgtype.UUID, teachers []courseadmin.TeacherAssignment, actorID pgtype.UUID) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -54,11 +58,11 @@ func replaceTeacherSetTx(t *testing.T, admin *courseadmin.Service, pool *pgxpool
 	q := sqldb.New(pool)
 	course, err := q.CourseGetByID(ctx, courseID)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	core, err := q.CourseGetCoreByID(ctx, courseID)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -426,8 +430,9 @@ func TestCourseTeacherMembership_EditOccurrenceCourseChangeValidates(t *testing.
 
 // TestCourseTeacherMembership_TeacherRemovalSequential drives the two
 // deterministic orderings from plan §15.5 without concurrency:
-//   a. session create first -> teacher removal blocked by teacher_in_use;
-//   b. teacher removal first -> session create rejected by teacher_not_assigned.
+//
+//	a. session create first -> teacher removal blocked by teacher_in_use;
+//	b. teacher removal first -> session create rejected by teacher_not_assigned.
 func TestCourseTeacherMembership_TeacherRemovalSequential(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
@@ -482,6 +487,7 @@ func TestCourseTeacherMembership_TeacherRemovalSequential(t *testing.T) {
 //   - create wins: session commits AND removal fails with teacher_in_use;
 //   - removal wins: removal commits AND create fails with
 //     teacher_not_assigned_to_course.
+//
 // The invalid double-success outcome (session committed after the teacher left
 // the set) must never occur. The course row lock serializes the two writers,
 // so a third mixed outcome is impossible.

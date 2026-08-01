@@ -195,10 +195,10 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 					Code:    "schedule_conflict",
 					Message: "Schedule conflict",
 					Details: ConflictDetails{
-						Kind:               ConflictKindStudentOverlap,
-						Conflicts:          conflicts,
+						Kind:                ConflictKindStudentOverlap,
+						Conflicts:           conflicts,
 						ConflictingStudents: conflictingStudents,
-						Requested:          in.Requested,
+						Requested:           in.Requested,
 					},
 				}
 			}
@@ -219,10 +219,10 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 			Code:    "schedule_conflict",
 			Message: "Schedule conflict",
 			Details: ConflictDetails{
-				Kind:               ConflictKindStudentOverlap,
-				Conflicts:          conflicts,
+				Kind:                ConflictKindStudentOverlap,
+				Conflicts:           conflicts,
 				ConflictingStudents: conflictingStudents,
-				Requested:          in.Requested,
+				Requested:           in.Requested,
 			},
 		}
 	}

@@ -656,6 +656,106 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 	}
 }
 
+// TestPreflight_TeacherMembership_Advisory covers the advisory teacher-membership
+// branch of preflightSlot (preflight.go): (a) a course with a NON-empty teacher
+// set rejects an unassigned teacher with teacher_not_assigned_to_course before
+// any availability/overlap checks, and (b) a course with an EMPTY teacher set
+// skips the membership check entirely (legacy leniency — the transactional write
+// check remains authoritative and rejects any teacher for an empty set).
+func TestPreflight_TeacherMembership_Advisory(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+
+	teacherA := createMembershipTeacher(t, ctx, q, "mem-pf-a")
+	teacherB := createMembershipTeacher(t, ctx, q, "mem-pf-b")
+	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-mem-pf-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Course with an assigned teacher set: only teacherA is a member.
+	assignedCourse, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-PF-A-" + suffix, Name: "Membership preflight assigned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addTeacherToCourse(t, ctx, q, assignedCourse.ID, teacherA)
+
+	// Course with an EMPTY teacher set — the legacy leniency case.
+	emptyCourse, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-PF-E-" + suffix, Name: "Membership preflight empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start, end := membershipFutureSlot(21 * 24 * time.Hour)
+	assignedCourseStr, err := uuidString(assignedCourse.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherBStr, err := uuidString(teacherB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (a) NON-empty teacher set + unassigned teacher B => teacher_not_assigned_to_course.
+	_, se, err := svc.Preflight(ctx, PreflightParams{
+		CourseID:  assignedCourse.ID,
+		RoomID:    room.ID,
+		TeacherID: teacherB,
+		StartAt:   start,
+		EndAt:     end,
+		Requested: ConflictRequested{
+			StartAt:   start.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:     end.Time.UTC().Format(time.RFC3339Nano),
+			CourseID:  assignedCourseStr,
+			TeacherID: teacherBStr,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTeacherNotAssigned(t, se, assignedCourse.ID, teacherB)
+
+	// (b) EMPTY teacher set => the membership check is skipped, so the same
+	// unassigned teacher B passes preflight (fresh room/teacher have no
+	// availability windows or sessions, so the remaining checks pass too).
+	emptyCourseStr, err := uuidString(emptyCourse.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, se, err := svc.Preflight(ctx, PreflightParams{
+		CourseID:  emptyCourse.ID,
+		RoomID:    room.ID,
+		TeacherID: teacherB,
+		StartAt:   start,
+		EndAt:     end,
+		Requested: ConflictRequested{
+			StartAt:   start.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:     end.Time.UTC().Format(time.RFC3339Nano),
+			CourseID:  emptyCourseStr,
+			TeacherID: teacherBStr,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if se != nil {
+		t.Fatalf("expected no conflict for empty teacher set, got: %s", se.Message)
+	}
+	if res.Status != "available" {
+		t.Fatalf("expected status available, got %q", res.Status)
+	}
+}
+
 func TestAddCourseStudent_DoesNotTreatCourseDateSpanAsSingleBusyRange(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)

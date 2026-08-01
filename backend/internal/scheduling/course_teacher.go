@@ -38,6 +38,8 @@ func checkCourseTeacherMembership(ctx context.Context, qtx *sqldb.Queries, cours
 		Message: "The selected teacher is not assigned to this course.",
 		Details: ConflictDetails{
 			Kind: ConflictKindTeacherNotAssigned,
+			// Requested start/end are omitted: the session times are not known
+			// at this point in the write path (only course+teacher are checked).
 			Requested: ConflictRequested{
 				CourseID:  courseIDStr,
 				TeacherID: teacherIDStr,
