@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, Clock3, Info } from "lucide-react";
+import { AlertTriangle, Clock3, Info } from "lucide-react";
 import Button from "../ui/Button";
 import { issueMessage, urgencyFor } from "../../features/scheduleImpact/format";
 import type { ScheduleImpactIssue } from "../../features/scheduleImpact/types";
@@ -87,7 +87,6 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
     <section className="overflow-hidden rounded-sm border border-gray-200 bg-white">
       <div className="divide-y divide-gray-200">
         {items.map((issue) => {
-          const candidate = issue.suggested_resolutions[0];
           const selected = selectedID === issue.id;
           const originalQuality = issue.assignment_context.original_session.quality;
           const current = issue.assignment_context.current_session;
@@ -119,9 +118,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                <Button size="sm" onClick={() => onOpen(issue)}>{candidate ? "Reassign" : "Review"}</Button>
-                <Button variant="secondary" size="sm" onClick={() => onOpen(issue)}>Choose another</Button>
-                <Button variant="ghost" size="sm" onClick={() => onOpen(issue)}>More <ChevronRight className="ml-0.5 h-3.5 w-3.5" aria-hidden="true" /></Button>
+                <Button size="sm" onClick={() => onOpen(issue)}>Review</Button>
               </div>
             </article>
           );

@@ -6,6 +6,22 @@ Object.defineProperty(window, "scrollTo", {
   writable: true,
 });
 
+// jsdom does not expose localStorage for opaque origins; the schedule-impact
+// queue persists its density preference there.
+const storageStore = new Map<string, string>();
+const localStorageStub: Storage = {
+  get length() { return storageStore.size; },
+  clear: () => storageStore.clear(),
+  getItem: (key: string) => storageStore.get(key) ?? null,
+  key: (index: number) => [...storageStore.keys()][index] ?? null,
+  removeItem: (key: string) => { storageStore.delete(key); },
+  setItem: (key: string, value: string) => { storageStore.set(key, String(value)); },
+};
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: localStorageStub,
+});
+
 if (!HTMLDialogElement.prototype.showModal) {
   HTMLDialogElement.prototype.showModal = function () {
     if (this.hasAttribute("open")) throw new Error("Dialog is already open");

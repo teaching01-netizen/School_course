@@ -1,4 +1,3 @@
-import { useState } from "react";
 import Modal from "../Modal";
 import Button from "../ui/Button";
 
@@ -28,22 +27,19 @@ function impactRows(summary: ImpactSummary): string[] {
 }
 
 export default function ImpactAcknowledgementModal({ summary, saving = false, onBack, onConfirm }: ImpactAcknowledgementModalProps) {
-  const [acknowledged, setAcknowledged] = useState(false);
+  const totalAffected = (summary.direct_sit_in_assignments ?? 0) + (summary.missed_session_references ?? 0) + (summary.predicted_student_overlaps ?? 0) + (summary.potential_eligibility_changes ?? 0);
   return (
     <Modal
-      title="Review schedule impact"
+      title="Review student impact"
       onClose={onBack}
       size="md"
-      footer={<><Button variant="secondary" size="sm" onClick={onBack} disabled={saving}>Back to editing</Button><Button size="sm" loading={saving} disabled={!acknowledged} onClick={onConfirm}>Save and review impact</Button></>}
+      footer={<><Button variant="secondary" size="sm" onClick={onBack} disabled={saving}>Back to editing</Button><Button size="sm" loading={saving} onClick={onConfirm}>Save change and review {totalAffected}</Button></>}
     >
-      <p className="text-sm text-gray-700">This schedule change affects existing student arrangements. Saving it will create or refresh work in Schedule Impact.</p>
+      <p className="text-sm text-gray-700">This change may affect {totalAffected} student arrangement{totalAffected === 1 ? "" : "s"}.</p>
       <ul className="mt-4 space-y-2 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
         {impactRows(summary).map((row) => <li key={row} className="flex gap-2"><span aria-hidden="true">•</span><span>{row}</span></li>)}
       </ul>
-      <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm text-gray-800">
-        <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} className="mt-0.5" />
-        <span>I understand that affected arrangements require review before students are contacted.</span>
-      </label>
+      <p className="mt-4 text-sm text-gray-600">Students will not be contacted until an administrator reviews the results.</p>
     </Modal>
   );
 }

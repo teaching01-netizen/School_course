@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ResolutionComparison from "./ResolutionComparison";
 import type { ScheduleImpactIssue, ImpactCandidate } from "../../features/scheduleImpact/types";
@@ -83,15 +83,13 @@ const candidate: ImpactCandidate = {
   generated_at: "2025-07-24T06:00:00.000Z",
 };
 
-it("renders all four sections of the resolution comparison", () => {
+it("renders three sections: what changed, why, and actions", () => {
   const issue = baseIssue();
-  const onAction = vi.fn();
-  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={onAction} busy={false} resolutionError={null} />);
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
-  expect(screen.getByRole("heading", { name: /originally assigned/i })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: /session now/i })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: /changes/i })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: /impact and actions/i })).toBeInTheDocument();
+  expect(screen.getByText("What changed")).toBeInTheDocument();
+  expect(screen.getByText("Why this needs attention")).toBeInTheDocument();
+  expect(screen.getByText("What should happen?")).toBeInTheDocument();
 });
 
 it("displays the original assignment details", () => {
@@ -100,7 +98,6 @@ it("displays the original assignment details", () => {
 
   expect(screen.getAllByText(/Room 3/).length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText(/Dr Smith/).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getByText(/Captured when assigned on/)).toBeInTheDocument();
 });
 
 it("displays the current session details", () => {
@@ -111,67 +108,42 @@ it("displays the current session details", () => {
   expect(screen.getAllByText(/Dr Jones/).length).toBeGreaterThanOrEqual(1);
 });
 
-it("shows only changed fields in the changes section", () => {
+it("shows impact explanation for overlap", () => {
   const issue = baseIssue();
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
-  expect(screen.getByText("Time")).toBeInTheDocument();
-  expect(screen.getByText("Room")).toBeInTheDocument();
-  expect(screen.getByText("Teacher")).toBeInTheDocument();
+  expect(screen.getByText(/overlaps/i)).toBeInTheDocument();
+  expect(screen.getByText(/regular class/i)).toBeInTheDocument();
 });
 
-it("shows impact message and overlap warning", () => {
+it("renders action options as radio buttons", () => {
   const issue = baseIssue();
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
-  expect(screen.getAllByText(/overlaps/i).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText(/regular class/i).length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText("Move to another session")).toBeInTheDocument();
+  expect(screen.getByText("Keep the current arrangement")).toBeInTheDocument();
+  expect(screen.getByText("Cancel the sit-in")).toBeInTheDocument();
+  expect(screen.getByText("Ask another administrator to review")).toBeInTheDocument();
+  expect(screen.getAllByRole("radio").length).toBeGreaterThanOrEqual(4);
 });
 
-it("renders action buttons with correct labels", () => {
-  const issue = baseIssue();
-  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
-
-  expect(screen.getByRole("button", { name: /reassign sit-in/i })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /keep current arrangement/i })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /mark for manual review/i })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /cancel arrangement/i })).toBeInTheDocument();
-});
-
-it("calls onAction when an action button is clicked", async () => {
+it("calls onAction when an action radio is clicked", async () => {
   const user = userEvent.setup();
   const onAction = vi.fn();
   const issue = baseIssue();
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={onAction} busy={false} resolutionError={null} />);
 
-  await user.click(screen.getByRole("button", { name: /reassign sit-in/i }));
+  await user.click(screen.getByText("Move to another session"));
   expect(onAction).toHaveBeenCalledWith("reassign");
 
-  await user.click(screen.getByRole("button", { name: /keep current arrangement/i }));
+  await user.click(screen.getByText("Keep the current arrangement"));
   expect(onAction).toHaveBeenCalledWith("keep");
 
-  await user.click(screen.getByRole("button", { name: /cancel arrangement/i }));
+  await user.click(screen.getByText("Cancel the sit-in"));
   expect(onAction).toHaveBeenCalledWith("cancel");
 
-  await user.click(screen.getByRole("button", { name: /mark for manual review/i }));
+  await user.click(screen.getByText("Ask another administrator to review"));
   expect(onAction).toHaveBeenCalledWith("mark_for_review");
-});
-
-it("disables reassign button when no candidate is selected", () => {
-  const issue = baseIssue();
-  render(<ResolutionComparison issue={issue} selectedCandidate={undefined} onAction={vi.fn()} busy={false} resolutionError={null} />);
-
-  expect(screen.getByRole("button", { name: /reassign sit-in/i })).toBeDisabled();
-});
-
-it("disables all action buttons when busy", () => {
-  const issue = baseIssue();
-  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={true} resolutionError={null} />);
-
-  expect(screen.getByRole("button", { name: /reassign sit-in/i })).toBeDisabled();
-  expect(screen.getByRole("button", { name: /keep current arrangement/i })).toBeDisabled();
-  expect(screen.getByRole("button", { name: /mark for manual review/i })).toBeDisabled();
-  expect(screen.getByRole("button", { name: /cancel arrangement/i })).toBeDisabled();
 });
 
 it("shows resolution error when provided", () => {
@@ -238,7 +210,6 @@ it("shows unavailable message when snapshot is unavailable", () => {
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
   expect(screen.getByText(/original assignment details unavailable/i)).toBeInTheDocument();
-  expect(screen.getByText(/created before historical snapshots were recorded/i)).toBeInTheDocument();
 });
 
 it("shows deleted session state when current session is null", () => {
@@ -260,18 +231,132 @@ it("shows deleted session state when current session is null", () => {
   });
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
-  expect(screen.getByText(/original session has been deleted/i)).toBeInTheDocument();
+  expect(screen.getByText(/assigned session has been deleted/i)).toBeInTheDocument();
 });
 
-it("has accessible section headings and live region", () => {
+it("has accessible action group", () => {
   const issue = baseIssue();
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
 
-  // Check that the region has an accessible label
-  const region = screen.getByRole("region", { name: /resolution comparison/i });
-  expect(region).toBeInTheDocument();
-
-  // Check that action buttons are in a group
-  const actionGroup = screen.getByRole("group", { name: /resolution actions/i });
+  const actionGroup = screen.getByRole("radiogroup", { name: /resolution actions/i });
   expect(actionGroup).toBeInTheDocument();
+});
+
+it("uses backend policy verbatim, overriding the frontend defaults", () => {
+  const issue = baseIssue({
+    action_policy: [{ action: "keep", allowed: true, reason_required: false, disabled_reason: null, notification_expected: true }],
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("Keep the current arrangement")).toBeInTheDocument();
+  expect(screen.queryByText("Move to another session")).not.toBeInTheDocument();
+  expect(screen.queryByText("Cancel the sit-in")).not.toBeInTheDocument();
+  expect(screen.queryByText("Ask another administrator to review")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("radio")).toHaveLength(1);
+});
+
+it("disables an allowed action with a disabled_reason and shows the reason", () => {
+  const issue = baseIssue({
+    action_policy: [{ action: "reassign", allowed: true, reason_required: false, disabled_reason: "No replacement sessions exist", notification_expected: true }],
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("Move to another session")).toBeInTheDocument();
+  expect(screen.getByText("No replacement sessions exist")).toBeInTheDocument();
+  expect(screen.getByRole("radio")).toBeDisabled();
+});
+
+it("renders a disallowed action as a non-interactive row that never calls onAction", async () => {
+  const user = userEvent.setup();
+  const onAction = vi.fn();
+  const issue = baseIssue({
+    action_policy: [
+      { action: "cancel", allowed: false, reason_required: false, disabled_reason: "Sit-in already cancelled", notification_expected: true },
+      { action: "keep", allowed: true, reason_required: false, disabled_reason: null, notification_expected: true },
+    ],
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={onAction} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("Cancel the sit-in")).toBeInTheDocument();
+  expect(screen.getByText("Sit-in already cancelled")).toBeInTheDocument();
+  const radios = screen.getAllByRole("radio");
+  expect(radios).toHaveLength(2);
+  expect(radios.filter((r) => (r as HTMLInputElement).disabled)).toHaveLength(1);
+
+  await user.click(screen.getByText("Sit-in already cancelled"));
+  expect(onAction).not.toHaveBeenCalled();
+
+  await user.click(screen.getByText("Keep the current arrangement"));
+  expect(onAction).toHaveBeenCalledWith("keep");
+});
+
+it("shows short_notice_change impact copy", () => {
+  const issue = baseIssue({
+    issue_type: "short_notice_change",
+    impact_context: {
+      issue_type: "short_notice_change",
+      severity: "warning",
+      reasons: [{ code: "short_notice_change", message: "Changed on short notice" }],
+    },
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("The student needs a clear update before the session begins.")).toBeInTheDocument();
+});
+
+it("shows past_time_change impact copy", () => {
+  const issue = baseIssue({
+    issue_type: "past_time_change",
+    impact_context: {
+      issue_type: "past_time_change",
+      severity: "warning",
+      reasons: [{ code: "past_time_change", message: "Changed to past time" }],
+    },
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("The original arrangement can no longer be used.")).toBeInTheDocument();
+});
+
+it("shows the deleted-session impact copy for a deleted current session", () => {
+  render(
+    <ResolutionComparison
+      issue={baseIssue({
+        assignment_context: {
+          ...baseIssue().assignment_context,
+          current_session: {
+            status: "deleted",
+            session_id: "sess-2",
+            version: 2,
+            start_at: "2025-07-24T08:00:00.000Z",
+            end_at: "2025-07-24T09:00:00.000Z",
+            course_code: "MATH101",
+            course_name: "Mathematics",
+            room_name: "Room 5",
+            teacher_name: "Dr Jones",
+          },
+        },
+      })}
+      selectedCandidate={candidate}
+      onAction={vi.fn()}
+      busy={false}
+      resolutionError={null}
+    />
+  );
+  expect(screen.getByText("The assigned session has been deleted. The student needs a new arrangement.")).toBeInTheDocument();
+});
+
+it("disables all allowed action radios while busy", () => {
+  const issue = baseIssue();
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={true} resolutionError={null} />);
+  for (const radio of screen.getAllByRole("radio")) {
+    expect(radio).toBeDisabled();
+  }
+
+  cleanup();
+
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+  for (const radio of screen.getAllByRole("radio")) {
+    expect(radio).toBeEnabled();
+  }
 });

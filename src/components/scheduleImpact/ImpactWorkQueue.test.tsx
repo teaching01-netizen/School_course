@@ -159,3 +159,84 @@ it("highlights selected issue", () => {
   const article = screen.getByRole("article");
   expect(article.className).toContain("bg-blue-50/60");
 });
+
+it("falls back to wcode when student name is null", () => {
+  const issue = baseIssue({ student_name: null });
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  const headerButton = screen.getByRole("button", { name: /STU001/ });
+  expect(headerButton).toHaveAccessibleName(/STU001/);
+  expect(headerButton).not.toHaveAccessibleName(/Alice Johnson/);
+});
+
+it("shows Critical severity tag for critical issues", () => {
+  const issue = baseIssue({ severity: "critical" });
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getByText("Critical")).toBeInTheDocument();
+});
+
+it("shows Warning severity tag for warning issues", () => {
+  const issue = baseIssue({ severity: "warning" });
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getByText("Warning")).toBeInTheDocument();
+});
+
+it("shows No snapshot badge when original snapshot quality is unavailable", () => {
+  const issue = baseIssue({
+    assignment_context: {
+      assigned_at: "2025-07-20T03:00:00.000Z",
+      original_session: {
+        quality: "unavailable",
+        source: "snapshot",
+        snapshot: null,
+      },
+      current_session: {
+        status: "active",
+        session_id: "sess-2",
+        version: 2,
+        start_at: "2025-07-24T08:00:00.000Z",
+        end_at: "2025-07-24T09:00:00.000Z",
+        course_code: "MATH101",
+        course_name: "Mathematics",
+        room_name: "Room 5",
+        teacher_name: "Dr Jones",
+      },
+    },
+  });
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getByText("No snapshot")).toBeInTheDocument();
+});
+
+it("renders exactly one Review action per card in comfortable density", () => {
+  const issues = [baseIssue(), baseIssue({ id: "issue-2", wcode: "STU002", student_name: "Bob Smith" })];
+  render(<ImpactWorkQueue items={issues} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getAllByRole("button", { name: "Review" })).toHaveLength(2);
+});
+
+it("renders exactly one Review action per row in compact density", () => {
+  const issues = [baseIssue(), baseIssue({ id: "issue-2", wcode: "STU002", student_name: "Bob Smith" })];
+  render(<ImpactWorkQueue items={issues} density="compact" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getAllByRole("button", { name: "Review" })).toHaveLength(2);
+});
+
+it("calls onOpen with the issue when the card body is clicked", async () => {
+  const user = userEvent.setup();
+  const issue = baseIssue();
+  const onOpen = vi.fn();
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={onOpen} />);
+
+  await user.click(screen.getByRole("button", { name: /Alice Johnson/ }));
+  expect(onOpen).toHaveBeenCalledWith(issue);
+});
+
+it("shows Marked for review helper text for needs_review status", () => {
+  const issue = baseIssue({ status: "needs_review" });
+  render(<ImpactWorkQueue items={[issue]} density="comfortable" selectedID={null} onOpen={vi.fn()} />);
+
+  expect(screen.getByText("Marked for review")).toBeInTheDocument();
+});

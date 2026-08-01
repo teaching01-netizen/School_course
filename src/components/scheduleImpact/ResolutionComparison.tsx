@@ -1,20 +1,10 @@
-import { AlertCircle, Info, ArrowRight, X } from "lucide-react";
-import Button from "../ui/Button";
-import { issueConsequence, issueMessage } from "../../features/scheduleImpact/format";
+import { AlertCircle, Info, X } from "lucide-react";
+import { issueMessage } from "../../features/scheduleImpact/format";
 import type { ImpactCandidate, ScheduleImpactIssue } from "../../features/scheduleImpact/types";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
-
-type FieldKey = "time" | "room" | "teacher" | "course";
-
-interface ChangedField {
-  field: FieldKey;
-  label: string;
-  from: string;
-  to: string;
-}
 
 function extractOriginalSnapshot(issue: ScheduleImpactIssue): Record<string, unknown> | null {
   const ctx = issue.assignment_context.original_session;
@@ -51,38 +41,6 @@ function formatDateShort(iso: string | null): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric", month: "short", timeZone: "Asia/Bangkok",
   }).format(new Date(iso));
-}
-
-function extractChanges(issue: ScheduleImpactIssue): ChangedField[] {
-  const before = issue.change_context.before;
-  const after = issue.change_context.after;
-  if (!before || !after) return [];
-  const changes: ChangedField[] = [];
-  const timeStartBefore = (before.start_at as string) ?? (before.old_start_at as string) ?? issue.details.old_start_at;
-  const timeEndBefore = (before.end_at as string) ?? (before.old_end_at as string) ?? null;
-  const timeStartAfter = (after.start_at as string) ?? (after.new_start_at as string) ?? issue.details.new_start_at;
-  const timeEndAfter = (after.end_at as string) ?? (after.new_end_at as string) ?? null;
-  const oldTime = formatFieldTime(timeStartBefore, timeEndBefore);
-  const newTime = formatFieldTime(timeStartAfter, timeEndAfter);
-  if (oldTime !== newTime && (timeStartBefore || timeStartAfter)) {
-    changes.push({ field: "time", label: "Time", from: oldTime, to: newTime });
-  }
-  const oldRoom = (before.room_name as string) ?? (before.room as string) ?? null;
-  const newRoom = (after.room_name as string) ?? (after.room as string) ?? null;
-  if (oldRoom !== newRoom && (oldRoom || newRoom)) {
-    changes.push({ field: "room", label: "Room", from: oldRoom ?? "Not assigned", to: newRoom ?? "Not assigned" });
-  }
-  const oldTeacher = (before.teacher_name as string) ?? (before.teacher as string) ?? null;
-  const newTeacher = (after.teacher_name as string) ?? (after.teacher as string) ?? null;
-  if (oldTeacher !== newTeacher && (oldTeacher || newTeacher)) {
-    changes.push({ field: "teacher", label: "Teacher", from: oldTeacher ?? "Not assigned", to: newTeacher ?? "Not assigned" });
-  }
-  const oldCourse = (before.course_code as string) ?? null;
-  const newCourse = (after.course_code as string) ?? null;
-  if (oldCourse !== newCourse && (oldCourse || newCourse)) {
-    changes.push({ field: "course", label: "Course", from: oldCourse ?? "Unknown", to: newCourse ?? "Unknown" });
-  }
-  return changes;
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,32 +145,38 @@ function CurrentSession({ issue }: { issue: ScheduleImpactIssue }) {
   );
 }
 
-function ChangeSummary({ changes, issueId }: { changes: ChangedField[]; issueId: string }) {
-  const sectionId = `resolution-changes-${issueId}`;
-  if (changes.length === 0) return null;
-
-  return (
-    <section aria-labelledby={sectionId} className="rounded-sm border border-gray-200 bg-white p-4">
-      <SectionHeading id={sectionId}>Changes</SectionHeading>
-      <dl className="mt-2 space-y-1.5">
-        {changes.map((change) => (
-          <div key={change.field} className="flex items-baseline gap-3 text-sm">
-            <dt className="w-20 shrink-0 font-medium text-gray-700">{change.label}</dt>
-            <dd className="flex min-w-0 items-baseline gap-2 text-gray-600">
-              <span className="shrink-0">{change.from}</span>
-              <ArrowRight className="h-3 w-3 shrink-0 text-gray-400" aria-hidden="true" />
-              <span className="shrink-0 font-medium text-gray-900">{change.to}</span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </section>
+function ImpactExplanation({ issue }: { issue: ScheduleImpactIssue }) {
+  const hasConflict = issue.impact_context.reasons.some(
+    (r) => r.code === "regular_session_overlap" || r.code === "sit_in_overlap"
   );
+  const isDeleted = !issue.assignment_context.current_session || issue.assignment_context.current_session.status === "deleted";
+
+  if (isDeleted) {
+    return <p className="text-sm text-gray-700">The assigned session has been deleted. The student needs a new arrangement.</p>;
+  }
+  if (hasConflict) {
+    const overlapReason = issue.impact_context.reasons.find(
+      (r) => r.code === "regular_session_overlap" || r.code === "sit_in_overlap"
+    );
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-gray-800">{overlapReason?.message ?? "This session now overlaps with the student's regular class."}</p>
+        <p className="text-sm text-gray-600">The student cannot safely attend the current arrangement.</p>
+      </div>
+    );
+  }
+  if (issue.issue_type === "short_notice_change") {
+    return <p className="text-sm text-gray-700">The student needs a clear update before the session begins.</p>;
+  }
+  if (issue.issue_type === "past_time_change") {
+    return <p className="text-sm text-gray-700">The original arrangement can no longer be used.</p>;
+  }
+  return <p className="text-sm text-gray-700">{issueMessage(issue)}</p>;
 }
 
-function ImpactAndActions({
+function ResolutionActionSelector({
   issue,
-  selectedCandidate,
+  selectedCandidate: _selectedCandidate,
   onAction,
   busy,
   resolutionError,
@@ -223,65 +187,50 @@ function ImpactAndActions({
   busy: boolean;
   resolutionError: string | null;
 }) {
-  const sectionId = `resolution-actions-${issue.id}`;
-  const hasConflict = issue.impact_context.reasons.some((r) =>
-    r.code === "regular_session_overlap" || r.code === "sit_in_overlap"
+  const policy = (issue.action_policy ?? []).filter(
+    (a) => a.action === "reassign" || a.action === "keep" || a.action === "cancel" || a.action === "mark_for_review"
   );
-  const impactMessage = issueMessage(issue);
-  const consequence = issueConsequence(issue);
-
+  const actions = policy.length > 0 ? policy : [
+    { action: "reassign" as const, allowed: true, reason_required: false, disabled_reason: null, notification_expected: true },
+    { action: "keep" as const, allowed: true, reason_required: false, disabled_reason: null, notification_expected: true },
+    { action: "cancel" as const, allowed: true, reason_required: false, disabled_reason: null, notification_expected: true },
+    { action: "mark_for_review" as const, allowed: true, reason_required: true, disabled_reason: null, notification_expected: false },
+  ];
+  const actionLabels: Record<string, string> = {
+    reassign: "Move to another session",
+    keep: "Keep the current arrangement",
+    cancel: "Cancel the sit-in",
+    mark_for_review: "Ask another administrator to review",
+  };
   return (
-    <section aria-labelledby={sectionId} className="rounded-sm border border-gray-200 bg-white p-4">
-      <SectionHeading id={sectionId}>Impact and actions</SectionHeading>
+    <div className="space-y-3">
       {resolutionError ? (
-        <div className="mt-2 flex items-start gap-2 rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+        <div className="flex items-start gap-2 rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{resolutionError}</span>
         </div>
       ) : null}
-      <p className="mt-2 text-sm font-medium text-gray-800">{impactMessage}</p>
-      <p className="mt-1 text-sm text-gray-600">{consequence}</p>
-      {hasConflict ? (
-        <div className="mt-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note">
-          The new time overlaps the student&apos;s regular class.
-        </div>
-      ) : null}
-
-      <div className="mt-4 grid grid-cols-2 gap-2" role="group" aria-label="Resolution actions">
-        <Button
-          size="sm"
-          disabled={!selectedCandidate || busy}
-          onClick={() => onAction("reassign")}
-          loading={busy}
-        >
-          Reassign sit-in
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={busy}
-          onClick={() => onAction("keep")}
-        >
-          Keep current arrangement
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={busy}
-          onClick={() => onAction("mark_for_review")}
-        >
-          Mark for manual review
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={busy}
-          onClick={() => onAction("cancel")}
-        >
-          Cancel arrangement
-        </Button>
+      <div className="space-y-2" role="radiogroup" aria-label="Resolution actions">
+        {actions.filter((a) => a.allowed).map((ap) => (
+          <label key={ap.action} className={`flex items-start gap-3 rounded-sm border p-3 text-sm ${ap.disabled_reason ? "cursor-not-allowed border-gray-100 bg-gray-50 text-gray-400" : "cursor-pointer border-gray-200 hover:border-gray-300"}`}>
+            <input type="radio" name="resolution-action" className="mt-0.5" disabled={!!ap.disabled_reason || busy} onChange={() => onAction(ap.action as "reassign" | "keep" | "cancel" | "mark_for_review")} />
+            <div>
+              <span className="font-medium text-gray-900">{actionLabels[ap.action] ?? ap.action}</span>
+              {ap.disabled_reason ? <p className="mt-0.5 text-xs text-gray-500">{ap.disabled_reason}</p> : null}
+            </div>
+          </label>
+        ))}
+        {actions.filter((a) => !a.allowed && a.disabled_reason).map((ap) => (
+          <div key={ap.action} className="flex items-start gap-3 rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm text-gray-400">
+            <input type="radio" name="resolution-action" className="mt-0.5" disabled />
+            <div>
+              <span className="font-medium">{actionLabels[ap.action] ?? ap.action}</span>
+              <p className="mt-0.5 text-xs text-gray-500">{ap.disabled_reason}</p>
+            </div>
+          </div>
+        ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -304,24 +253,41 @@ export default function ResolutionComparison({
   busy,
   resolutionError,
 }: ResolutionComparisonProps) {
-  const changes = extractChanges(issue);
   const headingId = `resolution-heading-${issue.id}`;
 
   return (
-    <div className="space-y-3" role="region" aria-labelledby={headingId}>
+    <div className="space-y-4" role="region" aria-labelledby={headingId}>
       <h2 id={headingId} className="sr-only">
-        Resolution comparison for {issue.student_name ?? issue.wcode}
+        Resolution for {issue.student_name ?? issue.wcode}
       </h2>
-      <OriginalAssignment issue={issue} />
-      <CurrentSession issue={issue} />
-      <ChangeSummary changes={changes} issueId={issue.id} />
-      <ImpactAndActions
-        issue={issue}
-        selectedCandidate={selectedCandidate}
-        onAction={onAction}
-        busy={busy}
-        resolutionError={resolutionError}
-      />
+
+      {/* Section 1: What changed */}
+      <section className="rounded-sm border border-gray-200 bg-white p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">What changed</h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <OriginalAssignment issue={issue} />
+          <CurrentSession issue={issue} />
+        </div>
+
+      </section>
+
+      {/* Section 2: Why this needs attention */}
+      <section className="rounded-sm border border-gray-200 bg-white p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Why this needs attention</h3>
+        <ImpactExplanation issue={issue} />
+      </section>
+
+      {/* Section 3: What should happen */}
+      <section className="rounded-sm border border-gray-200 bg-white p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">What should happen?</h3>
+        <ResolutionActionSelector
+          issue={issue}
+          selectedCandidate={selectedCandidate}
+          onAction={onAction}
+          busy={busy}
+          resolutionError={resolutionError}
+        />
+      </section>
     </div>
   );
 }

@@ -11,6 +11,11 @@ export type ImpactCandidate = {
   eligible: boolean;
   student_conflicts: boolean;
   generated_at: string;
+  /** @deprecated Prefer selectable + blocking_reasons */
+  selectable?: boolean;
+  blocking_reasons?: CandidateBlockingReason[];
+  recommendation_rank?: number | null;
+  recommendation_reasons?: string[];
 };
 
 export type OriginalSessionView = {
@@ -73,6 +78,7 @@ export type ScheduleImpactIssue = {
   assignment_context: AssignmentContext;
   change_context: ChangeContext;
   impact_context: ImpactContext;
+  action_policy?: ResolutionActionPolicy[];
 };
 
 export type ScheduleImpactSummary = {
@@ -86,6 +92,7 @@ export type ScheduleImpactSummary = {
 export type ScheduleImpactQueueResponse = {
   items: ScheduleImpactIssue[];
   summary: ScheduleImpactSummary;
+  pagination?: PaginationMeta;
   limit: number;
   offset: number;
 };
@@ -104,4 +111,90 @@ export type ResolutionResponse = {
   status: string;
   action: string;
   notification_status: "queued" | "not_configured" | "no_recipient" | "not_required";
+};
+
+/* ── PR-00: Extended contracts ────────────────────────────────────── */
+
+export type ResolutionAction =
+  | "reassign"
+  | "keep"
+  | "cancel"
+  | "dismiss"
+  | "mark_for_review";
+
+export type ResolutionActionPolicy = {
+  action: ResolutionAction;
+  allowed: boolean;
+  reason_required: boolean;
+  disabled_reason: string | null;
+  notification_expected: boolean;
+};
+
+export type CandidateBlockingReason = {
+  code:
+    | "student_conflict"
+    | "not_eligible"
+    | "full"
+    | "session_changed"
+    | "unavailable";
+  message: string;
+};
+
+export type PaginationMeta = {
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
+  next_offset: number | null;
+};
+
+export type NotificationChannelPreview = {
+  channel: "sms" | "email";
+  configured: boolean;
+  recipient_masked: string | null;
+  will_queue: boolean;
+  unavailable_reason: string | null;
+};
+
+export type NotificationPreview = {
+  action: ResolutionAction;
+  message_type: string | null;
+  channels: NotificationChannelPreview[];
+  overall_status:
+    | "will_queue"
+    | "not_configured"
+    | "no_recipient"
+    | "not_required";
+  generated_at: string;
+  issue_version: number;
+};
+
+export type ImpactProcessingChangeExtended = ImpactProcessingChange & {
+  updated_at: string;
+  processing_attempt: number;
+  retryable: boolean;
+  error_category: string | null;
+  trace_id: string | null;
+};
+
+export type HistoryItem = {
+  id: string;
+  new_course_code: string;
+  new_course_name: string;
+  old_start_at: string;
+  old_end_at: string;
+  new_start_at: string;
+  new_end_at: string;
+  created_at: string;
+  open_issue_count: number;
+  critical_issue_count: number;
+};
+
+export type QueueURLState = {
+  view: "queue" | "processing" | "history";
+  query: string;
+  severity: "" | "critical" | "warning";
+  status: "all" | "open" | "needs_review";
+  offset: number;
+  limit: 25 | 50 | 100;
 };

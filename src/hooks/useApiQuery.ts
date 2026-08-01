@@ -10,7 +10,7 @@ export type UseApiQueryResult<T> = {
   refetch: () => Promise<void>;
 };
 
-export function useApiQuery<T>(url: string | null, deps?: unknown[]): UseApiQueryResult<T> {
+export function useApiQuery<T>(url: string | null, deps?: unknown[], options?: { keepPreviousData?: boolean }): UseApiQueryResult<T> {
   const policy = url ? cachePolicyForURL(url) : cachePolicies.semiStatic;
   const operational = policy === cachePolicies.operational;
   const query = useQuery<T, ApiRequestError>({
@@ -18,7 +18,7 @@ export function useApiQuery<T>(url: string | null, deps?: unknown[]): UseApiQuer
     queryFn: () => apiJson<T>(url!),
     enabled: url != null,
     ...policy,
-    placeholderData: operational ? keepPreviousData : undefined,
+    placeholderData: operational || options?.keepPreviousData ? keepPreviousData : undefined,
   }, queryClient);
 
   return {
