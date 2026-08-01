@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import MultiTeacherSelect from "@/components/MultiTeacherSelect";
 import type { TypeaheadOption } from "@/components/TypeaheadSelect";
 import type { EditableTeacher } from "../types";
@@ -10,6 +10,7 @@ export function CourseTeacherEditor(props: {
   disabled?: boolean;
 }) {
   const { teachers, onChange, options, disabled } = props;
+  const radioName = useId();
 
   const labelById = useMemo(() => {
     const m = new Map(options.map((o) => [o.value, o.label]));
@@ -46,7 +47,7 @@ export function CourseTeacherEditor(props: {
             <label key={t.teacher_id} className="flex items-center gap-2 py-1 text-sm">
               <input
                 type="radio"
-                name="primary-teacher"
+                name={radioName}
                 checked={t.is_primary}
                 onChange={() => setPrimary(t.teacher_id)}
                 disabled={disabled}
@@ -56,7 +57,7 @@ export function CourseTeacherEditor(props: {
                 {labelById(t.teacher_id)}
               </span>
               {t.is_primary && (
-                <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded-sm bg-blue-700 text-white">
+                <span aria-hidden className="px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded-sm bg-blue-700 text-white">
                   Primary
                 </span>
               )}
@@ -65,7 +66,7 @@ export function CourseTeacherEditor(props: {
           <label className="flex items-center gap-2 py-1 text-sm">
             <input
               type="radio"
-              name="primary-teacher"
+              name={radioName}
               checked={!hasPrimary}
               onChange={() => setPrimary(null)}
               disabled={disabled}

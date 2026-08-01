@@ -210,6 +210,49 @@ describe("CourseDetail teacher editor", () => {
     expect(await screen.findByText("Math Latest")).toBeInTheDocument();
   });
 
+  it("re-seeds the edit form from the reloaded course after stale_edit", async () => {
+    const latest = makeCourse({
+      version: 4,
+      name: "Math Latest",
+      primary_teacher_id: "teacher-2",
+      teachers: [
+        { id: "teacher-1", username: "Teacher One", is_primary: false },
+        { id: "teacher-2", username: "Teacher Two", is_primary: true },
+      ],
+    });
+    mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/courses/course-1" && init?.method === "PATCH") {
+        const err = new ApiRequestError("course was updated by another user", { code: "stale_edit", status: 409 });
+        err.details = { current: latest };
+        return Promise.reject(err);
+      }
+      if (path === "/api/v1/courses/course-1") return Promise.resolve(makeCourse());
+      if (path === "/api/v1/courses/course-1/crm-filter") return Promise.resolve({ enabled: false, locked: false, filter: null });
+      if (path === "/api/v1/courses/course-1/students") return Promise.resolve([]);
+      if (path === "/api/v1/courses/course-1/sessions") return Promise.resolve([]);
+      if (path === "/api/v1/rooms") return Promise.resolve([{ id: "room-1", name: "Room 101", capacity: 20 }]);
+      if (path === "/api/v1/users?role=Teacher") return Promise.resolve(makeTeacherUsers());
+      if (path === "/api/v1/meta/time") return Promise.resolve({ institute_tz: "Asia/Bangkok", server_now: "2026-05-31T02:00:00Z" });
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+
+    const user = userEvent.setup();
+    renderCourseDetail();
+    await startEditing(user);
+
+    // Stale form state before the conflict.
+    await user.click(screen.getByRole("radio", { name: /Teacher Two/ }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText("Another user changed this course. The latest version has been loaded.");
+    // Name input reflects the reloaded course.
+    expect(screen.getByDisplayValue("Math Latest")).toBeInTheDocument();
+    // Teacher set (incl. primary) matches the reloaded course: Teacher Two is now primary.
+    expect(screen.getByRole("radio", { name: /Teacher Two/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Teacher One/ })).not.toBeChecked();
+  });
+
   it("shows a friendly message when a teacher is in use", async () => {
     mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
       if (path === "/api/v1/courses/course-1" && init?.method === "PATCH") {

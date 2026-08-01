@@ -428,16 +428,27 @@ export default function CourseDetail() {
         const current = (err.details as { current?: Course } | undefined)?.current;
         if (current) {
           setCourse(current);
+          setEditCode(current.code);
+          setEditName(current.name);
+          setEditTeachers((current.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
         } else {
-          const latest = await getCourse(id);
-          setCourse(latest);
+          try {
+            const latest = await getCourse(id);
+            setCourse(latest);
+            setEditCode(latest.code);
+            setEditName(latest.name);
+            setEditTeachers((latest.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
+          } catch {
+            addToast("error", "Could not reload the latest course version. Please try again.");
+            return;
+          }
         }
         addToast("error", "Another user changed this course. The latest version has been loaded.");
         return;
       }
       if (err instanceof ApiRequestError && err.code === "teacher_in_use") {
         const details = err.details as
-          | { teacher_id: string; teacher_name: string; future_session_count: number; earliest_session_start_at?: string | null }
+          | { teacher_name: string; future_session_count: number; earliest_session_start_at?: string | null }
           | undefined;
         if (details) {
           const earliest = details.earliest_session_start_at
@@ -915,6 +926,7 @@ export default function CourseDetail() {
               teachers={editTeachers}
               onChange={setEditTeachers}
               options={teacherOptions}
+              disabled={courseEditSaving}
             />
           </div>
         </div>
@@ -926,7 +938,7 @@ export default function CourseDetail() {
               <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
                 {t.username}
-                {t.is_primary && (
+                {course.primary_teacher_id === t.id && (
                   <span className="ml-0.5 px-1 py-px text-[10px] font-semibold uppercase rounded-sm bg-blue-700 text-white">
                     Primary
                   </span>
