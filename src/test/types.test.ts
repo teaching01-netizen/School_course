@@ -114,7 +114,7 @@ describe("localDateTimeToUTCISO", () => {
 });
 
 describe("getRequestedLabel", () => {
-  const courses = new Map<string, Course>([["c1", { id: "c1", code: "MATH101", name: "Math" }]]);
+  const courses = new Map<string, Course>([["c1", { id: "c1", version: 1, code: "MATH101", name: "Math", primary_teacher_id: null }]]);
   const teachers = new Map<string, User>([["t1", { id: "t1", username: "jdoe", role: "Admin" }]]);
 
   it("returns label when both found", () => {

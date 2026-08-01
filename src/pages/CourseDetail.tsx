@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
 import TypeaheadSelect, { type TypeaheadOption } from "../components/TypeaheadSelect";
-import MultiTeacherSelect from "../components/MultiTeacherSelect";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
@@ -28,6 +27,7 @@ import ImpactAcknowledgementModal, { type ImpactSummary } from "../components/sc
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import { LegacyLinkSection } from "@/features/courses/components/LegacyLinkSection";
+import { CourseTeacherEditor } from "@/features/courses/components/CourseTeacherEditor";
 import {
   addCourseStudent,
   deleteCourse,
@@ -39,8 +39,8 @@ import {
   getRooms,
   getStudentByWcode,
   getTeacherUsers,
+  patchCourse,
   removeCourseStudent,
-  updateCourse,
 } from "@/features/courses/api/courseApi";
 import {
   yyyyMmDd,
@@ -52,6 +52,7 @@ import {
   type User,
   type Student,
   type ConflictDetails,
+  type EditableTeacher,
 } from "@/types";
 
 export default function CourseDetail() {
@@ -94,7 +95,7 @@ export default function CourseDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
-  const [editTeacherIds, setEditTeacherIds] = useState<string[]>([]);
+  const [editTeachers, setEditTeachers] = useState<EditableTeacher[]>([]);
   const [courseEditSaving, setCourseEditSaving] = useState(false);
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
@@ -392,7 +393,7 @@ export default function CourseDetail() {
     if (!course) return;
     setEditCode(course.code);
     setEditName(course.name);
-    setEditTeacherIds((course.teachers ?? []).map((t) => t.id));
+    setEditTeachers((course.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
     setIsEditing(true);
   };
 
@@ -400,27 +401,56 @@ export default function CourseDetail() {
     setIsEditing(false);
     setEditCode("");
     setEditName("");
-    setEditTeacherIds([]);
+    setEditTeachers([]);
   };
 
   const submitCourseEdit = async () => {
     if (!id || !course) return;
+    if (courseEditSaving) return;
     if (!editCode.trim()) {
       addToast("error", "Code is required");
       return;
     }
     try {
       setCourseEditSaving(true);
-      const updated = await updateCourse(id, {
+      const updated = await patchCourse(id, {
+        expected_version: course.version,
         code: editCode.trim(),
         name: editName.trim(),
-        teacher_id: editTeacherIds[0] || null,
-        teacher_ids: editTeacherIds,
+        legacy_course_id: course.legacy_course_id ?? null,
+        teachers: editTeachers,
       });
       setCourse(updated);
       addToast("success", "Course updated");
       setIsEditing(false);
     } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "stale_edit") {
+        const current = (err.details as { current?: Course } | undefined)?.current;
+        if (current) {
+          setCourse(current);
+        } else {
+          const latest = await getCourse(id);
+          setCourse(latest);
+        }
+        addToast("error", "Another user changed this course. The latest version has been loaded.");
+        return;
+      }
+      if (err instanceof ApiRequestError && err.code === "teacher_in_use") {
+        const details = err.details as
+          | { teacher_id: string; teacher_name: string; future_session_count: number; earliest_session_start_at?: string | null }
+          | undefined;
+        if (details) {
+          const earliest = details.earliest_session_start_at
+            ? formatUTCToZone(details.earliest_session_start_at, zone, "d MMM yyyy, HH:mm") ?? details.earliest_session_start_at
+            : null;
+          addToast(
+            "error",
+            `${details.teacher_name} cannot be removed. They are assigned to ${details.future_session_count} future session${details.future_session_count === 1 ? "" : "s"}.` +
+              `${earliest ? ` Earliest affected session: ${earliest}.` : ""} Review or reassign those sessions before removing this teacher.`,
+          );
+          return;
+        }
+      }
       addToast("error", err instanceof Error ? err.message : "Update failed");
     } finally {
       setCourseEditSaving(false);
@@ -881,11 +911,10 @@ export default function CourseDetail() {
           </div>
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Teacher(s)</label>
-            <MultiTeacherSelect
-              value={editTeacherIds}
-              onChange={setEditTeacherIds}
+            <CourseTeacherEditor
+              teachers={editTeachers}
+              onChange={setEditTeachers}
               options={teacherOptions}
-              placeholder="Select teachers…"
             />
           </div>
         </div>
@@ -897,6 +926,11 @@ export default function CourseDetail() {
               <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
                 {t.username}
+                {t.is_primary && (
+                  <span className="ml-0.5 px-1 py-px text-[10px] font-semibold uppercase rounded-sm bg-blue-700 text-white">
+                    Primary
+                  </span>
+                )}
               </span>
             )) : course.teacher_name && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">

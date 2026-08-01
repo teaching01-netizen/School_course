@@ -26,7 +26,7 @@ function makePreflight(overrides: Partial<ReturnType<typeof usePreflight>>): Ret
   };
 }
 
-const coursesById = new Map<string, Course>([["c1", { id: "c1", code: "MATH101", name: "Math" }]]);
+const coursesById = new Map<string, Course>([["c1", { id: "c1", version: 1, code: "MATH101", name: "Math", primary_teacher_id: null }]]);
 const teachersById = new Map<string, User>([["t1", { id: "t1", username: "jdoe", role: "Admin" }]]);
 const roomsById = new Map<string, Room>([["r1", { id: "r1", name: "Room 101", capacity: 30 }]]);
 

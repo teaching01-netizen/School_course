@@ -1,7 +1,7 @@
 import { apiJson } from "@/api/client";
 import type { Room, Session } from "@/features/scheduling/types";
 import type { Student, User } from "@/types/shared";
-import type { Course } from "../types";
+import type { Course, EditableTeacher } from "../types";
 
 export type CourseCrmFilter = {
   enabled: boolean;
@@ -21,6 +21,22 @@ export function getCourse(courseId: string): Promise<Course> {
 export function updateCourse(courseId: string, body: unknown): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, {
     method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchCourse(
+  courseId: string,
+  body: {
+    expected_version: number;
+    code: string;
+    name: string;
+    legacy_course_id?: string | null;
+    teachers: EditableTeacher[];
+  },
+): Promise<Course> {
+  return apiJson<Course>(`/api/v1/courses/${courseId}`, {
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }

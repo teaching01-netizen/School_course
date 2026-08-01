@@ -1,7 +1,20 @@
+export type CourseTeacher = {
+  id: string;
+  username: string;
+  is_primary: boolean;
+};
+
+export type EditableTeacher = {
+  teacher_id: string;
+  is_primary: boolean;
+};
+
 export type Course = {
   id: string;
+  version: number;
   code: string;
   name: string;
+  primary_teacher_id: string | null;
   course_no?: number | null;
   year?: number | null;
   teacher_id?: string | null;
@@ -15,5 +28,5 @@ export type Course = {
   deleted_at?: string | null;
   legacy_course_id?: string | null;
   legacy_last_synced_at?: string | null;
-  teachers?: { id: string; username: string }[];
+  teachers?: CourseTeacher[];
 };
