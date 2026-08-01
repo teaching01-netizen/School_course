@@ -293,8 +293,9 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 	// The course-generation variant (CourseCreateV2: code derived from
 	// course_no, name kept empty) requires a subject_id and at least one
 	// teacher, matching the historical branch condition (teacher_id +
-	// subject_id). The teacher set's primary — or the first teacher when none
-	// is flagged primary — is the compatibility primary of the new course.
+	// subject_id). courses.teacher_id mirrors the flagged primary of the
+	// teacher set and stays NULL when no teacher is flagged primary — an
+	// optional primary is the intended contract (no first-teacher fallback).
 	if len(teachers) > 0 && body.SubjectID != "" {
 		subjectID, err := s.a.ParseUUID(body.SubjectID)
 		if err != nil {

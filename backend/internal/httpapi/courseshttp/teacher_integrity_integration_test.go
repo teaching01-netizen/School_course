@@ -642,6 +642,45 @@ func TestPost_CreateWithTeachersArray_V2GenerationShape(t *testing.T) {
 	if len(stored) != 1 || !stored[teacherStr] {
 		t.Fatalf("unexpected stored assignments: %v", stored)
 	}
+	// Compat projection: courses.teacher_id mirrors the flagged primary, and
+	// the generation shape keeps the name empty.
+	var teacherID pgtype.UUID
+	if err := fx.dbpool.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id = $1`, mustParseUUID(t, out["id"].(string))).Scan(&teacherID); err != nil {
+		t.Fatal(err)
+	}
+	if !teacherID.Valid || teacherID.String() != teacherStr {
+		t.Fatalf("expected courses.teacher_id to mirror primary %q, got %v", teacherStr, teacherID)
+	}
+	var name string
+	if err := fx.dbpool.QueryRow(ctx, `SELECT name FROM courses WHERE id = $1`, mustParseUUID(t, out["id"].(string))).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "" {
+		t.Fatalf("expected empty name for generation-shape create, got %q", name)
+	}
+
+	// Same V2 branch with a teacher set that flags no primary: the compat
+	// projection stays NULL — an optional primary is the intended contract.
+	resp2 := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
+		"subject_id":    subject.ID.String(),
+		"year":          26,
+		"hour":          2,
+		"student_count": 5,
+		"course_type":   "Private",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": false},
+		},
+	})
+	assertResponseCode(t, resp2, http.StatusCreated)
+	var out2 map[string]any
+	parseResponse(t, resp2, &out2)
+	var noPrimaryID pgtype.UUID
+	if err := fx.dbpool.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id = $1`, mustParseUUID(t, out2["id"].(string))).Scan(&noPrimaryID); err != nil {
+		t.Fatal(err)
+	}
+	if noPrimaryID.Valid {
+		t.Fatalf("expected courses.teacher_id NULL when no primary flagged, got %v", noPrimaryID)
+	}
 }
 
 func TestPatchCourse_BadJSONAndBadID(t *testing.T) {
@@ -673,10 +712,10 @@ func TestPatchCourse_BadJSONAndBadID(t *testing.T) {
 	}
 }
 
-// TestLegacyPut_RenameOnly_PreservesTeacherSet covers the regression where a
+// TestPut_NoTeachersKey_PreservesTeacherSet covers the regression where a
 // PUT carrying no `teachers` key (a metadata-only rename) wiped the existing
 // teacher set instead of preserving it.
-func TestLegacyPut_RenameOnly_PreservesTeacherSet(t *testing.T) {
+func TestPut_NoTeachersKey_PreservesTeacherSet(t *testing.T) {
 	fx := setupTestServer(t)
 	ctx := context.Background()
 

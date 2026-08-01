@@ -23,6 +23,21 @@ func seriesTeacherOrCourseChanged(currentCourseID, currentTeacherID, newCourseID
 	return teacherChanged || courseChanged
 }
 
+// enforceSeriesTeacherMembership is the shared membership gate for
+// edit-entire-series writes: when the series moves to a different teacher or
+// course, the NEW teacher must belong to the NEW course's teacher set,
+// because every future occurrence is rewritten to those identities. Arguments
+// are ordered current-then-new — currentCourseID/currentTeacherID are the
+// series' existing identities, newCourseID/newTeacherID the request's
+// replacements. No-op when neither identity changes: the existing teacher may
+// legitimately have left the set since the series was created.
+func enforceSeriesTeacherMembership(ctx context.Context, q *sqldb.Queries, currentCourseID, currentTeacherID, newCourseID, newTeacherID pgtype.UUID) error {
+	if !seriesTeacherOrCourseChanged(currentCourseID, currentTeacherID, newCourseID, newTeacherID) {
+		return nil
+	}
+	return checkCourseTeacherMembership(ctx, q, newCourseID, newTeacherID)
+}
+
 // checkCourseTeacherMembership verifies that teacherID belongs to the course's
 // assigned teacher set. It must run inside the authoritative write transaction
 // after the course row has been locked, so a concurrent teacher-set replacement
