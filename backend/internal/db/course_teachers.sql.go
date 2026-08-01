@@ -250,6 +250,46 @@ func (q *Queries) CourseUpdateAggregate(ctx context.Context, arg CourseUpdateAgg
 	return i, err
 }
 
+const courseUpdateCore = `-- name: CourseUpdateCore :one
+UPDATE courses
+SET
+    code = $2,
+    name = $3,
+    legacy_course_id = $4,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, version
+`
+
+type CourseUpdateCoreParams struct {
+	ID             pgtype.UUID `json:"id"`
+	Code           string      `json:"code"`
+	Name           string      `json:"name"`
+	LegacyCourseID pgtype.Text `json:"legacy_course_id"`
+}
+
+type CourseUpdateCoreRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Version int32       `json:"version"`
+}
+
+// Metadata-only course update for the legacy PUT path (no teacher fields in
+// the request): bumps the version but leaves the teacher set — both the
+// course_teachers rows and the courses.teacher_id compat projection —
+// completely untouched.
+func (q *Queries) CourseUpdateCore(ctx context.Context, arg CourseUpdateCoreParams) (CourseUpdateCoreRow, error) {
+	row := q.db.QueryRow(ctx, courseUpdateCore,
+		arg.ID,
+		arg.Code,
+		arg.Name,
+		arg.LegacyCourseID,
+	)
+	var i CourseUpdateCoreRow
+	err := row.Scan(&i.ID, &i.Version)
+	return i, err
+}
+
 const usersListForTeacherValidation = `-- name: UsersListForTeacherValidation :many
 SELECT
     id,

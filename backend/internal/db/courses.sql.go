@@ -149,37 +149,3 @@ func (q *Queries) CourseListActive(ctx context.Context) ([]CourseListActiveRow, 
 	}
 	return items, nil
 }
-
-const courseUpdate = `-- name: CourseUpdate :one
-UPDATE courses
-SET code = $2, name = $3, updated_at = now()
-WHERE id = $1
-RETURNING id, code, name, created_at, updated_at
-`
-
-type CourseUpdateParams struct {
-	ID   pgtype.UUID `json:"id"`
-	Code string      `json:"code"`
-	Name string      `json:"name"`
-}
-
-type CourseUpdateRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Code      string             `json:"code"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) CourseUpdate(ctx context.Context, arg CourseUpdateParams) (CourseUpdateRow, error) {
-	row := q.db.QueryRow(ctx, courseUpdate, arg.ID, arg.Code, arg.Name)
-	var i CourseUpdateRow
-	err := row.Scan(
-		&i.ID,
-		&i.Code,
-		&i.Name,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}

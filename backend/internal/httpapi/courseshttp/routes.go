@@ -653,7 +653,14 @@ func (s *server) handleCoursesPatch(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
-	teachers, err := parseTeacherAssignments(s.a, body.Teachers)
+	// The versioned contract requires an explicit teacher set: an absent or
+	// null `teachers` key is a client error, while `teachers: []` is the
+	// explicit empty set (clears all teachers).
+	if body.Teachers == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_request", "teachers is required")
+		return
+	}
+	teachers, err := parseTeacherAssignments(s.a, *body.Teachers)
 	if err != nil {
 		writeCourseAdminError(w, s.a, err)
 		return
@@ -696,36 +703,36 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
 		return
 	}
-	var body struct {
-		Code            string                     `json:"code"`
-		Name            string                     `json:"name"`
-		TeacherID       *string                    `json:"teacher_id"`
-		LegacyCourseID  *string                    `json:"legacy_course_id"`
-		TeacherIDs      []string                   `json:"teacher_ids"`
-		Teachers        []teacherAssignmentRequest `json:"teachers"`
-		ExpectedVersion int32                      `json:"expected_version"`
-	}
+	var body updateCourseRequest
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
 
 	var teachers []courseadmin.TeacherAssignment
-	if body.Teachers == nil {
+	switch {
+	case body.Teachers != nil:
+		// Versioned contract: the explicit teacher set replaces the current one.
+		teachers, err = parseTeacherAssignments(s.a, *body.Teachers)
+		if err != nil {
+			writeCourseAdminError(w, s.a, err)
+			return
+		}
+	case body.TeacherID != nil || body.TeacherIDs != nil:
 		// Legacy transition shape (teacher_id/teacher_ids only): adapt to the
-		// versioned contract and keep serving PUT. Removed in PR6.
+		// versioned contract and keep serving PUT. Removed in PR6. A
+		// present-but-empty `teacher_ids: []` is the intentional "clear the
+		// set" signal.
 		teachers, err = legacyTeacherAssignments(s.a, body.TeacherIDs, strPtrOr(body.TeacherID, ""))
 		if err != nil {
 			writeCourseAdminError(w, s.a, err)
 			return
 		}
 		s.deps.Log.Info("legacy course teacher payload", "metric", "course_teacher_legacy_payload_total", "operation", "update", "course_id", r.PathValue("id"))
-	} else {
-		teachers, err = parseTeacherAssignments(s.a, body.Teachers)
-		if err != nil {
-			writeCourseAdminError(w, s.a, err)
-			return
-		}
+	default:
+		// No teacher fields at all: metadata-only update. Teachers stays nil,
+		// so the service updates code/name/legacy link and bumps the version
+		// while leaving the existing teacher set untouched.
 	}
 
 	command := courseadmin.UpdateCourseCommand{

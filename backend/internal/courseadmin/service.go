@@ -26,10 +26,11 @@ func NewService() *Service {
 	}
 }
 
-// UpdateCourseTx atomically replaces the course's teacher set. The caller owns
-// the transaction (via qtx, e.g. deps.Q.WithTx(tx)) and rolls back on any
-// returned error; every write failure aborts immediately — nothing is
-// logged-and-continued.
+// UpdateCourseTx atomically replaces the course's teacher set (a nil
+// command.Teachers leaves the set untouched — metadata-only update). The
+// caller owns the transaction (via qtx, e.g. deps.Q.WithTx(tx)) and rolls
+// back on any returned error; every write failure aborts immediately —
+// nothing is logged-and-continued.
 func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, command UpdateCourseCommand) (UpdateCourseResult, error) {
 	if err := validateTeacherAssignments(command.Teachers); err != nil {
 		return UpdateCourseResult{}, err
@@ -59,6 +60,24 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 				"current": current,
 			},
 		}
+	}
+
+	// A nil teacher set means metadata-only: update code/name/legacy link and
+	// bump the version while leaving the teacher set (course_teachers rows and
+	// the courses.teacher_id compat projection) untouched. An empty NON-nil
+	// set is the explicit "clear all teachers" intent and falls through to the
+	// full replacement path below.
+	if command.Teachers == nil {
+		updated, err := qtx.CourseUpdateCore(ctx, sqldb.CourseUpdateCoreParams{
+			ID:             command.CourseID,
+			Code:           command.Code,
+			Name:           command.Name,
+			LegacyCourseID: nullableText(command.LegacyCourseID),
+		})
+		if err != nil {
+			return UpdateCourseResult{}, fmt.Errorf("update course core: %w", err)
+		}
+		return UpdateCourseResult{CourseID: command.CourseID, Version: updated.Version}, nil
 	}
 
 	if err := validateTeachersExistAndCanTeach(ctx, qtx, command.Teachers); err != nil {

@@ -72,43 +72,6 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 	return row, err
 }
 
-type CourseUpdateFullParams struct {
-	ID        pgtype.UUID
-	Code      string
-	Name      string
-	TeacherID pgtype.UUID
-}
-
-func (q *Queries) CourseUpdateFull(ctx context.Context, p CourseUpdateFullParams) (CourseOverviewRow, error) {
-	var row CourseOverviewRow
-	err := q.db.QueryRow(ctx, `
-		UPDATE courses
-		SET code = $2, name = $3, teacher_id = $4, updated_at = now()
-		WHERE id = $1
-		RETURNING id, course_no, code, name, year, teacher_id, hour, student_count, course_type, created_at, updated_at
-	`, p.ID, p.Code, p.Name, p.TeacherID).Scan(
-		&row.ID, &row.CourseNo, &row.Code, &row.Name, &row.Year,
-		&row.TeacherID, &row.Hour, &row.StudentCount, &row.CourseType,
-		&row.CreatedAt, &row.UpdatedAt,
-	)
-	if err != nil {
-		return CourseOverviewRow{}, err
-	}
-	// Hydrate teacher + subject labels for the response.
-	_ = q.db.QueryRow(ctx, `SELECT username FROM users WHERE id = $1`, row.TeacherID).Scan(&row.TeacherName)
-	_ = q.db.QueryRow(ctx, `SELECT COALESCE(code, ''), COALESCE(name, '') FROM subjects WHERE id = $1`, row.SubjectID).Scan(&row.SubjectCode, &row.SubjectName)
-	// Legacy fields: read back separately.
-	_ = q.db.QueryRow(ctx, `SELECT legacy_course_id, legacy_last_synced_at FROM courses WHERE id = $1`, p.ID).Scan(&row.LegacyCourseID, &row.LegacyLastSyncedAt)
-	return row, err
-}
-
-func (q *Queries) CourseUpdateLegacyLink(ctx context.Context, courseID pgtype.UUID, legacyCourseID pgtype.Text) error {
-	_, err := q.db.Exec(ctx, `
-		UPDATE courses SET legacy_course_id = $1, updated_at = NOW() WHERE id = $2
-	`, legacyCourseID, courseID)
-	return err
-}
-
 type CourseBatchDeleteResult struct {
 	ID      pgtype.UUID
 	Success bool

@@ -72,6 +72,21 @@ SET
 WHERE id = $1
 RETURNING id, version;
 
+-- name: CourseUpdateCore :one
+-- Metadata-only course update for the legacy PUT path (no teacher fields in
+-- the request): bumps the version but leaves the teacher set — both the
+-- course_teachers rows and the courses.teacher_id compat projection —
+-- completely untouched.
+UPDATE courses
+SET
+    code = $2,
+    name = $3,
+    legacy_course_id = $4,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, version;
+
 -- name: CourseCreateAggregate :one
 -- Mirror of CourseUpdateAggregate for freshly created courses: sets the
 -- compat primary projection (courses.teacher_id) and code/name/legacy link

@@ -13,8 +13,10 @@ type TeacherAssignment struct {
 	IsPrimary bool
 }
 
-// UpdateCourseCommand is the full intent of a teacher-set replacement: the
-// entire teacher set is replaced atomically inside one transaction.
+// UpdateCourseCommand is the full intent of a course update: the teacher set
+// is replaced atomically inside one transaction. A nil Teachers slice means
+// "metadata-only" — code/name/legacy link change and the version bumps, but
+// the teacher set is left untouched; an empty non-nil slice clears the set.
 type UpdateCourseCommand struct {
 	CourseID        pgtype.UUID
 	ActorID         pgtype.UUID

@@ -151,6 +151,18 @@ func TestPatchCourse_MultipleTeachersPrimaryAndVersion(t *testing.T) {
 	if out2["version"] != float64(3) || out2["primary_teacher_id"] != teacherBStr {
 		t.Fatalf("expected version 3 with primary %q, got %v/%v", teacherBStr, out2["version"], out2["primary_teacher_id"])
 	}
+
+	// GET must include the current version in the response.
+	getResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses/"+fx.courseIDStr, nil)
+	assertResponseCode(t, getResp, http.StatusOK)
+	var getOut map[string]any
+	parseResponse(t, getResp, &getOut)
+	if getOut["version"] != float64(3) {
+		t.Fatalf("expected GET version 3, got %v", getOut["version"])
+	}
+	if teachers, ok := getOut["teachers"].([]any); !ok || len(teachers) != 1 {
+		t.Fatalf("expected 1 teacher in GET response, got %#v", getOut["teachers"])
+	}
 }
 
 func TestPatchCourse_EmptyTeacherSet(t *testing.T) {
@@ -566,6 +578,147 @@ func TestPatchCourse_BadJSONAndBadID(t *testing.T) {
 	parseResponse(t, resp2, &out2)
 	if out2["code"] != "bad_json" {
 		t.Fatalf("expected bad_json, got %v", out2["code"])
+	}
+}
+
+// TestLegacyPut_RenameOnly_PreservesTeacherSet covers the regression where a
+// legacy PUT carrying neither teacher_id nor teacher_ids (a metadata-only
+// rename) wiped the existing teacher set instead of preserving it.
+func TestLegacyPut_RenameOnly_PreservesTeacherSet(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+
+	teacherA := createTeacherUser(t, ctx, fx.q)
+	teacherB := createTeacherUser(t, ctx, fx.q)
+	teacherAStr := teacherIDString(t, teacherA)
+	teacherBStr := teacherIDString(t, teacherB)
+
+	// Seed a two-teacher set via the versioned contract (version 1 → 2).
+	resp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 1,
+		"code":             courseCode("REN"),
+		"name":             "Rename",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherAStr, "is_primary": true},
+			{"teacher_id": teacherBStr, "is_primary": false},
+		},
+	})
+	assertResponseCode(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	// Legacy PUT with only code/name: no teacher fields at all. The teacher
+	// set must survive untouched.
+	resp2 := doRequest(t, fx.server.URL, "PUT", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"code": courseCode("REN2"),
+		"name": "Renamed metadata only",
+	})
+	assertResponseCode(t, resp2, http.StatusOK)
+
+	var out map[string]any
+	parseResponse(t, resp2, &out)
+	if out["version"] != float64(3) {
+		t.Fatalf("expected version 3 after metadata-only PUT, got %v", out["version"])
+	}
+	if out["teacher_id"] != teacherAStr {
+		t.Fatalf("expected teacher_id %q preserved, got %v", teacherAStr, out["teacher_id"])
+	}
+	teachers, ok := out["teachers"].([]any)
+	if !ok || len(teachers) != 2 {
+		t.Fatalf("expected both teachers preserved in response, got %#v", out["teachers"])
+	}
+
+	// DB state: teacher set unchanged, compat projection unchanged.
+	stored := courseTeacherMap(t, fx, fx.courseID)
+	if len(stored) != 2 || !stored[teacherAStr] || stored[teacherBStr] {
+		t.Fatalf("teacher set must be preserved, got %v", stored)
+	}
+	var teacherID pgtype.UUID
+	if err := fx.dbpool.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id = $1`, fx.courseID).Scan(&teacherID); err != nil {
+		t.Fatal(err)
+	}
+	if !teacherID.Valid || teacherID.String() != teacherAStr {
+		t.Fatalf("expected courses.teacher_id to stay %q, got %v", teacherAStr, teacherID)
+	}
+	var code, name string
+	if err := fx.dbpool.QueryRow(ctx, `SELECT code, name FROM courses WHERE id = $1`, fx.courseID).Scan(&code, &name); err != nil {
+		t.Fatal(err)
+	}
+	if code != courseCode("REN2") || name != "Renamed metadata only" {
+		t.Fatalf("expected metadata update to apply, got %q / %q", code, name)
+	}
+}
+
+// TestPatchCourse_MissingTeachersField_Rejected covers the versioned contract
+// requiring an explicit teacher set: an absent `teachers` key is a 400.
+func TestPatchCourse_MissingTeachersField_Rejected(t *testing.T) {
+	fx := setupTestServer(t)
+
+	resp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 1,
+		"code":             courseCode("REQ"),
+		"name":             "No teachers key",
+	})
+	assertResponseCode(t, resp, http.StatusBadRequest)
+	var out map[string]any
+	parseResponse(t, resp, &out)
+	if out["code"] != "bad_request" {
+		t.Fatalf("expected code bad_request, got %v", out["code"])
+	}
+	if out["message"] != "teachers is required" {
+		t.Fatalf("expected message %q, got %v", "teachers is required", out["message"])
+	}
+	// Nothing was written.
+	if v := currentCourseVersion(t, fx, fx.courseID); v != 1 {
+		t.Fatalf("expected version still 1, got %d", v)
+	}
+}
+
+// TestDuplicateCourseCode_Returns409 covers the error-mapping regression where
+// a unique-code collision surfaced as an unlogged 500 instead of a 409.
+func TestDuplicateCourseCode_Returns409(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+
+	teacher := createTeacherUser(t, ctx, fx.q)
+	teacherStr := teacherIDString(t, teacher)
+	dupCode := courseCode("DUPCODE")
+
+	// First course takes the code.
+	resp := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
+		"code":        dupCode,
+		"name":        "First",
+		"teacher_ids": []string{teacherStr},
+	})
+	assertResponseCode(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	// Second POST with the same code → 409 conflict, not 500.
+	resp2 := doRequest(t, fx.server.URL, "POST", "/api/v1/courses", map[string]any{
+		"code":        dupCode,
+		"name":        "Second",
+		"teacher_ids": []string{teacherStr},
+	})
+	assertResponseCode(t, resp2, http.StatusConflict)
+	var out2 map[string]any
+	parseResponse(t, resp2, &out2)
+	if out2["code"] != "conflict" {
+		t.Fatalf("expected code conflict on duplicate POST, got %v", out2["code"])
+	}
+
+	// PATCH onto the fixture course with the same code → 409 conflict, not 500.
+	resp3 := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, map[string]any{
+		"expected_version": 1,
+		"code":             dupCode,
+		"name":             "Collision",
+		"teachers": []map[string]any{
+			{"teacher_id": teacherStr, "is_primary": true},
+		},
+	})
+	assertResponseCode(t, resp3, http.StatusConflict)
+	var out3 map[string]any
+	parseResponse(t, resp3, &out3)
+	if out3["code"] != "conflict" {
+		t.Fatalf("expected code conflict on duplicate PATCH, got %v", out3["code"])
 	}
 }
 

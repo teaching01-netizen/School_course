@@ -12,16 +12,28 @@ type teacherAssignmentRequest struct {
 	IsPrimary bool   `json:"is_primary"`
 }
 
-// updateCourseRequest is the versioned request body for replacing a course's
-// core fields and teacher set. The Teachers field doubles as the legacy/new
-// discriminator: an absent `teachers` key decodes to nil (legacy shape),
-// while `teachers: []` decodes to a non-nil empty slice (explicit empty set).
+// updateCourseRequest is the request body for the course update contract.
+//
+// PATCH /api/v1/courses/{id} (versioned): the teacher set is REQUIRED — an
+// absent or null `teachers` key is rejected with 400 bad_request. A non-nil
+// empty array `teachers: []` is the explicit "clear the set" intent. TeacherID
+// and TeacherIDs are legacy-transition fields accepted only by the PUT adapter
+// (removed in PR6); PATCH ignores them.
+//
+// PUT /api/v1/courses/{id} (legacy adapter): with no `teachers` key the request
+// falls back to the teacher_id/teacher_ids shape. When neither the versioned
+// `teachers` key nor any legacy teacher field is present the update is
+// metadata-only (code/name/legacy_course_id) and the existing teacher set is
+// left untouched. An explicitly present-but-empty `teacher_ids: []` still
+// means "clear the set".
 type updateCourseRequest struct {
-	ExpectedVersion int32                      `json:"expected_version"`
-	Code            string                     `json:"code"`
-	Name            string                     `json:"name"`
-	LegacyCourseID  *string                    `json:"legacy_course_id"`
-	Teachers        []teacherAssignmentRequest `json:"teachers"`
+	ExpectedVersion int32                       `json:"expected_version"`
+	Code            string                      `json:"code"`
+	Name            string                      `json:"name"`
+	LegacyCourseID  *string                     `json:"legacy_course_id"`
+	TeacherID       *string                     `json:"teacher_id"`
+	TeacherIDs      []string                    `json:"teacher_ids"`
+	Teachers        *[]teacherAssignmentRequest `json:"teachers"`
 }
 
 // parseTeacherAssignments converts raw request entries into domain
