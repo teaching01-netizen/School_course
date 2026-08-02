@@ -680,6 +680,111 @@ func TestUpdateCourseTx_HistoricalSessionsRemovalSucceeds(t *testing.T) {
 	}
 }
 
+func TestUpdateCourseTx_SeriesExceptionTeacherRemoval(t *testing.T) {
+	f := setupTestDB(t)
+	svc := NewService()
+
+	teacherA := f.createTeacher(t, "Teacher")
+	teacherB := f.createTeacher(t, "Teacher")
+	teacherC := f.createTeacher(t, "Teacher")
+	courseID := f.createCourse(t, "SET-"+f.suffix)
+	roomID := f.createRoom(t)
+
+	ctx := context.Background()
+
+	// Assign A (primary), B, C
+	if _, err := f.runUpdate(t, svc, UpdateCourseCommand{
+		CourseID:        courseID,
+		ActorID:         f.createTeacher(t, "Admin"),
+		ExpectedVersion: 1,
+		Code:            "SET-" + f.suffix,
+		Name:            "Series exception",
+		Teachers: []TeacherAssignment{
+			{TeacherID: teacherA, IsPrimary: true},
+			{TeacherID: teacherB},
+			{TeacherID: teacherC},
+		},
+	}); err != nil {
+		t.Fatalf("initial update failed: %v", err)
+	}
+
+	// Create 3 future sessions: 2 with teacher A (series default), 1 with teacher B (exception)
+	now := time.Now().UTC()
+	for _, s := range []struct {
+		teacher pgtype.UUID
+		days    int
+	}{
+		{teacherA, 14},
+		{teacherB, 16},
+		{teacherA, 18},
+	} {
+		start := pgtype.Timestamptz{Time: now.AddDate(0, 0, s.days).Truncate(time.Hour).Add(9 * time.Hour), Valid: true}
+		end := pgtype.Timestamptz{Time: start.Time.Add(time.Hour), Valid: true}
+		if _, err := f.q.SessionCreate(ctx, sqldb.SessionCreateParams{
+			CourseID: courseID, RoomID: roomID, TeacherID: s.teacher,
+			StartAt: start, EndAt: end,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Attempt to remove teacher B (has a future session) -> blocked
+	ce := requireErrorCode(t, f.mustUpdateErr(t, svc, courseID, UpdateCourseCommand{
+		CourseID:        courseID,
+		ActorID:         f.createTeacher(t, "Admin"),
+		ExpectedVersion: 2,
+		Code:            "SET-" + f.suffix,
+		Name:            "Series exception",
+		Teachers: []TeacherAssignment{
+			{TeacherID: teacherA, IsPrimary: true},
+			{TeacherID: teacherC},
+		},
+	}), "teacher_in_use")
+
+	if count, _ := ce.Details["future_session_count"].(int64); count != 1 {
+		t.Fatalf("expected future_session_count 1 for teacher B, got %v", ce.Details["future_session_count"])
+	}
+
+	// Verify version unchanged and all 3 teachers still assigned
+	if v := f.courseVersion(t, courseID); v != 2 {
+		t.Fatalf("expected version still 2 after blocked removal, got %d", v)
+	}
+	stored := f.courseTeacherIDs(t, courseID)
+	if _, ok := stored[teacherA.Bytes]; !ok {
+		t.Fatal("teacherA must still be assigned")
+	}
+	if _, ok := stored[teacherB.Bytes]; !ok {
+		t.Fatal("teacherB must still be assigned after blocked removal")
+	}
+	if _, ok := stored[teacherC.Bytes]; !ok {
+		t.Fatal("teacherC must still be assigned")
+	}
+
+	// Now remove teacher C (no sessions) -> success
+	if _, err := f.runUpdate(t, svc, UpdateCourseCommand{
+		CourseID:        courseID,
+		ActorID:         f.createTeacher(t, "Admin"),
+		ExpectedVersion: 2,
+		Code:            "SET-" + f.suffix,
+		Name:            "Series exception",
+		Teachers: []TeacherAssignment{
+			{TeacherID: teacherA, IsPrimary: true},
+			{TeacherID: teacherB},
+		},
+	}); err != nil {
+		t.Fatalf("removal of teacher C (no sessions) failed: %v", err)
+	}
+
+	// Verify version bumped and teacherC removed
+	if v := f.courseVersion(t, courseID); v != 3 {
+		t.Fatalf("expected version 3 after removing teacher C, got %d", v)
+	}
+	stored2 := f.courseTeacherIDs(t, courseID)
+	if _, ok := stored2[teacherC.Bytes]; ok {
+		t.Fatal("teacherC must be removed")
+	}
+}
+
 func TestUpdateCourseTx_AtomicityOnAggregateFailure(t *testing.T) {
 	f := setupTestDB(t)
 	svc := NewService()

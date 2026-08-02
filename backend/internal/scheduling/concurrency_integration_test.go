@@ -558,6 +558,104 @@ func TestCourseTeacherMembership_TeacherRemovalRace(t *testing.T) {
 	}
 }
 
+// TestCourseTeacherMembership_SeriesCreationRace asserts the invariant under
+// real concurrency: a series must never materialize sessions whose teacher is
+// no longer in the course's teacher set. Exactly two outcomes are valid:
+//   - series creation wins: sessions materialize AND removal fails with
+//     teacher_in_use (teacherB now owns future occurrences);
+//   - removal wins: teacherB leaves the set AND series creation fails with
+//     teacher_not_assigned_to_course.
+//
+// The invalid double-success outcome (series committed with teacherB after
+// teacherB was removed from the set) must never occur. Both writers serialize
+// on the course row lock (FOR UPDATE), so a third mixed outcome is impossible.
+func TestCourseTeacherMembership_SeriesCreationRace(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	admin := courseadmin.NewService()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		// Fresh course + teachers + room per attempt so no state leaks
+		// between races.
+		teacherA := createMembershipTeacher(t, ctx, q, "mem-screate-race-a")
+		teacherB := createMembershipTeacher(t, ctx, q, "mem-screate-race-b")
+		room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-mem-screate-race-" + uuid.New().String()[:8], Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-SCREATE-RACE-" + uuid.New().String()[:8], Name: "Membership series create race"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		addTeacherToCourse(t, ctx, q, course.ID, teacherA)
+		addTeacherToCourse(t, ctx, q, course.ID, teacherB)
+
+		actor := createMembershipActor(t, ctx, q, "mem-screate-race")
+
+		// Series runs 30 days out, 1-week duration, so all occurrences are
+		// in the future.
+		futureStart := time.Now().UTC().AddDate(0, 0, 30)
+		startDate := LocalDate{Year: futureStart.Year(), Month: time.Month(futureStart.Month()), Day: futureStart.Day()}
+		futureEnd := futureStart.AddDate(0, 0, 6)
+		endDate := LocalDate{Year: futureEnd.Year(), Month: time.Month(futureEnd.Month()), Day: futureEnd.Day()}
+
+		// Per-side result channels keep the outcome attribution deterministic.
+		createResult := make(chan error, 1)
+		removeResult := make(chan error, 1)
+		ready := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-ready
+			_, err := svc.CreateSeriesAndMaterialize(ctx, CreateSeriesParams{
+				CourseID:        course.ID,
+				RoomID:          room.ID,
+				TeacherID:       teacherB,
+				Weekdays:        []time.Weekday{time.Monday, time.Wednesday, time.Friday},
+				StartLocalTime:  Clock{Hour: 10, Minute: 0},
+				DurationMinutes: 60,
+				StartDate:       startDate,
+				EndDate:         &endDate,
+			})
+			createResult <- err
+		}()
+		go func() {
+			defer wg.Done()
+			<-ready
+			removeResult <- replaceTeacherSetTx(t, admin, dbpool, course.ID, []courseadmin.TeacherAssignment{
+				{TeacherID: teacherA, IsPrimary: true},
+			}, actor)
+		}()
+		close(ready)
+		wg.Wait()
+		createErr := <-createResult
+		removeErr := <-removeResult
+
+		createOK := createErr == nil
+		removeOK := removeErr == nil
+		createRejected := isErrCode(createErr, ErrTeacherNotAssigned)
+		removeBlocked := isCourseadminCode(removeErr, "teacher_in_use")
+
+		if createOK && removeOK {
+			t.Fatalf("attempt %d: INVALID outcome — series committed with teacherB while teacherB was removed from the set", i)
+		}
+		if createRejected && removeBlocked {
+			t.Fatalf("attempt %d: both writers rejected (create=%v removal=%v) — not a valid outcome", i, createErr, removeErr)
+		}
+		if !(createOK && removeBlocked) && !(createRejected && removeOK) {
+			t.Fatalf("attempt %d: unexpected outcome — create=%v removal=%v", i, createErr, removeErr)
+		}
+	}
+}
+
 // TestCourseTeacherMembership_EditEntireSeriesFutureTeacherValidates closes
 // the PR5 gap where an edit-entire-series operation could rewrite future
 // occurrences to a teacher outside the course's teacher set: the new teacher
@@ -769,4 +867,54 @@ func isErrCode(err error, code string) bool {
 func isCourseadminCode(err error, code string) bool {
 	var ce *courseadmin.Error
 	return errors.As(err, &ce) && ce.Code == code
+}
+
+// TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation documents the current behavior: checkCourseTeacherMembership only verifies the teacher_id exists in course_teachers — it does not check whether the user is active (deleted_at IS NULL) or has the Teacher role. A deactivated teacher who remains in the course's teacher set can still host sessions. This is a behavioral gap: the scheduling path does not re-validate user eligibility. The courseadmin path (validateTeachersExistAndCanTeach) does validate user status during assignment, but session/series creation bypasses it.
+func TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	teacherA := createMembershipTeacher(t, ctx, q, "mem-deact-a")
+	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "R-mem-deact-" + uuid.New().String()[:8], Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-DEACT-" + uuid.New().String()[:8], Name: "Membership deactivation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addTeacherToCourse(t, ctx, q, course.ID, teacherA)
+
+	// Deactivate the teacher
+	if _, err := dbpool.Exec(ctx, `UPDATE users SET deleted_at = now() WHERE id = $1`, teacherA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session create must still succeed — checkCourseTeacherMembership only checks course_teachers
+	start, end := membershipFutureSlot(7 * 24 * time.Hour)
+	_, err = svc.CreateSession(ctx, CreateSessionParams{
+		CourseID: course.ID, RoomID: room.ID, TeacherID: teacherA, StartAt: start, EndAt: end,
+	})
+	if err != nil {
+		t.Fatalf("session create with deactivated teacher failed (current behavior allows this): %v", err)
+	}
+
+	// Also verify series creation with deactivated teacher succeeds
+	firstDay := time.Now().UTC().AddDate(0, 0, 14)
+	startDate := LocalDate{Year: firstDay.Year(), Month: firstDay.Month(), Day: firstDay.Day()}
+	endDate := startDate
+	_, err = svc.CreateSeriesAndMaterialize(ctx, CreateSeriesParams{
+		CourseID: course.ID, RoomID: room.ID, TeacherID: teacherA,
+		Weekdays: []time.Weekday{firstDay.Weekday()}, StartLocalTime: Clock{Hour: 10, Minute: 0},
+		DurationMinutes: 60, StartDate: startDate, EndDate: &endDate,
+	})
+	if err != nil {
+		t.Fatalf("series create with deactivated teacher failed (current behavior allows this): %v", err)
+	}
 }
