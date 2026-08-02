@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,7 +103,7 @@ func uuidFromString(s string) (pgtype.UUID, error) {
 	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
-func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Queries, in preflightInput) *Err {
+func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Queries, in preflightInput) (*Err, error) {
 	ignoreSeries := in.IgnoreSeries
 	if in.Requested.StartAt == "" {
 		in.Requested.StartAt = in.StartUTC.UTC().Format(time.RFC3339Nano)
@@ -111,104 +112,170 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 		in.Requested.EndAt = in.EndUTC.UTC().Format(time.RFC3339Nano)
 	}
 
-	// Teacher membership (advisory): a course with an assigned teacher set only
-	// accepts sessions from that set, so an unassigned teacher is surfaced as a
-	// conflict before any availability/overlap checks. Courses with NO teachers
-	// assigned are skipped here (legacy leniency — blocking every legacy course
-	// in the UI would be a regression); the transactional check remains
-	// authoritative and rejects any teacher for an empty set.
+	// Teacher membership: a course accepts sessions only from its assigned teacher
+	// set, so membership conflicts are surfaced before availability/overlap checks.
+	// A time-only or room-only edit of an existing session is the one historical
+	// exception: if the ignored session still has the requested course and teacher,
+	// clearing that course's teacher set must not invalidate the existing session.
 	if in.CourseID.Valid && in.TeacherID.Valid {
-		hasTeachers, err := q.CourseTeacherSetExists(ctx, in.CourseID)
+		m, err := q.CourseTeacherMembershipGet(ctx, sqldb.CourseTeacherMembershipGetParams{CourseID: in.CourseID, TeacherID: in.TeacherID})
 		if err != nil {
-			return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested}}
+			return nil, fmt.Errorf("check teacher membership: %w", err)
 		}
-		if hasTeachers {
-			assigned, err := q.CourseTeacherExists(ctx, sqldb.CourseTeacherExistsParams{CourseID: in.CourseID, TeacherID: in.TeacherID})
-			if err != nil {
-				return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested}}
-			}
-			if !assigned {
-				return &Err{
-					Code:    ErrTeacherNotAssigned,
-					Message: "The selected teacher is not assigned to this course.",
-					Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Conflicts: nil, Requested: in.Requested},
+		if !m.CourseExists {
+			return &Err{
+				Code:    ErrCourseNotFound,
+				Message: "Course not found.",
+				Details: ConflictDetails{Kind: ConflictKindCourseNotFound, Requested: in.Requested},
+			}, nil
+		}
+		if !m.HasTeachers {
+			preserveHistoricalMembership := false
+			if in.IgnoreSession != nil && in.IgnoreSession.Valid {
+				ignoredSession, err := q.SessionGetByID(ctx, *in.IgnoreSession)
+				if err != nil {
+					return nil, fmt.Errorf("check ignored session: %w", err)
 				}
+				preserveHistoricalMembership = ignoredSession.CourseID.Valid && ignoredSession.TeacherID.Valid &&
+					ignoredSession.CourseID.Bytes == in.CourseID.Bytes &&
+					ignoredSession.TeacherID.Bytes == in.TeacherID.Bytes
+			}
+			if !preserveHistoricalMembership {
+				return &Err{
+					Code:    ErrCourseHasNoTeachers,
+					Message: "This course has no assigned teachers. Please configure teacher assignments before scheduling.",
+					Details: ConflictDetails{Kind: ConflictKindCourseHasNoTeachers, Requested: in.Requested},
+				}, nil
 			}
 		}
+		if m.HasTeachers && !m.Assigned {
+			return &Err{
+				Code:    ErrTeacherNotAssigned,
+				Message: "The selected teacher is not assigned to this course.",
+				Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned, Requested: in.Requested},
+			}, nil
+		}
+	}
+
+	// Resource validation — verify all referenced resources exist.
+	resources, err := q.SchedulingResourcesGet(ctx, sqldb.SchedulingResourcesGetParams{CourseID: in.CourseID, TeacherID: in.TeacherID, RoomID: in.RoomID})
+	if err != nil {
+		return nil, fmt.Errorf("check resources: %w", err)
+	}
+	if !resources.CourseExists {
+		return &Err{Code: ErrCourseNotFound, Message: "Course not found.", Details: ConflictDetails{Kind: ConflictKindCourseNotFound}}, nil
+	}
+	if !resources.TeacherExists {
+		return &Err{Code: ErrTeacherNotFound, Message: "Teacher not found.", Details: ConflictDetails{Kind: ConflictKindTeacherNotFound}}, nil
+	}
+	if !resources.TeacherActive {
+		return &Err{Code: ErrTeacherInactive, Message: "Teacher is inactive.", Details: ConflictDetails{Kind: ConflictKindTeacherInactive}}, nil
+	}
+	if in.RoomID.Valid && !resources.RoomExists {
+		return &Err{Code: ErrRoomNotFound, Message: "Room not found.", Details: ConflictDetails{Kind: ConflictKindRoomNotFound}}, nil
 	}
 
 	// Availability (when windows exist).
 	if ok, err := q.IsTeacherAvailable(ctx, in.TeacherID, in.StartUTC, in.EndUTC); err != nil {
-		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherAvailability, Conflicts: nil, Requested: in.Requested}}
+		return nil, fmt.Errorf("check teacher availability: %w", err)
 	} else if !ok {
 		return &Err{
 			Code:    "availability_violation",
 			Message: "teacher not available for requested time",
 			Details: ConflictDetails{Kind: ConflictKindTeacherAvailability, Conflicts: nil, Requested: in.Requested},
-		}
+		}, nil
 	}
 
 	if in.RoomID.Valid {
 		if ok, err := q.IsRoomAvailable(ctx, in.RoomID, in.StartUTC, in.EndUTC); err != nil {
-			return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindRoomAvailability, Conflicts: nil, Requested: in.Requested}}
+			return nil, fmt.Errorf("check room availability: %w", err)
 		} else if !ok {
 			return &Err{
 				Code:    "availability_violation",
 				Message: "room not available for requested time",
 				Details: ConflictDetails{Kind: ConflictKindRoomAvailability, Conflicts: nil, Requested: in.Requested},
-			}
+			}, nil
 		}
 	}
 
 	// Overlaps.
-	if conflicts, err := s.overlappingSessionsByRoom(ctx, db, in.RoomID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
-		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindRoomOverlap, Conflicts: nil, Requested: in.Requested}}
+	if conflicts, totalCount, truncated, err := s.overlappingSessionsByRoom(ctx, db, in.RoomID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
+		return nil, fmt.Errorf("check room overlap: %w", err)
 	} else if len(conflicts) > 0 {
 		return &Err{
 			Code:    "schedule_conflict",
 			Message: "Schedule conflict",
-			Details: ConflictDetails{Kind: ConflictKindRoomOverlap, Conflicts: conflicts, Requested: in.Requested},
-		}
+			Details: ConflictDetails{
+				Kind:               ConflictKindRoomOverlap,
+				Conflicts:          conflicts,
+				TotalConflicts:     totalCount,
+				ConflictsTruncated: truncated,
+				Requested:          in.Requested,
+			},
+		}, nil
 	}
 
-	if conflicts, err := s.overlappingSessionsByTeacher(ctx, db, in.TeacherID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
-		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindTeacherOverlap, Conflicts: nil, Requested: in.Requested}}
+	if conflicts, totalCount, truncated, err := s.overlappingSessionsByTeacher(ctx, db, in.TeacherID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
+		return nil, fmt.Errorf("check teacher overlap: %w", err)
 	} else if len(conflicts) > 0 {
 		return &Err{
 			Code:    "schedule_conflict",
 			Message: "Schedule conflict",
-			Details: ConflictDetails{Kind: ConflictKindTeacherOverlap, Conflicts: conflicts, Requested: in.Requested},
-		}
+			Details: ConflictDetails{
+				Kind:               ConflictKindTeacherOverlap,
+				Conflicts:          conflicts,
+				TotalConflicts:     totalCount,
+				ConflictsTruncated: truncated,
+				Requested:          in.Requested,
+			},
+		}, nil
 	}
 
 	if in.StudentIDs != nil {
 		if len(*in.StudentIDs) > 0 {
-			if conflicts, err := s.overlappingSessionsByStudents(ctx, db, *in.StudentIDs, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
-				return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindStudentOverlap, Conflicts: nil, Requested: in.Requested}}
+			if conflicts, totalCount, truncated, err := s.overlappingSessionsByStudents(ctx, db, *in.StudentIDs, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
+				return nil, fmt.Errorf("check student overlap: %w", err)
 			} else if len(conflicts) > 0 {
 				sessionIDs := make([]string, len(conflicts))
 				for i, c := range conflicts {
 					sessionIDs[i] = c.SessionID
 				}
-				conflictingStudents, _ := s.conflictingStudentsForOverlap(ctx, db, sessionIDs, *in.StudentIDs, in.CourseID)
+				conflictingStudents, detailErr := s.conflictingStudentsForOverlap(ctx, db, sessionIDs, *in.StudentIDs, in.CourseID)
+				if detailErr != nil {
+					// Enrichment failed — return conflict with safe partial details
+					return &Err{
+						Code:    "schedule_conflict",
+						Message: "Schedule conflict",
+						Details: ConflictDetails{
+							Kind:                ConflictKindStudentOverlap,
+							Conflicts:           conflicts,
+							TotalConflicts:      totalCount,
+							ConflictsTruncated:  truncated,
+							ConflictingStudents: nil,
+							Requested:           in.Requested,
+						},
+					}, nil
+				}
 				return &Err{
 					Code:    "schedule_conflict",
 					Message: "Schedule conflict",
 					Details: ConflictDetails{
 						Kind:                ConflictKindStudentOverlap,
 						Conflicts:           conflicts,
+						TotalConflicts:      totalCount,
+						ConflictsTruncated:  truncated,
 						ConflictingStudents: conflictingStudents,
 						Requested:           in.Requested,
 					},
-				}
+				}, nil
 			}
 		}
 		// Explicit non-nil StudentIDs (even if empty) means we skip the course-roster fallback.
-		return nil
+		return nil, nil
 	}
 
-	if conflicts, err := s.overlappingSessionsByStudentsInCourse(ctx, db, in.CourseID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
-		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindStudentOverlap, Conflicts: nil, Requested: in.Requested}}
+	if conflicts, totalCount, truncated, err := s.overlappingSessionsByStudentsInCourse(ctx, db, in.CourseID, in.StartUTC, in.EndUTC, in.IgnoreSession, ignoreSeries); err != nil {
+		return nil, fmt.Errorf("check student overlap: %w", err)
 	} else if len(conflicts) > 0 {
 		sessionIDs := make([]string, len(conflicts))
 		for i, c := range conflicts {
@@ -221,19 +288,37 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 			Details: ConflictDetails{
 				Kind:                ConflictKindStudentOverlap,
 				Conflicts:           conflicts,
+				TotalConflicts:      totalCount,
+				ConflictsTruncated:  truncated,
 				ConflictingStudents: conflictingStudents,
 				Requested:           in.Requested,
 			},
-		}
+		}, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
-func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DBTX, studentIDs []pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, error) {
+func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DBTX, studentIDs []pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, int, bool, error) {
 	if len(studentIDs) == 0 {
-		return nil, nil
+		return nil, 0, false, nil
 	}
+	// Count total matching conflicts.
+	var totalCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT s.id)
+		FROM student_busy_ranges br
+		JOIN sessions s ON s.id = br.session_id
+		WHERE br.deleted_at IS NULL
+		  AND s.deleted_at IS NULL
+		  AND br.student_id = ANY($1::uuid[])
+		  AND br.time_range && tstzrange($2, $3, '[)')
+		  AND ($4::uuid IS NULL OR s.id <> $4)
+		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
+	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+		return nil, 0, false, err
+	}
+	truncated := totalCount > 25
 	rows, err := db.Query(ctx, `
 		SELECT DISTINCT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at
 		FROM student_busy_ranges br
@@ -248,16 +333,34 @@ func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DB
 		LIMIT 25
 	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	defer rows.Close()
-	return scanConflictSessions(rows)
+	conflicts, err := scanConflictSessions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return conflicts, totalCount, truncated, nil
 }
 
-func (s *Service) overlappingSessionsByRoom(ctx context.Context, db sqldb.DBTX, roomID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, error) {
+func (s *Service) overlappingSessionsByRoom(ctx context.Context, db sqldb.DBTX, roomID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, int, bool, error) {
 	if !roomID.Valid {
-		return nil, nil
+		return nil, 0, false, nil
 	}
+	// Count total matching conflicts.
+	var totalCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM sessions
+		WHERE deleted_at IS NULL
+		  AND room_id = $1
+		  AND time_range && tstzrange($2, $3, '[)')
+		  AND ($4::uuid IS NULL OR id <> $4)
+		  AND ($5::uuid IS NULL OR series_id IS DISTINCT FROM $5)
+	`, roomID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+		return nil, 0, false, err
+	}
+	truncated := totalCount > 25
 	rows, err := db.Query(ctx, `
 		SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at
 		FROM sessions
@@ -270,13 +373,31 @@ func (s *Service) overlappingSessionsByRoom(ctx context.Context, db sqldb.DBTX, 
 		LIMIT 25
 	`, roomID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	defer rows.Close()
-	return scanConflictSessions(rows)
+	conflicts, err := scanConflictSessions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return conflicts, totalCount, truncated, nil
 }
 
-func (s *Service) overlappingSessionsByTeacher(ctx context.Context, db sqldb.DBTX, teacherID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, error) {
+func (s *Service) overlappingSessionsByTeacher(ctx context.Context, db sqldb.DBTX, teacherID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, int, bool, error) {
+	// Count total matching conflicts.
+	var totalCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM sessions
+		WHERE deleted_at IS NULL
+		  AND teacher_id = $1
+		  AND time_range && tstzrange($2, $3, '[)')
+		  AND ($4::uuid IS NULL OR id <> $4)
+		  AND ($5::uuid IS NULL OR series_id IS DISTINCT FROM $5)
+	`, teacherID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+		return nil, 0, false, err
+	}
+	truncated := totalCount > 25
 	rows, err := db.Query(ctx, `
 		SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at
 		FROM sessions
@@ -289,13 +410,33 @@ func (s *Service) overlappingSessionsByTeacher(ctx context.Context, db sqldb.DBT
 		LIMIT 25
 	`, teacherID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	defer rows.Close()
-	return scanConflictSessions(rows)
+	conflicts, err := scanConflictSessions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return conflicts, totalCount, truncated, nil
 }
 
-func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db sqldb.DBTX, courseID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, error) {
+func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db sqldb.DBTX, courseID pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, int, bool, error) {
+	// Count total matching conflicts.
+	var totalCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT s.id)
+		FROM student_busy_ranges br
+		JOIN sessions s ON s.id = br.session_id
+		JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
+		WHERE br.deleted_at IS NULL
+		  AND s.deleted_at IS NULL
+		  AND br.time_range && tstzrange($2, $3, '[)')
+		  AND ($4::uuid IS NULL OR s.id <> $4)
+		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
+	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+		return nil, 0, false, err
+	}
+	truncated := totalCount > 25
 	rows, err := db.Query(ctx, `
 		WITH roster AS (
 			SELECT student_id
@@ -315,10 +456,14 @@ func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db 
 		LIMIT 25
 	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	defer rows.Close()
-	return scanConflictSessions(rows)
+	conflicts, err := scanConflictSessions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return conflicts, totalCount, truncated, nil
 }
 
 type conflictRows interface {

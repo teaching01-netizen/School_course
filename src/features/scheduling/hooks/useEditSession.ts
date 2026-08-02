@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { ApiRequestError, apiJson } from "@/api/client";
-import { usePreflight } from "./usePreflight";
+import { usePreflight, type PreflightParams } from "./usePreflight";
+import { useDebouncedPreflight } from "./useDebouncedPreflight";
 import usePreflightGate from "./usePreflightGate";
 import { localDateTimeToUTCISO } from "../domain/time";
 import { utcISOToZoneLocalInput } from "@/utils/timezone";
@@ -61,8 +62,6 @@ export function useEditSession(
   attendanceOverridesRef.current = attendanceOverrides;
   const attendanceOverridesLoadedRef = useRef(attendanceOverridesLoaded);
   attendanceOverridesLoadedRef.current = attendanceOverridesLoaded;
-  const preflightCheckIdRef = useRef(0);
-
   const openModal = useCallback((sess: Session) => {
     const zone = instituteTZ;
     setSession(sess);
@@ -109,28 +108,13 @@ export function useEditSession(
     void loadAttendanceOverrides(session.id);
   }, [open, session?.id]);
 
-  // Run preflight when form changes — reads latest refs to avoid closure traps
-  useEffect(() => {
-    if (!open || !session) {
-      preflight.reset();
-      return;
-    }
+  // Debounced preflight — triggers once per settled input window
+  const debouncedParams = useMemo<PreflightParams | null>(() => {
+    if (!open || !session) return null;
     const startISO = localDateTimeToUTCISO(form.start_local, instituteTZ);
     const endISO = localDateTimeToUTCISO(form.end_local, instituteTZ);
-    if (!startISO || !endISO || endISO <= startISO) {
-      preflight.reset();
-      return;
-    }
-    const payload: {
-      session_id: string;
-      course_id: string;
-      room_id: string | null;
-      teacher_id: string;
-      start_at: string;
-      end_at: string;
-      included_student_ids?: string[];
-      excluded_student_ids?: string[];
-    } = {
+    if (!startISO || !endISO || endISO <= startISO) return null;
+    const payload: PreflightParams = {
       session_id: session.id,
       course_id: form.course_id,
       room_id: form.room_id || null,
@@ -146,11 +130,10 @@ export function useEditSession(
         .filter((o) => o.status === "excluded")
         .map((o) => o.student_id);
     }
-    const thisCallId = ++preflightCheckIdRef.current;
-    preflight.check(payload).then(() => {
-      if (thisCallId !== preflightCheckIdRef.current) return;
-    });
+    return payload;
   }, [open, session?.id, form.course_id, form.room_id, form.teacher_id, form.start_local, form.end_local, instituteTZ]);
+
+  useDebouncedPreflight(preflight, debouncedParams, { enabled: open });
 
   const submit = useCallback(async (acknowledgeImpact = false) => {
     if (!session) return;

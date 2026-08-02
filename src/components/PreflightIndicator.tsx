@@ -13,6 +13,12 @@ function conflictSuggestion(kind: string): string {
     case "student_overlap": return "Reschedule or manage student attendance overrides";
     case "teacher_availability": return "Select a time within the teacher's working hours";
     case "room_availability": return "Select a time when the room is available";
+    case "teacher_not_assigned_to_course": return "Choose a teacher assigned to this course, or update the course's teacher assignments";
+    case "course_has_no_assigned_teachers": return "Configure teacher assignments for this course before scheduling";
+    case "course_not_found": return "The course was not found";
+    case "teacher_not_found": return "The teacher was not found";
+    case "teacher_inactive": return "The teacher is no longer active";
+    case "room_not_found": return "The room was not found or is inactive";
     default: return "Adjust the schedule to resolve conflicts";
   }
 }
@@ -27,12 +33,13 @@ export function getSaveButtonLabel(
   if (preflight.loading) return "Checking…";
   if (preflight.status === "blocked" && details) return `Blocked — ${conflictSuggestion(details.kind).toLowerCase()}`;
   if (preflight.status === "blocked") return "Blocked — fix conflicts";
+  if (preflight.status === "error") return "Unavailable — check schedule";
   return submitLabel;
 }
 
 export function isSaveDisabled(preflight: PreflightSnapshot): boolean {
   if (preflight.loading) return true;
-  if (preflight.status === "blocked" || preflight.status === "idle") return true;
+  if (preflight.status === "blocked" || preflight.status === "error" || preflight.status === "idle") return true;
   return false;
 }
 
@@ -93,6 +100,7 @@ export function PreflightBadge({ status, details, loading }: PreflightBadgeProps
       </span>
     );
   }
+  if (status === "error") return <span className="text-xs text-amber-700">Error</span>;
   return null;
 }
 
@@ -136,9 +144,11 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
             <div className="flex items-center gap-1.5 text-red-700">
               <span>Blocked</span>
               {details && (
-                <span className="text-xs text-red-600">— {conflictKindLabel(details.kind).label}</span>
+                <span className="text-xs text-red-700">— {conflictKindLabel(details.kind).label}</span>
               )}
             </div>
+          ) : status === "error" ? (
+            <div className="text-amber-700">Could not check the schedule</div>
           ) : (() => {
             if (requiredFields) {
               const missingLabels = requiredFields.filter(f => !f.value).map(f => f.label);
@@ -176,7 +186,13 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
               <div className="font-medium text-red-800 mb-1">
                 {conflictKindLabel(details.kind).label}
                 {conflictCount > 0 && (
-                  <span className="ml-1.5 text-red-600 font-normal">{conflictCount} {conflictCount === 1 ? "conflict" : "conflicts"}</span>
+                  <span className="ml-1.5 text-red-700 font-normal">
+                    {conflictCount === 1
+                      ? "1 conflict"
+                      : details.total_conflicts !== undefined && details.total_conflicts > conflictCount
+                        ? `Showing ${conflictCount} of ${details.total_conflicts} conflicts`
+                        : `${conflictCount} conflicts`}
+                  </span>
                 )}
               </div>
               <div className="text-red-700 text-[11px] mb-1">
@@ -195,9 +211,9 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                 <div className="font-semibold text-gray-600 text-[11px]">
                   {isSeries ? "First blocked occurrence" : "Your requested time"}
                 </div>
-                <div className="text-gray-500">{formatTimeRange(details.requested.start_at, details.requested.end_at)}</div>
-                <div className="text-gray-400 mt-0.5">{getRequestedLabel(details.requested, coursesById, teachersById)}</div>
-                {details.requested.room_id && <div className="text-gray-400 mt-0.5">Room: {roomsById?.get(details.requested.room_id)?.name ?? details.requested.room_id}</div>}
+                <div className="text-gray-600">{formatTimeRange(details.requested.start_at, details.requested.end_at)}</div>
+                <div className="text-gray-600 mt-0.5">{getRequestedLabel(details.requested, coursesById, teachersById)}</div>
+                {details.requested.room_id && <div className="text-gray-600 mt-0.5">Room: {roomsById?.get(details.requested.room_id)?.name ?? details.requested.room_id}</div>}
               </div>
               {conflictCount > 0 && (
                 <div className="mt-2">
@@ -207,7 +223,11 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                     className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
                   >
                     <span className="inline-block w-2">{conflictsExpanded ? "\u25BE" : "\u25B8"}</span>
-                    {conflictCount === 1 ? "1 conflict" : `${conflictCount} conflicts`}
+                    {conflictCount === 1
+                      ? "1 conflict"
+                      : details.total_conflicts !== undefined && details.total_conflicts > conflictCount
+                        ? `Showing ${conflictCount} of ${details.total_conflicts}`
+                        : `${conflictCount} conflicts`}
                   </button>
                   {conflictsExpanded && (
                     <ul className="list-disc pl-5 space-y-1 mt-1">
@@ -219,11 +239,15 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                           >
                             {getConflictItemLabel(c, coursesById, teachersById, roomsById)}
                           </Link>
-                          <span className="text-gray-400 ml-1">({formatTimeRange(c.start_at, c.end_at)})</span>
+                          <span className="text-gray-600 ml-1">({formatTimeRange(c.start_at, c.end_at)})</span>
                         </li>
                       ))}
                       {conflictCount > MAX_VISIBLE_CONFLICTS && (
-                        <li className="text-gray-500 italic">+{conflictCount - MAX_VISIBLE_CONFLICTS} more conflicts</li>
+                        <li className="text-gray-500 italic">
+                          {details.total_conflicts !== undefined
+                            ? `+${details.total_conflicts - MAX_VISIBLE_CONFLICTS} more`
+                            : `+${conflictCount - MAX_VISIBLE_CONFLICTS} more conflicts`}
+                        </li>
                       )}
                     </ul>
                   )}
@@ -255,6 +279,28 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {status === "error" && (
+        <div role="alert" className="mt-2 border border-amber-200 bg-amber-50 rounded px-2 py-1.5" data-testid="preflight-error">
+          <p className="font-semibold text-amber-800 dark:text-amber-200">
+            Could not check the schedule
+          </p>
+          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+            The availability service did not respond.
+            Your changes have not been saved.
+          </p>
+          <button
+            onClick={() => {
+              if (preflight.lastParams) preflight.check(preflight.lastParams);
+            }}
+            type="button"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-100 hover:bg-amber-200 rounded px-2 py-1 transition-colors"
+            aria-label="Try checking availability again"
+          >
+            Try again
+          </button>
         </div>
       )}
     </div>

@@ -653,6 +653,33 @@ func (q *Queries) SessionReparentFutureBySeries(ctx context.Context, arg Session
 	return moved, err
 }
 
+const sessionSoftDeleteFutureBySeriesCount = `-- name: SessionSoftDeleteFutureBySeriesCount :one
+WITH soft_deleted AS (
+  UPDATE sessions
+  SET deleted_at = COALESCE(deleted_at, now()),
+      updated_at = now(),
+      version = version + 1
+  WHERE series_id = $1
+    AND start_at >= $2
+    AND deleted_at IS NULL
+  RETURNING 1
+)
+SELECT count(*)::int4 AS canceled
+FROM soft_deleted
+`
+
+type SessionSoftDeleteFutureBySeriesCountParams struct {
+	SeriesID pgtype.UUID        `json:"series_id"`
+	StartAt  pgtype.Timestamptz `json:"start_at"`
+}
+
+func (q *Queries) SessionSoftDeleteFutureBySeriesCount(ctx context.Context, arg SessionSoftDeleteFutureBySeriesCountParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sessionSoftDeleteFutureBySeriesCount, arg.SeriesID, arg.StartAt)
+	var canceled int32
+	err := row.Scan(&canceled)
+	return canceled, err
+}
+
 const sessionUpdateOccurrence = `-- name: SessionUpdateOccurrence :one
 UPDATE sessions
 SET course_id = $2,

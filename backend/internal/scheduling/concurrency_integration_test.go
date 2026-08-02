@@ -243,7 +243,16 @@ func TestCourseTeacherMembership_CourseWithoutTeachersRejectsAnyTeacher(t *testi
 	_, err = svc.CreateSession(ctx, CreateSessionParams{
 		CourseID: course.ID, RoomID: room.ID, TeacherID: teacherA, StartAt: start, EndAt: end,
 	})
-	assertTeacherNotAssigned(t, err, course.ID, teacherA)
+	var se *Err
+	if !errors.As(err, &se) {
+		t.Fatalf("expected *scheduling.Err, got %T (%v)", err, err)
+	}
+	if se.Code != ErrCourseHasNoTeachers {
+		t.Fatalf("expected code %q, got %q", ErrCourseHasNoTeachers, se.Code)
+	}
+	if se.Details.Kind != ConflictKindCourseHasNoTeachers {
+		t.Fatalf("expected kind %q, got %q", ConflictKindCourseHasNoTeachers, se.Details.Kind)
+	}
 
 	// Assign the teacher and the same create must now succeed.
 	addTeacherToCourse(t, ctx, q, course.ID, teacherA)
@@ -477,7 +486,13 @@ func TestCourseTeacherMembership_TeacherRemovalSequential(t *testing.T) {
 		_, err = svc.CreateSession(ctx, CreateSessionParams{
 			CourseID: course.ID, TeacherID: teacherA, StartAt: start, EndAt: end,
 		})
-		assertTeacherNotAssigned(t, err, course.ID, teacherA)
+		var se *Err
+		if !errors.As(err, &se) {
+			t.Fatalf("expected *scheduling.Err, got %T (%v)", err, err)
+		}
+		if se.Code != ErrCourseHasNoTeachers {
+			t.Fatalf("expected code %q, got %q", ErrCourseHasNoTeachers, se.Code)
+		}
 	})
 }
 
@@ -543,7 +558,7 @@ func TestCourseTeacherMembership_TeacherRemovalRace(t *testing.T) {
 
 		createOK := createErr == nil
 		removeOK := removeErr == nil
-		createRejected := isErrCode(createErr, ErrTeacherNotAssigned)
+		createRejected := isErrCode(createErr, ErrTeacherNotAssigned) || isErrCode(createErr, ErrCourseHasNoTeachers)
 		removeBlocked := isCourseadminCode(removeErr, "teacher_in_use")
 
 		if createOK && removeOK {
@@ -869,8 +884,7 @@ func isCourseadminCode(err error, code string) bool {
 	return errors.As(err, &ce) && ce.Code == code
 }
 
-// TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation documents the current behavior: checkCourseTeacherMembership only verifies the teacher_id exists in course_teachers — it does not check whether the user is active (deleted_at IS NULL) or has the Teacher role. A deactivated teacher who remains in the course's teacher set can still host sessions. This is a behavioral gap: the scheduling path does not re-validate user eligibility. The courseadmin path (validateTeachersExistAndCanTeach) does validate user status during assignment, but session/series creation bypasses it.
-func TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation(t *testing.T) {
+func TestCourseTeacherMembership_TeacherDeactivationRejectsScheduling(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
 	dbpool := newPool(t, databaseURL)
@@ -896,16 +910,14 @@ func TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation(
 		t.Fatal(err)
 	}
 
-	// Session create must still succeed — checkCourseTeacherMembership only checks course_teachers
 	start, end := membershipFutureSlot(7 * 24 * time.Hour)
 	_, err = svc.CreateSession(ctx, CreateSessionParams{
 		CourseID: course.ID, RoomID: room.ID, TeacherID: teacherA, StartAt: start, EndAt: end,
 	})
-	if err != nil {
-		t.Fatalf("session create with deactivated teacher failed (current behavior allows this): %v", err)
+	if !isErrCode(err, ErrTeacherNotFound) {
+		t.Fatalf("expected deactivated teacher to be rejected as %q, got %v", ErrTeacherNotFound, err)
 	}
 
-	// Also verify series creation with deactivated teacher succeeds
 	firstDay := time.Now().UTC().AddDate(0, 0, 14)
 	startDate := LocalDate{Year: firstDay.Year(), Month: firstDay.Month(), Day: firstDay.Day()}
 	endDate := startDate
@@ -914,7 +926,7 @@ func TestCourseTeacherMembership_TeacherDeactivationDoesNotBlockSessionCreation(
 		Weekdays: []time.Weekday{firstDay.Weekday()}, StartLocalTime: Clock{Hour: 10, Minute: 0},
 		DurationMinutes: 60, StartDate: startDate, EndDate: &endDate,
 	})
-	if err != nil {
-		t.Fatalf("series create with deactivated teacher failed (current behavior allows this): %v", err)
+	if !isErrCode(err, ErrTeacherNotFound) {
+		t.Fatalf("expected series creation to reject deactivated teacher as %q, got %v", ErrTeacherNotFound, err)
 	}
 }

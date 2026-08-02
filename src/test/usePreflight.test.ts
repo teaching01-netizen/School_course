@@ -22,9 +22,10 @@ describe("usePreflight", () => {
     expect(result.current.details).toBeNull();
     expect(result.current.error).toBeNull();
     expect(result.current.occurrencesPlanned).toBeNull();
+    expect(result.current.lastParams).toBeNull();
   });
 
-  it("check() sets loading", async () => {
+  it("check() sets loading and checking status", async () => {
     mockApiJson.mockImplementation(() => new Promise(() => {}));
     const { result } = renderHook(() => usePreflight());
 
@@ -33,6 +34,7 @@ describe("usePreflight", () => {
     });
 
     expect(result.current.loading).toBe(true);
+    expect(result.current.status).toBe("checking");
   });
 
   it("successful API call sets available", async () => {
@@ -59,7 +61,7 @@ describe("usePreflight", () => {
     expect(result.current.status).toBe("provisional");
   });
 
-  it("API error sets blocked with conflict details", async () => {
+  it("409 with conflict details sets blocked", async () => {
     const conflictDetails = { kind: "room_overlap", requested: { start_at: "", end_at: "", course_id: "c1", room_id: null, teacher_id: "t1" }, conflicts: [] };
     const err = new ApiRequestError("Conflict", { status: 409, code: "conflict" });
     err.details = conflictDetails;
@@ -76,7 +78,38 @@ describe("usePreflight", () => {
     expect(result.current.error).toBe(err);
   });
 
-  it("non-API error sets blocked without details", async () => {
+  it("500 db_error sets error status", async () => {
+    const err = new ApiRequestError("Database error", { status: 500, code: "db_error" });
+    err.details = { error: "internal" };
+    mockApiJson.mockRejectedValue(err);
+
+    const { result } = renderHook(() => usePreflight());
+
+    await act(async () => {
+      await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.details).toBeNull();
+    expect(result.current.error).toBe(err);
+  });
+
+  it("504 timeout sets error status", async () => {
+    const err = new ApiRequestError("Gateway timeout", { status: 504, code: "timeout" });
+    mockApiJson.mockRejectedValue(err);
+
+    const { result } = renderHook(() => usePreflight());
+
+    await act(async () => {
+      await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.details).toBeNull();
+    expect(result.current.error).toBe(err);
+  });
+
+  it("Network Error sets error status", async () => {
     mockApiJson.mockRejectedValue(new Error("Network error"));
 
     const { result } = renderHook(() => usePreflight());
@@ -85,12 +118,29 @@ describe("usePreflight", () => {
       await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
     });
 
-    expect(result.current.status).toBe("blocked");
+    expect(result.current.status).toBe("error");
     expect(result.current.details).toBeNull();
-    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error).toBeInstanceOf(ApiRequestError);
   });
 
-  it("reset() returns to idle", async () => {
+  it("409 without conflict details sets error status", async () => {
+    const err = new ApiRequestError("Conflict", { status: 409, code: "conflict" });
+    // details is not valid ConflictDetails — missing conflicts, requested
+    err.details = { foo: "bar" };
+    mockApiJson.mockRejectedValue(err);
+
+    const { result } = renderHook(() => usePreflight());
+
+    await act(async () => {
+      await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.details).toBeNull();
+    expect(result.current.error).toBe(err);
+  });
+
+  it("reset() returns to idle and aborts active request", async () => {
     mockApiJson.mockResolvedValue({ status: "available" });
     const { result } = renderHook(() => usePreflight());
 
@@ -105,13 +155,12 @@ describe("usePreflight", () => {
     expect(result.current.details).toBeNull();
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
+    expect(result.current.lastParams).toBeNull();
   });
 
   it("reset() ignores a stale in-flight response", async () => {
     let resolveFlight!: (v: unknown) => void;
-    mockApiJson.mockImplementation(() => new Promise((resolve) => {
-      resolveFlight = resolve;
-    }));
+    mockApiJson.mockImplementation(() => new Promise((resolve) => { resolveFlight = resolve; }));
     const { result } = renderHook(() => usePreflight());
 
     act(() => {
@@ -130,9 +179,38 @@ describe("usePreflight", () => {
       resolveFlight({ status: "available" });
     });
 
+    // reset aborted the controller, so resolved response is discarded
     expect(result.current.status).toBe("idle");
     expect(result.current.loading).toBe(false);
     expect(result.current.details).toBeNull();
+  });
+
+  it("aborted obsolete request does not show error", async () => {
+    let resolveA!: (v: unknown) => void;
+    mockApiJson
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveA = resolve; }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+
+    const { result } = renderHook(() => usePreflight());
+
+    act(() => {
+      void result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "", end_at: "" });
+    });
+
+    // Second check aborts the first
+    act(() => {
+      void result.current.check({ course_id: "c2", teacher_id: "t2", room_id: null, start_at: "", end_at: "" });
+    });
+
+    // Resolve the first (now aborted) check
+    await act(async () => {
+      resolveA({ status: "available" });
+    });
+
+    // First check was aborted — state should be checking (B in-flight)
+    expect(result.current.status).toBe("checking");
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(true);
   });
 
   it("uses preflight_series endpoint when specified", async () => {
@@ -169,13 +247,13 @@ describe("usePreflight", () => {
     act(() => { void result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z" }); });
     act(() => { void result.current.check({ course_id: "c2", teacher_id: "t2", room_id: null, start_at: "2024-01-02T00:00:00Z", end_at: "2024-01-02T01:00:00Z" }); });
 
-    // Resolve A (stale) after B is in-flight
+    // Resolve A (stale) after B is in-flight — A was aborted so is discarded
     await act(async () => {
       resolveA({ status: "provisional" });
     });
 
-    // Status should still be idle — B is still in-flight
-    expect(result.current.status).toBe("idle");
+    // B is still in-flight so status is checking
+    expect(result.current.status).toBe("checking");
     expect(result.current.loading).toBe(true);
 
     // Now resolve B
@@ -240,5 +318,38 @@ describe("usePreflight", () => {
     });
 
     expect(JSON.parse(mockApiJson.mock.calls[0][1].body).series_id).toBe("series-1");
+  });
+
+  it("check sets lastParams", async () => {
+    const params = { course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z" };
+    mockApiJson.mockResolvedValue({ status: "available" });
+    const { result } = renderHook(() => usePreflight());
+
+    await act(async () => {
+      await result.current.check(params);
+    });
+
+    expect(result.current.lastParams).toEqual(params);
+  });
+
+  it("classifies an unknown thrown value as an error", async () => {
+    mockApiJson.mockRejectedValue("network failure");
+    const { result } = renderHook(() => usePreflight());
+    await act(async () => {
+      await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z" });
+    });
+    expect(result.current.status).toBe("error");
+    expect(result.current.error?.message).toBe("Unknown error");
+  });
+
+  it("sends explicit student include and exclude overrides", async () => {
+    mockApiJson.mockResolvedValue({ status: "available" });
+    const { result } = renderHook(() => usePreflight());
+    await act(async () => {
+      await result.current.check({ course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z", included_student_ids: ["s1"], excluded_student_ids: ["s2"] });
+    });
+    const body = JSON.parse(mockApiJson.mock.calls.at(-1)?.[1].body as string);
+    expect(body.included_student_ids).toEqual(["s1"]);
+    expect(body.excluded_student_ids).toEqual(["s2"]);
   });
 });

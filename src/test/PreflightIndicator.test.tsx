@@ -20,6 +20,7 @@ function makePreflight(overrides: Partial<ReturnType<typeof usePreflight>>): Ret
     details: null,
     error: null,
     occurrencesPlanned: null,
+    lastParams: null,
     check: vi.fn(),
     reset: vi.fn(),
     ...overrides,
@@ -325,6 +326,56 @@ describe("PreflightIndicator", () => {
   });
 });
 
+  it("renders error alert and retry button when status is error", () => {
+    const check = vi.fn();
+    render(<PreflightIndicator preflight={makePreflight({ status: "error", lastParams: { course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z" }, check })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    expect(screen.getByTestId("preflight-error")).toBeInTheDocument();
+    const errorMessages = screen.getAllByText("Could not check the schedule");
+    expect(errorMessages.length).toBe(2);
+    expect(screen.getByText(/The availability service did not respond/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Try checking availability again/ })).toBeInTheDocument();
+  });
+
+  it("error status does not show conflict suggestion or Find Alternative Slots link", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "error" })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    expect(screen.getByTestId("preflight-error")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Find Alternative Slots/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Try a different room/)).not.toBeInTheDocument();
+  });
+
+  it("retry button calls preflight.check with last params", () => {
+    const check = vi.fn();
+    const lastParams = { course_id: "c1", teacher_id: "t1", room_id: null, start_at: "2024-01-01T00:00:00Z", end_at: "2024-01-01T01:00:00Z" };
+    render(<PreflightIndicator preflight={makePreflight({ status: "error", lastParams, check })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    fireEvent.click(screen.getByRole("button", { name: /Try checking availability again/ }));
+    expect(check).toHaveBeenCalledWith(lastParams);
+  });
+
+  it("announces system error in aria-live region", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "error" })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    const errorMessages = screen.getAllByText("Could not check the schedule");
+    // The aria-live badge contains the first instance
+    expect(errorMessages[0].closest('[aria-live="polite"]')).toBeInTheDocument();
+  });
+
+  it("announces checking status in aria-live region", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "idle", loading: true })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    const checkingEl = screen.getByText("Checking schedule…");
+    expect(checkingEl.closest('[aria-live="polite"]')).toBeInTheDocument();
+  });
+
+  it("announces blocked status in aria-live region", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "blocked", details: sampleConflictDetails })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    const blockedEl = screen.getByText("Blocked");
+    expect(blockedEl.closest('[aria-live="polite"]')).toBeInTheDocument();
+  });
+
+  it("does not display wrong guidance when block is available + no conflict details", () => {
+    render(<PreflightIndicator preflight={makePreflight({ status: "available", details: null })} coursesById={coursesById} teachersById={teachersById} roomsById={roomsById} />);
+    expect(screen.queryByText("Could not check the schedule")).not.toBeInTheDocument();
+    expect(screen.getByText("Available")).toBeInTheDocument();
+  });
+
 describe("getSaveButtonLabel", () => {
   it("returns 'Checking…' when loading", () => {
     expect(getSaveButtonLabel({ status: "idle", loading: true }, "Create")).toBe("Checking…");
@@ -348,6 +399,10 @@ describe("getSaveButtonLabel", () => {
   it("returns submit label when provisional", () => {
     expect(getSaveButtonLabel({ status: "provisional", loading: false }, "Save")).toBe("Save");
   });
+
+  it("returns error label when status is error", () => {
+    expect(getSaveButtonLabel({ status: "error", loading: false }, "Save")).toBe("Unavailable — check schedule");
+  });
 });
 
 describe("isSaveDisabled", () => {
@@ -369,5 +424,9 @@ describe("isSaveDisabled", () => {
 
   it("disabled when idle", () => {
     expect(isSaveDisabled({ status: "idle", loading: false })).toBe(true);
+  });
+
+  it("disabled when error", () => {
+    expect(isSaveDisabled({ status: "error", loading: false })).toBe(true);
   });
 });

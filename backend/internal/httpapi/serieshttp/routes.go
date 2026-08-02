@@ -69,16 +69,31 @@ type server struct {
 	a    httpadapter.Adapter
 }
 
-func (s *server) writeRecurrenceValidationErr(ctx context.Context, w http.ResponseWriter, err error) bool {
+// recurrenceValidationResult holds the structured error for a recurrence validation
+// failure. When valid is false, the error should be returned from the fn callback
+// as a structured response.
+type recurrenceValidationResult struct {
+	valid bool
+	code  string
+	msg   string
+}
+
+// checkRecurrence extracts a recurrence validation error from err and returns
+// a structured result. When valid is false the caller should use the code and
+// msg to build a response body.
+func (s *server) checkRecurrence(ctx context.Context, err error) recurrenceValidationResult {
 	var validationErr *series.ValidationError
 	if !errors.As(err, &validationErr) {
-		return false
+		return recurrenceValidationResult{valid: true}
 	}
 	if s.deps.Log != nil {
 		s.deps.Log.WarnContext(ctx, "schedule recurrence rejected", "code", validationErr.Code)
 	}
-	s.a.WriteErr(w, http.StatusBadRequest, "invalid_recurrence", validationErr.Message)
-	return true
+	return recurrenceValidationResult{
+		valid: false,
+		code:  "invalid_recurrence",
+		msg:   validationErr.Message,
+	}
 }
 
 func (s *server) publishSessionsChanged(id string) {
@@ -185,7 +200,7 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var changedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		res, err := s.deps.Scheduling.CreateSeriesAndMaterializeTx(r.Context(), tx, qtx, scheduling.CreateSeriesParams{
 			CourseID:        courseID,
@@ -199,22 +214,18 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
-				return 0, nil, err
+			if r := s.checkRecurrence(r.Context(), err); !r.valid {
+				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
 			var se *scheduling.Err
 			if errors.As(err, &se) {
-				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
-				return 0, nil, err
+				return scheduling.HTTPStatusForErr(se), map[string]any{"code": se.Code, "message": se.Message, "details": se.Details}, err
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		seriesID, err := s.a.UUIDString(res.SeriesID)
 		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-			return 0, nil, err
+			return http.StatusInternalServerError, map[string]any{"code": "internal", "message": "Internal error"}, err
 		}
 		changedID = seriesID
 		actorID := pgtype.UUID{Bytes: user.ID, Valid: true}
@@ -374,7 +385,7 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var changedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		existing, err := qtx.SeriesGetByID(r.Context(), id)
 		if err != nil {
@@ -398,20 +409,17 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
-				return 0, nil, err
+			if r := s.checkRecurrence(r.Context(), err); !r.valid {
+				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
 				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
-					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})
-					return 0, nil, err
+					return http.StatusConflict, map[string]any{"code": "stale_edit", "message": "Stale edit", "details": map[string]any{"current": payload}}, err
 				}
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		oldID, err := s.a.UUIDString(res.OldSeriesID)
@@ -495,7 +503,7 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var changedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		existing, err := qtx.SeriesGetByID(r.Context(), id)
 		if err != nil {
@@ -515,25 +523,25 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			ExpectedVersion: *body.ExpectedVersion,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
-				return 0, nil, err
+			if r := s.checkRecurrence(r.Context(), err); !r.valid {
+				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
 			switch err.Error() {
 			case "stale_edit":
 				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
-					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})
-					return 0, nil, err
+					return http.StatusConflict, map[string]any{"code": "stale_edit", "message": "Stale edit", "details": map[string]any{"current": payload}}, err
 				}
 			case "cannot_cancel_started":
-				s.a.WriteErrDetails(w, http.StatusConflict, "cannot_cancel_started", "Cannot cancel occurrences that have started", map[string]any{
-					"server_now": time.Now().UTC().Format(time.RFC3339Nano),
-				})
-				return 0, nil, err
+				return http.StatusConflict, map[string]any{
+					"code":    "cannot_cancel_started",
+					"message": "Cannot cancel occurrences that have started",
+					"details": map[string]any{
+						"server_now": time.Now().UTC().Format(time.RFC3339Nano),
+					},
+				}, err
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		seriesID, err := s.a.UUIDString(res.SeriesID)
@@ -653,7 +661,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var changedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "series", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		existing, err := qtx.SeriesGetByID(r.Context(), id)
 		if err != nil {
@@ -663,8 +671,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 		}
 		if existing.Version != *body.ExpectedVersion {
 			cur := buildStaleEditPayloadSeries(s.a, r, existing)
-			s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": cur})
-			return 0, nil, errors.New("stale_edit")
+			return http.StatusConflict, map[string]any{"code": "stale_edit", "message": "Stale edit", "details": map[string]any{"current": cur}}, errors.New("stale_edit")
 		}
 		res, err := s.deps.Scheduling.EditEntireSeriesFutureOnlyTx(r.Context(), tx, qtx, scheduling.EditEntireSeriesParams{
 			SeriesID:        id,
@@ -680,24 +687,20 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			Count:           body.Count,
 		})
 		if err != nil {
-			if s.writeRecurrenceValidationErr(r.Context(), w, err) {
-				return 0, nil, err
+			if r := s.checkRecurrence(r.Context(), err); !r.valid {
+				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
 			var se *scheduling.Err
 			if errors.As(err, &se) && se.Code == "stale_edit" {
 				cur, ferr := qtx.SeriesGetByID(r.Context(), id)
 				if ferr == nil {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
-					s.a.WriteErrDetails(w, http.StatusConflict, "stale_edit", "Stale edit", map[string]any{"current": payload})
-					return 0, nil, err
+					return http.StatusConflict, map[string]any{"code": "stale_edit", "message": "Stale edit", "details": map[string]any{"current": payload}}, err
 				}
 			}
 			if errors.As(err, &se) {
-				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
-				return 0, nil, err
+				return scheduling.HTTPStatusForErr(se), map[string]any{"code": se.Code, "message": se.Message, "details": se.Details}, err
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		seriesID, err := s.a.UUIDString(res.SeriesID)

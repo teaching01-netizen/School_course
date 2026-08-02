@@ -1,0 +1,534 @@
+package scheduling
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	sqldb "warwick-institute/internal/db"
+)
+
+// fakeRows implements pgx.Rows with zero rows, for queries where we want
+// a valid-but-empty result set.
+type fakeRows struct {
+	done bool
+}
+
+func (r *fakeRows) Close()                                       {}
+func (r *fakeRows) Err() error                                   { return nil }
+func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *fakeRows) Next() bool {
+	if r.done {
+		return false
+	}
+	r.done = true
+	return false
+}
+func (r *fakeRows) Scan(dest ...interface{}) error { return pgx.ErrNoRows }
+func (r *fakeRows) RawValues() [][]byte            { return nil }
+func (r *fakeRows) Values() ([]interface{}, error) { return nil, nil }
+func (r *fakeRows) Conn() *pgx.Conn                { return nil }
+
+// fakeMultiRow implements pgx.Row with configurable scan values and error.
+// It sets each dest in order: bool values from vals, remaining dests unchanged.
+// For CheckTeacherAvailability/CheckRoomAvailability (scan 2 bools), use {true, true}.
+type fakeMultiRow struct {
+	vals []bool
+	err  error
+}
+
+func (r *fakeMultiRow) Scan(dest ...interface{}) error {
+	if r.err != nil {
+		return r.err
+	}
+	for i := 0; i < len(dest) && i < len(r.vals); i++ {
+		if d, ok := dest[i].(*bool); ok {
+			*d = r.vals[i]
+		}
+	}
+	return nil
+}
+
+// fakeDBTX implements sqldb.DBTX with pluggable behaviour per call.
+type fakeDBTX struct {
+	queryRowResults []pgx.Row     // results for QueryRow calls in order
+	queryResults    []queryResult // results for Query calls in order
+	qrowIdx         int
+	qIdx            int
+}
+
+type queryResult struct {
+	rows pgx.Rows
+	err  error
+}
+
+func (f *fakeDBTX) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (f *fakeDBTX) Query(_ context.Context, _ string, _ ...interface{}) (pgx.Rows, error) {
+	idx := f.qIdx
+	f.qIdx++
+	if idx < len(f.queryResults) {
+		r := f.queryResults[idx]
+		return r.rows, r.err
+	}
+	return &fakeRows{}, nil
+}
+
+func (f *fakeDBTX) QueryRow(_ context.Context, _ string, _ ...interface{}) pgx.Row {
+	idx := f.qrowIdx
+	f.qrowIdx++
+	if idx < len(f.queryRowResults) {
+		return f.queryRowResults[idx]
+	}
+	return &fakeMultiRow{vals: []bool{true, true}}
+}
+
+func validUUID() pgtype.UUID {
+	id, _ := uuid.Parse("00000000-0000-0000-0000-000000000001")
+	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+func invalidUUID() pgtype.UUID {
+	return pgtype.UUID{Valid: false}
+}
+
+func strPtr(s string) *string { return &s }
+
+func testPreflightInput() preflightInput {
+	now := time.Now().UTC().Truncate(time.Hour)
+	return preflightInput{
+		CourseID:  validUUID(),
+		RoomID:    validUUID(),
+		TeacherID: validUUID(),
+		StartUTC:  now,
+		EndUTC:    now.Add(time.Hour),
+		Requested: ConflictRequested{
+			StartAt:   now.Format(time.RFC3339Nano),
+			EndAt:     now.Add(time.Hour).Format(time.RFC3339Nano),
+			CourseID:  "course-1",
+			RoomID:    strPtr("room-1"),
+			TeacherID: "teacher-1",
+		},
+	}
+}
+
+func TestPreflightSlot_InfrastructureErrors(t *testing.T) {
+	ctx := context.Background()
+	baseErr := errors.New("connection refused")
+
+	tests := []struct {
+		name         string
+		input        preflightInput
+		queryRowFn   func(idx int) pgx.Row           // returns row for QueryRow calls; nil = use default (true bool)
+		queryFn      func(idx int) (pgx.Rows, error) // returns result for Query calls; nil = use default (empty rows)
+		wantConflict bool
+		wantInfraErr bool
+		wantErrMsg   string // substring expected in infra error message
+	}{
+		{
+			name:  "CourseTeacherSetExists query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{err: baseErr}
+				}
+				return nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check teacher membership",
+		},
+		{
+			name:  "CourseTeacherMembershipGet query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{err: baseErr} // CourseTeacherMembershipGet fails
+				}
+				return nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check teacher membership",
+		},
+		{
+			name:  "IsTeacherAvailable query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{err: baseErr}
+				}
+				return nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check teacher availability",
+		},
+		{
+			name:  "IsRoomAvailable query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{err: baseErr}
+				}
+				return nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check room availability",
+		},
+		{
+			name:  "Room overlap query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{vals: []bool{true, true}} // room available
+				}
+				return nil
+			},
+			queryFn: func(idx int) (pgx.Rows, error) {
+				if idx == 0 { // overlappingSessionsByRoom
+					return nil, baseErr
+				}
+				return &fakeRows{}, nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check room overlap",
+		},
+		{
+			name:  "Teacher overlap query fails",
+			input: testPreflightInput(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{vals: []bool{true, true}} // room available
+				}
+				return nil
+			},
+			queryFn: func(idx int) (pgx.Rows, error) {
+				if idx == 0 { // overlappingSessionsByRoom → succeeds, empty
+					return &fakeRows{}, nil
+				}
+				if idx == 1 { // overlappingSessionsByTeacher
+					return nil, baseErr
+				}
+				return &fakeRows{}, nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check teacher overlap",
+		},
+		{
+			name: "Student overlap query fails with explicit students",
+			input: func() preflightInput {
+				in := testPreflightInput()
+				students := []pgtype.UUID{validUUID()}
+				in.StudentIDs = &students
+				return in
+			}(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{vals: []bool{true, true}} // room available
+				}
+				return nil
+			},
+			queryFn: func(idx int) (pgx.Rows, error) {
+				if idx == 0 { // overlappingSessionsByRoom → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 1 { // overlappingSessionsByTeacher → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 2 { // overlappingSessionsByStudents
+					return nil, baseErr
+				}
+				return &fakeRows{}, nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check student overlap",
+		},
+		{
+			name: "Student overlap query fails via course roster",
+			input: func() preflightInput {
+				in := testPreflightInput()
+				in.StudentIDs = nil // triggers course-roster fallback
+				return in
+			}(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{vals: []bool{true, true}} // room available
+				}
+				return nil
+			},
+			queryFn: func(idx int) (pgx.Rows, error) {
+				if idx == 0 { // overlappingSessionsByRoom → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 1 { // overlappingSessionsByTeacher → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 2 { // overlappingSessionsByStudentsInCourse
+					return nil, baseErr
+				}
+				return &fakeRows{}, nil
+			},
+			wantConflict: false,
+			wantInfraErr: true,
+			wantErrMsg:   "check student overlap",
+		},
+		{
+			name: "Student overlap conflict detail enrichment fails",
+			input: func() preflightInput {
+				in := testPreflightInput()
+				students := []pgtype.UUID{validUUID()}
+				in.StudentIDs = &students
+				return in
+			}(),
+			queryRowFn: func(idx int) pgx.Row {
+				if idx == 0 {
+					return &fakeMultiRow{vals: []bool{true, true, true}} // CourseTeacherMembershipGet
+				}
+				if idx == 1 {
+					return &fakeMultiRow{vals: []bool{true, true, true, true}} // SchedulingResourcesGet
+				}
+				if idx == 2 {
+					return &fakeMultiRow{vals: []bool{true, true}} // teacher available
+				}
+				if idx == 3 {
+					return &fakeMultiRow{vals: []bool{true, true}} // room available
+				}
+				return nil
+			},
+			queryFn: func(idx int) (pgx.Rows, error) {
+				if idx == 0 { // room overlap → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 1 { // teacher overlap → empty
+					return &fakeRows{}, nil
+				}
+				if idx == 2 { // student overlap — return a fake session
+					return makeConflictRows([]ConflictSession{{
+						SessionID: "550e8400-e29b-41d4-a716-446655440000",
+						CourseID:  "660e8400-e29b-41d4-a716-446655440000",
+						TeacherID: "770e8400-e29b-41d4-a716-446655440000",
+						StartAt:   time.Now().Format(time.RFC3339Nano),
+						EndAt:     time.Now().Add(time.Hour).Format(time.RFC3339Nano),
+					}}), nil
+				}
+				if idx == 3 { // conflictingStudentsForOverlap — fail
+					return nil, baseErr
+				}
+				return &fakeRows{}, nil
+			},
+			// Enrichment fails → still returns a conflict, no infra error
+			wantConflict: true,
+			wantInfraErr: false,
+		},
+	}
+
+	svc := &Service{}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &fakeDBTX{}
+
+			// Set up QueryRow results from the callback
+			if tc.queryRowFn != nil {
+				for i := 0; ; i++ {
+					r := tc.queryRowFn(i)
+					if r == nil {
+						break
+					}
+					db.queryRowResults = append(db.queryRowResults, r)
+				}
+			}
+			// Set up Query results from the callback
+			if tc.queryFn != nil {
+				for i := 0; i < 20; i++ {
+					r, err := tc.queryFn(i)
+					if r == nil && err == nil {
+						break
+					}
+					db.queryResults = append(db.queryResults, queryResult{rows: r, err: err})
+				}
+			}
+
+			q := sqldb.New(db)
+			se, err := svc.preflightSlot(ctx, db, q, tc.input)
+
+			if tc.wantInfraErr {
+				if err == nil {
+					t.Fatal("expected infrastructure error, got nil")
+				}
+				if tc.wantErrMsg != "" && !strings.Contains(err.Error(), tc.wantErrMsg) {
+					t.Fatalf("expected error containing %q, got %q", tc.wantErrMsg, err.Error())
+				}
+				if se != nil {
+					t.Fatalf("expected nil *Err with infrastructure error, got Code=%q", se.Code)
+				}
+				// Verify it's NOT a scheduling *Err
+				var seType *Err
+				if errors.As(err, &seType) {
+					t.Fatalf("infrastructure error should not be a *Err, got %v", seType.Code)
+				}
+			} else if tc.wantConflict {
+				if se == nil {
+					t.Fatal("expected conflict *Err, got nil")
+				}
+				if err != nil {
+					t.Fatalf("expected nil error with conflict, got %v", err)
+				}
+				if se.Code != "schedule_conflict" {
+					t.Fatalf("expected code schedule_conflict, got %q", se.Code)
+				}
+				// Enrichment failure case: ConflictingStudents should be nil
+				if tc.name == "Student overlap conflict detail enrichment fails" && se.Details.ConflictingStudents != nil {
+					t.Fatal("expected nil ConflictingStudents on enrichment failure")
+				}
+			} else {
+				if se != nil {
+					t.Fatalf("expected nil *Err, got Code=%q", se.Code)
+				}
+				if err != nil {
+					t.Fatalf("expected nil err, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+// makeConflictRows creates a fakeRows-like implementation that returns one
+// ConflictSession per call to Next/Scan.
+var _ pgx.Rows = (*conflictRowsImpl)(nil)
+
+type conflictRowsImpl struct {
+	sessions []ConflictSession
+	idx      int
+}
+
+func makeConflictRows(sessions []ConflictSession) *conflictRowsImpl {
+	return &conflictRowsImpl{sessions: sessions, idx: -1}
+}
+
+func (r *conflictRowsImpl) Close()                                       {}
+func (r *conflictRowsImpl) Err() error                                   { return nil }
+func (r *conflictRowsImpl) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *conflictRowsImpl) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *conflictRowsImpl) RawValues() [][]byte                          { return nil }
+func (r *conflictRowsImpl) Values() ([]interface{}, error)               { return nil, nil }
+func (r *conflictRowsImpl) Conn() *pgx.Conn                              { return nil }
+
+func (r *conflictRowsImpl) Next() bool {
+	r.idx++
+	return r.idx < len(r.sessions)
+}
+
+func (r *conflictRowsImpl) Scan(dest ...interface{}) error {
+	if r.idx < 0 || r.idx >= len(r.sessions) {
+		return pgx.ErrNoRows
+	}
+	s := r.sessions[r.idx]
+	// expected: id, series_id, course_id, room_id, teacher_id, start_at, end_at
+	for i, d := range dest {
+		switch i {
+		case 0: // id
+			if p, ok := d.(*pgtype.UUID); ok {
+				uid, err := uuid.Parse(s.SessionID)
+				if err != nil {
+					return fmt.Errorf("parse session id: %w", err)
+				}
+				*p = pgtype.UUID{Bytes: uid, Valid: true}
+			}
+		case 1: // series_id
+			if p, ok := d.(*pgtype.UUID); ok {
+				*p = pgtype.UUID{Valid: false}
+			}
+		case 2: // course_id
+			if p, ok := d.(*pgtype.UUID); ok {
+				uid, _ := uuid.Parse("00000000-0000-0000-0000-000000000001")
+				*p = pgtype.UUID{Bytes: uid, Valid: true}
+			}
+		case 3: // room_id
+			if p, ok := d.(*pgtype.UUID); ok {
+				uid, _ := uuid.Parse("00000000-0000-0000-0000-000000000002")
+				*p = pgtype.UUID{Bytes: uid, Valid: true}
+			}
+		case 4: // teacher_id
+			if p, ok := d.(*pgtype.UUID); ok {
+				uid, _ := uuid.Parse("00000000-0000-0000-0000-000000000003")
+				*p = pgtype.UUID{Bytes: uid, Valid: true}
+			}
+		case 5: // start_at
+			if p, ok := d.(*pgtype.Timestamptz); ok {
+				*p = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+			}
+		case 6: // end_at
+			if p, ok := d.(*pgtype.Timestamptz); ok {
+				*p = pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+			}
+		}
+	}
+	return nil
+}

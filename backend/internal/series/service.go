@@ -826,7 +826,7 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 		return CancelResult{}, fmt.Errorf("bad_scope")
 	}
 
-	canceled, err := qtx.SessionHardDeleteFutureBySeriesCount(ctx, sqldb.SessionHardDeleteFutureBySeriesCountParams{
+	canceled, err := qtx.SessionSoftDeleteFutureBySeriesCount(ctx, sqldb.SessionSoftDeleteFutureBySeriesCountParams{
 		SeriesID: ser.ID,
 		StartAt:  pgtype.Timestamptz{Time: canceledFromUTC, Valid: true},
 	})

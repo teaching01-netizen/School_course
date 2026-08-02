@@ -46,6 +46,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:schedule
+      - run: npm run test:schedule:coverage
+      - run: npm run check:scheduling-coverage
       - run: npm run typecheck:e2e
       - run: npm run test:coverage
       - run: npm run build

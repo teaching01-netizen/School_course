@@ -92,6 +92,20 @@ WITH del AS (
 SELECT count(*)::int4 AS canceled
 FROM del;
 
+-- name: SessionSoftDeleteFutureBySeriesCount :one
+WITH soft_deleted AS (
+  UPDATE sessions
+  SET deleted_at = COALESCE(deleted_at, now()),
+      updated_at = now(),
+      version = version + 1
+  WHERE series_id = $1
+    AND start_at >= $2
+    AND deleted_at IS NULL
+  RETURNING 1
+)
+SELECT count(*)::int4 AS canceled
+FROM soft_deleted;
+
 -- name: SessionReparentFutureBySeries :one
 WITH moved AS (
   UPDATE sessions

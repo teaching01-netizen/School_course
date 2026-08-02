@@ -2,6 +2,7 @@ package schedulinghttp
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +34,20 @@ func (s *server) classifySchedulingErr(err error) (int, string, string) {
 	var validationErr *series.ValidationError
 	if errors.As(err, &validationErr) {
 		return http.StatusBadRequest, "invalid_recurrence", validationErr.Message
+	}
+
+	// Resource and membership validation errors from scheduling.Err.
+	var se *scheduling.Err
+	if errors.As(err, &se) {
+		switch se.Code {
+		case scheduling.ErrCourseNotFound,
+			scheduling.ErrTeacherNotFound,
+			scheduling.ErrRoomNotFound:
+			return http.StatusNotFound, se.Code, se.Message
+		case scheduling.ErrCourseHasNoTeachers,
+			scheduling.ErrTeacherInactive:
+			return http.StatusConflict, se.Code, se.Message
+		}
 	}
 
 	// ClassifyDBErr handles PG errors, context cancellation, and timeout — all safe.
@@ -69,6 +84,9 @@ func (s *server) classifySchedulingErr(err error) (int, string, string) {
 }
 
 func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	preflightRequestsTotal.Add(1)
+
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return
 	}
@@ -291,13 +309,43 @@ func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
 			SeriesID:  nil,
 		},
 	})
+
+	outcome := "available"
+	kind := ""
 	if err != nil {
+		outcome = "error"
+	} else if se != nil {
+		outcome = "blocked"
+	} else if res.Status == "provisional" {
+		outcome = "provisional"
+	}
+	if se != nil {
+		kind = string(se.Details.Kind)
+	}
+
+	if err != nil {
+		preflightErrorsTotal.Add(1)
 		status, code, msg := s.classifySchedulingErr(err)
 		s.a.WriteErr(w, status, code, msg)
+		s.deps.Log.LogAttrs(r.Context(), slog.LevelWarn, "schedule_preflight",
+			slog.String("event", "schedule_preflight_completed"),
+			slog.String("endpoint", "single"),
+			slog.String("outcome", outcome),
+			slog.String("kind", kind),
+			slog.Duration("duration_ms", time.Since(startTime)),
+		)
 		return
 	}
 	if se != nil {
+		preflightConflictsTotal.Add(1)
 		s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+		s.deps.Log.LogAttrs(r.Context(), slog.LevelInfo, "schedule_preflight",
+			slog.String("event", "schedule_preflight_completed"),
+			slog.String("endpoint", "single"),
+			slog.String("outcome", outcome),
+			slog.String("kind", kind),
+			slog.Duration("duration_ms", time.Since(startTime)),
+		)
 		return
 	}
 
@@ -305,9 +353,20 @@ func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
 		"status":     res.Status,
 		"session_id": sessionIDStr,
 	})
+
+	s.deps.Log.LogAttrs(r.Context(), slog.LevelInfo, "schedule_preflight",
+		slog.String("event", "schedule_preflight_completed"),
+		slog.String("endpoint", "single"),
+		slog.String("outcome", outcome),
+		slog.String("kind", kind),
+		slog.Duration("duration_ms", time.Since(startTime)),
+	)
 }
 
 func (s *server) handlePreflightSeries(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	preflightRequestsTotal.Add(1)
+
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return
 	}
@@ -419,16 +478,55 @@ func (s *server) handlePreflightSeries(w http.ResponseWriter, r *http.Request) {
 		Count:           body.Count,
 		SeriesID:        seriesID,
 	})
+
+	outcome := "available"
+	kind := ""
 	if err != nil {
+		outcome = "error"
+	} else if se != nil {
+		outcome = "blocked"
+	} else if res.Status == "provisional" {
+		outcome = "provisional"
+	}
+	if se != nil {
+		kind = string(se.Details.Kind)
+	}
+
+	if err != nil {
+		preflightErrorsTotal.Add(1)
 		status, code, msg := s.classifySchedulingErr(err)
 		s.a.WriteErr(w, status, code, msg)
+		s.deps.Log.LogAttrs(r.Context(), slog.LevelWarn, "schedule_preflight",
+			slog.String("event", "schedule_preflight_completed"),
+			slog.String("endpoint", "series"),
+			slog.String("outcome", outcome),
+			slog.String("kind", kind),
+			slog.Duration("duration_ms", time.Since(startTime)),
+		)
 		return
 	}
 	if se != nil {
+		preflightConflictsTotal.Add(1)
 		s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+		s.deps.Log.LogAttrs(r.Context(), slog.LevelInfo, "schedule_preflight",
+			slog.String("event", "schedule_preflight_completed"),
+			slog.String("endpoint", "series"),
+			slog.String("outcome", outcome),
+			slog.String("kind", kind),
+			slog.Duration("duration_ms", time.Since(startTime)),
+		)
 		return
 	}
+
 	s.a.WriteJSON(w, http.StatusOK, res)
+
+	s.deps.Log.LogAttrs(r.Context(), slog.LevelInfo, "schedule_preflight",
+		slog.String("event", "schedule_preflight_completed"),
+		slog.String("endpoint", "series"),
+		slog.String("outcome", outcome),
+		slog.String("kind", kind),
+		slog.Duration("duration_ms", time.Since(startTime)),
+	)
 }
 
 func (s *server) handleFindAvailableSlots(w http.ResponseWriter, r *http.Request) {

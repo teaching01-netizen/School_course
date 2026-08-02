@@ -3,7 +3,13 @@ import { ApiRequestError, apiJson } from "@/api/client";
 import { isConflictDetails } from "@/utils/conflictErrors";
 import type { ConflictDetails } from "../types";
 
-export type PreflightStatus = "available" | "provisional" | "blocked" | "idle";
+export type PreflightStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "provisional"
+  | "blocked"
+  | "error";
 
 export type PreflightParams = {
   course_id: string;
@@ -29,9 +35,14 @@ export type UsePreflightReturn = {
   details: ConflictDetails | null;
   error: ApiRequestError | null;
   occurrencesPlanned: number | null;
+  lastParams: PreflightParams | null;
   check: (params: PreflightParams) => Promise<void>;
   reset: () => void;
 };
+
+export function isSchedulingConflict(error: unknown): error is ApiRequestError {
+  return error instanceof ApiRequestError && error.status === 409 && isConflictDetails(error.details);
+}
 
 export function usePreflight(endpoint: "preflight" | "preflight_series" = "preflight"): UsePreflightReturn {
   const [status, setStatus] = useState<PreflightStatus>("idle");
@@ -40,11 +51,16 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
   const [error, setError] = useState<ApiRequestError | null>(null);
   const [occurrencesPlanned, setOccurrencesPlanned] = useState<number | null>(null);
   const mountedRef = useRef(false);
-  const checkIdRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
+  const lastParamsRef = useRef<PreflightParams | null>(null);
+  const [lastParams, setLastParams] = useState<PreflightParams | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
   }, []);
 
   const safe = {
@@ -53,15 +69,20 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
     setDetails: (d: ConflictDetails | null) => { if (mountedRef.current) setDetails(d); },
     setError: (e: ApiRequestError | null) => { if (mountedRef.current) setError(e); },
     setOccurrencesPlanned: (v: number | null) => { if (mountedRef.current) setOccurrencesPlanned(v); },
+    setLastParams: (p: PreflightParams | null) => { if (mountedRef.current) { setLastParams(p); lastParamsRef.current = p; } },
   };
 
   const check = useCallback(async (params: PreflightParams) => {
-    const thisCheckId = ++checkIdRef.current;
+    // Abort any previous in-flight request
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
+    safe.setStatus("checking");
     safe.setLoading(true);
-    safe.setStatus("idle");
     safe.setDetails(null);
     safe.setError(null);
-    safe.setOccurrencesPlanned(null);
+    safe.setLastParams(params);
 
     try {
       let url: string;
@@ -99,36 +120,48 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
 
       const res = await apiJson<{ status: "available" | "provisional"; occurrences_planned?: number }>(url, {
         method: "POST",
+        signal: controller.signal,
         body: JSON.stringify(body),
       });
 
-      if (thisCheckId !== checkIdRef.current) return;
+      if (controller.signal.aborted) return;
       safe.setStatus(res.status);
       safe.setOccurrencesPlanned(res.occurrences_planned ?? null);
     } catch (err) {
-      if (thisCheckId !== checkIdRef.current) return;
-      safe.setStatus("blocked");
-      if (err instanceof ApiRequestError) {
+      if (controller.signal.aborted) return;
+
+      // Classify: real scheduling conflict vs system error
+      if (isSchedulingConflict(err)) {
+        safe.setStatus("blocked");
+        safe.setDetails(err.details as ConflictDetails);
+        safe.setError(err);
+      } else if (err instanceof ApiRequestError) {
+        safe.setStatus("error");
         safe.setError(err);
         safe.setDetails(isConflictDetails(err.details) ? err.details : null);
       } else {
-        safe.setError(new ApiRequestError("Preflight failed"));
+        safe.setStatus("error");
+        safe.setError(new ApiRequestError(
+          err instanceof Error ? err.message : "Unknown error",
+        ));
         safe.setDetails(null);
       }
     } finally {
-      if (thisCheckId !== checkIdRef.current) return;
-      safe.setLoading(false);
+      if (!controller.signal.aborted && mountedRef.current) {
+        safe.setLoading(false);
+      }
     }
   }, [endpoint]);
 
   const reset = useCallback(() => {
-    checkIdRef.current += 1;
+    controllerRef.current?.abort();
     safe.setStatus("idle");
     safe.setLoading(false);
     safe.setDetails(null);
     safe.setError(null);
     safe.setOccurrencesPlanned(null);
+    safe.setLastParams(null);
   }, []);
 
-  return { status, loading, details, error, occurrencesPlanned, check, reset };
+  return { status, loading, details, error, occurrencesPlanned, lastParams, check, reset };
 }

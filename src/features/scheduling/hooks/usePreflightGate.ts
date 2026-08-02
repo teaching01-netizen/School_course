@@ -1,6 +1,12 @@
 import type { UsePreflightReturn } from "./usePreflight";
 
-type PreflightGateStatus = "idle" | "available" | "provisional" | "blocked";
+type PreflightGateReason =
+  | "idle"
+  | "checking"
+  | "blocked"
+  | "error"
+  | "ok"
+  | "no_fields";
 
 interface UsePreflightGateOptions {
   requiredFields?: string[];
@@ -9,9 +15,9 @@ interface UsePreflightGateOptions {
 
 interface UsePreflightGateReturn {
   canSave: boolean;
-  status: PreflightGateStatus;
+  status: UsePreflightReturn["status"];
   isChecking: boolean;
-  reason: "idle" | "checking" | "blocked" | "ok" | "no_fields";
+  reason: PreflightGateReason;
 }
 
 export default function usePreflightGate(
@@ -19,16 +25,17 @@ export default function usePreflightGate(
   options: UsePreflightGateOptions = {}
 ): UsePreflightGateReturn {
   const { requiredFields = [], isFormValid = true } = options;
-  const status = preflight.status as PreflightGateStatus;
+  const status = preflight.status;
   const isChecking = preflight.loading;
 
   const fieldsFilled = requiredFields.length === 0 || requiredFields.every(Boolean);
   const canSave = fieldsFilled && (status === "available" || status === "provisional") && !isChecking && isFormValid;
 
-  let reason: UsePreflightGateReturn["reason"] = "ok";
+  let reason: PreflightGateReason = "ok";
   if (isChecking) reason = "checking";
   else if (!fieldsFilled) reason = "no_fields";
   else if (status === "blocked") reason = "blocked";
+  else if (status === "error") reason = "error";
   else if (status === "idle") reason = "idle";
   else if (!isFormValid) reason = "idle";
 

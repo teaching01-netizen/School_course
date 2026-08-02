@@ -1,8 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { ApiRequestError, apiJson } from "@/api/client";
 import { usePreflight } from "./usePreflight";
+import { useDebouncedPreflight } from "./useDebouncedPreflight";
 import usePreflightGate from "./usePreflightGate";
 import { localDateTimeToUTCISO } from "../domain/time";
+import type { PreflightParams } from "./usePreflight";
 
 export interface CreateSessionForm {
   course_id: string;
@@ -36,7 +38,7 @@ export function useCreateSession(
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<CreateSessionForm>(emptyForm);
-  const preflightCheckIdRef = useRef(0);
+  const submittingRef = useRef(false);
   const onSuccessRef = useRef(onSuccess);
   onSuccessRef.current = onSuccess;
 
@@ -62,39 +64,33 @@ export function useCreateSession(
     setForm(emptyForm);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    if (!form.course_id || !form.teacher_id || !form.start_local || !form.end_local) {
-      preflight.reset();
-      return;
-    }
+  const debouncedParams = useMemo<PreflightParams | null>(() => {
+    if (!open) return null;
+    if (!form.course_id || !form.teacher_id || !form.start_local || !form.end_local) return null;
     const startISO = localDateTimeToUTCISO(form.start_local, instituteTZ);
     const endISO = localDateTimeToUTCISO(form.end_local, instituteTZ);
-    if (!startISO || !endISO || endISO <= startISO) {
-      preflight.reset();
-      return;
-    }
-    const thisCallId = ++preflightCheckIdRef.current;
-    preflight.check({
+    if (!startISO || !endISO || endISO <= startISO) return null;
+    return {
       course_id: form.course_id,
       teacher_id: form.teacher_id,
       room_id: form.room_id || null,
       start_at: startISO,
       end_at: endISO,
       session_id: null,
-    }).then(() => {
-      if (thisCallId !== preflightCheckIdRef.current) return;
-    });
+    };
   }, [open, form.course_id, form.room_id, form.teacher_id, form.start_local, form.end_local, instituteTZ]);
 
+  useDebouncedPreflight(preflight, debouncedParams, { enabled: open });
+
   const submit = useCallback(async () => {
-    if (!gate.canSave) return;
+    if (submittingRef.current || !gate.canSave) return;
     const startISO = localDateTimeToUTCISO(form.start_local, instituteTZ);
     const endISO = localDateTimeToUTCISO(form.end_local, instituteTZ);
     if (!startISO || !endISO || endISO <= startISO) {
       addToast("error", "Invalid start/end time");
       return;
     }
+    submittingRef.current = true;
     setCreating(true);
     try {
       await apiJson("/api/v1/sessions", {
@@ -117,6 +113,7 @@ export function useCreateSession(
         addToast("error", err instanceof Error ? err.message : "Failed to create session");
       }
     } finally {
+      submittingRef.current = false;
       setCreating(false);
     }
   }, [gate.canSave, form, instituteTZ, addToast, closeModal]);

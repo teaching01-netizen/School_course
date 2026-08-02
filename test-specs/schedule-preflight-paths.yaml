@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "format": "json-compatible-yaml",
+  "tests": [
+    {"id":"hook-core","path":"src/test/usePreflight.test.ts","symbols":["initial state is idle","check() sets loading and checking status","409 with conflict details sets blocked","aborted obsolete request does not show error","uses preflight_series endpoint when specified","classifies an unknown thrown value as an error"]},
+    {"id":"gate","path":"src/test/usePreflightGate.test.ts","symbols":["blocks save when required fields are missing even if preflight is available","allows save only when required fields are filled and preflight passes","blocks save when the form is invalid despite a passing preflight"]},
+    {"id":"debounce","path":"src/features/scheduling/hooks/useDebouncedPreflight.test.ts","symbols":["calls preflight.check once after delay when params change rapidly","unmount clears pending timer and does not fire","clears the scheduled timer when disabled after scheduling","calls reset when disabled"]},
+    {"id":"edit-session","path":"src/features/scheduling/hooks/useEditSession.test.ts","symbols":["runs the change-preview before the PATCH and closes the modal on success","holds the PATCH when the preview requires acknowledgement","reloads the latest session on stale_edit"]},
+    {"id":"series-validation","path":"src/test/schedulePreflight.test.ts","symbols":["preflight fires when all required fields are filled","uses preflight_series endpoint with correct URL and body shape","returns null for invalid calendar dates","returns null when a count cannot fit within the horizon"]},
+    {"id":"indicator","path":"src/test/PreflightIndicator.test.tsx","symbols":["renders an animated spinner when loading","renders a green check icon and 'Available' when status is available","renders 'Blocked' in red when status is blocked","renders error alert and retry button when status is error"]},
+    {"id":"recurrence-fields","path":"src/components/__tests__/SeriesFormFields.test.tsx","symbols":["exposes native duration and count limits","rejects duration and count values above the shared limits"]},
+    {"id":"session-actions","path":"src/components/__tests__/SessionActions.test.tsx","symbols":["shows This & Future for a future series session","hides This & Future for a future standalone session"]},
+    {"id":"schedule-page","path":"src/pages/__tests__/Schedule.test.tsx","symbols":["edits a past session inline and sends the converted occurrence payload","keeps inline save disabled when preflight blocks the past session edit"]},
+    {"id":"series-stabilization","path":"src/pages/__tests__/Schedule.seriesStabilization.test.tsx","symbols":["includes the current series ID in the %s preflight"]},
+    {"id":"course-create","path":"src/pages/__tests__/CourseDetail.create.test.tsx","symbols":["creates a one-off session with the fixed course displayed read-only","creates a recurring series through the shared recurrence fields"]},
+    {"id":"schedule-paste","path":"src/pages/__tests__/CourseDetail.schedulePaste.test.tsx","symbols":["previews pasted schedule rows and creates sessions after preflight passes","shows conflict modal when some preflights reject and allows adding non-conflicting only"]},
+    {"id":"slot-finder","path":"src/pages/__tests__/SlotFinder.test.tsx","symbols":["shows EmptyState after search returns no slots"]}
+  ],
+  "backend_conflict_values": ["teacher_not_assigned_to_course","course_not_found","course_has_no_assigned_teachers","teacher_not_found","teacher_inactive","room_not_found","room_overlap","teacher_overlap","student_overlap","teacher_availability","room_availability"],
+  "frontend_statuses": ["idle","checking","available","provisional","blocked","error"]
+}

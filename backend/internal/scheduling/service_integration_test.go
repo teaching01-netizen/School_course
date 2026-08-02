@@ -660,8 +660,7 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 // branch of preflightSlot (preflight.go): (a) a course with a NON-empty teacher
 // set rejects an unassigned teacher with teacher_not_assigned_to_course before
 // any availability/overlap checks, and (b) a course with an EMPTY teacher set
-// skips the membership check entirely (legacy leniency — the transactional write
-// check remains authoritative and rejects any teacher for an empty set).
+// returns the stable course_has_no_assigned_teachers conflict.
 func TestPreflight_TeacherMembership_Advisory(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
@@ -690,7 +689,6 @@ func TestPreflight_TeacherMembership_Advisory(t *testing.T) {
 	}
 	addTeacherToCourse(t, ctx, q, assignedCourse.ID, teacherA)
 
-	// Course with an EMPTY teacher set — the legacy leniency case.
 	emptyCourse, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "C-MEM-PF-E-" + suffix, Name: "Membership preflight empty"})
 	if err != nil {
 		t.Fatal(err)
@@ -725,14 +723,13 @@ func TestPreflight_TeacherMembership_Advisory(t *testing.T) {
 	}
 	assertTeacherNotAssigned(t, se, assignedCourse.ID, teacherB)
 
-	// (b) EMPTY teacher set => the membership check is skipped, so the same
-	// unassigned teacher B passes preflight (fresh room/teacher have no
-	// availability windows or sessions, so the remaining checks pass too).
+	// (b) EMPTY teacher set => preflight returns the stable empty-set conflict
+	// before availability or overlap checks.
 	emptyCourseStr, err := uuidString(emptyCourse.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, se, err := svc.Preflight(ctx, PreflightParams{
+	_, se, err = svc.Preflight(ctx, PreflightParams{
 		CourseID:  emptyCourse.ID,
 		RoomID:    room.ID,
 		TeacherID: teacherB,
@@ -748,11 +745,14 @@ func TestPreflight_TeacherMembership_Advisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if se != nil {
-		t.Fatalf("expected no conflict for empty teacher set, got: %s", se.Message)
+	if se == nil {
+		t.Fatal("expected course_has_no_assigned_teachers conflict for empty teacher set")
 	}
-	if res.Status != "available" {
-		t.Fatalf("expected status available, got %q", res.Status)
+	if se.Code != ErrCourseHasNoTeachers {
+		t.Fatalf("expected code %q, got %q", ErrCourseHasNoTeachers, se.Code)
+	}
+	if se.Details.Kind != ConflictKindCourseHasNoTeachers {
+		t.Fatalf("expected kind %q, got %q", ConflictKindCourseHasNoTeachers, se.Details.Kind)
 	}
 }
 

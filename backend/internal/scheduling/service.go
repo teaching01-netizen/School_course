@@ -79,7 +79,11 @@ func (s *Service) Preflight(ctx context.Context, p PreflightParams) (PreflightRe
 		in.IgnoreSession = p.SessionID
 	}
 
-	if se := s.preflightSlot(ctx, s.db, s.q, in); se != nil {
+	se, err := s.preflightSlot(ctx, s.db, s.q, in)
+	if err != nil {
+		return PreflightResult{}, nil, err
+	}
+	if se != nil {
 		return PreflightResult{}, se, nil
 	}
 	status := "available"
@@ -141,23 +145,12 @@ func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) 
 		return PreflightSeriesResult{}, nil, err
 	}
 
-	ps, err := newPreflightStrings(p.CourseID, p.RoomID, p.TeacherID)
+	se, err := s.preflightSeriesBatch(ctx, s.db, s.q, p, occ)
 	if err != nil {
 		return PreflightSeriesResult{}, nil, err
 	}
-
-	for _, o := range occ {
-		if se := s.preflightSlot(ctx, s.db, s.q, preflightInput{
-			CourseID:     p.CourseID,
-			RoomID:       p.RoomID,
-			TeacherID:    p.TeacherID,
-			StartUTC:     o.StartUTC,
-			EndUTC:       o.EndUTC,
-			IgnoreSeries: p.SeriesID,
-			Requested:    ps.conflictRequested(o.StartUTC, o.EndUTC, nil),
-		}); se != nil {
-			return PreflightSeriesResult{}, se, nil
-		}
+	if se != nil {
+		return PreflightSeriesResult{}, se, nil
 	}
 
 	status := "available"
@@ -243,22 +236,22 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		return CreateSeriesResult{}, err
 	}
 
-	ps, err := newPreflightStrings(p.CourseID, p.RoomID, p.TeacherID)
+	se, err := s.preflightSeriesBatch(ctx, tx, qtx, PreflightSeriesParams{
+		CourseID:        p.CourseID,
+		RoomID:          p.RoomID,
+		TeacherID:       p.TeacherID,
+		Weekdays:        p.Weekdays,
+		StartLocalTime:  p.StartLocalTime,
+		DurationMinutes: p.DurationMinutes,
+		StartDate:       p.StartDate,
+		EndDate:         p.EndDate,
+		Count:           p.Count,
+	}, occ)
 	if err != nil {
 		return CreateSeriesResult{}, err
 	}
-
-	for _, o := range occ {
-		if serr := s.preflightSlot(ctx, tx, qtx, preflightInput{
-			CourseID:  p.CourseID,
-			RoomID:    p.RoomID,
-			TeacherID: p.TeacherID,
-			StartUTC:  o.StartUTC,
-			EndUTC:    o.EndUTC,
-			Requested: ps.conflictRequested(o.StartUTC, o.EndUTC, nil),
-		}); serr != nil {
-			return CreateSeriesResult{}, serr
-		}
+	if se != nil {
+		return CreateSeriesResult{}, se
 	}
 
 	res, err := s.seriesSvc.CreateSeriesAndMaterializeTx(ctx, qtx, series.CreateParams{
@@ -274,6 +267,10 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		Occurrences:     occ,
 	})
 	if err != nil {
+		ps, err2 := newPreflightStrings(p.CourseID, p.RoomID, p.TeacherID)
+		if err2 != nil {
+			return CreateSeriesResult{}, err
+		}
 		candidates := make([]preflightInput, 0, len(occ))
 		for _, o := range occ {
 			candidates = append(candidates, preflightInput{
@@ -312,6 +309,7 @@ func (s *Service) CreateSeriesAndMaterialize(ctx context.Context, p CreateSeries
 		res, err := s.CreateSeriesAndMaterializeTx(ctx, tx, qtx, p)
 		if err != nil {
 			_ = tx.Rollback(ctx)
+			err = s.refreshSeriesConflict(ctx, p, err)
 			lastErr = err
 			if isRetryableSchedulingErr(err) && attempt < maxRetries {
 				continue
@@ -332,6 +330,28 @@ func (s *Service) CreateSeriesAndMaterialize(ctx context.Context, p CreateSeries
 	}
 
 	return CreateSeriesResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
+}
+
+func (s *Service) refreshSeriesConflict(ctx context.Context, p CreateSeriesParams, err error) error {
+	var se *Err
+	if !errors.As(err, &se) || se.Code != "schedule_conflict" || len(se.Details.Conflicts) > 0 {
+		return err
+	}
+	_, fresh, preflightErr := s.PreflightSeries(ctx, PreflightSeriesParams{
+		CourseID:        p.CourseID,
+		RoomID:          p.RoomID,
+		TeacherID:       p.TeacherID,
+		Weekdays:        p.Weekdays,
+		StartLocalTime:  p.StartLocalTime,
+		DurationMinutes: p.DurationMinutes,
+		StartDate:       p.StartDate,
+		EndDate:         p.EndDate,
+		Count:           p.Count,
+	})
+	if preflightErr == nil && fresh != nil {
+		return fresh
+	}
+	return err
 }
 
 type SplitSeriesParams struct {
@@ -733,8 +753,12 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	}
 
 	// Preflight inside the caller's tx.
-	if serr := s.preflightSlot(ctx, tx, qtx, preflightIn); serr != nil {
-		return CreateSessionResult{}, serr
+	se, err := s.preflightSlot(ctx, tx, qtx, preflightIn)
+	if err != nil {
+		return CreateSessionResult{}, err
+	}
+	if se != nil {
+		return CreateSessionResult{}, se
 	}
 
 	if len(students) > 0 {
@@ -764,7 +788,11 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
-			if se := s.preflightSlot(ctx, tx, qtx, preflightIn); se != nil {
+			se, pferr := s.preflightSlot(ctx, tx, qtx, preflightIn)
+			if pferr != nil {
+				return CreateSessionResult{}, pferr
+			}
+			if se != nil {
 				return CreateSessionResult{}, se
 			}
 			// Preflight found no conflict — the concurrent tx hasn't committed yet.
@@ -1024,8 +1052,12 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	}
 
 	// Preflight inside the caller's tx.
-	if serr := s.preflightSlot(ctx, tx, qtx, preflightIn); serr != nil {
-		return EditOccurrenceResult{}, serr
+	se, err := s.preflightSlot(ctx, tx, qtx, preflightIn)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	if se != nil {
+		return EditOccurrenceResult{}, se
 	}
 
 	var row sqldb.SessionUpdateOccurrenceRow
@@ -1049,7 +1081,11 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514") {
 			// Re-run preflight using the same tx view (including any roster overrides).
-			if se := s.preflightSlot(ctx, tx, qtx, preflightIn); se != nil {
+			se, pferr := s.preflightSlot(ctx, tx, qtx, preflightIn)
+			if pferr != nil {
+				return EditOccurrenceResult{}, pferr
+			}
+			if se != nil {
 				return EditOccurrenceResult{}, se
 			}
 			// Preflight found no conflict — the concurrent tx hasn't committed yet.
@@ -1226,7 +1262,13 @@ func (s *Service) _explainFromDBErrByRepreflight(ctx context.Context, err error,
 		if in.StartUTC.IsZero() || in.EndUTC.IsZero() || !in.EndUTC.After(in.StartUTC) {
 			continue
 		}
-		if se := s.preflightSlot(ctx, db, q, in); se != nil {
+		se, explainErr := s.preflightSlot(ctx, db, q, in)
+		if explainErr != nil {
+			// Cannot explain — preflight itself failed (infra error). Return a synthetic
+			// conflict from the constraint violation the caller already experienced.
+			return s.syntheticConstraintConflict(in)
+		}
+		if se != nil {
 			return se
 		}
 	}
@@ -1339,7 +1381,7 @@ func (s *Service) preflightStudentOverlap(ctx context.Context, db sqldb.DBTX, in
 	if in.StudentIDs == nil || len(*in.StudentIDs) == 0 {
 		return nil
 	}
-	conflicts, err := s.overlappingSessionsByStudents(ctx, db, *in.StudentIDs, in.StartUTC, in.EndUTC, in.IgnoreSession, in.IgnoreSeries)
+	conflicts, totalCount, truncated, err := s.overlappingSessionsByStudents(ctx, db, *in.StudentIDs, in.StartUTC, in.EndUTC, in.IgnoreSession, in.IgnoreSeries)
 	if err != nil {
 		return &Err{Code: "db_error", Message: "Database error", Details: ConflictDetails{Kind: ConflictKindStudentOverlap, Conflicts: nil, Requested: in.Requested}}
 	}
@@ -1357,6 +1399,8 @@ func (s *Service) preflightStudentOverlap(ctx context.Context, db sqldb.DBTX, in
 		Details: ConflictDetails{
 			Kind:                ConflictKindStudentOverlap,
 			Conflicts:           conflicts,
+			TotalConflicts:      totalCount,
+			ConflictsTruncated:  truncated,
 			ConflictingStudents: conflictingStudents,
 			Requested:           in.Requested,
 		},
@@ -1589,6 +1633,21 @@ func conflictKindFromInput(in preflightInput) ConflictKind {
 		return ConflictKindRoomOverlap
 	}
 	return ConflictKindTeacherOverlap
+}
+
+// syntheticConstraintConflict builds a minimal schedule_conflict *Err from a preflightInput.
+// Used when the database exclusion/check constraint fires but preflightSlot cannot
+// determine the actual conflict (because queries failed or another tx is concurrent).
+func (s *Service) syntheticConstraintConflict(in preflightInput) *Err {
+	return &Err{
+		Code:    "schedule_conflict",
+		Message: "schedule conflict detected by database constraint",
+		Details: ConflictDetails{
+			Kind:      conflictKindFromInput(in),
+			Conflicts: nil,
+			Requested: in.Requested,
+		},
+	}
 }
 
 // ensure pgx import stays used in builds where some features are behind tags.

@@ -71,7 +71,7 @@ export default function Schedule() {
   useEffect(() => {
     let active = true;
     if (sessions.length === 0) {
-      setImpactedSessionIDs(new Set());
+      setImpactedSessionIDs((previous) => previous.size === 0 ? previous : new Set());
       return () => { active = false; };
     }
     void apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
@@ -1056,7 +1056,7 @@ export default function Schedule() {
               <Button variant="secondary" size="sm" onClick={edit.closeModal}>Cancel</Button>
               <Button
                 variant="primary" size="sm"
-                onClick={edit.submit}
+                onClick={() => void edit.submit()}
                 disabled={edit.saving || !edit.gate.canSave}
                 loading={edit.preflight.loading || edit.saving}
               >

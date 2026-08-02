@@ -225,6 +225,14 @@ describe("validateSeriesPreflight edge cases", () => {
     count: 10,
   };
 
+  it("returns null for invalid calendar dates", () => {
+    expect(validateSeriesPreflight({ ...validForm, start_date: "2026-02-30", end_date: "2026-03-01" }, false)).toBeNull();
+  });
+
+  it("returns null when a count cannot fit within the horizon", () => {
+    expect(validateSeriesPreflight({ ...validForm, count: 1000 }, true)).toBeNull();
+  });
+
   it("returns null when duration_minutes is 0", () => {
     expect(validateSeriesPreflight({ ...validForm, duration_minutes: 0 }, false)).toBeNull();
   });

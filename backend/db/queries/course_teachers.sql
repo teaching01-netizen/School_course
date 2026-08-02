@@ -85,6 +85,14 @@ GROUP BY s.teacher_id;
 DELETE FROM course_teachers
 WHERE course_id = $1;
 
+-- name: CourseTeacherMembershipGet :one
+-- Returns the complete membership state: course existence, whether the course
+-- has any assigned teachers, and whether the given teacher is assigned.
+SELECT
+    EXISTS (SELECT 1 FROM courses WHERE courses.id = sqlc.arg(course_id)) AS course_exists,
+    EXISTS (SELECT 1 FROM course_teachers WHERE course_teachers.course_id = sqlc.arg(course_id)) AS has_teachers,
+    EXISTS (SELECT 1 FROM course_teachers WHERE course_teachers.course_id = sqlc.arg(course_id) AND course_teachers.teacher_id = sqlc.arg(teacher_id)) AS assigned;
+
 -- name: CourseTeacherInsert :exec
 INSERT INTO course_teachers (
     course_id,

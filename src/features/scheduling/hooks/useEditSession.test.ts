@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useEditSession } from "./useEditSession";
 import { ApiRequestError } from "@/api/client";
-import type { Session } from "../types";
+import type { AttendanceOverride, Session } from "../types";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -22,6 +22,7 @@ const SESSION: Session = {
 };
 
 type MockOptions = {
+  attendance?: AttendanceOverride[] | Error;
   preview?: Record<string, unknown>;
   patch?: unknown;
   updatedSession?: Session;
@@ -31,7 +32,10 @@ type MockOptions = {
 function mockDefaultDispatch(opts: MockOptions = {}) {
   mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
     const method = (init?.method ?? "GET").toUpperCase();
-    if (url === "/api/v1/sessions/sess-1/attendance" && method === "GET") return [];
+    if (url === "/api/v1/sessions/sess-1/attendance" && method === "GET") {
+      if (opts.attendance instanceof Error) throw opts.attendance;
+      return opts.attendance ?? [];
+    }
     if (url === "/api/v1/scheduling/preflight" && method === "POST") return { status: "available" };
     if (url === "/api/v1/sessions/sess-1/change-preview" && method === "POST") {
       return opts.preview ?? { requires_acknowledgement: false };
@@ -183,6 +187,59 @@ describe("useEditSession", () => {
     expect(addToast).toHaveBeenCalledWith("success", "Updated session");
   });
 
+  it("does not send attendance overrides before the attendance response is available", async () => {
+    let resolveAttendance: ((overrides: AttendanceOverride[]) => void) | undefined;
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/v1/sessions/sess-1/attendance" && method === "GET") {
+        return new Promise<AttendanceOverride[]>((resolve) => {
+          resolveAttendance = resolve;
+        });
+      }
+      if (url === "/api/v1/scheduling/preflight" && method === "POST") return { status: "available" };
+      return undefined;
+    });
+    const { result } = renderEditSession();
+
+    await act(async () => {
+      result.current.openModal(SESSION);
+    });
+
+    await waitFor(() => {
+      const preflightCall = mockApiJson.mock.calls.find(
+        ([url, init]) => url === "/api/v1/scheduling/preflight" && init?.method === "POST",
+      );
+      expect(preflightCall).toBeDefined();
+      const body = JSON.parse((preflightCall?.[1] as RequestInit).body as string);
+      expect(body).not.toHaveProperty("included_student_ids");
+      expect(body).not.toHaveProperty("excluded_student_ids");
+    });
+
+    await act(async () => {
+      resolveAttendance?.([]);
+    });
+  });
+
+  it("omits unverified attendance overrides when attendance loading fails", async () => {
+    mockDefaultDispatch({ attendance: new Error("attendance unavailable") });
+    const { result } = renderEditSession();
+
+    await act(async () => {
+      result.current.openModal(SESSION);
+    });
+
+    await waitFor(() => {
+      const preflightCall = mockApiJson.mock.calls.find(
+        ([url, init]) => url === "/api/v1/scheduling/preflight" && init?.method === "POST",
+      );
+      expect(preflightCall).toBeDefined();
+      const body = JSON.parse((preflightCall?.[1] as RequestInit).body as string);
+      expect(body).not.toHaveProperty("included_student_ids");
+      expect(body).not.toHaveProperty("excluded_student_ids");
+    });
+    expect(result.current.attendanceOverridesLoaded).toBe(false);
+  });
+
   it("reloads the latest session on stale_edit", async () => {
     const updatedSession: Session = {
       id: "sess-1",
@@ -279,27 +336,44 @@ describe("useEditSession", () => {
   it("an older preflight result does not overwrite a newer one", async () => {
     let resolveA!: (v: { status: string }) => void;
     let resolveB!: (v: { status: string }) => void;
-    mockApiJson
-      .mockImplementationOnce(async () => []) // attendance
-      .mockImplementationOnce(async () => new Promise((r) => { resolveA = r; })) // preflight from openModal (A)
-      .mockImplementationOnce(async () => new Promise((r) => { resolveB = r; })); // preflight after form change (B)
+    let bCallStarted = false;
+    mockApiJson.mockImplementation(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("/attendance")) return [];
+      if (url.endsWith("/preflight")) {
+        if (!resolveA) return new Promise((r) => { resolveA = r; });
+        bCallStarted = true;
+        return new Promise((r) => { resolveB = r; });
+      }
+      return undefined;
+    });
 
     const { result } = renderEditSession();
 
     await act(async () => {
       result.current.openModal(SESSION);
     });
-    expect(result.current.preflight.loading).toBe(true);
+
+    // Debounced preflight A fires after 300ms — wait for it to start loading
+    await waitFor(() => {
+      expect(result.current.preflight.loading).toBe(true);
+    });
 
     act(() => {
       result.current.setForm((f) => ({ ...f, start_local: "2025-08-14T10:00", end_local: "2025-08-14T11:00" }));
+    });
+
+    // Wait for preflight B API call to be made (debounced after form change)
+    await waitFor(() => {
+      expect(bCallStarted).toBe(true);
     });
 
     // Resolve the newer check (B) first with available...
     await act(async () => {
       resolveB({ status: "available" });
     });
-    expect(result.current.preflight.status).toBe("available");
+    await waitFor(() => {
+      expect(result.current.preflight.status).toBe("available");
+    });
     expect(result.current.preflight.loading).toBe(false);
 
     // ...then the older one (A) resolves later with provisional — must be ignored.

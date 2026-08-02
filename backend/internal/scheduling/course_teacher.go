@@ -17,6 +17,51 @@ const ErrTeacherNotAssigned = "teacher_not_assigned_to_course"
 // series row. Only changed identities need membership revalidation — the
 // existing teacher may legitimately have left the set since the series was
 // created (historical sessions are never backfilled).
+// CourseTeacherMembership holds the complete membership state for a course+teacher pair,
+// returned by evaluateCourseTeacherMembership.
+type CourseTeacherMembership struct {
+	CourseExists bool
+	HasTeachers  bool
+	Assigned     bool
+}
+
+// evaluateCourseTeacherMembership queries the complete membership state (course
+// existence, teacher set existence, and teacher assignment) in one round trip.
+// Returns a scheduling Err when any check fails, or nil if the teacher is valid.
+func evaluateCourseTeacherMembership(
+	ctx context.Context,
+	q *sqldb.Queries,
+	courseID pgtype.UUID,
+	teacherID pgtype.UUID,
+) (*Err, error) {
+	m, err := q.CourseTeacherMembershipGet(ctx, sqldb.CourseTeacherMembershipGetParams{CourseID: courseID, TeacherID: teacherID})
+	if err != nil {
+		return nil, err
+	}
+	if !m.CourseExists {
+		return &Err{
+			Code:    ErrCourseNotFound,
+			Message: "Course not found.",
+			Details: ConflictDetails{Kind: ConflictKindCourseNotFound},
+		}, nil
+	}
+	if !m.HasTeachers {
+		return &Err{
+			Code:    ErrCourseHasNoTeachers,
+			Message: "This course has no assigned teachers. Please configure teacher assignments before scheduling.",
+			Details: ConflictDetails{Kind: ConflictKindCourseHasNoTeachers},
+		}, nil
+	}
+	if !m.Assigned {
+		return &Err{
+			Code:    ErrTeacherNotAssigned,
+			Message: "The selected teacher is not assigned to this course.",
+			Details: ConflictDetails{Kind: ConflictKindTeacherNotAssigned},
+		}, nil
+	}
+	return nil, nil
+}
+
 func seriesTeacherOrCourseChanged(currentCourseID, currentTeacherID, newCourseID, newTeacherID pgtype.UUID) bool {
 	teacherChanged := newTeacherID.Valid && currentTeacherID.Valid && newTeacherID.Bytes != currentTeacherID.Bytes
 	courseChanged := newCourseID.Valid && currentCourseID.Valid && newCourseID.Bytes != currentCourseID.Bytes
@@ -44,11 +89,25 @@ func enforceSeriesTeacherMembership(ctx context.Context, q *sqldb.Queries, curre
 // cannot slip a session past the check. Returns a stable Err when the teacher
 // is not assigned; an empty set rejects every teacher.
 func checkCourseTeacherMembership(ctx context.Context, qtx *sqldb.Queries, courseID, teacherID pgtype.UUID) error {
-	assigned, err := qtx.CourseTeacherExists(ctx, sqldb.CourseTeacherExistsParams{CourseID: courseID, TeacherID: teacherID})
+	m, err := qtx.CourseTeacherMembershipGet(ctx, sqldb.CourseTeacherMembershipGetParams{CourseID: courseID, TeacherID: teacherID})
 	if err != nil {
 		return err
 	}
-	if assigned {
+	if !m.CourseExists {
+		return &Err{
+			Code:    ErrCourseNotFound,
+			Message: "Course not found.",
+			Details: ConflictDetails{Kind: ConflictKindCourseNotFound},
+		}
+	}
+	if !m.HasTeachers {
+		return &Err{
+			Code:    ErrCourseHasNoTeachers,
+			Message: "This course has no assigned teachers. Please configure teacher assignments before scheduling.",
+			Details: ConflictDetails{Kind: ConflictKindCourseHasNoTeachers},
+		}
+	}
+	if m.Assigned {
 		return nil
 	}
 	courseIDStr, err := uuidString(courseID)

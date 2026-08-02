@@ -9,6 +9,7 @@ function makePreflight(overrides: Partial<UsePreflightReturn>): UsePreflightRetu
     details: null,
     error: null,
     occurrencesPlanned: null,
+    lastParams: null,
     check: vi.fn(),
     reset: vi.fn(),
     ...overrides,
@@ -32,5 +33,21 @@ describe("usePreflightGate", () => {
 
     expect(gate.canSave).toBe(true);
     expect(gate.reason).toBe("ok");
+  });
+
+  it("blocks save when the form is invalid despite a passing preflight", () => {
+    const gate = usePreflightGate(makePreflight({ status: "available" }), { isFormValid: false });
+    expect(gate.canSave).toBe(false);
+    expect(gate.reason).toBe("idle");
+  });
+
+  it.each([
+    ["checking", true],
+    ["blocked", false],
+    ["error", false],
+    ["idle", false],
+  ] as const)("reports the %s gate state", (status, loading) => {
+    const gate = usePreflightGate(makePreflight({ status, loading }));
+    expect(gate.reason).toBe(status === "checking" ? "checking" : status);
   });
 });

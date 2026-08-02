@@ -2,6 +2,15 @@ package scheduling
 
 import "fmt"
 
+// Validation error codes for resource and membership validation.
+const (
+	ErrCourseNotFound      = "course_not_found"
+	ErrCourseHasNoTeachers = "course_has_no_assigned_teachers"
+	ErrTeacherNotFound     = "teacher_not_found"
+	ErrTeacherInactive     = "teacher_inactive"
+	ErrRoomNotFound        = "room_not_found"
+)
+
 type ConflictKind string
 
 const (
@@ -11,6 +20,11 @@ const (
 	ConflictKindTeacherAvailability ConflictKind = "teacher_availability"
 	ConflictKindRoomAvailability    ConflictKind = "room_availability"
 	ConflictKindTeacherNotAssigned  ConflictKind = "teacher_not_assigned_to_course"
+	ConflictKindCourseNotFound      ConflictKind = "course_not_found"
+	ConflictKindCourseHasNoTeachers ConflictKind = "course_has_no_assigned_teachers"
+	ConflictKindTeacherNotFound     ConflictKind = "teacher_not_found"
+	ConflictKindTeacherInactive     ConflictKind = "teacher_inactive"
+	ConflictKindRoomNotFound        ConflictKind = "room_not_found"
 )
 
 type ConflictSession struct {
@@ -41,6 +55,8 @@ type ConflictingStudent struct {
 type ConflictDetails struct {
 	Kind                ConflictKind         `json:"kind"`
 	Conflicts           []ConflictSession    `json:"conflicts"`
+	TotalConflicts      int                  `json:"total_conflicts,omitempty"`
+	ConflictsTruncated  bool                 `json:"conflicts_truncated,omitempty"`
 	ConflictingStudents []ConflictingStudent `json:"conflicting_students,omitempty"`
 	Requested           ConflictRequested    `json:"requested"`
 	Resource            string               `json:"resource,omitempty"`
@@ -52,6 +68,25 @@ type Err struct {
 	Code    string
 	Message string
 	Details ConflictDetails
+}
+
+// HTTPStatusForErr maps a scheduling error code to an HTTP status code.
+// Returns 404 for resource-not-found errors, 409 for conflict/validation errors.
+func HTTPStatusForErr(se *Err) int {
+	if se == nil {
+		return 500
+	}
+	switch se.Code {
+	case ErrCourseNotFound,
+		ErrTeacherNotFound,
+		ErrRoomNotFound:
+		return 404
+	case ErrCourseHasNoTeachers,
+		ErrTeacherInactive:
+		return 409
+	default:
+		return 409
+	}
 }
 
 func (e *Err) Error() string {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -401,31 +402,23 @@ func TestScheduleDB_EditEntireSeries_ReplayPrecedesStaleVersion(t *testing.T) {
 	assertReplay(t, f.mux, http.MethodPatch, "/api/v1/series/"+id+"/entire", uuid.New().String(), body)
 }
 
-func TestWriteRecurrenceValidationErr(t *testing.T) {
+func TestCheckRecurrence(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	recorder := httptest.NewRecorder()
 	s := &server{deps: httpdeps.Deps{Log: logger}, a: httpadapter.New(nil, logger)}
 	err := fmt.Errorf("wrapped: %w", &series.ValidationError{Code: "count_exceeds_limit", Message: "count must be at most 1000"})
 
-	if !s.writeRecurrenceValidationErr(context.Background(), recorder, err) {
+	r := s.checkRecurrence(context.Background(), err)
+	if r.valid {
 		t.Fatal("validation error was not handled")
 	}
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	if r.code != "invalid_recurrence" || r.msg != "count must be at most 1000" {
+		t.Fatalf("checkRecurrence = (%q, %q), want (invalid_recurrence, count must be at most 1000)", r.code, r.msg)
 	}
-	var body struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Code != "invalid_recurrence" {
-		t.Fatalf("code = %q, want invalid_recurrence", body.Code)
-	}
-	if body.Message != "count must be at most 1000" {
-		t.Fatalf("message = %q", body.Message)
+	// Verify the non-validation-error case passes through.
+	r2 := s.checkRecurrence(context.Background(), errors.New("some other error"))
+	if !r2.valid {
+		t.Fatal("expected valid=true for non-validation errors")
 	}
 	if got := logs.String(); !strings.Contains(got, "schedule recurrence rejected") || !strings.Contains(got, `"code":"count_exceeds_limit"`) {
 		t.Fatalf("recurrence rejection log missing bounded fields: %s", got)

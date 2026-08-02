@@ -175,6 +175,33 @@ func (q *Queries) CourseTeacherInsert(ctx context.Context, arg CourseTeacherInse
 	return err
 }
 
+const courseTeacherMembershipGet = `-- name: CourseTeacherMembershipGet :one
+SELECT
+    EXISTS (SELECT 1 FROM courses WHERE courses.id = $1) AS course_exists,
+    EXISTS (SELECT 1 FROM course_teachers WHERE course_teachers.course_id = $1) AS has_teachers,
+    EXISTS (SELECT 1 FROM course_teachers WHERE course_teachers.course_id = $1 AND course_teachers.teacher_id = $2) AS assigned
+`
+
+type CourseTeacherMembershipGetParams struct {
+	CourseID  pgtype.UUID `json:"course_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+type CourseTeacherMembershipGetRow struct {
+	CourseExists bool `json:"course_exists"`
+	HasTeachers  bool `json:"has_teachers"`
+	Assigned     bool `json:"assigned"`
+}
+
+// Returns the complete membership state: course existence, whether the course
+// has any assigned teachers, and whether the given teacher is assigned.
+func (q *Queries) CourseTeacherMembershipGet(ctx context.Context, arg CourseTeacherMembershipGetParams) (CourseTeacherMembershipGetRow, error) {
+	row := q.db.QueryRow(ctx, courseTeacherMembershipGet, arg.CourseID, arg.TeacherID)
+	var i CourseTeacherMembershipGetRow
+	err := row.Scan(&i.CourseExists, &i.HasTeachers, &i.Assigned)
+	return i, err
+}
+
 const courseTeacherSetExists = `-- name: CourseTeacherSetExists :one
 SELECT EXISTS (
     SELECT 1

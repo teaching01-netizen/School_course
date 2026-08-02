@@ -266,7 +266,7 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var createdID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		item, err := s.deps.Scheduling.CreateSessionTx(r.Context(), tx, qtx, scheduling.CreateSessionParams{
 			SeriesID:  seriesID,
@@ -279,11 +279,13 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
-				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
-				return 0, nil, err
+				return scheduling.HTTPStatusForErr(se), map[string]any{
+					"code":    se.Code,
+					"message": se.Message,
+					"details": se.Details,
+				}, err
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			// Infrastructure error — return nil body so runner uses ClassifyDBErr
 			return 0, nil, err
 		}
 		idStr, err := s.a.UUIDString(item.SessionID)
@@ -453,12 +455,10 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 	}
 
 	var updatedID string
-	if s.a.WithIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithSerializableIdempotentTx(w, r, user.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		current, err := qtx.SessionGetByID(r.Context(), id)
 		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		newStartAt := current.StartAt
@@ -475,31 +475,31 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		}
 		impact, impactErr := qtx.SessionChangePreviewImpact(r.Context(), id, newCourseID, newStartAt, newEndAt)
 		if impactErr != nil {
-			status, code, msg := s.a.ClassifyDBErr(impactErr)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, impactErr
 		}
 		settings, settingsErr := qtx.AppSettingsGetSessionChangeSettings(r.Context())
 		if settingsErr != nil {
-			status, code, msg := s.a.ClassifyDBErr(settingsErr)
-			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, settingsErr
 		}
 		shortNotice := newStartAt.Time.Sub(time.Now()).Hours() <= float64(settings.WarningHours)
 		requiresAcknowledgement := impact.DirectSitInAssignments > 0 || impact.MissedSessionReferences > 0 || impact.PredictedStudentOverlaps > 0 || impact.PotentialEligibilityChanges > 0 || shortNotice
 		if !settings.AllowMoveIntoPast && !newStartAt.Time.After(time.Now()) {
-			s.a.WriteErr(w, http.StatusConflict, "past_time_change", "Moving a session into the past is not permitted")
-			return 0, nil, fmt.Errorf("past time change")
+			return http.StatusConflict, map[string]any{"code": "past_time_change", "message": "Moving a session into the past is not permitted"}, fmt.Errorf("past time change")
 		}
 		if requiresAcknowledgement && (body.AcknowledgeImpact == nil || !*body.AcknowledgeImpact) {
-			s.a.WriteErrDetails(w, http.StatusConflict, "impact_acknowledgement_required", "This change affects absence plans and requires acknowledgement", map[string]any{
-				"impact_summary": map[string]any{
-					"direct_sit_in_assignments": impact.DirectSitInAssignments, "missed_session_references": impact.MissedSessionReferences,
-					"predicted_student_overlaps": impact.PredictedStudentOverlaps, "potential_eligibility_changes": impact.PotentialEligibilityChanges,
-					"short_notice": shortNotice,
+			return http.StatusConflict, map[string]any{
+				"code":    "impact_acknowledgement_required",
+				"message": "This change affects absence plans and requires acknowledgement",
+				"details": map[string]any{
+					"impact_summary": map[string]any{
+						"direct_sit_in_assignments":     impact.DirectSitInAssignments,
+						"missed_session_references":     impact.MissedSessionReferences,
+						"predicted_student_overlaps":    impact.PredictedStudentOverlaps,
+						"potential_eligibility_changes": impact.PotentialEligibilityChanges,
+						"short_notice":                  shortNotice,
+					},
 				},
-			})
-			return 0, nil, fmt.Errorf("impact acknowledgement required")
+			}, fmt.Errorf("impact acknowledgement required")
 		}
 		item, err := s.deps.Scheduling.EditOccurrenceTimeTx(r.Context(), tx, qtx, scheduling.EditOccurrenceParams{
 			SessionID:       id,
@@ -526,15 +526,12 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 						if current.SeriesID.Valid {
 							dto["series_id"] = mustUUIDStringOrEmpty(s.a, current.SeriesID)
 						}
-						s.a.WriteErrDetails(w, http.StatusConflict, se.Code, "Stale edit", map[string]any{"current": dto})
-						return 0, nil, err
+						return http.StatusConflict, map[string]any{"code": se.Code, "message": "Stale edit", "details": map[string]any{"current": dto}}, err
 					}
 				}
-				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
-				return 0, nil, err
+				return scheduling.HTTPStatusForErr(se), map[string]any{"code": se.Code, "message": se.Message, "details": se.Details}, err
 			}
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			// Infrastructure error — return nil body so runner uses ClassifyDBErr
 			return 0, nil, err
 		}
 		sid, err := s.a.UUIDString(item.SessionID)
@@ -823,7 +820,7 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 		if err := s.deps.Scheduling.UpsertSessionAttendanceTx(r.Context(), tx, qtx, sessionID, studentID, body.Status); err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
-				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
+				s.a.WriteErrDetails(w, scheduling.HTTPStatusForErr(se), se.Code, se.Message, se.Details)
 				return 0, nil, err
 			}
 			status, code, msg := s.a.ClassifyDBErr(err)

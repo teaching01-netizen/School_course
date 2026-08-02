@@ -36,11 +36,15 @@ export type ConflictDetails = {
     start_at: string;
     end_at: string;
   }> | null;
+  total_conflicts?: number;
+  conflicts_truncated?: boolean;
   conflicting_students?: Array<{
     student_id: string;
     full_name: string;
     status: string;
   }>;
+  resource?: string;
+  session_ids?: string[];
 };
 
 export type StaleEditDetails = {
