@@ -134,7 +134,7 @@ export function RulePreviewPanel({ form }: RulePreviewPanelProps) {
   const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
   return (
-    <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 p-3">
+    <div className="rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/70 p-3">
       <div className="flex items-center gap-2 mb-2">
         <Lightbulb className="w-4 h-4 text-amber-500" />
         <span className="text-xs font-medium text-[var(--color-wi-text-light)] uppercase tracking-wide">
@@ -158,7 +158,7 @@ export function RulePreviewPanel({ form }: RulePreviewPanelProps) {
               className={`flex-1 h-6 rounded-sm text-[10px] flex items-center justify-center font-medium ${
                 highlights.includes(i)
                   ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                  : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border var(--color-wi-line)"
+                  : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border border-[var(--color-wi-line)]"
               }`}
             >
               {day}
@@ -167,7 +167,7 @@ export function RulePreviewPanel({ form }: RulePreviewPanelProps) {
         </div>
       )}
 
-      <span className="inline-block rounded-full bg-white border var(--color-wi-line) px-2 py-0.5 text-[11px] text-[var(--color-wi-text-light)]">
+      <span className="inline-block rounded-full bg-white border border-[var(--color-wi-line)] px-2 py-0.5 text-[11px] text-[var(--color-wi-text-light)]">
         {badge}
       </span>
     </div>

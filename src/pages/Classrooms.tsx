@@ -111,7 +111,7 @@ export default function Classrooms() {
       <table className="w-full text-[13px]">
         <caption className="sr-only">List of classrooms</caption>
         <thead>
-          <tr className="border-b var(--color-wi-line)">
+          <tr className="border-b border-b-[var(--color-wi-line)]">
             <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Capacity</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
@@ -119,7 +119,7 @@ export default function Classrooms() {
         </thead>
         <tbody>
           {filtered.map((c, idx) => (
-            <tr key={c.id} className={`border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/50" : ""}`}>
+            <tr key={c.id} className={`border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/50" : ""}`}>
               <td className="py-2 px-2">{c.name}</td>
               <td className="py-2 px-2">{c.capacity ?? "-"}</td>
               <td className="py-2 px-2">

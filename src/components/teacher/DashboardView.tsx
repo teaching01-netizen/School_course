@@ -47,7 +47,7 @@ export default function DashboardView({
         totalSitIns={data.summary.total_sit_ins}
       />
 
-      <div className="flex gap-4 border-b var(--color-wi-line) text-sm" aria-label="Dashboard view mode">
+      <div className="flex gap-4 border-b border-b-[var(--color-wi-line)] text-sm" aria-label="Dashboard view mode">
         <button
           type="button"
           onClick={() => setMode('calendar')}

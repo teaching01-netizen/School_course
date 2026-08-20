@@ -29,7 +29,7 @@ export default function ScheduleFilters({
       <Input aria-label="Start time" type="time" size="sm" value={startTime} onChange={(e) => onChangeStartTime(e.target.value)} step={300} className="w-28" />
       <Input aria-label="End time" type="time" size="sm" value={endTime} onChange={(e) => onChangeEndTime(e.target.value)} step={300} className="w-28" />
       <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh</Button>
-      <div className="flex border var(--color-wi-line) rounded-sm overflow-hidden">
+      <div className="flex border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
         <button
           type="button"
           onClick={() => onViewModeChange("week")}

@@ -128,7 +128,7 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
         aria-label={`Session details for ${dateLabel}`}
         className="fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-white shadow-lg sm:inset-0 sm:m-auto sm:max-h-[70vh] sm:w-[92vw] sm:max-w-[560px] sm:rounded-lg"
       >
-        <div className="flex items-center justify-between border-b var(--color-wi-line) px-4 py-3">
+        <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-4 py-3">
           <div>
             <h3 className="text-[14px] font-bold text-[var(--color-wi-text)]">{dateLabel}</h3>
             {sessions.length > 0 ? (
@@ -163,7 +163,7 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
                 const label = s.subject_name ?? s.course_name;
 
                 return (
-                  <div key={s.id} className="rounded-sm border var(--color-wi-line) bg-white px-3 py-2.5">
+                  <div key={s.id} className="rounded-sm border border-[var(--color-wi-line)] bg-white px-3 py-2.5">
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-1.5">
                         <span className="text-[12px] font-semibold text-[var(--color-wi-text)] tabular-nums">

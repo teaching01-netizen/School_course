@@ -30,7 +30,7 @@ export default function SubjectCard({
           "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
           selected
             ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]"
-            : "var(--color-wi-line) bg-white",
+            : "border-[var(--color-wi-line)] bg-white",
         )}
         aria-hidden="true"
       >

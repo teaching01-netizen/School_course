@@ -32,7 +32,7 @@ export default function LevelStepper({
       <button
         type="button"
         onClick={handleDecrease}
-        className="flex h-6 w-6 items-center justify-center rounded-sm border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+        className="flex h-6 w-6 items-center justify-center rounded-sm border border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
         aria-label="Decrease level"
       >
         <Minus className="h-3 w-3" />
@@ -43,7 +43,7 @@ export default function LevelStepper({
       <button
         type="button"
         onClick={handleIncrease}
-        className="flex h-6 w-6 items-center justify-center rounded-sm border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+        className="flex h-6 w-6 items-center justify-center rounded-sm border border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
         aria-label="Increase level"
       >
         <Plus className="h-3 w-3" />

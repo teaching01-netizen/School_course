@@ -156,7 +156,7 @@ export function statusClass(status: SyncHealth["status"]): string {
 	if (status === "error") return "border-[var(--color-wi-red)] bg-[var(--color-wi-danger-bg)] text-[var(--color-wi-red)]";
 	if (status === "shadow") return "border-blue-200 bg-blue-50 text-[var(--color-wi-primary)]";
 	if (status === "healthy") return "border-emerald-200 bg-emerald-50 text-[var(--color-wi-green)]";
-	return "var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]";
+	return "border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]";
 }
 
 export function syncPhaseCopy(phase: string): string {

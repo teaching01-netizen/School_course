@@ -301,7 +301,7 @@ export function SitInRulesSection() {
       </div>
 
       {verificationReport ? (
-        <div className="mb-4 rounded-sm border var(--color-wi-line) bg-white px-4 py-3 text-sm text-[var(--color-wi-text-light)]" role="status">
+        <div className="mb-4 rounded-sm border border-[var(--color-wi-line)] bg-white px-4 py-3 text-sm text-[var(--color-wi-text-light)]" role="status">
           <p className="mb-1 font-medium">Verification results</p>
           {verificationReport.map((msg, i) => <p key={i}>{msg}</p>)}
         </div>
@@ -313,8 +313,8 @@ export function SitInRulesSection() {
           const warning = getGapWarning(group.courses);
           const selectedCount = group.courses.filter(c => selectedCourseIds.has(c.id)).length;
           return (
-            <div key={group.groupId} className="rounded-sm border var(--border-strong) bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
+            <div key={group.groupId} className="rounded-sm border border-[var(--border-strong)] bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
                 <div className="flex items-center gap-2">
                   {rcId ? (
                     <input
@@ -353,7 +353,7 @@ export function SitInRulesSection() {
                         const ruleId = e.target.value || null;
                         saveRuleAssignment(rcId, ruleId);
                       }}
-                      className="text-xs border var(--color-wi-line) rounded px-2 py-1"
+                      className="text-xs border border-[var(--color-wi-line)] rounded px-2 py-1"
                     >
                       <option value="">No rule assigned</option>
                       {sitInRules.map((rule: SitInRule) => (
@@ -373,7 +373,7 @@ export function SitInRulesSection() {
                       <input
                         type="number"
                         min={0}
-                        className="w-14 border var(--color-wi-line) rounded px-1.5 py-1 text-xs"
+                        className="w-14 border border-[var(--color-wi-line)] rounded px-1.5 py-1 text-xs"
                         value={windowWeeks[rcId] ?? 0}
                         onChange={(e) => setWindowWeeks((prev) => ({ ...prev, [rcId]: Math.max(0, parseInt(e.target.value) || 0) }))}
                       />
@@ -470,7 +470,7 @@ export function SitInRulesSection() {
           <table className="w-full text-sm">
             <caption className="sr-only">Bulk edit course levels</caption>
             <thead>
-              <tr className="border-b var(--color-wi-line) text-left text-[var(--color-wi-text-light)]">
+              <tr className="border-b border-b-[var(--color-wi-line)] text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="py-2 pr-3 font-medium">Course</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Current</th>
@@ -479,7 +479,7 @@ export function SitInRulesSection() {
             </thead>
             <tbody>
               {bulkEditGroup.courses.map((course) => (
-                <tr key={course.id} className="border-b var(--color-wi-line)">
+                <tr key={course.id} className="border-b border-b-[var(--color-wi-line)]">
                   <td className="py-2 pr-3 font-mono text-xs">{course.code}</td>
                   <td className="py-2 pr-3 text-[var(--color-wi-text-light)]">{course.cycle_label}</td>
                   <td className="py-2 pr-3">{course.level ?? <span className="text-[var(--color-wi-text-light)]">&mdash;</span>}</td>

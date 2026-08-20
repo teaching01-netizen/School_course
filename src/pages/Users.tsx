@@ -183,11 +183,11 @@ export default function Users() {
         <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>Create</Button>
       </div>
 
-      <div className="border var(--color-wi-line) rounded-sm overflow-x-auto">
+      <div className="border border-[var(--color-wi-line)] rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
           <caption className="sr-only">List of users</caption>
           <thead>
-            <tr className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]">
+            <tr className="border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Role</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Status</th>
@@ -197,7 +197,7 @@ export default function Users() {
           </thead>
           <tbody>
             {filtered.map((u) => (
-              <tr key={u.id} className="border-b var(--color-wi-line) last:border-b-0 hover:bg-[var(--color-wi-row-alt)]">
+              <tr key={u.id} className="border-b border-b-[var(--color-wi-line)] last:border-b-0 hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2">
                   <div className="text-[var(--color-wi-text)]">{u.username}</div>
                   <div className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{u.id}</div>

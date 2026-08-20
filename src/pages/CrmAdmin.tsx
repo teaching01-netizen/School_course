@@ -267,7 +267,7 @@ export default function CrmAdmin() {
               ? "border-emerald-400 bg-emerald-50/70 shadow-lg shadow-emerald-100/50"
               : selectedFile
                 ? "border-emerald-300 bg-emerald-50/40"
-                : "var(--color-wi-line) bg-white hover:var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]/50"
+                : "border-[var(--color-wi-line)] bg-white hover:border-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]/50"
           }
           ${showSpinner ? "pointer-events-none opacity-60" : ""}
         `}
@@ -316,7 +316,7 @@ export default function CrmAdmin() {
                   e.stopPropagation();
                   clearSelection();
                 }}
-                className="px-4 py-2 text-sm font-medium rounded-lg border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
               >
                 Cancel
               </button>
@@ -403,7 +403,7 @@ export default function CrmAdmin() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={clearSelection}
-                className="px-4 py-2 text-sm font-medium rounded-lg border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
               >
                 Cancel
               </button>
@@ -421,10 +421,10 @@ export default function CrmAdmin() {
 
       {/* Status / Result Card */}
       {job && (
-        <div className="rounded-xl border var(--color-wi-line) bg-white overflow-hidden mb-4">
+        <div className="rounded-xl border border-[var(--color-wi-line)] bg-white overflow-hidden mb-4">
           {/* Status bar */}
           <div
-            className={`flex items-center gap-3 px-5 py-3.5 border-b var(--color-wi-line) ${
+            className={`flex items-center gap-3 px-5 py-3.5 border-b border-b-[var(--color-wi-line)] ${
               running
                 ? "bg-blue-50"
                 : isSucceeded
@@ -538,12 +538,12 @@ export default function CrmAdmin() {
       )}
 
       {/* Help section — collapsed by default */}
-      <details className="group rounded-xl border var(--color-wi-line) bg-white overflow-hidden">
+      <details className="group rounded-xl border border-[var(--color-wi-line)] bg-white overflow-hidden">
         <summary className="flex items-center gap-2 px-5 py-3 cursor-pointer hover:bg-[var(--color-wi-row-alt)] transition-colors text-sm font-medium text-[var(--color-wi-text-light)] list-none [&::-webkit-details-marker]:hidden">
           <ChevronRight className="w-4 h-4 text-[var(--color-wi-text-light)] transition-transform group-open:rotate-90" />
           What format does my file need to be in?
         </summary>
-        <div className="px-5 pb-4 pt-1 border-t var(--color-wi-line)">
+        <div className="px-5 pb-4 pt-1 border-t border-t-[var(--color-wi-line)]">
           <div className="text-xs text-[var(--color-wi-text-light)] space-y-2">
             <p>
               Your XLSX file must contain at least these columns (by header name):

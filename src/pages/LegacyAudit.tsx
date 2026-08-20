@@ -143,7 +143,7 @@ export default function LegacyAudit() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/admin/legacy-sync" className="inline-flex min-h-[34px] items-center rounded-sm border var(--color-wi-line) bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">
+          <Link to="/admin/legacy-sync" className="inline-flex min-h-[34px] items-center rounded-sm border border-[var(--color-wi-line)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">
             <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
             Sync controls
           </Link>
@@ -174,7 +174,7 @@ export default function LegacyAudit() {
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {totals.map((metric) => (
-                <div key={metric.label} className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div key={metric.label} className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">{metric.label}</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${metric.tone}`}>{formatCount(metric.value)}</p>
                   <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{metric.detail}</p>
@@ -182,7 +182,7 @@ export default function LegacyAudit() {
               ))}
             </div>
             {runs ? (
-              <dl className="mt-4 grid gap-x-6 gap-y-2 border-t var(--color-wi-line) pt-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
+              <dl className="mt-4 grid gap-x-6 gap-y-2 border-t border-t-[var(--color-wi-line)] pt-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
                 <div><dt className="text-[var(--color-wi-text-light)]">Completed runs</dt><dd className="font-medium tabular-nums text-[var(--color-wi-text)]">{runs.completed_runs}</dd></div>
                 <div><dt className="text-[var(--color-wi-text-light)]">Entities parsed</dt><dd className="font-medium tabular-nums text-[var(--color-wi-text)]">{formatCount(runs.entities_parsed)}</dd></div>
                 <div><dt className="text-[var(--color-wi-text-light)]">Entities applied</dt><dd className="font-medium tabular-nums text-[var(--color-wi-text)]">{formatCount(runs.entities_applied)}</dd></div>
@@ -200,22 +200,22 @@ export default function LegacyAudit() {
                 Schedule rows the sync could not apply are recorded in the conflict ledger; a course whose refresh job exhausted its retries lands in dead letters; a course whose last apply left rows out carries a partial snapshot (still retryable).
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Skipped sessions</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${skips.sessions_skipped_open ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-green)]"}`}>{skips.sessions_skipped_total}</p>
                   <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{skips.sessions_skipped_open} open · recorded in conflicts</p>
                 </div>
-                <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Skipped courses</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${skips.courses_skipped_open ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-green)]"}`}>{skips.courses_skipped_total}</p>
                   <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{skips.courses_skipped_open} open · conflicts + dead letters</p>
                 </div>
-                <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Partial snapshots</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${skips.partial_snapshots ? "text-[var(--color-wi-amber)]" : "text-[var(--color-wi-green)]"}`}>{skips.partial_snapshots}</p>
                   <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Courses with rows not yet applied</p>
                 </div>
-                <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Dead letters</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${deadPaginated.total || deadLetters.length ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-green)]"}`}>{deadPaginated.total || deadLetters.length}</p>
                   <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{deadPaginated.total ? `${deadPaginated.total} total` : "Latest shown below"}</p>
@@ -245,7 +245,7 @@ export default function LegacyAudit() {
                   </table>
                 </div>
               ) : (
-                <div className="mt-5 flex items-center gap-2 border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3 text-sm text-[var(--color-wi-text-light)]">
+                <div className="mt-5 flex items-center gap-2 border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3 text-sm text-[var(--color-wi-text-light)]">
                   <CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" />
                   Nothing skipped — every course and session synced cleanly.
                 </div>
@@ -255,7 +255,7 @@ export default function LegacyAudit() {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="skipped-sessions-heading">
-              <div className="flex items-center justify-between border-b var(--color-wi-line) px-5 py-4">
+              <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4">
                 <h2 id="skipped-sessions-heading" className="flex items-center gap-2 text-lg font-semibold text-[var(--color-wi-text)]">
                   <ClipboardCheck className="h-5 w-5 text-[var(--color-wi-text-light)]" aria-hidden="true" />
                   Skipped sessions
@@ -292,7 +292,7 @@ export default function LegacyAudit() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between border-t var(--color-wi-line) px-5 py-3">
+              <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
                 <Button variant="secondary" size="sm" disabled={sessionsPage === 0} onClick={() => setSessionsPage((p) => Math.max(0, p - 1))}>Previous</Button>
                 <span className="text-xs text-[var(--color-wi-text-light)]">{skippedSessions.length} on this page</span>
                 <Button variant="secondary" size="sm" disabled={skippedSessions.length < limit} onClick={() => setSessionsPage((p) => p + 1)}>Next</Button>
@@ -300,7 +300,7 @@ export default function LegacyAudit() {
             </section>
 
             <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="skipped-courses-heading">
-              <div className="flex items-center justify-between border-b var(--color-wi-line) px-5 py-4">
+              <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4">
                 <h2 id="skipped-courses-heading" className="flex items-center gap-2 text-lg font-semibold text-[var(--color-wi-text)]">
                   <ClipboardCheck className="h-5 w-5 text-[var(--color-wi-text-light)]" aria-hidden="true" />
                   Skipped courses
@@ -334,7 +334,7 @@ export default function LegacyAudit() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between border-t var(--color-wi-line) px-5 py-3">
+              <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
                 <Button variant="secondary" size="sm" disabled={coursesPage === 0} onClick={() => setCoursesPage((p) => Math.max(0, p - 1))}>Previous</Button>
                 <span className="text-xs text-[var(--color-wi-text-light)]">{skippedCourses.length} on this page</span>
                 <Button variant="secondary" size="sm" disabled={skippedCourses.length < limit} onClick={() => setCoursesPage((p) => p + 1)}>Next</Button>
@@ -343,7 +343,7 @@ export default function LegacyAudit() {
           </div>
 
           <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="dead-letters-heading">
-            <div className="flex items-center justify-between border-b var(--color-wi-line) px-5 py-4">
+            <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4">
               <h2 id="dead-letters-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Dead letters</h2>
               <span className="text-xs text-[var(--color-wi-text-light)]">Page {deadPage + 1} · {deadPaginated.total || deadLetters.length} total</span>
             </div>
@@ -372,7 +372,7 @@ export default function LegacyAudit() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t var(--color-wi-line) px-5 py-3">
+            <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
               <Button variant="secondary" size="sm" disabled={deadPage === 0} onClick={() => setDeadPage((p) => Math.max(0, p - 1))}>Previous</Button>
               <span className="text-xs text-[var(--color-wi-text-light)]">{deadLetters.length} on this page</span>
               <Button variant="secondary" size="sm" disabled={deadLetters.length < limit} onClick={() => setDeadPage((p) => p + 1)}>Next</Button>
@@ -380,7 +380,7 @@ export default function LegacyAudit() {
           </section>
         </>
       ) : isSummaryLoading ? (
-        <div className="border var(--color-wi-line) bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading audit data…</div>
+        <div className="border border-[var(--color-wi-line)] bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading audit data…</div>
       ) : null}
     </div>
   );

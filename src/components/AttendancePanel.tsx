@@ -46,7 +46,7 @@ export default function AttendancePanel({
             value={includeWcode}
             onChange={(e) => onIncludeWcodeChange(e.target.value)}
             placeholder="e.g. W0001"
-            className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+            className="w-full px-2 py-1.5 text-sm border border-[var(--color-wi-line)] rounded-sm"
           />
         </div>
         <Button variant="primary" size="md" onClick={onAddIncluded} disabled={includeAdding} loading={includeAdding}>
@@ -54,10 +54,10 @@ export default function AttendancePanel({
         </Button>
       </div>
 
-      <div className="border var(--color-wi-line) rounded-sm overflow-x-auto">
+      <div className="border border-[var(--color-wi-line)] rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]">
+            <tr className="border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]">
               <th className="text-left py-2 px-2 font-semibold">WCode</th>
               <th className="text-left py-2 px-2 font-semibold">Name</th>
               <th className="text-left py-2 px-2 font-semibold">Status</th>
@@ -68,7 +68,7 @@ export default function AttendancePanel({
               const ov = overrideByStudent.get(st.id);
               const value = ov ? ov.status : "default";
               return (
-                <tr key={st.id} className="border-b var(--color-wi-line) last:border-b-0">
+                <tr key={st.id} className="border-b border-b-[var(--color-wi-line)] last:border-b-0">
                   <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{st.wcode}</td>
                   <td className="py-2 px-2 text-[var(--color-wi-text)]">{st.full_name}</td>
                   <td className="py-2 px-2">

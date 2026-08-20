@@ -6,8 +6,8 @@ type Props = {
 
 export default function CrossStudyCrmRowCard({ crmRow }: Props) {
   return (
-    <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
-      <div className="bg-[var(--color-wi-row-alt)] px-3 py-2 text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider border-b var(--color-wi-line)">
+    <div className="border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
+      <div className="bg-[var(--color-wi-row-alt)] px-3 py-2 text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider border-b border-b-[var(--color-wi-line)]">
         CRM Row (snapshot {crmRow.snapshot_id.slice(0, 8)}&hellip;)
       </div>
       <div className="p-3 space-y-2 text-sm">

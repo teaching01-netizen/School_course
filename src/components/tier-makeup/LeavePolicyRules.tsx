@@ -163,7 +163,7 @@ export default function LeavePolicyRules() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b var(--color-wi-line)">
+                <tr className="border-b border-b-[var(--color-wi-line)]">
                   <th className="w-[220px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Course Rule</th>
                   <th className="w-[100px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Subject</th>
                   <th className="w-[120px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Rule Type</th>
@@ -180,7 +180,7 @@ export default function LeavePolicyRules() {
                   return (
                     <tr
                       key={rule.id}
-                      className={`border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}
+                      className={`border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}
                     >
                       <td className="px-2 py-2">
                         <button
@@ -212,7 +212,7 @@ export default function LeavePolicyRules() {
                             const courseId = event.target.value;
                             setSelectedCourseIds((current) => ({ ...current, [rule.id]: courseId }));
                           }}
-                          className="w-full rounded-sm border var(--color-wi-line) bg-white px-2 py-1.5 text-sm"
+                          className="w-full rounded-sm border border-[var(--color-wi-line)] bg-white px-2 py-1.5 text-sm"
                         >
                           <option value="">-- Not mapped --</option>
                           {courses.map((course) => (
@@ -235,7 +235,7 @@ export default function LeavePolicyRules() {
       )}
 
       {expandedRuleId && (
-        <div className="mt-4 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-4">
+        <div className="mt-4 rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-4">
           {(() => {
             const rule = LEAVE_POLICY_COURSE_RULES.find((r) => r.id === expandedRuleId);
             if (!rule) return null;

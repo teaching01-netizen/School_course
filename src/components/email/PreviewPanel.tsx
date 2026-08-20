@@ -36,8 +36,8 @@ export default function PreviewPanel({ subject, body }: Props) {
   }, [subject, body]);
 
   return (
-    <div className="border var(--color-wi-line) rounded-sm">
-      <div className="px-3 py-2 text-sm font-medium text-[var(--color-wi-text-light)] bg-[var(--color-wi-row-alt)] border-b var(--color-wi-line)">
+    <div className="border border-[var(--color-wi-line)] rounded-sm">
+      <div className="px-3 py-2 text-sm font-medium text-[var(--color-wi-text-light)] bg-[var(--color-wi-row-alt)] border-b border-b-[var(--color-wi-line)]">
         Preview
       </div>
       <div className="p-3">
@@ -51,7 +51,7 @@ export default function PreviewPanel({ subject, body }: Props) {
             </div>
             <div>
               <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Body:</span>
-              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border var(--color-wi-line) bg-white p-3">
+              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border border-[var(--color-wi-line)] bg-white p-3">
                 {preview.body}
               </div>
             </div>

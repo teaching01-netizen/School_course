@@ -24,7 +24,7 @@ export function CourseInfoStrip({ course, usedMinutes = 0 }: { course: Course; u
 
   return (
     <div
-      className="mt-3 flex flex-wrap items-start gap-x-6 gap-y-2 border-t var(--color-wi-line) pt-3"
+      className="mt-3 flex flex-wrap items-start gap-x-6 gap-y-2 border-t border-t-[var(--color-wi-line)] pt-3"
       aria-label="Course summary"
     >
       <StatItem label="Teacher" value={teacherValue ?? "—"} />

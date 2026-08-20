@@ -33,7 +33,7 @@ export function AbsenceFormEditor({
 }: AbsenceFormEditorProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const inputClass = "mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm";
+  const inputClass = "mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm";
 
   const notificationsWith = (patch: Partial<AbsenceSettings["notifications"]>) => ({
     sms_parent_enabled: settings.notifications?.sms_parent_enabled ?? true,
@@ -49,7 +49,7 @@ export function AbsenceFormEditor({
   return (
     <div className="space-y-4">
       {showFormBehavior && (
-        <section className="rounded-sm border var(--color-wi-line) bg-white p-5">
+        <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-5">
           <h2 className="mb-4 text-base font-semibold">Form Behavior</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm text-[var(--color-wi-text-light)]">
@@ -127,7 +127,7 @@ export function AbsenceFormEditor({
                   <div className="flex gap-2" key={`${category.value}-${index}`}>
                     <input
                       aria-label={`Reason value ${index + 1}`}
-                      className="w-1/3 rounded-sm border var(--color-wi-line) p-2 text-sm"
+                      className="w-1/3 rounded-sm border border-[var(--color-wi-line)] p-2 text-sm"
                       placeholder="value"
                       value={category.value}
                       onChange={(e) => {
@@ -138,7 +138,7 @@ export function AbsenceFormEditor({
                     />
                     <input
                       aria-label={`Reason label ${index + 1}`}
-                      className="flex-1 rounded-sm border var(--color-wi-line) p-2 text-sm"
+                      className="flex-1 rounded-sm border border-[var(--color-wi-line)] p-2 text-sm"
                       placeholder="Student-facing label"
                       value={category.label}
                       onChange={(e) => {
@@ -160,11 +160,11 @@ export function AbsenceFormEditor({
             <>
               <label className="mt-5 block text-sm">
                 Intro text shown to students
-                <textarea className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm" maxLength={500} rows={3} value={settings.form.intro_text} onChange={(e) => onChange({ ...settings, form: { ...settings.form, intro_text: e.target.value } })} />
+                <textarea className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" maxLength={500} rows={3} value={settings.form.intro_text} onChange={(e) => onChange({ ...settings, form: { ...settings.form, intro_text: e.target.value } })} />
               </label>
               <label className="mt-4 block text-sm">
                 Confirmation text shown after submission
-                <textarea className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm" maxLength={500} rows={2} value={settings.form.confirmation_text} onChange={(e) => onChange({ ...settings, form: { ...settings.form, confirmation_text: e.target.value } })} />
+                <textarea className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" maxLength={500} rows={2} value={settings.form.confirmation_text} onChange={(e) => onChange({ ...settings, form: { ...settings.form, confirmation_text: e.target.value } })} />
               </label>
             </>
           )}
@@ -172,7 +172,7 @@ export function AbsenceFormEditor({
       )}
 
       {showSitInSection && (
-        <section className="rounded-sm border var(--color-wi-line) bg-white p-5">
+        <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-5">
           <h2 className="mb-4 text-base font-semibold">Sit-in Resolution</h2>
           <label className="mb-4 flex gap-2 text-sm">
             <input
@@ -188,13 +188,13 @@ export function AbsenceFormEditor({
           </label>
           <label className="mt-4 block text-sm">
             Maximum sit-in sessions per absence
-            <input className="mt-1 block w-32 rounded-sm border var(--color-wi-line) p-2 text-sm" min={1} max={100} type="number" value={settings.sit_in.max_sessions_per_absence} onChange={(e) => onChange({ ...settings, sit_in: { ...settings.sit_in, max_sessions_per_absence: Number(e.target.value) } })} />
+            <input className="mt-1 block w-32 rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" min={1} max={100} type="number" value={settings.sit_in.max_sessions_per_absence} onChange={(e) => onChange({ ...settings, sit_in: { ...settings.sit_in, max_sessions_per_absence: Number(e.target.value) } })} />
           </label>
         </section>
       )}
 
       {showTextEditors && (
-        <section className="rounded-sm border var(--color-wi-line) bg-white p-5">
+        <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-5">
           <h2 className="mb-4 text-base font-semibold">SMS Notifications</h2>
           <div className="space-y-4">
             <label className="flex gap-2 text-sm">
@@ -207,17 +207,17 @@ export function AbsenceFormEditor({
             </label>
             <label className="block text-sm">
               Verification SMS template (sent to parent)
-              <textarea className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_parent_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_parent_template: e.target.value }) })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_parent_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_parent_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{student_name}}"}, {"{{code}}"}</span>
             </label>
             <label className="block text-sm">
               Success SMS template (sent to parent and student after submission)
-              <textarea className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_success_template: e.target.value }) })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_success_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
             <label className="block text-sm">
               Special approved SMS template
-              <textarea className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_special_approved_template ?? ""} onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_special_approved_template: e.target.value }) })} />
+              <textarea className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_special_approved_template ?? ""} onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_special_approved_template: e.target.value }) })} />
               <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
           </div>
@@ -225,7 +225,7 @@ export function AbsenceFormEditor({
       )}
 
       {showTextEditors && (
-        <section className="rounded-sm border var(--color-wi-line) bg-white p-5">
+        <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-5">
           <h2 className="mb-4 text-base font-semibold">Email Notifications</h2>
           <div className="space-y-4">
             <label className="flex gap-2 text-sm">
@@ -251,7 +251,7 @@ export function AbsenceFormEditor({
             <label className="block text-sm">
               Email body (HTML)
               <textarea
-                className="mt-1 block w-full rounded-sm border var(--color-wi-line) p-2 text-sm font-mono"
+                className="mt-1 block w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm font-mono"
                 maxLength={15000}
                 rows={10}
                 value={settings.notifications?.email_success_body ?? ""}

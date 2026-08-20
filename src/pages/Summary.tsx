@@ -113,7 +113,7 @@ export default function Summary() {
           type="date"
           value={dateStr}
           onChange={(e) => setDate(parseISO(e.target.value))}
-          className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
+          className="px-2 py-1 text-sm border border-[var(--color-wi-line)] rounded-sm"
         />
         <Button variant="secondary" size="md">Search</Button>
         <Button variant="primary" size="md" onClick={() => navigate('/')}>Back</Button>
@@ -132,14 +132,14 @@ export default function Summary() {
         </div>
 
         {/* Summary table */}
-        <table className="w-full text-[13px] border var(--color-wi-line)">
+        <table className="w-full text-[13px] border border-[var(--color-wi-line)]">
           <caption className="sr-only">Daily classes summary</caption>
           <thead>
-            <tr className="border-b var(--color-wi-line)">
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r var(--color-wi-line) w-[22%]">Room</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r var(--color-wi-line) w-[18%]">Time</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r var(--color-wi-line) w-[26%]">Course</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r var(--color-wi-line) w-[16%]">Student</th>
+            <tr className="border-b border-b-[var(--color-wi-line)]">
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-r-[var(--color-wi-line)] w-[22%]">Room</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-r-[var(--color-wi-line)] w-[18%]">Time</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-r-[var(--color-wi-line)] w-[26%]">Course</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-r-[var(--color-wi-line)] w-[16%]">Student</th>
               <th scope="col" className="text-center py-2 px-2 font-semibold w-[18%]">Teacher</th>
             </tr>
           </thead>
@@ -149,13 +149,13 @@ export default function Summary() {
             ) : rows.length === 0 ? (
               <tr><td colSpan={5} className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">No sessions found.</td></tr>
             ) : rows.map((row, idx) => (
-              <tr key={idx} className="border-b var(--color-wi-line)">
-                <td className={`py-2 px-2 border-r var(--color-wi-line) text-center font-semibold ${row.isFirst ? '' : ''}`}>
+              <tr key={idx} className="border-b border-b-[var(--color-wi-line)]">
+                <td className={`py-2 px-2 border-r border-r-[var(--color-wi-line)] text-center font-semibold ${row.isFirst ? '' : ''}`}>
                   {row.room}
                 </td>
-                <td className="py-2 px-2 border-r var(--color-wi-line) text-center">{row.time}</td>
-                <td className="py-2 px-2 border-r var(--color-wi-line) text-center">{row.course}</td>
-                <td className="py-2 px-2 border-r var(--color-wi-line) text-center">{row.student}</td>
+                <td className="py-2 px-2 border-r border-r-[var(--color-wi-line)] text-center">{row.time}</td>
+                <td className="py-2 px-2 border-r border-r-[var(--color-wi-line)] text-center">{row.course}</td>
+                <td className="py-2 px-2 border-r border-r-[var(--color-wi-line)] text-center">{row.student}</td>
                 <td className="py-2 px-2 text-center">{row.teacher}</td>
               </tr>
             ))}

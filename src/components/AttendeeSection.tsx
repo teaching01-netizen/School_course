@@ -165,8 +165,8 @@ export function AttendeeSection({
               disabled={crmEnabled}
               className={`px-3 py-1.5 text-sm rounded-sm border transition-[background-color,color,transform,border-color] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 ${
                 crmEnabled
-                  ? "var(--color-wi-line) text-[var(--color-wi-text-light)] cursor-not-allowed"
-                  : "var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
+                  ? "border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] cursor-not-allowed"
+                  : "border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
               }`}
               title={crmEnabled ? "Disable CRM filter to add manual students" : "Add a student manually by W-code"}
             >
@@ -178,7 +178,7 @@ export function AttendeeSection({
               disabled={crmEnabled}
               className={`px-3 py-1.5 text-sm rounded-sm border transition-[background-color,color,transform,border-color] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 ${
                 crmEnabled
-                  ? "var(--color-wi-line) text-[var(--color-wi-text-light)] cursor-not-allowed"
+                  ? "border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] cursor-not-allowed"
                   : "border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer"
               }`}
               title={crmEnabled ? "Disable CRM filter to add draft students" : "Add a student as draft (tentative)"}
@@ -208,10 +208,10 @@ export function AttendeeSection({
         </div>
       )}
 
-      <div className="border var(--color-wi-line) rounded-sm overflow-x-auto">
+      <div className="border border-[var(--color-wi-line)] rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead className="bg-[var(--color-wi-row-alt)]">
-            <tr className="border-b var(--color-wi-line)">
+            <tr className="border-b border-b-[var(--color-wi-line)]">
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">W-code</th>
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Name</th>
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Nickname</th>
@@ -243,7 +243,7 @@ export function AttendeeSection({
                 return (
                   <tr
                     key={st.id}
-                    className={`border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${
+                    className={`border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)] ${
                       isDraft ? "bg-amber-50/30" : ""
                     }`}
                   >
@@ -278,7 +278,7 @@ export function AttendeeSection({
                         )}
                         <Link
                           to={`/students/${encodeURIComponent(st.wcode)}`}
-                          className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+                          className="px-2 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm hover:bg-[var(--color-wi-row-alt)]"
                         >
                           edit
                         </Link>
@@ -309,7 +309,7 @@ export function AttendeeSection({
             <>
               <button
                 onClick={closeManualModal}
-                className="px-3 py-1 text-sm border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+                className="px-3 py-1 text-sm border border-[var(--color-wi-line)] rounded-sm hover:bg-[var(--color-wi-row-alt)]"
               >
                 Cancel
               </button>
@@ -336,7 +336,7 @@ export function AttendeeSection({
               }}
               placeholder="e.g. W250389"
               autoFocus
-              className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-[var(--color-wi-line)] rounded-sm"
             />
           </div>
         </Modal>
@@ -351,7 +351,7 @@ export function AttendeeSection({
             <>
               <button
                 onClick={closeDraftModal}
-                className="px-3 py-1 text-sm border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+                className="px-3 py-1 text-sm border border-[var(--color-wi-line)] rounded-sm hover:bg-[var(--color-wi-row-alt)]"
               >
                 Cancel
               </button>
@@ -380,7 +380,7 @@ export function AttendeeSection({
                 onChange={(e) => setDraftWcode(e.target.value)}
                 placeholder="e.g. W250389"
                 autoFocus
-                className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+                className="w-full px-2 py-1.5 text-sm border border-[var(--color-wi-line)] rounded-sm"
               />
             </div>
           </div>

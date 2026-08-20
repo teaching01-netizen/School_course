@@ -58,10 +58,32 @@ describe("AppShell", () => {
     expect(src).toContain("env(safe-area-inset-left)");
   });
 
-  it("exposes onInertChange via useMainInert (R2 mocks) - main becomes inert when mobile nav opens", async () => {
+  it("mobile nav open sets main inert and body overflow hidden, close restores", async () => {
     const { container } = renderShell();
     const main = container.querySelector("main") as HTMLElement;
     expect(main).not.toBeNull();
     expect(main.hasAttribute("inert")).toBe(false);
+    expect(main.hasAttribute("aria-hidden")).toBe(false);
+
+    const openBtn = container.querySelector('[aria-label="Open navigation"]') as HTMLElement | null;
+    expect(openBtn).not.toBeNull();
+    openBtn!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(main.hasAttribute("inert") || main.getAttribute("aria-hidden") === "true").toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(main.hasAttribute("inert")).toBe(false);
+    expect(main.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("safe-area insets present in style and class", () => {
+    const { container } = renderShell();
+    const inner = container.querySelector("main > div") as HTMLElement;
+    expect(inner.className).toContain("max-w-[1080px]");
+    const src = fs.readFileSync(path.resolve("src/components/layout/AppShell.tsx"), "utf8");
+    expect(src).toContain("env(safe-area-inset-left)");
+    expect(src).toContain("env(safe-area-inset-right)");
   });
 });

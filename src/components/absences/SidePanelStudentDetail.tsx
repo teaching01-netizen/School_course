@@ -36,7 +36,7 @@ export default function SidePanelStudentDetail({ absence, absences, dayLabel, on
         {dayLabel} &gt; {absence.student_name?.trim() || absence.wcode}
       </button>
 
-      <section className="flex items-center gap-3 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3">
+      <section className="flex items-center gap-3 rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-xs font-bold text-white">
           {initials(absence)}
         </div>
@@ -53,7 +53,7 @@ export default function SidePanelStudentDetail({ absence, absences, dayLabel, on
         ) : (
           <div className="space-y-2">
             {studentAbsences.map((item) => (
-              <article key={item.id} className="rounded-sm border var(--color-wi-line) bg-white p-3 text-sm shadow-sm">
+              <article key={item.id} className="rounded-sm border border-[var(--color-wi-line)] bg-white p-3 text-sm shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-[var(--color-wi-text)]">{getAbsenceSubjectLabel(item)}</p>
@@ -80,7 +80,7 @@ export default function SidePanelStudentDetail({ absence, absences, dayLabel, on
         ) : (
           <div className="space-y-2">
             {sitInSessions.map((session) => (
-              <article key={`${session.id}-${session.start_at}`} className="rounded-sm border var(--color-wi-line) bg-white p-3 text-sm shadow-sm">
+              <article key={`${session.id}-${session.start_at}`} className="rounded-sm border border-[var(--color-wi-line)] bg-white p-3 text-sm shadow-sm">
                 <p className="font-medium text-[var(--color-wi-text)]">{session.subject_name || session.course_name || session.course_code}</p>
                 <p className="text-xs text-[var(--color-wi-text-light)]">
                   {formatFullDayLabel(session.start_at.slice(0, 10))}

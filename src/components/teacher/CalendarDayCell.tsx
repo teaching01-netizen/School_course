@@ -51,7 +51,7 @@ export default function CalendarDayCell({
       type="button"
       onClick={onClick}
       aria-label={`${label}. ${statusLabel}`}
-      className={`flex min-h-[96px] flex-col border-b border-r var(--color-wi-line) p-1 text-left ${
+      className={`flex min-h-[96px] flex-col border-b border-r border-r-[var(--color-wi-line)] p-1 text-left ${
         isSelected ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''
       } ${isCurrentMonth ? 'bg-white' : 'bg-[var(--color-wi-row-alt)]'} ${
         todayPulse ? 'animate-today-pulse' : ''

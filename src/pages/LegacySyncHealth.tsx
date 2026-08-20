@@ -166,7 +166,7 @@ export default function LegacySyncHealth() {
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
           Refresh status
         </Button>
-        <Link to="/admin/legacy-sync/audit" className="inline-flex min-h-[34px] items-center rounded-sm border var(--color-wi-line) bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">
+        <Link to="/admin/legacy-sync/audit" className="inline-flex min-h-[34px] items-center rounded-sm border border-[var(--color-wi-line)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">
           <ClipboardCheck className="mr-2 h-4 w-4" aria-hidden="true" />
           Migration audit
         </Link>
@@ -212,7 +212,7 @@ export default function LegacySyncHealth() {
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {metricCards.map((metric) => (
-                <div key={metric.label} className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
+                <div key={metric.label} className="border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">{metric.label}</p>
                   <p className={`mt-1 text-2xl font-bold tabular-nums ${metric.tone}`}>{metric.value}</p>
                 </div>
@@ -235,13 +235,13 @@ export default function LegacySyncHealth() {
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-medium text-[var(--color-wi-text)]">
                   Entity
-                  <select value={entityType} onChange={(event) => setEntityType(event.target.value)} className="mt-1 block min-h-10 w-full rounded-sm border var(--color-wi-line) bg-white px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                  <select value={entityType} onChange={(event) => setEntityType(event.target.value)} className="mt-1 block min-h-10 w-full rounded-sm border border-[var(--color-wi-line)] bg-white px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100">
                     {entityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-medium text-[var(--color-wi-text)]">
                   Legacy ID {requiresExternalID ? <span className="text-[var(--color-wi-red)]">*</span> : <span className="font-normal text-[var(--color-wi-text-light)]">(not needed)</span>}
-                  <input value={externalID} onChange={(event) => setExternalID(event.target.value)} disabled={!requiresExternalID} placeholder={requiresExternalID ? "e.g. 7306" : "Full reconciliation"} className="mt-1 block min-h-10 w-full rounded-sm border var(--color-wi-line) px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:bg-[var(--color-wi-row-alt)]" />
+                  <input value={externalID} onChange={(event) => setExternalID(event.target.value)} disabled={!requiresExternalID} placeholder={requiresExternalID ? "e.g. 7306" : "Full reconciliation"} className="mt-1 block min-h-10 w-full rounded-sm border border-[var(--color-wi-line)] px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:bg-[var(--color-wi-row-alt)]" />
                 </label>
               </div>
               <Button className="mt-4" onClick={() => refreshMutation.mutate()} loading={refreshMutation.isPending} disabled={refreshDisabled}>Queue refresh</Button>
@@ -269,24 +269,24 @@ export default function LegacySyncHealth() {
                   Shadow mode is on: reconciles observe the legacy site but never create, link, or update local courses.
                 </p>
               ) : null}
-              <div className="mt-4 flex gap-2 border-t var(--color-wi-line) pt-4 text-xs text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> Local application reads remain available during source outages.</div>
+              <div className="mt-4 flex gap-2 border-t border-t-[var(--color-wi-line)] pt-4 text-xs text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> Local application reads remain available during source outages.</div>
             </section>
           </div>
         </>
       ) : (
-        <div className="border var(--color-wi-line) bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading synchronization status…</div>
+        <div className="border border-[var(--color-wi-line)] bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading synchronization status…</div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="jobs-heading">
-          <div className="flex items-center justify-between border-b var(--color-wi-line) px-5 py-4">
+          <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4">
             <h2 id="jobs-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Recent jobs</h2>
             <span className="text-xs text-[var(--color-wi-text-light)]">{jobsTotal ? `Page ${jobsPage + 1} · ${jobsTotal} total` : `Page ${jobsPage + 1}`}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm"><thead className="bg-[var(--color-wi-row-alt)] text-xs uppercase tracking-wide text-[var(--color-wi-text-light)]"><tr><th className="px-5 py-3 font-semibold">Job</th><th className="px-5 py-3 font-semibold">Status</th><th className="px-5 py-3 font-semibold">Attempts</th></tr></thead><tbody className="divide-y divide-wi-line">{jobs.map((job) => <tr key={job.id}><td className="px-5 py-3"><div className="font-medium text-[var(--color-wi-text)]">{job.entity_type ?? "full"}{job.external_id ? ` · ${job.external_id}` : ""}</div><div className="text-xs text-[var(--color-wi-text-light)]">{job.job_type}</div></td><td className="px-5 py-3"><span className={job.status === "dead" ? "font-medium text-[var(--color-wi-red)]" : job.status === "completed" ? "font-medium text-[var(--color-wi-green)]" : "text-[var(--color-wi-text)]"}>{job.status}</span>{job.last_error ? <div className="max-w-[220px] truncate text-xs text-[var(--color-wi-red)]" title={job.last_error}>{job.last_error.slice(0, 240)}</div> : null}</td><td className="px-5 py-3 tabular-nums text-[var(--color-wi-text-light)]">{job.attempt}/{job.max_attempts}</td></tr>)}{jobs.length === 0 ? <tr><td colSpan={3} className="px-5 py-8 text-center text-[var(--color-wi-text-light)]">No jobs recorded.</td></tr> : null}</tbody></table>
           </div>
-          <div className="flex items-center justify-between border-t var(--color-wi-line) px-5 py-3">
+          <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
             <Button variant="secondary" size="sm" disabled={jobsPage === 0} onClick={() => setJobsPage((p) => Math.max(0, p - 1))}>Previous</Button>
             <span className="text-xs text-[var(--color-wi-text-light)]">{jobs.length} on this page</span>
             <Button variant="secondary" size="sm" disabled={jobs.length < jobsLimit} onClick={() => setJobsPage((p) => p + 1)}>Next</Button>
@@ -294,7 +294,7 @@ export default function LegacySyncHealth() {
         </section>
 
         <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="conflicts-heading">
-          <div className="flex items-center justify-between border-b var(--color-wi-line) px-5 py-4"><h2 id="conflicts-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Open conflicts</h2><span className="text-xs text-[var(--color-wi-text-light)]">{conflictsTotal} open · page {conflictsPage + 1}</span></div>
+          <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4"><h2 id="conflicts-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Open conflicts</h2><span className="text-xs text-[var(--color-wi-text-light)]">{conflictsTotal} open · page {conflictsPage + 1}</span></div>
           <div className="divide-y divide-wi-line">{conflicts.map((conflict) => <div key={conflict.id} className="px-5 py-4"><div className="flex items-start justify-between gap-4"><div><p className="font-medium text-[var(--color-wi-text)]">{conflict.entity_type} · {conflict.external_id}</p><p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{conflict.message ?? conflict.conflict_type}</p></div><span className="shrink-0 text-xs font-medium text-[var(--color-wi-red)]">{conflict.category}</span></div>
             <div className="mt-3 flex gap-2">
               <Button variant="secondary" size="sm" onClick={() => setSelectedConflictId(conflict.id)}>Details</Button>
@@ -302,7 +302,7 @@ export default function LegacySyncHealth() {
               <Button variant="secondary" size="sm" loading={conflictMutation.isPending && conflictMutation.variables?.id === conflict.id && conflictMutation.variables?.action === "ignore"} onClick={() => conflictMutation.mutate({ id: conflict.id, action: "ignore" })}>Ignore</Button>
             </div>
           </div>)}{conflicts.length === 0 ? <div className="flex items-center gap-2 px-5 py-8 text-sm text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> No open conflicts.</div> : null}</div>
-          <div className="flex items-center justify-between border-t var(--color-wi-line) px-5 py-3">
+          <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
             <Button variant="secondary" size="sm" disabled={conflictsPage === 0} onClick={() => setConflictsPage((p) => Math.max(0, p - 1))}>Previous</Button>
             <span className="text-xs text-[var(--color-wi-text-light)]">{conflicts.length} on this page</span>
             <Button variant="secondary" size="sm" disabled={conflicts.length < conflictsLimit} onClick={() => setConflictsPage((p) => p + 1)}>Next</Button>
@@ -319,13 +319,13 @@ export default function LegacySyncHealth() {
           <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{detailQuery.data.entity_type} · {detailQuery.data.external_id} · {detailQuery.data.conflict_type}</p>
           {(detailQuery.data.source_payload !== null || detailQuery.data.local_payload !== null) ? (
             <dl className="mt-3 grid gap-2 text-xs">
-              {detailQuery.data.source_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Source payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.source_payload)}</pre></dd></div> : null}
-              {detailQuery.data.local_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Local payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.local_payload)}</pre></dd></div> : null}
+              {detailQuery.data.source_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Source payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.source_payload)}</pre></dd></div> : null}
+              {detailQuery.data.local_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Local payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.local_payload)}</pre></dd></div> : null}
             </dl>
           ) : <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">No payloads recorded.</p>}
         </section>
       ) : selectedConflictId && detailQuery.isLoading ? (
-        <div className="border var(--color-wi-line) bg-white p-5 text-sm text-[var(--color-wi-text-light)]">Loading conflict detail…</div>
+        <div className="border border-[var(--color-wi-line)] bg-white p-5 text-sm text-[var(--color-wi-text-light)]">Loading conflict detail…</div>
       ) : null}
 
       {(paginatedJobsQuery.isError || paginatedConflictsQuery.isError) ? <p className="text-sm text-[var(--color-wi-red)]" role="status">Some secondary sync details could not be loaded. The health summary remains authoritative.</p> : null}

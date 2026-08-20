@@ -186,7 +186,7 @@ export default function ActiveCoursesPanel({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search subject or course code"
             aria-label="Search subjects"
-            className="w-56 rounded-sm border var(--color-wi-line) px-2.5 py-1.5 text-sm bg-white hover:var(--color-wi-line) focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+            className="w-56 rounded-sm border border-[var(--color-wi-line)] px-2.5 py-1.5 text-sm bg-white hover:border-[var(--color-wi-line)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
           />
         </div>
       </div>
