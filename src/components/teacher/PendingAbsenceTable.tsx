@@ -20,13 +20,13 @@ type PendingAbsenceTableProps = {
 
 export default function PendingAbsenceTable({ requests }: PendingAbsenceTableProps) {
   if (requests.length === 0) {
-    return <p className="text-[12px] text-gray-400">No pending requests.</p>;
+    return <p className="text-[12px] text-[var(--color-wi-text-light)]">No pending requests.</p>;
   }
 
   return (
-    <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
+    <div className="overflow-x-auto rounded-sm border border-wi-line bg-white">
       <table className="w-full text-sm">
-        <thead className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
           <tr>
             <th className="px-3 py-2 w-[180px]">Student</th>
             <th className="px-3 py-2">Course / Subject</th>
@@ -52,22 +52,22 @@ export default function PendingAbsenceTable({ requests }: PendingAbsenceTablePro
                       >
                         {displayName}
                       </Link>
-                      <div className="font-mono text-xs text-gray-500">{req.wcode}</div>
+                      <div className="font-mono text-xs text-[var(--color-wi-text-light)]">{req.wcode}</div>
                     </div>
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <div className="max-w-[200px] truncate font-medium text-gray-900" title={`${req.course_code} — ${req.course_name}`}>
+                  <div className="max-w-[200px] truncate font-medium text-[var(--color-wi-text)]" title={`${req.course_code} — ${req.course_name}`}>
                     {req.course_code}
                   </div>
                   {req.subject_name ? (
-                    <div className="text-xs text-gray-500">{req.subject_name}</div>
+                    <div className="text-xs text-[var(--color-wi-text-light)]">{req.subject_name}</div>
                   ) : null}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-gray-700">
+                <td className="px-3 py-3 whitespace-nowrap text-[var(--color-wi-text-light)]">
                   {req.date_from === req.date_to ? req.date_from : `${req.date_from} – ${req.date_to}`}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-gray-500">{submittedAgo(req.created_at)}</td>
+                <td className="px-3 py-3 whitespace-nowrap text-[var(--color-wi-text-light)]">{submittedAgo(req.created_at)}</td>
                 <td className="px-3 py-3 text-right">
                   <Link
                     to={`/teacher-dashboard/absences/${req.id}`}

@@ -1,5 +1,5 @@
 -- name: UserListByRoleActive :many
-SELECT id, username, role, deleted_at, created_at, updated_at
+SELECT id, username, role, full_name, deleted_at, created_at, updated_at
 FROM users
 WHERE deleted_at IS NULL
   AND role = $1

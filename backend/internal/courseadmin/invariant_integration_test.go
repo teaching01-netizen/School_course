@@ -30,15 +30,18 @@ func TestInvariant_LegacyPrimaryAssigned(t *testing.T) {
 	}
 
 	var count int
+	// Scope the invariant query to this test's course so earlier test data in the
+	// shared DB does not cause a false negative.
 	if err := f.pool.QueryRow(context.Background(), `
 		SELECT count(*)
 		FROM courses c
 		LEFT JOIN course_teachers ct
 		  ON ct.course_id = c.id
 		 AND ct.teacher_id = c.teacher_id
-		WHERE c.teacher_id IS NOT NULL
+		WHERE c.id = $1
+		  AND c.teacher_id IS NOT NULL
 		  AND ct.teacher_id IS NULL
-	`).Scan(&count); err != nil {
+	`, courseID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -41,17 +40,22 @@ func assertPublicContractError(t *testing.T, recorder *httptest.ResponseRecorder
 
 func TestPublicStudentLookupRejectsBlankWCodeBeforeDataAccess(t *testing.T) {
 	tests := []struct {
-		name     string
-		rawQuery string
+		name string
+		body string
 	}{
-		{name: "missing", rawQuery: ""},
-		{name: "empty", rawQuery: "?wcode="},
-		{name: "whitespace", rawQuery: "?wcode=%20%20%09"},
+		{name: "missing", body: `{}`},
+		{name: "empty", body: `{"wcode":""}`},
+		{name: "whitespace", body: `{"wcode":"  \t"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{a: httpadapter.Adapter{}}
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/absences/student-lookup"+tt.rawQuery, nil)
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/absence-self-service/lookup",
+				strings.NewReader(tt.body),
+			)
+			req.Header.Set("Content-Type", "application/json")
 			recorder := httptest.NewRecorder()
 
 			s.handleStudentLookup(recorder, req)
@@ -232,10 +236,16 @@ func TestPublicAbsenceConfigRejectsUnsafeSessionLimits(t *testing.T) {
 	}
 }
 
-func TestPublicStudentLookupNormalizesCaseAndWhitespace(t *testing.T) {
+func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
-	queryWCode := " \t" + strings.ToUpper(fixture.wcode) + "\n "
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/absences/student-lookup?wcode="+url.QueryEscape(queryWCode), nil)
+	body := `{"wcode":"` + strings.ToUpper(fixture.wcode) + `"}`
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/absence-self-service/lookup",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.NewString())
 	recorder := httptest.NewRecorder()
 
 	fixture.server.handleStudentLookup(recorder, req)
@@ -243,33 +253,73 @@ func TestPublicStudentLookupNormalizesCaseAndWhitespace(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
 	}
-	var got struct {
-		WCode    string `json:"wcode"`
-		Subjects []any  `json:"subjects"`
-	}
+	var got map[string]json.RawMessage
 	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode student lookup response: %v", err)
 	}
-	if got.WCode != fixture.wcode {
-		t.Fatalf("wcode = %q, want canonical %q", got.WCode, fixture.wcode)
+	wantKeys := map[string]bool{
+		"wcode":                         true,
+		"lookup_token":                  true,
+		"email_input_required":          true,
+		"parent_verification_available": true,
 	}
-	if len(got.Subjects) != 1 {
-		t.Fatalf("subjects = %d, want 1", len(got.Subjects))
+	if len(got) != len(wantKeys) {
+		t.Fatalf("response keys = %v, want exactly %v", got, wantKeys)
+	}
+	for key := range wantKeys {
+		if _, ok := got[key]; !ok {
+			t.Errorf("response is missing %q", key)
+		}
+	}
+	if gotWcode := strings.Trim(string(got["wcode"]), `"`); gotWcode != fixture.wcode {
+		t.Fatalf("wcode = %q, want canonical %q", gotWcode, fixture.wcode)
+	}
+	if token := strings.Trim(string(got["lookup_token"]), `"`); token == "" {
+		t.Fatal("lookup_token is empty")
+	} else if strings.Contains(strings.ToLower(token), strings.ToLower(fixture.wcode)) {
+		t.Fatalf("lookup_token contains the student W-Code %q", fixture.wcode)
+	}
+	for _, forbidden := range []string{
+		"student_id", "full_name", "display_name", "nickname", "school",
+		"email", "email_crm", "email_system", "parent_phone", "subjects",
+		"course_id", "course_code", "course_name",
+	} {
+		if _, ok := got[forbidden]; ok {
+			t.Fatalf("lookup response leaked %q", forbidden)
+		}
 	}
 }
 
 func TestPublicStudentLookupRejectsNicknameQuery(t *testing.T) {
+	s := &server{a: httpadapter.Adapter{}}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/absence-self-service/lookup?nickname=Johnny",
+		strings.NewReader(`{"wcode":"w123"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	s.handleStudentLookup(recorder, req)
+
+	assertPublicContractError(t, recorder, http.StatusBadRequest, "nickname_not_supported")
+}
+
+// Minting a lookup token is a side effect, so the endpoint requires an
+// Idempotency-Key per docs/idempotency.md.
+func TestPublicStudentLookupRequiresIdempotencyKey(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
 	req := httptest.NewRequest(
-		http.MethodGet,
-		"/api/v1/absences/student-lookup?wcode="+url.QueryEscape(fixture.wcode)+"&nickname=Johnny",
-		nil,
+		http.MethodPost,
+		"/api/v1/absence-self-service/lookup",
+		strings.NewReader(`{"wcode":"`+fixture.wcode+`"}`),
 	)
+	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	fixture.server.handleStudentLookup(recorder, req)
 
-	assertPublicContractError(t, recorder, http.StatusBadRequest, "nickname_not_supported")
+	assertPublicContractError(t, recorder, http.StatusBadRequest, "bad_idempotency_key")
 }
 
 func TestPublicFormConfigExposesOnlyPublicSections(t *testing.T) {

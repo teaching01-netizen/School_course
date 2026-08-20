@@ -102,6 +102,29 @@ func (s *InMemoryQueueStore) CompleteJob(ctx context.Context, jobID uuid.UUID, s
 	return nil
 }
 
+func (s *InMemoryQueueStore) CompleteJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, status, errMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	j, ok := s.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	if j.row.Status != "running" || j.row.LockedBy == nil || *j.row.LockedBy != workerID {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
+	j.row.Status = status
+	j.row.LockedBy = nil
+	j.row.LockedUntil = nil
+	j.row.HeartbeatAt = nil
+	if errMsg != "" {
+		j.row.LastError = &errMsg
+	} else {
+		j.row.LastError = nil
+	}
+	return nil
+}
+
 // RetryJob marks a job for retry with backoff.
 func (s *InMemoryQueueStore) RetryJob(ctx context.Context, jobID uuid.UUID, errMsg string, backoff time.Duration) error {
 	s.mu.Lock()
@@ -112,6 +135,26 @@ func (s *InMemoryQueueStore) RetryJob(ctx context.Context, jobID uuid.UUID, errM
 		return fmt.Errorf("job %s not found", jobID)
 	}
 
+	j.row.Status = "retry"
+	j.row.LockedBy = nil
+	j.row.LockedUntil = nil
+	j.row.HeartbeatAt = nil
+	j.row.LastError = &errMsg
+	j.row.RunAfter = time.Now().Add(backoff)
+	return nil
+}
+
+func (s *InMemoryQueueStore) RetryJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, errMsg string, backoff time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	j, ok := s.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	if j.row.Status != "running" || j.row.LockedBy == nil || *j.row.LockedBy != workerID {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
 	j.row.Status = "retry"
 	j.row.LockedBy = nil
 	j.row.LockedUntil = nil
@@ -135,6 +178,24 @@ func (s *InMemoryQueueStore) Heartbeat(ctx context.Context, jobID uuid.UUID, lea
 		return nil
 	}
 
+	now := time.Now()
+	lockedUntil := now.Add(leaseDur)
+	j.row.HeartbeatAt = &now
+	j.row.LockedUntil = &lockedUntil
+	return nil
+}
+
+func (s *InMemoryQueueStore) HeartbeatForWorker(ctx context.Context, jobID uuid.UUID, workerID string, leaseDur time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	j, ok := s.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	if j.row.Status != "running" || j.row.LockedBy == nil || *j.row.LockedBy != workerID {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
 	now := time.Now()
 	lockedUntil := now.Add(leaseDur)
 	j.row.HeartbeatAt = &now

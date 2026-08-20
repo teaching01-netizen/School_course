@@ -331,10 +331,11 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		       source_course_enrollment_removed
 		FROM crm_cross_study_assignments
 		WHERE LOWER(BTRIM(wcode)) = $1 AND deleted_at IS NULL
+		  AND source_course_id = $2
 		ORDER BY updated_at DESC
 		LIMIT 1
 		FOR UPDATE
-	`, input.WCode).Scan(
+	`, input.WCode, input.DestCourseAID).Scan(
 		&existingAssignmentID,
 		&existingDestCourseAID,
 		&existingDestCourseBID,
@@ -349,6 +350,41 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		return fmt.Errorf("load existing assignment: %w", err)
 	}
 	hasExistingAssignment = err == nil
+	// Fallback: when the primary (wcode, destination A) lookup misses, the
+	// assignment's destination course A likely changed since it was saved.
+	// Update the student's most recent assignment (updated_at DESC LIMIT 1)
+	// instead of inserting a duplicate — the old row would otherwise keep its
+	// include overrides re-pointed to the new row and its session_attendance
+	// rows orphaned.
+	if !hasExistingAssignment {
+		err = tx.QueryRow(ctx, `
+			SELECT id, dest_course_a_id, dest_course_b_id, assigned_course_id,
+			       source_course_id,
+			       assigned_course_enrollment_created,
+			       dest_course_a_enrollment_created,
+			       dest_course_b_enrollment_created,
+			       source_course_enrollment_removed
+			FROM crm_cross_study_assignments
+			WHERE LOWER(BTRIM(wcode)) = $1 AND deleted_at IS NULL
+			ORDER BY updated_at DESC
+			LIMIT 1
+			FOR UPDATE
+		`, input.WCode).Scan(
+			&existingAssignmentID,
+			&existingDestCourseAID,
+			&existingDestCourseBID,
+			&existingAssignedCourseID,
+			&existingSourceCourseID,
+			&existingAssignedCourseEnrollmentCreated,
+			&existingDestCourseAEnrollmentCreated,
+			&existingDestCourseBEnrollmentCreated,
+			&existingSourceCourseEnrollmentRemoved,
+		)
+		if err != nil && err != pgx.ErrNoRows {
+			return fmt.Errorf("load latest assignment: %w", err)
+		}
+		hasExistingAssignment = err == nil
+	}
 	storageSourceCourseID := input.DestCourseAID
 
 	affectedCourses := []uuid.UUID{input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID}
@@ -794,8 +830,9 @@ func (s *Store) coursesMatchingCRMCourseName(ctx context.Context, tx pgx.Tx, crm
 	return ids, rows.Err()
 }
 
-// ListAssignmentsWithCourseInfo returns all non-deleted assignments with student and course names.
-func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter, searchQuery string) ([]AssignmentSummary, error) {
+// ListAssignmentsWithCourseInfo returns a page of non-deleted assignments with
+// student and course names, ordered deterministically by most recently updated.
+func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter, searchQuery string, limit, offset int32) ([]AssignmentSummary, error) {
 	where := "a.deleted_at IS NULL"
 	args := []any{}
 	argIdx := 1
@@ -810,6 +847,8 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 		args = append(args, "%"+searchQuery+"%")
 		argIdx++
 	}
+	where += fmt.Sprintf(" ORDER BY a.updated_at DESC, a.id DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
 
 	query := fmt.Sprintf(`
 		SELECT a.id, a.wcode, COALESCE(s.full_name, '') AS full_name,
@@ -821,7 +860,6 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 		LEFT JOIN courses dest_b ON dest_b.id = a.dest_course_b_id
 		LEFT JOIN students s ON LOWER(s.wcode) = LOWER(BTRIM(a.wcode))
 		WHERE %s
-		ORDER BY a.updated_at DESC
 	`, where)
 
 	rows, err := s.db.Query(ctx, query, args...)
@@ -848,6 +886,36 @@ func (s *Store) ListAssignmentsWithCourseInfo(ctx context.Context, statusFilter,
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// CountAssignments returns the number of non-deleted assignments matching the
+// same status/search filters as ListAssignmentsWithCourseInfo.
+func (s *Store) CountAssignments(ctx context.Context, statusFilter, searchQuery string) (int, error) {
+	where := "a.deleted_at IS NULL"
+	args := []any{}
+	argIdx := 1
+	if statusFilter != "" {
+		where += fmt.Sprintf(" AND a.status = $%d", argIdx)
+		args = append(args, statusFilter)
+		argIdx++
+	}
+	if searchQuery != "" {
+		where += fmt.Sprintf(" AND (a.wcode ILIKE $%d OR s.full_name ILIKE $%d)", argIdx, argIdx)
+		args = append(args, "%"+searchQuery+"%")
+		argIdx++
+	}
+
+	var total int
+	err := s.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM crm_cross_study_assignments a
+		LEFT JOIN students s ON LOWER(s.wcode) = LOWER(BTRIM(a.wcode))
+		WHERE %s
+	`, where), args...).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("count assignments: %w", err)
+	}
+	return total, nil
 }
 
 // CountReviewNeeded returns assignments that need staff reconnect review.

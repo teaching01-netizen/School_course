@@ -61,24 +61,24 @@ export default function LeavePolicyTestPanel() {
   return (
     <div>
       <div className="mb-4">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-[var(--color-wi-text-light)]">
           Test the leave policy rules by simulating a student absence. Select a course rule and input the missed
           session details to see available makeup options.
         </p>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-[var(--color-wi-text-light)] mt-1">
           Options are revealed step-by-step: only 1st Priority is shown first. Click "Not available" to reveal the next priority.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Input form */}
-        <div className="rounded-sm border border-gray-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4">Test Input</h3>
+        <div className="rounded-sm border border-wi-line bg-white p-4">
+          <h3 className="text-sm font-semibold text-[var(--color-wi-text)] mb-4">Test Input</h3>
 
           <div className="space-y-4">
             {/* Course Rule */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Course Rule</label>
+              <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Course Rule</label>
               <select
                 value={selectedRuleId}
                 onChange={(e) => {
@@ -86,7 +86,7 @@ export default function LeavePolicyTestPanel() {
                   setMaxPriorityToShow(1);
                   setResult(null);
                 }}
-                className="w-full text-sm border border-gray-200 rounded-sm px-3 py-2 bg-white"
+                className="w-full text-sm border border-wi-line rounded-sm px-3 py-2 bg-white"
               >
                 <option value="">-- Select a course rule --</option>
                 {LEAVE_POLICY_COURSE_RULES.map((rule) => (
@@ -99,14 +99,14 @@ export default function LeavePolicyTestPanel() {
 
             {/* Show rule info when selected */}
             {selectedRule && (
-              <div className="rounded-sm bg-gray-50 p-3 text-xs space-y-1">
+              <div className="rounded-sm bg-[var(--color-wi-row-alt)] p-3 text-xs space-y-1">
                 <div className="flex items-center gap-2">
                   <span className={`inline-block rounded-sm px-2 py-0.5 font-medium ${getRuleTypeBadgeColor(selectedRule.ruleType).bg} ${getRuleTypeBadgeColor(selectedRule.ruleType).text}`}>
                     {getRuleTypeLabel(selectedRule.ruleType)}
                   </span>
-                  <span className="text-gray-500">{selectedRule.priorityCount} priorities</span>
+                  <span className="text-[var(--color-wi-text-light)]">{selectedRule.priorityCount} priorities</span>
                 </div>
-                <p className="text-gray-600">{selectedRule.description}</p>
+                <p className="text-[var(--color-wi-text-light)]">{selectedRule.description}</p>
                 {selectedRule.priorities && selectedRule.priorities.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {selectedRule.priorities.map((p) => (
@@ -114,11 +114,11 @@ export default function LeavePolicyTestPanel() {
                         <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-semibold ${
                           p.level <= maxPriorityToShow
                             ? "bg-[var(--color-wi-primary)] text-white"
-                            : "bg-gray-200 text-gray-500"
+                            : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                         }`}>
                           {p.level}
                         </span>
-                        <span className={`${p.level <= maxPriorityToShow ? "text-gray-800" : "text-gray-400"}`}>
+                        <span className={`${p.level <= maxPriorityToShow ? "text-[var(--color-wi-text)]" : "text-[var(--color-wi-text-light)]"}`}>
                           {p.label}
                         </span>
                       </div>
@@ -130,29 +130,29 @@ export default function LeavePolicyTestPanel() {
 
             {/* Student's Enrolled Course Name (for rank derivation) */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">
                 Student's Enrolled Course
-                <span className="text-gray-400 ml-1">(used to determine rank)</span>
+                <span className="text-[var(--color-wi-text-light)] ml-1">(used to determine rank)</span>
               </label>
               <input
                 type="text"
                 value={missedCourseName}
                 onChange={(e) => setMissedCourseName(e.target.value)}
                 placeholder={selectedRule?.courseName || "e.g., SAT Verbal Rank 3"}
-                className="w-full text-sm border border-gray-200 rounded-sm px-3 py-2"
+                className="w-full text-sm border border-wi-line rounded-sm px-3 py-2"
               />
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 The rank is extracted from this name (e.g., "Rank 3" → Rank 3)
               </p>
             </div>
 
             {/* Missed Section */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Missed Section</label>
+              <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Missed Section</label>
               <select
                 value={missedSection}
                 onChange={(e) => setMissedSection(e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-sm px-3 py-2 bg-white"
+                className="w-full text-sm border border-wi-line rounded-sm px-3 py-2 bg-white"
               >
                 <option value="Section 1">Section 1</option>
                 <option value="Section 2">Section 2</option>
@@ -162,26 +162,26 @@ export default function LeavePolicyTestPanel() {
 
             {/* Occurrence Number */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Missed Occurrence #</label>
+              <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Missed Occurrence #</label>
               <input
                 type="number"
                 min={1}
                 max={totalSessions}
                 value={missedOccurrence}
                 onChange={(e) => setMissedOccurrence(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full text-sm border border-gray-200 rounded-sm px-3 py-2"
+                className="w-full text-sm border border-wi-line rounded-sm px-3 py-2"
               />
             </div>
 
             {/* Total Sessions */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Total Sessions in Cycle</label>
+              <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Total Sessions in Cycle</label>
               <input
                 type="number"
                 min={1}
                 value={totalSessions}
                 onChange={(e) => setTotalSessions(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full text-sm border border-gray-200 rounded-sm px-3 py-2"
+                className="w-full text-sm border border-wi-line rounded-sm px-3 py-2"
               />
             </div>
 
@@ -192,9 +192,9 @@ export default function LeavePolicyTestPanel() {
                 id="isLastClass"
                 checked={isLastClass}
                 onChange={(e) => setIsLastClass(e.target.checked)}
-                className="rounded border-gray-300"
+                className="rounded border-wi-line"
               />
-              <label htmlFor="isLastClass" className="text-sm text-gray-600">
+              <label htmlFor="isLastClass" className="text-sm text-[var(--color-wi-text-light)]">
                 This is the last class of the cycle (End-of-class Meal)
               </label>
             </div>
@@ -217,11 +217,11 @@ export default function LeavePolicyTestPanel() {
         </div>
 
         {/* Results */}
-        <div className="rounded-sm border border-gray-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4">Test Result</h3>
+        <div className="rounded-sm border border-wi-line bg-white p-4">
+          <h3 className="text-sm font-semibold text-[var(--color-wi-text)] mb-4">Test Result</h3>
 
           {!result ? (
-            <div className="flex items-center justify-center h-48 text-sm text-gray-400">
+            <div className="flex items-center justify-center h-48 text-sm text-[var(--color-wi-text-light)]">
               Select a course rule and click "Run Test" to see results
             </div>
           ) : (
@@ -241,18 +241,18 @@ export default function LeavePolicyTestPanel() {
               </div>
 
               {/* Input summary */}
-              <div className="rounded-sm bg-gray-50 p-3 text-xs space-y-1">
-                <p className="font-medium text-gray-700">Input:</p>
-                <p className="text-gray-600">
+              <div className="rounded-sm bg-[var(--color-wi-row-alt)] p-3 text-xs space-y-1">
+                <p className="font-medium text-[var(--color-wi-text-light)]">Input:</p>
+                <p className="text-[var(--color-wi-text-light)]">
                   Course Rule: {LEAVE_POLICY_COURSE_RULES.find((r) => r.id === result.input.courseRuleId)?.courseName}
                 </p>
-                <p className="text-gray-600">
+                <p className="text-[var(--color-wi-text-light)]">
                   Enrolled Course: {result.input.missedCourseName || "(not specified)"}
                 </p>
-                <p className="text-gray-600">
+                <p className="text-[var(--color-wi-text-light)]">
                   Missed: {result.input.missedSection}, Occurrence #{result.input.missedOccurrence}
                 </p>
-                <p className="text-gray-600">
+                <p className="text-[var(--color-wi-text-light)]">
                   Last class: {result.input.isLastClass ? "Yes" : "No"}
                 </p>
               </div>
@@ -260,7 +260,7 @@ export default function LeavePolicyTestPanel() {
               {/* Makeup options */}
               {result.options.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-gray-700 mb-2">Available Makeup Options:</p>
+                  <p className="text-xs font-medium text-[var(--color-wi-text-light)] mb-2">Available Makeup Options:</p>
                   <div className="space-y-2">
                     {result.options.map((opt, i) => (
                       <div
@@ -268,17 +268,17 @@ export default function LeavePolicyTestPanel() {
                         className={`flex items-center justify-between rounded-sm px-3 py-2 text-sm ${
                           opt.available
                             ? "bg-green-50 border border-green-200"
-                            : "bg-gray-50 border border-gray-200 opacity-50"
+                            : "bg-[var(--color-wi-row-alt)] border border-wi-line opacity-50"
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${opt.available ? "bg-green-500" : "bg-gray-400"}`} />
-                          <span className={opt.available ? "text-gray-800" : "text-gray-500"}>
+                          <span className={opt.available ? "text-[var(--color-wi-text)]" : "text-[var(--color-wi-text-light)]"}>
                             {opt.label}
                           </span>
                         </div>
                         {opt.reason && (
-                          <span className={`text-xs ${opt.available ? "text-green-600" : "text-gray-400"}`}>
+                          <span className={`text-xs ${opt.available ? "text-green-600" : "text-[var(--color-wi-text-light)]"}`}>
                             {opt.reason}
                           </span>
                         )}
@@ -290,8 +290,8 @@ export default function LeavePolicyTestPanel() {
 
               {/* Not available button for stepped reveal */}
               {!result.isBlocked && selectedRule && maxPriorityToShow < selectedRule.priorityCount && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs text-gray-500 mb-2">
+                <div className="mt-4 pt-4 border-t border-wi-line-soft">
+                  <p className="text-xs text-[var(--color-wi-text-light)] mb-2">
                     If the student cannot attend the {maxPriorityToShow === 1 ? "1st" : maxPriorityToShow === 2 ? "2nd" : "3rd"} Priority option:
                   </p>
                   <Button
@@ -307,20 +307,20 @@ export default function LeavePolicyTestPanel() {
               {/* Priority flow visualization */}
               {!result.isBlocked && selectedRule && selectedRule.priorityCount > 1 && (
                 <div className="mt-4">
-                  <p className="text-xs font-medium text-gray-700 mb-2">Priority Flow:</p>
+                  <p className="text-xs font-medium text-[var(--color-wi-text-light)] mb-2">Priority Flow:</p>
                   <div className="flex items-center gap-2 text-xs">
                     {Array.from({ length: selectedRule.priorityCount }, (_, i) => i + 1).map((p, i) => (
                       <div key={p} className="flex items-center gap-2">
-                        {i > 0 && <span className="text-gray-400">→</span>}
+                        {i > 0 && <span className="text-[var(--color-wi-text-light)]">→</span>}
                         <div className={`rounded-sm px-2 py-1 font-medium ${
-                          p <= maxPriorityToShow ? "bg-[var(--color-wi-primary)] text-white" : "bg-gray-100 text-gray-600"
+                          p <= maxPriorityToShow ? "bg-[var(--color-wi-primary)] text-white" : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                         }`}>
                           {p}{p === 1 ? "st" : p === 2 ? "nd" : "rd"} Priority
                         </div>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-1 text-xs text-gray-400">
+                  <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                     Student should try 1st Priority first. Only if unavailable, proceed to next.
                   </p>
                 </div>

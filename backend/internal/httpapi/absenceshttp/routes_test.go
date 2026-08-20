@@ -97,6 +97,23 @@ func TestDispatchPost_OnIDPathReturns405(t *testing.T) {
 		t.Fatalf("POST /api/v1/absences/{id} should return 405, got %d", w.Code)
 	}
 }
+func TestParentVerificationStatusUsesPOSTBodyAndNoURLTokenRoute(t *testing.T) {
+	s := &server{}
+	post := httptest.NewRequest(http.MethodPost, "/api/v1/absences/parent-verification/status", strings.NewReader(`{"token":""}`))
+	post.Header.Set("Content-Type", "application/json")
+	postRecorder := httptest.NewRecorder()
+	s.handleAbsencesDispatch(postRecorder, post)
+	if postRecorder.Code == http.StatusNotFound {
+		t.Fatal("POST status endpoint was not registered")
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/absences/parent-verification/opaque-token", nil)
+	getRecorder := httptest.NewRecorder()
+	s.handleAbsencesDispatch(getRecorder, get)
+	if getRecorder.Code != http.StatusNotFound {
+		t.Fatalf("GET URL token endpoint status = %d, want 404", getRecorder.Code)
+	}
+}
 
 func TestResolveDateRangeForSessionStartsUsesAllReturnedCourseSessions(t *testing.T) {
 	fallbackFrom := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)

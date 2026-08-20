@@ -117,7 +117,9 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 	// A time-only or room-only edit of an existing session is the one historical
 	// exception: if the ignored session still has the requested course and teacher,
 	// clearing that course's teacher set must not invalidate the existing session.
-	if in.CourseID.Valid && in.TeacherID.Valid {
+	// Series-scoped operations set SkipAdvisoryGates: the database enforces none of
+	// these gates, so preflighting them would falsely reject otherwise valid writes.
+	if !in.SkipAdvisoryGates && in.CourseID.Valid && in.TeacherID.Valid {
 		m, err := q.CourseTeacherMembershipGet(ctx, sqldb.CourseTeacherMembershipGetParams{CourseID: in.CourseID, TeacherID: in.TeacherID})
 		if err != nil {
 			return nil, fmt.Errorf("check teacher membership: %w", err)
@@ -168,7 +170,7 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 	if !resources.TeacherExists {
 		return &Err{Code: ErrTeacherNotFound, Message: "Teacher not found.", Details: ConflictDetails{Kind: ConflictKindTeacherNotFound}}, nil
 	}
-	if !resources.TeacherActive {
+	if !in.SkipAdvisoryGates && !resources.TeacherActive {
 		return &Err{Code: ErrTeacherInactive, Message: "Teacher is inactive.", Details: ConflictDetails{Kind: ConflictKindTeacherInactive}}, nil
 	}
 	if in.RoomID.Valid && !resources.RoomExists {

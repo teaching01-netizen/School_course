@@ -35,7 +35,7 @@ function EmailChipInput({ value, onChange }: { value: string[]; onChange: (v: st
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-sm border border-gray-300 p-2 min-h-[42px] focus-within:border-gray-500">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-sm border border-wi-line p-2 min-h-[42px] focus-within:border-gray-500">
       {value.map((email) => (
         <span
           key={email}
@@ -96,19 +96,19 @@ function TemplateCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="border border-gray-200 rounded-sm p-4 flex flex-col gap-2">
+    <div className="border border-wi-line rounded-sm p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-gray-900 truncate">{tmpl.name}</h3>
+        <h3 className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{tmpl.name}</h3>
         <div className="flex gap-1 shrink-0">
-          <button onClick={onEdit} className="text-xs text-gray-500 hover:text-gray-700 px-1 py-0.5">Edit</button>
+          <button onClick={onEdit} className="text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] px-1 py-0.5">Edit</button>
           <button onClick={onDelete} className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5">Delete</button>
         </div>
       </div>
-      <p className={`text-xs truncate ${tmpl.subject.trim() ? "text-gray-500" : "text-red-500"}`}>
+      <p className={`text-xs truncate ${tmpl.subject.trim() ? "text-[var(--color-wi-text-light)]" : "text-red-500"}`}>
         {tmpl.subject.trim() || "Missing subject"}
       </p>
-      <p className="text-xs text-gray-400 line-clamp-2">{tmpl.body.slice(0, 120)}</p>
-      <div className="text-[10px] text-gray-400 mt-auto pt-1 border-t border-gray-100">
+      <p className="text-xs text-[var(--color-wi-text-light)] line-clamp-2">{tmpl.body.slice(0, 120)}</p>
+      <div className="text-[10px] text-[var(--color-wi-text-light)] mt-auto pt-1 border-t border-wi-line-soft">
         {(workflowCounts[tmpl.id] ?? 0)} workflow(s)
       </div>
     </div>
@@ -135,29 +135,29 @@ function WorkflowCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="border border-gray-200 rounded-sm p-4 space-y-3">
+    <div className="border border-wi-line rounded-sm p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-gray-900">{wf.name}</h3>
-          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-sm ${wf.enabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+          <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">{wf.name}</h3>
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-sm ${wf.enabled ? "bg-green-100 text-green-700" : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"}`}>
             {wf.enabled ? "Enabled" : "Disabled"}
           </span>
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="text-xs text-gray-500 hover:text-gray-700 px-1 py-0.5">Edit</button>
+          <button onClick={onEdit} className="text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] px-1 py-0.5">Edit</button>
           <button onClick={onDelete} className="text-xs text-red-500 hover:text-red-700 px-1 py-0.5">Delete</button>
         </div>
       </div>
 
-      <div className="text-xs text-gray-600">
+      <div className="text-xs text-[var(--color-wi-text-light)]">
         <span className="font-medium">Template:</span> {wf.template_name}
       </div>
 
       <div>
-        <span className="text-xs font-medium text-gray-600">Recipients:</span>
+        <span className="text-xs font-medium text-[var(--color-wi-text-light)]">Recipients:</span>
         <div className="flex flex-wrap gap-1 mt-1">
           {wf.recipients.length === 0 ? (
-            <span className="text-xs text-gray-400">No recipients configured</span>
+            <span className="text-xs text-[var(--color-wi-text-light)]">No recipients configured</span>
           ) : (
             wf.recipients.map((email) => (
               <span key={email} className="inline-block rounded-sm bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">
@@ -168,15 +168,15 @@ function WorkflowCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-        <div className="text-[11px] text-gray-400">
+      <div className="flex items-center justify-between pt-1 border-t border-wi-line-soft">
+        <div className="text-[11px] text-[var(--color-wi-text-light)]">
           <p>{wf.trigger_description}</p>
           {wf.last_sent_at && (
             <p className="mt-0.5">Last sent: {new Date(wf.last_sent_at).toLocaleString()} &middot; {wf.last_sent_count} sent</p>
           )}
         </div>
         <div className="flex gap-2 items-center">
-          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-[var(--color-wi-text-light)]">
             <input
               type="checkbox"
               checked={wf.enabled}
@@ -425,7 +425,7 @@ export default function EmailReminders() {
       <div className="flex items-center justify-between">
         <div>
           <PageHeading>Email Reminders</PageHeading>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-[var(--color-wi-text-light)] mt-1">
             Manage email templates and configure automated notification workflows.
           </p>
         </div>
@@ -437,11 +437,11 @@ export default function EmailReminders() {
       {/* ── Templates section ── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-gray-900">Templates</h2>
+          <h2 className="text-base font-semibold text-[var(--color-wi-text)]">Templates</h2>
           <Button size="sm" onClick={openCreateTemplate}>+ New Template</Button>
         </div>
         {templates.length === 0 ? (
-          <p className="text-sm text-gray-400">No templates yet. Create one to get started.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">No templates yet. Create one to get started.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {templates.map((tmpl) => (
@@ -460,11 +460,11 @@ export default function EmailReminders() {
       {/* ── Workflows section ── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-gray-900">Workflows</h2>
+          <h2 className="text-base font-semibold text-[var(--color-wi-text)]">Workflows</h2>
           <Button size="sm" onClick={() => openCreateWorkflow()}>+ New Workflow</Button>
         </div>
         {workflows.length === 0 ? (
-          <p className="text-sm text-gray-400">No workflows yet. Create one to start sending emails.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">No workflows yet. Create one to start sending emails.</p>
         ) : (
           <div className="space-y-3">
             {workflows.map((wf) => (
@@ -489,23 +489,23 @@ export default function EmailReminders() {
           return (
             <Modal title="New Template" onClose={() => setTemplateModal(null)} size="md">
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">Choose a starting point or start from scratch.</p>
+                <p className="text-sm text-[var(--color-wi-text-light)]">Choose a starting point or start from scratch.</p>
                 <button
                   onClick={startFromScratch}
-                  className="w-full text-left rounded-sm border border-dashed border-gray-300 p-3 text-sm text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors"
+                  className="w-full text-left rounded-sm border border-dashed border-wi-line p-3 text-sm text-[var(--color-wi-text-light)] hover:border-gray-500 hover:text-[var(--color-wi-text-light)] transition-colors"
                 >
-                  <span className="font-medium text-gray-900">Start from scratch</span>
-                  <p className="text-xs text-gray-400 mt-0.5">Blank template with no content</p>
+                  <span className="font-medium text-[var(--color-wi-text)]">Start from scratch</span>
+                  <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Blank template with no content</p>
                 </button>
                 {presets.map((tmpl) => (
                   <button
                     key={tmpl.id}
                     onClick={() => selectPreset(tmpl)}
-                    className="w-full text-left rounded-sm border border-gray-200 p-3 hover:border-gray-400 transition-colors"
+                    className="w-full text-left rounded-sm border border-wi-line p-3 hover:border-wi-line transition-colors"
                   >
-                    <span className="text-sm font-medium text-gray-900">{tmpl.name}</span>
-                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{tmpl.subject}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{tmpl.body.slice(0, 100)}</p>
+                    <span className="text-sm font-medium text-[var(--color-wi-text)]">{tmpl.name}</span>
+                    <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5 line-clamp-1">{tmpl.subject}</p>
+                    <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5 line-clamp-2">{tmpl.body.slice(0, 100)}</p>
                   </button>
                 ))}
               </div>
@@ -558,22 +558,22 @@ export default function EmailReminders() {
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Workflow name</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Workflow name</label>
               <input
                 type="text"
                 value={wfName}
                 onChange={(e) => setWfName(e.target.value)}
-                className="w-full rounded-sm border border-gray-300 p-2 text-sm"
+                className="w-full rounded-sm border border-wi-line p-2 text-sm"
                 placeholder="e.g. Sit-in Day Reminder"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Template</label>
               <select
                 value={wfTemplateId}
                 onChange={(e) => setWfTemplateId(e.target.value)}
-                className="w-full rounded-sm border border-gray-300 p-2 text-sm"
+                className="w-full rounded-sm border border-wi-line p-2 text-sm"
               >
                 <option value="">Select a template...</option>
                 {templates.map((t) => (
@@ -583,26 +583,26 @@ export default function EmailReminders() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Recipients</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Recipients</label>
               <EmailChipInput value={wfRecipients} onChange={setWfRecipients} />
-              <p className="text-xs text-gray-400 mt-1">Type email addresses and press Enter to add them.</p>
+              <p className="text-xs text-[var(--color-wi-text-light)] mt-1">Type email addresses and press Enter to add them.</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Trigger description</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Trigger description</label>
               <input
                 type="text"
                 value={wfTriggerDescription}
                 onChange={(e) => setWfTriggerDescription(e.target.value)}
-                className="w-full rounded-sm border border-gray-300 p-2 text-sm"
+                className="w-full rounded-sm border border-wi-line p-2 text-sm"
               />
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-[var(--color-wi-text-light)] mt-1">
                 Describes when this workflow runs. Displayed to staff so they understand the schedule.
               </p>
             </div>
 
             <div className="flex items-center gap-3 pt-2">
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)] cursor-pointer">
                 <input
                   type="checkbox"
                   checked={wfEnabled}
@@ -614,16 +614,16 @@ export default function EmailReminders() {
             </div>
 
             {/* Trigger visual */}
-            <div className="rounded-sm border border-gray-200 bg-gray-50 p-3">
-              <p className="text-xs font-medium text-gray-700 mb-2">⏰ When this workflow runs</p>
+            <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-3">
+              <p className="text-xs font-medium text-[var(--color-wi-text-light)] mb-2">⏰ When this workflow runs</p>
               <div className="relative h-6">
                 <div className="absolute inset-x-0 top-2.5 h-0.5 bg-gray-300" />
                 <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-blue-500" />
                 <div className="absolute right-0 top-1.5 w-3 h-3 rounded-full bg-gray-400" />
-                <span className="absolute left-0 -bottom-4 text-[10px] text-gray-500">Now</span>
-                <span className="absolute right-0 -bottom-4 text-[10px] text-gray-500">{wfTriggerDescription}</span>
+                <span className="absolute left-0 -bottom-4 text-[10px] text-[var(--color-wi-text-light)]">Now</span>
+                <span className="absolute right-0 -bottom-4 text-[10px] text-[var(--color-wi-text-light)]">{wfTriggerDescription}</span>
               </div>
-              <p className="text-[11px] text-gray-500 mt-5">
+              <p className="text-[11px] text-[var(--color-wi-text-light)] mt-5">
                 This workflow triggers automatically at the schedule above. It sends the selected template
                 to all configured recipients.
               </p>
@@ -641,12 +641,12 @@ export default function EmailReminders() {
         >
           <div className="space-y-3">
             <div>
-              <span className="text-xs text-gray-400 font-medium">Subject:</span>
-              <p className="text-sm font-medium text-gray-900 mt-0.5">{previewOpen.subject}</p>
+              <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Subject:</span>
+              <p className="text-sm font-medium text-[var(--color-wi-text)] mt-0.5">{previewOpen.subject}</p>
             </div>
             <div>
-              <span className="text-xs text-gray-400 font-medium">Body:</span>
-              <div className="mt-0.5 text-sm text-gray-700 whitespace-pre-wrap rounded-sm border border-gray-100 bg-white p-3">
+              <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Body:</span>
+              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border border-wi-line-soft bg-white p-3">
                 {previewOpen.body}
               </div>
             </div>
@@ -676,7 +676,7 @@ export default function EmailReminders() {
           }
           size="sm"
         >
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
             {deleteConfirm.type === "template" && " Templates that are in use by workflows cannot be deleted."}
           </p>

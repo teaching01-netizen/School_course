@@ -13,7 +13,7 @@ const statusConfig: Record<string, { icon: string; label: string; color: string 
 };
 
 export default function CrossStudyStatusBadge({ status, extraNoteSnapshot, currentNote, sourceValid }: Props) {
-  const cfg = statusConfig[status] ?? { icon: "❓", label: status, color: "bg-gray-50 text-gray-700 border-gray-200" };
+  const cfg = statusConfig[status] ?? { icon: "❓", label: status, color: "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line" };
 
   return (
     <div className={`rounded-sm border p-3 text-xs ${cfg.color}`}>

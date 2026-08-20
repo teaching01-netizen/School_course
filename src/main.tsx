@@ -1,5 +1,6 @@
 if (import.meta.env.DEV) {
   import("react-grab");
+  import("react-scan");
 }
 
 import { StrictMode } from "react";

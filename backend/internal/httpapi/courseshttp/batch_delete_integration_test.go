@@ -60,7 +60,10 @@ func TestBatchDelete_HappyPath(t *testing.T) {
 	}
 
 	// Verify courses are gone.
-	for _, c := range []struct{ ID pgtype.UUID; Code string }{{c1.ID, c1.Code}, {c2.ID, c2.Code}, {c3.ID, c3.Code}} {
+	for _, c := range []struct {
+		ID   pgtype.UUID
+		Code string
+	}{{c1.ID, c1.Code}, {c2.ID, c2.Code}, {c3.ID, c3.Code}} {
 		_, err := fx.q.CourseGetByID(ctx, c.ID)
 		if err == nil {
 			t.Fatalf("expected error fetching deleted course %s", c.Code)

@@ -7,7 +7,7 @@ interface PageHeadingProps {
 
 export default function PageHeading({ children, className = "" }: PageHeadingProps) {
   return (
-    <h1 className={`text-[32px] font-bold text-[var(--color-wi-text)] ${className}`}>
+    <h1 className={`text-[32px] font-semibold tracking-[-0.01em] text-[var(--color-wi-text)] ${className}`}>
       {children}
     </h1>
   );

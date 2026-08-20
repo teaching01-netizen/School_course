@@ -81,11 +81,50 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 		if rows[0].SubjectCode != "ACT-SUBJ-"+suffix {
 			t.Errorf("expected subject code ACT-SUBJ-%s, got %s", suffix, rows[0].SubjectCode)
 		}
+		// With no subject_active_courses row configured, active_course_id is
+		// NULL — it must never fall back to an arbitrary enrolled course.
+		if rows[0].ActiveCourseID.Valid {
+			t.Fatalf("expected active_course_id to be NULL when no active course is configured, got %v", rows[0].ActiveCourseID)
+		}
+	})
+
+	t.Run("active_course_id_comes_from_subject_active_courses", func(t *testing.T) {
+		// Enroll the student in a second course in the same subject, then
+		// configure the active course. The reported active_course_id must be
+		// the configured course, not MIN(uuid) of enrollments.
+		otherCourse, err := q.CourseCreate(ctx, CourseCreateParams{
+			Code: "OTH-CRS-" + suffix,
+			Name: "Other Course " + suffix,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, otherCourse.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: otherCourse.ID, StudentID: student.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := dbpool.Exec(ctx, `
+			INSERT INTO subject_active_courses (subject_id, course_id)
+			VALUES ($1, $2)
+			ON CONFLICT (subject_id) DO UPDATE SET course_id = $2, updated_at = now()
+		`, subj.ID, activeCourse.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := q.StudentSubjectByWCode(ctx, wcode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("expected 1 subject, got %d", len(rows))
+		}
 		if !rows[0].ActiveCourseID.Valid {
 			t.Fatal("expected active_course_id to be set")
 		}
 		if rows[0].ActiveCourseID.Bytes != activeCourse.ID.Bytes {
-			t.Errorf("expected active_course_id to match active course")
+			t.Errorf("expected active_course_id to match configured active course")
 		}
 	})
 
@@ -233,8 +272,8 @@ func TestAbsenceDaysInRange_UsesSubjectAndStudentFallback(t *testing.T) {
 
 	rows, err := q.AbsenceDaysInRange(
 		ctx,
-		time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC),
+		"2026-05-31",
+		"2026-06-06",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -701,7 +740,7 @@ func TestCalendarQueriesExposeReadableSubjectNames(t *testing.T) {
 		t.Fatalf("expected subject_name %q, got %v", leaveSubj.Name, foundSession.SubjectName)
 	}
 
-	calendarAbsences, err := q.AbsenceDaysInRange(ctx, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC))
+	calendarAbsences, err := q.AbsenceDaysInRange(ctx, "2026-06-01", "2026-06-03")
 	if err != nil {
 		t.Fatal(err)
 	}

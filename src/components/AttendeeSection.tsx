@@ -7,7 +7,19 @@ import { useToast } from "../hooks/useToast";
 import { formatConflictToastMessage } from "../utils/conflictErrors";
 
 
-export type Student = { id: string; wcode: string; full_name: string; notes: string; status?: string };
+export type Student = {
+  id: string;
+  wcode: string;
+  full_name: string;
+  notes: string;
+  nickname?: string;
+  school?: string;
+  level?: string;
+  year?: string;
+  student_phone?: string;
+  email?: string;
+  status?: string;
+};
 export type AddStudentResult = { ok: true } | { ok: false; error: string };
 
 type Props = {
@@ -136,7 +148,7 @@ export function AttendeeSection({
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xl font-semibold text-gray-800">
+        <h2 className="text-xl font-semibold text-[var(--color-wi-text)]">
           Attendee
           {draftCount > 0 && (
             <span className="ml-2 text-sm font-normal text-amber-600 align-middle">
@@ -151,10 +163,10 @@ export function AttendeeSection({
               type="button"
               onClick={openManualModal}
               disabled={crmEnabled}
-              className={`px-3 py-1.5 text-sm rounded-sm border ${
+              className={`px-3 py-1.5 text-sm rounded-sm border transition-[background-color,color,transform,border-color] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 ${
                 crmEnabled
-                  ? "border-gray-200 text-gray-300 cursor-not-allowed"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  ? "border-wi-line text-[var(--color-wi-text-light)] cursor-not-allowed"
+                  : "border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
               }`}
               title={crmEnabled ? "Disable CRM filter to add manual students" : "Add a student manually by W-code"}
             >
@@ -164,9 +176,9 @@ export function AttendeeSection({
               type="button"
               onClick={openDraftModal}
               disabled={crmEnabled}
-              className={`px-3 py-1.5 text-sm rounded-sm border ${
+              className={`px-3 py-1.5 text-sm rounded-sm border transition-[background-color,color,transform,border-color] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 ${
                 crmEnabled
-                  ? "border-gray-200 text-gray-300 cursor-not-allowed"
+                  ? "border-wi-line text-[var(--color-wi-text-light)] cursor-not-allowed"
                   : "border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer"
               }`}
               title={crmEnabled ? "Disable CRM filter to add draft students" : "Add a student as draft (tentative)"}
@@ -176,7 +188,7 @@ export function AttendeeSection({
             <button
               type="button"
               onClick={openSageModal}
-              className="px-3 py-1.5 text-sm rounded-sm bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white cursor-pointer"
+              className="px-3 py-1.5 text-sm rounded-sm bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white cursor-pointer transition-[background-color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-green)]/40"
             >
               {crmEnabled ? "Edit Sage filter" : "Add from Sage"}
             </button>
@@ -191,32 +203,37 @@ export function AttendeeSection({
       )}
 
       {crmEnabled && !crmLocked && (
-        <div className="text-xs text-gray-500 mb-3">
+        <div className="text-xs text-[var(--color-wi-text-light)] mb-3">
           Roster is managed by CRM filter. Disable CRM filter in the Sage settings to edit manually.
         </div>
       )}
 
-      <div className="border border-gray-200 rounded-sm overflow-x-auto">
+      <div className="border border-wi-line rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
-          <thead className="bg-gray-50">
-            <tr className="border-b border-gray-200">
-              <th className="text-left py-2 px-3 font-semibold text-gray-700">W-code</th>
-              <th className="text-left py-2 px-3 font-semibold text-gray-700">Name</th>
-              <th className="text-left py-2 px-3 font-semibold text-gray-700">Status</th>
-              <th className="text-left py-2 px-3 font-semibold text-gray-700">Notes</th>
-              <th className="text-right py-2 px-3 font-semibold text-gray-700"></th>
+          <thead className="bg-[var(--color-wi-row-alt)]">
+            <tr className="border-b border-wi-line">
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">W-code</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Name</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Nickname</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">School</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Level</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Year</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Phone</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Status</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Notes</th>
+              <th className="text-right py-2 px-3 font-semibold text-[var(--color-wi-text-light)]"></th>
             </tr>
           </thead>
           <tbody>
             {rosterLoading ? (
               <tr>
-                <td className="py-6 px-3 text-sm text-gray-400" colSpan={5}>
+                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={10}>
                   Loading…
                 </td>
               </tr>
             ) : roster.length === 0 ? (
               <tr>
-                <td className="py-6 px-3 text-sm text-gray-400" colSpan={5}>
+                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={10}>
                   No students
                 </td>
               </tr>
@@ -226,12 +243,17 @@ export function AttendeeSection({
                 return (
                   <tr
                     key={st.id}
-                    className={`border-b border-gray-100 hover:bg-gray-50 ${
+                    className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${
                       isDraft ? "bg-amber-50/30" : ""
                     }`}
                   >
-                    <td className="py-2 px-3 font-mono text-xs text-gray-700">{st.wcode}</td>
+                    <td className="py-2 px-3 font-mono text-xs text-[var(--color-wi-text-light)]">{st.wcode}</td>
                     <td className="py-2 px-3">{st.full_name}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.nickname || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.school || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.level || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.year || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.student_phone || "—"}</td>
                     <td className="py-2 px-3">
                       {isDraft ? (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200">
@@ -243,7 +265,7 @@ export function AttendeeSection({
                         </span>
                       )}
                     </td>
-                    <td className="py-2 px-3 text-gray-600">{st.notes}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.notes}</td>
                     <td className="py-2 px-3 text-right">
                       <div className="flex justify-end gap-2">
                         {isDraft && !crmEnabled && (
@@ -256,7 +278,7 @@ export function AttendeeSection({
                         )}
                         <Link
                           to={`/students/${encodeURIComponent(st.wcode)}`}
-                          className="px-2 py-1 text-xs border border-gray-300 rounded-sm hover:bg-gray-50"
+                          className="px-2 py-1 text-xs border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
                         >
                           edit
                         </Link>
@@ -287,7 +309,7 @@ export function AttendeeSection({
             <>
               <button
                 onClick={closeManualModal}
-                className="px-3 py-1 text-sm border border-gray-300 rounded-sm hover:bg-gray-50"
+                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
               >
                 Cancel
               </button>
@@ -305,7 +327,7 @@ export function AttendeeSection({
           }
         >
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Add by W-code</label>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Add by W-code</label>
             <input
               value={addingWcode}
               onChange={(e) => {
@@ -314,7 +336,7 @@ export function AttendeeSection({
               }}
               placeholder="e.g. W250389"
               autoFocus
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
             />
           </div>
         </Modal>
@@ -329,7 +351,7 @@ export function AttendeeSection({
             <>
               <button
                 onClick={closeDraftModal}
-                className="px-3 py-1 text-sm border border-gray-300 rounded-sm hover:bg-gray-50"
+                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
               >
                 Cancel
               </button>
@@ -347,18 +369,18 @@ export function AttendeeSection({
           }
         >
           <div className="space-y-3">
-            <div className="text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
+            <div className="text-xs text-[var(--color-wi-text-light)] bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
               Draft students are tentative — they will block scheduling conflicts but won't be counted as enrolled.
               Use "Enroll" to confirm them after any conflicts are resolved.
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Add by W-code</label>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Add by W-code</label>
               <input
                 value={draftWcode}
                 onChange={(e) => setDraftWcode(e.target.value)}
                 placeholder="e.g. W250389"
                 autoFocus
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+                className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
               />
             </div>
           </div>

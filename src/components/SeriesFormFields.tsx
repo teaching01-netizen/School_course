@@ -48,8 +48,8 @@ export default function SeriesFormFields({
 }: SeriesFormFieldsProps) {
   return (
     <>
-      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule</div>
+      <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Schedule</div>
         <FormField name={`${prefix}weekdays`} label="Weekdays (Bangkok)">
           <div className="flex flex-wrap gap-2 text-sm">
             {WEEKDAY_LABELS.map((label, idx) => (
@@ -115,8 +115,8 @@ export default function SeriesFormFields({
         </div>
       </div>
 
-      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">End</div>
+      <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">End</div>
         <div className="flex items-center gap-2 text-sm">
           <label className="flex items-center gap-1 cursor-pointer">
             <input type="checkbox" checked={useCount} onChange={(e) => onUseCountChange(e.target.checked)} />

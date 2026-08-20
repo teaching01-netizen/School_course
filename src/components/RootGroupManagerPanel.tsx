@@ -88,7 +88,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-          className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+          className="flex-1 px-2 py-1.5 text-sm border border-wi-line rounded-sm"
         />
         <Button
           variant="primary"
@@ -103,15 +103,15 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
 
       {/* Group list */}
       {manageLoading ? (
-        <div className="text-sm text-gray-400 py-4 text-center">Loading…</div>
+        <div className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">Loading…</div>
       ) : manageGroups.length === 0 ? (
-        <div className="text-sm text-gray-400 py-4 text-center">No groups yet</div>
+        <div className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">No groups yet</div>
       ) : (
         <>
-          <div className="border border-gray-200 rounded-sm">
+          <div className="border border-wi-line rounded-sm">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500">
+                <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)] text-left text-[var(--color-wi-text-light)]">
                   <th className="py-2 px-3 font-medium">Name</th>
                   <th className="py-2 px-3 font-medium w-24">Courses</th>
                   <th className="py-2 px-3 font-medium w-32" />
@@ -119,7 +119,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
               </thead>
               <tbody>
                 {paged.map((g: GroupWithCount) => (
-                  <tr key={g.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={g.id} className="border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-2 px-3">
                       {editingGroupId === g.id ? (
                         <div className="flex items-center gap-1">
@@ -131,7 +131,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
                               if (e.key === "Enter") handleRename(g.id);
                               if (e.key === "Escape") setEditingGroupId(null);
                             }}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-sm"
+                            className="flex-1 px-2 py-1 text-sm border border-wi-line rounded-sm"
                             autoFocus
                           />
                           <button
@@ -143,16 +143,16 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
                           </button>
                           <button
                             onClick={() => setEditingGroupId(null)}
-                            className="text-xs text-gray-500 hover:text-gray-700 px-1"
+                            className="text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] px-1"
                           >
                             Cancel
                           </button>
                         </div>
                       ) : (
-                        <span className="text-gray-800">{g.name}</span>
+                        <span className="text-[var(--color-wi-text)]">{g.name}</span>
                       )}
                     </td>
-                    <td className="py-2 px-3 text-gray-500 text-xs">{g.course_count}</td>
+                    <td className="py-2 px-3 text-[var(--color-wi-text-light)] text-xs">{g.course_count}</td>
                     <td className="py-2 px-3 text-right">
                       <button
                         onClick={() => {
@@ -187,7 +187,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
               >
                 Previous
               </Button>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-[var(--color-wi-text-light)]">
                 Page {managePage + 1} of {pageCount}
               </span>
               <Button

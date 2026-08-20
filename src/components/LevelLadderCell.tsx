@@ -23,8 +23,8 @@ interface LevelLadderCellProps {
 }
 
 const statusStyles: Record<CellStatus, string> = {
-  active: "border-gray-200 bg-white hover:border-blue-300",
-  vacant: "border-dashed border-gray-300 bg-gray-50 hover:border-blue-400",
+  active: "border-wi-line bg-white hover:border-blue-300",
+  vacant: "border-dashed border-wi-line bg-[var(--color-wi-row-alt)] hover:border-blue-400",
   gap: "border-red-300 bg-red-50 hover:border-red-400",
   overlap: "border-red-400 bg-red-100",
   saving: "border-blue-300 bg-blue-50 animate-pulse",
@@ -106,7 +106,7 @@ export default function LevelLadderCell({ cell, onClick, onDropCourse, selected 
       `}
     >
       {/* Level number badge */}
-      <div className="absolute top-1 left-1 text-[10px] font-semibold text-gray-400">
+      <div className="absolute top-1 left-1 text-[10px] font-semibold text-[var(--color-wi-text-light)]">
         L{cell.level}
       </div>
 
@@ -120,11 +120,11 @@ export default function LevelLadderCell({ cell, onClick, onDropCourse, selected 
       {/* Course info */}
       {cell.status === "active" && cell.courseCode && (
         <>
-          <div className="mt-3 text-xs font-bold text-gray-800 truncate">{cell.courseCode}</div>
-          {cell.schedule && <div className="text-[10px] text-gray-500 truncate">{cell.schedule}</div>}
-          {cell.roomName && <div className="text-[10px] text-gray-400 truncate">📍{cell.roomName}</div>}
+          <div className="mt-3 text-xs font-bold text-[var(--color-wi-text)] truncate">{cell.courseCode}</div>
+          {cell.schedule && <div className="text-[10px] text-[var(--color-wi-text-light)] truncate">{cell.schedule}</div>}
+          {cell.roomName && <div className="text-[10px] text-[var(--color-wi-text-light)] truncate">📍{cell.roomName}</div>}
           {cell.studentCount !== undefined && (
-            <div className="text-[10px] text-gray-400">{cell.studentCount} stud</div>
+            <div className="text-[10px] text-[var(--color-wi-text-light)]">{cell.studentCount} stud</div>
           )}
         </>
       )}
@@ -132,7 +132,7 @@ export default function LevelLadderCell({ cell, onClick, onDropCourse, selected 
       {/* Vacant cell */}
       {cell.status === "vacant" && (
         <div className="flex items-center justify-center h-full mt-3">
-          <span className="text-xs text-gray-400 font-medium">[+ Add]</span>
+          <span className="text-xs text-[var(--color-wi-text-light)] font-medium">[+ Add]</span>
         </div>
       )}
 

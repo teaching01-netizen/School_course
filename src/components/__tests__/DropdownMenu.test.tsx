@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DropdownMenu } from "../ui/DropdownMenu";
 
@@ -25,6 +25,7 @@ describe("DropdownMenu", () => {
     const trigger = screen.getByRole("button", { name: /more actions/i });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAttribute("aria-controls");
   });
 
   it("opens menu on trigger click", async () => {
@@ -93,7 +94,7 @@ describe("DropdownMenu", () => {
     await user.click(screen.getByRole("button", { name: /more actions/i }));
 
     const deleteItem = screen.getByRole("menuitem", { name: /delete/i });
-    expect(deleteItem.className).toContain("text-red-600");
+    expect(deleteItem.className).toContain("text-[var(--color-wi-red)]");
   });
 
   it("disables menu items with disabled prop", async () => {
@@ -135,6 +136,26 @@ describe("DropdownMenu", () => {
     await user.click(screen.getByRole("menuitem", { name: /disabled action/i }));
 
     expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("supports keyboard navigation and restores focus on Escape", async () => {
+    renderMenu();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: /more actions/i });
+
+    trigger.focus();
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Special Approve" })).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Override" })).toHaveFocus();
+
+    await user.keyboard("{End}");
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("renders empty menu when items array is empty", async () => {

@@ -125,7 +125,7 @@ func (q *Queries) ScheduleImpactQueue(ctx context.Context, filter ScheduleImpact
 		  AND ($3 = '' OR concat_ws(' ', sa.wcode, sa.student_name, c.code, c.name) ILIKE '%' || $3 || '%')
 		ORDER BY CASE WHEN i.severity = 'critical' THEN 0 ELSE 1 END,
 		         CASE WHEN i.status = 'open' THEN 0 WHEN i.status = 'needs_review' THEN 1 ELSE 2 END,
-		         i.updated_at DESC
+		         i.updated_at DESC, i.id DESC
 		LIMIT $4 OFFSET $5
 	`, filter.Status, filter.Severity, filter.Query, filter.Limit, filter.Offset)
 	if err != nil {

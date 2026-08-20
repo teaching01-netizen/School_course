@@ -288,12 +288,12 @@ export function SitInRulesSection() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-500">Set level for each course. Levels must be consecutive. Level 1 = Zoom, higher levels sit in next level up.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">Set level for each course. Levels must be consecutive. Level 1 = Zoom, higher levels sit in next level up.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={verifyConfiguration}>Verify All</Button>
           {lastVerified ? (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-[var(--color-wi-text-light)]">
               Last verified: {lastVerified.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
             </span>
           ) : null}
@@ -301,7 +301,7 @@ export function SitInRulesSection() {
       </div>
 
       {verificationReport ? (
-        <div className="mb-4 rounded-sm border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700" role="status">
+        <div className="mb-4 rounded-sm border border-wi-line bg-white px-4 py-3 text-sm text-[var(--color-wi-text-light)]" role="status">
           <p className="mb-1 font-medium">Verification results</p>
           {verificationReport.map((msg, i) => <p key={i}>{msg}</p>)}
         </div>
@@ -313,8 +313,8 @@ export function SitInRulesSection() {
           const warning = getGapWarning(group.courses);
           const selectedCount = group.courses.filter(c => selectedCourseIds.has(c.id)).length;
           return (
-            <div key={group.groupId} className="rounded-sm border border-gray-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+            <div key={group.groupId} className="rounded-sm border border-wi-line bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
                 <div className="flex items-center gap-2">
                   {rcId ? (
                     <input
@@ -335,7 +335,7 @@ export function SitInRulesSection() {
                       }}
                     />
                   ) : null}
-                  <span className="text-sm font-semibold text-gray-800">
+                  <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                     {group.subjectCode} &mdash; {group.label}
                   </span>
                   {!group.sitInRuleId ? (
@@ -353,14 +353,14 @@ export function SitInRulesSection() {
                         const ruleId = e.target.value || null;
                         saveRuleAssignment(rcId, ruleId);
                       }}
-                      className="text-xs border border-gray-200 rounded px-2 py-1"
+                      className="text-xs border border-wi-line rounded px-2 py-1"
                     >
                       <option value="">No rule assigned</option>
                       {sitInRules.map((rule: SitInRule) => (
                         <option key={rule.id} value={rule.id}>{rule.name}</option>
                       ))}
                     </select>
-                    <label className="flex items-center gap-1.5 text-xs text-gray-600" title="Automatically assign students to next-level course when no sit-in capacity remains">
+                    <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]" title="Automatically assign students to next-level course when no sit-in capacity remains">
                       <input
                         type="checkbox"
                         checked={autoToggles[rcId] ?? true}
@@ -368,12 +368,12 @@ export function SitInRulesSection() {
                       />
                       <span>Auto</span>
                     </label>
-                    <label className="flex items-center gap-1 text-xs text-gray-600">
+                    <label className="flex items-center gap-1 text-xs text-[var(--color-wi-text-light)]">
                       <span>Window:</span>
                       <input
                         type="number"
                         min={0}
-                        className="w-14 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                        className="w-14 border border-wi-line rounded px-1.5 py-1 text-xs"
                         value={windowWeeks[rcId] ?? 0}
                         onChange={(e) => setWindowWeeks((prev) => ({ ...prev, [rcId]: Math.max(0, parseInt(e.target.value) || 0) }))}
                       />
@@ -400,7 +400,7 @@ export function SitInRulesSection() {
 
               <div className="divide-y divide-gray-50">
                 {group.courses.map((course) => (
-                  <div key={course.id} className="flex items-center gap-4 px-4 py-2.5 text-sm hover:bg-gray-50/50">
+                  <div key={course.id} className="flex items-center gap-4 px-4 py-2.5 text-sm hover:bg-[var(--color-wi-row-alt)]/50">
                     <input
                       type="checkbox"
                       checked={selectedCourseIds.has(course.id)}
@@ -414,9 +414,9 @@ export function SitInRulesSection() {
                       }}
                     />
                     <div className="flex-1 min-w-0">
-                      <span className="font-mono text-xs text-gray-500">{course.code}</span>
-                      <span className="ml-2 text-gray-700 truncate">{course.name}</span>
-                      <span className="ml-2 text-xs text-gray-400">({course.cycle_label})</span>
+                      <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.code}</span>
+                      <span className="ml-2 text-[var(--color-wi-text-light)] truncate">{course.name}</span>
+                      <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label})</span>
                     </div>
                     <LevelStepper
                       value={editLevels[course.id] ?? null}
@@ -445,7 +445,7 @@ export function SitInRulesSection() {
           );
         })}
         {cardGroups.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-400">No course groups found.</p>
+          <p className="py-8 text-center text-sm text-[var(--color-wi-text-light)]">No course groups found.</p>
         ) : null}
       </div>
 
@@ -470,7 +470,7 @@ export function SitInRulesSection() {
           <table className="w-full text-sm">
             <caption className="sr-only">Bulk edit course levels</caption>
             <thead>
-              <tr className="border-b border-gray-200 text-left text-gray-500">
+              <tr className="border-b border-wi-line text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="py-2 pr-3 font-medium">Course</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Current</th>
@@ -479,10 +479,10 @@ export function SitInRulesSection() {
             </thead>
             <tbody>
               {bulkEditGroup.courses.map((course) => (
-                <tr key={course.id} className="border-b border-gray-100">
+                <tr key={course.id} className="border-b border-wi-line-soft">
                   <td className="py-2 pr-3 font-mono text-xs">{course.code}</td>
-                  <td className="py-2 pr-3 text-gray-500">{course.cycle_label}</td>
-                  <td className="py-2 pr-3">{course.level ?? <span className="text-gray-300">&mdash;</span>}</td>
+                  <td className="py-2 pr-3 text-[var(--color-wi-text-light)]">{course.cycle_label}</td>
+                  <td className="py-2 pr-3">{course.level ?? <span className="text-[var(--color-wi-text-light)]">&mdash;</span>}</td>
                   <td className="py-2">
                     <LevelStepper
                       value={bulkLevels[course.id] ?? null}

@@ -19,16 +19,21 @@ import (
 	"warwick-institute/internal/idempotency"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/otpdelivery"
+	"warwick-institute/internal/studentauth"
 )
 
 type parentVerificationSendRequest struct {
-	Wcode string  `json:"wcode"`
-	Token *string `json:"token"`
+	Wcode       string  `json:"wcode"`
+	LookupToken *string `json:"lookup_token"`
+	Token       *string `json:"token"`
 }
 
 type parentVerificationVerifyRequest struct {
 	Token string `json:"token"`
 	Code  string `json:"code"`
+}
+type parentVerificationStatusRequest struct {
+	Token string `json:"token"`
 }
 
 type parentVerificationDTO struct {
@@ -87,14 +92,30 @@ func (s *server) requestOriginAllowed(w http.ResponseWriter, r *http.Request) bo
 }
 
 func (s *server) requestIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-		return forwarded
+	if s.deps.ClientIP != nil {
+		return s.deps.ClientIP.Resolve(r)
 	}
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err == nil && host != "" {
 		return host
 	}
 	return strings.TrimSpace(r.RemoteAddr)
+}
+func maskPhoneForPublic(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return ""
+	}
+	digits := make([]rune, 0, len(phone))
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) < 4 {
+		return "••••"
+	}
+	return "••••" + string(digits[len(digits)-4:])
 }
 
 func (s *server) allowPublicRateLimit(ctx context.Context, key string, limit int, window time.Duration) (time.Duration, error) {
@@ -205,8 +226,9 @@ func verificationResponseFromState(row otp.SessionState, token string, expiresAt
 			return &value
 		}(),
 	}
-	phone := row.ParentPhone
-	dto.ParentPhone = &phone
+	if phone := maskPhoneForPublic(row.ParentPhone); phone != "" {
+		dto.ParentPhone = &phone
+	}
 	if row.OTPLastSentAt.Valid {
 		value := row.OTPLastSentAt.Time.UTC().Format(time.RFC3339Nano)
 		dto.OtpLastSentAt = &value
@@ -257,6 +279,20 @@ func (s *server) verificationResponse(ctx context.Context, row otp.SessionState,
 	return withDeliverySummary(dto, delivery), nil
 }
 
+// publicIdempotencyActor creates a stable partition key for an unauthenticated
+// lookup token. It is not an authentication credential.
+func publicIdempotencyActor(token string) uuid.UUID {
+	return uuid.NewSHA1(uuid.Nil, []byte("warwick:absence-public:"+strings.TrimSpace(token)))
+}
+
+// studentIdempotencyActor creates a stable partition key for a student's
+// self-service actions, keyed on the wcode. Sessions are short-lived and
+// revoked after every submission, so keying on the session ID would scatter
+// retries across partitions and defeat idempotency replay.
+func studentIdempotencyActor(wcode string) uuid.UUID {
+	return uuid.NewSHA1(uuid.Nil, []byte("warwick:absence-student:"+strings.ToLower(strings.TrimSpace(wcode))))
+}
+
 func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
@@ -284,7 +320,44 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 	}
 
 	absenceID := r.PathValue("id")
-	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	idempotencyActor := idempotency.SystemActorUUID
+	if body.Token != nil && strings.TrimSpace(*body.Token) != "" {
+		tokenValue := strings.TrimSpace(*body.Token)
+		info, decodeErr := s.deps.OTP.DecodeToken(tokenValue)
+		if decodeErr != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
+			return
+		}
+		idempotencyActor = info.SessionID
+	} else {
+		lookupToken := ""
+		if body.LookupToken != nil {
+			lookupToken = strings.TrimSpace(*body.LookupToken)
+		}
+		if lookupToken == "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_lookup_token", "lookup_token is required")
+			return
+		}
+		service := s.studentAuthService()
+		if service == nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		resolvedWcode, resolveErr := service.ResolveLookupToken(r.Context(), lookupToken)
+		if resolveErr != nil {
+			if errors.Is(resolveErr, studentauth.ErrLookupNotFound) {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_lookup_token", "lookup_token is invalid or expired")
+				return
+			}
+			status, code, msg := s.a.ClassifyDBErr(resolveErr)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		idempotencyActor = publicIdempotencyActor(lookupToken)
+		body.Wcode = resolvedWcode
+	}
+
+	if !s.a.WithIdempotentTx(w, r, idempotencyActor, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		nowKey := "parent-verification:wcode:"
 		var phone string
 		var code string
@@ -560,13 +633,51 @@ func (s *server) handleParentVerificationVerify(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
-		session, verifyErr := s.deps.OTP.VerifySessionTx(r.Context(), tx, strings.TrimSpace(body.Token), strings.TrimSpace(body.Code))
+	var studentSessionToken string
+	studentService := s.studentAuthService()
+	if studentService == nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	token := strings.TrimSpace(body.Token)
+	info, infoErr := s.deps.OTP.DecodeToken(token)
+	if infoErr != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
+		return
+	}
+	if s.a.WithIdempotentTxPostCommit(w, r, info.SessionID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		session, verifyErr := s.deps.OTP.VerifySessionTx(r.Context(), tx, token, strings.TrimSpace(body.Code))
 		switch {
-		case verifyErr == nil || errors.Is(verifyErr, otp.ErrAlreadyVerified):
-			info, _ := s.deps.OTP.DecodeToken(strings.TrimSpace(body.Token))
-			resp := verificationResponseFromState(session, body.Token, info.ExpiresAt)
+		case verifyErr == nil:
+			studentSessionToken, _, infoErr = studentService.CreateSessionTx(r.Context(), tx, session.Wcode, info.SessionID)
+			if infoErr != nil {
+				status, code, msg := s.a.ClassifyDBErr(infoErr)
+				s.a.WriteErr(w, status, code, msg)
+				return 0, nil, infoErr
+			}
+			resp := verificationResponseFromState(session, token, info.ExpiresAt)
 			return http.StatusOK, resp, nil
+		case errors.Is(verifyErr, otp.ErrAlreadyVerified):
+			// A replayed verify of a still-live verification (status
+			// "verified") is a legitimate retry, e.g. after a lost cookie or
+			// another device: re-issue a fresh student session so the student
+			// is not locked out. Once the verification has been consumed by a
+			// submission it can never mint another session.
+			if session.Status == "verified" {
+				studentSessionToken, _, infoErr = studentService.CreateSessionTx(r.Context(), tx, session.Wcode, info.SessionID)
+				if infoErr != nil {
+					status, code, msg := s.a.ClassifyDBErr(infoErr)
+					if s.deps.Log != nil {
+						s.deps.Log.Error("failed to re-issue student session on verified replay", "wcode", session.Wcode, "error", infoErr)
+					}
+					s.a.WriteErr(w, status, code, msg)
+					return 0, nil, infoErr
+				}
+				resp := verificationResponseFromState(session, token, info.ExpiresAt)
+				return http.StatusOK, resp, nil
+			}
+			s.a.WriteErr(w, http.StatusConflict, "already_verified", "This verification session is already complete")
+			return 0, nil, verifyErr
 		case errors.Is(verifyErr, otp.ErrInvalid), errors.Is(verifyErr, otp.ErrLocked), errors.Is(verifyErr, otp.ErrStudentLocked):
 			status := http.StatusBadRequest
 			code := "invalid_code"
@@ -604,34 +715,57 @@ func (s *server) handleParentVerificationVerify(w http.ResponseWriter, r *http.R
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, verifyErr
 		}
+	}, func(w http.ResponseWriter) {
+		if studentSessionToken != "" {
+			studentauth.SetSessionCookie(w, studentSessionToken, s.deps.StudentCookieSecure, time.Now())
+		}
 	}) {
 		return
 	}
 }
 
-func (s *server) handleParentVerificationGet(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(r.PathValue("token"))
+func (s *server) handleParentVerificationStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.requestOriginAllowed(w, r) {
+		return
+	}
+	if s.deps.OTP == nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+
+	var body parentVerificationStatusRequest
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	token := strings.TrimSpace(body.Token)
 	if token == "" {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "token is required")
 		return
 	}
 	info, err := s.deps.OTP.DecodeToken(token)
 	if err != nil {
-		status := http.StatusBadRequest
-		code := "bad_token"
-		message := "Invalid verification token"
-		if errors.Is(err, otp.ErrExpired) {
-			status = http.StatusGone
-			code = "otp_expired"
-			message = "Verification token expired"
-		}
-		s.a.WriteErr(w, status, code, message)
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Invalid verification token")
 		return
 	}
 	session, err := s.deps.OTP.LoadSession(r.Context(), token)
 	if err != nil {
-		status, code, msg := s.a.ClassifyDBErr(err)
-		s.a.WriteErr(w, status, code, msg)
+		status := http.StatusInternalServerError
+		code := "internal"
+		message := "Internal error"
+		if errors.Is(err, otp.ErrExpired) {
+			status = http.StatusGone
+			code = "otp_expired"
+			message = "Verification token expired"
+		} else if errors.Is(err, otp.ErrTampered) {
+			status = http.StatusBadRequest
+			code = "bad_token"
+			message = "Invalid verification token"
+		}
+		if status == http.StatusInternalServerError {
+			status, code, message = s.a.ClassifyDBErr(err)
+		}
+		s.a.WriteErr(w, status, code, message)
 		return
 	}
 	resp, err := s.verificationResponse(r.Context(), session, token, info.ExpiresAt)
@@ -644,60 +778,5 @@ func (s *server) handleParentVerificationGet(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *server) handlePendingCancel(w http.ResponseWriter, r *http.Request) {
-	if !s.requestOriginAllowed(w, r) {
-		return
-	}
-
-	id, err := s.a.ParseUUID(r.PathValue("id"))
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid id")
-		return
-	}
-
-	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
-		qtx := s.deps.Q.WithTx(tx)
-		row, err := qtx.ManagedAbsenceGet(r.Context(), id)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		if row.Status == "cancelled" {
-			return http.StatusOK, managedAbsenceResponse(row), nil
-		}
-		if row.Status != "pending" && row.Status != "reviewed" {
-			s.a.WriteErr(w, http.StatusConflict, "bad_status", "This absence cannot be cancelled")
-			return 0, nil, fmt.Errorf("bad status")
-		}
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE student_absences
-			SET status = 'cancelled',
-			    updated_at = now(),
-			    version = version + 1
-			WHERE id = $1
-		`, id); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		if err := qtx.AbsenceAuditInsert(r.Context(), sqldb.AbsenceAuditInsertParams{
-			AbsenceID: id,
-			Action:    "cancelled",
-			ActorRole: "student",
-			Details:   map[string]any{"wcode": row.Wcode},
-		}); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		row, err = qtx.ManagedAbsenceGet(r.Context(), id)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
-			return 0, nil, err
-		}
-		return http.StatusOK, managedAbsenceResponse(row), nil
-	}) {
-		return
-	}
+	s.handleStudentAbsenceCancel(w, r)
 }

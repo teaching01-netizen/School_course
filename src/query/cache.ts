@@ -41,7 +41,7 @@ export const queryKeys = {
   },
   operationsCalendar: {
     all: ["operations-calendar"] as const,
-    range: (request: string) => ["operations-calendar", request] as const,
+    range: (request: string | null) => ["operations-calendar", request] as const,
   },
   absences: {
     all: ["absences"] as const,
@@ -50,6 +50,14 @@ export const queryKeys = {
     teacherDetail: (absenceID: string) => ["absences", "teacher-detail", absenceID] as const,
   },
   absenceStats: ["absence-stats"] as const,
+  legacySync: {
+    all: ["legacy-sync"] as const,
+    health: ["legacy-sync", "health"] as const,
+    audit: ["legacy-sync", "audit"] as const,
+    runs: ["legacy-sync", "runs"] as const,
+    jobs: ["legacy-sync", "jobs"] as const,
+    conflicts: ["legacy-sync", "conflicts"] as const,
+  },
   teacherDashboards: {
     all: ["teacher-dashboards"] as const,
     detail: (teacherID: string, monthStart: string) => ["teacher-dashboards", teacherID, monthStart] as const,

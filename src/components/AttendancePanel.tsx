@@ -28,25 +28,25 @@ export default function AttendancePanel({
   addToast,
 }: AttendancePanelProps) {
   if (loading) {
-    return <div className="text-sm text-gray-400">Loading…</div>;
+    return <div className="text-sm text-[var(--color-wi-text-light)]">Loading…</div>;
   }
 
   const overrideByStudent = new Map(overrides.map((o) => [o.student_id, o]));
 
   return (
     <div className="space-y-3">
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-[var(--color-wi-text-light)]">
         Changes here update session attendance overrides and drive student busy-range enforcement.
       </div>
 
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <label className="block text-xs text-gray-500 mb-1">Include student by WCode</label>
+          <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Include student by WCode</label>
           <input
             value={includeWcode}
             onChange={(e) => onIncludeWcodeChange(e.target.value)}
             placeholder="e.g. W0001"
-            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+            className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
           />
         </div>
         <Button variant="primary" size="md" onClick={onAddIncluded} disabled={includeAdding} loading={includeAdding}>
@@ -54,10 +54,10 @@ export default function AttendancePanel({
         </Button>
       </div>
 
-      <div className="border border-gray-200 rounded-sm overflow-x-auto">
+      <div className="border border-wi-line rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
+            <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
               <th className="text-left py-2 px-2 font-semibold">WCode</th>
               <th className="text-left py-2 px-2 font-semibold">Name</th>
               <th className="text-left py-2 px-2 font-semibold">Status</th>
@@ -68,9 +68,9 @@ export default function AttendancePanel({
               const ov = overrideByStudent.get(st.id);
               const value = ov ? ov.status : "default";
               return (
-                <tr key={st.id} className="border-b border-gray-100 last:border-b-0">
-                  <td className="py-2 px-2 font-mono text-xs text-gray-700">{st.wcode}</td>
-                  <td className="py-2 px-2 text-gray-800">{st.full_name}</td>
+                <tr key={st.id} className="border-b border-wi-line-soft last:border-b-0">
+                  <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{st.wcode}</td>
+                  <td className="py-2 px-2 text-[var(--color-wi-text)]">{st.full_name}</td>
                   <td className="py-2 px-2">
                     <Select
                       size="sm"

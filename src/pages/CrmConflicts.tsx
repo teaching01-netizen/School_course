@@ -135,14 +135,14 @@ export default function CrmConflicts() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <PageHeading>Schedule Conflicts</PageHeading>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-[var(--color-wi-text-light)] mt-1">
             Unresolved CRM roster conflicts that require manual resolution
           </p>
         </div>
         <button
           onClick={() => void fetchConflicts()}
           disabled={loading}
-          className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 text-sm rounded-md border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors disabled:opacity-50"
         >
           Refresh
         </button>
@@ -166,23 +166,23 @@ export default function CrmConflicts() {
           <table className="w-full text-[13px]">
             <caption className="sr-only">Schedule conflicts</caption>
             <thead>
-              <tr className="border-b-2 border-gray-200">
+              <tr className="border-b border-wi-line">
                 <th scope="col" className="w-8 px-2"></th>
-                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Student</th>
-                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Course</th>
-                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Conflict</th>
-                <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Detected</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Student</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Course</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Conflict</th>
+                <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Detected</th>
               </tr>
             </thead>
             <tbody>
               {conflicts.map((item) => (
                 <Fragment key={item.job_id}>
-                  <tr className="border-b border-gray-200 hover:bg-gray-50">
+                  <tr className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                     <td className="w-8 py-3 px-1">
                       <button
                         type="button"
                         onClick={() => handleToggleExpand(item.job_id)}
-                        className="flex items-center justify-center h-6 w-6 rounded-sm text-gray-400 hover:text-gray-700 hover:bg-gray-200 cursor-pointer"
+                        className="flex items-center justify-center h-6 w-6 rounded-sm text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
                         aria-label={expandedIds.has(item.job_id) ? "Collapse resolution" : "Expand resolution"}
                         aria-expanded={expandedIds.has(item.job_id)}
                       >
@@ -194,26 +194,26 @@ export default function CrmConflicts() {
                       </button>
                     </td>
                     <td className="py-3 px-2">
-                      <span className="font-medium text-gray-900">{item.student.full_name}</span>
-                      <span className="text-gray-500 ml-1">({item.student.wcode})</span>
+                      <span className="font-medium text-[var(--color-wi-text)]">{item.student.full_name}</span>
+                      <span className="text-[var(--color-wi-text-light)] ml-1">({item.student.wcode})</span>
                     </td>
-                    <td className="py-3 px-2 text-gray-700">
+                    <td className="py-3 px-2 text-[var(--color-wi-text-light)]">
                       {crmCourseLabel(item.course) || item.course.code || "—"}
                     </td>
-                    <td className="py-3 px-2 text-gray-700">
+                    <td className="py-3 px-2 text-[var(--color-wi-text-light)]">
                       <span className="inline-flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-amber-500" />
                         {conflictSummary(item.conflicts)}
                       </span>
                     </td>
-                    <td className="py-3 px-2 text-gray-500 text-xs whitespace-nowrap">
+                    <td className="py-3 px-2 text-[var(--color-wi-text-light)] text-xs whitespace-nowrap">
                       {formatDetectedAt(item.created_at)}
                     </td>
                   </tr>
                   {expandedIds.has(item.job_id) && (
-                    <tr className="border-b border-gray-200">
+                    <tr className="border-b border-wi-line">
                       <td colSpan={5} className="p-0">
-                        <div className="px-8 py-3 bg-gray-50/50">
+                        <div className="px-8 py-3 bg-[var(--color-wi-row-alt)]/50">
                           <CRMConflictResolutionPanel
                             conflict={toBusyRangeConflict(item)}
                             onResolved={(response) => handleConflictResolved(item.job_id, response)}

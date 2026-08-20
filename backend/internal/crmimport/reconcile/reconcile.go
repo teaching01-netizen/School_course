@@ -48,6 +48,21 @@ type ReconcileV2Service struct {
 	scheduling *scheduling.Service
 }
 
+func (s *ReconcileV2Service) isActiveSnapshot(ctx context.Context, snapshotID pgtype.UUID) (bool, error) {
+	var active bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM crm_state state
+			JOIN crm_snapshots snapshot ON snapshot.id = state.active_snapshot_id
+			WHERE state.singleton = true
+			  AND snapshot.id = $1
+			  AND snapshot.status = 'ready'
+		)
+	`, snapshotID).Scan(&active)
+	return active, err
+}
+
 type EnqueueApplyJobError struct {
 	Err error
 }
@@ -163,15 +178,15 @@ func (s *ReconcileV2Service) queryDesiredStudentsV2(ctx context.Context, snapsho
 	args = append(args, snapshotID)
 
 	sql := `
-		SELECT DISTINCT ON (cr.wcode)
-			cr.wcode,
-			COALESCE(cr.first_name, '') AS first_name,
-			COALESCE(cr.last_name, '') AS last_name,
-			COALESCE(NULLIF(btrim(cr.mobile_phone), ''), '') AS student_phone,
-			COALESCE(NULLIF(btrim(cr.parent_phone), ''), '') AS parent_phone
+		SELECT LOWER(BTRIM(cr.wcode)) AS wcode,
+			COALESCE((ARRAY_AGG(NULLIF(BTRIM(cr.first_name), '') ORDER BY cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC) FILTER (WHERE NULLIF(BTRIM(cr.first_name), '') IS NOT NULL))[1], '') AS first_name,
+			COALESCE((ARRAY_AGG(NULLIF(BTRIM(cr.last_name), '') ORDER BY cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC) FILTER (WHERE NULLIF(BTRIM(cr.last_name), '') IS NOT NULL))[1], '') AS last_name,
+			COALESCE((ARRAY_AGG(NULLIF(BTRIM(cr.mobile_phone), '') ORDER BY cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC) FILTER (WHERE NULLIF(BTRIM(cr.mobile_phone), '') IS NOT NULL))[1], '') AS student_phone,
+			COALESCE((ARRAY_AGG(NULLIF(BTRIM(cr.parent_phone), '') ORDER BY cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC) FILTER (WHERE NULLIF(BTRIM(cr.parent_phone), '') IS NOT NULL))[1], '') AS parent_phone
 		FROM crm_rows cr
 		WHERE ` + strings.Join(conds, " AND ") + `
-		ORDER BY cr.wcode, cr.order_quote_updated_at DESC NULLS LAST, cr.xlsx_row_number ASC, cr.row_hash ASC
+		GROUP BY LOWER(BTRIM(cr.wcode))
+		ORDER BY LOWER(BTRIM(cr.wcode))
 	`
 
 	rows, err := s.db.Query(ctx, sql, args...)
@@ -216,8 +231,12 @@ func (s *ReconcileV2Service) reconcileDesiredStudentIDs(ctx context.Context, tx 
 		err := tx.QueryRow(ctx, `
 			INSERT INTO students (wcode, full_name, notes, student_phone, parent_phone)
 			VALUES ($1, $2, '', NULLIF($3, ''), NULLIF($4, ''))
-			ON CONFLICT (wcode) DO UPDATE
-			SET full_name = EXCLUDED.full_name,
+			ON CONFLICT (LOWER(wcode)) DO UPDATE
+			SET full_name = CASE
+			                  WHEN LOWER(BTRIM(EXCLUDED.full_name)) = LOWER(BTRIM(EXCLUDED.wcode))
+			                    THEN students.full_name
+			                  ELSE EXCLUDED.full_name
+			                END,
 			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL
 			                         THEN EXCLUDED.student_phone
 			                         ELSE students.student_phone END,
@@ -298,9 +317,9 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		}
 		switch action {
 		case "exclude":
-			overrideExcludes[wcode] = true
+			overrideExcludes[strings.ToLower(strings.TrimSpace(wcode))] = true
 		case "include":
-			overrideIncludes[wcode] = true
+			overrideIncludes[strings.ToLower(strings.TrimSpace(wcode))] = true
 		}
 	}
 	overrideRows.Close()
@@ -329,6 +348,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 			includeRows.Close()
 			return nil, fmt.Errorf("scan include: %w", err)
 		}
+		wcode = strings.ToLower(strings.TrimSpace(wcode))
 		if overrideIncludes[wcode] {
 			finalDesired[wcode] = stID
 		}
@@ -450,9 +470,9 @@ func (s *ReconcileV2Service) DiffCourseReconcile(ctx context.Context, snapshotID
 	}
 	defer tx.Rollback(ctx)
 
-	desiredIDs, _, _, err := s.reconcileDesiredStudentIDs(ctx, tx, desired)
-	if err != nil {
-		return nil, err
+	desiredWCodes := make(map[string]struct{}, len(desired))
+	for _, d := range desired {
+		desiredWCodes[strings.ToLower(strings.TrimSpace(d.WCode))] = struct{}{}
 	}
 
 	curRows, err := tx.Query(ctx, `
@@ -476,11 +496,12 @@ func (s *ReconcileV2Service) DiffCourseReconcile(ctx context.Context, snapshotID
 			curRows.Close()
 			return nil, fmt.Errorf("scan current: %w", err)
 		}
-		currentMap[wcode] = struct {
+		canonicalWCode := strings.ToLower(strings.TrimSpace(wcode))
+		currentMap[canonicalWCode] = struct {
 			ID       pgtype.UUID
 			WCode    string
 			FullName string
-		}{ID: id, WCode: wcode, FullName: fullName}
+		}{ID: id, WCode: canonicalWCode, FullName: fullName}
 	}
 	curRows.Close()
 
@@ -499,7 +520,7 @@ func (s *ReconcileV2Service) DiffCourseReconcile(ctx context.Context, snapshotID
 			orRows.Close()
 			return nil, fmt.Errorf("scan exclude: %w", err)
 		}
-		overrideExcludes[wcode] = true
+		overrideExcludes[strings.ToLower(strings.TrimSpace(wcode))] = true
 	}
 	orRows.Close()
 
@@ -519,7 +540,7 @@ func (s *ReconcileV2Service) DiffCourseReconcile(ctx context.Context, snapshotID
 		StudentID pgtype.UUID
 	}
 	for wcode, cur := range currentMap {
-		if _, inDesired := desiredIDs[wcode]; !inDesired {
+		if _, inDesired := desiredWCodes[wcode]; !inDesired {
 			removeSet = append(removeSet, struct {
 				WCode     string
 				FullName  string
@@ -1351,6 +1372,13 @@ func CourseReconcileJobHandler(reconcileV2 *ReconcileV2Service, worker *queue.Qu
 
 		courseID := pgtype.UUID{Bytes: payload.CourseID, Valid: true}
 		snapshotID := pgtype.UUID{Bytes: payload.SnapshotID, Valid: true}
+		active, err := reconcileV2.isActiveSnapshot(ctx, snapshotID)
+		if err != nil {
+			return fmt.Errorf("check active snapshot: %w", err)
+		}
+		if !active {
+			return queue.MarkNonRetryable(fmt.Errorf("snapshot %s is stale", snapshotID))
+		}
 
 		valid, err := reconcileV2.CheckFilterVersion(ctx, courseID, payload.ExpectedFilterVersion)
 		if err != nil {

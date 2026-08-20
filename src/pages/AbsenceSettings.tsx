@@ -10,12 +10,12 @@ import { AbsenceFormEditor } from "../components/absences/AbsenceFormEditor";
 function PreviewContent({ settings }: { settings: AbsenceSettingsModel }) {
   return (
     <div className="space-y-4 text-sm">
-      <div className="rounded-sm border border-gray-200 bg-gray-50 p-4">
-        <p className="text-gray-700 whitespace-pre-wrap">{settings.form.intro_text || "No intro text set."}</p>
+      <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-4">
+        <p className="text-[var(--color-wi-text-light)] whitespace-pre-wrap">{settings.form.intro_text || "No intro text set."}</p>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Reason for absence</label>
-        <select className="w-full rounded-sm border border-gray-300 p-2 text-sm" disabled>
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Reason for absence</label>
+        <select className="w-full rounded-sm border border-wi-line p-2 text-sm" disabled>
           <option value="">Select a reason...</option>
           {settings.form.reason_categories.map((cat) => (
             <option key={cat.value} value={cat.value}>{cat.label || cat.value}</option>
@@ -24,26 +24,26 @@ function PreviewContent({ settings }: { settings: AbsenceSettingsModel }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">From date</label>
-          <input className="w-full rounded-sm border border-gray-300 p-2 text-sm" type="date" disabled />
+          <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">From date</label>
+          <input className="w-full rounded-sm border border-wi-line p-2 text-sm" type="date" disabled />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">To date</label>
-          <input className="w-full rounded-sm border border-gray-300 p-2 text-sm" type="date" disabled />
+          <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">To date</label>
+          <input className="w-full rounded-sm border border-wi-line p-2 text-sm" type="date" disabled />
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">
           <input type="checkbox" disabled className="mr-2" />I will sit in on a physical class
         </label>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">
           <input type="checkbox" disabled className="mr-2" />I will attend via Zoom
         </label>
       </div>
-      <div className="rounded-sm border border-gray-200 bg-gray-50 p-4">
-        <p className="text-gray-700 whitespace-pre-wrap">{settings.form.confirmation_text || "No confirmation text set."}</p>
+      <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-4">
+        <p className="text-[var(--color-wi-text-light)] whitespace-pre-wrap">{settings.form.confirmation_text || "No confirmation text set."}</p>
       </div>
-      <p className="text-xs text-gray-400">Max date range: {settings.form.max_date_range_days} days. {settings.form.require_reason ? "Reason is required." : "Reason is optional."}</p>
+      <p className="text-xs text-[var(--color-wi-text-light)]">Max date range: {settings.form.max_date_range_days} days. {settings.form.require_reason ? "Reason is required." : "Reason is optional."}</p>
     </div>
   );
 }
@@ -79,7 +79,7 @@ export default function AbsenceSettings() {
     <div className="mx-auto max-w-3xl space-y-4">
       <div>
         <PageHeading>Absence Form Settings</PageHeading>
-        <p className="text-sm text-gray-500">Configure student form behavior and sit-in resolution without a deployment.</p>
+        <p className="text-sm text-[var(--color-wi-text-light)]">Configure student form behavior and sit-in resolution without a deployment.</p>
       </div>
 
       <AbsenceFormEditor
@@ -96,7 +96,7 @@ export default function AbsenceSettings() {
         previewContent={<PreviewContent settings={settings} />}
       />
 
-      <section className="rounded-sm border border-gray-200 bg-slate-50 p-5 text-gray-500">
+      <section className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-5 text-[var(--color-wi-text-light)]">
         <h2 className="text-base font-semibold">Student Self-Service</h2>
         <p className="mt-1 text-sm">Viewing and cancelling submitted absences will be enabled in a later student portal release.</p>
         <div className="mt-4 space-y-3 text-sm">

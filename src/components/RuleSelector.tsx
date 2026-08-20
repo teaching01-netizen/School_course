@@ -60,7 +60,7 @@ export default function RuleSelector({ rules, value, onChange, disabled = false 
       </Select>
 
       {selectedRule?.description && (
-        <p className="text-xs text-gray-500">{selectedRule.description}</p>
+        <p className="text-xs text-[var(--color-wi-text-light)]">{selectedRule.description}</p>
       )}
 
       {value === null && (

@@ -74,3 +74,28 @@ func TestQueueStoreCompleteJob_ClearsStaleLastErrorOnSuccess(t *testing.T) {
 		t.Fatalf("expected successful completion to clear stale last_error, got %q", *stored.LastError)
 	}
 }
+
+func TestQueueStoreFencedCompletionRejectsStaleWorker(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryQueueStore()
+	jobID, err := store.EnqueueJob(ctx, JobTypeStudentSync, map[string]string{"id": "job-1"}, "")
+	if err != nil {
+		t.Fatalf("EnqueueJob: %v", err)
+	}
+	job, ok := store.ClaimJob(ctx, "worker-a", time.Minute)
+	if !ok {
+		t.Fatal("expected worker-a to claim queued job")
+	}
+	if job.ID != jobID {
+		t.Fatalf("claimed job = %s, want %s", job.ID, jobID)
+	}
+	otherWorker := "worker-b"
+	store.jobs[jobID].row.LockedBy = &otherWorker
+
+	if err := store.CompleteJobForWorker(ctx, jobID, "worker-a", "succeeded", ""); err == nil {
+		t.Fatal("stale worker completion succeeded")
+	}
+	if store.jobs[jobID].row.Status != "running" {
+		t.Fatalf("stale completion changed status to %q", store.jobs[jobID].row.Status)
+	}
+}

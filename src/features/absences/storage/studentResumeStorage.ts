@@ -2,6 +2,7 @@ import {
   LEGACY_SESSION_STORAGE_KEY,
   LEGACY_VERIFICATION_STORAGE_KEY,
   STUDENT_RESUME_STORAGE_KEY,
+  STUDENT_SESSION_HINT_STORAGE_KEY,
 } from "../constants";
 import { normalizeLookupWcode } from "../domain/studentIdentity";
 
@@ -41,4 +42,24 @@ export function writeStudentResume(record: StudentResumeRecord, storage: Storage
 
 export function clearStudentResume(storage: Storage = window.sessionStorage): void {
   storage.removeItem(STUDENT_RESUME_STORAGE_KEY);
+}
+
+export function hasStudentSessionHint(storage: Storage = window.sessionStorage): boolean {
+  try {
+    return storage.getItem(STUDENT_SESSION_HINT_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markStudentSessionHint(storage: Storage = window.sessionStorage): void {
+  try {
+    storage.setItem(STUDENT_SESSION_HINT_STORAGE_KEY, "1");
+  } catch { }
+}
+
+export function clearStudentSessionHint(storage: Storage = window.sessionStorage): void {
+  try {
+    storage.removeItem(STUDENT_SESSION_HINT_STORAGE_KEY);
+  } catch { }
 }

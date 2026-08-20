@@ -254,10 +254,11 @@ func TestStaffCreate_AdminBypassWideDateRange(t *testing.T) {
 	}
 
 	deps := httpdeps.Deps{
-		Log:  slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		Auth: fa,
-		Q:    q,
-		DB:   dbpool,
+		Log:         slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Auth:        fa,
+		Q:           q,
+		DB:          dbpool,
+		InstituteTZ: "Asia/Bangkok",
 	}
 
 	now := time.Now()
@@ -312,10 +313,11 @@ func TestStaffCreate_AdminBypassOldSession(t *testing.T) {
 	}
 
 	deps := httpdeps.Deps{
-		Log:  slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		Auth: fa,
-		Q:    q,
-		DB:   dbpool,
+		Log:         slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Auth:        fa,
+		Q:           q,
+		DB:          dbpool,
+		InstituteTZ: "Asia/Bangkok",
 	}
 
 	now := time.Now()
@@ -428,10 +430,11 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 		},
 	}
 	deps := httpdeps.Deps{
-		Log:  slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		Auth: fa,
-		Q:    q,
-		DB:   dbpool,
+		Log:         slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Auth:        fa,
+		Q:           q,
+		DB:          dbpool,
+		InstituteTZ: "Asia/Bangkok",
 	}
 
 	reqBody := map[string]any{

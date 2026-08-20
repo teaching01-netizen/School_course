@@ -1079,7 +1079,7 @@ export function getRuleTypeBadgeColor(
     case "mastery_wisdom_choice":
       return { bg: "bg-amber-50", text: "text-amber-700" };
     default:
-      return { bg: "bg-gray-50", text: "text-gray-700" };
+      return { bg: "bg-[var(--color-wi-row-alt)]", text: "text-[var(--color-wi-text-light)]" };
   }
 }
 

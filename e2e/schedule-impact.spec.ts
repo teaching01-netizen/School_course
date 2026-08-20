@@ -15,6 +15,7 @@ async function expectAccessiblePage(page: Page) {
 
 function makeQueueItem(overrides: Partial<QueueItem> & { id: string }): QueueItem {
   return {
+    id: overrides.id,
     absence_id: overrides.absence_id ?? `abs-${overrides.id}`,
     issue_type: overrides.issue_type ?? "regular_session_overlap",
     severity: overrides.severity ?? "warning",

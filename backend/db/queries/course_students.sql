@@ -36,7 +36,8 @@ SET status = @new_status
 WHERE course_id = $1 AND student_id = $2 AND status = @old_status;
 
 -- name: CourseStudentsListDetailedWithStatus :many
-SELECT s.id, s.wcode, s.full_name, s.notes, s.created_at, s.updated_at,
+SELECT s.id, s.wcode, s.full_name, s.notes, s.nickname, s.school, s.level, s.year,
+       s.student_phone, s.email, s.created_at, s.updated_at,
        cs.status
 FROM course_students cs
 JOIN students s ON s.id = cs.student_id

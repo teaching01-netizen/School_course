@@ -40,6 +40,10 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusTooManyRequests, "too_many_requests", "Too many requests")
 			return
 		}
+		if errors.Is(err, auth.ErrRateLimiterUnavailable) {
+			s.a.WriteErr(w, http.StatusServiceUnavailable, "rate_limiter_unavailable", "Authentication is temporarily unavailable")
+			return
+		}
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 	}
 }

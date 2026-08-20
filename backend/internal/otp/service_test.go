@@ -1,10 +1,15 @@
 package otp
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"github.com/google/uuid"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func TestNormalizePhoneE164(t *testing.T) {
@@ -67,8 +72,6 @@ func TestTokenRoundTrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	token, err := svc.encodeToken(tokenPayload{
 		SessionID: id.String(),
-		Wcode:     "W250389",
-		Phone:     "+66812345678",
 		IssuedAt:  now,
 		ExpiresAt: now.Add(tokenTTL),
 	})
@@ -82,8 +85,108 @@ func TestTokenRoundTrip(t *testing.T) {
 	if decoded.SessionID != id {
 		t.Fatalf("SessionID = %v, want %v", decoded.SessionID, id)
 	}
-	if decoded.Phone != "+66812345678" {
-		t.Fatalf("Phone = %q", decoded.Phone)
+	for _, forbidden := range []string{"W250389", "+66812345678"} {
+		if strings.Contains(token, forbidden) {
+			t.Fatalf("opaque token contains forbidden PII %q: %q", forbidden, token)
+		}
+	}
+}
+// encodeLegacyToken reproduces the HEAD token format exactly: base64url JSON
+// payload signed with an HMAC-SHA256 and a "." separator.
+func encodeLegacyToken(t *testing.T, key []byte, payload tokenPayload, wcode, phone string) string {
+	t.Helper()
+	raw, err := json.Marshal(struct {
+		SessionID string    `json:"session_id"`
+		Wcode     string    `json:"wcode"`
+		Phone     string    `json:"phone"`
+		IssuedAt  time.Time `json:"issued_at"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}{
+		SessionID: payload.SessionID,
+		Wcode:     wcode,
+		Phone:     phone,
+		IssuedAt:  payload.IssuedAt,
+		ExpiresAt: payload.ExpiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(raw)
+	return base64.RawURLEncoding.EncodeToString(raw) + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+// Tokens minted before the AES-GCM switch (24h TTL) are still in the hands of
+// clients; decoding must accept them for a grace period instead of failing.
+func TestDecodeTokenAcceptsLegacyFormat(t *testing.T) {
+	svc, err := NewService(nil, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	id := uuid.New()
+	now := time.Now().UTC().Truncate(time.Second)
+	legacy := encodeLegacyToken(t, svc.hmacKey, tokenPayload{
+		SessionID: id.String(),
+		IssuedAt:  now,
+		ExpiresAt: now.Add(tokenTTL),
+	}, "w250389", "+66812345678")
+
+	decoded, err := svc.DecodeToken(legacy)
+	if err != nil {
+		t.Fatalf("DecodeToken on legacy token: %v", err)
+	}
+	if decoded.SessionID != id {
+		t.Fatalf("SessionID = %v, want %v", decoded.SessionID, id)
+	}
+}
+
+func TestDecodeTokenRejectsTamperedLegacyFormat(t *testing.T) {
+	svc, err := NewService(nil, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	token := encodeLegacyToken(t, svc.hmacKey, tokenPayload{
+		SessionID: uuid.NewString(),
+		IssuedAt:  now,
+		ExpiresAt: now.Add(tokenTTL),
+	}, "w250389", "+66812345678")
+	tampered := token[:len(token)-1]
+	if token[len(token)-1] == '0' {
+		tampered += "1"
+	} else {
+		tampered += "0"
+	}
+	if _, err := svc.DecodeToken(tampered); err != ErrTampered {
+		t.Fatalf("DecodeToken(tampered legacy) = %v, want ErrTampered", err)
+	}
+}
+
+func TestPublicOTPTokenContainsNoIdentityOrURLData(t *testing.T) {
+	svc, err := NewService(nil, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	token, err := svc.encodeToken(tokenPayload{
+		SessionID: uuid.NewString(),
+		IssuedAt:  time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(tokenTTL),
+	})
+	if err != nil {
+		t.Fatalf("encodeToken: %v", err)
+	}
+	for _, forbidden := range []string{
+		"W250389",
+		"+66812345678",
+		"alex@example.edu",
+		"Alex Smith",
+		"/parent-verification/",
+		"?token=",
+		"#token=",
+	} {
+		if strings.Contains(token, forbidden) {
+			t.Fatalf("public OTP token contains forbidden identity or URL data %q: %q", forbidden, token)
+		}
 	}
 }
 

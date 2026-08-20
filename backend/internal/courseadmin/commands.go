@@ -17,6 +17,11 @@ type TeacherAssignment struct {
 // is replaced atomically inside one transaction. A nil Teachers slice means
 // "metadata-only" — code/name/legacy link change and the version bumps, but
 // the teacher set is left untouched; an empty non-nil slice clears the set.
+//
+// The curated course properties (Year, SubjectID, Hour, StudentCount,
+// CourseType) are optional pointers: nil means "leave the current value
+// untouched", mirroring the create contract's field set so the detail page
+// can patch a single property without first reading the others.
 type UpdateCourseCommand struct {
 	CourseID        pgtype.UUID
 	ActorID         pgtype.UUID
@@ -25,6 +30,12 @@ type UpdateCourseCommand struct {
 	Name            string
 	LegacyCourseID  *string
 	Teachers        []TeacherAssignment
+
+	Year         *int16
+	SubjectID    *pgtype.UUID
+	Hour         *int32
+	StudentCount *int32
+	CourseType   *string
 }
 
 // UpdateCourseResult reports the outcome of a successful teacher-set update.

@@ -67,7 +67,7 @@ describe("CalendarDayCell", () => {
     renderCell(session, { isSelected: true, isToday: true });
     const cell = screen.getByRole("button", { name: /1 session/i });
     expect(cell.className).toContain("ring-[var(--color-wi-primary)]");
-    expect(screen.getByText("21").className).toContain("bg-gray-900");
+    expect(screen.getByText("21").className).toContain("bg-[var(--color-wi-nav)]");
   });
 
   it("renders up to 3 compact-sized mobile dots for 3 sessions", () => {
@@ -99,7 +99,7 @@ describe("CalendarDayCell", () => {
       }],
     });
     const cell = screen.getByRole("button");
-    expect(cell.innerHTML).toContain("bg-amber-600");
+    expect(cell.innerHTML).toContain("bg-[var(--color-wi-amber)]");
     expect(cell.innerHTML).toContain("h-1.5 w-1.5 rounded-full");
   });
 });

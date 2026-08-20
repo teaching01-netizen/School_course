@@ -19,11 +19,13 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/studentauth"
 )
 
 type publicAbsenceContractFixture struct {
 	pool               *pgxpool.Pool
 	server             *server
+	sessionToken       string
 	wcode              string
 	subjectID          string
 	courseID           string
@@ -59,7 +61,6 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 
 	settings := defaultAbsenceSettings()
 	settings.Notifications.SmsParentEnabled = false
-	settings.Notifications.AllowSubmitWithoutOtp = true
 	settings.Notifications.SmsSuccessTemplate = ""
 	settings.Notifications.EmailSuccessEnabled = false
 	settingsJSON, err := json.Marshal(settings)
@@ -96,13 +97,23 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 		t.Fatalf("link unrelated course to subject: %v", err)
 	}
 
+	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{
+		Username:     "unrelated-teacher-" + suffix,
+		Role:         "Teacher",
+		PasswordHash: "x",
+	})
+	if err != nil {
+		t.Fatalf("create unrelated teacher: %v", err)
+	}
+
 	var unrelatedSessionID string
 	for day := 1; day <= 2; day++ {
 		start := time.Date(2030, time.February, day, 9, 0, 0, 0, time.UTC)
 		session, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-			CourseID: unrelatedCourse.ID,
-			StartAt:  pgtype.Timestamptz{Time: start, Valid: true},
-			EndAt:    pgtype.Timestamptz{Time: start.Add(90 * time.Minute), Valid: true},
+			CourseID:  unrelatedCourse.ID,
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: start.Add(90 * time.Minute), Valid: true},
 		})
 		if err != nil {
 			t.Fatalf("create unrelated session %d: %v", day, err)
@@ -120,6 +131,10 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 		t.Fatalf("format unrelated course ID: %v", err)
 	}
 
+	// The batch endpoint authenticates via verified student session; identity
+	// comes from the session cookie, never from the request body.
+	sessionToken := seedVerifiedStudentSession(t, pool, wcode)
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := &server{
 		deps: httpdeps.Deps{
@@ -134,6 +149,7 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 	return &publicAbsenceContractFixture{
 		pool:               pool,
 		server:             s,
+		sessionToken:       sessionToken,
 		wcode:              wcode,
 		subjectID:          subjectID,
 		courseID:           courseID,
@@ -160,7 +176,7 @@ func (f *publicAbsenceContractFixture) validItem(index int) batchAbsenceCreateIt
 
 func (f *publicAbsenceContractFixture) requestBody(t *testing.T, items ...batchAbsenceCreateItem) []byte {
 	t.Helper()
-	body, err := json.Marshal(batchAbsenceCreateRequest{Wcode: f.wcode, Items: items})
+	body, err := json.Marshal(batchAbsenceCreateRequest{Items: items})
 	if err != nil {
 		t.Fatalf("marshal batch request: %v", err)
 	}
@@ -168,14 +184,28 @@ func (f *publicAbsenceContractFixture) requestBody(t *testing.T, items ...batchA
 }
 
 func (f *publicAbsenceContractFixture) submitBatch(body []byte, idempotencyKey string) *httptest.ResponseRecorder {
+	return f.submitBatchAs(body, idempotencyKey, f.sessionToken)
+}
+
+func (f *publicAbsenceContractFixture) submitBatchAs(body []byte, idempotencyKey, sessionToken string) *httptest.ResponseRecorder {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/batch", bytes.NewReader(body)).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: sessionToken})
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", idempotencyKey)
 	recorder := httptest.NewRecorder()
 	f.server.handleAbsenceBatchCreate(recorder, req)
 	return recorder
+}
+
+// reverify replaces the (burned) student session with a fresh verified one,
+// mirroring the re-verify step a client performs after a submission revoked
+// its session. Idempotency is keyed by student, not session, so held keys
+// remain replayable after the rotation.
+func (f *publicAbsenceContractFixture) reverify(t *testing.T) {
+	t.Helper()
+	f.sessionToken = seedVerifiedStudentSession(t, f.pool, f.wcode)
 }
 
 func (f *publicAbsenceContractFixture) absenceCount(t *testing.T) int {
@@ -273,6 +303,10 @@ func TestPublicBatchReplaysSameKeyWithoutDuplicatingAbsence(t *testing.T) {
 	key := uuid.NewString()
 
 	firstRecorder := fixture.submitBatch(body, key)
+	// A submission burns the student session, so the client re-verifies before
+	// retrying. The wcode-keyed idempotency partition keeps the same key
+	// replayable across the new session.
+	fixture.reverify(t)
 	secondRecorder := fixture.submitBatch(body, key)
 
 	if firstRecorder.Code != http.StatusCreated || secondRecorder.Code != http.StatusCreated {
@@ -298,6 +332,13 @@ func TestPublicBatchConcurrentSameKeyCreatesExactlyOneAbsence(t *testing.T) {
 	key := uuid.NewString()
 	start := make(chan struct{})
 	recorders := make([]*httptest.ResponseRecorder, 2)
+	// Each worker authenticates with its own freshly verified session: the
+	// first commit burns its session, and the loser's session must still be
+	// valid to reach the idempotency cache and replay the winner's response.
+	tokens := []string{
+		seedVerifiedStudentSession(t, fixture.pool, fixture.wcode),
+		seedVerifiedStudentSession(t, fixture.pool, fixture.wcode),
+	}
 
 	var workers sync.WaitGroup
 	workers.Add(len(recorders))
@@ -305,7 +346,7 @@ func TestPublicBatchConcurrentSameKeyCreatesExactlyOneAbsence(t *testing.T) {
 		go func(index int) {
 			defer workers.Done()
 			<-start
-			recorders[index] = fixture.submitBatch(body, key)
+			recorders[index] = fixture.submitBatchAs(body, key, tokens[index])
 		}(i)
 	}
 	close(start)

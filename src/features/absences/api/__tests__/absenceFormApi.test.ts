@@ -4,6 +4,7 @@ import {
   loadSessionsInRange,
   lookupStudentByWcode,
   sessionsInRangePath,
+  studentSessionsPath,
   normalizeAbsenceFormConfig,
   submitAbsenceBatch,
 } from "../absenceFormApi";
@@ -19,10 +20,8 @@ vi.mock("@/api/client", async () => {
 
 const BATCH_INPUT = {
   idempotencyKey: "absence-submit-key",
-  wcode: "W250389",
   email: "student@example.com",
   reason: "Medical appointment",
-  verificationToken: "verified-token",
   items: [
     {
       subject_id: "subject-1",
@@ -100,18 +99,16 @@ describe("submitAbsenceBatch", () => {
     expect(mockApiJson).toHaveBeenCalledTimes(2);
   });
 
-  it("omits optional identity fields instead of sending null placeholders", async () => {
+  it("omits the optional email field instead of sending null placeholders", async () => {
     mockApiJson.mockResolvedValueOnce({ items: [] });
 
     await submitAbsenceBatch({
       ...BATCH_INPUT,
       email: undefined,
-      verificationToken: undefined,
     });
 
     const init = mockApiJson.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({
-      wcode: BATCH_INPUT.wcode,
       reason: BATCH_INPUT.reason,
       items: BATCH_INPUT.items,
     });
@@ -182,6 +179,23 @@ describe("sessionsInRangePath", () => {
   });
 });
 
+describe("studentSessionsPath", () => {
+  it("uses the verified student session instead of a W-Code", () => {
+    const path = studentSessionsPath("2026-06-01", "2026-06-30", {
+      courseIds: ["course-1"],
+      subjectIds: ["subject-1"],
+      satVerbalAfterPriority: 0,
+    });
+
+    expect(path).toContain("/api/v1/absence-self-service/sessions?");
+    expect(path).toContain("date_from=2026-06-01");
+    expect(path).toContain("date_to=2026-06-30");
+    expect(path).not.toContain("wcode=");
+    expect(path).not.toContain("bypass_timing");
+    expect(path).not.toContain("include_all_subjects");
+  });
+});
+
 describe("public absence API requests", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
@@ -196,35 +210,28 @@ describe("public absence API requests", () => {
     const config = await loadAbsenceFormConfig();
 
     expect(config.form.max_date_range_days).toBe(7);
-    expect(config.notifications?.allow_submit_without_otp).toBe(false);
     expect(mockApiJson).toHaveBeenCalledWith("/api/v1/absence-form-config", {
       method: "GET",
     });
   });
 
-  it("URL-encodes W-codes used for student lookup", async () => {
-    mockApiJson.mockResolvedValueOnce({ wcode: "W250389", subjects: [] });
-
-    await lookupStudentByWcode(" W250389&include=private ");
-
-    expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/student-lookup?wcode=+W250389%26include%3Dprivate+",
-      { method: "GET" },
-    );
-  });
-
-  it("sends only the W-Code parameter for student lookup", async () => {
-    mockApiJson.mockResolvedValueOnce({ wcode: "W250389", subjects: [] });
+  it("uses a POST body containing only the W-Code", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      wcode: "W250389",
+      lookup_token: "opaque-lookup-token",
+      email_input_required: false,
+      parent_verification_available: true,
+    });
 
     await lookupStudentByWcode("W250389");
 
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/student-lookup?wcode=W250389",
-      { method: "GET" },
+      "/api/v1/absence-self-service/lookup",
+      { method: "POST", body: JSON.stringify({ wcode: "W250389" }) },
     );
   });
 
-  it("forwards cancellation and range options when loading sessions", async () => {
+  it("forwards cancellation and range options when loading staff sessions", async () => {
     mockApiJson.mockResolvedValueOnce({ subjects: [] });
     const controller = new AbortController();
 
@@ -294,7 +301,6 @@ describe("normalizeAbsenceFormConfig", () => {
     const result = normalizeAbsenceFormConfig(input);
     expect(result.notifications?.sms_parent_enabled).toBe(true);
     expect(result.notifications?.sms_special_approved_template).toBe("");
-    expect(result.notifications?.allow_submit_without_otp).toBe(false);
   });
 
   it("preserves email fields when present", () => {

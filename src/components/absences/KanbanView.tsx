@@ -21,7 +21,7 @@ export const COLUMNS: { key: AbsenceStatus; label: string }[] = [
 const COLUMN_STYLES: Record<string, string> = {
   pending: "border-blue-200 bg-blue-50/30",
   reviewed: "border-emerald-200 bg-emerald-50/30",
-  actioned: "border-slate-200 bg-slate-50/30",
+  actioned: "border-wi-line bg-[var(--color-wi-row-alt)]/30",
   special_approved: "border-purple-200 bg-purple-50/30",
 };
 
@@ -62,7 +62,7 @@ function AbsenceCard({
       tabIndex={0}
       aria-label={`View absence for ${absence.student_name ?? absence.wcode}`}
       className={`group relative cursor-pointer rounded-sm border p-3 text-sm shadow-sm transition-shadow hover:shadow-md ${
-        critical ? "border-red-400 bg-red-50/70" : impacted ? "border-amber-400 bg-amber-50/70" : "border-gray-200 bg-white"
+        critical ? "border-red-400 bg-red-50/70" : impacted ? "border-amber-400 bg-amber-50/70" : "border-wi-line bg-white"
       }`}
       onClick={() => navigate(`/absences/${absence.id}`)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/absences/${absence.id}`); } }}
@@ -70,8 +70,8 @@ function AbsenceCard({
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-xs font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-gray-900">{absence.student_name ?? "Unknown"}</p>
-          <p className="font-mono text-xs text-gray-500">{absence.wcode}</p>
+          <p className="truncate font-medium text-[var(--color-wi-text)]">{absence.student_name ?? "Unknown"}</p>
+          <p className="font-mono text-xs text-[var(--color-wi-text-light)]">{absence.wcode}</p>
         </div>
       </div>
       {impacted ? (
@@ -92,8 +92,8 @@ function AbsenceCard({
         </div>
       ) : null}
       <div className="mt-2 flex flex-wrap items-start gap-1.5">
-        <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{absence.subject_code ?? "-"}</span>
-        <span className="block whitespace-pre-line text-xs leading-tight text-gray-600">{formatAbsenceSummaryDates(absence)}</span>
+        <span className="rounded-sm bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs font-semibold">{absence.subject_code ?? "-"}</span>
+        <span className="block whitespace-pre-line text-xs leading-tight text-[var(--color-wi-text-light)]">{formatAbsenceSummaryDates(absence)}</span>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         {absence.status === "special_approved" ? (
@@ -103,9 +103,9 @@ function AbsenceCard({
         ) : absence.sit_in_method === "physical" ? (
           <span className="rounded-sm bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{formatSitInLabel(absence)}</span>
         ) : (
-          <span className="rounded-sm bg-gray-50 px-2 py-0.5 text-xs text-gray-500">Pending</span>
+          <span className="rounded-sm bg-[var(--color-wi-row-alt)] px-2 py-0.5 text-xs text-[var(--color-wi-text-light)]">Pending</span>
         )}
-        <span className="text-xs text-gray-400">{submittedAgo(absence.created_at)}</span>
+        <span className="text-xs text-[var(--color-wi-text-light)]">{submittedAgo(absence.created_at)}</span>
       </div>
       <div className="mt-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         {absence.status === "pending" ? (
@@ -259,25 +259,25 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
     <>
       <div className="grid gap-4 md:grid-cols-3">
         {COLUMNS.map(({ key, label }) => (
-          <div key={key} className={`rounded-sm border p-3 ${COLUMN_STYLES[key] ?? "border-gray-200 bg-gray-50/30"}`}>
+          <div key={key} className={`rounded-sm border p-3 ${COLUMN_STYLES[key] ?? "border-wi-line bg-[var(--color-wi-row-alt)]/30"}`}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-gray-600">{columns[key].length}</span>
+              <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</h3>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-[var(--color-wi-text-light)]">{columns[key].length}</span>
             </div>
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
               {columns[key].map((absence) => (
                 <AbsenceCard key={absence.id} absence={absence} reviewingId={reviewingId} onMarkReviewed={handleMarkReviewed} onCancelClick={setCancelTarget} onDeleteClick={setDeleteTarget} />
               ))}
               {columns[key].length === 0 && !loading[key] ? <EmptyState message={`No ${label.toLowerCase()} absences.`} /> : null}
-              {loading[key] && columns[key].length > 0 ? <div className="py-2 text-center text-xs text-gray-400">Loading...</div> : null}
-              <button onClick={() => loadMore(key)} disabled={loading[key]} className="w-full py-2 text-xs font-medium text-[var(--color-wi-primary)] hover:underline disabled:text-gray-300">{loading[key] ? "Loading..." : "Load more"}</button>
+              {loading[key] && columns[key].length > 0 ? <div className="py-2 text-center text-xs text-[var(--color-wi-text-light)]">Loading...</div> : null}
+              <button onClick={() => loadMore(key)} disabled={loading[key]} className="w-full py-2 text-xs font-medium text-[var(--color-wi-primary)] hover:underline disabled:text-[var(--color-wi-text-light)]">{loading[key] ? "Loading..." : "Load more"}</button>
             </div>
           </div>
         ))}
       </div>
 
       <div className="mt-4">
-        <button onClick={() => setShowCancelled(!showCancelled)} className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900">
+        <button onClick={() => setShowCancelled(!showCancelled)} className="flex items-center gap-2 text-sm font-medium text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]">
           <span className={`transition-transform ${showCancelled ? "rotate-90" : ""}`}>&#9654;</span>
           Cancelled ({cancelledPage.length}{showCancelled ? "" : "..."})
         </button>
@@ -287,16 +287,16 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
               <div key={absence.id} className="cursor-pointer rounded-sm border border-red-100 bg-red-50/30 p-3 text-sm opacity-70 hover:opacity-100" onClick={() => window.location.href = `/absences/${absence.id}`} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") window.location.href = `/absences/${absence.id}`; }}>
                 <div className="flex items-center gap-2">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white">{initials(absence.student_name ?? absence.wcode)}</span>
-                  <span className="truncate font-medium text-gray-700">{absence.student_name ?? absence.wcode}</span>
+                  <span className="truncate font-medium text-[var(--color-wi-text-light)]">{absence.student_name ?? absence.wcode}</span>
                 </div>
                 <div className="mt-1 flex gap-1.5">
-                  <span className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{absence.subject_code}</span>
-                  <span className="block whitespace-pre-line text-xs leading-tight text-gray-500">{formatAbsenceSummaryDates(absence)}</span>
+                  <span className="rounded-sm bg-[var(--color-wi-row-alt)] px-1 py-0.5 text-xs">{absence.subject_code}</span>
+                  <span className="block whitespace-pre-line text-xs leading-tight text-[var(--color-wi-text-light)]">{formatAbsenceSummaryDates(absence)}</span>
                 </div>
               </div>
             ))}
-            {cancelledLoading ? <p className="text-xs text-gray-400 col-span-full text-center py-2">Loading...</p> : null}
-            <button onClick={() => loadCancelled(cancelledOffset)} disabled={cancelledLoading} className="col-span-full py-2 text-xs font-medium text-[var(--color-wi-primary)] hover:underline disabled:text-gray-300">Load more</button>
+            {cancelledLoading ? <p className="text-xs text-[var(--color-wi-text-light)] col-span-full text-center py-2">Loading...</p> : null}
+            <button onClick={() => loadCancelled(cancelledOffset)} disabled={cancelledLoading} className="col-span-full py-2 text-xs font-medium text-[var(--color-wi-primary)] hover:underline disabled:text-[var(--color-wi-text-light)]">Load more</button>
           </div>
         )}
       </div>
@@ -308,16 +308,16 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
             <Button variant="secondary" onClick={() => { setCancelTarget(null); setCancelReason(""); }}>Back</Button>
             <Button variant="danger" disabled={!cancelReason.trim()} loading={cancelling} onClick={() => void handleCancel()}>Cancel Absence</Button>
           </>}>
-          <p className="mb-3 text-sm text-gray-600">Assigned sit-in sessions will be released.</p>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="kanban-cancel-reason">Cancellation reason</label>
-          <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+          <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Assigned sit-in sessions will be released.</p>
+          <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="kanban-cancel-reason">Cancellation reason</label>
+          <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border border-wi-line p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
         </Modal>
       ) : null}
 
       {deleteTarget ? (
         <Modal title="Permanently delete absence" onClose={() => setDeleteTarget(null)}
           footer={<><Button variant="secondary" onClick={() => setDeleteTarget(null)}>Back</Button><Button variant="danger" loading={deleting} onClick={() => void handleDelete()}>Delete Permanently</Button></>}>
-          <p className="mb-3 text-sm text-gray-600">
+          <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">
             This will permanently remove the absence record for <strong>{deleteTarget.student_name ?? deleteTarget.wcode}</strong>.
             This action cannot be undone.
           </p>

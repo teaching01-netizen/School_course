@@ -58,7 +58,7 @@ export default function CountdownTimer({
       <div
         role="timer"
         aria-live="off"
-        className="text-xs font-medium text-gray-600 tabular-nums"
+        className="text-xs font-medium text-[var(--color-wi-text-light)] tabular-nums"
       >
         {label} {display}
       </div>

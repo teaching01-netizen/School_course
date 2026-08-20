@@ -1,12 +1,26 @@
 export type CourseTeacher = {
   id: string;
   username: string;
+  full_name?: string | null;
   is_primary: boolean;
 };
 
 export type EditableTeacher = {
   teacher_id: string;
   is_primary: boolean;
+};
+
+/** The per-field change set a single course save persists. Absent keys keep
+ *  the current value; a null value clears the property (not offered by every
+ *  editor). */
+export type CourseEditChanges = {
+  name?: string;
+  teachers?: EditableTeacher[];
+  subject_id?: string | null;
+  course_type?: string | null;
+  year?: number | null;
+  hour?: number | null;
+  student_count?: number | null;
 };
 
 export type Course = {

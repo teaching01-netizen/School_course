@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -134,13 +135,14 @@ func TestCredentialLengthLimits(t *testing.T) {
 
 func TestLoginRejectsOversizedCredentialsBeforeRateLimit(t *testing.T) {
 	limiter := &recordingLoginLimiter{}
-	svc := NewService(
-		fakePasswordHasher{},
-		fakeSessionStore{},
-		limiter,
-		fakeUserLookup{},
-		nil,
-	)
+	svc := NewService(ServiceOptions{
+		Hasher:       fakePasswordHasher{},
+		Sessions:     fakeSessionStore{},
+		Limiter:      limiter,
+		Users:        fakeUserLookup{},
+		Log:          nil,
+		CookieSecure: true,
+	})
 
 	_, _, err := svc.Login(context.Background(), strings.Repeat("a", maxUsernameLen+1), "password", "127.0.0.1")
 	if !errors.Is(err, ErrCredentialsTooLong) {
@@ -173,7 +175,7 @@ func TestDBLoginRateLimiterChecksIPBeforeUsername(t *testing.T) {
 	}
 }
 
-func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
+func TestHandleLoginSetsCookieToAbsoluteSessionExpiry(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	userID := uuid.New()
 	sessionID := uuid.New()
@@ -187,19 +189,20 @@ func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
 			PasswordVersion: 1,
 		},
 	}
-	svc := NewService(
-		fakePasswordHasher{verifyOK: true},
-		sessions,
-		&recordingLoginLimiter{allowed: true},
-		fakeUserLookup{byUsername: User{
+	svc := NewService(ServiceOptions{
+		Hasher:   fakePasswordHasher{verifyOK: true},
+		Sessions: sessions,
+		Limiter:  &recordingLoginLimiter{allowed: true},
+		Users: fakeUserLookup{byUsername: User{
 			ID:              userID,
 			Username:        "admin",
 			Role:            "Admin",
 			PasswordHash:    "hash",
 			PasswordVersion: 1,
 		}},
-		nil,
-	)
+		Log:          nil,
+		CookieSecure: true,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -213,12 +216,15 @@ func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
 	if len(cookies) != 1 {
 		t.Fatalf("cookies = %d, want 1", len(cookies))
 	}
-	wantExpires := now.Add(sessionIdleTimeout)
-	if !cookies[0].Expires.Equal(wantExpires) {
-		t.Fatalf("cookie expiry = %s, want idle expiry %s", cookies[0].Expires, wantExpires)
+	// The cookie must live as long as the session's absolute cap; idle
+	// timeout, revocation, and password-version checks are enforced server-side
+	// on every request, so a shorter browser expiry would log out active users.
+	if !cookies[0].Expires.Equal(sessions.createSession.ExpiresAt) {
+		t.Fatalf("cookie expiry = %s, want absolute session expiry %s", cookies[0].Expires, sessions.createSession.ExpiresAt)
 	}
-	if cookies[0].Expires.Equal(sessions.createSession.ExpiresAt) {
-		t.Fatalf("cookie expiry unexpectedly matched absolute session expiry %s", sessions.createSession.ExpiresAt)
+	absSeconds := int((7 * 24 * time.Hour).Seconds())
+	if cookies[0].MaxAge > absSeconds || cookies[0].MaxAge < absSeconds-2 {
+		t.Fatalf("cookie max-age = %d, want within 2s of %d", cookies[0].MaxAge, absSeconds)
 	}
 	if !cookies[0].Secure {
 		t.Fatal("cookie Secure = false, want true by default")
@@ -227,23 +233,95 @@ func TestHandleLoginSetsCookieToIdleTimeout(t *testing.T) {
 		t.Fatalf("cookie name = %q, want __Host-warwick_session", cookies[0].Name)
 	}
 }
+func TestHandleLoginUsesOpaqueCookieTokenInsteadOfSessionID(t *testing.T) {
+	userID := uuid.New()
+	sessionID := uuid.New()
+	svc := NewService(ServiceOptions{
+		Hasher: fakePasswordHasher{verifyOK: true},
+		Sessions: fakeSessionStore{createSession: Session{
+			ID:              sessionID,
+			Token:           "opaque-cookie-token",
+			UserID:          userID,
+			CreatedAt:       time.Now().UTC(),
+			LastSeenAt:      time.Now().UTC(),
+			ExpiresAt:       time.Now().UTC().Add(sessionAbsoluteTimeout),
+			PasswordVersion: 1,
+		}},
+		Limiter: &recordingLoginLimiter{allowed: true},
+		Users: fakeUserLookup{byUsername: User{
+			ID: userID, Username: "admin", Role: "Admin", PasswordHash: "hash", PasswordVersion: 1,
+		}},
+		Log:          nil,
+		CookieSecure: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	if err := svc.HandleLogin(w, req); err != nil {
+		t.Fatalf("HandleLogin: %v", err)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies = %d, want 1", len(cookies))
+	}
+	if cookies[0].Value == sessionID.String() {
+		t.Fatalf("cookie reused database session ID %q", cookies[0].Value)
+	}
+	if cookies[0].Value != "opaque-cookie-token" {
+		t.Fatalf("cookie value = %q, want opaque session token", cookies[0].Value)
+	}
+}
+func TestRequireUserAcceptsOpaqueSessionToken(t *testing.T) {
+	userID := uuid.New()
+	sessionID := uuid.New()
+	session := Session{
+		ID:              sessionID,
+		Token:           "opaque-session-token",
+		UserID:          userID,
+		CreatedAt:       time.Now().UTC(),
+		LastSeenAt:      time.Now().UTC(),
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		PasswordVersion: 1,
+	}
+	svc := NewService(ServiceOptions{
+		Hasher:   fakePasswordHasher{verifyOK: true},
+		Sessions: fakeSessionStore{tokenSession: session},
+		Limiter:  &recordingLoginLimiter{allowed: true},
+		Users: fakeUserLookup{byUsername: User{
+			ID: userID, Username: "admin", Role: "Admin", PasswordVersion: 1,
+		}},
+		Log:          nil,
+		CookieSecure: true,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req.AddCookie(&http.Cookie{Name: "__Host-warwick_session", Value: session.Token})
+
+	user, err := svc.RequireUser(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RequireUser: %v", err)
+	}
+	if user.ID != userID {
+		t.Fatalf("user ID = %s, want %s", user.ID, userID)
+	}
+}
 
 func TestHandleLoginCanDisableSecureCookieForLocalHTTP(t *testing.T) {
 	userID := uuid.New()
-	svc := NewServiceWithCookieSecure(
-		fakePasswordHasher{verifyOK: true},
-		fakeSessionStore{},
-		&recordingLoginLimiter{allowed: true},
-		fakeUserLookup{byUsername: User{
+	svc := NewService(ServiceOptions{
+		Hasher:   fakePasswordHasher{verifyOK: true},
+		Sessions: fakeSessionStore{},
+		Limiter:  &recordingLoginLimiter{allowed: true},
+		Users: fakeUserLookup{byUsername: User{
 			ID:              userID,
 			Username:        "admin",
 			Role:            "Admin",
 			PasswordHash:    "hash",
 			PasswordVersion: 1,
 		}},
-		nil,
-		false,
-	)
+		Log:          nil,
+		CookieSecure: false,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -264,14 +342,108 @@ func TestHandleLoginCanDisableSecureCookieForLocalHTTP(t *testing.T) {
 		t.Fatalf("cookie name = %q, want warwick_session for local HTTP override", cookies[0].Name)
 	}
 }
+func TestHandleLoginUsesConfiguredClientIPResolver(t *testing.T) {
+	userID := uuid.New()
+	limiter := &recordingLoginLimiter{}
+	svc := NewService(ServiceOptions{
+		Hasher:   fakePasswordHasher{verifyOK: true},
+		Sessions: fakeSessionStore{},
+		Limiter:  limiter,
+		Users: fakeUserLookup{byUsername: User{
+			ID:           userID,
+			Username:     "admin",
+			Role:         "Admin",
+			PasswordHash: "hash",
+		}},
+		Log:          nil,
+		CookieSecure: true,
+		IPResolver:   fixedClientIPResolver{ip: "198.51.100.7"},
+	})
 
-type recordingLoginLimiter struct {
-	calls   int
-	allowed bool
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "10.0.0.8:12345"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if err := svc.HandleLogin(httptest.NewRecorder(), req); err != nil {
+		t.Fatalf("HandleLogin: %v", err)
+	}
+	if limiter.lastIP != "198.51.100.7" {
+		t.Fatalf("limiter IP = %q, want configured resolver result", limiter.lastIP)
+	}
+}
+func TestSessionTokensAreRandomAndStoredAsOneWayHashes(t *testing.T) {
+	tokenA, hashA, err := newSessionToken()
+	if err != nil {
+		t.Fatalf("newSessionToken A: %v", err)
+	}
+	tokenB, hashB, err := newSessionToken()
+	if err != nil {
+		t.Fatalf("newSessionToken B: %v", err)
+	}
+	if tokenA == tokenB {
+		t.Fatal("session token generator returned the same bearer token twice")
+	}
+	if len(hashA) != 32 || len(hashB) != 32 {
+		t.Fatalf("token hash lengths = %d and %d, want 32", len(hashA), len(hashB))
+	}
+	if bytes.Equal(hashA, []byte(tokenA)) || bytes.Equal(hashB, []byte(tokenB)) {
+		t.Fatal("raw bearer token was used as its persisted value")
+	}
+	if bytes.Equal(hashA, hashB) {
+		t.Fatal("different bearer tokens produced the same hash")
+	}
 }
 
-func (l *recordingLoginLimiter) Allow(_ context.Context, _, _ string) (RateLimitResult, error) {
+func TestValidateSessionTokenPreservesLegacyUUIDCookieDuringMigration(t *testing.T) {
+	userID := uuid.New()
+	sessionID := uuid.New()
+	now := time.Now().UTC()
+	svc := NewService(ServiceOptions{
+		Hasher: fakePasswordHasher{verifyOK: true},
+		Sessions: fakeSessionStore{legacySession: Session{
+			ID:              sessionID,
+			UserID:          userID,
+			CreatedAt:       now,
+			LastSeenAt:      now,
+			ExpiresAt:       now.Add(time.Hour),
+			PasswordVersion: 1,
+		}},
+		Limiter: &recordingLoginLimiter{allowed: true},
+		Users: fakeUserLookup{byUsername: User{
+			ID: userID, Username: "admin", Role: "Admin", PasswordVersion: 1,
+		}},
+		Log:          nil,
+		CookieSecure: true,
+	})
+
+	user, err := svc.ValidateSessionToken(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("ValidateSessionToken: %v", err)
+	}
+	if user.ID != userID {
+		t.Fatalf("user ID = %s, want %s", user.ID, userID)
+	}
+}
+
+type fixedClientIPResolver struct {
+	ip string
+}
+
+func (r fixedClientIPResolver) Resolve(*http.Request) string {
+	return r.ip
+}
+
+type recordingLoginLimiter struct {
+	calls        int
+	allowed      bool
+	lastUsername string
+	lastIP       string
+}
+
+func (l *recordingLoginLimiter) Allow(_ context.Context, username, ip string) (RateLimitResult, error) {
 	l.calls++
+	l.lastUsername = username
+	l.lastIP = ip
 	if !l.allowed {
 		return RateLimitResult{Allowed: true}, nil
 	}
@@ -305,15 +477,22 @@ func (h fakePasswordHasher) VerifyPassword(_, _ string) (bool, error) {
 
 type fakeSessionStore struct {
 	createSession Session
+	tokenSession  Session
+	legacySession Session
 }
 
 func (s fakeSessionStore) Create(_ context.Context, userID uuid.UUID, passwordVersion int32, _, _ time.Duration) (Session, error) {
 	if s.createSession.ID != uuid.Nil {
-		return s.createSession, nil
+		session := s.createSession
+		if session.Token == "" {
+			session.Token = "opaque-test-session-token"
+		}
+		return session, nil
 	}
 	now := time.Now().UTC()
 	return Session{
 		ID:              uuid.New(),
+		Token:           "opaque-test-session-token",
 		UserID:          userID,
 		CreatedAt:       now,
 		LastSeenAt:      now,
@@ -322,8 +501,21 @@ func (s fakeSessionStore) Create(_ context.Context, userID uuid.UUID, passwordVe
 	}, nil
 }
 
-func (fakeSessionStore) ByID(_ context.Context, _ uuid.UUID) (Session, error) {
+func (s fakeSessionStore) ByToken(_ context.Context, _ string) (Session, error) {
+	if s.tokenSession.ID != uuid.Nil {
+		return s.tokenSession, nil
+	}
 	return Session{}, errors.New("not implemented")
+}
+func (s fakeSessionStore) ByID(_ context.Context, _ uuid.UUID) (Session, error) {
+	if s.legacySession.ID != uuid.Nil {
+		return s.legacySession, nil
+	}
+	return Session{}, errors.New("not implemented")
+}
+
+func (fakeSessionStore) RevokeByToken(_ context.Context, _ string) error {
+	return nil
 }
 
 func (fakeSessionStore) Revoke(_ context.Context, _ uuid.UUID) error {

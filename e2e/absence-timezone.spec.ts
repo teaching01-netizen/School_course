@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
 
 type SubmittedPayload = {
   wcode: string;
@@ -55,11 +56,10 @@ const absenceFormConfig = {
     max_sessions_per_absence: 10,
   },
   notifications: {
-    sms_parent_enabled: false,
+    sms_parent_enabled: true,
     sms_parent_template: "",
     sms_success_template: "",
     sms_special_approved_template: "",
-    allow_submit_without_otp: true,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -76,6 +76,19 @@ const studentLookup = {
   school: "Bangkok Prep",
   parent_phone: "+66812345678",
   subjects: [{ id: "subject-math", code: "MATH", name: "Mathematics" }],
+};
+const publicLookup = {
+  wcode: studentLookup.wcode,
+  lookup_token: "lookup-token",
+  email_input_required: true,
+  parent_verification_available: true,
+};
+
+const studentProfile = {
+  wcode: studentLookup.wcode,
+  display_name: "John",
+  email_on_file: false,
+  subjects: studentLookup.subjects,
 };
 
 const sessionsInRange = {
@@ -133,12 +146,15 @@ async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
   await page.route("**/api/v1/absence-form-config", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(absenceFormConfig) });
   });
-
-  await page.route("**/api/v1/absences/student-lookup**", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify(studentLookup) });
+  await page.route("**/api/v1/absence-self-service/lookup", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(publicLookup) });
   });
 
-  await page.route("**/api/v1/absences/sessions-in-range**", async (route) => {
+  await page.route("**/api/v1/absence-self-service/me", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(studentProfile) });
+  });
+
+  await page.route("**/api/v1/absence-self-service/sessions**", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(sessionsInRange) });
   });
 
@@ -146,7 +162,7 @@ async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(verificationSend) });
   });
 
-  await page.route("**/api/v1/absences/parent-verification/verification-token", async (route) => {
+  await page.route("**/api/v1/absences/parent-verification/status", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(verificationSend) });
   });
 
@@ -224,7 +240,7 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
 
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
   await page.getByRole("button", { name: /search/i }).click();
-  await expect(page.getByText(studentLookup.nickname)).toBeVisible();
+  await expect(page.getByText("Student ID found")).toBeVisible();
 
   await page.getByLabel(/your email address/i).fill("student@example.com");
   await page.getByRole("button", { name: "Continue to verification" }).click();
@@ -232,12 +248,20 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
   await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
-  await page.locator("#subject-subject-math").check({ force: true });
+  await selectAbsenceCheckbox(page, "subject-subject-math");
   await expect(page.getByText("Fri, 16 Jan 2026 00:00-01:00")).toBeVisible();
-  await page.locator("#session-missed-boundary").check();
+  await selectAbsenceCheckbox(page, "session-missed-boundary");
   const sitInSelect = page.getByRole("combobox");
-  await sitInSelect.selectOption(boundarySitInSession.id);
-  await expect(sitInSelect).toContainText("16 Jan 2026 00:30-01:30");
+  if (await sitInSelect.isVisible()) {
+    await sitInSelect.selectOption(boundarySitInSession.id);
+    await expect(sitInSelect).toContainText("16 Jan 2026 00:30-01:30");
+  } else {
+    await page.getByRole("button", { name: /choose a make-up class/i }).click();
+    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
+    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
+  }
+  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
   await page.getByLabel(/reason for absence/i).fill("Timezone regression test");
   await page.getByRole("button", { name: "Review absence" }).click();
 
@@ -287,7 +311,7 @@ test("mobile public absence flow resumes student details safely and completes wi
   await installAbsenceRoutes(page, submitted);
   await page.goto("/absence");
 
-  await expect(page.getByText("Step 1 of 4: Student")).toBeVisible();
+  await expect(page.getByPlaceholder("e.g. W250389")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByPlaceholder("e.g. W250389")).toBeFocused();
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
@@ -307,10 +331,19 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
   await expect(page.getByText("Step 3 of 4: Classes")).toBeVisible();
-  await page.locator("#subject-subject-math").check({ force: true });
+  await selectAbsenceCheckbox(page, "subject-subject-math");
   await expect(page.getByRole("button", { name: /mathematics.*open/i })).toHaveAttribute("aria-expanded", "true");
-  await page.locator("#session-missed-boundary").check();
-  await page.getByRole("combobox").selectOption(boundarySitInSession.id);
+  await selectAbsenceCheckbox(page, "session-missed-boundary");
+  const mobileSitInSelect = page.getByRole("combobox");
+  if (await mobileSitInSelect.isVisible()) {
+    await mobileSitInSelect.selectOption(boundarySitInSession.id);
+  } else {
+    await page.getByRole("button", { name: /choose a make-up class/i }).click();
+    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
+    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
+  }
+  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
   await page.getByLabel(/reason for absence/i).fill("Mobile resume test");
   await page.getByRole("button", { name: "Review absence" }).click();
   await expect(page.getByText("Step 4 of 4: Review")).toBeVisible();

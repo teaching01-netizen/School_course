@@ -47,33 +47,33 @@ export default function WorkQueueComparison({ issue }: { issue: ScheduleImpactIs
   return (
     <div className="space-y-1.5" role="list" aria-label={`Schedule comparison for ${issue.student_name ?? issue.wcode}`}>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
-        <span className="w-20 shrink-0 text-xs font-medium text-gray-500">Originally</span>
-        <span className="text-gray-700">{formatTimeRange(originalTimeStart, originalTimeEnd)}</span>
+        <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Originally</span>
+        <span className="text-[var(--color-wi-text-light)]">{formatTimeRange(originalTimeStart, originalTimeEnd)}</span>
       </div>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
-        <span className="w-20 shrink-0 text-xs font-medium text-gray-500">Now</span>
+        <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Now</span>
         {isDeleted ? (
-          <span className="flex items-center gap-1 text-gray-500">
+          <span className="flex items-center gap-1 text-[var(--color-wi-text-light)]">
             <X className="h-3 w-3" aria-hidden="true" />
             Session deleted
           </span>
         ) : (
-          <span className="text-gray-700">{formatTimeRange(currentTimeStart, currentTimeEnd)}</span>
+          <span className="text-[var(--color-wi-text-light)]">{formatTimeRange(currentTimeStart, currentTimeEnd)}</span>
         )}
       </div>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
-        <span className="w-20 shrink-0 text-xs font-medium text-gray-500">Impact</span>
+        <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Impact</span>
         {hasOverlap ? (
           <span className="flex items-center gap-1 text-amber-800">
             <span aria-hidden="true">•</span>
             Overlaps regular class
           </span>
         ) : (
-          <span className="text-gray-700">{impactMessage}</span>
+          <span className="text-[var(--color-wi-text-light)]">{impactMessage}</span>
         )}
       </div>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
-        <span className="w-20 shrink-0 text-xs font-medium text-gray-500">Status</span>
+        <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Status</span>
         <span className={`font-medium ${getStatusClasses(issue)}`}>{getStatusLabel(issue)}</span>
       </div>
     </div>

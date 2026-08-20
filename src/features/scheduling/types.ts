@@ -43,6 +43,9 @@ export type ConflictDetails = {
     full_name: string;
     status: string;
   }>;
+  /** Number of students who would clash; travels with a conflict that is
+   *  carried across pages (the student list itself is not serialized). */
+  student_count?: number;
   resource?: string;
   session_ids?: string[];
 };

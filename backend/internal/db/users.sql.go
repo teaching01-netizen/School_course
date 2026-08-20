@@ -12,7 +12,7 @@ import (
 )
 
 const userListByRoleActive = `-- name: UserListByRoleActive :many
-SELECT id, username, role, deleted_at, created_at, updated_at
+SELECT id, username, role, full_name, deleted_at, created_at, updated_at
 FROM users
 WHERE deleted_at IS NULL
   AND role = $1
@@ -23,6 +23,7 @@ type UserListByRoleActiveRow struct {
 	ID        pgtype.UUID        `json:"id"`
 	Username  string             `json:"username"`
 	Role      string             `json:"role"`
+	FullName  pgtype.Text        `json:"full_name"`
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
@@ -41,6 +42,7 @@ func (q *Queries) UserListByRoleActive(ctx context.Context, role string) ([]User
 			&i.ID,
 			&i.Username,
 			&i.Role,
+			&i.FullName,
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

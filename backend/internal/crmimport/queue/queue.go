@@ -105,6 +105,12 @@ type QueueStore interface {
 	EnqueueJob(ctx context.Context, jt JobType, payload any, uniqueKey string) (uuid.UUID, error)
 }
 
+type fencedQueueStore interface {
+	CompleteJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, status, errMsg string) error
+	RetryJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, errMsg string, backoff time.Duration) error
+	HeartbeatForWorker(ctx context.Context, jobID uuid.UUID, workerID string, leaseDur time.Duration) error
+}
+
 // JobNotifier provides a channel that signals when new jobs are available.
 type JobNotifier interface {
 	Listen(ctx context.Context, ch chan<- struct{})
@@ -171,6 +177,27 @@ func (s *PostgresQueueStore) CompleteJob(ctx context.Context, jobID uuid.UUID, s
 	return err
 }
 
+func (s *PostgresQueueStore) CompleteJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, status, errMsg string) error {
+	result, err := s.db.Exec(ctx,
+		`UPDATE crm_jobs
+		 SET status = $1::crm_job_status,
+		     locked_by = NULL,
+		     locked_until = NULL,
+		     heartbeat_at = NULL,
+		     last_error = NULLIF($2, ''),
+		     updated_at = now()
+		 WHERE id = $3 AND status = 'running' AND locked_by = $4`,
+		status, errMsg, jobID, workerID,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
+	return nil
+}
+
 // RetryJob marks a job for retry with backoff.
 func (s *PostgresQueueStore) RetryJob(ctx context.Context, jobID uuid.UUID, errMsg string, backoff time.Duration) error {
 	_, err := s.db.Exec(ctx,
@@ -188,6 +215,28 @@ func (s *PostgresQueueStore) RetryJob(ctx context.Context, jobID uuid.UUID, errM
 	return err
 }
 
+func (s *PostgresQueueStore) RetryJobForWorker(ctx context.Context, jobID uuid.UUID, workerID, errMsg string, backoff time.Duration) error {
+	result, err := s.db.Exec(ctx,
+		`UPDATE crm_jobs
+		 SET status = 'retry',
+		     locked_by = NULL,
+		     locked_until = NULL,
+		     heartbeat_at = NULL,
+		     last_error = $2,
+		     run_after = now() + $3::interval,
+		     updated_at = now()
+		 WHERE id = $1 AND status = 'running' AND locked_by = $4`,
+		jobID, errMsg, fmt.Sprintf("%d microseconds", backoff.Microseconds()), workerID,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
+	return nil
+}
+
 // Heartbeat refreshes heartbeat_at and extends locked_until.
 func (s *PostgresQueueStore) Heartbeat(ctx context.Context, jobID uuid.UUID, leaseDur time.Duration) error {
 	_, err := s.db.Exec(ctx,
@@ -200,6 +249,24 @@ func (s *PostgresQueueStore) Heartbeat(ctx context.Context, jobID uuid.UUID, lea
 		jobID,
 	)
 	return err
+}
+
+func (s *PostgresQueueStore) HeartbeatForWorker(ctx context.Context, jobID uuid.UUID, workerID string, leaseDur time.Duration) error {
+	result, err := s.db.Exec(ctx,
+		`UPDATE crm_jobs
+		 SET heartbeat_at = now(),
+		     locked_until = now() + $1::interval,
+		     updated_at = now()
+		 WHERE id = $2 AND status = 'running' AND locked_by = $3`,
+		fmt.Sprintf("%d seconds", int(leaseDur.Seconds())), jobID, workerID,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("job %s lease owned by another worker", jobID)
+	}
+	return nil
 }
 
 // EnqueueJob inserts a new job into the queue and notifies workers.
@@ -391,15 +458,15 @@ func (w *QueueWorker) tryClaimAndRun() {
 	if w.ctx.Err() != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(w.ctx, w.leaseDur)
+	claimCtx, cancel := context.WithTimeout(w.ctx, w.leaseDur)
 	defer cancel()
 
-	job, ok := w.ClaimNextJob(ctx)
+	job, ok := w.ClaimNextJob(claimCtx)
 	if !ok {
 		return
 	}
 
-	w.RunJob(ctx, job)
+	w.RunJob(w.ctx, job)
 }
 
 // RunJob executes the job with heartbeat maintenance.
@@ -414,7 +481,7 @@ func (w *QueueWorker) RunJob(ctx context.Context, job JobRow) {
 	handler, ok := w.handlers[JobType(job.JobType)]
 	if !ok {
 		log.Error("no handler registered for job type")
-		_ = w.store.CompleteJob(context.Background(), job.ID, "failed", fmt.Sprintf("no handler for %s", job.JobType))
+		_ = w.completeJob(context.Background(), job.ID, "failed", fmt.Sprintf("no handler for %s", job.JobType))
 		heartbeatCancel()
 		hbWg.Wait()
 		return
@@ -428,7 +495,7 @@ func (w *QueueWorker) RunJob(ctx context.Context, job JobRow) {
 	if err != nil {
 		log.Error("job failed", "error", err)
 		if isNonRetryable(err) || job.Attempt >= job.MaxAttempts {
-			if err := w.store.CompleteJob(context.Background(), job.ID, "failed", err.Error()); err != nil {
+			if err := w.completeJob(context.Background(), job.ID, "failed", err.Error()); err != nil {
 				log.Error("failed to complete job", "job_id", job.ID, "status", "failed", "error", err)
 			}
 		} else {
@@ -436,7 +503,7 @@ func (w *QueueWorker) RunJob(ctx context.Context, job JobRow) {
 			if backoff > 5*time.Minute {
 				backoff = 5 * time.Minute
 			}
-			if err := w.store.RetryJob(context.Background(), job.ID, err.Error(), backoff); err != nil {
+			if err := w.retryJob(context.Background(), job.ID, err.Error(), backoff); err != nil {
 				log.Error("failed to retry job", "job_id", job.ID, "error", err)
 			}
 		}
@@ -444,7 +511,7 @@ func (w *QueueWorker) RunJob(ctx context.Context, job JobRow) {
 	}
 
 	log.Info("job succeeded")
-	if err := w.store.CompleteJob(context.Background(), job.ID, "succeeded", ""); err != nil {
+	if err := w.completeJob(context.Background(), job.ID, "succeeded", ""); err != nil {
 		log.Error("failed to complete job", "job_id", job.ID, "status", "succeeded", "error", err)
 	}
 }
@@ -460,12 +527,33 @@ func (w *QueueWorker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, job
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.store.Heartbeat(ctx, jobID, w.leaseDur); err != nil {
+			if err := w.heartbeat(ctx, jobID); err != nil {
 				w.log.Error("heartbeat update failed", "job_id", jobID, "error", err)
 				return
 			}
 		}
 	}
+}
+
+func (w *QueueWorker) completeJob(ctx context.Context, jobID uuid.UUID, status, errMsg string) error {
+	if store, ok := w.store.(fencedQueueStore); ok {
+		return store.CompleteJobForWorker(ctx, jobID, w.workerID, status, errMsg)
+	}
+	return w.store.CompleteJob(ctx, jobID, status, errMsg)
+}
+
+func (w *QueueWorker) retryJob(ctx context.Context, jobID uuid.UUID, errMsg string, backoff time.Duration) error {
+	if store, ok := w.store.(fencedQueueStore); ok {
+		return store.RetryJobForWorker(ctx, jobID, w.workerID, errMsg, backoff)
+	}
+	return w.store.RetryJob(ctx, jobID, errMsg, backoff)
+}
+
+func (w *QueueWorker) heartbeat(ctx context.Context, jobID uuid.UUID) error {
+	if store, ok := w.store.(fencedQueueStore); ok {
+		return store.HeartbeatForWorker(ctx, jobID, w.workerID, w.leaseDur)
+	}
+	return w.store.Heartbeat(ctx, jobID, w.leaseDur)
 }
 
 // EnqueueJob inserts a new job into the queue, delegating to the underlying store.

@@ -42,7 +42,7 @@ export function CourseTeacherEditor(props: {
       />
       {teachers.length > 0 && (
         <div role="radiogroup" aria-label="Primary teacher">
-          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Primary teacher</div>
+          <div className="text-[11px] font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-1">Primary teacher</div>
           {teachers.map((t) => (
             <label key={t.teacher_id} className="flex items-center gap-2 py-1 text-sm">
               <input
@@ -53,7 +53,7 @@ export function CourseTeacherEditor(props: {
                 disabled={disabled}
                 className="accent-blue-600"
               />
-              <span className={t.is_primary ? "font-medium text-gray-800" : "text-gray-600"}>
+              <span className={t.is_primary ? "font-medium text-[var(--color-wi-text)]" : "text-[var(--color-wi-text-light)]"}>
                 {labelById(t.teacher_id)}
               </span>
               {t.is_primary && (
@@ -72,7 +72,7 @@ export function CourseTeacherEditor(props: {
               disabled={disabled}
               className="accent-blue-600"
             />
-            <span className="text-gray-600">No primary teacher</span>
+            <span className="text-[var(--color-wi-text-light)]">No primary teacher</span>
           </label>
         </div>
       )}

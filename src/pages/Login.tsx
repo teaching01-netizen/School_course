@@ -41,12 +41,12 @@ export default function Login() {
   if (error) allErrors._server = error;
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm bg-white p-6 rounded-sm shadow-sm border border-gray-200">
+    <div className="min-h-screen bg-[var(--color-wi-row-alt)] flex items-center justify-center px-4">
+      <div className="w-full max-w-sm bg-white p-6 rounded-sm shadow-sm border border-wi-line">
         <div className="flex justify-center mb-6">
           <WILogo />
         </div>
-        <h2 className="text-center text-lg font-semibold text-gray-800 mb-4">Sign In</h2>
+        <h2 className="text-center text-lg font-semibold text-[var(--color-wi-text)] mb-4">Sign In</h2>
         <form onSubmit={handleSubmit} className="space-y-3">
           <FormErrorSummary errors={allErrors} touched={{ ...touched, _server: true }} />
 
@@ -57,7 +57,7 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter username..."
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
               onBlur={() => { touch("username"); validate("username"); }}
             />
           </FormField>
@@ -69,7 +69,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
               onBlur={() => { touch("password"); validate("password"); }}
             />
           </FormField>
@@ -82,7 +82,7 @@ export default function Login() {
             {submitting ? "Signing in..." : "Sign In"}
           </button>
         </form>
-        <p className="text-center text-xs text-gray-400 mt-4">Sign in with your provisioned account</p>
+        <p className="text-center text-xs text-[var(--color-wi-text-light)] mt-4">Sign in with your provisioned account</p>
       </div>
     </div>
   );

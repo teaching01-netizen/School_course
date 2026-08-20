@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/absences/sitinresolver"
+	"warwick-institute/internal/clientip"
 	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/crmimport"
 	"warwick-institute/internal/crmimport/crossstudy"
@@ -22,6 +23,7 @@ import (
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/sessionchangeimpact"
 	"warwick-institute/internal/smartsms"
+	"warwick-institute/internal/studentauth"
 	"warwick-institute/internal/users"
 )
 
@@ -36,18 +38,20 @@ type Deps struct {
 	Scheduling          *scheduling.Service
 	CourseAdmin         *courseadmin.Service
 	SessionChangeImpact *sessionchangeimpact.Service
-	SitInResolver       *sitinresolver.Service
 	AdminUsers          *users.AdminProvisioningService
+	SitInResolver       *sitinresolver.Service
+	ClientIP            *clientip.Resolver
 	InstituteTZ         string
-
-	CRMUploadV2    *crmimport.UploadV2Service
-	CRMReconcileV2 *reconcile.ReconcileV2Service
-	CRMWorker      *queue.QueueWorker
-	CrossStudy     *crossstudy.Store
+	StudentCookieSecure bool
+	CRMUploadV2         *crmimport.UploadV2Service
+	CRMReconcileV2      *reconcile.ReconcileV2Service
+	CRMWorker           *queue.QueueWorker
+	CrossStudy          *crossstudy.Store
 
 	SMS                smartsms.SMSProvider
-	OTPSender          smartsms.OTPProvider
 	OTP                *otp.Service
+	OTPSender          smartsms.OTPProvider
+	StudentSelfService *studentauth.Service
 	OTPDelivery        *otpdelivery.Dispatcher
 	OTPDeliveryStore   *otpdelivery.Store
 	OTPAsyncDelivery   bool

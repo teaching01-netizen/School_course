@@ -39,7 +39,7 @@ function initials(name: string): string {
 const statusPresentation: Record<AbsenceStatus, { label: string; classes: string }> = {
   pending: { label: "Pending", classes: "bg-blue-50 text-blue-700 border-blue-200" },
   reviewed: { label: "Reviewed", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  actioned: { label: "Actioned", classes: "bg-slate-100 text-slate-600 border-slate-200" },
+  actioned: { label: "Actioned", classes: "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line" },
   cancelled: { label: "Cancelled", classes: "bg-red-50 text-red-700 border-red-200 line-through" },
   special_approved: { label: "Special Approved", classes: "bg-purple-50 text-purple-700 border-purple-200" },
 };
@@ -57,7 +57,7 @@ function StatusBadge({ status }: { status: AbsenceStatus }) {
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">{label}</span>
       {children}
     </label>
   );
@@ -141,17 +141,17 @@ function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
 
   return (
     <div className="min-w-0">
-      <div className="max-w-[220px] truncate font-medium text-gray-900" title={absence.subject_name ?? absence.subject_code ?? "-"}>
+      <div className="max-w-[220px] truncate font-medium text-[var(--color-wi-text)]" title={absence.subject_name ?? absence.subject_code ?? "-"}>
         {absence.subject_name ?? absence.subject_code ?? "-"}
       </div>
       {missedSessions.length > 0 ? (
-        <div className="mt-1 space-y-0.5 text-xs leading-snug text-gray-500">
+        <div className="mt-1 space-y-0.5 text-xs leading-snug text-[var(--color-wi-text-light)]">
           {missedSessions.map((session) => (
             <div key={session.id}>{formatSitInWindow(session.start_at, session.end_at)}</div>
           ))}
         </div>
       ) : (
-        <div className="mt-0.5 text-xs text-gray-500">{absence.date_from === absence.date_to ? absence.date_from : `${absence.date_from}-${absence.date_to}`}</div>
+        <div className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">{absence.date_from === absence.date_to ? absence.date_from : `${absence.date_from}-${absence.date_to}`}</div>
       )}
     </div>
   );
@@ -159,7 +159,7 @@ function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
 
 function SitInSummary({ absence }: { absence: ManagedAbsence }) {
   if (absence.sit_in_method === "zoom") {
-    return <span className="text-sm text-gray-700">Zoom</span>;
+    return <span className="text-sm text-[var(--color-wi-text-light)]">Zoom</span>;
   }
 
   const fallbackLabel = absence.sit_in_subject_name ?? absence.sit_in_course_name ?? absence.sit_in_course_code;
@@ -169,24 +169,24 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
 
   if (sessions.length === 0) {
     if (!fallbackLabel) {
-      return <span className="text-sm text-gray-400">Not assigned</span>;
+      return <span className="text-sm text-[var(--color-wi-text-light)]">Not assigned</span>;
     }
     return (
       <div className="text-sm leading-snug">
-        <div className="max-w-[180px] truncate font-medium text-gray-900" title={fallbackLabel}>{fallbackLabel}</div>
-        <div className="text-xs text-gray-400">No session selected</div>
+        <div className="max-w-[180px] truncate font-medium text-[var(--color-wi-text)]" title={fallbackLabel}>{fallbackLabel}</div>
+        <div className="text-xs text-[var(--color-wi-text-light)]">No session selected</div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1 text-sm leading-snug text-gray-700">
+    <div className="space-y-1 text-sm leading-snug text-[var(--color-wi-text-light)]">
       {sessions.map((session) => (
         <div key={session.id}>
-          <div className="max-w-[180px] truncate font-medium text-gray-900" title={session.subject_name ?? session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
+          <div className="max-w-[180px] truncate font-medium text-[var(--color-wi-text)]" title={session.subject_name ?? session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
             {session.subject_name ?? session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}
           </div>
-          <div className="text-xs text-gray-500">{formatSitInWindow(session.start_at, session.end_at)}</div>
+          <div className="text-xs text-[var(--color-wi-text-light)]">{formatSitInWindow(session.start_at, session.end_at)}</div>
         </div>
       ))}
     </div>
@@ -241,13 +241,25 @@ export default function Absences() {
     offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0),
   };
 
+  // The URL reflects what the user typed immediately, but the request only
+  // fires once typing settles (the absence search runs LATERAL aggregates over
+  // the whole filtered set, so per-keystroke requests are wasteful).
+  const rawQuery = filters.query;
+  const [debouncedQuery, setDebouncedQuery] = useState(rawQuery);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(rawQuery), 300);
+    return () => clearTimeout(t);
+  }, [rawQuery]);
+
   const requestQuery = useMemo(() => {
     const params = new URLSearchParams(searchParams);
+    if (debouncedQuery) params.set("query", debouncedQuery);
+    else params.delete("query");
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(filters.offset));
     params.set("bucket", filters.bucket);
     return params.toString();
-  }, [searchParams, filters.bucket, filters.offset]);
+  }, [searchParams, debouncedQuery, filters.bucket, filters.offset]);
 
   const absenceRequest = `/api/v1/absences?${requestQuery}`;
   const absenceQuery = useOperationalQuery<AbsencePage>(queryKeys.absences.list(requestQuery), absenceRequest);
@@ -561,12 +573,12 @@ export default function Absences() {
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <PageHeading>Absence Board</PageHeading>
-            <p className="text-sm text-gray-500">Kanban-style triage for student absences.</p>
+            <p className="text-sm text-[var(--color-wi-text-light)]">Kanban-style triage for student absences.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
-              <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-900 font-medium"><LayoutGrid className="h-4 w-4" /> Board</button>
-              <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-gray-900"><Table2 className="h-4 w-4" /> Table</button>
+            <div className="flex rounded-sm border border-wi-line bg-white text-sm">
+              <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium"><LayoutGrid className="h-4 w-4" /> Board</button>
+              <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"><Table2 className="h-4 w-4" /> Table</button>
             </div>
           </div>
         </div>
@@ -576,7 +588,7 @@ export default function Absences() {
           impactOnly={filters.impactOnly}
           onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
         />
-        <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
+        <section className="mb-4 rounded-sm border border-wi-line bg-white p-3" aria-label="Absence filters">
           <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
             <FilterField label="Search">
               <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
@@ -638,17 +650,17 @@ export default function Absences() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <PageHeading>Absence Inbox</PageHeading>
-          <p className="text-sm text-gray-500">Review active absences, then archive completed requests after staff action.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">Review active absences, then archive completed requests after staff action.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
-            <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-900 font-medium"><Table2 className="h-4 w-4" /> Table</button>
-            <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-gray-900"><LayoutGrid className="h-4 w-4" /> Board</button>
+          <div className="flex rounded-sm border border-wi-line bg-white text-sm">
+            <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium"><Table2 className="h-4 w-4" /> Table</button>
+            <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"><LayoutGrid className="h-4 w-4" /> Board</button>
           </div>
-          <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-50">Dashboard</Link>
+          <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border border-wi-line bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">Dashboard</Link>
           <Link
             to="/admin/operations?tab=form-settings"
-            className="inline-flex items-center gap-1 rounded-sm border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+            className="inline-flex items-center gap-1 rounded-sm border border-wi-line bg-white px-2.5 py-1.5 text-sm text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text-light)]"
             title="Configure absence form settings"
           >
             <Settings className="h-4 w-4" aria-hidden="true" /> Settings
@@ -666,15 +678,15 @@ export default function Absences() {
         onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
       />
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-wi-line">
         <div className="flex gap-4 text-sm" aria-label="Absence table sections">
           <button
             type="button"
             onClick={() => setBucket("active")}
-            className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+            className={`border-b px-1 pb-2 font-medium transition-colors ${
               filters.bucket === "active" && !filters.impactOnly
                 ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
-                : "border-transparent text-gray-500 hover:text-gray-900"
+                : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
             }`}
             aria-current={filters.bucket === "active" && !filters.impactOnly ? "page" : undefined}
           >
@@ -683,10 +695,10 @@ export default function Absences() {
           <button
             type="button"
             onClick={() => setBucket("archived")}
-            className={`border-b-2 px-1 pb-2 font-medium transition-colors ${
+            className={`border-b px-1 pb-2 font-medium transition-colors ${
               filters.bucket === "archived" && !filters.impactOnly
                 ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
-                : "border-transparent text-gray-500 hover:text-gray-900"
+                : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
             }`}
             aria-current={filters.bucket === "archived" && !filters.impactOnly ? "page" : undefined}
           >
@@ -695,10 +707,10 @@ export default function Absences() {
           <button
             type="button"
             onClick={() => setScheduleImpactFilter(true)}
-            className={`flex items-center gap-1.5 border-b-2 px-1 pb-2 font-medium transition-colors ${
+            className={`flex items-center gap-1.5 border-b px-1 pb-2 font-medium transition-colors ${
               filters.impactOnly
                 ? "border-red-600 text-red-700"
-                : "border-transparent text-gray-500 hover:text-gray-900"
+                : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
             }`}
             aria-current={filters.impactOnly ? "page" : undefined}
           >
@@ -706,7 +718,7 @@ export default function Absences() {
             Session changes ({openImpactCount})
           </button>
         </div>
-        <p className="pb-2 text-xs text-gray-500">
+        <p className="pb-2 text-xs text-[var(--color-wi-text-light)]">
           {filters.impactOnly
             ? "Only absences with unresolved session-change impact."
             : filters.bucket === "archived"
@@ -715,7 +727,7 @@ export default function Absences() {
         </p>
       </div>
 
-      <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3" aria-label="Absence filters">
+      <section className="mb-4 rounded-sm border border-wi-line bg-white p-3" aria-label="Absence filters">
         <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
           <FilterField label="Search">
             <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
@@ -759,7 +771,7 @@ export default function Absences() {
       </div>
 
       {batchProcessing ? (
-        <div className="mb-3 overflow-hidden rounded-sm bg-gray-100">
+        <div className="mb-3 overflow-hidden rounded-sm bg-[var(--color-wi-row-alt)]">
           <div
             className="h-1.5 rounded-sm bg-blue-500 transition-all duration-300"
             style={{ width: `${batchProgress.total > 0 ? (batchProgress.done / batchProgress.total) * 100 : 0}%` }}
@@ -774,11 +786,11 @@ export default function Absences() {
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white data-table-wrapper">
+      <div className="overflow-x-auto rounded-sm border border-wi-line bg-white data-table-wrapper">
         <table className="w-full text-sm absence-inbox-table">
           <caption className="sr-only">Absence inbox</caption>
           <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
               <th scope="col" className="w-8 px-3 py-2">
                 <input aria-label="Select all absences" type="checkbox" checked={allSelected} onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => item.id)) : new Set())} />
               </th>
@@ -823,7 +835,7 @@ export default function Absences() {
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">{initials(absence.student_nickname ?? absence.student_name ?? absence.wcode)}</span>
                     <div className="min-w-0">
                       <Link className="font-medium text-[var(--color-wi-primary)] hover:underline" to={`/absences/${absence.id}`} aria-label={`View ${absence.student_nickname ?? absence.student_name ?? absence.wcode} absence`} onClick={(event) => event.stopPropagation()}>{absence.student_nickname ?? absence.student_name ?? "Unknown student"}</Link>
-                      <div className="font-mono text-xs text-gray-500">{absence.wcode}</div>
+                      <div className="font-mono text-xs text-[var(--color-wi-text-light)]">{absence.wcode}</div>
                       {impacted ? <div className={`mt-0.5 text-xs font-medium ${critical ? "text-red-700" : "text-amber-700"}`}>Sit-in needs review</div> : null}
                     </div>
                   </div>
@@ -832,7 +844,7 @@ export default function Absences() {
                 <td className="px-3 py-3" data-label="Sit-in">
                   <SitInSummary absence={absence} />
                 </td>
-                <td className="whitespace-nowrap px-3 py-3 text-gray-500" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-[var(--color-wi-text-light)]" data-label="Submitted">{submittedAgo(absence.created_at)}</td>
                 <td className="px-3 py-3" data-label="Actions" onClick={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
                     {impacted && absence.latest_session_change_id ? (
@@ -845,7 +857,7 @@ export default function Absences() {
                         <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" /> Review impact
                       </Link>
                     ) : null}
-                    <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-gray-700 hover:bg-gray-100"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
+                    <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
                     {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
                     <DropdownMenu items={[
@@ -875,12 +887,12 @@ export default function Absences() {
         </table>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+      <div className="mt-3 flex items-center justify-between text-sm text-[var(--color-wi-text-light)]">
         <span>{page?.total_count ?? 0} records</span>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => updateFilter("offset", String(Math.max(0, filters.offset - PAGE_SIZE)))}>Previous</Button>
           <div className="flex items-center gap-1">
-            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-gray-300 px-2 py-1 text-sm text-center" />
+            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center" />
             <span>of {totalPages}</span>
           </div>
           <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => updateFilter("offset", String(filters.offset + PAGE_SIZE))}>Next</Button>
@@ -901,14 +913,14 @@ export default function Absences() {
             </>
           )}
         >
-          <p className="mb-3 text-sm text-gray-600">Assigned sit-in sessions will be released. This action is retained in the audit timeline.</p>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="inbox-cancel-category">Cancellation reason</label>
-          <select id="inbox-cancel-category" className="mt-1 w-full rounded-sm border border-gray-300 p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
+          <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Assigned sit-in sessions will be released. This action is retained in the audit timeline.</p>
+          <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-category">Cancellation reason</label>
+          <select id="inbox-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
             <option value="">Select a reason...</option>
             {CANCEL_REASON_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
-          <label className="mt-3 block text-sm font-medium text-gray-700" htmlFor="inbox-cancel-detail">Additional details (optional)</label>
-          <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border border-gray-300 p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
+          <label className="mt-3 block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-detail">Additional details (optional)</label>
+          <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
         </Modal>
       ) : null}
 
@@ -923,7 +935,7 @@ export default function Absences() {
             </>
           )}
         >
-          <p className="mb-3 text-sm text-gray-600">
+          <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">
             This will permanently remove the absence record for <strong>{deleteTarget.student_name ?? deleteTarget.wcode}</strong>.
             This action cannot be undone.
           </p>
@@ -942,13 +954,13 @@ export default function Absences() {
             </>
           )}
         >
-          <p className="mb-3 text-sm text-gray-600">
+          <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">
             This will mark the absence as <strong>Special Approved</strong> — it will <strong>not</strong> count toward the student's absence rate limit.
           </p>
-          <div className="rounded-sm border border-gray-200 bg-gray-50 p-3 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Student:</span><span className="font-medium">{specialApprovedTarget.student_name ?? "Unknown"} ({specialApprovedTarget.wcode})</span></div>
-            <div className="mt-1 flex justify-between"><span className="text-gray-500">Subject:</span><span className="font-medium">{specialApprovedTarget.subject_code ?? "-"}</span></div>
-            <div className="mt-1 flex justify-between"><span className="text-gray-500">Dates:</span><span className="font-medium">{specialApprovedTarget.date_from === specialApprovedTarget.date_to ? specialApprovedTarget.date_from : `${specialApprovedTarget.date_from} – ${specialApprovedTarget.date_to}`}</span></div>
+          <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-3 text-sm">
+            <div className="flex justify-between"><span className="text-[var(--color-wi-text-light)]">Student:</span><span className="font-medium">{specialApprovedTarget.student_name ?? "Unknown"} ({specialApprovedTarget.wcode})</span></div>
+            <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Subject:</span><span className="font-medium">{specialApprovedTarget.subject_code ?? "-"}</span></div>
+            <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Dates:</span><span className="font-medium">{specialApprovedTarget.date_from === specialApprovedTarget.date_to ? specialApprovedTarget.date_from : `${specialApprovedTarget.date_from} – ${specialApprovedTarget.date_to}`}</span></div>
           </div>
         </Modal>
       ) : null}

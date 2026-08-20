@@ -131,6 +131,20 @@ func (Adapter) ParseUUID(s string) (pgtype.UUID, error) {
 	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
+// MaxSearchQueryLength caps free-text search parameters. Search inputs are
+// untrusted user input and pattern-matching cost grows with length.
+const MaxSearchQueryLength = 200
+
+// SearchQuery trims a search parameter and caps its length (by runes, so
+// multi-byte input is never split mid-character).
+func (Adapter) SearchQuery(raw string) string {
+	q := strings.TrimSpace(raw)
+	if r := []rune(q); len(r) > MaxSearchQueryLength {
+		q = string(r[:MaxSearchQueryLength])
+	}
+	return q
+}
+
 func (Adapter) ParseTimestamptz(s string) (pgtype.Timestamptz, error) {
 	if s == "" {
 		return pgtype.Timestamptz{}, fmt.Errorf("missing timestamp")
@@ -176,13 +190,39 @@ func (Adapter) ClockFromPgTime(t pgtype.Time) (scheduling.Clock, bool) {
 }
 
 func (Adapter) DecodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
-	limited := http.MaxBytesReader(w, r.Body, 2*1024*1024)
-	body, err := io.ReadAll(limited)
+	body, err := ReadBodyWithLimit(r, MaxJSONBodyBytes)
 	if err != nil {
 		return err
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
 	return json.NewDecoder(bytes.NewReader(body)).Decode(v)
+}
+
+// MaxJSONBodyBytes is the single source of truth for the JSON mutation body
+// limit. The pre-routing request limit middleware applies the same value.
+const MaxJSONBodyBytes int64 = 2 * 1024 * 1024
+
+var ErrRequestBodyTooLarge = errors.New("request body too large")
+
+// ReadBodyWithLimit reads at most limit bytes and restores r.Body so the
+// request can be read again (fingerprinting, decoding). Reads beyond the
+// limit fail with ErrRequestBodyTooLarge.
+func ReadBodyWithLimit(r *http.Request, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("request body limit must be positive")
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, ErrRequestBodyTooLarge
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	return body, nil
+}
+
+func (Adapter) ReadBodyBytes(r *http.Request) ([]byte, error) {
+	return ReadBodyWithLimit(r, MaxJSONBodyBytes)
 }
 
 // IdempotencyScope returns a short scope string derived from the URL path.
@@ -199,16 +239,6 @@ func (a Adapter) RequireIdempotencyKey(w http.ResponseWriter, r *http.Request) (
 		return "", false
 	}
 	return key, true
-}
-
-// ReadBodyBytes reads the full request body and replaces r.Body with a fresh reader.
-func (Adapter) ReadBodyBytes(r *http.Request) ([]byte, error) {
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	return bodyBytes, nil
 }
 
 // NewRequestFingerprint computes a SHA256 fingerprint of method + path + query + body.
@@ -234,16 +264,6 @@ func (a Adapter) HandleIdempotencyErr(w http.ResponseWriter, err error) bool {
 
 // WithIdempotentTx wraps a mutating handler inside a database transaction, enforcing
 // idempotency via the Idempotency-Key header. Use for handlers that directly use Q.
-//
-// The flow:
-//  1. Validate and extract Idempotency-Key header
-//  2. Read full body bytes and compute request fingerprint
-//  3. Begin a DB transaction
-//  4. Acquire idempotency lock (INSERT … ON CONFLICT)
-//  5. If replay with cached response → rollback and return cached response
-//  6. Execute fn(tx), which receives the transaction handle
-//  7. Complete the idempotency record with fn's returned status/response
-//  8. Commit the transaction
 func (a Adapter) WithIdempotentTx(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -253,6 +273,36 @@ func (a Adapter) WithIdempotentTx(
 	q *sqldb.Queries,
 	fn func(tx pgx.Tx) (int, any, error),
 ) bool {
+	return a.withIdempotentTx(w, r, userID, scope, pool, q, fn, nil)
+}
+
+// WithIdempotentTxPostCommit runs afterCommit only for a newly completed
+// transaction, after the database commit and before the response is written.
+// It is intended for response side effects such as setting a newly-created
+// session cookie that must not be emitted for cached replays or failed commits.
+func (a Adapter) WithIdempotentTxPostCommit(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	scope string,
+	pool *pgxpool.Pool,
+	q *sqldb.Queries,
+	fn func(tx pgx.Tx) (int, any, error),
+	afterCommit func(http.ResponseWriter),
+) bool {
+	return a.withIdempotentTx(w, r, userID, scope, pool, q, fn, afterCommit)
+}
+
+func (a Adapter) withIdempotentTx(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	scope string,
+	pool *pgxpool.Pool,
+	q *sqldb.Queries,
+	fn func(tx pgx.Tx) (int, any, error),
+	afterCommit func(http.ResponseWriter),
+) bool {
 	key, ok := a.RequireIdempotencyKey(w, r)
 	if !ok {
 		return false
@@ -260,7 +310,11 @@ func (a Adapter) WithIdempotentTx(
 
 	bodyBytes, err := a.ReadBodyBytes(r)
 	if err != nil {
-		a.WriteErr(w, http.StatusBadRequest, "bad_request", "cannot read request body")
+		if errors.Is(err, ErrRequestBodyTooLarge) {
+			a.WriteErr(w, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds the 2 MiB limit")
+		} else {
+			a.WriteErr(w, http.StatusBadRequest, "bad_request", "cannot read request body")
+		}
 		return false
 	}
 
@@ -335,6 +389,9 @@ func (a Adapter) WithIdempotentTx(
 		return false
 	}
 
+	if afterCommit != nil {
+		afterCommit(w)
+	}
 	a.writeRawJSON(w, statusCode, completed.ResponseBody)
 	return true
 }

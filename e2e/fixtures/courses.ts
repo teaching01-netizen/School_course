@@ -1,4 +1,4 @@
-import type { Page, Route } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 // ---------------------------------------------------------------------------
 // Types matching the frontend's expected API response shapes

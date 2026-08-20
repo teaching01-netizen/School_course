@@ -5,7 +5,8 @@ import RootCourseGroupRail from "../components/RootCourseGroupRail";
 import LevelLadderCanvas from "../components/LevelLadderCanvas";
 import CourseAssignmentSheet from "../components/CourseAssignmentSheet";
 import AutoSitInToggle from "../components/AutoSitInToggle";
-import ActiveCourseSelector from "../components/ActiveCourseSelector";
+import ActiveCoursesPanel from "../components/ActiveCoursesPanel";
+import type { ActiveCourseSubject } from "../components/ActiveCoursesPanel";
 import RootGroupManagerPanel from "../components/RootGroupManagerPanel";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
@@ -34,7 +35,7 @@ import useLevelHistory from "../hooks/useLevelHistory";
 import RuleSelector from "../components/RuleSelector";
 import { useSitInRules } from "@/features/absences/hooks/useSitInRules";
 
-type ViewMode = "classic" | "ladder";
+type ViewMode = "classic" | "ladder" | "active";
 
 type ActiveCoursesResponse = {
   subjects: Array<{
@@ -59,6 +60,7 @@ export default function CourseLevels() {
   const [editLevels, setEditLevels] = useState<Record<string, string>>({});
   const [savingCourse, setSavingCourse] = useState<Record<string, boolean>>({});
   const [activeCoursesMap, setActiveCoursesMap] = useState<Record<string, string>>({});
+  const [activeSubjects, setActiveSubjects] = useState<ActiveCourseSubject[]>([]);
   const [savingActiveCourse, setSavingActiveCourse] = useState<Record<string, boolean>>({});
 
   // View mode
@@ -148,6 +150,7 @@ export default function CourseLevels() {
           }
         }
         setActiveCoursesMap(activeMap);
+        setActiveSubjects(activeCoursesData.subjects);
 
         // Load policy data directly (no extra API call needed)
         const rootGroupPolicies = policiesResp.absence_policies?.root_course_groups ?? {};
@@ -328,6 +331,8 @@ export default function CourseLevels() {
       addToast("success", "Active course updated");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to update active course");
+      // Rethrow so batch callers (ActiveCoursesPanel bulk apply) can count the failure.
+      throw err;
     } finally {
       setSavingActiveCourse((prev) => ({ ...prev, [subjectId]: false }));
     }
@@ -613,7 +618,7 @@ export default function CourseLevels() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <PageHeading>Course Levels</PageHeading>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Set level for each course in each cycle. Levels must be consecutive within a cycle.
           </p>
         </div>
@@ -626,13 +631,13 @@ export default function CourseLevels() {
           </Link>
           <CourseLevelSearch value={searchTerm} onChange={setSearchTerm} />
           {/* View mode toggle */}
-          <div className="flex border border-gray-300 rounded-sm overflow-hidden">
+          <div className="flex border border-wi-line rounded-sm overflow-hidden">
             <button
               onClick={() => setViewMode("classic")}
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                 viewMode === "classic"
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-50"
+                  : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               Classic
@@ -642,10 +647,20 @@ export default function CourseLevels() {
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                 viewMode === "ladder"
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-50"
+                  : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               Ladder
+            </button>
+            <button
+              onClick={() => setViewMode("active")}
+              className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                viewMode === "active"
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+              }`}
+            >
+              Active Courses
             </button>
           </div>
           {levelHistory.canUndo && (
@@ -689,7 +704,7 @@ export default function CourseLevels() {
             Verify All
           </Button>
           {lastVerified && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-[var(--color-wi-text-light)]">
               Last verified: {lastVerified.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
@@ -737,13 +752,21 @@ export default function CourseLevels() {
 
       {/* Verification report */}
       {verificationReport && (
-        <div className="mb-5 border border-gray-200 bg-white px-4 py-3 rounded-sm text-sm text-gray-700" role="status">
+        <div className="mb-5 border border-wi-line bg-white px-4 py-3 rounded-sm text-sm text-[var(--color-wi-text-light)]" role="status">
           <p className="font-medium mb-1">Verification results</p>
           {verificationReport.map((message) => <p key={message}>{message}</p>)}
         </div>
       )}
 
-      {/* Main content: rail + canvas or table */}
+      {/* Main content: active course management, or rail + canvas/table */}
+      {viewMode === "active" ? (
+        <ActiveCoursesPanel
+          subjects={activeSubjects}
+          activeCourseId={activeCoursesMap}
+          saving={savingActiveCourse}
+          onSave={saveActiveCourse}
+        />
+      ) : (
       <div className="flex gap-4">
         {/* Root Course Group Rail */}
         <RootCourseGroupRail
@@ -755,7 +778,7 @@ export default function CourseLevels() {
         {/* Content area */}
         <div className="flex-1 min-w-0">
           {filteredRootGroups.length === 0 ? (
-            <div className="text-sm text-gray-400 py-8 text-center">
+            <div className="text-sm text-[var(--color-wi-text-light)] py-8 text-center">
               {selectedRootGroupId
                 ? "No data for selected root course group."
                 : "No root course groups found. Courses must have a root course group assigned to appear here."}
@@ -767,17 +790,17 @@ export default function CourseLevels() {
                 const rootKey = rootGroup.rootCourseGroupId ?? UNGROUPED_KEY;
                 return (
                   <div key={rootKey} className="mb-6">
-                    <div className="text-sm font-semibold text-gray-800 mb-3 pb-2 border-b border-gray-200">
+                    <div className="text-sm font-semibold text-[var(--color-wi-text)] mb-3 pb-2 border-b border-wi-line">
                       {rootGroup.label}
                     </div>
                     {rootGroup.subjects.map((subject) => (
                       <div key={subject.subjectId} className="mb-6 ml-4">
-                        <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
                           {subject.subjectCode} — {subject.subjectName}
                         </div>
                         {Object.entries(subject.cycles).map(([cycleId, cycle]) => (
                           <div key={cycleId} className="mb-4 ml-4">
-                            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                            <div className="text-xs font-medium text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
                               {cycle.cycleLabel}
                             </div>
                             <LevelLadderCanvas
@@ -830,10 +853,10 @@ export default function CourseLevels() {
                     aria-expanded={!isCollapsed}
                     aria-label={`${rootGroup.label} (${assigned}/${total} levels assigned)`}
                   >
-                    <span className="text-xs text-gray-400 transition-transform duration-150">
+                    <span className="text-xs text-[var(--color-wi-text-light)] transition-transform duration-150">
                       {isCollapsed ? "▶" : "▼"}
                     </span>
-                    <div className="text-sm font-semibold text-gray-800 pb-2 border-b border-gray-200 flex-1">
+                    <div className="text-sm font-semibold text-[var(--color-wi-text)] pb-2 border-b border-wi-line flex-1">
                       <span>{rootGroup.label}</span>
                       <span
                         className={`ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
@@ -841,7 +864,7 @@ export default function CourseLevels() {
                             ? "bg-green-100 text-green-700"
                             : assigned > 0
                               ? "bg-amber-100 text-amber-700"
-                              : "bg-gray-100 text-gray-500"
+                              : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                         }`}
                       >
                         {assigned}/{total} levels
@@ -853,23 +876,43 @@ export default function CourseLevels() {
                     <>
                       {/* Action bar for this root group */}
                       {rootGroup.rootCourseGroupId !== null && (
-                        <div className="flex items-center gap-4 mb-2 mt-2 border-b border-gray-100 pb-2">
-                          <ActiveCourseSelector
-                            subjectId={rootGroup.subjects[0]?.subjectId ?? ""}
-                            courses={rootGroup.subjects.flatMap((s) =>
+                        <div className="flex items-center gap-4 mb-2 mt-2 border-b border-wi-line-soft pb-2">
+                          {(() => {
+                            const barSubjectId = rootGroup.subjects[0]?.subjectId ?? "";
+                            const barCourses = rootGroup.subjects.flatMap((s) =>
                               Object.values(s.cycles).flatMap((cycle) =>
                                 cycle.courses.map((c) => ({
                                   id: c.id,
                                   code: c.code,
-                                  name: c.name,
                                   cycleLabel: c.cycle_label,
                                 }))
                               )
-                            )}
-                            activeCourseId={activeCoursesMap[rootGroup.subjects[0]?.subjectId ?? ""] ?? null}
-                            disabled={savingActiveCourse[rootGroup.subjects[0]?.subjectId ?? ""] ?? false}
-                            onSelect={(courseId) => void saveActiveCourse(rootGroup.subjects[0]?.subjectId ?? "", courseId)}
-                          />
+                            );
+                            const barActive = barCourses.find(
+                              (c) => c.id === activeCoursesMap[barSubjectId]
+                            );
+                            return (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-[var(--color-wi-text-light)]">Active course:</span>
+                                {barActive ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" aria-hidden="true" />
+                                    <span className="font-medium text-[var(--color-wi-text-light)]">{barActive.code}</span>
+                                    <span className="text-[var(--color-wi-text-light)]">{barActive.cycleLabel}</span>
+                                  </span>
+                                ) : (
+                                  <span className="font-medium text-amber-600">No active course</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setViewMode("active")}
+                                  className="ml-1 font-medium text-[var(--color-wi-primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/40 rounded-sm"
+                                >
+                                  Change
+                                </button>
+                              </div>
+                            );
+                          })()}
                           <AutoSitInToggle
                             label={rootGroup.label}
                             enabled={rootGroup.rootCourseGroupId ? (autoSitInToggles[rootGroup.rootCourseGroupId] ?? true) : true}
@@ -908,7 +951,7 @@ export default function CourseLevels() {
                       {/* Subjects within this root group */}
                       {rootGroup.subjects.map((subject) => (
                         <div key={subject.subjectId} className="mb-4 ml-4">
-                          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                          <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
                             {subject.subjectCode} — {subject.subjectName}
                           </div>
 
@@ -921,14 +964,14 @@ export default function CourseLevels() {
                             const warnedLevel = Math.max(...previewCourses.map((course) => course.level ?? 0));
                             return (
                               <div key={cycleId} className="mb-4 ml-4">
-                                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                                <div className="text-xs font-medium text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
                                   {cycle.cycleLabel}
                                 </div>
 
                                 <table className="w-full text-sm border-collapse">
                                   <caption className="sr-only">Courses in cycle</caption>
                                   <thead>
-                                    <tr className="border-b border-gray-200 text-left text-gray-500">
+                                    <tr className="border-b border-wi-line text-left text-[var(--color-wi-text-light)]">
                                       <th scope="col" className="py-1.5 pr-3 font-medium w-8">
                                         <input
                                           type="checkbox"
@@ -982,7 +1025,7 @@ export default function CourseLevels() {
                                       return (
                                         <tr
                                           key={course.id}
-                                          className="border-b border-gray-100 hover:bg-gray-50"
+                                          className="border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)]"
                                         >
                                           <td className="py-1.5 pr-3 w-8">
                                             <input
@@ -1003,7 +1046,7 @@ export default function CourseLevels() {
                                             />
                                           </td>
                                           <td className="py-1.5 pr-3 font-mono text-xs">{course.code}</td>
-                                          <td className="py-1.5 pr-3 text-xs text-gray-600">{course.name}</td>
+                                          <td className="py-1.5 pr-3 text-xs text-[var(--color-wi-text-light)]">{course.name}</td>
                                           <td className="py-1.5 pr-3">
                                             <LevelStepper
                                               value={displayLevel}
@@ -1062,6 +1105,7 @@ export default function CourseLevels() {
           )}
         </div>
       </div>
+      )}
 
       {/* Bulk Edit SlideOver */}
       {bulkEditTarget && (
@@ -1081,13 +1125,13 @@ export default function CourseLevels() {
             </div>
           }
         >
-          <p className="text-sm text-gray-600 mb-3">
+          <p className="text-sm text-[var(--color-wi-text-light)] mb-3">
             Update levels together, then verify configuration to detect gaps before enabling automated assignment.
           </p>
           <table className="w-full text-sm">
             <caption className="sr-only">Bulk edit levels</caption>
             <thead>
-              <tr className="border-b border-gray-200 text-left text-gray-500">
+              <tr className="border-b border-wi-line text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="py-2 pr-3 font-medium">Course</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Current</th>
@@ -1096,9 +1140,9 @@ export default function CourseLevels() {
             </thead>
             <tbody>
               {bulkEditTarget.courses.map((course) => (
-                <tr key={course.id} className="border-b border-gray-100">
+                <tr key={course.id} className="border-b border-wi-line-soft">
                   <td className="py-2 pr-3 font-mono text-xs">{course.code}</td>
-                  <td className="py-2 pr-3 text-gray-500">{course.cycle_label}</td>
+                  <td className="py-2 pr-3 text-[var(--color-wi-text-light)]">{course.cycle_label}</td>
                   <td className="py-2 pr-3">{course.level ?? "Not set"}</td>
                   <td className="py-2">
                     <LevelStepper

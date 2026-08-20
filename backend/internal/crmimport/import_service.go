@@ -3,7 +3,6 @@ package crmimport
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -34,31 +33,7 @@ func (s *ImportService) ImportUpload(ctx context.Context, rows []xlsx.Row) (Uplo
 		return UploadResult{}, fmt.Errorf("0 rows to import")
 	}
 
-	// Deduplicate within this upload.
-	sort.SliceStable(rows, func(i, j int) bool {
-		a, b := rows[i].OrderQuoteUpdatedAt, rows[j].OrderQuoteUpdatedAt
-		if a == nil && b == nil {
-			return false
-		}
-		if a == nil {
-			return false
-		}
-		if b == nil {
-			return true
-		}
-		return a.After(*b)
-	})
-
-	seen := map[string]struct{}{}
-	deduped := make([]xlsx.Row, 0, len(rows))
-	for _, r := range rows {
-		h := r.Hash()
-		if _, ok := seen[h]; ok {
-			continue
-		}
-		seen[h] = struct{}{}
-		deduped = append(deduped, r)
-	}
+	deduped := deduplicateRows(rows)
 
 	cycleSet := map[string]struct{}{}
 	for _, r := range deduped {

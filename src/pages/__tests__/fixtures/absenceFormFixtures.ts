@@ -1,7 +1,9 @@
 import type {
   ParentVerificationResponse,
+  PublicStudentLookupResponse,
   SessionsInRangeResponse,
   StudentLookupResponse,
+  VerifiedStudentProfile,
 } from "@/types";
 
 export const PUBLIC_FORM_CONFIG = {
@@ -24,7 +26,6 @@ export const PUBLIC_FORM_CONFIG = {
     sms_parent_enabled: true,
     sms_parent_template: "template",
     sms_success_template: "success template",
-    allow_submit_without_otp: false,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -61,8 +62,35 @@ export const SECOND_STUDENT: StudentLookupResponse = {
   parent_phone: "+66899999999",
   email_crm: "bailey@example.edu",
   email_system: null,
+
   subjects: [{ id: "subject-physics", code: "PHYS", name: "Physics" }],
 };
+export function publicStudentLookup(
+  student: StudentLookupResponse,
+  lookupToken = `lookup-${student.wcode}`,
+): PublicStudentLookupResponse {
+  return {
+    wcode: student.wcode,
+    lookup_token: lookupToken,
+    email_input_required: !Boolean(
+      student.email_crm?.trim() || student.email_system?.trim() || student.email?.trim(),
+    ),
+    parent_verification_available: Boolean(student.parent_phone?.trim()),
+  };
+}
+
+export function verifiedStudentProfile(
+  student: StudentLookupResponse,
+): VerifiedStudentProfile {
+  return {
+    wcode: student.wcode,
+    display_name: student.display_name?.trim() || student.full_name,
+    email_on_file: Boolean(
+      student.email_crm?.trim() || student.email_system?.trim() || student.email?.trim(),
+    ),
+    subjects: student.subjects.map(({ id, code, name }) => ({ id, code, name })),
+  };
+}
 
 export const PUBLIC_FORM_SESSIONS: SessionsInRangeResponse = {
   subjects: [
@@ -108,7 +136,7 @@ export function parentVerification(
   wcode = MANUAL_EMAIL_STUDENT.wcode,
 ): ParentVerificationResponse {
   return {
-    token: `verification-${wcode}`,
+    token: "opaque-verification-token",
     status,
     wcode,
     parent_phone: "+66812345678",

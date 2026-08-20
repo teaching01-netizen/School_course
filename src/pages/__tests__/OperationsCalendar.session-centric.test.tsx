@@ -3,8 +3,10 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import OperationsCalendar from "../OperationsCalendar";
 import { ToastProvider } from "../../hooks/useToast";
+import { queryClient } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
+let calendarResponse: unknown = { sessions: [], absence_days: [] };
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
@@ -32,12 +34,20 @@ describe("Calendar Session-Centric Redesign", () => {
   });
 
   beforeEach(() => {
+    queryClient.clear();
+    calendarResponse = { sessions: [], absence_days: [] };
     mockApiJson.mockReset();
+    mockApiJson.mockImplementation((url: string) => {
+      if (url === "/api/v1/meta/time") {
+        return Promise.resolve({ institute_tz: "Asia/Bangkok", server_now: "2026-06-02T12:00:00Z" });
+      }
+      return Promise.resolve(calendarResponse);
+    });
   });
 
   describe("Session card with sit-in visitors", () => {
     it("renders sit-in visitors on session card in week view", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [
           {
             id: "sess-1",
@@ -62,7 +72,7 @@ describe("Calendar Session-Centric Redesign", () => {
           },
         ],
         absence_days: [],
-      });
+      };
 
       renderPage("/calendar?view=week&show=sessions");
 
@@ -73,7 +83,7 @@ describe("Calendar Session-Centric Redesign", () => {
     });
 
     it("renders multiple sit-in visitors with overflow", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [
           {
             id: "sess-1",
@@ -114,7 +124,7 @@ describe("Calendar Session-Centric Redesign", () => {
           },
         ],
         absence_days: [],
-      });
+      };
 
       renderPage("/calendar?view=week&show=sessions");
 
@@ -128,7 +138,7 @@ describe("Calendar Session-Centric Redesign", () => {
     });
 
     it("does not render visitor line when no sit-ins", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [
           {
             id: "sess-1",
@@ -144,7 +154,7 @@ describe("Calendar Session-Centric Redesign", () => {
           },
         ],
         absence_days: [],
-      });
+      };
 
       renderPage("/calendar?view=week&show=sessions");
 
@@ -157,7 +167,7 @@ describe("Calendar Session-Centric Redesign", () => {
 
   describe("Absence indicator pill", () => {
     it("renders absence count pill in week view", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [],
         absence_days: [
           {
@@ -179,7 +189,7 @@ describe("Calendar Session-Centric Redesign", () => {
             ],
           },
         ],
-      });
+      };
 
       renderPage("/calendar?view=week&show=absences");
 
@@ -191,32 +201,30 @@ describe("Calendar Session-Centric Redesign", () => {
       ).toBe(true);
     });
 
-    it("does not render absence pill when no absences", async () => {
-      mockApiJson.mockResolvedValueOnce({
+    it("shows neutral absence pucks when there are no absences", async () => {
+      calendarResponse = {
         sessions: [],
         absence_days: [],
-      });
+      };
 
-      renderPage("/calendar?view=week&show=absences");
+      renderPage("/calendar?view=week&show=all");
 
       await screen.findByText("Calendar");
-      
-      // Should not show absence count pills with green/amber/red colors
-      // The absence pucks show "0" but with gray-100 bg (neutral)
-      // This test verifies no active absence indicators exist
-      const absencePucks = screen.getAllByText("0").filter(el => 
-        el.tagName === "SPAN" && el.getAttribute("aria-hidden") === "true"
+
+      // With no absences every day cell renders a neutral puck showing "0".
+      const absencePucks = screen.getAllByText("0").filter((el) =>
+        el.tagName === "SPAN" && el.getAttribute("aria-hidden") === "true",
       );
-      // All pucks should have gray-100 bg (no absences)
-      absencePucks.forEach(puck => {
-        expect(puck).toHaveClass("bg-gray-100");
+      expect(absencePucks).toHaveLength(7);
+      absencePucks.forEach((puck) => {
+        expect(puck).toHaveClass("bg-[var(--color-wi-row-alt)]");
       });
     });
   });
 
   describe("Day detail modal with sessions first", () => {
     it("opens modal with sessions section first, absences second", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [
           {
             id: "sess-1",
@@ -260,7 +268,7 @@ describe("Calendar Session-Centric Redesign", () => {
             ],
           },
         ],
-      });
+      };
 
       const user = (await import("@testing-library/user-event")).default.setup();
       renderPage("/calendar?view=month&show=all");
@@ -284,7 +292,7 @@ describe("Calendar Session-Centric Redesign", () => {
     });
 
     it("shows absence details with status badge and view details link", async () => {
-      mockApiJson.mockResolvedValueOnce({
+      calendarResponse = {
         sessions: [],
         absence_days: [
           {
@@ -306,7 +314,7 @@ describe("Calendar Session-Centric Redesign", () => {
             ],
           },
         ],
-      });
+      };
 
       const user = (await import("@testing-library/user-event")).default.setup();
       renderPage("/calendar?view=month&show=absences");

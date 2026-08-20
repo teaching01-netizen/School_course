@@ -10,7 +10,9 @@ import (
 // SessionStore abstracts session persistence.
 type SessionStore interface {
 	Create(ctx context.Context, userID uuid.UUID, passwordVersion int32, idleTimeout, absTimeout time.Duration) (Session, error)
+	ByToken(ctx context.Context, token string) (Session, error)
 	ByID(ctx context.Context, sessionID uuid.UUID) (Session, error)
+	RevokeByToken(ctx context.Context, token string) error
 	Revoke(ctx context.Context, sessionID uuid.UUID) error
 	RevokeAllForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	ListForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)

@@ -127,7 +127,7 @@ export default function SmsSendButton({
         "relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all",
         isInteractive
           ? "bg-blue-600 text-white hover:bg-blue-700"
-          : "cursor-not-allowed bg-gray-100 text-gray-400",
+          : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
       )}
     >
       <AnimatePresence mode="wait">

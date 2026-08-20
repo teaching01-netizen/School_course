@@ -2,7 +2,9 @@ package scheduling
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -43,6 +45,66 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 			if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
 				return se
 			}
+		}
+	}
+
+	// A course whose own active sessions overlap each other cannot admit any new
+	// student: the roster insert would create mutually-overlapping busy ranges
+	// for that student and the database rejects it with an opaque exclusion
+	// violation. Detect that state up front and explain it. Sessions the student
+	// is explicitly excluded from (session_attendance) are skipped, mirroring
+	// the busy-range insert trigger, so the check only rejects when the insert
+	// would genuinely violate the constraint.
+	var (
+		firstOverlapID  pgtype.UUID
+		secondOverlapID pgtype.UUID
+		overlapStart    pgtype.Timestamptz
+	)
+	rowErr := tx.QueryRow(ctx, `
+		SELECT s1.id, s2.id, s1.start_at
+		FROM sessions s1
+		JOIN sessions s2 ON s1.id < s2.id
+		  AND s1.course_id = $1 AND s2.course_id = $1
+		  AND s1.deleted_at IS NULL AND s2.deleted_at IS NULL
+		  AND s1.time_range && s2.time_range
+		  AND NOT EXISTS (
+			SELECT 1 FROM session_attendance sa
+			WHERE sa.session_id = s1.id AND sa.student_id = $2 AND sa.status = 'excluded'
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM session_attendance sa
+			WHERE sa.session_id = s2.id AND sa.student_id = $2 AND sa.status = 'excluded'
+		  )
+		ORDER BY s1.start_at
+		LIMIT 1
+	`, courseID, studentID).Scan(&firstOverlapID, &secondOverlapID, &overlapStart)
+	if rowErr != nil && !errors.Is(rowErr, pgx.ErrNoRows) {
+		return rowErr
+	}
+	if rowErr == nil {
+		courseIDStr, err := uuidString(courseID)
+		if err != nil {
+			return err
+		}
+		firstStr, err := uuidString(firstOverlapID)
+		if err != nil {
+			return err
+		}
+		secondStr, err := uuidString(secondOverlapID)
+		if err != nil {
+			return err
+		}
+		return &Err{
+			Code:    ErrCourseSessionsOverlap,
+			Message: "This course has sessions that overlap each other; resolve the overlaps before enrolling students.",
+			Details: ConflictDetails{
+				Kind: ConflictKindCourseSessionsOverlap,
+				Conflicts: []ConflictSession{
+					{SessionID: firstStr, CourseID: courseIDStr, StartAt: overlapStart.Time.UTC().Format(time.RFC3339Nano)},
+					{SessionID: secondStr, CourseID: courseIDStr},
+				},
+				Requested: ConflictRequested{CourseID: courseIDStr},
+			},
 		}
 	}
 

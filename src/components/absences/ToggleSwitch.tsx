@@ -24,20 +24,20 @@ export default function ToggleSwitch({
       htmlFor={id}
       className={clsx(
         "flex min-h-[52px] w-full cursor-pointer items-center justify-between gap-3 px-4 py-2.5 transition-colors",
-        !disabled && "hover:bg-gray-50",
+        !disabled && "hover:bg-[var(--color-wi-row-alt)]",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-gray-900">{label}</span>
+        <span className="block truncate text-sm font-semibold text-[var(--color-wi-text)]">{label}</span>
         {description && (
-          <span className="block truncate text-xs text-gray-600">{description}</span>
+          <span className="block truncate text-xs text-[var(--color-wi-text-light)]">{description}</span>
         )}
       </span>
       <div
         className={clsx(
           "relative inline-flex h-6 w-10 shrink-0 rounded-full transition-colors",
-          checked ? "bg-blue-600" : "bg-gray-200",
+          checked ? "bg-blue-600" : "bg-[var(--color-wi-row-alt)]",
         )}
       >
         <div

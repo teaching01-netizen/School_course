@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Tooltip } from "../ui/Tooltip";
 
@@ -12,14 +12,14 @@ it("shows tooltip content on hover", async () => {
   const user = userEvent.setup();
   render(<Tooltip content="Help text" />);
   await user.hover(screen.getByRole("button"));
-  expect(screen.getByRole("tooltip")).toHaveTextContent("Help text");
+  expect(await screen.findByRole("tooltip")).toHaveTextContent("Help text");
 });
 
 it("hides tooltip content on mouse leave", async () => {
   const user = userEvent.setup();
   render(<Tooltip content="Help text" />);
   await user.hover(screen.getByRole("button"));
-  expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  expect(await screen.findByRole("tooltip")).toBeInTheDocument();
   await user.unhover(screen.getByRole("button"));
   expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 });
@@ -46,7 +46,7 @@ it("sets aria-describedby on trigger when visible", async () => {
   const trigger = screen.getByRole("button");
   expect(trigger).not.toHaveAttribute("aria-describedby");
   await user.hover(trigger);
-  expect(trigger).toHaveAttribute("aria-describedby");
+  await waitFor(() => expect(trigger).toHaveAttribute("aria-describedby"));
   const tooltip = screen.getByRole("tooltip");
   expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
 });

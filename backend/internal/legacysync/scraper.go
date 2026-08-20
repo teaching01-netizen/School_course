@@ -38,11 +38,7 @@ type ScrapeResult struct {
 }
 
 func (s *Scraper) SyncCourse(ctx context.Context, courseID pgtype.UUID, legacyCourseID string) (*ScrapeResult, error) {
-	if err := s.client.Login(); err != nil {
-		return nil, fmt.Errorf("legacy login: %w", err)
-	}
-
-	htmlContent, err := s.client.FetchSchedulePage(legacyCourseID)
+	htmlContent, err := s.client.FetchSchedulePageContext(ctx, legacyCourseID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch schedule: %w", err)
 	}

@@ -18,6 +18,7 @@ type AuthenticatedUser struct {
 // Session represents an active auth session.
 type Session struct {
 	ID              uuid.UUID
+	Token           string
 	UserID          uuid.UUID
 	CreatedAt       time.Time
 	LastSeenAt      time.Time

@@ -29,12 +29,12 @@ export default function ScheduleFilters({
       <Input aria-label="Start time" type="time" size="sm" value={startTime} onChange={(e) => onChangeStartTime(e.target.value)} step={300} className="w-28" />
       <Input aria-label="End time" type="time" size="sm" value={endTime} onChange={(e) => onChangeEndTime(e.target.value)} step={300} className="w-28" />
       <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh</Button>
-      <div className="flex border border-gray-300 rounded-sm overflow-hidden">
+      <div className="flex border border-wi-line rounded-sm overflow-hidden">
         <button
           type="button"
           onClick={() => onViewModeChange("week")}
           aria-pressed={viewMode === "week"}
-          className={`px-3 py-1 text-sm ${viewMode === "week" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
+          className={`px-3 py-1 text-sm ${viewMode === "week" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"}`}
         >
           Week
         </button>
@@ -42,7 +42,7 @@ export default function ScheduleFilters({
           type="button"
           onClick={() => onViewModeChange("table")}
           aria-pressed={viewMode === "table"}
-          className={`px-3 py-1 text-sm ${viewMode === "table" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
+          className={`px-3 py-1 text-sm ${viewMode === "table" ? "bg-[var(--color-wi-primary)] text-white" : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"}`}
         >
           Table
         </button>

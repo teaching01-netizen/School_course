@@ -24,8 +24,8 @@ func NewDBLoginRateLimiter(store RateLimitStore) *DBLoginRateLimiter {
 }
 
 func (l *DBLoginRateLimiter) Allow(ctx context.Context, username, ip string) (RateLimitResult, error) {
-	if l.store == nil {
-		return RateLimitResult{Allowed: true}, nil
+	if l == nil || l.store == nil {
+		return RateLimitResult{}, ErrRateLimiterUnavailable
 	}
 
 	result, err := l.store.Allow(ctx, "auth:ip:"+ip, l.ip, window60s)

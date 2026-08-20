@@ -8,10 +8,10 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 
-type Session = { id: string; course_id: string; room_id: string; teacher_id: string; start_at: string; end_at: string };
+type Session = { id: string; course_id: string; room_id: string | null; teacher_id: string; start_at: string; end_at: string };
 type Course = { id: string; code: string; name: string };
 type Room = { id: string; name: string; capacity: number | null };
-type Teacher = { id: string; username: string; role: 'Admin' | 'Teacher' };
+type Teacher = { id: string; username: string; full_name: string | null; role: 'Admin' | 'Teacher' };
 
 export default function Reports() {
   const [activeReport, setActiveReport] = useState<'daily' | 'teachers' | 'classrooms' | 'courses' | 'absences'>('daily');
@@ -70,15 +70,16 @@ export default function Reports() {
   const roomUtil = useMemo(() => {
     const byRoom = new Map<string, { sessions: number; minutes: number }>();
     for (const s of sessions) {
-      const row = byRoom.get(s.room_id) ?? { sessions: 0, minutes: 0 };
+      const key = s.room_id ?? 'unassigned';
+      const row = byRoom.get(key) ?? { sessions: 0, minutes: 0 };
       row.sessions += 1;
       row.minutes += minutesBetweenRFC3339(s.start_at, s.end_at);
-      byRoom.set(s.room_id, row);
+      byRoom.set(key, row);
     }
     return Array.from(byRoom.entries())
       .map(([roomId, v]) => {
         const r = roomById.get(roomId);
-        return { id: roomId, name: r?.name ?? roomId, capacity: r?.capacity ?? null, sessions: v.sessions, hours: v.minutes / 60 };
+        return { id: roomId, name: r?.name ?? (roomId === 'unassigned' ? 'Unassigned' : roomId), capacity: r?.capacity ?? null, sessions: v.sessions, hours: v.minutes / 60 };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [roomById, sessions]);
@@ -94,7 +95,7 @@ export default function Reports() {
     return Array.from(byTeacher.entries())
       .map(([teacherId, v]) => {
         const t = teacherById.get(teacherId);
-        return { id: teacherId, username: t?.username ?? teacherId, sessions: v.sessions, hours: v.minutes / 60 };
+        return { id: teacherId, username: (t?.full_name || t?.username) ?? teacherId, sessions: v.sessions, hours: v.minutes / 60 };
       })
       .sort((a, b) => a.username.localeCompare(b.username));
   }, [sessions, teacherById]);
@@ -120,14 +121,14 @@ export default function Reports() {
       <PageHeading>Report</PageHeading>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-2 py-1 text-sm border border-gray-300 rounded-sm" />
-        <span className="text-sm text-gray-500">to</span>
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-2 py-1 text-sm border border-gray-300 rounded-sm" />
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-2 py-1 text-sm border border-wi-line rounded-sm" />
+        <span className="text-sm text-[var(--color-wi-text-light)]">to</span>
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-2 py-1 text-sm border border-wi-line rounded-sm" />
         <Button variant="primary" size="md" onClick={() => void load()}>Reload</Button>
         {loading ? <LoadingSkeleton type="table" lines={3} /> : null}
       </div>
 
-      <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
+      <div className="flex items-center gap-1 mb-4 border-b border-wi-line">
         {[
           { key: 'daily' as const, label: 'Daily Schedule' },
           { key: 'teachers' as const, label: 'Teacher Load' },
@@ -138,10 +139,10 @@ export default function Reports() {
           <button
             key={r.key}
             onClick={() => setActiveReport(r.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b transition-colors ${
               activeReport === r.key
                 ? 'border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]'
             }`}
           >
             {r.label}
@@ -152,23 +153,23 @@ export default function Reports() {
       {activeReport === 'daily' && (
         <div>
           <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-gray-50 border border-gray-200 p-3 rounded-sm">
-              <p className="text-xs text-gray-500">Total Sessions</p>
+            <div className="bg-[var(--color-wi-row-alt)] border border-wi-line p-3 rounded-sm">
+              <p className="text-xs text-[var(--color-wi-text-light)]">Total Sessions</p>
               <p className="text-xl font-bold">{sessions.length}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 p-3 rounded-sm">
-              <p className="text-xs text-gray-500">Total Hours</p>
+            <div className="bg-[var(--color-wi-row-alt)] border border-wi-line p-3 rounded-sm">
+              <p className="text-xs text-[var(--color-wi-text-light)]">Total Hours</p>
               <p className="text-xl font-bold text-[var(--color-wi-primary)]">{totalHours.toFixed(1)}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 p-3 rounded-sm">
-              <p className="text-xs text-gray-500">Rooms Used</p>
+            <div className="bg-[var(--color-wi-row-alt)] border border-wi-line p-3 rounded-sm">
+              <p className="text-xs text-[var(--color-wi-text-light)]">Rooms Used</p>
               <p className="text-xl font-bold">{roomUtil.length}</p>
             </div>
           </div>
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Daily room utilization</caption>
             <thead>
-              <tr className="border-b-2 border-gray-300">
+              <tr className="border-b border-wi-line">
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Room</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Total Hours</th>
@@ -177,16 +178,16 @@ export default function Reports() {
             </thead>
             <tbody>
               {roomUtil.map((r) => (
-                <tr key={r.name} className="border-b border-gray-200 hover:bg-gray-50">
+                <tr key={r.name} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                   <td className="py-2 px-2">{r.name}</td>
                   <td className="py-2 px-2">{r.sessions}</td>
                   <td className="py-2 px-2">{r.hours.toFixed(1)}h</td>
                   <td className="py-2 px-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-24 h-2 bg-gray-200 rounded-sm overflow-hidden">
+                      <div className="w-24 h-2 bg-[var(--color-wi-row-alt)] rounded-sm overflow-hidden">
                         <div className="h-full bg-[var(--color-wi-primary)]" style={{ width: `${Math.min(100, (r.hours / 40) * 100)}%` }} />
                       </div>
-                      <span className="text-xs text-gray-500">{Math.round((r.hours / 40) * 100)}%</span>
+                      <span className="text-xs text-[var(--color-wi-text-light)]">{Math.round((r.hours / 40) * 100)}%</span>
                     </div>
                   </td>
                 </tr>
@@ -200,7 +201,7 @@ export default function Reports() {
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
           <caption className="sr-only">Teacher load report</caption>
           <thead>
-            <tr className="border-b-2 border-gray-300">
+            <tr className="border-b border-wi-line">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Teacher</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Total Hours</th>
@@ -208,8 +209,8 @@ export default function Reports() {
           </thead>
           <tbody>
             {teacherLoad.map((t) => (
-              <tr key={t.id} className="border-b border-gray-200 hover:bg-gray-50">
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{t.username}</td>
+              <tr key={t.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>
                 <td className="py-2 px-2">{t.sessions}</td>
                 <td className="py-2 px-2">{t.hours.toFixed(1)}h</td>
               </tr>
@@ -222,7 +223,7 @@ export default function Reports() {
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
           <caption className="sr-only">Classroom utilization report</caption>
           <thead>
-            <tr className="border-b-2 border-gray-300">
+            <tr className="border-b border-wi-line">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Room</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Capacity</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
@@ -231,7 +232,7 @@ export default function Reports() {
           </thead>
           <tbody>
             {roomUtil.map((r) => (
-              <tr key={r.id} className="border-b border-gray-200 hover:bg-gray-50">
+              <tr key={r.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2">{r.name}</td>
                 <td className="py-2 px-2">{r.capacity}</td>
                 <td className="py-2 px-2">{r.sessions}</td>
@@ -246,7 +247,7 @@ export default function Reports() {
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
           <caption className="sr-only">Course completion report</caption>
           <thead>
-            <tr className="border-b-2 border-gray-300">
+            <tr className="border-b border-wi-line">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Code</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Sessions</th>
@@ -255,8 +256,8 @@ export default function Reports() {
           </thead>
           <tbody>
             {courseSummary.map((c) => (
-              <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50">
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{c.code}</td>
+              <tr key={c.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{c.code}</td>
                 <td className="py-2 px-2">{c.name}</td>
                 <td className="py-2 px-2">{c.sessions}</td>
                 <td className="py-2 px-2">{c.hours.toFixed(1)}h</td>
@@ -268,8 +269,8 @@ export default function Reports() {
 
       {activeReport === 'absences' && (
         <div>
-          <div className="bg-gray-50 border border-gray-200 p-4 rounded-sm">
-            <p className="text-sm text-gray-600">View absence analytics and trends in the dedicated Absence Dashboard.</p>
+          <div className="bg-[var(--color-wi-row-alt)] border border-wi-line p-4 rounded-sm">
+            <p className="text-sm text-[var(--color-wi-text-light)]">View absence analytics and trends in the dedicated Absence Dashboard.</p>
             <Link to="/absences/dashboard" className="mt-2 inline-flex items-center text-sm font-medium text-[var(--color-wi-primary)] hover:underline">
               Go to Absence Dashboard →
             </Link>

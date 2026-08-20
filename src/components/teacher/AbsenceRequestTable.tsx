@@ -86,31 +86,31 @@ export default function AbsenceRequestTable({ sessions, zone }: AbsenceRequestTa
     <>
       <div className="space-y-2 sm:hidden" data-testid="mobile-absence-list">
         {rows.map((row) => (
-          <article key={row.id} className="rounded-sm border border-gray-200 bg-white p-3">
+          <article key={row.id} className="rounded-sm border border-wi-line bg-white p-3">
             <div className="flex items-start gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
                 {initials(row.studentName)}
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-sm font-semibold text-gray-900">{row.studentName}</h3>
-                <p className="font-mono text-[11px] text-gray-500">{row.wcode}</p>
+                <h3 className="truncate text-sm font-semibold text-[var(--color-wi-text)]">{row.studentName}</h3>
+                <p className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{row.wcode}</p>
               </div>
               <Link to={`/teacher-dashboard/absences/${row.absenceId}`} className="inline-flex min-h-11 shrink-0 items-center px-1 text-xs font-medium text-[var(--color-wi-primary)]">
                 View →
               </Link>
             </div>
-            <dl className="mt-2 grid gap-2 border-t border-gray-100 pt-2 text-xs">
-              <div><dt className="font-medium text-gray-500">Course</dt><dd className="break-words text-gray-900">{row.subjectName?.trim() || row.courseName}</dd></div>
-              <div><dt className="font-medium text-gray-500">Missed</dt><dd className="break-words text-gray-900">{row.missedSubject} · {row.missedDateLabel}, {row.missedTimeLabel}</dd></div>
-              <div><dt className="font-medium text-gray-500">Sit-in</dt><dd className="break-words text-gray-900">{row.sitInSubject ? `${row.sitInSubject} · ${row.sitInTimeLabel}` : '—'}</dd></div>
-              <div><dt className="font-medium text-gray-500">Submitted</dt><dd className="text-gray-900">{row.submittedLabel}</dd></div>
+            <dl className="mt-2 grid gap-2 border-t border-wi-line-soft pt-2 text-xs">
+              <div><dt className="font-medium text-[var(--color-wi-text-light)]">Course</dt><dd className="break-words text-[var(--color-wi-text)]">{row.subjectName?.trim() || row.courseName}</dd></div>
+              <div><dt className="font-medium text-[var(--color-wi-text-light)]">Missed</dt><dd className="break-words text-[var(--color-wi-text)]">{row.missedSubject} · {row.missedDateLabel}, {row.missedTimeLabel}</dd></div>
+              <div><dt className="font-medium text-[var(--color-wi-text-light)]">Sit-in</dt><dd className="break-words text-[var(--color-wi-text)]">{row.sitInSubject ? `${row.sitInSubject} · ${row.sitInTimeLabel}` : '—'}</dd></div>
+              <div><dt className="font-medium text-[var(--color-wi-text-light)]">Submitted</dt><dd className="text-[var(--color-wi-text)]">{row.submittedLabel}</dd></div>
             </dl>
           </article>
         ))}
       </div>
-      <div className="hidden overflow-x-auto rounded-sm border border-gray-200 bg-white sm:block">
+      <div className="hidden overflow-x-auto rounded-sm border border-wi-line bg-white sm:block">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
             <tr>
               <th className="px-3 py-2 w-[180px]">Student</th>
               <th className="px-3 py-2 w-[90px]">Wcode</th>
@@ -129,34 +129,34 @@ export default function AbsenceRequestTable({ sessions, zone }: AbsenceRequestTa
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
                       {initials(row.studentName)}
                     </span>
-                    <span className="truncate font-medium text-gray-900">{row.studentName}</span>
+                    <span className="truncate font-medium text-[var(--color-wi-text)]">{row.studentName}</span>
                   </div>
                 </td>
-                <td className="px-3 py-3 font-mono text-xs text-gray-500">{row.wcode}</td>
+                <td className="px-3 py-3 font-mono text-xs text-[var(--color-wi-text-light)]">{row.wcode}</td>
                 <td className="px-3 py-3">
-                  <div className="max-w-[120px] truncate font-medium text-gray-900" title={row.subjectName?.trim() || row.courseName}>
+                  <div className="max-w-[120px] truncate font-medium text-[var(--color-wi-text)]" title={row.subjectName?.trim() || row.courseName}>
                     {row.subjectName?.trim() || row.courseName}
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <div className="max-w-[160px] truncate font-medium text-gray-900" title={row.missedSubject ?? ''}>
+                  <div className="max-w-[160px] truncate font-medium text-[var(--color-wi-text)]" title={row.missedSubject ?? ''}>
                     {row.missedSubject}
                   </div>
-                  <div className="text-xs text-gray-500">{row.missedDateLabel}, {row.missedTimeLabel}</div>
+                  <div className="text-xs text-[var(--color-wi-text-light)]">{row.missedDateLabel}, {row.missedTimeLabel}</div>
                 </td>
                 <td className="px-3 py-3">
                   {row.sitInSubject ? (
                     <>
-                      <div className="max-w-[160px] truncate font-medium text-gray-900" title={row.sitInSubject}>
+                      <div className="max-w-[160px] truncate font-medium text-[var(--color-wi-text)]" title={row.sitInSubject}>
                         {row.sitInSubject}
                       </div>
-                      <div className="text-xs text-gray-500">{row.sitInTimeLabel}</div>
+                      <div className="text-xs text-[var(--color-wi-text-light)]">{row.sitInTimeLabel}</div>
                     </>
                   ) : (
-                    <span className="text-xs text-gray-400">&mdash;</span>
+                    <span className="text-xs text-[var(--color-wi-text-light)]">&mdash;</span>
                   )}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-[13px] text-gray-700">{row.submittedLabel}</td>
+                <td className="px-3 py-3 whitespace-nowrap text-[13px] text-[var(--color-wi-text-light)]">{row.submittedLabel}</td>
                 <td className="px-3 py-3 text-right">
                   <Link
                     to={`/teacher-dashboard/absences/${row.absenceId}`}

@@ -60,6 +60,13 @@ func StatusAuditAction(current, to Status) string {
 	return string(to)
 }
 
+// StudentCancellable reports whether a student may cancel their own absence in
+// status s. Staff workflows may cancel from more statuses; self-service is
+// limited to pending and reviewed.
+func StudentCancellable(s Status) bool {
+	return s == StatusPending || s == StatusReviewed
+}
+
 // StatusesForSQL returns a comma-quoted list of status strings for use in SQL IN clauses.
 // Example: "'pending', 'reviewed', 'actioned'"
 func StatusesForSQL(statuses ...Status) string {

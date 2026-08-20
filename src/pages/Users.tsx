@@ -40,9 +40,11 @@ const resetSchema = {
 export default function Users() {
   const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | "Admin" | "Teacher">("All");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -62,13 +64,26 @@ export default function Users() {
   const resetFormValues = { newPassword: resetPassword };
   const resetValidation = useFormValidation(resetSchema, resetFormValues);
 
+  // The input stays immediate; the server request waits for typing to settle.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const load = async () => {
     try {
       setLoading(true);
-      const qs = includeDeleted ? "?include_deleted=true" : "";
-      const res = await apiJson<AdminUser[]>(`/api/v1/admin/users${qs}`, { method: "GET" });
+      setLoadError(null);
+      const params = new URLSearchParams();
+      if (includeDeleted) params.set("include_deleted", "true");
+      // Search server-side so users outside the initial page can be found;
+      // 2+ characters prevents a broad re-fetch on the first keystroke.
+      if (debouncedSearch.trim().length >= 2) params.set("q", debouncedSearch.trim());
+      const qs = params.toString();
+      const res = await apiJson<AdminUser[]>(`/api/v1/admin/users${qs ? `?${qs}` : ""}`, { method: "GET" });
       setUsers(res);
     } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load users");
       addToast("error", err instanceof Error ? err.message : "Failed to load users");
     } finally {
       setLoading(false);
@@ -78,7 +93,7 @@ export default function Users() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeDeleted]);
+  }, [includeDeleted, debouncedSearch]);
 
   const filtered = useMemo(() => {
     let data = [...users];
@@ -160,7 +175,7 @@ export default function Users() {
           <option value="Admin">Admin</option>
           <option value="Teacher">Teacher</option>
         </Select>
-        <label className="flex items-center gap-1 text-sm text-gray-700 select-none">
+        <label className="flex items-center gap-1 text-sm text-[var(--color-wi-text-light)] select-none">
           <input type="checkbox" checked={includeDeleted} onChange={(e) => setIncludeDeleted(e.target.checked)} />
           Show deactivated
         </label>
@@ -168,11 +183,11 @@ export default function Users() {
         <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>Create</Button>
       </div>
 
-      <div className="border border-gray-200 rounded-sm overflow-x-auto">
+      <div className="border border-wi-line rounded-sm overflow-x-auto">
         <table className="w-full text-[13px]">
           <caption className="sr-only">List of users</caption>
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
+            <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Role</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Status</th>
@@ -182,10 +197,10 @@ export default function Users() {
           </thead>
           <tbody>
             {filtered.map((u) => (
-              <tr key={u.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+              <tr key={u.id} className="border-b border-wi-line-soft last:border-b-0 hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2">
-                  <div className="text-gray-900">{u.username}</div>
-                  <div className="font-mono text-[11px] text-gray-500">{u.id}</div>
+                  <div className="text-[var(--color-wi-text)]">{u.username}</div>
+                  <div className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{u.id}</div>
                 </td>
                 <td className="py-2 px-2">
                   <span className={`text-xs px-2 py-0.5 rounded-sm ${u.role === "Admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
@@ -193,9 +208,9 @@ export default function Users() {
                   </span>
                 </td>
                 <td className="py-2 px-2">
-                  {u.deleted_at ? <span className="text-xs text-gray-500">Deactivated</span> : <span className="text-xs text-green-700">Active</span>}
+                  {u.deleted_at ? <span className="text-xs text-[var(--color-wi-text-light)]">Deactivated</span> : <span className="text-xs text-green-700">Active</span>}
                 </td>
-                <td className="py-2 px-2 font-mono text-xs text-gray-600">{u.created_at}</td>
+                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{u.created_at}</td>
                 <td className="py-2 px-2 text-right whitespace-nowrap">
                   <Button
                     variant="ghost"
@@ -222,7 +237,8 @@ export default function Users() {
           </tbody>
         </table>
         {loading && <LoadingSkeleton type="table" lines={3} />}
-        {!loading && filtered.length === 0 && <EmptyState message="No users found" />}
+        {!loading && loadError && <EmptyState message={`Failed to load users: ${loadError}`} />}
+        {!loading && !loadError && filtered.length === 0 && <EmptyState message="No users found" />}
       </div>
 
       {createOpen && (
@@ -278,7 +294,7 @@ export default function Users() {
             <FormField name="newPassword" label="New password" error={resetValidation.errors.newPassword} touched={resetValidation.touched.newPassword} required>
               <Input size="sm" type="password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} onBlur={() => { resetValidation.touch("newPassword"); resetValidation.validate("newPassword"); }} />
             </FormField>
-            <div className="text-xs text-gray-500">This forces logout of all existing sessions for this user.</div>
+            <div className="text-xs text-[var(--color-wi-text-light)]">This forces logout of all existing sessions for this user.</div>
           </div>
         </Modal>
       )}
@@ -296,7 +312,7 @@ export default function Users() {
             </>
           }
         >
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Deactivate <span className="font-semibold">{deactivateUser.username}</span>? They will no longer be able to sign in.
           </p>
         </Modal>

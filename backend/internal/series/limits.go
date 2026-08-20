@@ -25,6 +25,19 @@ func newValidationError(code, format string, args ...any) error {
 	return &ValidationError{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
+type OperationError struct {
+	Code    string
+	Message string
+}
+
+func (e *OperationError) Error() string {
+	return e.Message
+}
+
+func newOperationError(code, message string) error {
+	return &OperationError{Code: code, Message: message}
+}
+
 func validateCountAndDuration(count *int, durationMinutes int) error {
 	if durationMinutes <= 0 {
 		return newValidationError("invalid_duration", "duration_minutes must be > 0")

@@ -18,7 +18,7 @@ export default function CrossStudyStudentSearch({ onSearch, loading }: Props) {
   return (
     <form onSubmit={handleSubmit} className="flex items-end gap-2">
       <div className="flex-1">
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        <label className="block text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider mb-1">
           Search WCode
         </label>
         <input
@@ -26,7 +26,7 @@ export default function CrossStudyStudentSearch({ onSearch, loading }: Props) {
           value={wcode}
           onChange={(e) => setWcode(e.target.value)}
           placeholder="e.g. W12345"
-          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+          className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
         />
       </div>
       <Button type="submit" variant="primary" size="md" loading={loading} disabled={loading || !wcode.trim()}>

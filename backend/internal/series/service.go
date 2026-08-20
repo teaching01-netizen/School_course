@@ -74,6 +74,17 @@ func isSerializationErr(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "40001"
 }
 
+func ensureNativeSeries(ctx context.Context, qtx *sqldb.Queries, seriesID pgtype.UUID) error {
+	source, err := qtx.SeriesSourceGetByIDForUpdate(ctx, seriesID)
+	if err != nil {
+		return err
+	}
+	if source.SourceKind == "legacy" || source.MaterializationMode == "external" {
+		return newOperationError("external_series_read_only", "legacy-managed series cannot be changed by native scheduling operations")
+	}
+	return nil
+}
+
 // CreateSeriesAndMaterializeTx performs the series creation and session materialization
 // using an existing transaction-bound Queries handle. Does not manage begin/commit/rollback.
 func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Queries, p CreateParams) (CreateResult, error) {
@@ -208,6 +219,9 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	}
 	if discovered.DeletedAt.Valid {
 		return SplitResult{}, newValidationError("invalid_series", "series is inactive")
+	}
+	if err := ensureNativeSeries(ctx, qtx, p.SeriesID); err != nil {
+		return SplitResult{}, err
 	}
 	pivotDate := pgtype.Date{Time: time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
 	pivot, err := qtx.SessionFindActiveSeriesPivot(ctx, sqldb.SessionFindActiveSeriesPivotParams{SeriesID: p.SeriesID, Column2: pivotDate})
@@ -602,6 +616,9 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 	if err != nil {
 		return EditEntireFutureResult{}, err
 	}
+	if err := ensureNativeSeries(ctx, qtx, p.SeriesID); err != nil {
+		return EditEntireFutureResult{}, err
+	}
 	if p.ExpectedVersion != 0 && ser.Version != p.ExpectedVersion {
 		return EditEntireFutureResult{}, fmt.Errorf("stale_edit")
 	}
@@ -797,6 +814,9 @@ func (s *Service) CancelTx(ctx context.Context, qtx *sqldb.Queries, p CancelPara
 
 	ser, err := qtx.SeriesGetByIDForUpdate(ctx, p.SeriesID)
 	if err != nil {
+		return CancelResult{}, err
+	}
+	if err := ensureNativeSeries(ctx, qtx, p.SeriesID); err != nil {
 		return CancelResult{}, err
 	}
 	if p.ExpectedVersion != 0 && ser.Version != p.ExpectedVersion {

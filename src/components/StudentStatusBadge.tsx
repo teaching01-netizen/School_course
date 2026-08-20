@@ -14,7 +14,7 @@ export default function StudentStatusBadge({ count }: Props) {
       />
       <span
         className={`text-xs ${
-          hasStudents ? "text-green-700 font-medium" : "text-gray-400"
+          hasStudents ? "text-green-700 font-medium" : "text-[var(--color-wi-text-light)]"
         }`}
       >
         {hasStudents ? `${count} Enrolled` : "No students"}

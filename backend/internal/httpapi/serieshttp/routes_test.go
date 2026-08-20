@@ -402,6 +402,65 @@ func TestScheduleDB_EditEntireSeries_ReplayPrecedesStaleVersion(t *testing.T) {
 	assertReplay(t, f.mux, http.MethodPatch, "/api/v1/series/"+id+"/entire", uuid.New().String(), body)
 }
 
+func TestScheduleDB_ExternalSeriesRejectsNativeOperations(t *testing.T) {
+	f := newSeriesHTTPFixture(t)
+	tests := []struct {
+		name   string
+		method string
+		path   func(string) string
+		body   func(string) []byte
+	}{
+		{
+			name:   "split",
+			method: http.MethodPatch,
+			path:   func(id string) string { return "/api/v1/series/" + id },
+			body:   func(_ string) []byte { return []byte(`{"pivot_date":"2035-01-06","expected_version":1}`) },
+		},
+		{
+			name:   "cancel",
+			method: http.MethodPost,
+			path:   func(id string) string { return "/api/v1/series/" + id + "/cancel" },
+			body:   func(_ string) []byte { return []byte(`{"scope":"entire_series_future_only","expected_version":1}`) },
+		},
+		{
+			name:   "edit entire",
+			method: http.MethodPatch,
+			path:   func(id string) string { return "/api/v1/series/" + id + "/entire" },
+			body: func(_ string) []byte {
+				return []byte(fmt.Sprintf(`{"course_id":%q,"teacher_id":%q,"weekdays":[1],"start_local_time":"11:00","duration_minutes":60,"count":3,"expected_version":1}`, pgUUIDString(t, f.courseID), pgUUIDString(t, f.teacherID)))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var id pgtype.UUID
+			if err := f.pool.QueryRow(context.Background(), `
+				INSERT INTO session_series (
+					course_id, teacher_id, institute_tz, weekdays, start_local_time,
+					duration_minutes, start_date, count, source_kind, materialization_mode, legacy_group_key
+				) VALUES ($1,$2,'Asia/Bangkok',ARRAY[1]::smallint[],'10:00'::time,60,'2035-01-01'::date,3,'legacy','external',$3)
+				RETURNING id`, f.courseID, f.teacherID, uuid.NewString()).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			seriesID := pgUUIDString(t, id)
+			status, response := serveMutation(t, f.mux, test.method, test.path(seriesID), uuid.New().String(), test.body(seriesID))
+			if status != http.StatusConflict {
+				t.Fatalf("status=%d body=%s, want 409", status, response)
+			}
+			var decoded struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(response, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.Code != "external_series_read_only" {
+				t.Fatalf("error code=%q, want external_series_read_only", decoded.Code)
+			}
+		})
+	}
+}
+
 func TestCheckRecurrence(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))

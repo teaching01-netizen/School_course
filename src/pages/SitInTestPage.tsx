@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "@/api/client";
+import { lookupStaffStudentByWcode } from "@/features/absences/api/absenceFormApi";
 import PageHeading from "@/components/ui/PageHeading";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import { formatDate, formatTime } from "@/utils/date";
@@ -302,7 +303,7 @@ const SIT_IN_METHOD_BADGE: Record<string, { color: string; label: string }> = {
   physical: { color: "bg-blue-100 text-blue-800", label: "Physical" },
   zoom: { color: "bg-purple-100 text-purple-800", label: "Zoom" },
   teacher_case: { color: "bg-amber-100 text-amber-800", label: "Teacher case" },
-  none: { color: "bg-gray-100 text-gray-500", label: "None" },
+  none: { color: "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]", label: "None" },
 };
 
 type PriorityLevelCache = Record<string, Record<number, SubjectSessions>>;
@@ -357,12 +358,9 @@ export default function SitInTestPage() {
     setLookup(null);
     const cleaned = normalizeLookupWcode(wcodeInput);
     if (!cleaned) { setLookupError("Enter a W-Code."); return; }
+    setLookupLoading(true);
     try {
-      setLookupLoading(true);
-      const response = await apiJson<StudentLookupResponse>(
-        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(cleaned)}`,
-        { method: "GET" },
-      );
+      const response = await lookupStaffStudentByWcode(cleaned);
       setLookup(response);
       setWcodeInput(cleaned);
       resetSelection();
@@ -514,15 +512,15 @@ export default function SitInTestPage() {
       </div>
 
       {/* Step 1: WCode Lookup */}
-      <section className="rounded-lg border border-gray-200 bg-white p-5 mb-6">
-        <h2 className="text-sm font-semibold text-gray-800 mb-3">1. Lookup Student</h2>
+      <section className="rounded-lg border border-wi-line bg-white p-5 mb-6">
+        <h2 className="text-sm font-semibold text-[var(--color-wi-text)] mb-3">1. Lookup Student</h2>
         <div className="flex gap-3">
           <input
             value={wcodeInput}
             onChange={(e) => setWcodeInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}
             placeholder="e.g. W250389"
-            className="min-h-[44px] flex-1 rounded-lg border border-gray-300 px-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="min-h-[44px] flex-1 rounded-lg border border-wi-line px-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
           <button
             onClick={() => void handleLookup()}
@@ -534,9 +532,9 @@ export default function SitInTestPage() {
         </div>
         {lookupError && <p className="text-sm text-red-600 mt-2">{lookupError}</p>}
         {lookup && (
-          <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-4">
-            <p className="text-sm font-semibold text-gray-800">{lookupName || lookup.full_name}</p>
-            <p className="text-xs font-mono text-gray-500 mt-0.5">{lookup.wcode}</p>
+          <div className="mt-4 rounded-lg bg-[var(--color-wi-row-alt)] border border-wi-line p-4">
+            <p className="text-sm font-semibold text-[var(--color-wi-text)]">{lookupName || lookup.full_name}</p>
+            <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
             {lookup.email_crm?.trim() ? (
               <div className="mt-3 flex items-center gap-2 text-xs">
                 <span className="text-[var(--color-wi-text-light)]">Email:</span>
@@ -558,8 +556,8 @@ export default function SitInTestPage() {
 
       {/* Step 2: Select Subjects */}
       {lookup && lookup.subjects.length > 0 && (
-        <section className="rounded-lg border border-gray-200 bg-white p-5 mb-6">
-          <h2 className="text-sm font-semibold text-gray-800 mb-3">2. Select Subject(s)</h2>
+        <section className="rounded-lg border border-wi-line bg-white p-5 mb-6">
+          <h2 className="text-sm font-semibold text-[var(--color-wi-text)] mb-3">2. Select Subject(s)</h2>
           <div className="space-y-2">
             {lookup.subjects.map((subject: StudentLookupSubject) => (
               <label key={subject.id} className="flex items-center gap-3 cursor-pointer">
@@ -567,10 +565,10 @@ export default function SitInTestPage() {
                   type="checkbox"
                   checked={selectedSubjectIds.includes(subject.id)}
                   onChange={() => toggleSubject(subject.id)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  className="h-4 w-4 rounded border-wi-line text-blue-600"
                 />
-                <span className="text-sm text-gray-800">{subject.name}</span>
-                <span className="text-xs text-gray-400 font-mono">{subject.code}</span>
+                <span className="text-sm text-[var(--color-wi-text)]">{subject.name}</span>
+                <span className="text-xs text-[var(--color-wi-text-light)] font-mono">{subject.code}</span>
               </label>
             ))}
           </div>
@@ -581,15 +579,15 @@ export default function SitInTestPage() {
       {selectedSubjectIds.length > 0 && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-800">3. Sessions &amp; Sit-In Results</h2>
-            <span className="text-xs text-gray-500">{selectedSessionCount}/{maxSessions} selected</span>
+            <h2 className="text-sm font-semibold text-[var(--color-wi-text)]">3. Sessions &amp; Sit-In Results</h2>
+            <span className="text-xs text-[var(--color-wi-text-light)]">{selectedSessionCount}/{maxSessions} selected</span>
           </div>
 
           {sessionsLoading && <LoadingSkeleton type="table" lines={3} />}
           {sessionsError && <p className="text-sm text-red-600">{sessionsError}</p>}
 
           {!sessionsLoading && sessions.length === 0 && selectedSubjectIds.length > 0 && (
-            <p className="text-sm text-gray-400">No sessions found for selected subjects.</p>
+            <p className="text-sm text-[var(--color-wi-text-light)]">No sessions found for selected subjects.</p>
           )}
 
           <div className="space-y-4">
@@ -599,12 +597,12 @@ export default function SitInTestPage() {
                 const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
                 const sessionGroups = groupByDay(group.sessions);
                 return (
-                  <div key={group.course_id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                  <div key={group.course_id} className="rounded-lg border border-wi-line bg-white overflow-hidden">
                     {/* Subject header with sit-in rule info */}
-                    <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
+                    <div className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)] px-4 py-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-800">{groupLabel}</span>
-                        <span className="text-xs font-semibold text-gray-500 shrink-0">
+                        <span className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</span>
+                        <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
                           {group.absence_limit_reached
                             ? "Limit reached"
                             : `${sessionGroups.length} session${sessionGroups.length !== 1 ? "s" : ""}`}
@@ -612,7 +610,7 @@ export default function SitInTestPage() {
                         {group.sit_in && (
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              SIT_IN_METHOD_BADGE[group.sit_in.sit_in_method]?.color ?? "bg-gray-100 text-gray-500"
+                              SIT_IN_METHOD_BADGE[group.sit_in.sit_in_method]?.color ?? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                             }`}
                           >
                             {SIT_IN_METHOD_BADGE[group.sit_in.sit_in_method]?.label ?? group.sit_in.sit_in_method}
@@ -621,11 +619,11 @@ export default function SitInTestPage() {
                       </div>
                       {/* Rule metadata */}
                       {group.sit_in && group.sit_in.rule_name && (
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">
-                          <span>Rule: <span className="font-medium text-gray-700">{group.sit_in.rule_name}</span></span>
-                          <span>Type: <span className="font-medium text-gray-700">{group.sit_in.rule_type}</span></span>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--color-wi-text-light)]">
+                          <span>Rule: <span className="font-medium text-[var(--color-wi-text-light)]">{group.sit_in.rule_name}</span></span>
+                          <span>Type: <span className="font-medium text-[var(--color-wi-text-light)]">{group.sit_in.rule_type}</span></span>
                           {group.sit_in.current_priority_level !== undefined && (
-                            <span>Current priority: <span className="font-medium text-gray-700">{group.sit_in.current_priority_level}</span></span>
+                            <span>Current priority: <span className="font-medium text-[var(--color-wi-text-light)]">{group.sit_in.current_priority_level}</span></span>
                           )}
                         </div>
                       )}
@@ -677,10 +675,10 @@ export default function SitInTestPage() {
                                 checked={selected}
                                 disabled={!selected && atMaxSessions}
                                 onChange={() => toggleSession(sessionIds)}
-                                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 disabled:opacity-50"
+                                className="mt-0.5 h-4 w-4 rounded border-wi-line text-blue-600 disabled:opacity-50"
                               />
                               <div className="min-w-0 flex-1">
-                                <span className="text-sm font-medium text-gray-800">
+                                <span className="text-sm font-medium text-[var(--color-wi-text)]">
                                   {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}–{formatTime(dayGroup.end_at)}
                                 </span>
                               </div>
@@ -688,7 +686,7 @@ export default function SitInTestPage() {
 
                             {/* Sit-in detail card */}
                             {selected && sitIn && (
-                              <div className="mt-3 ml-7 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
+                              <div className="mt-3 ml-7 rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)]/50 p-4">
                                 {renderSitInDetail(
                                   sitIn,
                                   hasPriorities,
@@ -708,7 +706,7 @@ export default function SitInTestPage() {
                             )}
 
                             {selected && !sitIn && (
-                              <div className="mt-3 ml-7 text-sm text-gray-400">
+                              <div className="mt-3 ml-7 text-sm text-[var(--color-wi-text-light)]">
                                 No sit-in information available.
                               </div>
                             )}
@@ -725,7 +723,7 @@ export default function SitInTestPage() {
       )}
 
       {!lookup && (
-        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-400">
+        <div className="rounded-lg border border-dashed border-wi-line bg-[var(--color-wi-row-alt)] p-8 text-center text-sm text-[var(--color-wi-text-light)]">
           Enter a W-Code above to start testing sit-in rules.
         </div>
       )}
@@ -752,7 +750,7 @@ function renderSitInDetail(
     return (
       <div className="flex items-center gap-2 text-sm text-purple-700">
         <span className="font-medium">Zoom</span>
-        <span className="text-gray-500">— Online make-up, no class selection needed</span>
+        <span className="text-[var(--color-wi-text-light)]">— Online make-up, no class selection needed</span>
       </div>
     );
   }
@@ -760,13 +758,13 @@ function renderSitInDetail(
     return (
       <div className="text-sm text-amber-700">
         <span className="font-medium">To arrange</span>
-        <span className="text-gray-500"> — Staff will contact the student</span>
+        <span className="text-[var(--color-wi-text-light)]"> — Staff will contact the student</span>
       </div>
     );
   }
   if (sitIn.sit_in_method !== "physical") {
     return (
-      <div className="text-sm text-gray-500">
+      <div className="text-sm text-[var(--color-wi-text-light)]">
         <span className="font-medium">To arrange</span>
       </div>
     );
@@ -774,9 +772,9 @@ function renderSitInDetail(
 
   if (hasPriorities && currentPriorities.length === 0) {
     return (
-      <div className="text-sm text-gray-500">
+      <div className="text-sm text-[var(--color-wi-text-light)]">
         <p className="font-medium">No more options available</p>
-        <p className="text-xs text-gray-400 mt-0.5">Staff will contact the student to arrange a make-up class.</p>
+        <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact the student to arrange a make-up class.</p>
       </div>
     );
   }
@@ -799,9 +797,9 @@ function renderSitInDetail(
 
     if (!currentPriority) {
       return (
-        <div className="text-sm text-gray-500">
+        <div className="text-sm text-[var(--color-wi-text-light)]">
           <p className="font-medium">No more options available</p>
-          <p className="text-xs text-gray-400 mt-0.5">Staff will contact the student to arrange a make-up class.</p>
+          <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact the student to arrange a make-up class.</p>
         </div>
       );
     }
@@ -817,7 +815,7 @@ function renderSitInDetail(
             <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">
               {priorityOrdinal(currentLevel)} choice
             </span>
-            <span className="text-sm font-medium text-gray-800">
+            <span className="text-sm font-medium text-[var(--color-wi-text)]">
               {currentPriority.label}
             </span>
           </div>
@@ -826,7 +824,7 @@ function renderSitInDetail(
               <button
                 onClick={() => onPreviousPriority(priorityGroup, session.id)}
                 disabled={revealingPriority}
-                className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                className="rounded-full border border-wi-line bg-white px-3 py-1 text-xs font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
               >
                 &larr; Back
               </button>
@@ -835,7 +833,7 @@ function renderSitInDetail(
               <button
                 onClick={() => onNotAvailable(priorityGroup, session.id)}
                 disabled={revealingPriority}
-                className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                className="rounded-full border border-wi-line bg-white px-3 py-1 text-xs font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
               >
                 {revealingPriority ? "Loading..." : "See other times &rarr;"}
               </button>
@@ -846,13 +844,13 @@ function renderSitInDetail(
         {/* Available sessions */}
         {currentAvailable.length > 0 ? (
           <div className="mt-3">
-            <p className="text-xs font-medium text-gray-500 mb-1.5">Available make-up sessions:</p>
+            <p className="text-xs font-medium text-[var(--color-wi-text-light)] mb-1.5">Available make-up sessions:</p>
             <div className="space-y-1">
                   {currentPriorities.flatMap((p) =>
                 groupByDay(availableSessionsForMissedSessions(p, sessionIds)).map((optGroup) => (
                   <div
                     key={`${p.sit_in_course?.id ?? "course"}:${optGroup.id}`}
-                    className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
+                    className="rounded-md border border-wi-line bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
                   >
                     {getSitInSessionGroupLabel(optGroup.items, p.sit_in_course, groupLabel, allSubjects)}
                   </div>
@@ -861,7 +859,7 @@ function renderSitInDetail(
             </div>
           </div>
         ) : (
-          <div className="mt-3 text-sm text-gray-500">
+          <div className="mt-3 text-sm text-[var(--color-wi-text-light)]">
             No available make-up sessions for this priority.
           </div>
         )}
@@ -888,11 +886,11 @@ function renderSitInDetail(
         )}
 
         {/* Rule metadata */}
-        <div className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-400">
-          <span className="font-medium text-gray-500">Type:</span> {sitIn.rule_type ?? "—"}
+        <div className="mt-3 border-t border-wi-line pt-2 text-xs text-[var(--color-wi-text-light)]">
+          <span className="font-medium text-[var(--color-wi-text-light)]">Type:</span> {sitIn.rule_type ?? "—"}
           {sitIn.has_next_priority !== undefined && (
             <span className="ml-3">
-              <span className="font-medium text-gray-500">Has next:</span> {String(sitIn.has_next_priority)}
+              <span className="font-medium text-[var(--color-wi-text-light)]">Has next:</span> {String(sitIn.has_next_priority)}
             </span>
           )}
         </div>
@@ -907,21 +905,21 @@ function renderSitInDetail(
   return (
     <div>
       <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2">Pick a make-up class</p>
-      <p className="text-xs text-gray-500 mb-2">Sit-in class: {sitInClassLabel}</p>
+      <p className="text-xs text-[var(--color-wi-text-light)] mb-2">Sit-in class: {sitInClassLabel}</p>
 
       {sitInAvailable.length > 0 ? (
         <div className="space-y-1">
           {groupByDay(sitInAvailable).map((optGroup) => (
             <div
               key={optGroup.id}
-              className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
+              className="rounded-md border border-wi-line bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
             >
               {getSitInSessionGroupLabel(optGroup.items, sitIn.sit_in_course, groupLabel, allSubjects)}
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-xs text-gray-400">No available sessions listed.</p>
+        <p className="text-xs text-[var(--color-wi-text-light)]">No available sessions listed.</p>
       )}
     </div>
   );

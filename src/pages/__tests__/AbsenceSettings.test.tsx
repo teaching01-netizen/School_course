@@ -26,7 +26,6 @@ const SETTINGS = {
     sms_parent_enabled: true,
     sms_parent_template: "OTP {{code}}",
     sms_success_template: "Saved {{class_name}} {{sit_in_class}}",
-    allow_submit_without_otp: false,
   },
   student_self_service: { can_view_own: false, can_cancel_own: false },
 };

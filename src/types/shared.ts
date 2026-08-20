@@ -1,13 +1,17 @@
-export type User = { id: string; username: string; role: "Admin" | "Teacher" };
+export type User = { id: string; username: string; full_name?: string | null; role: "Admin" | "Teacher" };
 
 export type Student = {
   id: string;
   wcode: string;
   full_name: string;
   notes: string;
+  nickname?: string;
+  school?: string;
+  level?: string;
+  year?: string;
+  student_phone?: string;
+  email?: string;
   status?: string;
-  student_phone?: string | null;
-  parent_phone?: string | null;
 };
 
 export interface Teacher {

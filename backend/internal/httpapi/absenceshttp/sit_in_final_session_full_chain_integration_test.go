@@ -32,7 +32,7 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	settingsJSON := []byte(`{"notifications":{"allow_submit_without_otp":true}}`)
+	settingsJSON := []byte(`{}`)
 	if err := q.AppSettingsUpdateAbsencePolicies(ctx, settingsJSON); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +88,11 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	}
 	cycleID := pgtype.Text{String: "QA-FINAL-" + suffix, Valid: true}
 	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO crm_cycles (id, label) VALUES ($1, $2)
+	`, cycleID.String, "QA Final Cycle "+suffix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
 		UPDATE courses
 		SET subject_id = $1, cycle_id = $2, root_course_group_id = $3, level = $4
 		WHERE id = $5
@@ -117,13 +122,23 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{
+		Username:     "qafs-teacher-" + suffix,
+		Role:         "Teacher",
+		PasswordHash: "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	var missedFinalSessionID string
 	for day := 1; day <= 10; day++ {
 		start := time.Date(2026, 6, day, 9, 0, 0, 0, time.UTC)
 		session, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-			CourseID: missedCourse.ID,
-			StartAt:  pgtype.Timestamptz{Time: start, Valid: true},
-			EndAt:    pgtype.Timestamptz{Time: start.Add(90 * time.Minute), Valid: true},
+			CourseID:  missedCourse.ID,
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: start.Add(90 * time.Minute), Valid: true},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -134,17 +149,19 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	}
 
 	nonFinalTarget, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-		CourseID: targetCourse.ID,
-		StartAt:  pgtype.Timestamptz{Time: time.Date(2026, 6, 10, 11, 0, 0, 0, time.UTC), Valid: true},
-		EndAt:    pgtype.Timestamptz{Time: time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC), Valid: true},
+		CourseID:  targetCourse.ID,
+		TeacherID: teacherID,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 10, 11, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC), Valid: true},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	finalTarget, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-		CourseID: targetCourse.ID,
-		StartAt:  pgtype.Timestamptz{Time: time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC), Valid: true},
-		EndAt:    pgtype.Timestamptz{Time: time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC), Valid: true},
+		CourseID:  targetCourse.ID,
+		TeacherID: teacherID,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC), Valid: true},
 	})
 	if err != nil {
 		t.Fatal(err)

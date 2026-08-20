@@ -484,8 +484,8 @@ export async function installScheduleImpactRoutes(
       route.fallback();
       return;
     }
-    const offset = Number(url.searchParams.get("offset")) || 0;
-    const limit = Number(url.searchParams.get("limit")) || 25;
+    const offset = Number(url.searchParams.get("offset")) || queueOffset;
+    const limit = Number(url.searchParams.get("limit")) || queueLimit;
 
     const filtered = filterQueueItems(queueItems, url.searchParams);
     const total = initialTotal ?? filtered.length;

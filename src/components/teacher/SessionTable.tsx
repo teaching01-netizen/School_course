@@ -31,16 +31,16 @@ function AbsenceCard({ student, sessionCourse, sessionStart, sessionEnd, zone }:
 }) {
   const name = student.nickname ?? student.student_name ?? student.wcode;
   return (
-    <div className="flex items-center gap-3 rounded-sm border border-gray-100 bg-gray-50/50 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
         {initials(name)}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium text-gray-900">{name}</span>
-          <span className="font-mono text-[11px] text-gray-500">{student.wcode}</span>
+          <span className="text-[13px] font-medium text-[var(--color-wi-text)]">{name}</span>
+          <span className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{student.wcode}</span>
         </div>
-        <p className="text-[11px] text-gray-500">
+        <p className="text-[11px] text-[var(--color-wi-text-light)]">
           Absent from {sessionCourse} · {formatDate(sessionStart, zone)}, {formatHour(sessionStart, zone)}–{formatHour(sessionEnd, zone)}
         </p>
       </div>
@@ -57,16 +57,16 @@ function AbsenceCard({ student, sessionCourse, sessionStart, sessionEnd, zone }:
 function SitInCard({ visitor, zone }: { visitor: TeacherDashboardSitInVisitor; zone: string }) {
   const name = visitor.nickname ?? visitor.student_name ?? visitor.wcode;
   return (
-    <div className="flex items-center gap-3 rounded-sm border border-gray-100 bg-gray-50/50 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
         {initials(name)}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium text-gray-900">{name}</span>
-          <span className="font-mono text-[11px] text-gray-500">{visitor.wcode}</span>
+          <span className="text-[13px] font-medium text-[var(--color-wi-text)]">{name}</span>
+          <span className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{visitor.wcode}</span>
         </div>
-        <p className="text-[11px] text-gray-500">
+        <p className="text-[11px] text-[var(--color-wi-text-light)]">
           Sit-in from {visitor.from_course_code} · {formatDate(visitor.session_start_at, zone)}, {formatHour(visitor.session_start_at, zone)}–{formatHour(visitor.session_end_at, zone)}
         </p>
       </div>
@@ -109,9 +109,9 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-sm border border-gray-200 bg-white">
+    <div className="overflow-x-auto rounded-sm border border-wi-line bg-white">
       <table className="w-full text-sm">
-        <thead className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
           <tr>
             <th className="w-[32px] px-2 py-2" />
             <th className="px-3 py-2 w-[120px]">Time</th>
@@ -125,8 +125,8 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
         <tbody>
           {Array.from(grouped.entries()).map(([dateKey, groupSessions]) => (
             <Fragment key={dateKey}>
-              <tr className="bg-gray-50">
-                <td colSpan={7} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              <tr className="bg-[var(--color-wi-row-alt)]">
+                <td colSpan={7} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
                   {formatZoneDateKey(dateKey, zone, 'EEE, d MMM') ?? dateKey}
                 </td>
               </tr>
@@ -145,24 +145,24 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
                       className="group align-middle hover:bg-blue-50/40 cursor-pointer"
                       onClick={toggle}
                     >
-                      <td className="w-[32px] px-2 py-3 text-center text-gray-400">
+                      <td className="w-[32px] px-2 py-3 text-center text-[var(--color-wi-text-light)]">
                         <span className={`inline-block transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                           ▸
                         </span>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[13px] text-gray-900">
+                      <td className="px-3 py-3 whitespace-nowrap text-[13px] text-[var(--color-wi-text)]">
                         {formatHour(s.start_at, zone)} – {formatHour(s.end_at, zone)}
                       </td>
                       <td className="px-3 py-3">
-                        <div className="max-w-[200px] truncate font-medium text-gray-900" title={`${s.course_code} — ${s.course_name}`}>
+                        <div className="max-w-[200px] truncate font-medium text-[var(--color-wi-text)]" title={`${s.course_code} — ${s.course_name}`}>
                           {s.course_code}
                         </div>
                         {s.subject_name ? (
-                          <div className="text-xs text-gray-500">{s.subject_name}</div>
+                          <div className="text-xs text-[var(--color-wi-text-light)]">{s.subject_name}</div>
                         ) : null}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">
-                        {s.room_name ?? <span className="text-gray-300">—</span>}
+                      <td className="px-3 py-3 whitespace-nowrap text-sm text-[var(--color-wi-text-light)]">
+                        {s.room_name ?? <span className="text-[var(--color-wi-text-light)]">—</span>}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
                         {hasAbsences ? (
@@ -171,7 +171,7 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
                             {s.absent_students!.length}
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-300">—</span>
+                          <span className="text-xs text-[var(--color-wi-text-light)]">—</span>
                         )}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
@@ -181,7 +181,7 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
                             {s.sit_in_visitors!.length}
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-300">—</span>
+                          <span className="text-xs text-[var(--color-wi-text-light)]">—</span>
                         )}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
@@ -203,7 +203,7 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
 
                     {isExpanded ? (
                       <tr>
-                        <td colSpan={7} className="border-b border-gray-100 bg-gray-50/30 px-6 py-4">
+                        <td colSpan={7} className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/30 px-6 py-4">
                           <div className="space-y-4">
                             {hasAbsences ? (
                               <div>

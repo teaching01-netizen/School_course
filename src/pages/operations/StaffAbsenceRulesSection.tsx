@@ -50,11 +50,11 @@ export function StaffAbsenceRulesSection() {
   return (
     <div>
       <div className="mb-6">
-        <p className="text-sm text-gray-500">Manage teacher absence notifications and cover lesson policies.</p>
+        <p className="text-sm text-[var(--color-wi-text-light)]">Manage teacher absence notifications and cover lesson policies.</p>
       </div>
 
       <div className="space-y-6">
-        <div className="rounded-sm border border-gray-200 bg-white p-5">
+        <div className="rounded-sm border border-wi-line bg-white p-5">
           <h3 className="text-base font-semibold mb-4">Notifications</h3>
           <div className="space-y-3">
             <label className="flex gap-2 text-sm items-center">
@@ -76,7 +76,7 @@ export function StaffAbsenceRulesSection() {
           </div>
         </div>
 
-        <div className="rounded-sm border border-gray-200 bg-white p-5">
+        <div className="rounded-sm border border-wi-line bg-white p-5">
           <h3 className="text-base font-semibold mb-4">Cover Lesson Policy</h3>
           <div className="space-y-4">
             <div className="flex gap-2 text-sm items-start">
@@ -96,7 +96,7 @@ export function StaffAbsenceRulesSection() {
                       max={30}
                       value={policies.cover_threshold_days}
                       onChange={(e) => setPolicies({ ...policies, cover_threshold_days: Math.max(1, Math.min(30, parseInt(e.target.value) || 1)) })}
-                      className="w-20 rounded-sm border border-gray-300 p-1 text-sm"
+                      className="w-20 rounded-sm border border-wi-line p-1 text-sm"
                     />
                     <span className="ml-1">days</span>
                   </span>
@@ -105,11 +105,11 @@ export function StaffAbsenceRulesSection() {
             </div>
 
             <div className="flex gap-2 text-sm items-center">
-              <span className="text-gray-700">Default cover slot duration</span>
+              <span className="text-[var(--color-wi-text-light)]">Default cover slot duration</span>
               <select
                 value={policies.default_cover_duration_minutes}
                 onChange={(e) => setPolicies({ ...policies, default_cover_duration_minutes: parseInt(e.target.value) })}
-                className="rounded-sm border border-gray-300 p-1.5 text-sm"
+                className="rounded-sm border border-wi-line p-1.5 text-sm"
               >
                 {DURATION_OPTIONS.map((d) => (
                   <option key={d} value={d}>{d} minutes</option>

@@ -262,6 +262,43 @@ func (q *Queries) SeriesReplaceDefinition(ctx context.Context, arg SeriesReplace
 	return i, err
 }
 
+const seriesSourceGetByID = `-- name: SeriesSourceGetByID :one
+SELECT source_kind, materialization_mode
+FROM session_series
+WHERE id = $1
+`
+
+type SeriesSourceGetByIDRow struct {
+	SourceKind          string `json:"source_kind"`
+	MaterializationMode string `json:"materialization_mode"`
+}
+
+func (q *Queries) SeriesSourceGetByID(ctx context.Context, id pgtype.UUID) (SeriesSourceGetByIDRow, error) {
+	row := q.db.QueryRow(ctx, seriesSourceGetByID, id)
+	var i SeriesSourceGetByIDRow
+	err := row.Scan(&i.SourceKind, &i.MaterializationMode)
+	return i, err
+}
+
+const seriesSourceGetByIDForUpdate = `-- name: SeriesSourceGetByIDForUpdate :one
+SELECT source_kind, materialization_mode
+FROM session_series
+WHERE id = $1
+FOR UPDATE
+`
+
+type SeriesSourceGetByIDForUpdateRow struct {
+	SourceKind          string `json:"source_kind"`
+	MaterializationMode string `json:"materialization_mode"`
+}
+
+func (q *Queries) SeriesSourceGetByIDForUpdate(ctx context.Context, id pgtype.UUID) (SeriesSourceGetByIDForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, seriesSourceGetByIDForUpdate, id)
+	var i SeriesSourceGetByIDForUpdateRow
+	err := row.Scan(&i.SourceKind, &i.MaterializationMode)
+	return i, err
+}
+
 const seriesUpdateCount = `-- name: SeriesUpdateCount :exec
 UPDATE session_series
 SET count = $2, updated_at = now(), version = version + 1

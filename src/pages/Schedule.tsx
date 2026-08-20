@@ -822,7 +822,7 @@ export default function Schedule() {
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <PageHeading>Schedule</PageHeading>
-        <div className="text-xs text-gray-500 mb-3 text-right">
+        <div className="text-xs text-[var(--color-wi-text-light)] mb-3 text-right">
           {instituteTZ ? `TZ: ${instituteTZ}` : ""}
           {serverNow ? `${instituteTZ ? " • " : ""}Server now: ${serverNow}` : ""}
         </div>
@@ -845,21 +845,21 @@ export default function Schedule() {
       />
 
       {viewMode === "week" ? (
-        <div className="border border-gray-200 rounded-sm overflow-hidden">
+        <div className="border border-wi-line rounded-sm overflow-hidden">
           <div className="grid" style={{ gridTemplateColumns: `repeat(${Math.max(daysInRange.length, 1)}, minmax(0, 1fr))` }}>
             {daysInRange.map((d) => {
               const key = d.toISOString().slice(0, 10);
               const items = sessionsByDay.get(key) ?? [];
               const dateLabel = formatZoneDateKey(key, zone, "EEE d MMM") ?? key;
               return (
-                <div key={key} className="border-r border-gray-200 last:border-r-0">
-                  <div className="bg-gray-50 border-b border-gray-200 px-3 py-2">
-                    <div className="text-sm font-semibold text-gray-800">{dateLabel}</div>
-                    <div className="text-xs text-gray-500">{items.length} session(s)</div>
+                <div key={key} className="border-r border-wi-line last:border-r-0">
+                  <div className="bg-[var(--color-wi-row-alt)] border-b border-wi-line px-3 py-2">
+                    <div className="text-sm font-semibold text-[var(--color-wi-text)]">{dateLabel}</div>
+                    <div className="text-xs text-[var(--color-wi-text-light)]">{items.length} session(s)</div>
                   </div>
                   <div className="p-2 space-y-2">
                     {items.length === 0 ? (
-                      <div className="text-xs text-gray-400 px-1 py-3">No sessions</div>
+                      <div className="text-xs text-[var(--color-wi-text-light)] px-1 py-3">No sessions</div>
                     ) : (
                       items.map((s) => {
                         const course = courseById.get(s.course_id);
@@ -870,10 +870,10 @@ export default function Schedule() {
                         const startLabel = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
                         const endLabel = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
                         return (
-                          <div key={s.id} className="w-full text-left border border-gray-200 rounded-sm px-2 py-2 hover:bg-gray-50">
-                            <div className="text-xs font-mono text-gray-600">{startLabel}–{endLabel}</div>
-                            <div className="text-sm text-gray-900 font-semibold">{inlineLabel}</div>
-                            <div className="text-xs text-gray-600">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? teacher.username : s.teacher_id}</div>
+                          <div key={s.id} className="w-full text-left border border-wi-line rounded-sm px-2 py-2 hover:bg-[var(--color-wi-row-alt)]">
+                            <div className="text-xs font-mono text-[var(--color-wi-text-light)]">{startLabel}–{endLabel}</div>
+                            <div className="text-sm text-[var(--color-wi-text)] font-semibold">{inlineLabel}</div>
+                            <div className="text-xs text-[var(--color-wi-text-light)]">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? (teacher.full_name || teacher.username) : s.teacher_id}</div>
                             {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-xs font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
                             <SessionActions
                               session={s} cancelingId={cancelingId}
@@ -933,7 +933,7 @@ export default function Schedule() {
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
           <caption className="sr-only">Schedule</caption>
           <thead>
-            <tr className="border-b-2 border-gray-300">
+            <tr className="border-b border-wi-line">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Start</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">End</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
@@ -948,12 +948,12 @@ export default function Schedule() {
               const isInlineEditing = inlineEditSession?.id === s.id;
               return (
                 <Fragment key={s.id}>
-                  <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{formatUTCToZone(s.start_at, zone, "EEE d MMM yy HH:mm") ?? s.start_at}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{formatUTCToZone(s.end_at, zone, "EEE d MMM yy HH:mm") ?? s.end_at}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{label}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-gray-600">{teacherById.get(s.teacher_id)?.username ?? s.teacher_id}</td>
+                  <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.start_at, zone, "EEE d MMM yy HH:mm") ?? s.start_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.end_at, zone, "EEE d MMM yy HH:mm") ?? s.end_at}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{label}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
+                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{teacherById.get(s.teacher_id)?.full_name || teacherById.get(s.teacher_id)?.username || s.teacher_id}</td>
                     <td className="py-2 px-2 text-right">
                       {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mr-2 text-xs font-medium text-amber-700 hover:underline">Impact open</Link> : null}
                       <SessionActions
@@ -969,7 +969,7 @@ export default function Schedule() {
                     </td>
                   </tr>
                   {isInlineEditing && (
-                    <tr key={`${s.id}-inline`} className="border-b border-gray-200 bg-gray-50">
+                    <tr key={`${s.id}-inline`} className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
                       <td colSpan={6} className="px-3 py-3">
                         <form aria-label={`Inline edit session ${label}`} className="space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
                           <SessionOccurrenceForm
@@ -1118,11 +1118,11 @@ export default function Schedule() {
                 <TypeaheadSelect value={seriesForm.teacher_id} onChange={(v) => setSeriesForm(prev => ({ ...prev, teacher_id: v }))} options={teacherOptions} placeholder="Search teacher…" />
               </FormField>
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-semibold">1</span>
+            <div className="flex items-center gap-2 text-xs text-[var(--color-wi-text-light)] mb-1">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[var(--color-wi-nav)] text-white text-[10px] font-semibold">1</span>
               <span>Course & Teacher</span>
-              <span className="text-gray-300 mx-1">→</span>
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-[10px] font-semibold">2</span>
+              <span className="text-[var(--color-wi-text-light)] mx-1">→</span>
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] text-[10px] font-semibold">2</span>
               <span>When & How Often</span>
             </div>
             <SeriesFormFields
@@ -1173,25 +1173,25 @@ export default function Schedule() {
           }
         >
           {editSeriesLoading || !editSeriesForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">
-              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+            <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
-                <div className="font-medium text-gray-800">Scope</div>
-                <div className="text-xs text-gray-700">Pivot date (Bangkok): <span className="font-mono">{editSeriesPivotDate}</span> (includes the selected occurrence)</div>
+              <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+                <div className="font-medium text-[var(--color-wi-text)]">Scope</div>
+                <div className="text-xs text-[var(--color-wi-text-light)]">Pivot date (Bangkok): <span className="font-mono">{editSeriesPivotDate}</span> (includes the selected occurrence)</div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <FormField name="es-course" label="Course (fixed)">
-                  <div className="px-2 py-1.5 text-sm border border-gray-200 rounded-sm bg-gray-50">{courseById.get(editSeriesForm.course_id)?.code ?? editSeriesForm.course_id}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{courseById.get(editSeriesForm.course_id)?.code ?? editSeriesForm.course_id}</div>
                 </FormField>
                 <FormField name="es-room" label="Room (fixed)">
-                  <div className="px-2 py-1.5 text-sm border border-gray-200 rounded-sm bg-gray-50">{editSeriesForm.room_id ? (roomById.get(editSeriesForm.room_id)?.name ?? editSeriesForm.room_id) : "[NOT SET]"}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{editSeriesForm.room_id ? (roomById.get(editSeriesForm.room_id)?.name ?? editSeriesForm.room_id) : "[NOT SET]"}</div>
                 </FormField>
                 <FormField name="es-teacher" label="Teacher (fixed)">
-                  <div className="px-2 py-1.5 text-sm border border-gray-200 rounded-sm bg-gray-50">{teacherById.get(editSeriesForm.teacher_id)?.username ?? editSeriesForm.teacher_id}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{teacherById.get(editSeriesForm.teacher_id)?.full_name || teacherById.get(editSeriesForm.teacher_id)?.username || editSeriesForm.teacher_id}</div>
                 </FormField>
               </div>
               <SeriesFormFields
@@ -1251,15 +1251,15 @@ export default function Schedule() {
           }
         >
           {editSeriesEntireLoading || !editSeriesEntireForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">
-              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+            <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
-                <div className="font-medium text-gray-800">Scope</div>
-                <div className="text-xs text-gray-700">Applies to future occurrences from (Bangkok): <span className="font-mono">{editSeriesEntireFromDate}</span></div>
+              <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+                <div className="font-medium text-[var(--color-wi-text)]">Scope</div>
+                <div className="text-xs text-[var(--color-wi-text-light)]">Applies to future occurrences from (Bangkok): <span className="font-mono">{editSeriesEntireFromDate}</span></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <FormField name="ese-course_id" label="Course">
@@ -1356,32 +1356,32 @@ export default function Schedule() {
           }
         >
           {cancelSeriesLoading && !cancelSeriesForm ? (
-            <div className="py-6 text-center text-sm text-gray-400">
-              <span className="inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+            <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Scope</label>
+                  <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Scope</label>
                   <Select size="sm" value={cancelSeriesScope} onChange={(e) => setCancelSeriesScope(e.target.value as any)}>
                     <option value="this_and_future">This & future (includes selected occurrence)</option>
                     <option value="entire_series_future_only">Entire series (future only)</option>
                   </Select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Pivot date (Bangkok)</label>
+                  <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Pivot date (Bangkok)</label>
                   <input
                     type="date"
                     value={cancelSeriesPivotDate}
                     onChange={(e) => setCancelSeriesPivotDate(e.target.value)}
                     disabled={cancelSeriesScope !== "this_and_future"}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm disabled:bg-gray-50"
+                    className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm disabled:bg-[var(--color-wi-row-alt)]"
                   />
                 </div>
               </div>
-              <div className="text-xs text-gray-600">Uses optimistic concurrency; if someone changed the series, you'll get a stale edit and can retry.</div>
+              <div className="text-xs text-[var(--color-wi-text-light)]">Uses optimistic concurrency; if someone changed the series, you'll get a stale edit and can retry.</div>
             </div>
           )}
         </Modal>

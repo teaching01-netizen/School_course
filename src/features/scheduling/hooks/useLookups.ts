@@ -49,7 +49,7 @@ export default function useLookups(): Lookups {
     [courses]
   );
   const teacherOptions = useMemo(
-    () => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.username })),
+    () => teachers.map((t) => ({ value: t.id, label: t.full_name || t.username, keywords: `${t.full_name || ""} ${t.username}` })),
     [teachers]
   );
 

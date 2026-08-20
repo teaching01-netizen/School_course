@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { apiJson, ApiRequestError } from "@/api/client";
+import { loadStudentProfile } from "@/features/absences/api/absenceFormApi";
+import {
+  clearStudentSessionHint,
+  hasStudentSessionHint,
+  markStudentSessionHint,
+} from "@/features/absences/storage/studentResumeStorage";
 import OtpInput from "./OtpInput";
 import SmsSendButton from "./SmsSendButton";
 import type { ParentVerificationResponse } from "@/types";
@@ -15,7 +21,10 @@ type VerificationStore = {
 
 type StepCoverVerificationProps = {
   wcode: string;
+  lookupToken: string;
+  parentVerificationAvailable?: boolean;
   parentPhone?: string | null;
+  online?: boolean;
   smsParentEnabled?: boolean;
   adminContact?: { email: string; phone: string; hours: string };
   verification: VerificationStore;
@@ -31,10 +40,12 @@ function isRetryable(err: unknown): boolean {
   }
   return err instanceof TypeError;
 }
-
 export default function StepCoverVerification({
   wcode,
+  lookupToken,
+  parentVerificationAvailable,
   parentPhone,
+  online = true,
   smsParentEnabled = true,
   verification,
   completed,
@@ -42,6 +53,7 @@ export default function StepCoverVerification({
   onRestart,
   onRestored,
 }: StepCoverVerificationProps) {
+  const verificationAvailable = parentVerificationAvailable ?? Boolean(parentPhone);
   const [session, setSession] = useState<ParentVerificationResponse | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
@@ -67,11 +79,15 @@ export default function StepCoverVerification({
       setRestoreError(null);
       return;
     }
+    if (!online) {
+      setRestoreError("You're offline. Reconnect to validate saved verification.");
+      return;
+    }
     const controller = new AbortController();
     setRestoreError(null);
     void apiJson<ParentVerificationResponse>(
-      `/api/v1/absences/parent-verification/${encodeURIComponent(verification.token)}`,
-      { method: "GET", signal: controller.signal },
+      "/api/v1/absences/parent-verification/status",
+      { method: "POST", body: JSON.stringify({ token: verification.token }), signal: controller.signal },
     )
       .then((response) => {
         if (controller.signal.aborted) return;
@@ -93,16 +109,52 @@ export default function StepCoverVerification({
         setRestoreError("Could not validate saved verification. Check your connection and try again.");
       });
     return () => controller.abort();
-  }, [verification.token, wcode, validationAttempt, onRestart, onRestored]);
+  }, [verification.token, wcode, online, validationAttempt, onRestart, onRestored]);
+
+  useEffect(() => {
+    if (
+      verification.token
+      || completed
+      || !wcode
+      || !online
+      || !hasStudentSessionHint()
+    ) {
+      return;
+    }
+    let active = true;
+    setRestoreError(null);
+    void loadStudentProfile()
+      .then((profile) => {
+        if (!active) return;
+        if (profile.wcode !== wcode) {
+          clearStudentSessionHint();
+          setRestoreError("Your verified session belongs to a different Student ID. Verify this Student ID again.");
+          onRestart();
+          return;
+        }
+        onRestored();
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
+          clearStudentSessionHint();
+          return;
+        }
+        setRestoreError("Could not restore your verified session. Check your connection and try again.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [verification.token, completed, wcode, online, onRestart, onRestored]);
 
   useEffect(() => {
     const token = session?.token ?? verification.token;
-    if (!token || !deliveryPending) return;
+    if (!online || !token || !deliveryPending) return;
     const controller = new AbortController();
     const poll = window.setInterval(() => {
       void apiJson<ParentVerificationResponse>(
-        `/api/v1/absences/parent-verification/${encodeURIComponent(token)}`,
-        { method: "GET", signal: controller.signal },
+        "/api/v1/absences/parent-verification/status",
+        { method: "POST", body: JSON.stringify({ token }), signal: controller.signal },
       ).then((response) => {
         if (controller.signal.aborted) return;
         setSession(response);
@@ -115,20 +167,21 @@ export default function StepCoverVerification({
       controller.abort();
       window.clearInterval(poll);
     };
-  }, [session?.token, verification.token, deliveryPending]);
+  }, [session?.token, verification.token, deliveryPending, online]);
 
   useEffect(() => {
-    if (verified || isSending || isVerifying || !verification.token) return;
+    if (!online || verified || isSending || isVerifying || !verification.token) return;
     const normalized = verification.code.replace(/\D/g, "").slice(0, 6);
     if (normalized.length !== 6) { autoVerifyCodeRef.current = null; return; }
     if (autoVerifyCodeRef.current === normalized) return;
     autoVerifyCodeRef.current = normalized;
     void handleVerify();
-  }, [verification.code, verification.token, verified, isSending, isVerifying]);
+  }, [verification.code, verification.token, verified, isSending, isVerifying, online]);
 
   async function handleSend(startNewSession = false) {
-    if (!smsParentEnabled || !wcode || !parentPhone) return;
+    if (!online || !smsParentEnabled || !lookupToken || !verificationAvailable) return;
     if (startNewSession) {
+      clearStudentSessionHint();
       onRestart();
       setSession(null);
     }
@@ -139,7 +192,11 @@ export default function StepCoverVerification({
     try {
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/send", {
         method: "POST",
-        body: JSON.stringify({ wcode, ...(!startNewSession && verification.token ? { token: verification.token } : {}) }),
+        body: JSON.stringify(
+          startNewSession || !verification.token
+            ? { lookup_token: lookupToken }
+            : { token: verification.token },
+        ),
       });
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
@@ -159,7 +216,7 @@ export default function StepCoverVerification({
   }
 
   async function handleVerify() {
-    if (!verification.token || verification.code.length !== 6) return;
+    if (!online || !verification.token || verification.code.length !== 6) return;
     setIsVerifying(true);
     setVerifyError(null);
     setVerifyRetryable(false);
@@ -169,7 +226,9 @@ export default function StepCoverVerification({
         body: JSON.stringify({ token: verification.token, code: verification.code }),
       });
       setSession(response);
-      verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
+      markStudentSessionHint();
+      verification.clearStoredToken();
+      verification.setCode("");
       onSatisfied();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Verification failed";
@@ -181,9 +240,8 @@ export default function StepCoverVerification({
       setIsVerifying(false);
     }
   }
-
-  const parentMissing = !parentPhone || parentPhone.trim() === "";
-  const canSend = smsParentEnabled && !isSending && !isVerifying && !parentMissing && !verified;
+  const parentMissing = !verificationAvailable;
+  const canSend = online && smsParentEnabled && !isSending && !isVerifying && !parentMissing && !verified;
 
   if (verified) {
     return (
@@ -193,7 +251,8 @@ export default function StepCoverVerification({
           <button
             type="button"
             onClick={() => void handleSend(true)}
-            className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)]"
+            disabled={!online}
+            className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Send new code
           </button>
@@ -204,6 +263,11 @@ export default function StepCoverVerification({
 
   return (
     <div className="space-y-3">
+      {!online ? (
+        <p role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs font-medium text-[var(--color-wi-amber)]">
+          You're offline. Reconnect to send or verify the parent code.
+        </p>
+      ) : null}
       {!smsParentEnabled ? (
         <p role="alert" className="text-xs text-amber-600">
           Parent verification codes are currently unavailable.
@@ -313,7 +377,7 @@ export default function StepCoverVerification({
             autoFocus={sendCount > 0}
             label="Verification code"
           />
-          <p className="text-xs text-gray-500">Enter the 6-digit code sent to your parent's phone.</p>
+          <p className="text-xs text-[var(--color-wi-text-light)]">Enter the 6-digit code sent to your parent's phone.</p>
         </motion.div>
       ) : null}
 

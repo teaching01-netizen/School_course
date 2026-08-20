@@ -14,7 +14,7 @@ func TestUpdateLegacyLink_StoresId(t *testing.T) {
 	body := map[string]any{
 		"code":             fx.courseIDStr,
 		"name":             "test",
-		"legacy_course_id": "7090",
+		"legacy_course_id": "put-7090-" + fx.courseIDStr,
 	}
 	resp := doRequest(t, fx.server.URL, http.MethodPut, url, body)
 	if resp.StatusCode != http.StatusOK {
@@ -25,8 +25,8 @@ func TestUpdateLegacyLink_StoresId(t *testing.T) {
 	parseResponse(t, resp, &result)
 
 	legacyID, _ := result["legacy_course_id"].(string)
-	if legacyID != "7090" {
-		t.Errorf("expected legacy_course_id '7090', got '%v'", result["legacy_course_id"])
+	if legacyID != "put-7090-"+fx.courseIDStr {
+		t.Errorf("expected legacy_course_id %q, got '%v'", "put-7090-"+fx.courseIDStr, result["legacy_course_id"])
 	}
 
 	// Verify in DB directly
@@ -76,9 +76,11 @@ func TestUpdateLegacyLink_NonAdmin_Rejected(t *testing.T) {
 func TestGetCourse_ReturnsLegacyFields(t *testing.T) {
 	fx := setupTestServer(t)
 
-	// Set legacy fields in DB
+	// Set legacy fields in DB (unique legacy id: one legacy course maps to
+	// at most one local course).
+	legacyID := "get-7090-" + fx.courseIDStr
 	ctx := context.Background()
-	_, err := fx.dbpool.Exec(ctx, `UPDATE courses SET legacy_course_id = '7090', legacy_last_synced_at = NOW() WHERE id = $1`, fx.courseID)
+	_, err := fx.dbpool.Exec(ctx, `UPDATE courses SET legacy_course_id = $1, legacy_last_synced_at = NOW() WHERE id = $2`, legacyID, fx.courseID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,9 +94,9 @@ func TestGetCourse_ReturnsLegacyFields(t *testing.T) {
 	var result map[string]any
 	parseResponse(t, resp, &result)
 
-	legacyID, _ := result["legacy_course_id"].(string)
-	if legacyID != "7090" {
-		t.Errorf("expected legacy_course_id '7090', got '%v'", result["legacy_course_id"])
+	gotLegacyID, _ := result["legacy_course_id"].(string)
+	if gotLegacyID != legacyID {
+		t.Errorf("expected legacy_course_id %q, got '%v'", legacyID, result["legacy_course_id"])
 	}
 	lastSynced, _ := result["legacy_last_synced_at"].(string)
 	if lastSynced == "" {
@@ -105,9 +107,11 @@ func TestGetCourse_ReturnsLegacyFields(t *testing.T) {
 func TestListCourses_IncludesLegacyFlag(t *testing.T) {
 	fx := setupTestServer(t)
 
-	// Set legacy_course_id on the course
+	// Set legacy_course_id on the course (unique legacy id: one legacy
+	// course maps to at most one local course).
+	legacyID := "list-7090-" + fx.courseIDStr
 	ctx := context.Background()
-	_, err := fx.dbpool.Exec(ctx, `UPDATE courses SET legacy_course_id = '7090' WHERE id = $1`, fx.courseID)
+	_, err := fx.dbpool.Exec(ctx, `UPDATE courses SET legacy_course_id = $1 WHERE id = $2`, legacyID, fx.courseID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,9 +128,9 @@ func TestListCourses_IncludesLegacyFlag(t *testing.T) {
 	for _, c := range results {
 		if c["id"] == fx.courseIDStr {
 			found = true
-			legacyID, _ := c["legacy_course_id"].(string)
-			if legacyID != "7090" {
-				t.Errorf("expected legacy_course_id '7090' in list, got '%v'", c["legacy_course_id"])
+			gotLegacyID, _ := c["legacy_course_id"].(string)
+			if gotLegacyID != legacyID {
+				t.Errorf("expected legacy_course_id %q in list, got '%v'", legacyID, c["legacy_course_id"])
 			}
 			break
 		}

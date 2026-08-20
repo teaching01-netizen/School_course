@@ -26,6 +26,7 @@ import (
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/otp"
 	"warwick-institute/internal/smartsms"
+	"warwick-institute/internal/studentauth"
 )
 
 var (
@@ -156,6 +157,16 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 
 	return studentWCode
 }
+func lookupTokenForPendingStudent(t *testing.T, dbpool *pgxpool.Pool, wcode string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result, err := studentauth.NewService(dbpool).Lookup(ctx, wcode)
+	if err != nil {
+		t.Fatalf("create lookup token for %s: %v", wcode, err)
+	}
+	return result.LookupToken
+}
 
 // TestHandleParentVerificationSend_UpperCaseWCode_NormalizesToLowercase
 // verifies that sending an uppercase wcode to the parent verification send
@@ -172,6 +183,7 @@ func TestHandleParentVerificationSend_UpperCaseWCode_NormalizesToLowercase(t *te
 	suffix := uuid.New().String()[:8]
 
 	studentWCode := seedParentVerificationTestData(t, dbpool, q, suffix)
+	lookupToken := lookupTokenForPendingStudent(t, dbpool, studentWCode)
 
 	t.Setenv("OTP_HMAC_KEY", "test-hmac-key-parent-verify")
 	otpSvc, err := otp.NewService(dbpool, "test-hmac-key-parent-verify")
@@ -192,7 +204,7 @@ func TestHandleParentVerificationSend_UpperCaseWCode_NormalizesToLowercase(t *te
 
 	// Call with UPPERCASE wcode — should still find the student.
 	upperWCode := strings.ToUpper(studentWCode)
-	body := `{"wcode":"` + upperWCode + `"}`
+	body := `{"wcode":"` + upperWCode + `","lookup_token":"` + lookupToken + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", uuid.New().String())
@@ -234,6 +246,7 @@ func TestHandleParentVerificationSend_LowerCaseWCode_AlreadyNormalized(t *testin
 	suffix := uuid.New().String()[:8]
 
 	studentWCode := seedParentVerificationTestData(t, dbpool, q, suffix)
+	lookupToken := lookupTokenForPendingStudent(t, dbpool, studentWCode)
 
 	t.Setenv("OTP_HMAC_KEY", "test-hmac-key-parent-verify")
 	otpSvc, err := otp.NewService(dbpool, "test-hmac-key-parent-verify")
@@ -252,7 +265,7 @@ func TestHandleParentVerificationSend_LowerCaseWCode_AlreadyNormalized(t *testin
 		InstituteTZ: "Asia/Bangkok",
 	})
 
-	body := `{"wcode":"` + studentWCode + `"}`
+	body := `{"wcode":"` + studentWCode + `","lookup_token":"` + lookupToken + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", uuid.New().String())
@@ -291,6 +304,7 @@ func TestHandleParentVerificationSend_MixedCaseWCode_MixedWhitespace(t *testing.
 	suffix := uuid.New().String()[:8]
 
 	studentWCode := seedParentVerificationTestData(t, dbpool, q, suffix)
+	lookupToken := lookupTokenForPendingStudent(t, dbpool, studentWCode)
 
 	t.Setenv("OTP_HMAC_KEY", "test-hmac-key-parent-verify")
 	otpSvc, err := otp.NewService(dbpool, "test-hmac-key-parent-verify")
@@ -322,7 +336,7 @@ func TestHandleParentVerificationSend_MixedCaseWCode_MixedWhitespace(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := `{"wcode":"` + tt.input + `"}`
+			body := `{"wcode":"` + tt.input + `","lookup_token":"` + lookupToken + `"}`
 			req := httptest.NewRequest("POST", "/api/v1/absences/parent-verification/send", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", uuid.New().String())
@@ -340,4 +354,116 @@ func TestHandleParentVerificationSend_MixedCaseWCode_MixedWhitespace(t *testing.
 			}
 		})
 	}
+}
+
+func TestParentVerificationVerifyReplayBehavior(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	q := sqldb.New(dbpool)
+	suffix := uuid.NewString()[:8]
+	studentWCode := seedParentVerificationTestData(t, dbpool, q, "REPLAY"+suffix)
+
+	const hmacKey = "test-hmac-key-parent-verify"
+	t.Setenv("OTP_HMAC_KEY", hmacKey)
+	otpSvc, err := otp.NewService(dbpool, hmacKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, token, err := otpSvc.StartSession(context.Background(), studentWCode, "0812345678")
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	info, err := otpSvc.DecodeToken(token)
+	if err != nil {
+		t.Fatalf("DecodeToken: %v", err)
+	}
+	if _, err := otpSvc.VerifySession(context.Background(), token, code); err != nil {
+		t.Fatalf("initial VerifySession: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	Register(mux, httpdeps.Deps{
+		Log:                 slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Q:                   q,
+		DB:                  dbpool,
+		OTP:                 otpSvc,
+		StudentSelfService:  studentauth.NewService(dbpool),
+		StudentCookieSecure: false,
+		AppOrigin:           "",
+		InstituteTZ:         "Asia/Bangkok",
+	})
+
+	countStudentSessions := func() int {
+		t.Helper()
+		var sessionCount int
+		if err := dbpool.QueryRow(
+			context.Background(),
+			`SELECT count(*) FROM student_self_service_sessions WHERE verification_session_id = $1`,
+			info.SessionID,
+		).Scan(&sessionCount); err != nil {
+			t.Fatalf("count student sessions: %v", err)
+		}
+		return sessionCount
+	}
+	replayVerify := func() *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/parent-verification/verify",
+			strings.NewReader(`{"token":"`+token+`","code":"`+code+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	t.Run("verified replay reissues a student session", func(t *testing.T) {
+		recorder := replayVerify()
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
+		}
+		var response struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if response.Status != "verified" {
+			t.Fatalf("response status = %q, want verified", response.Status)
+		}
+		if !strings.Contains(recorder.Header().Get("Set-Cookie"), studentauth.CookieName(false)) {
+			t.Fatalf("replayed verification must re-issue the student session cookie, got headers %v", recorder.Header())
+		}
+		// Replaying a verified (not yet consumed) verification mints exactly
+		// one fresh session row — the setup verified via the service without
+		// creating a session, so the only session is the replayed one.
+		if got := countStudentSessions(); got != 1 {
+			t.Fatalf("student sessions after verified replay = %d, want 1", got)
+		}
+	})
+
+	t.Run("consumed replay is rejected without issuing a session", func(t *testing.T) {
+		absenceID := seedStudentAbsenceOwnership(t, dbpool, studentWCode, "pending")
+		if err := otpSvc.ConsumeSession(context.Background(), token, absenceID); err != nil {
+			t.Fatalf("ConsumeSession: %v", err)
+		}
+		recorder := replayVerify()
+		if recorder.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409; body = %s", recorder.Code, recorder.Body.String())
+		}
+		var response struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if response.Code != "already_verified" {
+			t.Fatalf("error code = %q, want already_verified", response.Code)
+		}
+		if got := countStudentSessions(); got != 1 {
+			t.Fatalf("student sessions after consumed replay = %d, want 1 (no new session)", got)
+		}
+	})
 }

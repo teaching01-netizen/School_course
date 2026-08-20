@@ -2,6 +2,7 @@ package crmhttp
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -56,12 +57,31 @@ func (s *crossStudyServer) handleAssignmentList(w http.ResponseWriter, r *http.R
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return
 	}
-	statusFilter := r.URL.Query().Get("status")
-	searchQuery := r.URL.Query().Get("q")
+	statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
+	searchQuery := s.a.SearchQuery(r.URL.Query().Get("q"))
 
-	items, err := s.cs.ListAssignmentsWithCourseInfo(r.Context(), statusFilter, searchQuery)
+	limit := int32(50)
+	offset := int32(0)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = int32(min(n, 100))
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = int32(n)
+		}
+	}
+
+	items, err := s.cs.ListAssignmentsWithCourseInfo(r.Context(), statusFilter, searchQuery, limit, offset)
 	if err != nil {
 		s.deps.Log.Error("cross-study list failed", "error", err)
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	total, err := s.cs.CountAssignments(r.Context(), statusFilter, searchQuery)
+	if err != nil {
+		s.deps.Log.Error("cross-study count failed", "error", err)
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
@@ -76,7 +96,9 @@ func (s *crossStudyServer) handleAssignmentList(w http.ResponseWriter, r *http.R
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"assignments":  items,
-		"total":        len(items),
+		"total":        total,
+		"offset":       offset,
+		"limit":        limit,
 		"review_count": reviewCount,
 	})
 }

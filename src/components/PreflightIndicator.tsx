@@ -6,7 +6,7 @@ import { conflictKindLabel, formatTimeRange, getRequestedLabel } from "@/types";
 
 const MAX_VISIBLE_CONFLICTS = 3;
 
-function conflictSuggestion(kind: string): string {
+export function conflictSuggestion(kind: string): string {
   switch (kind) {
     case "room_overlap": return "Try a different room or time slot";
     case "teacher_overlap": return "Choose a different teacher or adjust the time";
@@ -53,7 +53,7 @@ export type PreflightIndicatorProps = {
   requiredFields?: RequiredField[];
 };
 
-function getConflictItemLabel(
+export function getConflictItemLabel(
   conflict: { course_id: string; teacher_id: string; room_id: string | null },
   coursesById: Map<string, Course>,
   teachersById: Map<string, User>,
@@ -80,8 +80,8 @@ type PreflightBadgeProps = {
 
 export function PreflightBadge({ status, details, loading }: PreflightBadgeProps) {
   if (loading) return (
-    <span className="flex items-center gap-1 text-xs text-gray-500">
-      <span data-testid="preflight-spinner-badge" className="inline-block w-2.5 h-2.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+    <span className="flex items-center gap-1 text-xs text-[var(--color-wi-text-light)]">
+      <span data-testid="preflight-spinner-badge" className="inline-block w-2.5 h-2.5 border-2 border-wi-line border-t-transparent rounded-full animate-spin" aria-hidden="true" />
       Checking…
     </span>
   );
@@ -124,13 +124,13 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
   }, [details]);
 
   return (
-    <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+    <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
       <div className="flex items-center justify-between">
-        <div className="font-medium text-gray-800">Preflight</div>
+        <div className="font-medium text-[var(--color-wi-text)]">Preflight</div>
         <div aria-live="polite" aria-atomic="true">
           {preflight.loading ? (
-            <div className="flex items-center gap-1.5 text-gray-500">
-              <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+            <div className="flex items-center gap-1.5 text-[var(--color-wi-text-light)]">
+              <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 border-wi-line border-t-transparent rounded-full animate-spin" aria-hidden="true" />
               <span>Checking schedule…</span>
             </div>
           ) : status === "available" ? (
@@ -153,11 +153,11 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
             if (requiredFields) {
               const missingLabels = requiredFields.filter(f => !f.value).map(f => f.label);
               if (missingLabels.length > 0) {
-                return <div className="text-gray-500">Fill in: {missingLabels.join(", ")}</div>;
+                return <div className="text-[var(--color-wi-text-light)]">Fill in: {missingLabels.join(", ")}</div>;
               }
-              return <div className="text-gray-500">Checking required fields…</div>;
+              return <div className="text-[var(--color-wi-text-light)]">Checking required fields…</div>;
             }
-            return <div className="text-gray-500">Fill in course, teacher, and time to check availability</div>;
+            return <div className="text-[var(--color-wi-text-light)]">Fill in course, teacher, and time to check availability</div>;
           })()}
         </div>
       </div>
@@ -171,11 +171,11 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
       )}
 
       {occurrencesPlanned != null && (
-        <div className="mt-1 text-xs text-gray-700">Occurrences planned: {occurrencesPlanned}</div>
+        <div className="mt-1 text-xs text-[var(--color-wi-text-light)]">Occurrences planned: {occurrencesPlanned}</div>
       )}
 
       {details && (
-        <div className="mt-2 text-xs text-gray-700 space-y-2">
+        <div className="mt-2 text-xs text-[var(--color-wi-text-light)] space-y-2">
           {status === "available" && (
             <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
               <span className="font-medium text-green-800">No conflicts found</span>
@@ -208,19 +208,19 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                 Find Alternative Slots →
               </Link>
               <div className="mt-1">
-                <div className="font-semibold text-gray-600 text-[11px]">
+                <div className="font-semibold text-[var(--color-wi-text-light)] text-[11px]">
                   {isSeries ? "First blocked occurrence" : "Your requested time"}
                 </div>
-                <div className="text-gray-600">{formatTimeRange(details.requested.start_at, details.requested.end_at)}</div>
-                <div className="text-gray-600 mt-0.5">{getRequestedLabel(details.requested, coursesById, teachersById)}</div>
-                {details.requested.room_id && <div className="text-gray-600 mt-0.5">Room: {roomsById?.get(details.requested.room_id)?.name ?? details.requested.room_id}</div>}
+                <div className="text-[var(--color-wi-text-light)]">{formatTimeRange(details.requested.start_at, details.requested.end_at)}</div>
+                <div className="text-[var(--color-wi-text-light)] mt-0.5">{getRequestedLabel(details.requested, coursesById, teachersById)}</div>
+                {details.requested.room_id && <div className="text-[var(--color-wi-text-light)] mt-0.5">Room: {roomsById?.get(details.requested.room_id)?.name ?? details.requested.room_id}</div>}
               </div>
               {conflictCount > 0 && (
                 <div className="mt-2">
                   <button
                     type="button"
                     onClick={() => setConflictsManuallyToggled(prev => !prev)}
-                    className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                    className="flex items-center gap-1 text-xs font-semibold text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
                   >
                     <span className="inline-block w-2">{conflictsExpanded ? "\u25BE" : "\u25B8"}</span>
                     {conflictCount === 1
@@ -232,18 +232,18 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                   {conflictsExpanded && (
                     <ul className="list-disc pl-5 space-y-1 mt-1">
                       {(details.conflicts ?? []).slice(0, MAX_VISIBLE_CONFLICTS).map((c) => (
-                        <li key={c.session_id} className="text-gray-600">
+                        <li key={c.session_id} className="text-[var(--color-wi-text-light)]">
                           <Link
                             to={`/courses/${c.course_id}`}
                             className="font-medium text-red-700 hover:underline"
                           >
                             {getConflictItemLabel(c, coursesById, teachersById, roomsById)}
                           </Link>
-                          <span className="text-gray-600 ml-1">({formatTimeRange(c.start_at, c.end_at)})</span>
+                          <span className="text-[var(--color-wi-text-light)] ml-1">({formatTimeRange(c.start_at, c.end_at)})</span>
                         </li>
                       ))}
                       {conflictCount > MAX_VISIBLE_CONFLICTS && (
-                        <li className="text-gray-500 italic">
+                        <li className="text-[var(--color-wi-text-light)] italic">
                           {details.total_conflicts !== undefined
                             ? `+${details.total_conflicts - MAX_VISIBLE_CONFLICTS} more`
                             : `+${conflictCount - MAX_VISIBLE_CONFLICTS} more conflicts`}
@@ -258,7 +258,7 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                   <button
                     type="button"
                     onClick={() => setStudentsExpanded(prev => !prev)}
-                    className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                    className="flex items-center gap-1 text-xs font-semibold text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
                   >
                     <span className="inline-block w-2">{studentsExpanded ? "\u25BE" : "\u25B8"}</span>
                     Affected students ({details.conflicting_students.length})
@@ -266,7 +266,7 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
                   {studentsExpanded && (
                     <ul className="list-disc pl-5 space-y-0.5 mt-1">
                       {details.conflicting_students.map((cs) => (
-                        <li key={cs.student_id} className="text-gray-600">
+                        <li key={cs.student_id} className="text-[var(--color-wi-text-light)]">
                           <span className="text-red-700">{cs.full_name}</span>
                           <span className={`ml-1 text-[10px] font-medium ${cs.status === "draft" ? "text-amber-600" : "text-green-600"}`}>
                             ({cs.status})

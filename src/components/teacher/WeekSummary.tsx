@@ -13,23 +13,23 @@ export default function WeekSummary({ totalSessions, totalAbsences, totalSitIns 
 
   return (
     <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
-      <span className="inline-flex items-center justify-center gap-1 rounded-sm border border-gray-200 px-2 py-1 text-[11px] text-gray-700 sm:justify-start">
-        <Calendar className="h-3 w-3 text-gray-400" />
+      <span className="inline-flex items-center justify-center gap-1 rounded-sm border border-wi-line px-2 py-1 text-[11px] text-[var(--color-wi-text-light)] sm:justify-start">
+        <Calendar className="h-3 w-3 text-[var(--color-wi-text-light)]" />
         {totalSessions} {totalSessions === 1 ? 'class' : 'classes'}
       </span>
       <span className={`inline-flex items-center justify-center gap-1 rounded-sm border px-2 py-1 text-[11px] sm:justify-start ${
-        totalAbsences > 0 ? 'border-red-200 text-red-700' : 'border-gray-200 text-gray-500'
+        totalAbsences > 0 ? 'border-red-200 text-red-700' : 'border-wi-line text-[var(--color-wi-text-light)]'
       }`}>
-        <AlertTriangle className={`h-3 w-3 ${totalAbsences > 0 ? 'text-red-500' : 'text-gray-300'}`} />
+        <AlertTriangle className={`h-3 w-3 ${totalAbsences > 0 ? 'text-red-500' : 'text-[var(--color-wi-text-light)]'}`} />
         {totalAbsences} {totalAbsences === 1 ? 'absence' : 'absences'}
       </span>
       <span className={`inline-flex items-center justify-center gap-1 rounded-sm border px-2 py-1 text-[11px] sm:justify-start ${
-        totalSitIns > 0 ? 'border-amber-200 text-amber-700' : 'border-gray-200 text-gray-500'
+        totalSitIns > 0 ? 'border-amber-200 text-amber-700' : 'border-wi-line text-[var(--color-wi-text-light)]'
       }`}>
-        <Users className={`h-3 w-3 ${totalSitIns > 0 ? 'text-amber-500' : 'text-gray-300'}`} />
+        <Users className={`h-3 w-3 ${totalSitIns > 0 ? 'text-amber-500' : 'text-[var(--color-wi-text-light)]'}`} />
         {totalSitIns} {totalSitIns === 1 ? 'visitor' : 'visitors'}
       </span>
-      <span className="inline-flex items-center justify-center gap-1 rounded-sm border border-gray-200 px-2 py-1 text-[11px] text-gray-700 sm:justify-start">
+      <span className="inline-flex items-center justify-center gap-1 rounded-sm border border-wi-line px-2 py-1 text-[11px] text-[var(--color-wi-text-light)] sm:justify-start">
         <CheckCircle className="h-3 w-3 text-green-500" />
         {attendanceRate}% attendance
       </span>

@@ -10,8 +10,8 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
   const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1);
 
   return (
-    <div className="rounded-sm border border-gray-200 bg-white p-3">
-      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+    <div className="rounded-sm border border-wi-line bg-white p-3">
+      <div className="text-xs font-medium text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
         Sit-In Level Map
       </div>
       <div className="flex flex-col items-center gap-0">
@@ -28,7 +28,7 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
                   className={`w-24 rounded-sm px-3 py-1.5 text-center text-sm font-medium border ${
                     isBottom
                       ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-gray-50 border-gray-200 text-gray-700"
+                      : "bg-[var(--color-wi-row-alt)] border-wi-line text-[var(--color-wi-text-light)]"
                   }`}
                 >
                   Level {level}
@@ -39,7 +39,7 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
                   </span>
                 )}
                 {!isBottom && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-[var(--color-wi-text-light)]">
                     {isTop && sitsInLower ? (
                       <span className="flex items-center gap-0.5 text-orange-600">
                         <ArrowDown className="w-3 h-3" />
@@ -51,7 +51,7 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
                         sits in Level {level + 1}
                       </span>
                     ) : (
-                      <span className="text-gray-400">no sit-in</span>
+                      <span className="text-[var(--color-wi-text-light)]">no sit-in</span>
                     )}
                   </span>
                 )}

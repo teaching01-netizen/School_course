@@ -71,7 +71,7 @@ func (s *server) handleGet(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-ucid, err := s.a.UUIDString(item.ID)
+	ucid, err := s.a.UUIDString(item.ID)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return

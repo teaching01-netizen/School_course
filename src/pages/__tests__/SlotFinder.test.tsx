@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SlotFinder from "../SlotFinder";
@@ -12,11 +12,31 @@ vi.mock("@/api/client", async () => {
   return { ...actual, apiJson: mockApiJson, findAvailableSlots: mockFindAvailableSlots };
 });
 
+const STUDENTS = [{ id: "s1", wcode: "W001", full_name: "Test Student" }];
+const SUBJECTS = [{ id: "sub-1", code: "MATH", name: "Math" }];
+const COURSES = [
+  { id: "c1", version: 1, code: "MATH-101", name: "Math", primary_teacher_id: "t1", subject_id: "sub-1", subject_code: "MATH", subject_name: "Math" },
+];
+const S1_COURSES = [
+  { id: "c1", code: "MATH-101", name: "Math", subject_code: "MATH", subject_name: "Math" },
+];
+
+beforeEach(() => {
+  mockApiJson.mockReset();
+  mockFindAvailableSlots.mockReset();
+  mockApiJson.mockImplementation(async (path: string) => {
+    if (path.startsWith("/api/v1/students?limit=")) return { items: STUDENTS, total_count: STUDENTS.length, offset: 0, limit: 200 };
+    if (path === "/api/v1/students/s1/courses") return S1_COURSES;
+    if (path === "/api/v1/courses") return COURSES;
+    if (path === "/api/v1/subjects") return SUBJECTS;
+    return [];
+  });
+  mockFindAvailableSlots.mockImplementation(async () => ({ slots: [] }));
+});
+
 describe("SlotFinder empty state", () => {
   it("shows EmptyState after search returns no slots", async () => {
-    mockApiJson.mockResolvedValueOnce([{ id: "s1", wcode: "W001", full_name: "Test Student" }]);
-    mockApiJson.mockResolvedValueOnce([{ id: "c1", code: "MATH", name: "Math" }]);
-    mockFindAvailableSlots.mockResolvedValueOnce({ slots: [] });
+    const user = userEvent.setup();
     render(
       <MemoryRouter>
         <ToastProvider>
@@ -25,17 +45,16 @@ describe("SlotFinder empty state", () => {
       </MemoryRouter>,
     );
 
-    const user = userEvent.setup();
-    // Wait for lookups to load
-    await waitFor(() => {
-      expect(screen.getByText("W001 — Test Student")).toBeInTheDocument();
-    });
-    const selects = screen.getAllByRole("combobox");
-    // selects[0] = student, selects[1] = course
-    await user.selectOptions(selects[0], "s1");
-    await user.selectOptions(selects[1], "c1");
-    await user.click(screen.getByRole("button", { name: /find slots/i }));
+    // Wait for the student lookup to load, then pick the student.
+    await user.click(screen.getByRole("combobox", { name: "Student" }));
+    await user.click(await screen.findByRole("option", { name: "W001 — Test Student" }));
 
+    // Pick the subject; the search resolves to the student's MATH course.
+    await user.click(screen.getByRole("combobox", { name: "Subject" }));
+    await user.click(await screen.findByRole("option", { name: "MATH — Math" }));
+    await screen.findByText(/Searching MATH-101 · Math/);
+
+    await user.click(screen.getByRole("button", { name: /find slots/i }));
     expect(await screen.findByText(/No slots found in this range/)).toBeInTheDocument();
   });
 });

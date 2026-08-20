@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import CourseDetail from "../CourseDetail";
 import { ToastProvider } from "../../hooks/useToast";
@@ -43,14 +44,20 @@ describe("Course detail legacy sync", () => {
     });
   });
 
-  it("shows legacy section when course has legacy_course_id", async () => {
+  it("shows the legacy link popover when the course has legacy_course_id", async () => {
+    const user = userEvent.setup();
     renderCourseDetail();
-    const oldSystemLabel = await screen.findByText("Old System");
-    expect(oldSystemLabel).toBeInTheDocument();
+
+    // Resting state is just the icon; the management UI lives in the popover.
+    const linkButton = await screen.findByRole("button", { name: "Legacy system link" });
+    expect(linkButton).toBeInTheDocument();
+
+    await user.click(linkButton);
+
+    expect(screen.getByText("Old System")).toBeInTheDocument();
     expect(screen.getByText(/7090/)).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /open in old system/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "https://warwick.azurewebsites.net/Admin/Courses/Detail?id=7090");
-    expect(link).toHaveAttribute("target", "_blank");
+    expect(screen.getByText(/managed by the legacy sync service/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove link" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue refresh" })).toBeInTheDocument();
   });
 });

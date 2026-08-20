@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SitInTestPage from "../SitInTestPage";
@@ -53,6 +53,35 @@ describe("SitInTestPage", () => {
       if (path.includes("sessions-in-range")) return { subjects: [] };
       throw new Error(`Unmocked API call: ${path}`);
     });
+  });
+
+  it("disables Search and shows progress while the student lookup is pending", async () => {
+    const user = userEvent.setup();
+    let resolveLookup: () => void = () => {};
+    mockApiJson.mockImplementation(async (path: string) => {
+      if (path.includes("absence-form-config")) return FORM_CONFIG;
+      if (path.includes("student-lookup")) {
+        return new Promise((resolve) => {
+          resolveLookup = () => resolve(STUDENT);
+        });
+      }
+      if (path.includes("sessions-in-range")) return { subjects: [] };
+      throw new Error(`Unmocked API call: ${path}`);
+    });
+
+    renderWithProviders(<SitInTestPage />);
+
+    const searchButton = screen.getByRole("button", { name: "Search" });
+    await user.type(screen.getByPlaceholderText("e.g. W250389"), "W250389");
+    await user.click(searchButton);
+
+    // While the request is in flight the button must be disabled and show progress.
+    expect(screen.getByRole("button", { name: "..." })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+
+    await act(async () => { resolveLookup(); });
+
+    expect(await screen.findByRole("button", { name: "Search" })).toBeEnabled();
   });
 
   it("includes the configured 48-hour post-session window in session lookup", async () => {

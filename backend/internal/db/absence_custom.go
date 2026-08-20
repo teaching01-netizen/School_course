@@ -27,17 +27,21 @@ type StudentSubjectRow struct {
 	ActiveCourseID pgtype.UUID `json:"active_course_id"`
 }
 
+// active_course_id is the admin-configured course from subject_active_courses.
+// It is NULL when no active course has been set for the subject; it is never
+// derived from enrollment (MIN(uuid) would return an arbitrary course).
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
 		       COALESCE(s.email_crm, s.email_system) AS email,
 		       s.email_crm, s.email_system, s.nickname, s.school,
 		       sub.id, sub.code, sub.name,
-		       MIN(c.id::text)::uuid AS active_course_id
+		       MAX(sac.course_id::text)::uuid AS active_course_id
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
 		WHERE s.wcode = $1
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
@@ -300,7 +304,7 @@ func (q *Queries) AbsenceSitInsCreateWithSnapshot(
 			FROM inserted
 		`,
 			absenceID, input.SessionID, row.Version,
-			snapshotJSON, schemaVersion, capturedAtPg,
+			string(snapshotJSON), schemaVersion, capturedAtPg,
 		)
 		if err != nil {
 			return fmt.Errorf("insert sit-in assignment with snapshot: %w", err)

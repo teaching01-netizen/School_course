@@ -146,30 +146,30 @@ export default function SessionChanges() {
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div><PageHeading>Schedule Impact</PageHeading><p className="mt-1 text-sm text-gray-500">Resolve student arrangements affected by a schedule change. Times shown in Asia/Bangkok.</p></div>
+        <div><PageHeading>Schedule Impact</PageHeading><p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Resolve student arrangements affected by a schedule change. Times shown in Asia/Bangkok.</p></div>
         <Button variant="secondary" size="sm" loading={queue.refreshing || processing.refreshing || history.refreshing} onClick={() => { void queue.refetch(); void processing.refetch(); void history.refetch(); }}><RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />Refresh</Button>
       </div>
 
-      <nav className="mb-4 flex flex-wrap gap-1 border-b border-gray-200" aria-label="Schedule impact views">
-        {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setView(tab.id)} className={`border-b-2 px-3 py-2 text-sm font-medium ${view === tab.id ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]" : "border-transparent text-gray-600 hover:text-gray-900"}`}>{tab.label}{tab.id === "queue" && queue.data?.summary.need_attention ? <span className="ml-2 rounded-full bg-red-50 px-1.5 py-0.5 text-xs text-red-700">{queue.data.summary.need_attention}</span> : null}</button>)}
+      <nav className="mb-4 flex flex-wrap gap-1 border-b border-wi-line" aria-label="Schedule impact views">
+        {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setView(tab.id)} className={`border-b px-3 py-2 text-sm font-medium ${view === tab.id ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]" : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>{tab.label}{tab.id === "queue" && queue.data?.summary.need_attention ? <span className="ml-2 rounded-full bg-red-50 px-1.5 py-0.5 text-xs text-red-700">{queue.data.summary.need_attention}</span> : null}</button>)}
       </nav>
 
       {view === "queue" ? <>
         <section className="mb-4 flex flex-wrap items-center gap-3 text-sm">
-          <span className="font-medium text-gray-900">
+          <span className="font-medium text-[var(--color-wi-text)]">
             {queue.data?.summary.critical ?? 0} critical
           </span>
-          <span className="text-gray-400">·</span>
-          <span className="text-gray-700">
+          <span className="text-[var(--color-wi-text-light)]">·</span>
+          <span className="text-[var(--color-wi-text-light)]">
             {queue.data?.summary.need_attention ?? 0} total
           </span>
-          <span className="text-gray-400">·</span>
+          <span className="text-[var(--color-wi-text-light)]">·</span>
           <span className="text-amber-700">
             {queue.data?.summary.warnings ?? 0} warnings
           </span>
           {(queue.data?.summary.notification_failures ?? 0) > 0 ? (
             <>
-              <span className="text-gray-400">·</span>
+              <span className="text-[var(--color-wi-text-light)]">·</span>
               <span className="text-red-700">
                 {queue.data?.summary.notification_failures} notification failures
               </span>
@@ -177,8 +177,8 @@ export default function SessionChanges() {
           ) : null}
         </section>
         {queue.data && !queue.data.summary.notifications_configured ? <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><span>SMS and email templates are not configured. Decisions can be recorded, but students will not be notified automatically.</span><Link to="/admin/absence-settings" className="font-medium text-[var(--color-wi-primary)] hover:underline">Open notification settings</Link></section> : null}
-        <section className="mb-4 flex flex-wrap items-center gap-2 rounded-sm border border-gray-200 bg-white p-3">
-          <label className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-3 top-2 h-4 w-4 text-gray-400" aria-hidden="true" /><input ref={searchRef} value={queryText} onChange={(event) => updateParams({ q: event.target.value })} placeholder="Search student, course, session" className="w-full pl-9" aria-label="Search student, course, or session" /></label>
+        <section className="mb-4 flex flex-wrap items-center gap-2 rounded-sm border border-wi-line bg-white p-3">
+          <label className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-3 top-2 h-4 w-4 text-[var(--color-wi-text-light)]" aria-hidden="true" /><input ref={searchRef} value={queryText} onChange={(event) => updateParams({ q: event.target.value })} placeholder="Search student, course, session" className="w-full pl-9" aria-label="Search student, course, or session" /></label>
           <select value={severity} onChange={(event) => updateParams({ severity: event.target.value })} aria-label="Filter severity"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warnings</option></select>
           <select value={status} onChange={(event) => updateParams({ status: event.target.value })} aria-label="Filter issue status"><option value="all">All unresolved</option><option value="open">Open issues</option><option value="needs_review">Needs review</option></select>
           <Button variant="ghost" size="sm" onClick={() => setDensity((current) => current === "comfortable" ? "compact" : "comfortable")} aria-label={`Switch to ${density === "comfortable" ? "compact" : "comfortable"} queue`}><>{density === "comfortable" ? <Rows3 className="h-4 w-4" aria-hidden="true" /> : <LayoutList className="h-4 w-4" aria-hidden="true" />}</></Button>
@@ -186,7 +186,7 @@ export default function SessionChanges() {
         {queue.loading ? <LoadingSkeleton type="table" lines={6} /> : queue.error ? <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load Schedule Impact: {queue.error.message}</p> : <ImpactWorkQueue items={groupedItems} density={density} selectedID={focusedID} onOpen={(issue) => { setFocusedID(issue.id); setShortcutAction(null); setSelected(issue); }} />}
         {queue.data?.pagination && queue.data.pagination.total > limit ? (
           <nav className="mt-4 flex items-center justify-between text-sm" aria-label="Queue pagination">
-            <span className="text-gray-500">
+            <span className="text-[var(--color-wi-text-light)]">
               Showing {offset + 1}–{Math.min(offset + limit, queue.data.pagination.total)} of {queue.data.pagination.total}
             </span>
             <div className="flex gap-2">
@@ -238,32 +238,32 @@ function ProcessingView({ loading, items, error }: { loading: boolean; items: Im
   if (loading) return <LoadingSkeleton type="table" lines={4} />;
   if (error) return <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load processing changes: {error}</p>;
   if (items.length === 0) return (
-    <section className="rounded-sm border border-gray-200 bg-white p-8 text-center">
-      <h2 className="font-semibold text-gray-900">No impact analyses are processing</h2>
-      <p className="mt-1 text-sm text-gray-500">Completed changes are available in History.</p>
+    <section className="rounded-sm border border-wi-line bg-white p-8 text-center">
+      <h2 className="font-semibold text-[var(--color-wi-text)]">No impact analyses are processing</h2>
+      <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Completed changes are available in History.</p>
     </section>
   );
 
   return (
-    <section className="overflow-hidden rounded-sm border border-gray-200 bg-white">
-      <div className="divide-y divide-gray-100">
+    <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
+      <div className="divide-y divide-wi-line">
         {items.map((item) => {
           const isFailed = item.status === "failed";
           return (
             <div key={item.id} className="px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium text-gray-900">
+                <p className="font-medium text-[var(--color-wi-text)]">
                   {item.subject_name || "Schedule change"}
                 </p>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                   isFailed ? "bg-red-50 text-red-700"
                   : item.status === "processing" ? "bg-blue-50 text-blue-700"
-                  : "bg-gray-100 text-gray-600"
+                  : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                 }`}>
                   {item.status === "delayed_by_batch" ? "Waiting for batch" : item.status}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">
                 {isFailed
                   ? "Student arrangements may not have been checked."
                   : "Checking affected arrangements…"}
@@ -296,13 +296,13 @@ function HistoryView({ loading, items, error }: { loading: boolean; items: Histo
   if (error) return <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load history: {error}</p>;
 
   return (
-    <section className="overflow-hidden rounded-sm border border-gray-200 bg-white">
+    <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
       {items.length === 0 ? (
-        <p className="p-6 text-sm text-gray-500">No completed schedule changes have been recorded.</p>
+        <p className="p-6 text-sm text-[var(--color-wi-text-light)]">No completed schedule changes have been recorded.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-600">
+            <thead className="bg-[var(--color-wi-row-alt)] text-xs text-[var(--color-wi-text-light)]">
               <tr>
                 <th className="px-4 py-3 text-left">Changed</th>
                 <th className="px-4 py-3 text-left">Course</th>
@@ -311,23 +311,23 @@ function HistoryView({ loading, items, error }: { loading: boolean; items: Histo
                 <th className="px-4 py-3 text-left">Result</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-wi-line">
               {items.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                <tr key={item.id} className="hover:bg-[var(--color-wi-row-alt)]">
+                  <td className="px-4 py-3 text-[var(--color-wi-text-light)] whitespace-nowrap">
                     {formatBangkokDateTime(item.created_at, null)}
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">
+                  <td className="px-4 py-3 font-medium text-[var(--color-wi-text)]">
                     <Link to={`/operations/session-changes/${item.id}`} className="text-[var(--color-wi-primary)] hover:underline">
                       {item.new_course_subject || "Schedule change"}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                  <td className="px-4 py-3 text-[var(--color-wi-text-light)] whitespace-nowrap">
                     {formatBangkokDateTime(item.old_start_at, item.old_end_at)}
-                    <span className="px-1 text-gray-400">→</span>
+                    <span className="px-1 text-[var(--color-wi-text-light)]">→</span>
                     {formatBangkokDateTime(item.new_start_at, item.new_end_at)}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-600">
+                  <td className="px-4 py-3 text-right text-[var(--color-wi-text-light)]">
                     {item.open_issue_count + item.critical_issue_count > 0
                       ? item.open_issue_count + item.critical_issue_count
                       : "—"}

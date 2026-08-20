@@ -2,8 +2,10 @@ import { apiJson } from "@/api/client";
 import type {
   AbsenceFormConfig,
   ManagedAbsence,
+  PublicStudentLookupResponse,
   SessionsInRangeResponse,
   StudentLookupResponse,
+  VerifiedStudentProfile,
 } from "../types";
 import {
   DEFAULT_ADMIN_CONTACT,
@@ -16,19 +18,25 @@ export type AbsenceBatchCreateResponse = {
   items: ManagedAbsence[];
 };
 
-export type SessionsInRangeOptions = {
+export type StaffSessionsInRangeOptions = {
   courseIds?: string[];
   subjectIds?: string[];
   includeAllSubjects?: boolean;
-  satVerbalAfterPriority?: number;
   bypassTiming?: boolean;
+  satVerbalAfterPriority?: number;
+};
+
+export type StudentSessionsOptions = {
+  courseIds?: string[];
+  subjectIds?: string[];
+  satVerbalAfterPriority?: number;
 };
 
 export function sessionsInRangePath(
   wcode: string,
   dateFrom?: string,
   dateTo?: string,
-  options?: SessionsInRangeOptions,
+  options?: StaffSessionsInRangeOptions,
 ): string {
   const params = new URLSearchParams({ wcode });
   if (dateFrom) params.set("date_from", dateFrom);
@@ -39,6 +47,9 @@ export function sessionsInRangePath(
   if (options?.subjectIds && options.subjectIds.length > 0) {
     params.set("subject_ids", options.subjectIds.join(","));
   }
+  if (options?.bypassTiming) {
+    params.set("bypass_timing", "true");
+  }
   if (options?.includeAllSubjects) {
     params.set("include_all_subjects", "true");
   }
@@ -48,10 +59,28 @@ export function sessionsInRangePath(
       String(options.satVerbalAfterPriority),
     );
   }
-  if (options?.bypassTiming) {
-    params.set("bypass_timing", "true");
-  }
   return `/api/v1/absences/sessions-in-range?${params.toString()}`;
+}
+
+export function studentSessionsPath(
+  dateFrom?: string,
+  dateTo?: string,
+  options?: StudentSessionsOptions,
+): string {
+  const params = new URLSearchParams();
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  if (options?.courseIds && options.courseIds.length > 0) {
+    params.set("course_ids", options.courseIds.join(","));
+  }
+  if (options?.subjectIds && options.subjectIds.length > 0) {
+    params.set("subject_ids", options.subjectIds.join(","));
+  }
+  if (options?.satVerbalAfterPriority !== undefined) {
+    params.set("sat_verbal_after_priority", String(options.satVerbalAfterPriority));
+  }
+  const query = params.toString();
+  return query ? `/api/v1/absence-self-service/sessions?${query}` : "/api/v1/absence-self-service/sessions";
 }
 
 export function normalizeAbsenceFormConfig(
@@ -70,9 +99,6 @@ export function normalizeAbsenceFormConfig(
     sms_special_approved_template:
       data.notifications?.sms_special_approved_template ??
       DEFAULT_NOTIFICATIONS.sms_special_approved_template,
-    allow_submit_without_otp:
-      data.notifications?.allow_submit_without_otp ??
-      DEFAULT_NOTIFICATIONS.allow_submit_without_otp,
     email_success_enabled:
       data.notifications?.email_success_enabled ??
       DEFAULT_NOTIFICATIONS.email_success_enabled,
@@ -105,12 +131,35 @@ export async function loadAbsenceFormConfig(): Promise<AbsenceFormConfig> {
   return normalizeAbsenceFormConfig(data);
 }
 
-export function lookupStudentByWcode(wcode: string): Promise<StudentLookupResponse> {
-  const params = new URLSearchParams();
-  params.set("wcode", wcode);
+export function lookupStudentByWcode(wcode: string): Promise<PublicStudentLookupResponse> {
+  return apiJson<PublicStudentLookupResponse>(
+    "/api/v1/absence-self-service/lookup",
+    { method: "POST", body: JSON.stringify({ wcode }) },
+  );
+}
+
+export function loadStudentProfile(): Promise<VerifiedStudentProfile> {
+  return apiJson<VerifiedStudentProfile>("/api/v1/absence-self-service/me", {
+    method: "GET",
+  });
+}
+
+export function lookupStaffStudentByWcode(wcode: string): Promise<StudentLookupResponse> {
   return apiJson<StudentLookupResponse>(
-    `/api/v1/absences/student-lookup?${params.toString()}`,
+    `/api/v1/admin/absences/student-lookup?wcode=${encodeURIComponent(wcode)}`,
     { method: "GET" },
+  );
+}
+
+export function loadStudentSessions(
+  dateFrom?: string,
+  dateTo?: string,
+  init?: Pick<RequestInit, "signal">,
+  options?: StudentSessionsOptions,
+): Promise<SessionsInRangeResponse> {
+  return apiJson<SessionsInRangeResponse>(
+    studentSessionsPath(dateFrom, dateTo, options),
+    { method: "GET", ...init },
   );
 }
 
@@ -119,7 +168,7 @@ export function loadSessionsInRange(
   dateFrom?: string,
   dateTo?: string,
   init?: Pick<RequestInit, "signal">,
-  options?: SessionsInRangeOptions,
+  options?: StaffSessionsInRangeOptions,
 ): Promise<SessionsInRangeResponse> {
   return apiJson<SessionsInRangeResponse>(
     sessionsInRangePath(wcode, dateFrom, dateTo, options),
@@ -129,20 +178,16 @@ export function loadSessionsInRange(
 
 export async function submitAbsenceBatch(input: {
   idempotencyKey: string;
-  wcode: string;
   email?: string;
   reason: string;
-  verificationToken?: string;
   items: AbsenceBatchCreateItem[];
 }): Promise<AbsenceBatchCreateResponse> {
   const request: RequestInit = {
     method: "POST",
     headers: { "Idempotency-Key": input.idempotencyKey },
     body: JSON.stringify({
-      wcode: input.wcode,
       email: input.email,
       reason: input.reason,
-      verification_token: input.verificationToken,
       items: input.items,
     }),
   };

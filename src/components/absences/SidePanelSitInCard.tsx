@@ -32,7 +32,7 @@ export default function SidePanelSitInCard({ absence, onViewStudent }: SidePanel
     : getSitInLabel(absence);
 
   return (
-    <article className={`rounded-sm border border-gray-100 border-l-2 bg-white p-3 text-sm shadow-sm ${absenceInlineClasses(absence)}`}>
+    <article className={`rounded-sm border border-wi-line-soft border-l-2 bg-white p-3 text-sm shadow-sm ${absenceInlineClasses(absence)}`}>
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-xs font-bold text-white">
           {initials(absence)}
@@ -40,17 +40,17 @@ export default function SidePanelSitInCard({ absence, onViewStudent }: SidePanel
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
-              <p className="text-xs text-gray-500"><span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}</p>
+              <p className="truncate font-semibold text-[var(--color-wi-text)]">{getAbsenceStudentLabel(absence)}</p>
+              <p className="text-xs text-[var(--color-wi-text-light)]"><span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}</p>
             </div>
             <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClasses(absence.status)}`}>
               {titleCase(absence.status)}
             </span>
           </div>
-          <p className="mt-2 text-xs text-gray-700"><span className="font-semibold">Sit-in:</span> → {sessionDetail}</p>
+          <p className="mt-2 text-xs text-[var(--color-wi-text-light)]"><span className="font-semibold">Sit-in:</span> → {sessionDetail}</p>
           <div className="mt-2 flex flex-wrap gap-1">
-            <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-600">{getSitInLabel(absence)}</span>
-            <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-600">{absence.sit_in_method ?? "pending"}</span>
+            <span className="rounded-full border border-wi-line bg-white px-2 py-0.5 text-[10px] text-[var(--color-wi-text-light)]">{getSitInLabel(absence)}</span>
+            <span className="rounded-full border border-wi-line bg-white px-2 py-0.5 text-[10px] text-[var(--color-wi-text-light)]">{absence.sit_in_method ?? "pending"}</span>
           </div>
           <div className="mt-3 flex items-center justify-between gap-2">
             <button
@@ -63,7 +63,7 @@ export default function SidePanelSitInCard({ absence, onViewStudent }: SidePanel
             <Link
               to={`/absences/${absence.id}`}
               aria-label={`View details for ${getAbsenceStudentLabel(absence)}`}
-              className="text-xs font-medium text-gray-600 hover:text-gray-900"
+              className="text-xs font-medium text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
             >
               View details
             </Link>

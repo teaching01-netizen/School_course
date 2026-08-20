@@ -47,8 +47,8 @@ export default function SessionOccurrenceForm({
 
   return (
     <>
-      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
+      <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Course & Teacher</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <FormField name={`${prefix}course_id`} label="Course" error={err.course_id} touched={tch.course_id} required>
             {courseReadonlyLabel ? (
@@ -57,7 +57,7 @@ export default function SessionOccurrenceForm({
                 size="sm"
                 value={courseReadonlyLabel}
                 readOnly
-                className="bg-gray-50 text-gray-600"
+                className="bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
               />
             ) : (
               <TypeaheadSelect
@@ -89,8 +89,8 @@ export default function SessionOccurrenceForm({
         </div>
       </div>
 
-      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Time</div>
+      <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Time</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <FormField name={`${prefix}start_local`} label="Start (local time)" error={err.start_local} touched={tch.start_local} required>
             <Input

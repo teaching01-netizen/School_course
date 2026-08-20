@@ -20,8 +20,56 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      name: "chromium-phone-small",
+      use: { ...devices["Pixel 5"], viewport: { width: 320, height: 844 } },
+    },
+    {
+      name: "chromium-phone-compact",
+      use: { ...devices["Pixel 5"], viewport: { width: 360, height: 800 } },
+    },
+    {
+      name: "chromium-phone-standard",
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "chromium-phone-large",
+      use: { ...devices["Pixel 7"], viewport: { width: 412, height: 915 } },
+    },
+    {
+      name: "chromium-phone-landscape",
+      use: { ...devices["Pixel 7"], viewport: { width: 844, height: 390 } },
+    },
+    {
+      name: "chromium-tablet-portrait",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 768, height: 1024 } },
+    },
+    {
+      name: "chromium-tablet-landscape",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 768 } },
+    },
+    {
+      name: "webkit-phone",
+      use: { ...devices["iPhone 13"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "webkit-tablet-portrait",
+      use: { ...devices["iPad (gen 11)"], viewport: { width: 768, height: 1024 } },
+    },
+    {
+      name: "webkit-tablet-landscape",
+      use: { ...devices["iPad (gen 11) landscape"], viewport: { width: 1024, height: 768 } },
+    },
+    {
+      name: "webkit-tablet-large",
+      use: { ...devices["iPad (gen 11)"], viewport: { width: 1024, height: 1366 } },
+    },
+    {
+      name: "firefox-phone",
+      use: { ...devices["Desktop Firefox"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "chromium-desktop",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
 });

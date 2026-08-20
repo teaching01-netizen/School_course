@@ -116,33 +116,33 @@ export function SitInRuleInventoryPage() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500">Manage sit-in eligibility rules that determine which students can attend which sessions.</p>
+        <p className="text-sm text-[var(--color-wi-text-light)]">Manage sit-in eligibility rules that determine which students can attend which sessions.</p>
         <Button variant="primary" size="sm" onClick={openCreate}>Create Rule</Button>
       </div>
 
       {rules.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-400">No rules configured.</p>
+        <p className="py-8 text-center text-sm text-[var(--color-wi-text-light)]">No rules configured.</p>
       ) : (
-        <div className="rounded-sm border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="rounded-sm border border-wi-line bg-white shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50/70 text-left text-gray-500">
+              <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)]/70 text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="px-4 py-2.5 font-medium">Name</th>
                 <th scope="col" className="px-4 py-2.5 font-medium">Type</th>
                 <th scope="col" className="px-4 py-2.5 font-medium">Description</th>
                 <th scope="col" className="px-4 py-2.5 font-medium text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-wi-line">
               {rules.map((rule) => (
-                <tr key={rule.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-2.5 font-medium text-gray-800">{rule.name}</td>
+                <tr key={rule.id} className="hover:bg-[var(--color-wi-row-alt)]/50">
+                  <td className="px-4 py-2.5 font-medium text-[var(--color-wi-text)]">{rule.name}</td>
                   <td className="px-4 py-2.5">
-                    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    <span className="inline-block rounded-full bg-[var(--color-wi-row-alt)] px-2 py-0.5 text-xs text-[var(--color-wi-text-light)]">
                       {RULE_TYPE_LABELS[rule.type]}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">{rule.description}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-wi-text-light)] max-w-xs truncate">{rule.description}</td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="secondary" size="sm" onClick={() => openEdit(rule.id)}>Edit</Button>
@@ -174,34 +174,34 @@ export function SitInRuleInventoryPage() {
             <RulePreviewPanel form={form} />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Name</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
                 placeholder="e.g. Level progression"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Type</label>
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as SitInRuleType })}
-                className="w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
               >
                 {RULE_TYPE_OPTIONS.map((t) => (
                   <option key={t} value={t}>{RULE_TYPE_LABELS[t]} — {RULE_TYPE_DESCRIPTIONS[t].description}</option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 {RULE_TYPE_DESCRIPTIONS[form.type].example}
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Predicate</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Predicate</label>
               <RulePredicateForm
                 ruleType={form.type}
                 predicate={form.predicate}
@@ -212,11 +212,11 @@ export function SitInRuleInventoryPage() {
             <RuleExampleSection form={form} />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Description</label>
               <textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
                 rows={3}
                 placeholder="Describe what this rule does"
               />
@@ -239,7 +239,7 @@ export function SitInRuleInventoryPage() {
             </>
           }
         >
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Are you sure you want to delete this rule? This action cannot be undone.
           </p>
         </Modal>

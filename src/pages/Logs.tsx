@@ -49,11 +49,11 @@ export default function Logs() {
       ) : items.length === 0 ? (
         <EmptyState message="No audit entries" />
       ) : (
-        <div className="border border-gray-200 rounded-sm overflow-x-auto">
+        <div className="border border-wi-line rounded-sm overflow-x-auto">
           <table className="w-full text-[13px] data-table">
             <caption className="sr-only">Audit log</caption>
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
+              <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Time</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Actor</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold">Action</th>
@@ -62,12 +62,12 @@ export default function Logs() {
             </thead>
             <tbody>
               {items.map((it) => (
-                <tr key={it.id} className="border-b border-gray-100 last:border-b-0 align-top">
-                  <td className="py-2 px-2 font-mono text-xs text-gray-600 whitespace-nowrap">{it.created_at}</td>
-                  <td className="py-2 px-2 font-mono text-xs text-gray-600">{it.actor_user_id ?? "—"}</td>
-                  <td className="py-2 px-2 text-gray-800 whitespace-nowrap">{it.action}</td>
+                <tr key={it.id} className="border-b border-wi-line-soft last:border-b-0 align-top">
+                  <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)] whitespace-nowrap">{it.created_at}</td>
+                  <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{it.actor_user_id ?? "—"}</td>
+                  <td className="py-2 px-2 text-[var(--color-wi-text)] whitespace-nowrap">{it.action}</td>
                   <td className="py-2 px-2">
-                    <pre className="text-[11px] bg-gray-50 border border-gray-200 rounded-sm p-2 overflow-auto max-h-40">
+                    <pre className="text-[11px] bg-[var(--color-wi-row-alt)] border border-wi-line rounded-sm p-2 overflow-auto max-h-40">
                       {JSON.stringify(it.payload ?? {}, null, 2)}
                     </pre>
                   </td>

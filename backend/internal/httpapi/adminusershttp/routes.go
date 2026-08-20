@@ -34,7 +34,7 @@ func (s *server) handleAdminUsersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeDeleted := strings.TrimSpace(r.URL.Query().Get("include_deleted")) == "true"
-	items, err := s.deps.Q.AdminUserList(r.Context(), sqldb.AdminUserListParams{IncludeDeleted: includeDeleted})
+	items, err := s.deps.Q.AdminUserList(r.Context(), sqldb.AdminUserListParams{IncludeDeleted: includeDeleted, Search: s.a.SearchQuery(r.URL.Query().Get("q"))})
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)

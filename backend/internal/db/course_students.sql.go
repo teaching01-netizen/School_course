@@ -214,7 +214,8 @@ func (q *Queries) CourseStudentsListDetailed(ctx context.Context, courseID pgtyp
 }
 
 const courseStudentsListDetailedWithStatus = `-- name: CourseStudentsListDetailedWithStatus :many
-SELECT s.id, s.wcode, s.full_name, s.notes, s.created_at, s.updated_at,
+SELECT s.id, s.wcode, s.full_name, s.notes, s.nickname, s.school, s.level, s.year,
+       s.student_phone, s.email, s.created_at, s.updated_at,
        cs.status
 FROM course_students cs
 JOIN students s ON s.id = cs.student_id
@@ -223,13 +224,19 @@ ORDER BY s.wcode ASC
 `
 
 type CourseStudentsListDetailedWithStatusRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Status    string             `json:"status"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	Email        pgtype.Text        `json:"email"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Status       string             `json:"status"`
 }
 
 func (q *Queries) CourseStudentsListDetailedWithStatus(ctx context.Context, courseID pgtype.UUID) ([]CourseStudentsListDetailedWithStatusRow, error) {
@@ -246,6 +253,12 @@ func (q *Queries) CourseStudentsListDetailedWithStatus(ctx context.Context, cour
 			&i.Wcode,
 			&i.FullName,
 			&i.Notes,
+			&i.Nickname,
+			&i.School,
+			&i.Level,
+			&i.Year,
+			&i.StudentPhone,
+			&i.Email,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Status,

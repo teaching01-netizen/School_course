@@ -37,7 +37,6 @@ const MOCK_CONFIG = {
     sms_parent_enabled: true,
     sms_parent_template: "template",
     sms_success_template: "success template",
-    allow_submit_without_otp: true,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -46,15 +45,22 @@ const MOCK_CONFIG = {
   },
 };
 
-const MOCK_STUDENT = {
-  student_id: "s1",
+const MOCK_LOOKUP = {
   wcode: "W250389",
-  full_name: "John Smith",
-  parent_phone: "+66812345678",
+  lookup_token: "opaque-lookup-token",
+  email_input_required: false,
+  parent_verification_available: true,
+};
+
+const MOCK_PROFILE = {
+  wcode: "W250389",
+  display_name: "Student",
+  email_on_file: true,
   subjects: [
     { id: "subj-1", code: "MATH", name: "Mathematics" },
   ],
 };
+
 
 function mockApiByPattern(routes: Record<string, unknown>) {
   mockApiJson.mockImplementation(async (url: string, _init?: RequestInit) => {
@@ -115,8 +121,9 @@ async function completeVerification(user: ReturnType<typeof userEvent.setup>) {
 async function setupForm(sessions: SubjectSessions[]) {
   mockApiByPattern({
     "absence-form-config": MOCK_CONFIG,
-    "student-lookup": MOCK_STUDENT,
-    "sessions-in-range": { subjects: sessions },
+    "absence-self-service/lookup": MOCK_LOOKUP,
+    "absence-self-service/me": MOCK_PROFILE,
+    "absence-self-service/sessions": { subjects: sessions },
     "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
     "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
     "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -130,7 +137,7 @@ async function setupForm(sessions: SubjectSessions[]) {
   await user.clear(input);
   await user.type(input, "W250389");
   await user.click(screen.getByRole("button", { name: /search/i }));
-  await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
   await continueToVerification(user);
   await completeVerification(user);
@@ -433,8 +440,8 @@ describe("AbsenceForm - 20% session limit", () => {
         ...MOCK_CONFIG,
         sit_in: { ...MOCK_CONFIG.sit_in, max_sessions_per_absence: maxPerAbsence },
       };
-      const twoCourseStudent = {
-        ...MOCK_STUDENT,
+      const twoCourseProfile = {
+        ...MOCK_PROFILE,
         subjects: [
           { id: "subj-1", code: "MATH", name: "Mathematics" },
           { id: "subj-2", code: "PHY", name: "Physics" },
@@ -442,8 +449,9 @@ describe("AbsenceForm - 20% session limit", () => {
       };
       mockApiByPattern({
         "absence-form-config": configSmallMax,
-        "student-lookup": twoCourseStudent,
-        "sessions-in-range": { subjects: sessions },
+        "absence-self-service/lookup": MOCK_LOOKUP,
+        "absence-self-service/me": twoCourseProfile,
+        "absence-self-service/sessions": { subjects: sessions },
         "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -456,7 +464,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.clear(input);
       await user.type(input, "W250389");
       await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -586,8 +594,9 @@ describe("AbsenceForm - 20% session limit", () => {
       };
       mockApiByPattern({
         "absence-form-config": configHighMax,
-        "student-lookup": MOCK_STUDENT,
-        "sessions-in-range": { subjects: sessions },
+        "absence-self-service/lookup": MOCK_LOOKUP,
+        "absence-self-service/me": MOCK_PROFILE,
+        "absence-self-service/sessions": { subjects: sessions },
         "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -600,7 +609,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.clear(input);
       await user.type(input, "W250389");
       await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -658,8 +667,9 @@ describe("AbsenceForm - 20% session limit", () => {
       };
       mockApiByPattern({
         "absence-form-config": configMax2,
-        "student-lookup": MOCK_STUDENT,
-        "sessions-in-range": { subjects: sessions },
+        "absence-self-service/lookup": MOCK_LOOKUP,
+        "absence-self-service/me": MOCK_PROFILE,
+        "absence-self-service/sessions": { subjects: sessions },
         "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -672,7 +682,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.clear(input);
       await user.type(input, "W250389");
       await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -762,8 +772,9 @@ describe("AbsenceForm - 20% session limit", () => {
       };
       mockApiByPattern({
         "absence-form-config": configMax3,
-        "student-lookup": MOCK_STUDENT,
-        "sessions-in-range": { subjects: sessions },
+        "absence-self-service/lookup": MOCK_LOOKUP,
+        "absence-self-service/me": MOCK_PROFILE,
+        "absence-self-service/sessions": { subjects: sessions },
         "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
         "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -776,7 +787,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.clear(input);
       await user.type(input, "W250389");
       await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);

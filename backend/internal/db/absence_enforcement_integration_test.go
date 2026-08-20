@@ -133,7 +133,7 @@ func TestEnforceAbsenceSitInsSnapshot_InsertExactRequiresAllColumns(t *testing.T
 	_, err = dbpool.Exec(ctx, `
 		INSERT INTO absence_sit_ins (absence_id, session_id, session_snapshot_at_assignment, snapshot_quality)
 		VALUES ($1, $2, $3, 'exact')
-	`, absence.ID, sessionID, snapJSON)
+	`, absence.ID, sessionID, string(snapJSON))
 	if err == nil {
 		t.Fatal("expected error inserting with quality=exact but missing schema_version")
 	}
@@ -194,7 +194,7 @@ func TestEnforceAbsenceSitInsSnapshot_InsertExactSucceedsWithAllColumns(t *testi
 			snapshot_captured_at, snapshot_quality, snapshot_source
 		)
 		VALUES ($1, $2, $3, 1, $4, 'exact', 'captured_at_assignment')
-	`, absence.ID, sessionID, snapJSON, capturedAt)
+	`, absence.ID, sessionID, string(snapJSON), capturedAt)
 	if err != nil {
 		t.Fatalf("expected insert with full snapshot to succeed, got: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestEnforceAbsenceSitInsSnapshot_UpdateRejectsSnapshotChange(t *testing.T) 
 		    snapshot_schema_version = 1,
 		    snapshot_captured_at = now()
 		WHERE id = $1 AND snapshot_quality = $2
-	`, rowID, "unavailable", snapJSON)
+	`, rowID, "unavailable", string(snapJSON))
 	if err == nil {
 		t.Fatal("expected error updating snapshot_quality (immutability trigger should reject)")
 	}

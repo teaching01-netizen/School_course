@@ -82,6 +82,11 @@ export default function CalendarMonth({
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target;
+      // Let editors, form controls, and open dialogs handle their own keys.
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) {
+        return;
+      }
       if (e.key === 'ArrowLeft') { onPrevMonth(); e.preventDefault(); }
       if (e.key === 'ArrowRight') { onNextMonth(); e.preventDefault(); }
       if (e.key === 't' || e.key === 'T') { handleToday(); e.preventDefault(); }
@@ -98,16 +103,16 @@ export default function CalendarMonth({
             type="button"
             aria-label="Previous month"
             onClick={onPrevMonth}
-            className="flex h-11 w-11 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100 sm:h-6 sm:w-6"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <h2 className="whitespace-nowrap text-[14px] font-bold text-gray-900 sm:text-[16px]">{monthLabel}</h2>
+          <h2 className="whitespace-nowrap text-[14px] font-bold text-[var(--color-wi-text)] sm:text-[16px]">{monthLabel}</h2>
           <button
             type="button"
             aria-label="Next month"
             onClick={onNextMonth}
-            className="flex h-11 w-11 items-center justify-center rounded-sm border border-gray-200 text-gray-500 hover:bg-gray-100 sm:h-6 sm:w-6"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
@@ -116,39 +121,38 @@ export default function CalendarMonth({
           type="button"
           aria-label="Go to today"
           onClick={handleToday}
-          className="flex min-h-11 items-center gap-1.5 rounded-sm border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-700 hover:bg-gray-100 sm:min-h-0"
+          className="flex min-h-11 items-center gap-1.5 rounded-sm border border-wi-line px-3 py-1.5 text-[12px] font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:min-h-0"
         >
           Today
-          <kbd className="hidden sm:inline-flex items-center rounded-sm border border-gray-300 bg-white px-1 py-0.5 text-[10px] font-mono text-gray-400">T</kbd>
+          <kbd className="hidden sm:inline-flex items-center rounded-sm border border-wi-line bg-white px-1 py-0.5 text-[10px] font-mono text-[var(--color-wi-text-light)]">T</kbd>
         </button>
       </div>
 
-      <div className="mb-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
+      <div className="mb-3 flex items-center justify-center gap-3 text-[11px] text-[var(--color-wi-text-light)]">
         <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-red-500" />
+          <span className="h-2 w-2 rounded-full bg-[var(--color-wi-red)]" />
           Has absences
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          <span className="h-2 w-2 rounded-full bg-[var(--color-wi-amber)]" />
           Has sit-ins
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-green-500" />
+          <span className="h-2 w-2 rounded-full bg-[var(--color-wi-green)]" />
           All OK
         </span>
       </div>
 
-      <div className="mb-1.5 grid grid-cols-7 gap-0.5">
-        {DAY_NAMES.map((d) => (
-          <div key={d} className="py-1.5 text-center text-[10px] font-semibold uppercase tracking-normal text-gray-500 sm:text-[11px] sm:tracking-wider">
-            <span className="sm:hidden">{d.slice(0, 1)}</span><span className="hidden sm:inline">{d}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="space-y-0.5">
+      <div className="overflow-hidden rounded-sm border border-wi-line bg-white">
+        <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-normal text-[var(--color-wi-text-light)] sm:tracking-wider">
+          {DAY_NAMES.map((d) => (
+            <div key={d} className="py-1.5">
+              <span className="sm:hidden">{d.slice(0, 1)}</span><span className="hidden sm:inline">{d}</span>
+            </div>
+          ))}
+        </div>
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 gap-0.5">
+          <div key={wi} className="grid grid-cols-7">
             {week.map((day) => {
               const key = day.toFormat('yyyy-MM-dd');
               const daySessions = sessionsByDay.get(key) ?? [];

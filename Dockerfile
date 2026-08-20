@@ -17,6 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/migrate ./cmd/migrate
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/cleanup-idempotency ./cmd/cleanup-idempotency
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/cleanup-verification-sessions ./cmd/cleanup-verification-sessions
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/legacy-sync ./cmd/legacy-sync
 
 FROM gcr.io/distroless/base-debian12:nonroot
 WORKDIR /app
@@ -25,6 +26,7 @@ COPY --from=go-build /out/server ./server
 COPY --from=go-build /out/migrate ./migrate
 COPY --from=go-build /out/cleanup-idempotency ./cleanup-idempotency
 COPY --from=go-build /out/cleanup-verification-sessions ./cleanup-verification-sessions
+COPY --from=go-build /out/legacy-sync ./legacy-sync
 COPY backend/db/migrations ./db/migrations
 ENV STATIC_DIR=/app/dist
 EXPOSE 8080

@@ -140,7 +140,6 @@ export type AbsenceNotificationsSettings = {
   sms_parent_template: string;
   sms_success_template?: string;
   sms_special_approved_template?: string;
-  allow_submit_without_otp: boolean;
   email_success_enabled: boolean;
   email_success_subject: string;
   email_success_body: string;
@@ -190,6 +189,7 @@ export type StudentLookupSubject = {
   active_course_id?: string | null;
 };
 
+/** Legacy staff lookup shape. Public student lookup uses PublicStudentLookupResponse. */
 export type StudentLookupResponse = {
   student_id: string;
   wcode: string;
@@ -202,6 +202,26 @@ export type StudentLookupResponse = {
   email_system?: string | null;
   parent_phone?: string | null;
   subjects: StudentLookupSubject[];
+};
+
+export type PublicStudentLookupResponse = {
+  wcode: string;
+  lookup_token: string;
+  email_input_required: boolean;
+  parent_verification_available: boolean;
+};
+
+export type VerifiedStudentSubject = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type VerifiedStudentProfile = {
+  wcode: string;
+  display_name: string;
+  email_on_file: boolean;
+  subjects: VerifiedStudentSubject[];
 };
 
 export type ParentVerificationResponse = {

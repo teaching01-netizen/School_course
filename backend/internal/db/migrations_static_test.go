@@ -156,6 +156,38 @@ func TestCrossStudyWCodeRepairNormalizesReconnectAssignments(t *testing.T) {
 		t.Fatal("00072 must enforce case-insensitive cross-study assignment identity")
 	}
 }
+func TestAuthSessionTokenMigrationStoresOnlyHashAndKeepsLegacyRowsReadable(t *testing.T) {
+	sql := readMigration(t, "00085_auth_session_token_hash.sql")
+	for _, required := range []string{
+		"ADD COLUMN IF NOT EXISTS token_hash bytea",
+		"auth_sessions_token_hash_idx",
+		"WHERE token_hash IS NOT NULL",
+		"DROP COLUMN IF EXISTS token_hash",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("00085 must contain %q", required)
+		}
+	}
+	if strings.Contains(strings.ToLower(sql), "token text") {
+		t.Fatal("00085 must not add a raw token column")
+	}
+}
+
+func TestStudentAuthCleanupMigrationCleansOpaqueRows(t *testing.T) {
+	sql := readMigration(t, "00086_cleanup_student_self_service_rows.sql")
+	for _, required := range []string{
+		"CREATE OR REPLACE FUNCTION cleanup_stale_parent_verification_sessions()",
+		"DELETE FROM student_self_service_sessions",
+		"DELETE FROM student_self_service_lookup_tokens",
+		"expires_at <= now()",
+		"absolute_expires_at <= now()",
+		"revoked_at IS NOT NULL",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("00086 must contain %q", required)
+		}
+	}
+}
 
 func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
@@ -203,5 +235,33 @@ func TestCodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("walk %s: %v", root, err)
 		}
+	}
+}
+
+func TestSessionRestoreSupersedeMigration_CoversRestorePath(t *testing.T) {
+	sql := readMigration(t, "00093_session_restore_supersedes_soft_delete_impact.sql")
+
+	if !strings.Contains(sql, "OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL") {
+		t.Fatal("00093 must record restores in addition to soft deletes")
+	}
+	if !strings.Contains(sql, "jsonb_build_array('restored')") {
+		t.Fatal("00093 must mark the restore change with changed_fields ['restored']")
+	}
+	if !strings.Contains(sql, "sit_in_session_deleted") || !strings.Contains(sql, "missed_session_deleted") {
+		t.Fatal("00093 must supersede both deletion issue types")
+	}
+	if !strings.Contains(sql, "DROP TRIGGER IF EXISTS sessions_record_soft_delete_restore") {
+		t.Fatal("00093 must own a restore trigger")
+	}
+}
+
+func TestStudentImportControlMigration_AddsStudentEnabledColumn(t *testing.T) {
+	sql := readMigration(t, "00094_legacy_student_import.sql")
+
+	if !strings.Contains(sql, "ADD COLUMN student_enabled boolean NOT NULL DEFAULT false") {
+		t.Fatal("00094 must add student_enabled to legacy_sync_controls, defaulting to off")
+	}
+	if !strings.Contains(sql, "DROP COLUMN IF EXISTS student_enabled") {
+		t.Fatal("00094 Down must drop student_enabled")
 	}
 }

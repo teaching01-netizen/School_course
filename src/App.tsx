@@ -11,6 +11,7 @@ import { useUserScopedQueryCache } from "./query/useUserScopedQueryCache";
 
 const Login = lazy(() => import('./pages/Login'));
 const Home = lazy(() => import('./pages/Home'));
+const AssignRooms = lazy(() => import('./pages/AssignRooms'));
 const Courses = lazy(() => import('./pages/Courses'));
 const CourseCreate = lazy(() => import('./pages/CourseCreate'));
 const CourseDetail = lazy(() => import('./pages/CourseDetail'));
@@ -47,6 +48,8 @@ const EmailReminders = lazy(() => import('./pages/EmailReminders'));
 const SitInTestPage = lazy(() => import('./pages/SitInTestPage'));
 const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
 const TeacherAbsenceDetail = lazy(() => import('./pages/TeacherAbsenceDetail'));
+const LegacySyncHealth = lazy(() => import('./pages/LegacySyncHealth'));
+const LegacyAudit = lazy(() => import('./pages/LegacyAudit'));
 
 function AuthenticatedDataServices({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -80,47 +83,47 @@ function IndexRoute() {
   return <Home />;
 }
 
-function RequireAuth() {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="flex min-h-screen items-center justify-center">
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-white">
       <span className="sr-only">Loading...</span>
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+      <div className="flex items-center gap-3 text-[13px] text-[var(--color-wi-text-light)]">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-wi-line)] border-t-[var(--color-wi-primary)]" />
+        Loading…
+      </div>
     </div>
   );
+}
+
+function RequireAuth() {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   return <AppLayout />;
 }
 
 function RequireTeacherOrAdmin() {
   const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="flex min-h-screen items-center justify-center">
-      <span className="sr-only">Loading...</span>
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
-    </div>
-  );
+  if (loading) return <LoadingScreen />;
   if (user?.role === 'Teacher' || user?.role === 'Admin') return <Outlet />;
   return <Navigate to="/login" replace />;
 }
 
 function RequireAdmin() {
   const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="flex min-h-screen items-center justify-center">
-      <span className="sr-only">Loading...</span>
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
-    </div>
-  );
+  if (loading) return <LoadingScreen />;
   if (user?.role === 'Admin') return <Outlet />;
   if (!user) return <Navigate to="/login" replace />;
   return <Navigate to="/teacher-dashboard" replace />;
 }
 
 const loadingFallback = (
-  <div className="flex min-h-screen items-center justify-center">
+  <div className="flex min-h-screen items-center justify-center bg-white">
     <span className="sr-only">Loading...</span>
-    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+    <div className="flex items-center gap-3 text-[13px] text-[var(--color-wi-text-light)]">
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-wi-line)] border-t-[var(--color-wi-primary)]" />
+      Loading…
+    </div>
   </div>
 );
 
@@ -155,6 +158,7 @@ function App() {
                 <Route path="/classrooms" element={<Classrooms />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/schedule" element={<Schedule />} />
+                <Route path="/assign" element={<AssignRooms />} />
                 <Route path="/summary" element={<Summary />} />
                 <Route path="/availability" element={<Availability />} />
                 <Route path="/reports" element={<Reports />} />
@@ -178,6 +182,8 @@ function App() {
                 <Route path="/leave-policy" element={<LeavePolicy />} />
                 <Route path="/email-reminders" element={<EmailReminders />} />
                 <Route path="/admin/sit-in-test" element={<SitInTestPage />} />
+                <Route path="/admin/legacy-sync" element={<LegacySyncHealth />} />
+                <Route path="/admin/legacy-sync/audit" element={<LegacyAudit />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

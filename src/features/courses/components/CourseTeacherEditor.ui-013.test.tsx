@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CourseTeacherEditor } from "./CourseTeacherEditor";
 import type { EditableTeacher } from "../types";

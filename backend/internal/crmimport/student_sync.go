@@ -23,6 +23,7 @@ type studentRow struct {
 	FullName     string
 	Nickname     string
 	School       string
+	Level        string
 	PrimaryEmail string
 	StudentPhone string
 	ParentPhone  string
@@ -43,23 +44,28 @@ func NewStudentSyncService(db *pgxpool.Pool) *StudentSyncService {
 // It does NOT touch the notes field.
 func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pgtype.UUID) (int, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT DISTINCT ON (wcode)
-			wcode,
-			COALESCE(NULLIF(btrim(first_name), ''), '') ||
-			CASE
-				WHEN COALESCE(NULLIF(btrim(last_name), ''), '') != ''
-				THEN ' ' || btrim(last_name)
-				ELSE ''
-			END AS full_name,
-			COALESCE(NULLIF(btrim(nickname), ''), '') AS nickname,
-			COALESCE(NULLIF(btrim(secondary_school), ''), '') AS school,
-			COALESCE(NULLIF(btrim(primary_email), ''), '') AS primary_email,
-			COALESCE(NULLIF(btrim(mobile_phone), ''), '') AS student_phone,
-			COALESCE(NULLIF(btrim(parent_phone), ''), '') AS parent_phone
-		FROM crm_rows
-		WHERE snapshot_id = $1
-		  AND btrim(wcode) != ''
-		ORDER BY wcode, order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC
+		WITH merged AS (
+			SELECT
+				LOWER(BTRIM(wcode)) AS wcode,
+				(ARRAY_AGG(NULLIF(BTRIM(first_name), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(first_name), '') IS NOT NULL))[1] AS first_name,
+				(ARRAY_AGG(NULLIF(BTRIM(last_name), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(last_name), '') IS NOT NULL))[1] AS last_name,
+				(ARRAY_AGG(NULLIF(BTRIM(nickname), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(nickname), '') IS NOT NULL))[1] AS nickname,
+				(ARRAY_AGG(NULLIF(BTRIM(secondary_school), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(secondary_school), '') IS NOT NULL))[1] AS school,
+				(ARRAY_AGG(NULLIF(BTRIM(academic_level), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(academic_level), '') IS NOT NULL))[1] AS level,
+				(ARRAY_AGG(NULLIF(BTRIM(primary_email), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(primary_email), '') IS NOT NULL))[1] AS primary_email,
+				(ARRAY_AGG(NULLIF(BTRIM(mobile_phone), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(mobile_phone), '') IS NOT NULL))[1] AS student_phone,
+				(ARRAY_AGG(NULLIF(BTRIM(parent_phone), '') ORDER BY order_quote_updated_at DESC NULLS LAST, xlsx_row_number ASC, row_hash ASC) FILTER (WHERE NULLIF(BTRIM(parent_phone), '') IS NOT NULL))[1] AS parent_phone
+			FROM crm_rows
+			WHERE snapshot_id = $1
+			  AND NULLIF(BTRIM(wcode), '') IS NOT NULL
+			GROUP BY LOWER(BTRIM(wcode))
+		)
+		SELECT wcode,
+			COALESCE(first_name, '') || CASE WHEN COALESCE(last_name, '') <> '' THEN ' ' || last_name ELSE '' END AS full_name,
+			COALESCE(nickname, ''), COALESCE(school, ''), COALESCE(level, ''),
+			COALESCE(primary_email, ''), COALESCE(student_phone, ''), COALESCE(parent_phone, '')
+		FROM merged
+		ORDER BY wcode
 	`, snapshotID)
 	if err != nil {
 		return 0, fmt.Errorf("query snapshot students: %w", err)
@@ -69,7 +75,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 	var students []studentRow
 	for rows.Next() {
 		var sr studentRow
-		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.School, &sr.PrimaryEmail, &sr.StudentPhone, &sr.ParentPhone); err != nil {
+		if err := rows.Scan(&sr.WCode, &sr.FullName, &sr.Nickname, &sr.School, &sr.Level, &sr.PrimaryEmail, &sr.StudentPhone, &sr.ParentPhone); err != nil {
 			return 0, fmt.Errorf("scan student: %w", err)
 		}
 		sr.WCode = NormalizeWCode(sr.WCode)
@@ -103,7 +109,9 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 			ADD COLUMN IF NOT EXISTS email_crm text NULL,
 			ADD COLUMN IF NOT EXISTS email_system text NULL,
 			ADD COLUMN IF NOT EXISTS nickname text NULL,
-			ADD COLUMN IF NOT EXISTS school text NULL
+			ADD COLUMN IF NOT EXISTS school text NULL,
+			ADD COLUMN IF NOT EXISTS level text NULL,
+			ADD COLUMN IF NOT EXISTS year text NULL
 	`); err != nil {
 		return 0, fmt.Errorf("ensure students contact columns: %w", err)
 	}
@@ -127,6 +135,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 				full_name text NOT NULL,
 				nickname text NOT NULL DEFAULT '',
 				school text NOT NULL DEFAULT '',
+				level text NOT NULL DEFAULT '',
 				email_crm text NOT NULL DEFAULT '',
 				student_phone text NOT NULL DEFAULT '',
 				parent_phone text NOT NULL DEFAULT ''
@@ -138,7 +147,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		copyCount, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{"_sync_students"},
-			[]string{"wcode", "full_name", "nickname", "school", "email_crm", "student_phone", "parent_phone"},
+			[]string{"wcode", "full_name", "nickname", "school", "level", "email_crm", "student_phone", "parent_phone"},
 			pgx.CopyFromRows(studentCopies(batch)),
 		)
 		if err != nil {
@@ -147,12 +156,17 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 		_ = copyCount
 
 		res, err := tx.Exec(ctx, `
-			INSERT INTO students (wcode, full_name, notes, nickname, school, email_crm, student_phone, parent_phone)
-			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.school, ''), NULLIF(ss.email_crm, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
-			ON CONFLICT (wcode) DO UPDATE
-			SET full_name = EXCLUDED.full_name,
+			INSERT INTO students (wcode, full_name, notes, nickname, school, level, email_crm, student_phone, parent_phone)
+			SELECT ss.wcode, ss.full_name, '', NULLIF(ss.nickname, ''), NULLIF(ss.school, ''), NULLIF(ss.level, ''), NULLIF(ss.email_crm, ''), NULLIF(ss.student_phone, ''), NULLIF(ss.parent_phone, '') FROM _sync_students ss
+			ON CONFLICT (LOWER(wcode)) DO UPDATE
+			SET full_name = CASE
+			                  WHEN LOWER(BTRIM(EXCLUDED.full_name)) = LOWER(BTRIM(EXCLUDED.wcode))
+			                    THEN students.full_name
+			                  ELSE EXCLUDED.full_name
+			                END,
 			    nickname = CASE WHEN NULLIF(EXCLUDED.nickname, '') IS NOT NULL THEN EXCLUDED.nickname ELSE students.nickname END,
 			    school = CASE WHEN NULLIF(EXCLUDED.school, '') IS NOT NULL THEN EXCLUDED.school ELSE students.school END,
+			    level = CASE WHEN NULLIF(EXCLUDED.level, '') IS NOT NULL THEN EXCLUDED.level ELSE students.level END,
 			    email_crm = CASE WHEN NULLIF(EXCLUDED.email_crm, '') IS NOT NULL THEN EXCLUDED.email_crm ELSE students.email_crm END,
 			    student_phone = CASE WHEN NULLIF(EXCLUDED.student_phone, '') IS NOT NULL THEN EXCLUDED.student_phone ELSE students.student_phone END,
 			    parent_phone = CASE WHEN NULLIF(EXCLUDED.parent_phone, '') IS NOT NULL THEN EXCLUDED.parent_phone ELSE students.parent_phone END,
@@ -175,7 +189,7 @@ func (s *StudentSyncService) SyncFromSnapshot(ctx context.Context, snapshotID pg
 func studentCopies(students []studentRow) [][]any {
 	sources := make([][]any, len(students))
 	for i, s := range students {
-		sources[i] = []any{s.WCode, s.FullName, s.Nickname, s.School, s.PrimaryEmail, s.StudentPhone, s.ParentPhone}
+		sources[i] = []any{s.WCode, s.FullName, s.Nickname, s.School, s.Level, s.PrimaryEmail, s.StudentPhone, s.ParentPhone}
 	}
 	return sources
 }

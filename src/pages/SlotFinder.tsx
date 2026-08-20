@@ -1,12 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiJson, findAvailableSlots, type SlotFinderSlot } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
 import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
+import TypeaheadSelect from "../components/TypeaheadSelect";
+import { ConflictContextCard, parseConflictContext } from "../features/scheduling/components/ConflictContextCard";
+import { formatTimeRange } from "../features/scheduling/domain/time";
+import type { Course } from "../features/courses/types";
 
 type Student = { id: string; wcode: string; full_name: string };
-type Course = { id: string; code: string; name: string };
+export type Subject = { id: string; code: string; name: string };
+/** A course on the student's own list; carries subject code/name for resolution. */
+export type StudentCourse = {
+  id: string;
+  code: string;
+  name: string;
+  subject_code?: string | null;
+  subject_name?: string | null;
+};
+
+/**
+ * The course of a student that belongs to the chosen subject — that is the
+ * course the slot search runs against. Subject codes are the stable join key;
+ * the name is a fallback when the code differs.
+ */
+export function resolveSubjectCourse(studentCourses: StudentCourse[], subject: Subject | null): StudentCourse | null {
+  if (!subject) return null;
+  const byCode = studentCourses.find((c) => c.subject_code && c.subject_code === subject.code);
+  if (byCode) return byCode;
+  return studentCourses.find((c) => c.subject_name === subject.name) ?? null;
+}
 
 function conflictKindMeta(kind: string | undefined): { label: string; icon: string; color: string } {
   switch (kind) {
@@ -21,7 +46,7 @@ function conflictKindMeta(kind: string | undefined): { label: string; icon: stri
     case "room_availability":
       return { label: "Room not available", icon: "🚫", color: "text-rose-700" };
     default:
-      return { label: kind?.replace(/_/g, " ") ?? "Unknown conflict", icon: "⚠️", color: "text-gray-700" };
+      return { label: kind?.replace(/_/g, " ") ?? "Unknown conflict", icon: "⚠️", color: "text-[var(--color-wi-text-light)]" };
   }
 }
 
@@ -32,26 +57,48 @@ function yyyyMmDd(d: Date) {
 
 export default function SlotFinder() {
   const { addToast } = useToast();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const today = useMemo(() => new Date(), []);
+
+  // Carried over from the blocked availability strip ("Find alternative slots →").
+  const conflictContext = useMemo(() => parseConflictContext(searchParams), [searchParams]);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [studentId, setStudentId] = useState("");
-  const [courseId, setCourseId] = useState("");
-  const [startDate, setStartDate] = useState(yyyyMmDd(today));
-  const [endDate, setEndDate] = useState(yyyyMmDd(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)));
+  const [subjectId, setSubjectId] = useState("");
+  const [studentCourses, setStudentCourses] = useState<StudentCourse[]>([]);
+  const [studentCoursesLoading, setStudentCoursesLoading] = useState(false);
+  const [startDate, setStartDate] = useState(() => {
+    const requested = searchParams.get("start_at");
+    return requested ? yyyyMmDd(new Date(requested)) : yyyyMmDd(today);
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const requested = searchParams.get("start_at");
+    return requested
+      ? yyyyMmDd(new Date(new Date(requested).getTime() + 6 * 24 * 60 * 60 * 1000))
+      : yyyyMmDd(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000));
+  });
   const [slots, setSlots] = useState<SlotFinderSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
 
   const selectedStudent = useMemo(
-    () => students.find((s) => s.id === studentId),
+    () => students.find((s) => s.id === studentId) ?? null,
     [students, studentId]
   );
-  const selectedCourse = useMemo(
-    () => courses.find((c) => c.id === courseId),
-    [courses, courseId]
+  const selectedSubject = useMemo(
+    () => subjects.find((s) => s.id === subjectId) ?? null,
+    [subjects, subjectId]
+  );
+  // The single course the search runs against: the student's course in the
+  // chosen subject.
+  const resolvedCourse = useMemo(
+    () => resolveSubjectCourse(studentCourses, selectedSubject),
+    [studentCourses, selectedSubject]
   );
 
   const slotsByDate = useMemo(() => {
@@ -67,14 +114,65 @@ export default function SlotFinder() {
     return map;
   }, [slots]);
 
+  const coursesById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
+
+  // Apply the carried-over context once the lookups have loaded, so the search
+  // starts ready for the subject (and student) the user was dealing with.
+  useEffect(() => {
+    if (!conflictContext) return;
+    const requested = conflictContext.details.requested;
+    if (!studentId && conflictContext.studentId && students.some((s) => s.id === conflictContext.studentId)) {
+      setStudentId(conflictContext.studentId);
+    }
+    if (!subjectId) {
+      const carriedCourse = courses.find((c) => c.id === requested.course_id);
+      if (carriedCourse?.subject_id && subjects.some((s) => s.id === carriedCourse.subject_id)) {
+        setSubjectId(carriedCourse.subject_id);
+      }
+    }
+  }, [conflictContext, courses, subjects, students, studentId, subjectId]);
+
+  // The student's courses drive the subject → course resolution. A stale
+  // response from a previously selected student must not overwrite the new one.
+  useEffect(() => {
+    if (!studentId) {
+      setStudentCourses([]);
+      setStudentCoursesLoading(false);
+      return;
+    }
+    let stale = false;
+    setStudentCoursesLoading(true);
+    apiJson<StudentCourse[]>(`/api/v1/students/${encodeURIComponent(studentId)}/courses`, { method: "GET" })
+      .then((items) => {
+        if (stale) return;
+        setStudentCourses(items);
+        setStudentCoursesLoading(false);
+      })
+      .catch((err) => {
+        if (stale) return;
+        setStudentCourses([]);
+        setStudentCoursesLoading(false);
+        addToast("error", err instanceof Error ? err.message : "Failed to load the student's courses");
+      });
+    return () => {
+      stale = true;
+    };
+  }, [studentId, addToast]);
+
   const loadLookups = async () => {
     try {
-      const [s, c] = await Promise.all([
-        apiJson<Student[]>("/api/v1/students", { method: "GET" }),
+      // The students list endpoint always returns the paginated envelope
+      // ({ items, total_count, offset, limit }), never a bare array — ask
+      // for more than the default 50 so the searchable dropdown covers
+      // realistic rosters.
+      const [studentsRes, c, subjectsRes] = await Promise.all([
+        apiJson<{ items: Student[] }>("/api/v1/students?limit=200", { method: "GET" }),
         apiJson<Course[]>("/api/v1/courses", { method: "GET" }),
+        apiJson<Subject[]>("/api/v1/subjects", { method: "GET" }),
       ]);
-      setStudents(s);
+      setStudents(studentsRes.items);
       setCourses(c);
+      setSubjects(subjectsRes);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load lookup data");
     }
@@ -86,8 +184,8 @@ export default function SlotFinder() {
   }, []);
 
   const doSearch = async () => {
-    if (!studentId || !courseId) {
-      addToast("error", "Select a student and a course");
+    if (!studentId || !selectedSubject || !resolvedCourse) {
+      addToast("error", "Select a student and a subject with a course to search");
       return;
     }
     if (!startDate || !endDate) {
@@ -104,7 +202,7 @@ export default function SlotFinder() {
     try {
       const res = await findAvailableSlots({
         student_id: studentId,
-        course_id: courseId,
+        course_id: resolvedCourse.id,
         start_date: startDate,
         end_date: endDate,
         slot_duration_minutes: 60,
@@ -147,65 +245,104 @@ export default function SlotFinder() {
   return (
     <div>
       <PageHeading>Slot Finder</PageHeading>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-[var(--color-wi-text-light)] mb-4">
         Find available time slots for adding a student to a course. Slots show whether the student, course roster,
         and teacher are all free.
       </p>
 
+      {/* Reason the user arrived: carried from the blocked availability strip. */}
+      {conflictContext && (
+        <div className="mb-4">
+          <ConflictContextCard
+            context={conflictContext}
+            coursesById={coursesById}
+            onDismiss={() => navigate("/slot-finder", { replace: true })}
+          />
+        </div>
+      )}
+
       {/* Search Form */}
-      <div className="bg-gray-50 border border-gray-200 rounded-sm p-4 mb-6">
+      <div className="bg-[var(--color-wi-row-alt)] border border-wi-line rounded-sm p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Student</label>
-            <select
+            <label htmlFor="slot-finder-student" className="block text-xs text-[var(--color-wi-text-light)] mb-1">Student</label>
+            <TypeaheadSelect
+              id="slot-finder-student"
               value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-            >
-              <option value="">Select student…</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.wcode} — {s.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Course</label>
-            <select
-              value={courseId}
-              onChange={(e) => setCourseId(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
-            >
-              <option value="">Select course…</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Start date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+              onChange={setStudentId}
+              options={students.map((s) => ({
+                value: s.id,
+                label: `${s.wcode} — ${s.full_name}`,
+                keywords: `${s.wcode} ${s.full_name}`,
+              }))}
+              placeholder="Search student…"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">End date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+            <label htmlFor="slot-finder-subject" className="block text-xs text-[var(--color-wi-text-light)] mb-1">Subject</label>
+            <TypeaheadSelect
+              id="slot-finder-subject"
+              value={subjectId}
+              onChange={setSubjectId}
+              options={subjects.map((s) => ({
+                value: s.id,
+                label: `${s.code} — ${s.name}`,
+                keywords: `${s.code} ${s.name}`,
+              }))}
+              placeholder="Search subject…"
             />
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">
+              Start date
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+              />
+            </label>
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">
+              End date
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+              />
+            </label>
           </div>
         </div>
+
+        {/* The resolved course — what the search actually runs against. */}
+        {selectedSubject && (
+          <div className="mt-3 text-sm">
+            {resolvedCourse ? (
+              <p className="text-[var(--color-wi-text-light)]">
+                {`Searching ${resolvedCourse.code} · ${resolvedCourse.name}`}
+              </p>
+            ) : (
+              <p className="text-[var(--color-wi-text-light)]">
+                {!selectedStudent
+                  ? "Pick a student to find their course in this subject"
+                  : studentCoursesLoading
+                    ? "Loading the student's courses…"
+                    : `No ${selectedSubject.code} course on this student's list`}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 flex justify-end">
-          <Button variant="primary" size="md" onClick={doSearch} loading={loading}>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={doSearch}
+            loading={loading}
+            disabled={!selectedStudent || !selectedSubject || !resolvedCourse || loading}
+          >
             {loading ? "Scanning…" : "Find Slots"}
           </Button>
         </div>
@@ -213,7 +350,7 @@ export default function SlotFinder() {
 
       {/* Results */}
       {loading && (
-        <div className="py-8 text-center text-gray-400 text-sm">Scanning available slots…</div>
+        <div className="py-8 text-center text-[var(--color-wi-text-light)] text-sm">Scanning available slots…</div>
       )}
 
       {!loading && searched && slots.length === 0 && (
@@ -224,21 +361,21 @@ export default function SlotFinder() {
         <div>
           {/* Summary bar */}
           <div className="flex items-center gap-4 mb-4 text-sm">
-            <span className="text-gray-600">
+            <span className="text-[var(--color-wi-text-light)]">
               {slots.filter((s) => s.status === "provisional").length} provisional
             </span>
-            <span className="text-gray-600">
+            <span className="text-[var(--color-wi-text-light)]">
               {slots.filter((s) => s.status === "blocked").length} blocked
             </span>
-            {selectedStudent && selectedCourse && (
-              <span className="text-gray-500 ml-auto text-xs">
-                {selectedStudent.wcode} → {selectedCourse.code}
+            {selectedStudent && resolvedCourse && (
+              <span className="text-[var(--color-wi-text-light)] ml-auto text-xs">
+                {selectedStudent.wcode} → {resolvedCourse.code}
               </span>
             )}
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-4 mb-4 text-xs text-gray-600">
+          <div className="flex items-center gap-4 mb-4 text-xs text-[var(--color-wi-text-light)]">
             <span className="flex items-center gap-1">
               <span className="inline-block w-3 h-3 rounded-sm bg-amber-100 border border-amber-300" />
               Provisional — No room assigned
@@ -262,19 +399,19 @@ export default function SlotFinder() {
               const blockedCount = daySlots.filter((s) => s.status === "blocked").length;
 
               return (
-                <div key={dateStr} className="border border-gray-200 rounded-sm overflow-hidden">
-                  <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center justify-between">
+                <div key={dateStr} className="border border-wi-line rounded-sm overflow-hidden">
+                  <div className="bg-[var(--color-wi-row-alt)] border-b border-wi-line px-4 py-2 flex items-center justify-between">
                     <div>
-                      <span className="font-semibold text-gray-800">{dateStr}</span>
-                      <span className="text-gray-500 text-sm ml-2">{dayName}</span>
+                      <span className="font-semibold text-[var(--color-wi-text)]">{dateStr}</span>
+                      <span className="text-[var(--color-wi-text-light)] text-sm ml-2">{dayName}</span>
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-[var(--color-wi-text-light)]">
                       {provCount > 0 && <span className="text-amber-700 mr-2">{provCount} provisional</span>}
                       {blockedCount > 0 && <span className="text-red-600">{blockedCount} blocked</span>}
                       {provCount === 0 && blockedCount === 0 && <span>No slots</span>}
                     </div>
                   </div>
-                  <div className="divide-y divide-gray-100">
+                  <div className="divide-y divide-wi-line">
                     {daySlots.map((slot) => {
                       const slotKey = `${slot.date}_${slot.start_time}`;
                       const isBlocked = slot.status === "blocked";
@@ -289,7 +426,7 @@ export default function SlotFinder() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               {/* Time */}
-                              <span className="font-mono text-sm font-medium text-gray-800 min-w-[100px]">
+                              <span className="font-mono text-sm font-medium text-[var(--color-wi-text)] min-w-[100px]">
                                 {slot.start_time}–{slot.end_time}
                               </span>
                               {/* Status badge */}
@@ -313,7 +450,7 @@ export default function SlotFinder() {
                             {isBlocked && slot.conflicts && slot.conflicts.length > 0 && (
                               <button
                                 onClick={() => toggleExpanded(slotKey)}
-                                className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                                className="text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] underline underline-offset-2"
                               >
                                 {isExpanded ? "Hide details" : "Details"}
                               </button>
@@ -322,7 +459,7 @@ export default function SlotFinder() {
 
                           {/* Expanded conflict details */}
                           {isExpanded && isBlocked && slot.conflicts && slot.conflicts.length > 0 && (
-                            <div className="mt-2 ml-[100px] bg-red-50 border border-red-200 rounded-sm p-3 text-xs space-y-2">
+                            <div className="mt-2 ml-[100px] bg-red-50 border border-red-200 rounded-sm p-3 space-y-2">
                               <div className="font-medium text-red-800">
                                 {meta.icon} {meta.label}
                               </div>
@@ -330,35 +467,25 @@ export default function SlotFinder() {
                                 <div className="text-red-700">{slot.message}</div>
                               )}
                               <div>
-                                <div className="font-semibold text-gray-600 mb-1">
+                                <div className="font-semibold text-[var(--color-wi-text-light)] mb-1">
                                   Conflicting {slot.conflicts.length === 1 ? "session" : "sessions"}:
                                 </div>
                                 <ul className="space-y-1.5">
-                                  {slot.conflicts.map((c) => {
-                                    const startLocal = new Date(c.start_at).toLocaleString("en-GB", {
-                                      day: "numeric",
-                                      month: "short",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    });
-                                    const endLocal = new Date(c.end_at).toLocaleString("en-GB", {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    });
-                                    return (
-                                      <li key={c.session_id} className="text-gray-700 flex items-start gap-2">
-                                        <span className="text-gray-400 mt-0.5">•</span>
-                                        <span>
-                                          <span className="font-medium text-red-700">
-                                            {c.course_id.slice(0, 8)}…
-                                          </span>
-                                          <span className="text-gray-500">
-                                            {" "}— {startLocal}–{endLocal}
-                                          </span>
+                                  {slot.conflicts.map((c) => (
+                                    <li key={c.session_id} className="rounded-[4px] border border-red-100 bg-white/70 px-2 py-1">
+                                      <div className="flex items-baseline justify-between gap-2">
+                                        <span className="truncate text-xs font-semibold text-[var(--color-wi-red)]">
+                                          {coursesById.get(c.course_id)?.code ?? `${c.course_id.slice(0, 8)}…`}
                                         </span>
-                                      </li>
-                                    );
-                                  })}
+                                        <span className="shrink-0 font-mono text-[11px] text-[var(--color-wi-text-light)]">
+                                          {formatTimeRange(c.start_at, c.end_at)}
+                                        </span>
+                                      </div>
+                                      <p className="mt-0.5 truncate text-xs text-[var(--color-wi-text-light)]">
+                                        {c.teacher_id.slice(0, 8)}…{c.room_id ? <> · {c.room_id.slice(0, 8)}…</> : null}
+                                      </p>
+                                    </li>
+                                  ))}
                                 </ul>
                               </div>
                             </div>

@@ -123,16 +123,16 @@ export default function TypeaheadSelect(props: {
         }}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+        className="w-full rounded-sm border border-wi-line px-2.5 py-1.5 text-sm transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
       />
       {open && !disabled && (
         <div
           id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border border-gray-200 bg-white rounded-sm shadow animate-dropdown-enter"
+          className="notion-scrollbar animate-notion-popover-in absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-wi-line bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]"
         >
           {hasNoResults ? (
-            <div className="px-3 py-2 text-sm text-gray-400">No matches found</div>
+            <div className="px-3 py-2 text-sm text-[var(--color-wi-faint)]">No matches found</div>
           ) : (
             filtered.map((o, i) => (
               <button
@@ -146,9 +146,9 @@ export default function TypeaheadSelect(props: {
                   setOpen(false);
                 }}
                 onMouseEnter={() => setHighlightIndex(i)}
-                className={`w-full text-left px-2 py-2 text-sm ${
-                  i === highlightIndex ? "bg-blue-100" : "hover:bg-gray-50"
-                } ${o.value === value ? "bg-gray-50" : ""}`}
+                className={`w-full rounded-[4px] px-2 py-1.5 text-left text-sm transition-colors duration-150 ${
+                  i === highlightIndex ? "bg-[var(--color-wi-selected)]" : "hover:bg-[var(--color-wi-row-alt)]"
+                } ${o.value === value ? "bg-[var(--color-wi-row-alt)]" : ""}`}
               >
                 {o.label}
               </button>

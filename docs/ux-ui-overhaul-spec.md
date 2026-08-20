@@ -1,5 +1,7 @@
 # UX/UI Overhaul Specification
 
+> **SUPERSEDED (2026-08-19).** This specification predates the Notion-grade redesign and is retained for history only. Where it conflicts with the current system, the authoritative documents are [DESIGN.md](../../DESIGN.md) (tokens, shell metrics, radii, motion, navy rule) and [docs/superpowers/plans/2026-08-19-notion-grade-redesign.md](../superpowers/plans/2026-08-19-notion-grade-redesign.md) (phased execution plan). In particular: the dark navy top navigation bar has been replaced by the Notion-style sidebar + 44px topbar shell; radii and motion follow the new token set; color usage must reference the `wi-*` tokens.
+
 Date: 2026-05-27
 
 ## Scope

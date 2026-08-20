@@ -37,6 +37,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Info("verification session cleanup complete", "rows_deleted", deletedCount)
-	fmt.Printf("Cleaned up %d stale verification sessions\n", deletedCount)
+	log.Info("student auth cleanup complete", "rows_deleted", deletedCount)
+	fmt.Printf("Cleaned up %d expired student auth rows\n", deletedCount)
 }

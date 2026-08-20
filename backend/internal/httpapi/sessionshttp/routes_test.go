@@ -388,6 +388,54 @@ func TestScheduleDB_BulkUpdate_StaleEditRetainsItemStatus(t *testing.T) {
 	}
 }
 
+func TestScheduleDB_BulkUpdate_ClearsRoomWithNull(t *testing.T) {
+	f := newScheduleHTTPFixture(t)
+	session := f.createSession(t)
+	room, err := f.q.RoomCreate(context.Background(), sqldb.RoomCreateParams{Name: "ClearRoom-" + uuid.New().String()[:8], Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assign a room first through the same bulk-update endpoint.
+	assignBody := []byte(fmt.Sprintf(`{"updates":[{"id":%q,"expected_version":1,"room_id":%q}]}`,
+		uuidString(t, session.ID), uuidString(t, room.ID)))
+	status, response := serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions/bulk-update", uuid.New().String(), assignBody)
+	if status != http.StatusOK || !bytes.Contains(response, []byte(`"status":"updated"`)) {
+		t.Fatalf("assign response=(%d,%s), want updated", status, response)
+	}
+
+	// Clear the room with room_id:null.
+	clearBody := []byte(fmt.Sprintf(`{"updates":[{"id":%q,"expected_version":2,"room_id":null}]}`, uuidString(t, session.ID)))
+	status, response = serveMutation(t, f.mux, http.MethodPost, "/api/v1/sessions/bulk-update", uuid.New().String(), clearBody)
+	if status != http.StatusOK {
+		t.Fatalf("clear status=%d body=%s", status, response)
+	}
+	var got struct {
+		Results []struct {
+			ID      string         `json:"id"`
+			Status  string         `json:"status"`
+			Session map[string]any `json:"session"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(response)).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Status != "updated" {
+		t.Fatalf("results=%+v, want one updated item", got.Results)
+	}
+	if roomID, ok := got.Results[0].Session["room_id"]; !ok || roomID != nil {
+		t.Fatalf("session room_id=%v, want null", got.Results[0].Session["room_id"])
+	}
+
+	reloaded, err := f.q.SessionGetByID(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.RoomID.Valid {
+		t.Fatalf("session room_id=%v after clear, want NULL", reloaded.RoomID)
+	}
+}
+
 func TestRegister_GetSessions_BadStart_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, httpdeps.Deps{

@@ -17,7 +17,9 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
     body: form,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+    const err = await res
+      .json()
+      .catch(() => ({ error: { message: res.statusText } }));
     throw new Error(err?.error?.message ?? res.statusText);
   }
   return res.json();
@@ -38,7 +40,10 @@ export class ApiRequestError extends Error {
 async function readApiError(res: Response): Promise<ApiRequestError> {
   try {
     const body = (await res.json()) as Partial<ApiError>;
-    const msg = body && typeof body.message === "string" && body.message ? body.message : res.statusText || "Request failed";
+    const msg =
+      body && typeof body.message === "string" && body.message
+        ? body.message
+        : res.statusText || "Request failed";
     const code = body && typeof body.code === "string" ? body.code : undefined;
     const err = new ApiRequestError(msg, { code, status: res.status });
     if (body && "details" in body) err.details = body.details;
@@ -46,7 +51,9 @@ async function readApiError(res: Response): Promise<ApiRequestError> {
   } catch {
     // ignore
   }
-  return new ApiRequestError(res.statusText || "Request failed", { status: res.status });
+  return new ApiRequestError(res.statusText || "Request failed", {
+    status: res.status,
+  });
 }
 
 export async function findAvailableSlots(params: {
@@ -87,7 +94,10 @@ export type SlotFinderSlot = {
  */
 export function newIdempotencyKey(): string {
   // crypto.randomUUID() is available in modern browsers and Node 19+.
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   // Fallback: Math.random-based UUID v4 (not cryptographically strong, but sufficient for dedup).
@@ -102,11 +112,15 @@ export function newIdempotencyKey(): string {
  * Check if the given path is exempt from requiring an Idempotency-Key header.
  */
 export function isIdempotencyExempt(method: string, path: string): boolean {
-  // Auth endpoints (login/logout) and preflight/find-slots are exempt.
+  // Auth endpoints, read-only status checks, and preflight/find-slots are exempt.
   if (method === "GET") return true;
   if (path === "/api/v1/login" || path === "/api/v1/logout") return true;
-  if (path.startsWith("/api/v1/scheduling/preflight") || path === "/api/v1/scheduling/find-slots") return true;
-  if (path === "/api/v1/absences" || path === "/api/v1/absences/batch-status") return true;
+  if (path === "/api/v1/absences/batch-status") return true;
+  if (
+    path.startsWith("/api/v1/scheduling/preflight") ||
+    path === "/api/v1/scheduling/find-slots"
+  )
+    return true;
   // POST /api/v1/scheduling/apply is mutative (but it's an actual modification endpoint)
   // — it should have an idempotency key. Only exempt preflight.
   return false;
@@ -123,7 +137,7 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   // Build headers, adding Idempotency-Key for mutating requests that require it.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(init?.headers as Record<string, string> ?? {}),
+    ...((init?.headers as Record<string, string>) ?? {}),
   };
 
   if (!isIdempotencyExempt(method, path)) {
@@ -153,7 +167,11 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function downloadApiFile(path: string): Promise<void> {
-  const res = await fetch(path, { method: "GET", credentials: "include", cache: "no-store" });
+  const res = await fetch(path, {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+  });
   if (!res.ok) {
     throw await readApiError(res);
   }

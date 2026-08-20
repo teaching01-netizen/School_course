@@ -9,8 +9,8 @@ interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size">
 }
 
 const sizeClasses: Record<InputSize, string> = {
-  sm: "px-2 py-1 text-sm rounded-sm",
-  md: "px-3 py-2 text-sm rounded-sm",
+  sm: "px-2 py-1 text-sm",
+  md: "px-2.5 py-1.5 text-sm",
 };
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
@@ -18,10 +18,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <input
         ref={ref}
-        className={`w-full border transition-colors duration-150 placeholder:text-gray-400/60 focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 ${
+        className={`w-full rounded-sm border transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 ${
           error
             ? "border-[var(--color-wi-red)] focus:border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/15"
-            : "border-gray-300"
+            : "border-wi-line"
         } ${sizeClasses[size]} ${className}`}
         aria-invalid={error}
         aria-describedby={describedBy}

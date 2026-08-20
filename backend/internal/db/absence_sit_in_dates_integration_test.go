@@ -178,7 +178,21 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The time-overlapping sit-in session also needs a separate teacher: the
+	// sessions_no_teacher_overlap exclusion constraint would reject two
+	// sessions taught by the same teacher at overlapping times.
+	overlapTeacher, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "ov-teacher-b-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "OvRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The time-overlapping sit-in session needs a separate room: the
+	// sessions_no_room_overlap exclusion constraint would reject two sessions
+	// in one room at overlapping times regardless of course.
+	overlapRoom, err := q.RoomCreate(ctx, RoomCreateParams{Name: "OvRoomB-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +209,13 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createSession := func(courseID pgtype.UUID, start, end time.Time) pgtype.UUID {
+	createSession := func(courseID, sessionRoomID, sessionTeacherID pgtype.UUID, start, end time.Time) pgtype.UUID {
 		t.Helper()
 		session, err := q.SessionCreate(ctx, SessionCreateParams{
 			SeriesID:  pgtype.UUID{},
 			CourseID:  courseID,
-			RoomID:    room.ID,
-			TeacherID: teacher,
+			RoomID:    sessionRoomID,
+			TeacherID: sessionTeacherID,
 			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
 			EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
 		})
@@ -212,31 +226,31 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	}
 
 	// Missed class
-	createSession(missedCourse.ID,
+	createSession(missedCourse.ID, room.ID, teacher,
 		time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC),
 	)
-	fromSitInCourse := createSession(sitInCourse.ID,
+	fromSitInCourse := createSession(sitInCourse.ID, room.ID, teacher,
 		time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 1, 14, 0, 0, 0, time.UTC),
 	)
-	fromOtherCourse := createSession(otherCourse.ID,
+	fromOtherCourse := createSession(otherCourse.ID, room.ID, teacher,
 		time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC),
 	)
-	createSession(otherCourse.ID,
+	createSession(otherCourse.ID, room.ID, teacher,
 		time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 8, 20, 14, 0, 0, 0, time.UTC),
 	)
-	overlapping := createSession(sitInCourse.ID,
+	overlapping := createSession(sitInCourse.ID, overlapRoom.ID, overlapTeacher,
 		time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
 	)
-	earlierFinalDaySitInSession := createSession(sitInCourse.ID,
+	earlierFinalDaySitInSession := createSession(sitInCourse.ID, room.ID, teacher,
 		time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC),
 	)
-	finalSitInSession := createSession(sitInCourse.ID,
+	finalSitInSession := createSession(sitInCourse.ID, room.ID, teacher,
 		time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 8, 1, 14, 0, 0, 0, time.UTC),
 	)

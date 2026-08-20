@@ -12,6 +12,17 @@ SELECT id, course_id, room_id, teacher_id, institute_tz, weekdays, start_local_t
 FROM session_series
 WHERE id = $1;
 
+-- name: SeriesSourceGetByID :one
+SELECT source_kind, materialization_mode
+FROM session_series
+WHERE id = $1;
+
+-- name: SeriesSourceGetByIDForUpdate :one
+SELECT source_kind, materialization_mode
+FROM session_series
+WHERE id = $1
+FOR UPDATE;
+
 -- name: SeriesGetByIDForUpdate :one
 SELECT id, course_id, room_id, teacher_id, institute_tz, weekdays, start_local_time, duration_minutes, start_date, end_date, count, version, deleted_at, created_at, updated_at
 FROM session_series

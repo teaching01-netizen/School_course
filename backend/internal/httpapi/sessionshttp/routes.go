@@ -1,6 +1,7 @@
 package sessionshttp
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -34,6 +35,39 @@ func uuidOrNull(a httpadapter.Adapter, u pgtype.UUID) any {
 		return nil
 	}
 	return s
+}
+
+// roomIDFieldResult is the parsed intent of a room_id JSON field.
+type roomIDFieldResult struct {
+	clear bool         // JSON null: remove the room assignment.
+	set   *pgtype.UUID // non-nil: assign the given room.
+}
+
+// parseRoomIDField interprets a raw room_id JSON field with three distinct
+// states: absent (no change), null (clear the room), or a UUID string (assign
+// the room). encoding/json collapses both "absent" and "null" into a nil
+// **string, so a bare **string field cannot express "clear" — it silently
+// treated room_id:null as "no change" and reported a successful no-op update.
+// json.RawMessage preserves the raw tokens so the intent survives decoding.
+func (s *server) parseRoomIDField(raw json.RawMessage) (roomIDFieldResult, error) {
+	if len(raw) == 0 { // field absent
+		return roomIDFieldResult{}, nil
+	}
+	if string(raw) == "null" {
+		return roomIDFieldResult{clear: true}, nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return roomIDFieldResult{}, fmt.Errorf("room_id must be a uuid string, null, or omitted")
+	}
+	if value == "" { // empty string: no change (legacy contract)
+		return roomIDFieldResult{}, nil
+	}
+	parsed, err := s.a.ParseUUID(value)
+	if err != nil {
+		return roomIDFieldResult{}, fmt.Errorf("invalid room_id")
+	}
+	return roomIDFieldResult{set: &parsed}, nil
 }
 
 type server struct {
@@ -379,13 +413,13 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var body struct {
-		StartAt           *string  `json:"start_at"`
-		EndAt             *string  `json:"end_at"`
-		CourseID          *string  `json:"course_id"`
-		RoomID            **string `json:"room_id"`
-		TeacherID         *string  `json:"teacher_id"`
-		ExpectedVersion   *int32   `json:"expected_version"`
-		AcknowledgeImpact *bool    `json:"acknowledge_impact"`
+		StartAt           *string          `json:"start_at"`
+		EndAt             *string          `json:"end_at"`
+		CourseID          *string          `json:"course_id"`
+		RoomID            json.RawMessage  `json:"room_id"`
+		TeacherID         *string          `json:"teacher_id"`
+		ExpectedVersion   *int32           `json:"expected_version"`
+		AcknowledgeImpact *bool            `json:"acknowledge_impact"`
 		ImpactReason      string   `json:"impact_reason"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
@@ -438,16 +472,16 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		teacherIDPtr = &parsed
 	}
 	if body.RoomID != nil {
-		if *body.RoomID == nil {
+		res, err := s.parseRoomIDField(body.RoomID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_room_id", "Invalid room_id")
+			return
+		}
+		if res.clear {
 			parsed := pgtype.UUID{} // Valid=false => NULL
 			roomIDPtr = &parsed
-		} else if **body.RoomID != "" {
-			parsed, err := s.a.ParseUUID(**body.RoomID)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_room_id", "Invalid room_id")
-				return
-			}
-			roomIDPtr = &parsed
+		} else if res.set != nil {
+			roomIDPtr = res.set
 		} else {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_room_id", "Invalid room_id")
 			return
@@ -545,7 +579,7 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		if _, aErr := qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
 			ActorUserID: actorID,
 			Action:      "session.edit_occurrence",
-			Payload:     map[string]any{"id": r.PathValue("id"), "start_at": body.StartAt, "end_at": body.EndAt, "course_id": body.CourseID, "room_id": body.RoomID, "teacher_id": body.TeacherID},
+			Payload:     map[string]any{"id": r.PathValue("id"), "start_at": body.StartAt, "end_at": body.EndAt, "course_id": body.CourseID, "room_id": string(body.RoomID), "teacher_id": body.TeacherID},
 		}); aErr != nil {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "session_id", r.PathValue("id"))
 		}
@@ -586,10 +620,10 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 		Updates []struct {
 			ID              string   `json:"id"`
 			ExpectedVersion int32    `json:"expected_version"`
-			TeacherID       *string  `json:"teacher_id"`
-			RoomID          **string `json:"room_id"`
-			StartAt         *string  `json:"start_at"`
-			EndAt           *string  `json:"end_at"`
+			TeacherID       *string         `json:"teacher_id"`
+			RoomID          json.RawMessage `json:"room_id"`
+			StartAt         *string         `json:"start_at"`
+			EndAt           *string         `json:"end_at"`
 		} `json:"updates"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
@@ -648,16 +682,16 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 
 		var roomIDPtr *pgtype.UUID
 		if upd.RoomID != nil {
-			if *upd.RoomID == nil {
+			res, err := s.parseRoomIDField(upd.RoomID)
+			if err != nil {
+				results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: err.Error()})
+				continue
+			}
+			if res.clear {
 				cleared := pgtype.UUID{}
 				roomIDPtr = &cleared
-			} else if **upd.RoomID != "" {
-				parsed, err := s.a.ParseUUID(**upd.RoomID)
-				if err != nil {
-					results = append(results, bulkResult{ID: upd.ID, Status: "error", Error: "Invalid room_id"})
-					continue
-				}
-				roomIDPtr = &parsed
+			} else if res.set != nil {
+				roomIDPtr = res.set
 			}
 		}
 

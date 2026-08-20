@@ -62,7 +62,6 @@ const config = {
     sms_parent_template: "",
     sms_success_template: "",
     sms_special_approved_template: "",
-    allow_submit_without_otp: false,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -71,7 +70,21 @@ const config = {
   },
 };
 
-const sessions = {
+const publicLookup = {
+  wcode: studentLookup.wcode,
+  lookup_token: "lookup-token",
+  email_input_required: true,
+  parent_verification_available: true,
+};
+
+const studentProfile = {
+  wcode: studentLookup.wcode,
+  display_name: "John",
+  email_on_file: true,
+  subjects: studentLookup.subjects,
+};
+
+const sessionsInRange = {
   subjects: [
     {
       subject_id: "subject-math",
@@ -119,16 +132,19 @@ export async function installAbsenceRoutes(page: Page, submitted: SubmittedPaylo
   await page.route("**/api/v1/absence-form-config", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(config) }),
   );
-  await page.route("**/api/v1/absences/student-lookup**", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(studentLookup) }),
+  await page.route("**/api/v1/absence-self-service/lookup", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(publicLookup) }),
   );
-  await page.route("**/api/v1/absences/sessions-in-range**", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(sessions) }),
+  await page.route("**/api/v1/absence-self-service/me", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(studentProfile) }),
+  );
+  await page.route("**/api/v1/absence-self-service/sessions**", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(sessionsInRange) }),
   );
   await page.route("**/api/v1/absences/parent-verification/send", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(verification) }),
   );
-  await page.route("**/api/v1/absences/parent-verification/verification-token", (route) =>
+  await page.route("**/api/v1/absences/parent-verification/status", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(verification) }),
   );
   await page.route("**/api/v1/absences/parent-verification/verify", (route) =>

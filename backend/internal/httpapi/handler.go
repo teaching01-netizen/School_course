@@ -13,6 +13,7 @@ import (
 
 	"warwick-institute/internal/absences/sitinresolver"
 	"warwick-institute/internal/auth"
+	"warwick-institute/internal/clientip"
 	"warwick-institute/internal/config"
 	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/crmimport"
@@ -32,6 +33,7 @@ import (
 	"warwick-institute/internal/httpapi/crmhttp"
 	"warwick-institute/internal/httpapi/emailnotifierhttp"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/httpapi/legacysynchttp"
 	"warwick-institute/internal/httpapi/realtimehttp"
 	"warwick-institute/internal/httpapi/roomshttp"
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
@@ -53,6 +55,7 @@ import (
 	"warwick-institute/internal/series"
 	"warwick-institute/internal/sessionchangeimpact"
 	"warwick-institute/internal/smartsms"
+	"warwick-institute/internal/studentauth"
 	"warwick-institute/internal/users"
 )
 
@@ -136,11 +139,24 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	hasher := auth.NewArgon2PasswordHasher(cfg.AuthPepper)
 	sessionStore := auth.NewPGSessionStore(db, log)
 	userStore := auth.NewPGUserStore(db)
-
 	rlStore := ratelimit.NewStore(db)
-	loginLimiter := auth.NewDBLoginRateLimiter(&rateLimitAdapter{store: rlStore})
+	primaryLoginLimiter := auth.NewDBLoginRateLimiter(&rateLimitAdapter{store: rlStore})
+	loginLimiter := auth.NewResilientLoginRateLimiter(primaryLoginLimiter, auth.NewInMemoryLoginRateLimiter())
 
-	authSvc := auth.NewServiceWithCookieSecure(hasher, sessionStore, loginLimiter, userStore, log, cfg.CookieSecure)
+	clientIPResolver, err := clientip.NewResolver(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		panic(err)
+	}
+
+	authSvc := auth.NewService(auth.ServiceOptions{
+		Hasher:       hasher,
+		Sessions:     sessionStore,
+		Limiter:      loginLimiter,
+		Users:        userStore,
+		Log:          log,
+		CookieSecure: cfg.CookieSecure,
+		IPResolver:   clientIPResolver,
+	})
 	q := sqldb.New(db)
 	adminUsersSvc := users.NewAdminProvisioningService(
 		users.SQLCAdminUserStore{Q: q},
@@ -166,8 +182,10 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		CourseAdmin:         courseAdminSvc,
 		SessionChangeImpact: impact,
 		SitInResolver:       sitinresolver.New(q, cfg.InstituteTZ),
+		ClientIP:            clientIPResolver,
 		AdminUsers:          adminUsersSvc,
 		InstituteTZ:         cfg.InstituteTZ,
+		StudentCookieSecure: cfg.CookieSecure,
 		CRMUploadV2:         uploadV2,
 		CRMReconcileV2:      reconcileV2,
 		CRMWorker:           worker,
@@ -177,6 +195,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 		LegacySyncURL:       cfg.LegacySyncURL,
 		LegacySyncUsername:  cfg.LegacySyncUsername,
 		LegacySyncPassword:  cfg.LegacySyncPassword,
+		StudentSelfService:  studentauth.NewService(db),
 	}
 
 	otpSvc, err := otp.NewService(db, cfg.OTPHMACKey)
@@ -238,6 +257,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	schedulinghttp.Register(mux, deps)
 	usershttp.Register(mux, deps)
 	adminusershttp.Register(mux, deps)
+	legacysynchttp.Register(mux, deps)
 	audithttp.Register(mux, deps)
 	serieshttp.Register(mux, deps)
 	availabilityhttp.Register(mux, deps)
@@ -251,7 +271,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	// Static SPA (filesystem, not embedded): serve index.html fallback for client-side routing.
 	mux.HandleFunc("/", staticHandler(cfg.StaticDir))
 
-	return withRequestTimeout(mux)
+	return withRequestBodyLimit(withRequestTimeout(mux))
 }
 
 // staticHandler serves the built SPA from staticDir. Exact file hits are served

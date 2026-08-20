@@ -129,7 +129,16 @@ func (s *SnapshotService) MarkSnapshotReady(ctx context.Context, snapshotID pgty
 
 	// Set as active snapshot in crm_state.
 	if _, err := tx.Exec(ctx,
-		`UPDATE crm_state SET active_snapshot_id = $1, updated_at = now() WHERE singleton = true`,
+		`UPDATE crm_state AS state
+		 SET active_snapshot_id = $1, updated_at = now()
+		 WHERE state.singleton = true
+		   AND NOT EXISTS (
+			 SELECT 1
+			 FROM crm_snapshots AS candidate
+			 JOIN crm_snapshots AS newer ON newer.status = 'ready'
+			 WHERE candidate.id = $1
+			   AND (newer.created_at, newer.id) > (candidate.created_at, candidate.id)
+		   )`,
 		snapshotID,
 	); err != nil {
 		return fmt.Errorf("update crm_state: %w", err)
@@ -153,9 +162,35 @@ func (s *SnapshotService) MarkSnapshotReady(ctx context.Context, snapshotID pgty
 // MarkSnapshotFailed sets snapshot status to 'failed'.
 func (s *SnapshotService) MarkSnapshotFailed(ctx context.Context, snapshotID pgtype.UUID, errMsg string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE crm_snapshots SET status = 'failed', error_msg = $2 WHERE id = $1`,
+		`UPDATE crm_snapshots SET status = 'failed', error_msg = $2 WHERE id = $1 AND status = 'importing'`,
 		snapshotID, errMsg,
 	)
+	return err
+}
+
+func (s *SnapshotService) snapshotStatus(ctx context.Context, snapshotID pgtype.UUID) (string, error) {
+	var status string
+	err := s.db.QueryRow(ctx, `SELECT status FROM crm_snapshots WHERE id = $1`, snapshotID).Scan(&status)
+	return status, err
+}
+
+func (s *SnapshotService) isActiveSnapshot(ctx context.Context, snapshotID pgtype.UUID) (bool, error) {
+	var active bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM crm_state state
+			JOIN crm_snapshots snapshot ON snapshot.id = state.active_snapshot_id
+			WHERE state.singleton = true
+			  AND snapshot.id = $1
+			  AND snapshot.status = 'ready'
+		)
+	`, snapshotID).Scan(&active)
+	return active, err
+}
+
+func (s *SnapshotService) resetSnapshotRows(ctx context.Context, snapshotID pgtype.UUID) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM crm_rows WHERE snapshot_id = $1`, snapshotID)
 	return err
 }
 

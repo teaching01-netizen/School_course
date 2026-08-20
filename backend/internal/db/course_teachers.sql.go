@@ -111,21 +111,48 @@ func (q *Queries) CourseFutureSessionUsageByTeachers(ctx context.Context, arg Co
 const courseLockForTeacherUpdate = `-- name: CourseLockForTeacherUpdate :one
 SELECT
     id,
-    version
+    version,
+    code,
+    name,
+    legacy_course_id,
+    year,
+    subject_id,
+    hour,
+    student_count,
+    course_type
 FROM courses
 WHERE id = $1
 FOR UPDATE
 `
 
 type CourseLockForTeacherUpdateRow struct {
-	ID      pgtype.UUID `json:"id"`
-	Version int32       `json:"version"`
+	ID             pgtype.UUID `json:"id"`
+	Version        int32       `json:"version"`
+	Code           string      `json:"code"`
+	Name           string      `json:"name"`
+	LegacyCourseID pgtype.Text `json:"legacy_course_id"`
+	Year           pgtype.Int2 `json:"year"`
+	SubjectID      pgtype.UUID `json:"subject_id"`
+	Hour           pgtype.Int4 `json:"hour"`
+	StudentCount   pgtype.Int4 `json:"student_count"`
+	CourseType     pgtype.Text `json:"course_type"`
 }
 
 func (q *Queries) CourseLockForTeacherUpdate(ctx context.Context, id pgtype.UUID) (CourseLockForTeacherUpdateRow, error) {
 	row := q.db.QueryRow(ctx, courseLockForTeacherUpdate, id)
 	var i CourseLockForTeacherUpdateRow
-	err := row.Scan(&i.ID, &i.Version)
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Code,
+		&i.Name,
+		&i.LegacyCourseID,
+		&i.Year,
+		&i.SubjectID,
+		&i.Hour,
+		&i.StudentCount,
+		&i.CourseType,
+	)
 	return i, err
 }
 
@@ -283,7 +310,8 @@ SELECT
     ct.course_id,
     ct.teacher_id,
     ct.is_primary,
-    u.username
+    u.username,
+    u.full_name
 FROM course_teachers ct
 JOIN users u ON u.id = ct.teacher_id
 WHERE ct.course_id = ANY($1::uuid[])
@@ -295,6 +323,7 @@ type CourseTeachersListForCoursesRow struct {
 	TeacherID pgtype.UUID `json:"teacher_id"`
 	IsPrimary bool        `json:"is_primary"`
 	Username  string      `json:"username"`
+	FullName  pgtype.Text `json:"full_name"`
 }
 
 // Batch teacher read for the course list endpoint: returns every assigned
@@ -314,6 +343,7 @@ func (q *Queries) CourseTeachersListForCourses(ctx context.Context, dollar_1 []p
 			&i.TeacherID,
 			&i.IsPrimary,
 			&i.Username,
+			&i.FullName,
 		); err != nil {
 			return nil, err
 		}
@@ -332,6 +362,11 @@ SET
     name = $3,
     legacy_course_id = $4,
     teacher_id = $5,
+    year = $6,
+    subject_id = $7,
+    hour = $8,
+    student_count = $9,
+    course_type = $10,
     version = version + 1,
     updated_at = now()
 WHERE id = $1
@@ -344,6 +379,11 @@ type CourseUpdateAggregateParams struct {
 	Name           string      `json:"name"`
 	LegacyCourseID pgtype.Text `json:"legacy_course_id"`
 	TeacherID      pgtype.UUID `json:"teacher_id"`
+	Year           pgtype.Int2 `json:"year"`
+	SubjectID      pgtype.UUID `json:"subject_id"`
+	Hour           pgtype.Int4 `json:"hour"`
+	StudentCount   pgtype.Int4 `json:"student_count"`
+	CourseType     pgtype.Text `json:"course_type"`
 }
 
 type CourseUpdateAggregateRow struct {
@@ -358,6 +398,11 @@ func (q *Queries) CourseUpdateAggregate(ctx context.Context, arg CourseUpdateAgg
 		arg.Name,
 		arg.LegacyCourseID,
 		arg.TeacherID,
+		arg.Year,
+		arg.SubjectID,
+		arg.Hour,
+		arg.StudentCount,
+		arg.CourseType,
 	)
 	var i CourseUpdateAggregateRow
 	err := row.Scan(&i.ID, &i.Version)
@@ -370,6 +415,11 @@ SET
     code = $2,
     name = $3,
     legacy_course_id = $4,
+    year = $5,
+    subject_id = $6,
+    hour = $7,
+    student_count = $8,
+    course_type = $9,
     version = version + 1,
     updated_at = now()
 WHERE id = $1
@@ -381,6 +431,11 @@ type CourseUpdateCoreParams struct {
 	Code           string      `json:"code"`
 	Name           string      `json:"name"`
 	LegacyCourseID pgtype.Text `json:"legacy_course_id"`
+	Year           pgtype.Int2 `json:"year"`
+	SubjectID      pgtype.UUID `json:"subject_id"`
+	Hour           pgtype.Int4 `json:"hour"`
+	StudentCount   pgtype.Int4 `json:"student_count"`
+	CourseType     pgtype.Text `json:"course_type"`
 }
 
 type CourseUpdateCoreRow struct {
@@ -398,6 +453,11 @@ func (q *Queries) CourseUpdateCore(ctx context.Context, arg CourseUpdateCorePara
 		arg.Code,
 		arg.Name,
 		arg.LegacyCourseID,
+		arg.Year,
+		arg.SubjectID,
+		arg.Hour,
+		arg.StudentCount,
+		arg.CourseType,
 	)
 	var i CourseUpdateCoreRow
 	err := row.Scan(&i.ID, &i.Version)

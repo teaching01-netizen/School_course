@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEventHandler, type ReactElement, type Ref } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, MoreVertical, Pencil, SlidersHorizontal } from "lucide-react";
 import Modal from "../components/Modal";
 import TypeaheadSelect, { type TypeaheadOption } from "../components/TypeaheadSelect";
 import { ApiRequestError, apiJson } from "../api/client";
@@ -7,27 +8,43 @@ import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
 import usePreflightGate from "@/features/scheduling/hooks/usePreflightGate";
+import { useEditSession } from "@/features/scheduling/hooks/useEditSession";
+import SessionEditorPopover, { type SessionEditorFocusField } from "@/features/scheduling/components/SessionEditorPopover";
+import CreateSessionPopover from "@/features/scheduling/components/CreateSessionPopover";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel } from "@/components/PreflightIndicator";
-import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO, groupSessionKey } from "../utils/timezone";
+import { formatUTCToZone, utcISOToZoneDate, zoneLocalInputToUTCISO } from "../utils/timezone";
 import { AttendeeSection } from "../components/AttendeeSection";
 import ScheduleSessionCard from "../components/ScheduleSessionCard";
-import SessionOccurrenceForm from "../components/SessionOccurrenceForm";
 import SeriesFormFields from "../components/SeriesFormFields";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "@/utils/preflight";
 import { parseSchedulePaste } from "@/utils/schedulePaste";
 import { isConflictDetails, formatConflictToastMessage } from "@/utils/conflictErrors";
-import { addDays, format, startOfWeek } from 'date-fns';
-import PageHeading from "../components/ui/PageHeading";
+import {
+  addDays,
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
+} from 'date-fns';
 import Button from "../components/ui/Button";
-import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
 import FormField from "../components/ui/FormField";
 import ConfirmModal from "../components/ConfirmModal";
-import ImpactAcknowledgementModal, { type ImpactSummary } from "../components/scheduleImpact/ImpactAcknowledgementModal";
+import ImpactAcknowledgementModal from "../components/scheduleImpact/ImpactAcknowledgementModal";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
-import { LegacyLinkSection } from "@/features/courses/components/LegacyLinkSection";
-import { CourseTeacherEditor } from "@/features/courses/components/CourseTeacherEditor";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
+import { Popover } from "../components/ui/Popover";
+import { LegacyLinkButton } from "@/features/courses/components/LegacyLinkButton";
+import { CourseTitle } from "@/features/courses/components/CourseTitle";
+import { CoursePropertiesPanel } from "@/features/courses/components/CoursePropertiesPanel";
+import { CourseInfoStrip } from "@/features/courses/components/CourseInfoStrip";
+import { sumSessionMinutes } from "@/features/courses/domain/sessionUsage";
 import {
   addCourseStudent,
   deleteCourse,
@@ -52,7 +69,7 @@ import {
   type User,
   type Student,
   type ConflictDetails,
-  type EditableTeacher,
+  type CourseEditChanges,
 } from "@/types";
 
 export default function CourseDetail() {
@@ -92,11 +109,9 @@ export default function CourseDetail() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editCode, setEditCode] = useState("");
-  const [editTeachers, setEditTeachers] = useState<EditableTeacher[]>([]);
-  const [courseEditSaving, setCourseEditSaving] = useState(false);
+  /** Name of the field being saved, or null. Locks every property row so two
+   *  edits cannot race the optimistic-concurrency version bump. */
+  const [savingField, setSavingField] = useState<string | null>(null);
   const [instituteTZ, setInstituteTZ] = useState<string | null>(null);
   const [serverNow, setServerNow] = useState<string | null>(null);
   const today = useMemo(() => new Date(), []);
@@ -109,10 +124,10 @@ export default function CourseDetail() {
       setImpactedSessionIDs(new Set());
       return () => { active = false; };
     }
-    void apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
+    void Promise.resolve().then(() => apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
       method: "POST",
       body: JSON.stringify({ session_ids: sessions.map((session) => session.id) }),
-    }).then((result) => {
+    })).then((result) => {
       if (active) setImpactedSessionIDs(new Set(Object.entries(result.sessions).filter(([, value]) => value.open_count > 0).map(([sessionID]) => sessionID)));
     }).catch(() => {
       if (active) setImpactedSessionIDs(new Set());
@@ -121,147 +136,91 @@ export default function CourseDetail() {
   }, [sessions]);
 
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
+  /** Calendar sub-view (day / week / month), behaving like a normal calendar. */
+  const [calendarMode, setCalendarMode] = useState<'day' | 'week' | 'month'>('week');
+  /** Anchor date of the active calendar sub-view. */
+  const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
 
-  const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t.username])), [teachers]);
+  /** Institute "today" from server time; falls back to the device clock. */
+  const todayDate = useMemo(() => {
+    const d = serverNow ? new Date(serverNow) : new Date();
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+  }, [serverNow]);
+
+  // Anchor the calendar to the institute's current date once known, so the
+  // day/week/month views show the institute's period, not the operator's clock.
+  useEffect(() => {
+    if (!serverNow) return;
+    const d = new Date(serverNow);
+    if (!Number.isNaN(d.getTime())) setAnchorDate(d);
+  }, [serverNow]);
+
+  const teacherById = useMemo(() => new Map(teachers.map((t) => [t.id, t.full_name || t.username])), [teachers]);
+  const teachersByIdMap = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers]);
   const roomById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
+  const usedMinutes = useMemo(() => sumSessionMinutes(sessions), [sessions]);
 
-  const sessionsByWeekdayAndHour = useMemo(() => {
+  /** Sessions grouped by institute-local calendar day (yyyy-MM-dd), sorted by start. */
+  const sessionsByDay = useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      const key = groupSessionKey(s.start_at, zone);
-      if (!key) continue;
-      const group = map.get(key);
-      if (group) {
-        group.push(s);
+      const day = utcISOToZoneDate(s.start_at, zone);
+      if (!day) continue;
+      const list = map.get(day);
+      if (list) {
+        list.push(s);
       } else {
-        map.set(key, [s]);
+        map.set(day, [s]);
       }
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.start_at.localeCompare(b.start_at));
     }
     return map;
   }, [sessions, zone]);
+
+  /** Days to render for the active calendar sub-view, with the toolbar label. */
+  const calendarRange = useMemo(() => {
+    if (calendarMode === "day") {
+      return { label: format(anchorDate, "EEEE, MMM d, yyyy"), days: [anchorDate] };
+    }
+    if (calendarMode === "week") {
+      const start = startOfWeek(anchorDate, { weekStartsOn: 1 });
+      const end = endOfWeek(anchorDate, { weekStartsOn: 1 });
+      return {
+        label: `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`,
+        days: eachDayOfInterval({ start, end }),
+      };
+    }
+    const start = startOfMonth(anchorDate);
+    const end = endOfMonth(anchorDate);
+    return {
+      label: format(start, "MMMM yyyy"),
+      days: eachDayOfInterval({ start: startOfWeek(start, { weekStartsOn: 1 }), end: endOfWeek(end, { weekStartsOn: 1 }) }),
+    };
+  }, [anchorDate, calendarMode]);
+
+  const shiftCalendar = (direction: -1 | 1) => {
+    setAnchorDate((prev) => {
+      if (calendarMode === "day") return addDays(prev, direction);
+      if (calendarMode === "week") return addDays(prev, direction * 7);
+      return addMonths(prev, direction);
+    });
+  };
 
   const roomNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of rooms) m.set(r.id, r.name);
     return m;
   }, [rooms]);
-  const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
+  const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.full_name || t.username, keywords: t.id })), [teachers]);
 
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ date: "", begin: "", end: "", room_id: "" as string, teacher_id: "" as string });
-  const editPreflight = usePreflight();
-  const editGate = usePreflightGate(editPreflight, {
-    requiredFields: [editForm.date, editForm.begin, editForm.end, editForm.teacher_id],
-  });
-  const [editSaving, setEditSaving] = useState(false);
-  const [editImpact, setEditImpact] = useState<ImpactSummary | null>(null);
+  /** Which field of the session editor receives focus when it opens. */
+  const [editFocus, setEditFocus] = useState<SessionEditorFocusField>("date");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<Session | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
-
-  const getEditSession = () => sessions.find((s) => s.id === editingSessionId) ?? null;
-
-  const openEditSession = (s: Session) => {
-    const date = utcISOToZoneDate(s.start_at, zone) ?? s.start_at.slice(0, 10);
-    const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
-    const end = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
-    setEditingSessionId(s.id);
-    setEditForm({ date, begin, end, room_id: s.room_id ?? "", teacher_id: s.teacher_id });
-    editPreflight.reset();
-  };
-
-  const cancelEditSession = () => {
-    setEditingSessionId(null);
-    setEditForm({ date: "", begin: "", end: "", room_id: "", teacher_id: "" });
-    editPreflight.reset();
-  };
-
-  useEffect(() => {
-    const s = sessions.find((sess) => sess.id === editingSessionId);
-    if (!s || !editingSessionId) {
-      editPreflight.reset();
-      return;
-    }
-    if (!editForm.date || !editForm.begin || !editForm.end) {
-      editPreflight.reset();
-      return;
-    }
-    const startISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.begin}`, zone);
-    const endISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.end}`, zone);
-    if (!startISO || !endISO || endISO <= startISO) {
-      editPreflight.reset();
-      return;
-    }
-    editPreflight.check({
-      session_id: s.id,
-      course_id: s.course_id,
-      room_id: editForm.room_id || null,
-      teacher_id: editForm.teacher_id || s.teacher_id,
-      start_at: startISO,
-      end_at: endISO,
-    });
-  }, [editingSessionId, sessions, zone, editForm.date, editForm.begin, editForm.end, editForm.room_id, editForm.teacher_id]);
-
-  const submitEditSession = async (acknowledgeImpact = false) => {
-    const s = getEditSession();
-    if (!s) return;
-    if (!editGate.canSave) {
-      addToast("error", editGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
-      return;
-    }
-    const startISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.begin}`, zone);
-    const endISO = zoneLocalInputToUTCISO(`${editForm.date}T${editForm.end}`, zone);
-    if (!startISO || !endISO || endISO <= startISO) {
-      addToast("error", "Invalid date/time");
-      return;
-    }
-    try {
-      setEditSaving(true);
-      const updateBody: Record<string, unknown> = {
-        expected_version: s.version,
-        course_id: s.course_id,
-        room_id: editForm.room_id ? editForm.room_id : null,
-        teacher_id: editForm.teacher_id || s.teacher_id,
-        start_at: startISO,
-        end_at: endISO,
-      };
-      const preview = await apiJson<{ requires_acknowledgement?: boolean; impact_summary?: ImpactSummary }>(`/api/v1/sessions/${s.id}/change-preview`, {
-        method: "POST",
-        body: JSON.stringify(updateBody),
-      });
-      if (preview.requires_acknowledgement && !acknowledgeImpact) {
-        setEditImpact(preview.impact_summary ?? {});
-        return;
-      }
-      if (preview.requires_acknowledgement) {
-        updateBody.acknowledge_impact = true;
-      }
-      const result = await apiJson<{ session: Session; change_id?: string }>(`/api/v1/sessions/${s.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(updateBody),
-      });
-      addToast("success", result.change_id ? "Updated session. Impact review queued." : "Updated session");
-      cancelEditSession();
-      await loadSessions();
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        if (err.code === "stale_edit") {
-          addToast("error", "Stale edit: reloaded latest session. Please edit again.");
-          cancelEditSession();
-          await loadSessions();
-          return;
-        }
-        addToast("error", `${err.code}: ${err.message}`);
-        return;
-      }
-      addToast("error", err instanceof Error ? err.message : "Update failed");
-    } finally {
-      setEditSaving(false);
-    }
-  };
 
   const handleConfirmDeleteSession = async () => {
     const session = confirmDeleteSession;
@@ -369,6 +328,123 @@ export default function CourseDetail() {
     }
   };
 
+  /** Session editing: form + debounced availability preflight + save live in
+   *  the shared hook, the popover just presents them. */
+  const edit = useEditSession(loadSessions, addToast, zone);
+
+  const openEditSession = (s: Session, field: SessionEditorFocusField = "date") => {
+    setEditFocus(field);
+    if (edit.session?.id !== s.id) edit.openModal(s);
+  };
+  const closeEditSession = () => edit.closeModal();
+
+  // If the session being edited disappears (deleted elsewhere or reloaded),
+  // close the editor rather than leave it pointing at a ghost.
+  useEffect(() => {
+    if (!edit.open || !edit.session) return;
+    if (sessions.length > 0 && !sessions.some((s) => s.id === edit.session!.id)) edit.closeModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edit.open, edit.session?.id, sessions]);
+
+  const cellValueClass =
+    "min-h-6 cursor-pointer rounded-sm text-start text-[13px] text-[var(--color-wi-text)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none";
+
+  const renderSessionEditor = (
+    trigger: ReactElement<{ ref?: Ref<HTMLElement>; onClick?: MouseEventHandler }>,
+    s: Session,
+    field: SessionEditorFocusField,
+  ) => (
+    <SessionEditorPopover
+      open={edit.open && edit.session?.id === s.id}
+      onOpenChange={(next) => { if (next) openEditSession(s, field); else closeEditSession(); }}
+      trigger={trigger}
+      focusField={editFocus}
+      form={edit.form}
+      setForm={edit.setForm}
+      preflight={edit.preflight}
+      canSave={edit.gate.canSave}
+      saving={edit.saving}
+      rooms={rooms}
+      teacherOptions={teacherOptions}
+      course={course}
+      coursesById={course ? new Map([[course.id, course]]) : new Map()}
+      teachersById={teachersByIdMap}
+      roomsById={roomById}
+      onSave={() => void edit.submit()}
+    />
+  );
+
+  const renderCreatePopover = (
+    trigger: ReactElement<{ ref?: Ref<HTMLElement>; onClick?: MouseEventHandler }>,
+  ) => (
+    <CreateSessionPopover
+      open={createPopoverOpen}
+      onOpenChange={setCreatePopoverOpen}
+      trigger={trigger}
+      form={sessionForm}
+      setForm={setSessionForm}
+      preflight={sessionPreflight}
+      canSave={sessionGate.canSave}
+      saving={creatingSession}
+      rooms={rooms}
+      teacherOptions={teacherOptions}
+      course={course}
+      coursesById={course ? new Map([[course.id, course]]) : new Map()}
+      teachersById={teachersByIdMap}
+      roomsById={roomById}
+      onCreate={() => void submitSession()}
+      onOpenSeries={() => { setCreatePopoverOpen(false); openCreate("series"); }}
+      onOpenPaste={() => { setCreatePopoverOpen(false); openCreate("paste"); }}
+    />
+  );
+
+  /** All sessions of one day in a single cell — time is shown per session, not
+   *  by row position — so Day/Week present days the same way month cells do. */
+  const renderDaySessions = (daySessions: Session[], showEmptyLabel: boolean) => {
+    if (sessionsLoading) {
+      return (
+        <div className="animate-pulse space-y-1.5 p-1">
+          <div className="h-12 bg-[var(--color-wi-row-alt)] rounded-sm" />
+          <div className="h-12 bg-[var(--color-wi-row-alt)] rounded-sm w-3/4" />
+        </div>
+      );
+    }
+    if (daySessions.length === 0) {
+      return showEmptyLabel
+        ? <p className="px-2 py-3 text-center text-[11px] text-[var(--color-wi-text-light)]">No sessions</p>
+        : <div className="min-h-[420px]" aria-hidden="true" />;
+    }
+    return (
+      <div className="space-y-1 p-1">
+        {daySessions.map((sess) => {
+          const room = roomById.get(sess.room_id ?? '');
+          return (
+            <div key={sess.id}>
+              {renderSessionEditor(
+                <button
+                  type="button"
+                  className="w-full cursor-pointer text-start"
+                  aria-label={`Edit session ${formatUTCToZone(sess.start_at, zone, "EEE d MMM") ?? sess.start_at.slice(0, 10)}`}
+                >
+                  <ScheduleSessionCard
+                    session={sess}
+                    course={course ?? undefined}
+                    room={room}
+                    zone={zone}
+                    teacherName={teacherById.get(sess.teacher_id)}
+                  />
+                </button>,
+                sess,
+                "start",
+              )}
+              {impactedSessionIDs.has(sess.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-[11px] font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   useEffect(() => {
     void loadRoster();
     void loadSessions();
@@ -389,62 +465,44 @@ export default function CourseDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const seedEditForm = (c: Course) => {
-    setEditCode(c.code);
-    setEditName(c.name);
-    setEditTeachers((c.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })));
-  };
-
-  const startEditing = () => {
-    if (!course) return;
-    seedEditForm(course);
-    setIsEditing(true);
-  };
-
-  const cancelEditing = () => {
-    setIsEditing(false);
-    setEditCode("");
-    setEditName("");
-    setEditTeachers([]);
-  };
-
-  const submitCourseEdit = async () => {
-    if (!id || !course) return;
-    if (courseEditSaving) return;
-    if (!editCode.trim()) {
-      addToast("error", "Code is required");
-      return;
-    }
+  const saveCourse = async (field: string, changes: CourseEditChanges): Promise<boolean> => {
+    if (!id || !course) return false;
+    if (savingField) return false;
     try {
-      setCourseEditSaving(true);
+      setSavingField(field);
       const updated = await patchCourse(id, {
         expected_version: course.version,
-        code: editCode.trim(),
-        name: editName.trim(),
+        code: course.code,
+        name: changes.name ?? course.name,
         legacy_course_id: course.legacy_course_id ?? null,
-        teachers: editTeachers,
+        teachers:
+          changes.teachers ??
+          (course.teachers ?? []).map((t) => ({ teacher_id: t.id, is_primary: t.is_primary })),
+        ...(changes.subject_id !== undefined ? { subject_id: changes.subject_id } : {}),
+        ...(changes.course_type !== undefined ? { course_type: changes.course_type } : {}),
+        ...(changes.year !== undefined ? { year: changes.year } : {}),
+        ...(changes.hour !== undefined ? { hour: changes.hour } : {}),
+        ...(changes.student_count !== undefined ? { student_count: changes.student_count } : {}),
       });
       setCourse(updated);
       addToast("success", "Course updated");
-      setIsEditing(false);
+      return true;
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === "stale_edit") {
         const current = (err.details as { current?: Course } | undefined)?.current;
         if (current) {
           setCourse(current);
-          seedEditForm(current);
         } else {
           try {
             const latest = await getCourse(id);
             setCourse(latest);
-            seedEditForm(latest);
           } catch {
             addToast("error", "Could not reload the latest course version. Please try again.");
-            return;
+            return false;
           }
         }
         addToast("error", "Another user changed this course. The latest version has been loaded.");
-        return;
+        return false;
       }
       if (err instanceof ApiRequestError && err.code === "teacher_in_use") {
         const details = err.details as
@@ -459,12 +517,13 @@ export default function CourseDetail() {
             `${details.teacher_name} cannot be removed. They are assigned to ${details.future_session_count} future session${details.future_session_count === 1 ? "" : "s"}.` +
               `${earliest ? ` Earliest affected session: ${earliest}.` : ""} Review or reassign those sessions before removing this teacher.`,
           );
-          return;
+          return false;
         }
       }
       addToast("error", err instanceof Error ? err.message : "Update failed");
+      return false;
     } finally {
-      setCourseEditSaving(false);
+      setSavingField(null);
     }
   };
 
@@ -536,7 +595,8 @@ export default function CourseDetail() {
   };
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createTab, setCreateTab] = useState<"series" | "session" | "paste">("series");
+  const [createPopoverOpen, setCreatePopoverOpen] = useState(false);
+  const [createTab, setCreateTab] = useState<"series" | "paste">("series");
 
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionForm, setSessionForm] = useState({
@@ -598,19 +658,11 @@ export default function CourseDetail() {
     isFormValid: seriesValidatedForm != null,
   });
 
-  const openCreate = (tab: "series" | "session" | "paste" = "series") => {
+  const openCreate = (tab: "series" | "paste" = "series") => {
     setCreateOpen(true);
     setCreateTab(tab);
-    setSessionForm({
-      course_id: id ?? "",
-      room_id: "",
-      teacher_id: teachers[0]?.id ?? "",
-      start_local: "",
-      end_local: "",
-    });
     setPasteTeacherId(teachers[0]?.id ?? "");
     setPasteText("");
-    sessionPreflight.reset();
     setSeriesUseCount(false);
     setSeriesForm({
       room_id: "",
@@ -625,8 +677,21 @@ export default function CourseDetail() {
     seriesPreflight.reset();
   };
 
+  const openCreatePopover = () => {
+    edit.closeModal();
+    setCreatePopoverOpen(true);
+    setSessionForm({
+      course_id: id ?? "",
+      room_id: "",
+      teacher_id: teachers[0]?.id ?? "",
+      start_local: "",
+      end_local: "",
+    });
+    sessionPreflight.reset();
+  };
+
   const runSessionPreflight = async () => {
-    if (!createOpen || createTab !== "session") return;
+    if (!createPopoverOpen) { sessionPreflight.reset(); return; }
     if (!sessionForm.course_id || !sessionForm.teacher_id || !sessionForm.start_local || !sessionForm.end_local) {
       sessionPreflight.reset();
       return;
@@ -650,7 +715,7 @@ export default function CourseDetail() {
   useEffect(() => {
     void runSessionPreflight();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createOpen, createTab, id, zone, sessionForm.room_id, sessionForm.teacher_id, sessionForm.start_local, sessionForm.end_local]);
+  }, [createPopoverOpen, id, zone, sessionForm.room_id, sessionForm.teacher_id, sessionForm.start_local, sessionForm.end_local]);
 
   const submitSession = async () => {
     if (!sessionForm.course_id || !sessionForm.teacher_id) return;
@@ -677,7 +742,7 @@ export default function CourseDetail() {
         }),
       });
       addToast("success", "Session created");
-      setCreateOpen(false);
+      setCreatePopoverOpen(false);
       await loadSessions();
     } catch (err) {
       if (err instanceof ApiRequestError && err.details) {
@@ -878,215 +943,232 @@ export default function CourseDetail() {
 
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <PageHeading>
-          Course <span className="text-gray-400">#{course.code}</span>
-        </PageHeading>
-        <div className="flex gap-2">
-          {isEditing ? (
-            <>
-              <Button variant="secondary" size="md" onClick={cancelEditing}>Cancel</Button>
-              <Button variant="primary" size="md" onClick={submitCourseEdit} loading={courseEditSaving}>
-                {courseEditSaving ? "Saving…" : "Save"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="secondary" size="md" onClick={startEditing}>Edit</Button>
-              <Button variant="danger" size="md" onClick={() => setConfirmDelete(true)} loading={deleting}>
-                {deleting ? "Deleting…" : "Delete"}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {isEditing ? (
-        <div className="border-b border-gray-200 pb-4 mb-6 space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Code</label>
-              <div className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-sm mt-0.5 bg-gray-50 text-gray-500">
-                {editCode}
-              </div>
-            </div>
-            <div className="flex-1">
-              <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Name</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm mt-0.5"
+      <div className="mb-6">
+        <Link
+          to="/courses"
+          className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-wi-text-light)] transition-colors duration-150 hover:text-[var(--color-wi-text)] motion-reduce:transition-none"
+        >
+          <ArrowLeft size={14} aria-hidden="true" />
+          Courses
+        </Link>
+        <div className="flex items-start justify-between gap-3">
+          <CourseTitle course={course} savingField={savingField} onSave={saveCourse} />
+          <div className="flex items-center gap-1 pt-2">
+            <Popover
+              align="end"
+              ariaLabel="Course properties"
+              trigger={
+                <button
+                  type="button"
+                  aria-label="Edit course properties"
+                  title="Edit course properties"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[var(--color-wi-text-light)] transition-[background-color,color] duration-150 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] aria-expanded:bg-[var(--color-wi-row-alt)] aria-expanded:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
+                >
+                  <SlidersHorizontal size={16} strokeWidth={2} aria-hidden="true" />
+                </button>
+              }
+              contentClassName="w-[22rem] max-h-[calc(100dvh-2rem)] overflow-y-auto p-1.5 notion-scrollbar"
+            >
+              <CoursePropertiesPanel
+                course={course}
+                teacherOptions={teacherOptions}
+                savingField={savingField}
+                onSave={saveCourse}
               />
-            </div>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Teacher(s)</label>
-            <CourseTeacherEditor
-              teachers={editTeachers}
-              onChange={setEditTeachers}
-              options={teacherOptions}
-              disabled={courseEditSaving}
+            </Popover>
+            <DropdownMenu
+              items={[
+                { label: "Delete course", danger: true, onClick: () => setConfirmDelete(true) },
+              ]}
             />
           </div>
         </div>
-      ) : (
-        <div className="border-b border-gray-200 pb-3 mb-6">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-gray-700 font-medium">{course.name}</span>
-            {course.teachers?.length ? course.teachers.map(t => (
-              <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
-                {t.username}
-                {course.primary_teacher_id === t.id && (
-                  <span className="ml-0.5 px-1 py-px text-[10px] font-semibold uppercase rounded-sm bg-blue-700 text-white">
-                    Primary
-                  </span>
-                )}
-              </span>
-            )) : course.teacher_name && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-blue-50 text-blue-700 border border-blue-200">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 6a3 3 0 100-6 3 3 0 000 6zm-4 5a4 4 0 018 0H2z" fill="currentColor"/></svg>
-                {course.teacher_name}
-              </span>
-            )}
-            {course.subject_name && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-sm bg-green-50 text-green-700 border border-green-200">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 3l5-2 5 2v1l-5 2-5-2V3zm0 3l5 2 5-2" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
-                {course.subject_name}
-              </span>
-            )}
-            {course.course_type && (
-              <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-sm border ${course.course_type === 'Private' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                {course.course_type}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+        <CourseInfoStrip course={course} usedMinutes={usedMinutes} />
+      </div>
 
       <div className="mb-8">
-        <div className="flex items-end justify-between gap-3 mb-3">
-          <h2 className="text-xl font-semibold text-gray-800">Schedule</h2>
-          <div className="flex items-end gap-2 flex-wrap">
-            <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden self-end" role="group" aria-label="View mode">
+        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 mb-3">
+          <div className="flex items-end gap-2">
+            <h2 className="text-xl font-semibold text-[var(--color-wi-text)]">Schedule</h2>
+            <div className="inline-flex rounded-sm border border-wi-line overflow-hidden self-end" role="group" aria-label="View mode">
               <button
                 type="button"
-                onClick={() => setViewMode('table')}
-                className={`px-2 py-1 text-[11px] ${viewMode === 'table' ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setViewMode('table'); edit.closeModal(); }}
+                className={`px-2 py-1 text-[11px] transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${viewMode === 'table' ? 'bg-[var(--color-wi-nav)] text-white' : 'bg-white hover:bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]'}`}
                 aria-pressed={viewMode === 'table'}
               >
                 Table
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode('calendar')}
-                className={`px-2 py-1 text-[11px] ${viewMode === 'calendar' ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => { setViewMode('calendar'); edit.closeModal(); }}
+                className={`px-2 py-1 text-[11px] transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${viewMode === 'calendar' ? 'bg-[var(--color-wi-nav)] text-white' : 'bg-white hover:bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]'}`}
                 aria-pressed={viewMode === 'calendar'}
               >
                 Calendar
               </button>
             </div>
+          </div>
+          <div className="flex items-end gap-2 flex-wrap">
+            {user?.role === "Admin" && (
+              <LegacyLinkButton course={course} onLinked={async () => {
+                if (!id) return;
+                const updated = await getCourse(id);
+                setCourse(updated);
+              }} />
+            )}
             {viewMode === 'table' && (
               <>
-                <div className="text-[11px] text-gray-400 self-end pb-1">
+                <div className="text-[11px] text-[var(--color-wi-text-light)] self-end pb-1">
                   TZ: {zone}
                   {serverNow ? ` • Server now: ${serverNow}` : ""}
                 </div>
                 <Button variant="secondary" size="md" onClick={loadSessions} aria-label="Refresh schedule">Refresh</Button>
-                <Button variant="primary" size="md" onClick={() => openCreate("series")}>Add…</Button>
               </>
             )}
             {viewMode === 'calendar' && (
-              <div className="flex items-center gap-1.5 self-end pb-0.5">
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, -7))} aria-label="Previous week">
+              <div className="flex flex-wrap items-center gap-1.5 self-end pb-0.5">
+                <div className="inline-flex rounded-sm border border-wi-line overflow-hidden" role="group" aria-label="Calendar period">
+                  {(["day", "week", "month"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setCalendarMode(mode)}
+                      aria-pressed={calendarMode === mode}
+                      className={`px-2 py-1 text-[11px] transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${calendarMode === mode ? 'bg-[var(--color-wi-nav)] text-white' : 'bg-white hover:bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]'}`}
+                    >
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => shiftCalendar(-1)} aria-label={`Previous ${calendarMode}`}>
                   &lsaquo; Prev
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} aria-label="Go to current week">
+                <Button variant="ghost" size="sm" onClick={() => setAnchorDate(todayDate)} aria-label="Go to current date">
                   Today
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setWeekStart(prev => addDays(prev, 7))} aria-label="Next week">
+                <Button variant="ghost" size="sm" onClick={() => shiftCalendar(1)} aria-label={`Next ${calendarMode}`}>
                   Next &rsaquo;
                 </Button>
-                <span className="text-xs text-gray-500 ml-1 font-mono">
-                  {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
+                <span className="text-xs text-[var(--color-wi-text-light)] ms-1 font-mono">
+                  {calendarRange.label}
                 </span>
               </div>
             )}
           </div>
         </div>
 
-        {user?.role === "Admin" && (
-          <LegacyLinkSection course={course} onLinked={async () => {
-            if (!id) return;
-            const updated = await getCourse(id);
-            setCourse(updated);
-          }} />
-        )}
-
         {viewMode === 'calendar' ? (
-          <div className="border border-gray-200 p-4 bg-white">
-            <div className="hidden md:block overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
-              <caption className="sr-only">Calendar view</caption>
-              <thead>
-                <tr className="bg-gray-50">
-                  <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
-                  {['MON', 'TUE', 'WED', 'THU', 'FRI'].map((d) => (
-                    <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`).map((slot) => (
-                  <tr key={slot} className="border-b border-gray-200">
-                    <td className="py-1 px-1 text-xs text-gray-500 font-medium border-r border-gray-200">{slot}</td>
-                    {[1,2,3,4,5].map((day) => {
-                      const sessList = sessionsByWeekdayAndHour.get(`${day}-${slot}`) ?? [];
+          <div className="border border-wi-line p-4 bg-white">
+            <div className="hidden md:block">
+              {calendarMode === 'month' ? (
+                <div className="overflow-hidden rounded-sm border border-wi-line">
+                  <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                      <div key={d} className="py-1.5">{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7">
+                    {calendarRange.days.map((day) => {
+                      const dayKey = format(day, 'yyyy-MM-dd');
+                      const inMonth = isSameMonth(day, anchorDate);
+                      const isToday = isSameDay(day, todayDate);
+                      const daySessions = inMonth ? sessionsByDay.get(dayKey) ?? [] : [];
                       return (
-                        <td key={day} className="px-1 py-1 border-r border-gray-200 align-top">
-                          {sessList.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {sessList.map((sess) => {
-                                const room = roomById.get(sess.room_id ?? '');
-                                return (
-                                  <div key={sess.id}>
-                                    <ScheduleSessionCard
-                                      session={sess}
-                                      course={course}
-                                      room={room}
-                                      zone={zone}
-                                      teacherName={teacherById.get(sess.teacher_id)}
-                                    />
-                                    {impactedSessionIDs.has(sess.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-[11px] font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : sessionsLoading ? (
-                            <div className="animate-pulse space-y-1.5">
-                              <div className="h-7 bg-gray-100 rounded-sm" />
-                              <div className="h-7 bg-gray-100 rounded-sm w-3/4" />
-                            </div>
-                          ) : null}
-                        </td>
+                        <div
+                          key={dayKey}
+                          className={`min-h-[84px] border-b border-r border-wi-line p-1 last:border-r-0 ${isToday ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''} ${!inMonth ? 'bg-[var(--color-wi-row-alt)]' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => { setCalendarMode('day'); setAnchorDate(day); }}
+                            aria-label={`Show ${format(day, 'EEEE, d MMMM yyyy')}`}
+                            className={`mb-1 flex h-5 w-full items-center text-[11px] leading-none ${isToday ? 'justify-center' : 'justify-end font-medium text-[var(--color-wi-text-light)]'}`}
+                          >
+                            {isToday ? (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-primary)] font-bold text-white">{day.getDate()}</span>
+                            ) : (
+                              day.getDate()
+                            )}
+                          </button>
+                          <div className="space-y-0.5">
+                            {daySessions.slice(0, 3).map((sess) => {
+                              const room = roomById.get(sess.room_id ?? '');
+                              const startTime = formatUTCToZone(sess.start_at, zone, 'HH:mm') ?? sess.start_at.slice(11, 16);
+                              return (
+                                <div key={sess.id}>
+                                  {renderSessionEditor(
+                                    <button
+                                      type="button"
+                                      className="w-full truncate rounded-sm bg-[color-mix(in_oklab,var(--color-wi-primary)_10%,transparent)] px-1 py-0.5 text-start text-[10px] text-[var(--color-wi-primary-dark)] hover:bg-[var(--color-wi-selected)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)]"
+                                      aria-label={`Edit session ${startTime}${room ? ` ${room.name}` : ''}`}
+                                    >
+                                      <span className="font-mono font-semibold">{startTime}</span> {room?.name ?? 'No room'}
+                                    </button>,
+                                    sess,
+                                    "start",
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {daySessions.length > 3 ? (
+                              <button
+                                type="button"
+                                onClick={() => { setCalendarMode('day'); setAnchorDate(day); }}
+                                aria-label={`Show all sessions on ${format(day, 'EEEE, d MMMM yyyy')}`}
+                                className="w-full px-1 text-start text-[10px] text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
+                              >
+                                +{daySessions.length - 3} more
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
                       );
                     })}
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <div className="md:hidden text-center py-8 text-gray-500 text-sm">
+                  </div>
+                </div>
+              ) : (
+                <table className="w-full table-fixed text-[12px] border border-wi-line">
+                  <caption className="sr-only">Calendar view</caption>
+                  <thead>
+                    <tr className="bg-[var(--color-wi-row-alt)]">
+                      {calendarRange.days.map((day) => {
+                        const isToday = isSameDay(day, todayDate);
+                        return (
+                          <th key={format(day, 'yyyy-MM-dd')} scope="col" className={`py-1 px-1 text-center font-semibold border-r border-wi-line last:border-r-0 ${isToday ? 'text-[var(--color-wi-primary-dark)]' : 'text-[var(--color-wi-text-light)]'}`}>
+                            <div className="text-[10px] uppercase tracking-wider">{format(day, 'EEE')}</div>
+                            <div className="text-[11px]">{format(day, 'd MMM')}</div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {calendarRange.days.map((day) => (
+                        <td key={format(day, 'yyyy-MM-dd')} className={`border-r border-wi-line align-top last:border-r-0 ${isSameDay(day, todayDate) ? 'bg-[var(--color-wi-blue-bg)]' : ''}`}>
+                          <div className="min-h-[420px]">
+                            {renderDaySessions(sessionsByDay.get(format(day, 'yyyy-MM-dd')) ?? [], calendarMode === 'day')}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="md:hidden text-center py-8 text-[var(--color-wi-text-light)] text-sm">
               <p>Calendar view is best on larger screens.</p>
               <p className="mt-1">Switch to Table view for mobile.</p>
             </div>
           </div>
         ) : (
-          <div className="border border-gray-200 rounded-sm overflow-hidden">
+          <div className="border border-wi-line rounded-sm overflow-hidden">
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Course schedule</caption>
-            <thead className="bg-gray-50">
-              <tr className="border-b border-gray-200">
-                <th scope="col" className="w-10 py-2 px-1 text-center">
+            <thead className="bg-[var(--color-wi-row-alt)]">
+              <tr className="border-b border-wi-line">
+                <th scope="col" className="w-12 py-2 px-3 text-center">
                   <input
                     type="checkbox"
                     checked={selectedIds.size === sessions.length && sessions.length > 0}
@@ -1095,24 +1177,25 @@ export default function CourseDetail() {
                     className="accent-gray-900"
                   />
                 </th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Date</th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Begin</th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">End</th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Duration</th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">Classroom</th>
-                <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-700">By</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Date</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">End</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Duration</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Classroom</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">By</th>
+                <th scope="col" className="w-14 py-2 px-2" aria-label="Row actions" />
               </tr>
             </thead>
             <tbody>
               {sessionsLoading ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <LoadingSkeleton type="table" lines={3} />
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <EmptyState message="No sessions in range" />
                   </td>
                 </tr>
@@ -1122,135 +1205,87 @@ export default function CourseDetail() {
                   const dateLabel = formatUTCToZone(s.start_at, zone, "EEE d MMM yy") ?? s.start_at.slice(0, 10);
                   const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
                   const end = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
-                  const isEditing = editingSessionId === s.id;
+                  const isEditing = edit.open && edit.session?.id === s.id;
                   return (
-                    <Fragment key={s.id}>
-                      <tr className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="w-10 py-2 px-1 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(s.id)}
-                            onChange={() => toggleSelect(s.id)}
-                            className="accent-gray-900"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          {isEditing ? (
-                            <Input type="date" size="sm" value={editForm.date} onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))} />
-                          ) : (
-                            <div>
-                              <span>{dateLabel}</span>
-                              {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="ml-2 text-[11px] font-medium text-amber-700 hover:underline">Impact open</Link> : null}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 font-mono text-xs text-gray-700">
-                          {isEditing ? (
-                            <Input type="time" size="sm" step={300} value={editForm.begin} onChange={(e) => setEditForm((p) => ({ ...p, begin: e.target.value }))} />
-                          ) : (
-                            begin
-                          )}
-                        </td>
-                        <td className="py-2 px-3 font-mono text-xs text-gray-700">
-                          {isEditing ? (
-                            <Input type="time" size="sm" step={300} value={editForm.end} onChange={(e) => setEditForm((p) => ({ ...p, end: e.target.value }))} />
-                          ) : (
-                            end
-                          )}
-                        </td>
-                        <td className="py-2 px-3 font-mono text-xs text-gray-700">{mins == null ? "—" : fmtDuration(mins)}</td>
-                        <td className="py-2 px-3">
-                          {isEditing ? (
-                            <Select size="sm" value={editForm.room_id} onChange={(e) => setEditForm((p) => ({ ...p, room_id: e.target.value }))}>
-                              <option value="">Not set (Provisional)</option>
-                              {rooms.map((r) => (
-                                <option key={r.id} value={r.id}>
-                                  {r.name}
-                                </option>
-                              ))}
-                            </Select>
-                          ) : s.room_id ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-gray-200 text-gray-700">
+                    <tr
+                      key={s.id}
+                      className={`group border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${selectedIds.has(s.id) ? "bg-[var(--color-wi-selected)]/50" : ""} ${isEditing ? "bg-[var(--color-wi-selected)]/40" : ""}`}
+                    >
+                      <td className="w-10 py-2 px-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(s.id)}
+                          onChange={() => toggleSelect(s.id)}
+                          className="accent-gray-900"
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        {renderSessionEditor(
+                          <button
+                            type="button"
+                            onClick={() => openEditSession(s, "date")}
+                            aria-label={`Edit session ${dateLabel}`}
+                            className={`${cellValueClass} font-medium`}
+                          >
+                            {dateLabel}
+                          </button>,
+                          s,
+                          "date",
+                        )}
+                        {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="ms-2 text-[11px] font-medium text-amber-700 hover:underline">Impact open</Link> : null}
+                      </td>
+                      <td className="py-2 px-3">
+                        <button
+                          type="button"
+                          onClick={() => openEditSession(s, "start")}
+                          className={`${cellValueClass} font-mono text-xs text-[var(--color-wi-text-light)]`}
+                        >
+                          {begin}
+                        </button>
+                      </td>
+                      <td className="py-2 px-3">
+                        <button
+                          type="button"
+                          onClick={() => openEditSession(s, "end")}
+                          className={`${cellValueClass} font-mono text-xs text-[var(--color-wi-text-light)]`}
+                        >
+                          {end}
+                        </button>
+                      </td>
+                      <td className="py-2 px-3 font-mono text-xs text-[var(--color-wi-text-light)]">{mins == null ? "—" : fmtDuration(mins)}</td>
+                      <td className="py-2 px-3">
+                        <button type="button" onClick={() => openEditSession(s, "room")} className={cellValueClass}>
+                          {s.room_id ? (
+                            <span className="inline-flex items-center rounded-sm bg-[var(--color-wi-row-alt)] px-2 py-0.5 text-xs text-[var(--color-wi-text-light)]">
                               {roomNameById.get(s.room_id) ?? "SET"}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-[var(--color-wi-yellow)] text-white">Not set</span>
+                            <span className="inline-flex items-center rounded-sm bg-[var(--color-wi-yellow)] px-2 py-0.5 text-xs text-white">Not set</span>
                           )}
-                        </td>
-                        <td className="py-2 px-3">
-                          {isEditing ? (
-                            <div className="flex flex-col gap-2">
-                              <Select size="sm" value={editForm.teacher_id} onChange={(e) => setEditForm((p) => ({ ...p, teacher_id: e.target.value }))}>
-                                {teachers.map((t) => (
-                                  <option key={t.id} value={t.id}>
-                                    {t.username}
-                                  </option>
-                                ))}
-                              </Select>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => void submitEditSession()}
-                                  disabled={editSaving || !editGate.canSave}
-                                  loading={editPreflight.loading || editSaving}
-                                >
-                                  {editSaving ? "Saving…" : getSaveButtonLabel({ status: editPreflight.status, loading: editPreflight.loading }, "Save", editPreflight.details)}
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={cancelEditSession} disabled={editSaving}>
-                                  Cancel
-                                </Button>
-                                <PreflightBadge status={editPreflight.status} details={editPreflight.details} loading={editPreflight.loading} />
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                                {teacherById.get(s.teacher_id) ?? "—"}
-                              </span>
-                              <Button variant="ghost" size="sm" onClick={() => openEditSession(s)}>
-                                Edit
-                              </Button>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => navigate('/schedule')}
-                              >
-                                Check in
-                              </Button>
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                aria-label={`Delete session ${course?.code ?? s.course_id}`}
-                                onClick={() => setConfirmDeleteSession(s)}
-                                disabled={deletingSessionId === s.id}
-                                loading={deletingSessionId === s.id}
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                      {isEditing && editPreflight.details && (
-                          <tr className="border-b border-gray-100 bg-red-50/40">
-                          <td className="py-2 px-3" colSpan={7}>
-                            <PreflightIndicator
-                              preflight={editPreflight}
-                              coursesById={course ? new Map([[course.id, course]]) : new Map()}
-                              teachersById={new Map(teachers.map((t) => [t.id, t]))}
-                              roomsById={roomById}
-                              requiredFields={[
-                                { label: "Date", value: editForm.date },
-                                { label: "Start time", value: editForm.begin },
-                                { label: "End time", value: editForm.end },
-                                { label: "Teacher", value: editForm.teacher_id },
-                              ]}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
+                        </button>
+                      </td>
+                      <td className="py-2 px-3">
+                        <button type="button" onClick={() => openEditSession(s, "teacher")} className={cellValueClass}>
+                          <span className="inline-flex items-center rounded-sm border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                            {teacherById.get(s.teacher_id) ?? "—"}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="py-2 px-2">
+                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+                          <Button variant="ghost" size="sm" onClick={() => openEditSession(s, "date")} aria-label="Edit session">
+                            <Pencil size={14} aria-hidden="true" />
+                          </Button>
+                          <DropdownMenu
+                            items={[
+                              { label: "Check in", onClick: () => navigate("/schedule") },
+                              { label: "Delete", danger: true, onClick: () => setConfirmDeleteSession(s) },
+                            ]}
+                            trigger={<MoreVertical size={16} strokeWidth={2.25} aria-label="Session actions" />}
+                          />
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               )}
@@ -1259,15 +1294,23 @@ export default function CourseDetail() {
         </div>
         )}
 
-        {selectedIds.size > 0 && (
+{selectedIds.size > 0 && (
           <div className="flex items-center gap-3 mt-3 mb-2">
-            <span className="text-sm text-gray-600 font-medium">{selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""} selected</span>
+            <span className="text-sm text-[var(--color-wi-text-light)] font-medium">{selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""} selected</span>
             <Button variant="primary" size="sm" onClick={() => setBulkEditOpen(true)} disabled={selectedIds.size > 100}>
               Edit Selected
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
               Clear
             </Button>
+          </div>
+        )}
+
+        {viewMode === 'table' && (
+          <div className="mt-3">
+            {renderCreatePopover(
+              <Button variant="primary" size="md" onClick={openCreatePopover}>Add…</Button>
+            )}
           </div>
         )}
       </div>
@@ -1301,16 +1344,6 @@ export default function CourseDetail() {
                 >
                   {creatingSeries ? "Creating…" : getSaveButtonLabel({ status: seriesPreflight.status, loading: seriesPreflight.loading }, "Create series", seriesPreflight.details)}
                 </Button>
-              ) : createTab === "session" ? (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={submitSession}
-                  disabled={creatingSession || !sessionGate.canSave}
-                  loading={sessionPreflight.loading || creatingSession}
-                >
-                  {creatingSession ? "Creating…" : getSaveButtonLabel({ status: sessionPreflight.status, loading: sessionPreflight.loading }, "Create session", sessionPreflight.details)}
-                </Button>
               ) : (
                 <Button
                   variant="primary"
@@ -1327,11 +1360,11 @@ export default function CourseDetail() {
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden" role="tablist" aria-label="Schedule creation method">
+              <div className="inline-flex rounded-sm border border-wi-line overflow-hidden" role="tablist" aria-label="Schedule creation method">
                 <button
                   type="button"
                   onClick={() => setCreateTab("series")}
-                  className={`px-3 py-1.5 text-sm ${createTab === "series" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                  className={`px-3 py-1.5 text-sm transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${createTab === "series" ? "bg-[var(--color-wi-nav)] text-white" : "bg-white hover:bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"}`}
                   role="tab"
                   aria-selected={createTab === "series"}
                   aria-controls="series-panel"
@@ -1340,18 +1373,8 @@ export default function CourseDetail() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCreateTab("session")}
-                  className={`px-3 py-1.5 text-sm ${createTab === "session" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
-                  role="tab"
-                  aria-selected={createTab === "session"}
-                  aria-controls="session-panel"
-                >
-                  One-off session
-                </button>
-                <button
-                  type="button"
                   onClick={() => setCreateTab("paste")}
-                  className={`px-3 py-1.5 text-sm ${createTab === "paste" ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50 text-gray-700"}`}
+                  className={`px-3 py-1.5 text-sm transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${createTab === "paste" ? "bg-[var(--color-wi-nav)] text-white" : "bg-white hover:bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"}`}
                   role="tab"
                   aria-selected={createTab === "paste"}
                   aria-controls="paste-panel"
@@ -1359,39 +1382,15 @@ export default function CourseDetail() {
                   Paste schedule
                 </button>
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-[var(--color-wi-text-light)]">
                 Course: <span className="font-mono">{course.code}</span> • TZ: <span className="font-mono">{zone}</span>
               </div>
             </div>
 
-            {createTab === "session" ? (
-              <div className="space-y-6" role="tabpanel" id="session-panel" aria-labelledby="session-tab">
-                <SessionOccurrenceForm
-                  form={sessionForm}
-                  setForm={setSessionForm}
-                  courseOptions={[]}
-                  teacherOptions={teacherOptions}
-                  rooms={rooms}
-                  courseReadonlyLabel={course ? `${course.code} — ${course.name}` : sessionForm.course_id}
-                  prefix="course-detail-session-"
-                />
-                <PreflightIndicator
-                  preflight={sessionPreflight}
-                  coursesById={course ? new Map([[course.id, course]]) : new Map()}
-                  teachersById={new Map(teachers.map((t) => [t.id, t]))}
-                  roomsById={roomById}
-                  requiredFields={[
-                    { label: "Course", value: sessionForm.course_id },
-                    { label: "Teacher", value: sessionForm.teacher_id },
-                    { label: "Start", value: sessionForm.start_local },
-                    { label: "End", value: sessionForm.end_local },
-                  ]}
-                />
-              </div>
-            ) : createTab === "paste" ? (
+            {createTab === "paste" ? (
               <div className="space-y-4" role="tabpanel" id="paste-panel" aria-labelledby="paste-tab">
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teacher</div>
+                <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+                  <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Teacher</div>
                   <TypeaheadSelect
                     value={pasteTeacherId}
                     onChange={setPasteTeacherId}
@@ -1400,15 +1399,15 @@ export default function CourseDetail() {
                   />
                 </div>
 
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <label htmlFor="paste-schedule-rows" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+                  <label htmlFor="paste-schedule-rows" className="block text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">
                     Paste schedule rows
                   </label>
                   <textarea
                     id="paste-schedule-rows"
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
-                    className="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-gray-300 rounded-sm focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+                    className="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-wi-line rounded-sm focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
                     placeholder={"Date\tBegin\tEnd\tDuration\tClassroom\tConfirm\tBy\nSun 31 May 26\t13:00\t15:00\t02:00"}
                   />
                   {parsedPaste.errors.length > 0 && (
@@ -1421,34 +1420,34 @@ export default function CourseDetail() {
                 </div>
 
                 {parsedPaste.rows.length > 0 && (
-                  <div className="border border-gray-200 rounded-sm overflow-hidden">
+                  <div className="border border-wi-line rounded-sm overflow-hidden">
       <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
                       <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
-                        <thead className="bg-gray-50">
-                          <tr className="border-b border-gray-200">
-                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Duration</th>
-                            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
+                        <thead className="bg-[var(--color-wi-row-alt)]">
+                          <tr className="border-b border-wi-line">
+                            <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
+                            <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
+                            <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
+                            <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Duration</th>
+                            <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Classroom</th>
                           </tr>
                         </thead>
                         <tbody>
                           {parsedPaste.rows.map((row) => {
                             const matchedRoomId = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) : null;
                             return (
-                              <tr key={row.rowNumber} className="border-b border-gray-100">
+                              <tr key={row.rowNumber} className="border-b border-wi-line-soft">
                                 <td className="py-2 px-2 font-mono">{row.date}</td>
                                 <td className="py-2 px-2 font-mono">{row.begin}</td>
                                 <td className="py-2 px-2 font-mono">{row.end}</td>
                                 <td className="py-2 px-2 font-mono">{row.duration || "—"}</td>
                                 <td className="py-2 px-2">
                                   {row.classroom ? (
-                                    <span className={matchedRoomId ? "text-gray-700" : "text-amber-700"}>
+                                    <span className={matchedRoomId ? "text-[var(--color-wi-text-light)]" : "text-amber-700"}>
                                       {row.classroom}{matchedRoomId ? "" : " (not matched)"}
                                     </span>
                                   ) : (
-                                    <span className="text-gray-400">Not set</span>
+                                    <span className="text-[var(--color-wi-text-light)]">Not set</span>
                                   )}
                                 </td>
                               </tr>
@@ -1462,8 +1461,8 @@ export default function CourseDetail() {
               </div>
             ) : (
               <div className="space-y-6" role="tabpanel" id="series-panel" aria-labelledby="series-tab">
-                <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Course & Teacher</div>
+                <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+                  <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Course & Teacher</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <FormField name="course-detail-series-room_id" label="Room">
                       <Select size="sm" value={seriesForm.room_id} onChange={(e) => setSeriesForm((prev) => ({ ...prev, room_id: e.target.value }))}>
@@ -1551,26 +1550,26 @@ export default function CourseDetail() {
           }
         >
           <div className="space-y-3">
-            <p className="text-sm text-gray-700">
+            <p className="text-sm text-[var(--color-wi-text-light)]">
               {pastePreflights.filter((p) => p.status === "blocked").length} of {pastePreflights.length} pasted session{pastePreflights.length !== 1 ? "s" : ""} {" "}
               {pastePreflights.filter((p) => p.status === "blocked").length === 1 ? "has" : "have"} scheduling conflicts.
             </p>
-            <div className="border border-gray-200 rounded-sm overflow-hidden">
+            <div className="border border-wi-line rounded-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <caption className="sr-only">Schedule conflict preview</caption>
-                  <thead className="bg-gray-50">
-                    <tr className="border-b border-gray-200">
-                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
-                      <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+                  <thead className="bg-[var(--color-wi-row-alt)]">
+                    <tr className="border-b border-wi-line">
+                      <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
+                      <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
+                      <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
+                      <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Classroom</th>
+                      <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pastePreflights.map((pf) => (
-                      <tr key={pf.rowNumber} className="border-b border-gray-100">
+                      <tr key={pf.rowNumber} className="border-b border-wi-line-soft">
                         <td className="py-2 px-2 font-mono">{pf.date}</td>
                         <td className="py-2 px-2 font-mono">{pf.begin}</td>
                         <td className="py-2 px-2 font-mono">{pf.end}</td>
@@ -1578,7 +1577,7 @@ export default function CourseDetail() {
                           {pf.classroom ? (
                             <span>{pf.classroom}</span>
                           ) : (
-                            <span className="text-gray-400">Not set</span>
+                            <span className="text-[var(--color-wi-text-light)]">Not set</span>
                           )}
                         </td>
                         <td className="py-2 px-2">
@@ -1641,7 +1640,7 @@ export default function CourseDetail() {
         onCancel={() => setConfirmRemoveStudent(null)}
       />
 
-      {editImpact ? <ImpactAcknowledgementModal summary={editImpact} saving={editSaving} onBack={() => setEditImpact(null)} onConfirm={() => { setEditImpact(null); void submitEditSession(true); }} /> : null}
+      {edit.pendingImpact ? <ImpactAcknowledgementModal summary={edit.pendingImpact} saving={edit.saving} onBack={edit.dismissImpact} onConfirm={() => void edit.confirmImpact()} /> : null}
     </div>
   );
 }
@@ -1803,13 +1802,13 @@ function BulkEditModal({
       <div className="flex gap-1 mb-3">
         <button
           onClick={() => switchMode('per-row')}
-          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'per-row' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'per-row' ? 'bg-blue-600 text-white' : 'bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
         >
           Row Edit
         </button>
         <button
           onClick={() => switchMode('fill-all')}
-          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'fill-all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'fill-all' ? 'bg-blue-600 text-white' : 'bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
         >
           Apply to All
         </button>
@@ -1820,20 +1819,20 @@ function BulkEditModal({
           <div className="text-xs font-semibold text-blue-700 mb-2">Apply to all — only filled fields override each session</div>
           <div className="flex flex-wrap gap-3 items-end">
             <div>
-              <label className="text-[10px] text-gray-500 block mb-0.5">Date</label>
-              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+              <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Date</label>
+              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 block mb-0.5">Begin</label>
-              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+              <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Begin</label>
+              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 block mb-0.5">End</label>
-              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+              <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">End</label>
+              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 block mb-0.5">Classroom</label>
-              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
+              <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Classroom</label>
+              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-wi-line rounded-sm">
                 <option value="__keep__">[KEEP ORIGINAL]</option>
                           <option value="">Not set</option>
                 {rooms.map((room) => (
@@ -1842,7 +1841,7 @@ function BulkEditModal({
               </select>
             </div>
             <div className="min-w-[160px]">
-              <label className="text-[10px] text-gray-500 block mb-0.5">Teacher</label>
+              <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Teacher</label>
               <TypeaheadSelect value={fillValues.teacher_id ?? ''} onChange={(v) => handleFillChange('teacher_id', v || undefined)} options={teacherOptions} placeholder="Set teacher for all…" />
             </div>
           </div>
@@ -1850,24 +1849,24 @@ function BulkEditModal({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-[13px] border border-gray-200">
+        <table className="w-full text-[13px] border border-wi-line">
           <caption className="sr-only">Bulk edit sessions</caption>
-          <thead className="bg-gray-50">
-            <tr className="border-b border-gray-200">
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">#</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Date</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Begin</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">End</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Dur</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Classroom</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Teacher</th>
-              <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Status</th>
+          <thead className="bg-[var(--color-wi-row-alt)]">
+            <tr className="border-b border-wi-line">
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">#</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Dur</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Classroom</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Teacher</th>
+              <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Status</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-4 text-center text-gray-400">No sessions selected</td>
+                <td colSpan={8} className="py-4 text-center text-[var(--color-wi-text-light)]">No sessions selected</td>
               </tr>
             ) : (
               rows.map((r) => {
@@ -1876,30 +1875,30 @@ function BulkEditModal({
                 const hasError = hasDurationError(eff);
                 const isFillMode = editMode === 'fill-all';
                 return (
-                  <tr key={r.sessionId} className={`border-b border-gray-100 hover:bg-gray-50 ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
-                    <td className="py-1.5 px-2 font-mono text-xs text-gray-400">{rows.indexOf(r) + 1}</td>
+                  <tr key={r.sessionId} className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
+                    <td className="py-1.5 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{rows.indexOf(r) + 1}</td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.date !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.date}</span>
                       ) : (
-                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.begin !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.begin}</span>
                       ) : (
-                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.end !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.end}</span>
                       ) : (
-                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded-sm" />
+                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
                       )}
                     </td>
-                    <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-gray-700'}`}>
+                    <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-[var(--color-wi-text-light)]'}`}>
                       {hasError ? "Invalid" : durStr}
                     </td>
                     <td className="py-1.5 px-2 min-w-[120px]">
@@ -1908,7 +1907,7 @@ function BulkEditModal({
                           {rooms.find((rm) => rm.id === eff.room_id)?.name ?? 'Not set'}
                         </span>
                       ) : (
-                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded-sm">
+                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-wi-line rounded-sm">
                 <option value="">Not set</option>
                           {rooms.map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>
@@ -1927,7 +1926,7 @@ function BulkEditModal({
                     </td>
                     <td className="py-1.5 px-2">
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded-sm text-[11px] font-medium ${
-                        r.status === 'pending' ? 'text-gray-400' :
+                        r.status === 'pending' ? 'text-[var(--color-wi-text-light)]' :
                         r.status === 'updated' ? 'bg-green-100 text-green-700' :
                         r.status === 'conflict' || r.status === 'stale_edit' ? 'bg-red-100 text-red-700' :
                         'bg-red-100 text-red-700'

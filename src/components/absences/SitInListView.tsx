@@ -8,23 +8,33 @@ import { getAbsenceSubjectLabel, getSessionLabel } from "./calendarDisplay";
 type SortKey = "student" | "leaving" | "sit-in" | "date" | "method" | "status";
 type SortDirection = "asc" | "desc";
 
+export type SitInListMode = "sit-ins" | "absences";
+
 type SitInListViewProps = {
   sessions: CalendarSessionBrief[];
   absenceDays: CalendarAbsenceDay[];
-  onClearFilters: () => void;
+  absences: CalendarAbsence[];
+  mode: SitInListMode;
+  zone: string;
+  hasFilters: boolean;
   hasAnySitIns: boolean;
+  onClearFilters: () => void;
 };
 
 function sortValue(row: SitInListRow, key: SortKey): string {
   switch (key) {
     case "student":
-      return row.visitor.nickname || row.visitor.student_name || row.visitor.wcode;
+      return row.absence
+        ? row.absence.student_name?.trim() || row.absence.wcode
+        : row.visitor!.nickname || row.visitor!.student_name || row.visitor!.wcode;
     case "leaving":
-      return row.absence ? getAbsenceSubjectLabel(row.absence) : row.visitor.from_course_name || row.visitor.from_course_code;
+      return row.absence
+        ? getAbsenceSubjectLabel(row.absence)
+        : row.visitor!.from_course_name || row.visitor!.from_course_code;
     case "sit-in":
-      return getSessionLabel(row.session);
+      return row.absence ? getAbsenceSubjectLabel(row.absence) : getSessionLabel(row.session!);
     case "date":
-      return row.session.start_at;
+      return row.absence ? row.absence.date_from : row.session!.start_at;
     case "method":
       return row.absence?.sit_in_method || "physical";
     case "status":
@@ -32,7 +42,7 @@ function sortValue(row: SitInListRow, key: SortKey): string {
   }
 }
 
-export default function SitInListView({ sessions, absenceDays, onClearFilters, hasAnySitIns }: SitInListViewProps) {
+export default function SitInListView({ sessions, absenceDays, absences, mode, zone, hasFilters, onClearFilters }: SitInListViewProps) {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [visibleCount, setVisibleCount] = useState(20);
@@ -48,15 +58,24 @@ export default function SitInListView({ sessions, absenceDays, onClearFilters, h
   }, [absenceDays]);
 
   const rows = useMemo<SitInListRow[]>(() => {
-    const data = sessions.flatMap((session) =>
-      (session.sit_in_students ?? []).map((visitor) => ({
-        id: `${session.id}-${visitor.absence_id}-${visitor.wcode}`,
-        index: 0,
-        visitor,
-        session,
-        absence: absencesById.get(visitor.absence_id),
-      })),
-    );
+    const data: SitInListRow[] =
+      mode === "absences"
+        ? absences.map((absence) => ({
+            id: absence.id,
+            index: 0,
+            visitor: null,
+            session: null,
+            absence,
+          }))
+        : sessions.flatMap((session) =>
+            (session.sit_in_students ?? []).map((visitor) => ({
+              id: `${session.id}-${visitor.absence_id}-${visitor.wcode}`,
+              index: 0,
+              visitor,
+              session,
+              absence: absencesById.get(visitor.absence_id),
+            })),
+          );
 
     data.sort((a, b) => {
       const left = sortValue(a, sortKey);
@@ -66,7 +85,7 @@ export default function SitInListView({ sessions, absenceDays, onClearFilters, h
     });
 
     return data.map((row, index) => ({ ...row, index: index + 1 }));
-  }, [absencesById, sessions, sortDirection, sortKey]);
+  }, [absences, absencesById, mode, sessions, sortDirection, sortKey]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -88,26 +107,34 @@ export default function SitInListView({ sessions, absenceDays, onClearFilters, h
   ];
 
   if (rows.length === 0) {
+    const isAbsenceList = mode === "absences";
+    const message = hasFilters
+      ? isAbsenceList
+        ? "No absences match your filters."
+        : "No sit-ins match your filters."
+      : isAbsenceList
+        ? "No absences recorded in this date range."
+        : "No sit-ins recorded in this date range.";
     return (
-      <div className="rounded-sm border border-gray-200 bg-white">
+      <div className="rounded-sm border border-wi-line bg-white">
         <EmptyState
-          message={hasAnySitIns ? "No sit-ins match your filters." : "No sit-ins recorded in this date range."}
-          action={hasAnySitIns ? <Button variant="secondary" size="sm" onClick={onClearFilters}>Clear filters</Button> : undefined}
+          message={message}
+          action={hasFilters ? <Button variant="secondary" size="sm" onClick={onClearFilters}>Clear filters</Button> : undefined}
         />
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-sm border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-sm border border-wi-line bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-full text-left">
-          <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-500">
+          <thead className="border-b border-wi-line bg-[var(--color-wi-row-alt)] text-xs font-semibold text-[var(--color-wi-text-light)]">
             <tr>
               <th className="px-3 py-2">#</th>
               {headers.map(([key, label]) => (
                 <th key={key} className="px-3 py-2">
-                  <button type="button" className="inline-flex items-center gap-1 hover:text-gray-900" onClick={() => toggleSort(key)}>
+                  <button type="button" className="inline-flex items-center gap-1 hover:text-[var(--color-wi-text)]" onClick={() => toggleSort(key)}>
                     {label}
                     {sortKey === key ? <span aria-hidden="true">{sortDirection === "asc" ? "↑" : "↓"}</span> : null}
                   </button>
@@ -117,13 +144,13 @@ export default function SitInListView({ sessions, absenceDays, onClearFilters, h
           </thead>
           <tbody>
             {visibleRows.map((row) => (
-              <SitInTableRow key={row.id} row={row} />
+              <SitInTableRow key={row.id} row={row} zone={zone} />
             ))}
           </tbody>
         </table>
       </div>
       {visibleCount < rows.length ? (
-        <div className="border-t border-gray-100 p-3 text-center">
+        <div className="border-t border-wi-line-soft p-3 text-center">
           <Button variant="secondary" size="sm" onClick={() => setVisibleCount((count) => count + 20)}>
             Load more
           </Button>

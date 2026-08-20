@@ -103,11 +103,11 @@ export default function TeacherProfile() {
 
   return (
     <div>
-      <Link to="/teachers" className="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-block">&larr; Back</Link>
+      <Link to="/teachers" className="text-sm text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] mb-2 inline-block">&larr; Back</Link>
       <div className="flex items-start justify-between mb-4">
         <div>
           <PageHeading>{teacher?.username ?? 'Teacher'}</PageHeading>
-          <p className="text-sm text-gray-500 font-mono text-xs">{id}</p>
+          <p className="text-sm text-[var(--color-wi-text-light)] font-mono text-xs">{id}</p>
         </div>
         <div className="flex items-center gap-3">
           <Link to="/users" className="text-sm text-[var(--color-wi-primary)] hover:underline">Manage account</Link>
@@ -116,20 +116,20 @@ export default function TeacherProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="border border-gray-200 p-4">
+        <div className="border border-wi-line p-4">
           <h3 className="text-sm font-semibold mb-2">Profile</h3>
           <div className="space-y-1 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Username</span> <span className="font-mono text-xs">{teacher?.username ?? '-'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Role</span> <span>{teacher?.role ?? 'Teacher'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Week</span> <span>{format(weekStart, 'yyyy-MM-dd')} → {format(weekEnd, 'yyyy-MM-dd')}</span></div>
+            <div className="flex justify-between"><span className="text-[var(--color-wi-text-light)]">Username</span> <span className="font-mono text-xs">{teacher?.username ?? '-'}</span></div>
+            <div className="flex justify-between"><span className="text-[var(--color-wi-text-light)]">Role</span> <span>{teacher?.role ?? 'Teacher'}</span></div>
+            <div className="flex justify-between"><span className="text-[var(--color-wi-text-light)]">Week</span> <span>{format(weekStart, 'yyyy-MM-dd')} → {format(weekEnd, 'yyyy-MM-dd')}</span></div>
           </div>
         </div>
-        <div className="border border-gray-200 p-4 lg:col-span-2">
+        <div className="border border-wi-line p-4 lg:col-span-2">
           <h3 className="text-sm font-semibold mb-2">Courses This Week ({courseRollup.length})</h3>
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Courses this week</caption>
             <thead>
-              <tr className="border-b-2 border-gray-300">
+              <tr className="border-b border-wi-line">
                 <th scope="col" className="text-left py-1 px-2 font-semibold">C-ID</th>
                 <th scope="col" className="text-left py-1 px-2 font-semibold">Course</th>
                 <th scope="col" className="text-left py-1 px-2 font-semibold">Sessions</th>
@@ -139,9 +139,9 @@ export default function TeacherProfile() {
               {loading ? (
                 <tr><td colSpan={3}><LoadingSkeleton type="table" lines={2} /></td></tr>
               ) : courseRollup.length === 0 ? (
-                <tr><td colSpan={3} className="py-4 text-center text-sm text-gray-500">No sessions this week.</td></tr>
+                <tr><td colSpan={3} className="py-4 text-center text-sm text-[var(--color-wi-text-light)]">No sessions this week.</td></tr>
               ) : courseRollup.map((c) => (
-                  <tr key={c.courseId} className="border-b border-gray-200 hover:bg-gray-50">
+                  <tr key={c.courseId} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-1 px-2"><Link to={`/courses/${c.courseId}`} className="text-[var(--color-wi-primary)] hover:underline font-mono text-xs">{c.course?.code ?? c.courseId}</Link></td>
                     <td className="py-1 px-2">{c.course?.name ?? c.courseId}</td>
                     <td className="py-1 px-2">{c.count}</td>
@@ -152,34 +152,34 @@ export default function TeacherProfile() {
         </div>
       </div>
 
-      <div className="border border-gray-200 p-4 mt-4">
+      <div className="border border-wi-line p-4 mt-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold">Weekly Schedule</h3>
           <div className="flex items-center gap-1.5">
             <Button variant="ghost" size="sm" onClick={() => setWeekStart((prev) => addDays(prev, -7))}>&lsaquo; Prev</Button>
             <Button variant="ghost" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>Today</Button>
             <Button variant="ghost" size="sm" onClick={() => setWeekStart((prev) => addDays(prev, 7))}>Next &rsaquo;</Button>
-            <span className="text-xs text-gray-500 ml-1 font-mono">
+            <span className="text-xs text-[var(--color-wi-text-light)] ml-1 font-mono">
               {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
             </span>
           </div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-[12px] border border-gray-200">
+        <div className="overflow-x-auto"><table className="w-full text-[12px] border border-wi-line">
             <caption className="sr-only">Weekly schedule</caption>
             <thead>
-              <tr className="bg-gray-50">
-                <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-gray-200 w-12">Time</th>
-                {days.map((d) => <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-gray-200 min-w-[100px]">{d}</th>)}
+              <tr className="bg-[var(--color-wi-row-alt)]">
+                <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-wi-line w-12">Time</th>
+                {days.map((d) => <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-wi-line min-w-[100px]">{d}</th>)}
               </tr>
             </thead>
             <tbody>
               {timeSlots.map((slot) => (
-                <tr key={slot} className="border-b border-gray-200">
-                  <td className="py-1 px-1 text-xs text-gray-500 font-medium border-r border-gray-200">{slot}</td>
+                <tr key={slot} className="border-b border-wi-line">
+                  <td className="py-1 px-1 text-xs text-[var(--color-wi-text-light)] font-medium border-r border-wi-line">{slot}</td>
                   {[1,2,3,4,5].map((day) => {
                     const sessList = sessionsByWeekdayAndHour.get(`${day}-${slot}`) ?? [];
                     return (
-                      <td key={day} className="px-1 py-1 border-r border-gray-200 align-top">
+                      <td key={day} className="px-1 py-1 border-r border-wi-line align-top">
                         {sessList.length > 0 ? (
                           <div className="space-y-0.5">
                             {sessList.map((sess) => {
@@ -199,8 +199,8 @@ export default function TeacherProfile() {
                           </div>
                         ) : loading ? (
                           <div className="animate-pulse space-y-1.5">
-                            <div className="h-7 bg-gray-100 rounded-sm" />
-                            <div className="h-7 bg-gray-100 rounded-sm w-3/4" />
+                            <div className="h-7 bg-[var(--color-wi-row-alt)] rounded-sm" />
+                            <div className="h-7 bg-[var(--color-wi-row-alt)] rounded-sm w-3/4" />
                           </div>
                         ) : null}
                       </td>

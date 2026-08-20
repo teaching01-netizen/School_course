@@ -11,7 +11,7 @@ import FormField from "../components/ui/FormField";
 import FormErrorSummary from "../components/ui/FormErrorSummary";
 import MultiTeacherSelect from "../components/MultiTeacherSelect";
 
-type Teacher = { id: string; username: string; role: "Admin" | "Teacher" };
+type Teacher = { id: string; username: string; full_name: string | null; role: "Admin" | "Teacher" };
 type Subject = { id: string; code: string; name: string };
 
 const schema = {
@@ -40,7 +40,7 @@ export default function CourseCreate() {
 
   const formValues = { year, teacherID: teacherIDs[0] || "", subjectID, hour, studentCount };
   const { errors, validate, validateAll, touched, touch } = useFormValidation(schema, formValues);
-  const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.username, keywords: t.id })), [teachers]);
+  const teacherOptions = useMemo(() => teachers.map((t) => ({ value: t.id, label: t.full_name || t.username, keywords: t.id })), [teachers]);
 
   useEffect(() => {
     (async () => {

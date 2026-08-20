@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Student</title>
+</head>
+<body>
+<h1>Student</h1>
+
+
+
+
+<form method="post" enctype="multipart/form-data">
+    <div class="container"> 
+        <div class="row">        
+            <div class="col-md-3 text-center" >
+                <input class="form-control hidden-print" placeholder="Search W-Code, Name" type="text" id="SearchText" name="SearchText" value="" />
+            </div>
+            <div class="col-md-1" >
+                <button type="submit" class="btn btn-default hidden-print" formaction="/Admin/Students?handler=search">Search</button>
+            </div>
+			<div class="col-md-3" >                
+                <input type="file" name="file" class="form-control hidden-print"/>
+            </div>
+			<div class="col-md-5" >                
+                <button type="submit" class="btn btn-info hidden-print" formaction="/Admin/Students?handler=import">Import Student</button>
+            </div>
+        </div>		
+    </div>
+
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>
+                    <label for="Students_0__Id">W-Code</label>
+                </th>
+                <th>
+                    <label for="Students_0__Fullname">Name</label>
+                </th>
+                <!--<th>
+                    <label asp-for="Students[0].LastName"></label>
+                </th>-->
+                <th>
+                    <label for="Students_0__Nickname">Nickname</label>
+                </th>
+                <th>
+                    <label for="Students_0__School">School</label>
+                </th>
+                <th>
+                    <label for="Students_0__AcademicLevel">Level</label>
+                </th>
+    			<th>
+                    <label for="Students_0__AdmissionYear">Year</label>
+                </th>			
+                <th>
+                    <label for="Students_0__MobilePhone">Phone</label>
+                </th>
+    			<th>
+                    <label for="Students_0__Email">Email</label>
+                </th>
+				<th>
+                    <label for="Students_0__IsMobileAccess">Mobile</label>
+                </th>
+				<th></th>
+            </tr>
+        </thead>
+        <tbody>
+    		<tr>
+                <td colspan="9">No students yet.</td>
+            </tr>
+        </tbody>
+    </table>
+<input name="__RequestVerificationToken" type="hidden" value="FIXTURE_ANTIFORGERY_TOKEN" /></form>
+</body>
+</html>

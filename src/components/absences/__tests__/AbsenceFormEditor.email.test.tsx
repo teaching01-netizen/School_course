@@ -24,7 +24,6 @@ const baseSettings: AbsenceSettings = {
     sms_parent_template: "",
     sms_success_template: "",
     sms_special_approved_template: "",
-    allow_submit_without_otp: false,
     email_success_enabled: false,
     email_success_subject: "",
     email_success_body: "",

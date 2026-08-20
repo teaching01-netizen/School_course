@@ -77,7 +77,7 @@ export default function SitInResultCard({
           {onSkip && (
               <button
                 type="button"
-                className="min-h-[44px] rounded-sm border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100"
+                className="min-h-[44px] rounded-sm border border-wi-line bg-white px-3 py-2 text-xs font-medium text-[var(--color-wi-text-light)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
                 onClick={onSkip}
               >
                 Skip
@@ -122,7 +122,7 @@ export default function SitInResultCard({
         <p className="mt-1 text-xs text-green-600">
           {result.missed_count} missed session(s).
         </p>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-sm text-[var(--color-wi-text-light)]">
           No sessions in this date range.
         </p>
       </div>
@@ -176,16 +176,16 @@ export default function SitInResultCard({
       {/* day-by-day timeline */}
       {pairedDays.map(({ date, dayMissed }) => (
         <div key={date}>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
             {fmtDay(date)}
           </p>
           <div className="space-y-1">
             {dayMissed.map(({ m, pair }) => (
               <div
                 key={m.id}
-                className="max-sm:flex-col max-sm:items-start flex items-center gap-2 rounded-sm px-2 py-1 hover:bg-gray-50"
+                className="max-sm:flex-col max-sm:items-start flex items-center gap-2 rounded-sm px-2 py-1 hover:bg-[var(--color-wi-row-alt)]"
               >
-                <div className="flex-1 text-sm text-gray-700">
+                <div className="flex-1 text-sm text-[var(--color-wi-text-light)]">
                   Missed: {fmtTime(m.start_at)} &ndash; {fmtTime(m.end_at)}
                 </div>
                 {pair ? (
@@ -202,7 +202,7 @@ export default function SitInResultCard({
                     </span>
                   </label>
                 ) : (
-                  <span className="sm:ml-auto shrink-0 text-xs italic text-gray-400">
+                  <span className="sm:ml-auto shrink-0 text-xs italic text-[var(--color-wi-text-light)]">
                     &mdash; (full)
                   </span>
                 )}

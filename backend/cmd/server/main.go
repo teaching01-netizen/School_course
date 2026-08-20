@@ -20,7 +20,6 @@ import (
 	"warwick-institute/internal/crmimport/queue"
 	"warwick-institute/internal/crmimport/reconcile"
 	sqldb "warwick-institute/internal/db"
-	"warwick-institute/internal/devseed"
 	"warwick-institute/internal/emailnotifier"
 	"warwick-institute/internal/emailreminder"
 	"warwick-institute/internal/httpapi"
@@ -45,6 +44,9 @@ func main() {
 	log := logging.New(cfg.LogLevel)
 	slog.SetDefault(log)
 	log.Info("starting", "addr", cfg.Addr, "static_dir", cfg.StaticDir)
+	if cfg.TrustedProxyCIDRs == "" {
+		log.Warn("TRUSTED_PROXY_CIDRS is not set: per-IP rate limits will use the direct peer address. Set TRUSTED_PROXY_CIDRS to the reverse proxy CIDRs (nginx/Cloudflare/Railway) when running behind a proxy.")
+	}
 
 	dbpool, err := pg.NewPool(context.Background(), cfg.DatabaseURL)
 	if err != nil {
@@ -52,6 +54,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer dbpool.Close()
+
+	// Hourly sweep of expired auth sessions and stale rate-limit events; both
+	// tables only accumulate rows, so the sweeper is what keeps them bounded.
+	sweeper := newMaintenanceSweeper(log, dbpool)
+	sweeper.Start(context.Background())
 
 	realtimeDatabaseURL, err := pg.ResolveRealtimeDatabaseURL(
 		cfg.DatabaseURL,
@@ -68,19 +75,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer realtimeDBPool.Close()
-
-	// Optional dev-only admin seeding.
-	// Set ADMIN_USERNAME and ADMIN_PASSWORD to enable.
-	if u := os.Getenv("ADMIN_USERNAME"); u != "" {
-		if err := devseed.EnsureAdmin(context.Background(), log, dbpool, devseed.EnsureAdminParams{
-			Username: u,
-			Password: os.Getenv("ADMIN_PASSWORD"),
-			Pepper:   cfg.AuthPepper,
-		}); err != nil {
-			log.Error("ensure admin user", "err", err)
-			os.Exit(1)
-		}
-	}
 
 	// CRM services.
 	snapshotSvc, err := crmimport.NewSnapshotService(dbpool, cfg.InstituteTZ)
@@ -112,7 +106,7 @@ func main() {
 	worker.RegisterHandler(queue.JobTypeImportSnapshot,
 		crmimport.ImportSnapshotJobHandler(snapshotSvc, syncSvc, reconcileV2Svc, worker, crossStudyStore))
 	worker.RegisterHandler(queue.JobTypeStudentSync,
-		crmimport.StudentSyncJobHandler(syncSvc))
+		crmimport.StudentSyncJobHandler(syncSvc, snapshotSvc))
 	worker.RegisterHandler(queue.JobTypeCourseReconcileApply,
 		reconcile.CourseReconcileJobHandler(reconcileV2Svc, worker))
 	worker.RegisterHandler(queue.JobTypeCourseReconcileDiff,
@@ -210,6 +204,7 @@ func main() {
 	}
 
 	scheduler.Stop()
+	sweeper.Stop()
 	otpDeliveryCancel()
 	realtimeHub.Close()
 	realtimeCancel()

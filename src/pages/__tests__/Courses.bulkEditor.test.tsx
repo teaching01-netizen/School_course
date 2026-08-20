@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Courses from "../Courses";
 import { ToastProvider } from "../../hooks/useToast";
+import { queryClient } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -32,11 +33,32 @@ const TEACHERS = [
 ];
 
 const COURSES = [
-  { id: "c1", course_no: 1, code: "MATH-101", name: "Algebra I", year: 2025, teacher_id: "t1", teacher_name: "Alice", subject_id: "subj-1", subject_code: "MATH", subject_name: "Mathematics", hour: 40, student_count: 20, course_type: "Lecture", legacy_course_id: null },
-  { id: "c2", course_no: 2, code: "PHYS-101", name: "Physics I", year: 2025, teacher_id: "t2", teacher_name: "Bob", subject_id: "subj-2", subject_code: "PHYS", subject_name: "Physics", hour: 30, student_count: 15, course_type: "Lab", legacy_course_id: null },
-  { id: "c3", course_no: 3, code: "CHEM-101", name: "Chemistry I", year: 2025, teacher_id: "t1", teacher_name: "Alice", subject_id: "subj-3", subject_code: "CHEM", subject_name: "Chemistry", hour: 35, student_count: 18, course_type: "Lecture", legacy_course_id: null },
+  { id: "c1", course_no: 1, code: "MATH-101", name: "Algebra I", year: 2025, teacher_id: "t1", teacher_name: "Alice", subject_id: "subj-1", subject_code: "MATH", subject_name: "Mathematics", hour: 40, student_count: 20, course_type: "Private", legacy_course_id: null },
+  { id: "c2", course_no: 2, code: "PHYS-101", name: "Physics I", year: 2025, teacher_id: "t2", teacher_name: "Bob", subject_id: "subj-2", subject_code: "PHYS", subject_name: "Physics", hour: 30, student_count: 15, course_type: "General", legacy_course_id: null },
+  { id: "c3", course_no: 3, code: "CHEM-101", name: "Chemistry I", year: 2025, teacher_id: "t1", teacher_name: "Alice", subject_id: "subj-3", subject_code: "CHEM", subject_name: "Chemistry", hour: 35, student_count: 18, course_type: "Private", legacy_course_id: null },
   { id: "c4", course_no: 4, code: "MATH-201", name: "Algebra II", year: 2026, teacher_id: null, teacher_name: "", subject_id: null, subject_code: "", subject_name: "", hour: null, student_count: null, course_type: null, legacy_course_id: null },
 ];
+
+// Simulates the server-side list endpoint: filters by teacher_id and returns
+// the paginated envelope for /api/v1/courses?… requests.
+async function listMock(url: string): Promise<unknown> {
+  if (url === "/api/v1/users?role=Teacher") return TEACHERS;
+  const match = url.match(/^\/api\/v1\/courses\?(.*)$/);
+  if (match) {
+    const params = new URLSearchParams(match[1]);
+    let items = COURSES;
+    const teacherId = params.get("teacher_id");
+    if (teacherId === "none") items = items.filter((c) => !c.teacher_id);
+    else if (teacherId) items = items.filter((c) => c.teacher_id === teacherId);
+    return {
+      items,
+      total_count: items.length,
+      offset: Number(params.get("offset") ?? 0),
+      limit: Number(params.get("limit") ?? 50),
+    };
+  }
+  throw new Error(`Unmocked: ${url}`);
+}
 
 function renderCourses() {
   return render(
@@ -51,11 +73,8 @@ function renderCourses() {
 describe("Courses bulk editor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockApiJson.mockImplementation(async (url: string) => {
-      if (url === "/api/v1/users?role=Teacher") return TEACHERS;
-      if (url === "/api/v1/courses") return COURSES;
-      throw new Error(`Unmocked: ${url}`);
-    });
+    queryClient.clear();
+    mockApiJson.mockImplementation(listMock);
   });
 
   it("renders course table with all rows", async () => {
@@ -103,7 +122,7 @@ describe("Courses bulk editor", () => {
       expect(screen.getByLabelText("Teacher filter")).toBeTruthy();
     });
     const select = screen.getByLabelText("Teacher filter");
-    await userEvent.selectOptions(select, "__none__");
+    await userEvent.selectOptions(select, "none");
     await waitFor(() => {
       expect(screen.getByText("MATH-201")).toBeTruthy();
     });
@@ -173,12 +192,10 @@ describe("Courses bulk editor", () => {
 
   it("calls batch-delete API on confirm and shows success toast", async () => {
     mockApiJson.mockImplementation(async (url: string) => {
-      if (url === "/api/v1/users?role=Teacher") return TEACHERS;
-      if (url === "/api/v1/courses") return COURSES;
       if (url === "/api/v1/courses/batch-delete") {
         return { succeeded: ["c1"], failed: [], total_processed: 1 };
       }
-      throw new Error(`Unmocked: ${url}`);
+      return listMock(url);
     });
     renderCourses();
     await waitFor(() => {
@@ -210,12 +227,10 @@ describe("Courses bulk editor", () => {
 
   it("shows partial failure details in toast", async () => {
     mockApiJson.mockImplementation(async (url: string) => {
-      if (url === "/api/v1/users?role=Teacher") return TEACHERS;
-      if (url === "/api/v1/courses") return COURSES;
       if (url === "/api/v1/courses/batch-delete") {
         return { succeeded: ["c1"], failed: [{ id: "c2", error: "not found" }], total_processed: 2 };
       }
-      throw new Error(`Unmocked: ${url}`);
+      return listMock(url);
     });
     renderCourses();
     await waitFor(() => {
@@ -245,12 +260,10 @@ describe("Courses bulk editor", () => {
 
   it("clears selection after successful delete", async () => {
     mockApiJson.mockImplementation(async (url: string) => {
-      if (url === "/api/v1/users?role=Teacher") return TEACHERS;
-      if (url === "/api/v1/courses") return COURSES;
       if (url === "/api/v1/courses/batch-delete") {
         return { succeeded: ["c1"], failed: [], total_processed: 1 };
       }
-      throw new Error(`Unmocked: ${url}`);
+      return listMock(url);
     });
     renderCourses();
     await waitFor(() => {

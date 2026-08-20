@@ -1,6 +1,6 @@
 import { apiJson } from "@/api/client";
 import type { Room, Session } from "@/features/scheduling/types";
-import type { Student, User } from "@/types/shared";
+import type { Student, User, Subject } from "@/types/shared";
 import type { Course, EditableTeacher } from "../types";
 
 export type CourseCrmFilter = {
@@ -33,6 +33,11 @@ export function patchCourse(
     name: string;
     legacy_course_id?: string | null;
     teachers: EditableTeacher[];
+    subject_id?: string | null;
+    course_type?: string | null;
+    year?: number | null;
+    hour?: number | null;
+    student_count?: number | null;
   },
 ): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, {
@@ -74,6 +79,10 @@ export function getRooms(): Promise<Room[]> {
 
 export function getTeacherUsers(): Promise<User[]> {
   return apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" });
+}
+
+export function getSubjects(): Promise<Subject[]> {
+  return apiJson<Subject[]>("/api/v1/subjects", { method: "GET" });
 }
 
 export function getInstituteTimeMeta(): Promise<InstituteTimeMeta> {

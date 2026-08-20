@@ -8,6 +8,13 @@ SELECT id, code, name, created_at, updated_at
 FROM subjects
 WHERE id = $1;
 
+-- name: SubjectExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM subjects
+    WHERE id = $1
+);
+
 -- name: SubjectListActive :many
 SELECT id, code, name, created_at, updated_at
 FROM subjects

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import StepCoverVerification from "../StepCoverVerification";
 import { apiJson, ApiRequestError } from "@/api/client";
+import { STUDENT_SESSION_HINT_STORAGE_KEY } from "@/features/absences/constants";
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
@@ -11,7 +12,10 @@ vi.mock("@/api/client", async () => {
 
 const mockedApiJson = vi.mocked(apiJson);
 
-beforeEach(() => mockedApiJson.mockReset());
+beforeEach(() => {
+  mockedApiJson.mockReset();
+  window.sessionStorage.removeItem(STUDENT_SESSION_HINT_STORAGE_KEY);
+});
 afterEach(() => vi.useRealTimers());
 
 type VerificationStore = {
@@ -25,6 +29,7 @@ type VerificationStore = {
 type RenderVerificationOptions = {
   parentPhone?: string | null;
   smsParentEnabled?: boolean;
+  online?: boolean;
   verification?: Partial<VerificationStore>;
   completed?: boolean;
   onSatisfied?: () => void;
@@ -48,7 +53,9 @@ function renderVerification(options: RenderVerificationOptions = {}) {
   render(
     <StepCoverVerification
       wcode="W250389"
+      lookupToken="lookup-token"
       parentPhone={options.parentPhone === undefined ? "0812345678" : options.parentPhone}
+      online={options.online ?? true}
       smsParentEnabled={options.smsParentEnabled ?? true}
       verification={verification}
       completed={options.completed ?? false}
@@ -103,11 +110,12 @@ it("polls a queued delivery until SmartSMS accepts it", async () => {
 
   expect(screen.getByText("Sending code…")).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
-
-  expect(screen.getByText(/^code sent to/i)).toBeInTheDocument();
   expect(mockedApiJson).toHaveBeenCalledWith(
-    "/api/v1/absences/parent-verification/verification-token",
-    expect.objectContaining({ method: "GET" }),
+    "/api/v1/absences/parent-verification/status",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ token: "verification-token" }),
+    }),
   );
 });
 
@@ -158,11 +166,13 @@ it("automatically verifies a complete six-digit code", async () => {
   mockedApiJson
     .mockResolvedValueOnce(pendingVerification("accepted"))
     .mockResolvedValueOnce(verifiedResponse);
-  const { onSatisfied } = renderVerification({
+  const { onSatisfied, verification } = renderVerification({
     verification: { code: "123456", token: "verification-token" },
   });
 
   await waitFor(() => expect(onSatisfied).toHaveBeenCalledOnce());
+  expect(verification.clearStoredToken).toHaveBeenCalledOnce();
+  expect(window.sessionStorage.getItem(STUDENT_SESSION_HINT_STORAGE_KEY)).toBe("1");
 
   expect(mockedApiJson).toHaveBeenCalledWith(
     "/api/v1/absences/parent-verification/verify",
@@ -170,6 +180,23 @@ it("automatically verifies a complete six-digit code", async () => {
       method: "POST",
       body: JSON.stringify({ token: "verification-token", code: "123456" }),
     }),
+  );
+});
+
+it("restores verification from the authenticated student session", async () => {
+  window.sessionStorage.setItem(STUDENT_SESSION_HINT_STORAGE_KEY, "1");
+  mockedApiJson.mockResolvedValueOnce({
+    wcode: "W250389",
+    display_name: "Alex",
+    email_on_file: true,
+    subjects: [],
+  });
+  const { onRestored } = renderVerification();
+
+  await waitFor(() => expect(onRestored).toHaveBeenCalledOnce());
+  expect(mockedApiJson).toHaveBeenCalledWith(
+    "/api/v1/absence-self-service/me",
+    expect.objectContaining({ method: "GET" }),
   );
 });
 
@@ -236,6 +263,13 @@ it("retries a saved-token restore after a transient failure", async () => {
   expect(mockedApiJson).toHaveBeenCalledTimes(2);
 });
 
+
+it("disables network verification while offline", () => {
+  renderVerification({ online: false });
+
+  expect(screen.getByRole("status")).toHaveTextContent(/offline/i);
+  expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+});
 it("does not offer a way to continue without verifying", () => {
   renderVerification({ parentPhone: null });
 

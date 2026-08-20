@@ -191,7 +191,7 @@ export default function OverrideSitInModal({
           </>
         ) : (
           <>
-            <div className="flex-1 text-sm text-gray-500">
+            <div className="flex-1 text-sm text-[var(--color-wi-text-light)]">
               {method === "zoom" ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Video className="h-4 w-4" /> Zoom
@@ -225,44 +225,44 @@ export default function OverrideSitInModal({
           {smsPreview ? (
             <>
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Recipients</p>
-                <div className="rounded-lg border border-gray-200">
-                  <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
-                    <Phone className="h-4 w-4 shrink-0 text-gray-400" />
+                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">Recipients</p>
+                <div className="rounded-lg border border-wi-line">
+                  <div className="flex items-center gap-3 border-b border-wi-line-soft px-4 py-3">
+                    <Phone className="h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs text-gray-500">Student</p>
-                      <p className="text-sm font-medium text-gray-900">{smsPreview.student_phone}</p>
+                      <p className="text-xs text-[var(--color-wi-text-light)]">Student</p>
+                      <p className="text-sm font-medium text-[var(--color-wi-text)]">{smsPreview.student_phone}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 px-4 py-3">
-                    <Phone className="h-4 w-4 shrink-0 text-gray-400" />
+                    <Phone className="h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs text-gray-500">Parent</p>
-                      <p className="text-sm font-medium text-gray-900">{smsPreview.parent_phone}</p>
+                      <p className="text-xs text-[var(--color-wi-text-light)]">Parent</p>
+                      <p className="text-sm font-medium text-[var(--color-wi-text)]">{smsPreview.parent_phone}</p>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Message preview</p>
-                <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3">
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{smsPreview.student_sms}</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">Message preview</p>
+                <div className="rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)]/50 px-4 py-3">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-wi-text-light)]">{smsPreview.student_sms}</p>
                 </div>
               </div>
             </>
           ) : (
-            <div className="flex items-start gap-3 rounded-lg border border-gray-200 px-4 py-3">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
-              <p className="text-sm text-gray-500">SMS preview unavailable. You can still send the notification.</p>
+            <div className="flex items-start gap-3 rounded-lg border border-wi-line px-4 py-3">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
+              <p className="text-sm text-[var(--color-wi-text-light)]">SMS preview unavailable. You can still send the notification.</p>
             </div>
           )}
         </div>
       ) : (
         <div className="space-y-6">
           {hasCurrentState ? (
-            <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-600">
-              <span className="font-medium text-gray-700">Current:</span>{" "}
+            <div className="rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)]/50 px-4 py-3 text-sm text-[var(--color-wi-text-light)]">
+              <span className="font-medium text-[var(--color-wi-text-light)]">Current:</span>{" "}
               {currentLabel ?? "None"}
               {currentCourseId && selectedCourseName ? ` — ${selectedCourseName}` : ""}
             </div>
@@ -280,7 +280,7 @@ export default function OverrideSitInModal({
                   className={`relative flex flex-col items-start gap-1 rounded-xl border-2 p-4 text-left transition-all duration-200 ${
                     selected
                       ? "border-[var(--color-wi-primary)] bg-blue-50/40 shadow-sm"
-                      : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
+                      : "border-wi-line bg-white hover:border-wi-line hover:bg-[var(--color-wi-row-alt)]/50"
                   }`}
                 >
                   {selected ? (
@@ -288,13 +288,13 @@ export default function OverrideSitInModal({
                       <Check className="h-3 w-3" strokeWidth={3} />
                     </span>
                   ) : null}
-                  <div className={`rounded-lg p-2 ${selected ? "bg-blue-100/70" : "bg-gray-100"}`}>
-                    <Icon className={`h-5 w-5 ${selected ? "text-[var(--color-wi-primary)]" : "text-gray-500"}`} />
+                  <div className={`rounded-lg p-2 ${selected ? "bg-blue-100/70" : "bg-[var(--color-wi-row-alt)]"}`}>
+                    <Icon className={`h-5 w-5 ${selected ? "text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text-light)]"}`} />
                   </div>
-                  <span className={`mt-1 text-sm font-semibold ${selected ? "text-[var(--color-wi-primary)]" : "text-gray-900"}`}>
+                  <span className={`mt-1 text-sm font-semibold ${selected ? "text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text)]"}`}>
                     {m === "zoom" ? "Zoom" : "Manual course"}
                   </span>
-                  <span className="text-xs leading-relaxed text-gray-500">
+                  <span className="text-xs leading-relaxed text-[var(--color-wi-text-light)]">
                     {m === "zoom"
                       ? "Student attends via video call. No physical class required."
                       : "Assign the student to a specific class session."}
@@ -312,9 +312,9 @@ export default function OverrideSitInModal({
           {method === "physical" ? (
             <div className="space-y-5">
               <div>
-                <label htmlFor="sit-in-course" className="mb-1.5 block text-sm font-medium text-gray-700">Course</label>
+                <label htmlFor="sit-in-course" className="mb-1.5 block text-sm font-medium text-[var(--color-wi-text-light)]">Course</label>
                 {coursesLoading ? (
-                  <div className="h-[38px] animate-pulse rounded-sm bg-gray-200" />
+                  <div className="h-[38px] animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
                 ) : (
                   <Select
                     id="sit-in-course"
@@ -333,7 +333,7 @@ export default function OverrideSitInModal({
 
               {candidates.length > 0 ? (
                 <div>
-                  <p className="mb-2 text-sm font-medium text-gray-700">Sessions ({candidates.length})</p>
+                  <p className="mb-2 text-sm font-medium text-[var(--color-wi-text-light)]">Sessions ({candidates.length})</p>
                   <div className="space-y-2">
                     {candidates.map((candidate) => {
                       const selected = selectedSessions.has(candidate.id);
@@ -345,25 +345,25 @@ export default function OverrideSitInModal({
                           className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-150 ${
                             selected
                               ? "border-blue-400 bg-blue-50/30 ring-1 ring-blue-500/20"
-                              : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
+                              : "border-wi-line bg-white hover:border-wi-line hover:bg-[var(--color-wi-row-alt)]/50"
                           }`}
                         >
                           <span
                             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                               selected
                                 ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)] text-white"
-                                : "border-gray-300 bg-white"
+                                : "border-wi-line bg-white"
                             }`}
                           >
                             {selected ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className="text-sm font-medium text-[var(--color-wi-text)]">
                               {displayDate(candidate.start_at)} &nbsp;
                               <span className="font-normal">{displayTime(candidate.start_at)} – {displayTime(candidate.end_at)}</span>
                             </span>
                             {candidate.room_name ? (
-                              <span className="ml-3 inline-flex items-center gap-1 text-xs text-gray-500">
+                              <span className="ml-3 inline-flex items-center gap-1 text-xs text-[var(--color-wi-text-light)]">
                                 <MapPin className="h-3 w-3" /> {candidate.room_name}
                               </span>
                             ) : null}
@@ -381,15 +381,15 @@ export default function OverrideSitInModal({
               ) : null}
 
               {courseID && !coursesLoading && candidates.length === 0 ? (
-                <p className="text-sm text-gray-400">No available sessions for this course.</p>
+                <p className="text-sm text-[var(--color-wi-text-light)]">No available sessions for this course.</p>
               ) : null}
             </div>
           ) : (
-            <div className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50/30 px-4 py-3">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
-              <p className="text-sm leading-relaxed text-gray-600">
+            <div className="flex items-start gap-3 rounded-lg border border-wi-line-soft bg-[var(--color-wi-row-alt)]/30 px-4 py-3">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
+              <p className="text-sm leading-relaxed text-[var(--color-wi-text-light)]">
                 The student will attend via Zoom. No physical sit-in sessions are needed.
-                The sit-in record will be marked as <span className="font-medium text-gray-700">Zoom</span>.
+                The sit-in record will be marked as <span className="font-medium text-[var(--color-wi-text-light)]">Zoom</span>.
               </p>
             </div>
           )}

@@ -62,7 +62,7 @@ export default function StickyFooter({
             "min-h-[48px] min-w-[120px] rounded-xl px-5 text-base font-semibold transition-colors motion-reduce:transition-none",
             canProceed && !loading
               ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
-              : "cursor-not-allowed bg-gray-100 text-gray-400",
+              : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
           )}
         >
           {loading ? (

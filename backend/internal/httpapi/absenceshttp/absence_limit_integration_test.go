@@ -24,6 +24,7 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/smartsms"
+	"warwick-institute/internal/studentauth"
 )
 
 type absenceLimitFakeAuth struct {
@@ -172,7 +173,7 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 			DB:          dbpool,
 			Log:         slog.Default(),
 			InstituteTZ: "Asia/Bangkok",
-			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
+			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Admin"}},
 		},
 		a: httpadapter.Adapter{},
 	}
@@ -257,7 +258,7 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 			DB:          dbpool,
 			Log:         slog.Default(),
 			InstituteTZ: "Asia/Bangkok",
-			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
+			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Admin"}},
 		},
 		a: httpadapter.Adapter{},
 	}
@@ -357,13 +358,16 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 			DB:          dbpool,
 			Log:         slog.Default(),
 			InstituteTZ: "Asia/Bangkok",
-			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
+			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Admin"}},
 		},
 		a: httpadapter.Adapter{},
 	}
 
+	// The batch endpoint authenticates via verified student session, not admin
+	// auth: identity comes from the session cookie, never from the body.
+	rawToken := seedVerifiedStudentSession(t, dbpool, wcode)
+
 	body := map[string]any{
-		"wcode": wcode,
 		"items": []map[string]any{
 			{
 				"subject_id":         subjectIDStr,
@@ -376,8 +380,9 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 	}
 	reqBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/batch", bytes.NewReader(reqBody))
+	req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: rawToken})
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", uuid.New().String())
+	req.Header.Set("Idempotency-Key", uuid.NewString())
 	w := httptest.NewRecorder()
 
 	s.handleAbsenceBatchCreate(w, req)
@@ -624,11 +629,11 @@ func TestAbsenceBatchCreate_DispatchesNotificationsAfterCommit(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, _ := seedBatchNotifTestData(t, q, dbpool, "NFY")
+	wcode, subjectIDStr, courseIDStr, sessionID := seedBatchNotifTestData(t, q, dbpool, "NFY")
 
 	// Enable SMS success notifications in settings
 	ctx := context.Background()
-	settingsJSON := []byte(`{"notifications":{"sms_success_template":"Hi {{nickname}}, absence confirmed","allow_submit_without_otp":true}}`)
+	settingsJSON := []byte(`{"notifications":{"sms_success_template":"Hi {{nickname}}, absence confirmed"}}`)
 	if err := q.AppSettingsUpdateAbsencePolicies(ctx, settingsJSON); err != nil {
 		t.Fatal(err)
 	}
@@ -658,8 +663,9 @@ func TestAbsenceBatchCreate_DispatchesNotificationsAfterCommit(t *testing.T) {
 		a: httpadapter.Adapter{},
 	}
 
+	rawToken := seedVerifiedStudentSession(t, dbpool, wcode)
+
 	body := map[string]any{
-		"wcode":      wcode,
 		"subject_id": subjectIDStr,
 		"course_id":  courseIDStr,
 		"date_from":  "2026-07-01",
@@ -670,13 +676,14 @@ func TestAbsenceBatchCreate_DispatchesNotificationsAfterCommit(t *testing.T) {
 				"course_id":          courseIDStr,
 				"date_from":          "2026-07-01",
 				"date_to":            "2026-07-01",
-				"missed_session_ids": []string{},
+				"missed_session_ids": []string{sessionID},
 			},
 		},
 	}
 	reqBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/batch", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: rawToken})
 	req.Header.Set("Idempotency-Key", uuid.New().String())
 	w := httptest.NewRecorder()
 
@@ -743,11 +750,11 @@ func TestAbsenceBatchCreate_NoNotificationsWhenTemplateEmpty(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, _ := seedBatchNotifTestData(t, q, dbpool, "NMS")
+	wcode, subjectIDStr, courseIDStr, sessionID := seedBatchNotifTestData(t, q, dbpool, "NMS")
 
 	// Ensure no SMS template configured (use defaults)
 	ctx := context.Background()
-	settingsJSON := []byte(`{"notifications":{"allow_submit_without_otp":true}}`)
+	settingsJSON := []byte(`{}`)
 	if err := q.AppSettingsUpdateAbsencePolicies(ctx, settingsJSON); err != nil {
 		t.Fatal(err)
 	}
@@ -760,13 +767,14 @@ func TestAbsenceBatchCreate_NoNotificationsWhenTemplateEmpty(t *testing.T) {
 			Log:         slog.Default(),
 			InstituteTZ: "UTC",
 			SMS:         sms,
-			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Student"}},
+			Auth:        absenceLimitFakeAuth{user: auth.AuthenticatedUser{Role: "Admin"}},
 		},
 		a: httpadapter.Adapter{},
 	}
 
+	rawToken := seedVerifiedStudentSession(t, dbpool, wcode)
+
 	body := map[string]any{
-		"wcode":      wcode,
 		"subject_id": subjectIDStr,
 		"course_id":  courseIDStr,
 		"date_from":  "2026-07-01",
@@ -777,13 +785,14 @@ func TestAbsenceBatchCreate_NoNotificationsWhenTemplateEmpty(t *testing.T) {
 				"course_id":          courseIDStr,
 				"date_from":          "2026-07-01",
 				"date_to":            "2026-07-01",
-				"missed_session_ids": []string{},
+				"missed_session_ids": []string{sessionID},
 			},
 		},
 	}
 	reqBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/batch", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: rawToken})
 	req.Header.Set("Idempotency-Key", uuid.New().String())
 	w := httptest.NewRecorder()
 

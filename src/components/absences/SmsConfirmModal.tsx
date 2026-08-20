@@ -36,28 +36,28 @@ export default function SmsConfirmModal({ phones, message, onSend, onSkip, sendi
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-[var(--color-wi-text-light)]">
           The absence has been created. Would you like to send SMS and email notifications to the student and parent?
         </p>
 
         <div>
-          <h4 className="mb-2 text-sm font-medium text-gray-700">Recipients</h4>
+          <h4 className="mb-2 text-sm font-medium text-[var(--color-wi-text-light)]">Recipients</h4>
           <div className="space-y-1.5">
             {phones.map((phone, idx) => (
-              <div key={`${phone}-${idx}`} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                <Phone className="h-4 w-4 text-gray-500" />
-                <span className="text-sm font-mono text-gray-700">{phone}</span>
+              <div key={`${phone}-${idx}`} className="flex items-center gap-2 rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
+                <Phone className="h-4 w-4 text-[var(--color-wi-text-light)]" />
+                <span className="text-sm font-mono text-[var(--color-wi-text-light)]">{phone}</span>
               </div>
             ))}
           </div>
         </div>
 
         <div>
-          <h4 className="mb-2 text-sm font-medium text-gray-700">Message Preview</h4>
+          <h4 className="mb-2 text-sm font-medium text-[var(--color-wi-text-light)]">Message Preview</h4>
           <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
             <div className="flex items-start gap-2">
               <MessageSquare className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-              <p className="whitespace-pre-wrap text-sm text-gray-700">{message}</p>
+              <p className="whitespace-pre-wrap text-sm text-[var(--color-wi-text-light)]">{message}</p>
             </div>
           </div>
         </div>

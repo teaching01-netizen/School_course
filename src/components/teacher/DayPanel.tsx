@@ -27,15 +27,15 @@ function trimReason(reason: string | null | undefined): string | null {
 function ReasonText({ absenceId, reasonStates }: { absenceId: string; reasonStates: Record<string, ReasonPreviewState> }) {
   const state = reasonStates[absenceId];
   if (!state || state.status === 'loading') {
-    return <span className="text-gray-400">Loading reason…</span>;
+    return <span className="text-[var(--color-wi-text-light)]">Loading reason…</span>;
   }
   if (state.status === 'error') {
-    return <span className="text-gray-400">Reason unavailable</span>;
+    return <span className="text-[var(--color-wi-text-light)]">Reason unavailable</span>;
   }
 
   const reason = trimReason(state.reason);
   return (
-    <span className="min-w-0 truncate text-gray-700" title={reason ?? undefined}>
+    <span className="min-w-0 truncate text-[var(--color-wi-text-light)]" title={reason ?? undefined}>
       {reason ?? 'No reason provided'}
     </span>
   );
@@ -128,11 +128,11 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
         aria-label={`Session details for ${dateLabel}`}
         className="fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-white shadow-lg sm:inset-0 sm:m-auto sm:max-h-[70vh] sm:w-[92vw] sm:max-w-[560px] sm:rounded-lg"
       >
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-wi-line-soft px-4 py-3">
           <div>
-            <h3 className="text-[14px] font-bold text-gray-900">{dateLabel}</h3>
+            <h3 className="text-[14px] font-bold text-[var(--color-wi-text)]">{dateLabel}</h3>
             {sessions.length > 0 ? (
-              <p className="text-[11px] text-gray-500">
+              <p className="text-[11px] text-[var(--color-wi-text-light)]">
                 {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
                 {totalAbsences > 0 ? ` · ${totalAbsences} ${totalAbsences === 1 ? 'absence' : 'absences'}` : ''}
                 {totalSitIns > 0 ? ` · ${totalSitIns} ${totalSitIns === 1 ? 'sit-in' : 'sit-ins'}` : ''}
@@ -143,7 +143,7 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
             type="button"
             data-panel-close
             onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-sm text-gray-400 hover:bg-gray-100 hover:text-gray-600 sm:h-7 sm:w-7"
+            className="flex h-11 w-11 items-center justify-center rounded-sm text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text-light)] sm:h-7 sm:w-7"
             aria-label="Close panel"
           >
             <X className="h-4 w-4" />
@@ -152,7 +152,7 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
 
         <div className="overflow-y-auto px-4 py-3">
           {sessions.length === 0 ? (
-            <div className="py-8 text-center text-[13px] text-gray-400">No sessions on this day.</div>
+            <div className="py-8 text-center text-[13px] text-[var(--color-wi-text-light)]">No sessions on this day.</div>
           ) : (
             <div className="space-y-4">
               {sorted.map((s) => {
@@ -163,18 +163,18 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
                 const label = s.subject_name ?? s.course_name;
 
                 return (
-                  <div key={s.id} className="rounded-sm border border-gray-200 bg-white px-3 py-2.5">
+                  <div key={s.id} className="rounded-sm border border-wi-line bg-white px-3 py-2.5">
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-1.5">
-                        <span className="text-[12px] font-semibold text-gray-900 tabular-nums">
+                        <span className="text-[12px] font-semibold text-[var(--color-wi-text)] tabular-nums">
                           {start ?? '--:--'}–{end ?? '--:--'}
                         </span>
-                        <span className="text-[14px] font-bold text-gray-800">{label}</span>
+                        <span className="text-[14px] font-bold text-[var(--color-wi-text)]">{label}</span>
                       </div>
                     </div>
 
                     {absences.length === 0 && visitors.length === 0 ? (
-                      <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-green-600">
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-[var(--color-wi-green)]">
                         <CheckCircle className="h-3.5 w-3.5 shrink-0" />
                         No absences — No sit-ins
                       </div>
@@ -186,14 +186,14 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
                           <div key={a.absence_id} className="flex flex-col gap-1 py-0.5 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
-                                <span className="truncate text-[13px] text-gray-800">
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-wi-red)]" />
+                                <span className="truncate text-[13px] text-[var(--color-wi-text)]">
                                   {a.nickname ?? a.student_name ?? a.wcode}
                                 </span>
-                                <span className="shrink-0 text-[11px] text-gray-400">({a.wcode})</span>
-                                <span className="shrink-0 text-[11px] text-red-600">absent</span>
+                                <span className="shrink-0 text-[11px] text-[var(--color-wi-text-light)]">({a.wcode})</span>
+                                <span className="shrink-0 text-[11px] text-[var(--color-wi-red)]">absent</span>
                               </div>
-                              <div className="mt-1 flex min-w-0 items-start gap-1.5 text-[11px] text-gray-500">
+                              <div className="mt-1 flex min-w-0 items-start gap-1.5 text-[11px] text-[var(--color-wi-text-light)]">
                                 <span className="shrink-0">Reason:</span>
                                 <ReasonText absenceId={a.absence_id} reasonStates={reasonStates} />
                               </div>
@@ -215,16 +215,16 @@ export default function DayPanel({ dateKey, zone, sessions, onClose }: DayPanelP
                           <div key={`${v.absence_id}-${v.wcode}`} className="flex flex-col gap-1 py-0.5 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                                <span className="truncate text-[13px] text-gray-800">
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-wi-amber)]" />
+                                <span className="truncate text-[13px] text-[var(--color-wi-text)]">
                                   {v.nickname ?? v.student_name ?? v.wcode}
                                 </span>
-                                <span className="shrink-0 text-[11px] text-amber-600">
+                                <span className="shrink-0 text-[11px] text-[var(--color-wi-amber)]">
                                   sit-in from {v.absent_subject_name?.trim() || v.from_subject_name?.trim() || 'Subject unavailable'}
                                   {v.absence_date ? ` · ${formatZoneDateKey(v.absence_date, zone, 'd MMM')}` : ''}
                                 </span>
                               </div>
-                              <div className="mt-1 flex min-w-0 items-start gap-1.5 text-[11px] text-gray-500">
+                              <div className="mt-1 flex min-w-0 items-start gap-1.5 text-[11px] text-[var(--color-wi-text-light)]">
                                 <span className="shrink-0">Reason:</span>
                                 <ReasonText absenceId={v.absence_id} reasonStates={reasonStates} />
                               </div>

@@ -18,14 +18,14 @@ export default function PlaceholderGuide({ onInsert }: { onInsert: (token: strin
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border border-gray-200 rounded-sm">
+    <div className="border border-wi-line rounded-sm">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100"
+        className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-[var(--color-wi-text-light)] bg-[var(--color-wi-row-alt)] hover:bg-[var(--color-wi-row-alt)]"
       >
         <span>Available placeholders</span>
-        <span className="text-xs text-gray-400">{open ? "▲" : "▼"}</span>
+        <span className="text-xs text-[var(--color-wi-text-light)]">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div className="p-2 space-y-1">
@@ -37,7 +37,7 @@ export default function PlaceholderGuide({ onInsert }: { onInsert: (token: strin
               className="flex items-center justify-between w-full px-2 py-1.5 text-xs rounded hover:bg-blue-50 text-left group"
             >
               <code className="text-blue-600 font-mono text-xs">{p.token}</code>
-              <span className="text-gray-500 group-hover:text-gray-700">{p.description}</span>
+              <span className="text-[var(--color-wi-text-light)] group-hover:text-[var(--color-wi-text-light)]">{p.description}</span>
             </button>
           ))}
         </div>

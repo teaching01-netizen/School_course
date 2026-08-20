@@ -116,7 +116,7 @@ export function CRMConflictResolutionPanel({
           return (
             <label
               key={sessionID}
-              className="flex items-start gap-2 rounded-md border border-amber-200 bg-white px-2.5 py-2 text-xs text-gray-700"
+              className="flex items-start gap-2 rounded-md border border-amber-200 bg-white px-2.5 py-2 text-xs text-[var(--color-wi-text-light)]"
             >
               <input
                 name="excluded_session_ids"
@@ -127,8 +127,8 @@ export function CRMConflictResolutionPanel({
                 disabled={submitting}
               />
               <span>
-                <span className="font-medium text-gray-900">{label}</span>
-                {time ? <span className="text-gray-500"> — {time}</span> : null}
+                <span className="font-medium text-[var(--color-wi-text)]">{label}</span>
+                {time ? <span className="text-[var(--color-wi-text-light)]"> — {time}</span> : null}
               </span>
             </label>
           );

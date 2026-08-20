@@ -22,7 +22,7 @@ export default function LevelLadderCanvas({
 }: LevelLadderCanvasProps) {
   if (cycles.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+      <div className="flex items-center justify-center h-32 text-sm text-[var(--color-wi-text-light)]">
         No cycles configured for this subject.
       </div>
     );
@@ -30,7 +30,7 @@ export default function LevelLadderCanvas({
 
   if (levels.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+      <div className="flex items-center justify-center h-32 text-sm text-[var(--color-wi-text-light)]">
         No level data available.
       </div>
     );
@@ -49,13 +49,13 @@ export default function LevelLadderCanvas({
         }}
       >
         {/* Header row: cycle labels */}
-        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-2 py-1 self-end">
+        <div className="text-[10px] font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide px-2 py-1 self-end">
           Level
         </div>
         {cycles.map((cycle) => (
           <div
             key={cycle.cycleId}
-            className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-2 py-1 text-center truncate"
+            className="text-[10px] font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide px-2 py-1 text-center truncate"
             title={cycle.cycleLabel}
           >
             {cycle.cycleLabel}
@@ -66,7 +66,7 @@ export default function LevelLadderCanvas({
         {levels.map((level) => (
           <Fragment key={`row-${level}`}>
             {/* Level label column */}
-            <div className="flex items-center justify-end pr-2 text-xs font-medium text-gray-400 h-[80px]">
+            <div className="flex items-center justify-end pr-2 text-xs font-medium text-[var(--color-wi-text-light)] h-[80px]">
               L{level}
             </div>
 

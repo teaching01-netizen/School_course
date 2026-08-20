@@ -14,6 +14,18 @@ type CalendarDayCellProps = {
   onClick: () => void;
 };
 
+const stateDot = (hasAbsences: boolean, hasVisitors: boolean): string => {
+  if (hasAbsences) return 'bg-[var(--color-wi-red)]';
+  if (hasVisitors) return 'bg-[var(--color-wi-amber)]';
+  return 'bg-[var(--color-wi-green)]';
+};
+
+const stateChip = (hasAbsences: boolean, hasVisitors: boolean): string => {
+  if (hasAbsences) return 'bg-[var(--color-wi-danger-bg)] text-[var(--color-wi-red-dark)]';
+  if (hasVisitors) return 'bg-[var(--color-wi-amber-bg)] text-[var(--color-wi-amber)]';
+  return 'bg-[var(--color-wi-green-bg)] text-[var(--color-wi-green-dark)]';
+};
+
 export default function CalendarDayCell({
   label,
   dayNumber,
@@ -25,9 +37,6 @@ export default function CalendarDayCell({
   zone,
   onClick,
 }: CalendarDayCellProps) {
-  const hasAbsences = sessions.some((s) => (s.absent_students?.length ?? 0) > 0);
-  const hasVisitors = !hasAbsences && sessions.some((s) => (s.sit_in_visitors?.length ?? 0) > 0);
-
   const totalAbsences = sessions.reduce((sum, s) => sum + (s.absent_students?.length ?? 0), 0);
   const totalSitIns = sessions.reduce((sum, s) => sum + (s.sit_in_visitors?.length ?? 0), 0);
 
@@ -37,47 +46,39 @@ export default function CalendarDayCell({
     ? 'No sessions'
     : `${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}, ${totalAbsences} ${totalAbsences === 1 ? 'absence' : 'absences'}, ${totalSitIns} ${totalSitIns === 1 ? 'sit-in' : 'sit-ins'}`;
 
-  let cellAccent: string;
-  if (hasAbsences) {
-    cellAccent = 'border-l-red-500';
-  } else if (hasVisitors) {
-    cellAccent = 'border-l-amber-500';
-  } else if (sessions.length > 0) {
-    cellAccent = 'border-l-green-500';
-  } else {
-    cellAccent = 'border-l-transparent';
-  }
-
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={`${label}. ${statusLabel}`}
-      className={`flex flex-col items-start gap-1 rounded-sm border px-2 py-2 text-left transition-all duration-75 ${
-        isSelected
-          ? 'border-[var(--color-wi-primary)] ring-1 ring-[var(--color-wi-primary)]'
-          : isToday
-            ? 'border-gray-200 ring-1 ring-gray-900'
-            : 'border-gray-200'
-      } ${
-        isCurrentMonth ? 'bg-white' : 'bg-gray-50'
-      } ${cellAccent} ${isCurrentMonth ? 'hover:border-gray-400' : 'hover:border-gray-300'} active:scale-[0.97] active:bg-gray-100 ${
+      className={`flex min-h-[96px] flex-col border-b border-r border-wi-line p-1 text-left ${
+        isSelected ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''
+      } ${isCurrentMonth ? 'bg-white' : 'bg-[var(--color-wi-row-alt)]'} ${
         todayPulse ? 'animate-today-pulse' : ''
       }`}
-      style={{ minHeight: 76 }}
     >
-      <span className={`text-[13px] tabular-nums leading-none ${
-        isToday ? 'flex h-5 w-5 items-center justify-center rounded-sm bg-gray-900 font-bold text-white' : isCurrentMonth ? 'font-medium text-gray-900' : 'text-gray-300'
-      }`}>
-        {dayNumber}
+      <span
+        className={`mb-1 flex h-5 w-full text-[10px] leading-none ${
+          isToday
+            ? 'items-center justify-center'
+            : 'items-center justify-end font-medium text-[var(--color-wi-faint)]'
+        }`}
+      >
+        {isToday ? (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-nav)] font-bold text-white">
+            {dayNumber}
+          </span>
+        ) : (
+          dayNumber
+        )}
       </span>
       <span className="mt-auto flex min-h-3 w-full items-center justify-center gap-px sm:hidden" aria-hidden="true">
         {displaySessions.map((s) => {
           const a = (s.absent_students?.length ?? 0) > 0;
           const v = !a && (s.sit_in_visitors?.length ?? 0) > 0;
-          return <span key={s.id} className={`h-1.5 w-1.5 rounded-full ${a ? 'bg-red-500' : v ? 'bg-amber-600' : 'bg-green-500'}`} />;
+          return <span key={s.id} className={`h-1.5 w-1.5 rounded-full ${stateDot(a, v)}`} />;
         })}
-        {overflow > 0 ? <span className="text-[8px] leading-none text-gray-500">+{overflow}</span> : null}
+        {overflow > 0 ? <span className="text-[8px] leading-none text-[var(--color-wi-text-light)]">+{overflow}</span> : null}
       </span>
       <div className="hidden sm:contents">
         {displaySessions.map((s) => {
@@ -87,13 +88,9 @@ export default function CalendarDayCell({
           return (
             <span
               key={s.id}
-              className={`inline-flex h-[20px] w-full items-center gap-1 overflow-hidden rounded-sm px-1.5 text-[11px] leading-none ${
-                a ? 'bg-red-50 text-red-700' : v ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
-              }`}
+              className={`mb-1 flex h-[20px] w-full items-center gap-1 overflow-hidden rounded-sm px-1.5 text-[11px] leading-none ${stateChip(a, v)}`}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${
-                a ? 'bg-red-500' : v ? 'bg-amber-500' : 'bg-green-500'
-              }`} />
+              <span className={`h-2 w-2 shrink-0 rounded-full ${stateDot(a, v)}`} />
               <span className="shrink-0 tabular-nums text-[10px] opacity-70">{start ?? '--:--'}</span>
               <span className="truncate">{s.subject_name?.trim() || s.course_name}</span>
               {a ? <span className="tabular-nums">{s.absent_students!.length}</span> : null}
@@ -106,7 +103,7 @@ export default function CalendarDayCell({
             (s) => (s.absent_students?.length ?? 0) > 0,
           ).length;
           return (
-            <span className="text-[10px] text-gray-400 leading-none">
+            <span className="text-[10px] text-[var(--color-wi-text-light)] leading-none">
               +{overflow} more{hiddenAbsences > 0 ? ` (${hiddenAbsences} absent)` : ''}
             </span>
           );
@@ -114,14 +111,14 @@ export default function CalendarDayCell({
         {(totalAbsences > 0 || totalSitIns > 0) && sessions.length > 0 ? (
           <div className="mt-auto flex items-center gap-2 pt-1">
             {totalAbsences > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[10px] leading-none text-red-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              <span className="inline-flex items-center gap-1 text-[10px] leading-none text-[var(--color-wi-red)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-wi-red)]" />
                 {totalAbsences} {totalAbsences === 1 ? 'absence' : 'absences'}
               </span>
             ) : null}
             {totalSitIns > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[10px] leading-none text-amber-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              <span className="inline-flex items-center gap-1 text-[10px] leading-none text-[var(--color-wi-amber)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-wi-amber)]" />
                 {totalSitIns} {totalSitIns === 1 ? 'sit-in' : 'sit-ins'}
               </span>
             ) : null}

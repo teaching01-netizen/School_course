@@ -42,6 +42,22 @@ func createTestCourseSimple(t *testing.T, ctx context.Context, dbpool *pgxpool.P
 	return id
 }
 
+func createTestCourseWithCRMFilter(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool, code, name, crmCourseName string) uuid.UUID {
+	t.Helper()
+	_, err := dbpool.Exec(ctx, `
+		INSERT INTO courses (id, code, name, crm_filter_enabled, crm_filter)
+		VALUES (gen_random_uuid(), $1, $2, true, jsonb_build_object('course_name_values', jsonb_build_array($3::text)))
+	`, code, name, crmCourseName)
+	if err != nil {
+		t.Fatalf("create crm-filtered course: %v", err)
+	}
+	var id uuid.UUID
+	if err := dbpool.QueryRow(ctx, `SELECT id FROM courses WHERE code = $1`, code).Scan(&id); err != nil {
+		t.Fatalf("get crm-filtered course id: %v", err)
+	}
+	return id
+}
+
 func requireDB(t *testing.T) string {
 	t.Helper()
 	return requireTestDBV2(t)
@@ -58,7 +74,9 @@ func uuidFromPG(t *testing.T, id pgtype.UUID) uuid.UUID {
 
 func createTestStudent(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool, wcode, fullName string) {
 	t.Helper()
-	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ($1, $2, '') ON CONFLICT (wcode) DO NOTHING`, wcode, fullName)
+	// wcodes are stored lowercase (see 00066/00072 and the store's
+	// normalizeWCode); every roster/override lookup joins on that canonical form.
+	_, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES (LOWER(TRIM($1)), $2, '') ON CONFLICT DO NOTHING`, wcode, fullName)
 	if err != nil {
 		t.Fatalf("create test student: %v", err)
 	}
@@ -118,7 +136,7 @@ func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
 	if resp.CRMRow.CourseName != "CrossStudy Test Course A" {
 		t.Fatalf("expected course_name='CrossStudy Test Course A', got %q", resp.CRMRow.CourseName)
 	}
-	if resp.Student.WCode != "W260001" {
+	if resp.Student.WCode != "w260001" {
 		t.Fatalf("expected wcode='w260001', got %q", resp.Student.WCode)
 	}
 	// No assignment should exist yet
@@ -140,8 +158,9 @@ func TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Arrange
-	sourceCourseID := createTestCourseSimple(t, ctx, dbpool, "CS-SRC-01", "CrossStudy Source")
+	// Arrange: the source course carries a CRM filter so the destination-only
+	// store can exclude it by CRM course name.
+	sourceCourseID := createTestCourseWithCRMFilter(t, ctx, dbpool, "CS-SRC-01", "CrossStudy Source", "CrossStudy Source")
 	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-DST-A1", "CrossStudy Dest A")
 	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-DST-B1", "CrossStudy Dest B")
 
@@ -164,6 +183,7 @@ func TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides(t *testing.T) {
 		WCode:            "W260002",
 		SourceCourseID:   sourceCourseID,
 		SnapshotID:       uuidFromPG(t, snapshotID),
+		CRMCourseName:    "CrossStudy Source",
 		DestCourseAID:    destAID,
 		DestCourseBID:    destBID,
 		AssignedCourseID: destAID,
@@ -270,6 +290,247 @@ func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *tes
 	}
 	if includeOverrides != 2 {
 		t.Fatalf("expected include overrides for both destination courses, got %d", includeOverrides)
+	}
+}
+
+// TestCrossStudy_SaveAssignment_UpdatesExistingAssignmentWhenDestAChanges verifies
+// that saving an existing assignment with a changed destination course A updates
+// the student's assignment row (keyed by wcode) instead of inserting a second
+// active assignment, and that overrides and session attendance remain attached
+// to the single surviving row.
+func TestCrossStudy_SaveAssignment_UpdatesExistingAssignmentWhenDestAChanges(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	destXID := createTestCourseSimple(t, ctx, dbpool, "CS-CHG-DST-X", "Change Dest X")
+	destYID := createTestCourseSimple(t, ctx, dbpool, "CS-CHG-DST-Y", "Change Dest Y")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-CHG-DST-B", "Change Dest B")
+	teacherID := createTestUser(t, ctx, dbpool)
+
+	// Tuesday session in each destination-A course and a Saturday session in
+	// dest B so weekday-scoped cross-study attendance rows are created.
+	for label, spec := range map[string]struct {
+		courseID uuid.UUID
+		startAt  string
+	}{
+		"x_tue": {destXID, "2026-06-16T09:00:00+07:00"},
+		"y_tue": {destYID, "2026-06-16T13:00:00+07:00"},
+		"b_sat": {destBID, "2026-06-20T09:00:00+07:00"},
+	} {
+		if _, err := dbpool.Exec(ctx, `
+			INSERT INTO sessions (id, course_id, teacher_id, start_at, end_at)
+			VALUES (gen_random_uuid(), $1, $2, $3::timestamptz, $3::timestamptz + interval '1 hour')
+		`, spec.courseID, teacherID, spec.startAt); err != nil {
+			t.Fatalf("create %s session: %v", label, err)
+		}
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W260115", CourseName: "Change Source", CycleLabel: "Cycle A", ExtraNote: "change-dest-a"},
+	})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260115", "Change Dest A Student")
+
+	userID := createTestUser(t, ctx, dbpool)
+	store := crossstudy.NewStore(dbpool)
+
+	save := func(destA uuid.UUID) {
+		t.Helper()
+		if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+			WCode:               "W260115",
+			SnapshotID:          uuidFromPG(t, snapshotID),
+			DestCourseAID:       destA,
+			DestCourseBID:       destBID,
+			DestCourseAWeekdays: []int16{2},
+			DestCourseBWeekdays: []int16{6},
+			AssignedCourseID:    destA,
+			ExtraNoteText:       "change-dest-a",
+		}, userID); err != nil {
+			t.Fatalf("SaveAssignment with dest A %s failed: %v", destA, err)
+		}
+	}
+
+	// Save with Dest A = X, then save the same student with Dest A = Y.
+	save(destXID)
+	save(destYID)
+
+	// The change must update the existing row: exactly one active assignment.
+	var assignmentCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM crm_cross_study_assignments
+		WHERE wcode = 'w260115' AND deleted_at IS NULL
+	`).Scan(&assignmentCount); err != nil {
+		t.Fatalf("count assignments: %v", err)
+	}
+	if assignmentCount != 1 {
+		t.Fatalf("expected exactly 1 active assignment after destination A change, got %d", assignmentCount)
+	}
+
+	// ... and that single assignment points at the new destination A.
+	var assignmentID, destA uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		SELECT id, dest_course_a_id FROM crm_cross_study_assignments
+		WHERE wcode = 'w260115' AND deleted_at IS NULL
+	`).Scan(&assignmentID, &destA); err != nil {
+		t.Fatalf("load single assignment: %v", err)
+	}
+	if destA != destYID {
+		t.Fatalf("expected dest_course_a_id = changed course (Y), got %s", destA)
+	}
+
+	// Session attendance must be scoped to the single assignment row
+	// (the rows from the original destination A are rebuilt for dest Y,
+	// never orphaned under a stale assignment id).
+	var attendanceCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM session_attendance
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'w260115')
+		  AND override_source = 'cross_study'
+		  AND cross_study_assignment_id = $1
+	`, assignmentID).Scan(&attendanceCount); err != nil {
+		t.Fatalf("count attendance for single assignment: %v", err)
+	}
+	if attendanceCount != 2 {
+		t.Fatalf("expected 2 scoped attendance rows (new dest A Tue + dest B Sat) on the single assignment, got %d", attendanceCount)
+	}
+	var orphanedAttendance int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM session_attendance
+		WHERE student_id = (SELECT id FROM students WHERE wcode = 'w260115')
+		  AND override_source = 'cross_study'
+		  AND cross_study_assignment_id <> $1
+	`, assignmentID).Scan(&orphanedAttendance); err != nil {
+		t.Fatalf("count orphaned attendance: %v", err)
+	}
+	if orphanedAttendance != 0 {
+		t.Fatalf("expected no attendance orphaned under other assignment ids, got %d", orphanedAttendance)
+	}
+
+	// Include overrides must point at the single assignment row.
+	var overrideCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM course_roster_overrides
+		WHERE override_source = 'cross_study'
+		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260115')
+		  AND cross_study_assignment_id = $1
+	`, assignmentID).Scan(&overrideCount); err != nil {
+		t.Fatalf("count overrides for single assignment: %v", err)
+	}
+	if overrideCount != 2 {
+		t.Fatalf("expected 2 include overrides (dest Y + dest B) on the single assignment, got %d", overrideCount)
+	}
+}
+
+// TestCrossStudy_SaveAssignment_FallbackSelectsMostRecentAssignment pins the
+// fallback row selection: when the (wcode, destination A) lookup misses, the
+// store must update the student's MOST RECENT assignment (updated_at DESC
+// LIMIT 1), never an arbitrary legacy row for the same wcode.
+func TestCrossStudy_SaveAssignment_FallbackSelectsMostRecentAssignment(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	destXID := createTestCourseSimple(t, ctx, dbpool, "CS-MR-DST-X", "Most Recent Dest X")
+	destYID := createTestCourseSimple(t, ctx, dbpool, "CS-MR-DST-Y", "Most Recent Dest Y")
+	destZID := createTestCourseSimple(t, ctx, dbpool, "CS-MR-DST-Z", "Most Recent Dest Z")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-MR-DST-B", "Most Recent Dest B")
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W260126", CourseName: "Most Recent Source", CycleLabel: "Cycle A", ExtraNote: "most-recent"},
+	})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260126", "Most Recent Student")
+
+	userID := createTestUser(t, ctx, dbpool)
+	store := crossstudy.NewStore(dbpool)
+
+	// The current assignment: Dest A = X.
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:            "W260126",
+		SnapshotID:       uuidFromPG(t, snapshotID),
+		DestCourseAID:    destXID,
+		DestCourseBID:    destBID,
+		AssignedCourseID: destXID,
+		ExtraNoteText:    "most-recent",
+	}, userID); err != nil {
+		t.Fatalf("save current assignment: %v", err)
+	}
+	var currentID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		SELECT id FROM crm_cross_study_assignments
+		WHERE wcode = 'w260126' AND source_course_id = $1 AND deleted_at IS NULL
+	`, destXID).Scan(&currentID); err != nil {
+		t.Fatalf("load current assignment id: %v", err)
+	}
+
+	// A legacy duplicate row for the same wcode, older than the current one.
+	var legacyID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		INSERT INTO crm_cross_study_assignments
+			(snapshot_id, wcode, source_course_id, dest_course_a_id, dest_course_b_id,
+			 assigned_course_id, extra_note_snapshot, extra_note_hash, status, updated_at)
+		VALUES ($1, 'w260126', $2, $2, $3, $3, '', '', 'active', now() - interval '1 day')
+		RETURNING id
+	`, uuidFromPG(t, snapshotID), destZID, destBID).Scan(&legacyID); err != nil {
+		t.Fatalf("seed legacy assignment: %v", err)
+	}
+
+	// Save with Dest A = Y: primary lookup misses, fallback must pick the
+	// most recent row (the current assignment), not the legacy one.
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:            "W260126",
+		SnapshotID:       uuidFromPG(t, snapshotID),
+		DestCourseAID:    destYID,
+		DestCourseBID:    destBID,
+		AssignedCourseID: destYID,
+		ExtraNoteText:    "most-recent",
+	}, userID); err != nil {
+		t.Fatalf("save with changed destination A: %v", err)
+	}
+
+	var activeCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM crm_cross_study_assignments
+		WHERE wcode = 'w260126' AND deleted_at IS NULL
+	`).Scan(&activeCount); err != nil {
+		t.Fatalf("count active assignments: %v", err)
+	}
+	if activeCount != 2 {
+		t.Fatalf("expected 2 active assignments (current + legacy), got %d", activeCount)
+	}
+
+	// The updated row must be the most recent one (current assignment id).
+	var updatedID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		SELECT id FROM crm_cross_study_assignments
+		WHERE wcode = 'w260126' AND source_course_id = $1 AND deleted_at IS NULL
+	`, destYID).Scan(&updatedID); err != nil {
+		t.Fatalf("load updated assignment id: %v", err)
+	}
+	if updatedID != currentID {
+		t.Fatalf("fallback updated wrong row: got assignment %s, want most recent %s", updatedID, currentID)
+	}
+
+	// The legacy row must be untouched.
+	var legacyDestA uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		SELECT dest_course_a_id FROM crm_cross_study_assignments WHERE id = $1
+	`, legacyID).Scan(&legacyDestA); err != nil {
+		t.Fatalf("load legacy assignment: %v", err)
+	}
+	if legacyDestA != destZID {
+		t.Fatalf("legacy assignment was mutated: dest_course_a_id = %s, want %s", legacyDestA, destZID)
 	}
 }
 
@@ -407,7 +668,7 @@ func TestCrossStudy_ListAssignments_ReturnsFilteredAndSorted(t *testing.T) {
 	}
 
 	// Act: list all
-	items, err := store.ListAssignmentsWithCourseInfo(ctx, "", "")
+	items, err := store.ListAssignmentsWithCourseInfo(ctx, "", "", 1000, 0)
 	if err != nil {
 		t.Fatalf("ListAssignmentsWithCourseInfo failed: %v", err)
 	}
@@ -418,10 +679,10 @@ func TestCrossStudy_ListAssignments_ReturnsFilteredAndSorted(t *testing.T) {
 	}
 	found := false
 	for _, item := range items {
-		if item.WCode == "W260010" {
+		if item.WCode == "w260010" {
 			found = true
-			if item.SourceCourseName != "List Source A" {
-				t.Fatalf("expected source_course_name='List Source A', got %q", item.SourceCourseName)
+			if item.SourceCourseName != "List Dest A1" {
+				t.Fatalf("expected source_course_name to mirror destination A ('List Dest A1'), got %q", item.SourceCourseName)
 			}
 			if item.AssignedCourseName != "List Dest A1" {
 				t.Fatalf("expected assigned_course_name='List Dest A1', got %q", item.AssignedCourseName)
@@ -437,7 +698,7 @@ func TestCrossStudy_ListAssignments_ReturnsFilteredAndSorted(t *testing.T) {
 	}
 
 	// Act: filter by status
-	pendingItems, err := store.ListAssignmentsWithCourseInfo(ctx, "pending", "")
+	pendingItems, err := store.ListAssignmentsWithCourseInfo(ctx, "pending", "", 1000, 0)
 	if err != nil {
 		t.Fatalf("ListAssignmentsWithCourseInfo(status=pending) failed: %v", err)
 	}
@@ -445,20 +706,115 @@ func TestCrossStudy_ListAssignments_ReturnsFilteredAndSorted(t *testing.T) {
 		t.Fatal("expected at least 1 pending assignment")
 	}
 	for _, item := range pendingItems {
-		if item.WCode == "W260010" && item.Status != "pending" {
+		if item.WCode == "w260010" && item.Status != "pending" {
 			t.Fatalf("expected status='pending', got %q", item.Status)
 		}
 	}
 
 	// Act: filter by non-matching status
-	orphanedItems, err := store.ListAssignmentsWithCourseInfo(ctx, "orphaned", "")
+	orphanedItems, err := store.ListAssignmentsWithCourseInfo(ctx, "orphaned", "", 1000, 0)
 	if err != nil {
 		t.Fatalf("ListAssignmentsWithCourseInfo(status=orphaned) failed: %v", err)
 	}
 	for _, item := range orphanedItems {
-		if item.WCode == "W260010" {
+		if item.WCode == "w260010" {
 			t.Fatal("orphaned filter returned active assignment")
 		}
+	}
+}
+
+// TestCrossStudy_ListAssignments_PaginatesAndCounts verifies that the list is
+// bounded (LIMIT/OFFSET), that CountAssignments matches the same filters, and
+// that pages are disjoint (deterministic ordering, no duplicates).
+func TestCrossStudy_ListAssignments_PaginatesAndCounts(t *testing.T) {
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	sourceAID := createTestCourseSimple(t, ctx, dbpool, "CS-PG-SRC-A", "Page Source A")
+	destA1ID := createTestCourseSimple(t, ctx, dbpool, "CS-PG-A1", "Page Dest A1")
+	destB1ID := createTestCourseSimple(t, ctx, dbpool, "CS-PG-B1", "Page Dest B1")
+
+	snapID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W260011", CourseName: "Page Source A", CycleLabel: "Cycle A", ExtraNote: "a"},
+	})
+	activateSnapshot(t, ctx, dbpool, snapID)
+	for _, wcode := range []string{"W260011", "W260012", "W260013"} {
+		createTestStudent(t, ctx, dbpool, wcode, "Page Student "+wcode)
+	}
+
+	userID := createTestUser(t, ctx, dbpool)
+	store := crossstudy.NewStore(dbpool)
+	for _, wcode := range []string{"w260011", "w260012", "w260013"} {
+		if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+			WCode:            wcode,
+			SourceCourseID:   sourceAID,
+			SnapshotID:       uuidFromPG(t, snapID),
+			DestCourseAID:    destA1ID,
+			DestCourseBID:    destB1ID,
+			AssignedCourseID: destA1ID,
+			ExtraNoteText:    "a",
+		}, userID); err != nil {
+			t.Fatalf("SaveAssignment(%s): %v", wcode, err)
+		}
+	}
+
+	// Act: page 1 (limit 2) and page 2 (limit 2)
+	page1, err := store.ListAssignmentsWithCourseInfo(ctx, "", "", 2, 0)
+	if err != nil {
+		t.Fatalf("ListAssignmentsWithCourseInfo(page 1) failed: %v", err)
+	}
+	page2, err := store.ListAssignmentsWithCourseInfo(ctx, "", "", 2, 2)
+	if err != nil {
+		t.Fatalf("ListAssignmentsWithCourseInfo(page 2) failed: %v", err)
+	}
+	total, err := store.CountAssignments(ctx, "", "")
+	if err != nil {
+		t.Fatalf("CountAssignments failed: %v", err)
+	}
+
+	// Assert: bounded pages, disjoint across pages, total matches.
+	if len(page1) != 2 {
+		t.Fatalf("expected 2 items on page 1, got %d", len(page1))
+	}
+	if len(page2) != 1 {
+		t.Fatalf("expected 1 item on page 2, got %d", len(page2))
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	seen := map[string]bool{}
+	for _, item := range append(page1, page2...) {
+		if seen[item.WCode] {
+			t.Fatalf("assignment %s appeared on two pages (nondeterministic ordering)", item.WCode)
+		}
+		seen[item.WCode] = true
+	}
+	for _, wcode := range []string{"w260011", "w260012", "w260013"} {
+		if !seen[wcode] {
+			t.Fatalf("assignment %s missing across pages", wcode)
+		}
+	}
+
+	// Act: search + count with the same filter
+	matches, err := store.ListAssignmentsWithCourseInfo(ctx, "", "w260012", 1000, 0)
+	if err != nil {
+		t.Fatalf("ListAssignmentsWithCourseInfo(search) failed: %v", err)
+	}
+	searchTotal, err := store.CountAssignments(ctx, "", "w260012")
+	if err != nil {
+		t.Fatalf("CountAssignments(search) failed: %v", err)
+	}
+	if len(matches) != 1 || matches[0].WCode != "w260012" {
+		t.Fatalf("expected exactly w260012 for search, got %+v", matches)
+	}
+	if searchTotal != 1 {
+		t.Fatalf("expected search total 1, got %d", searchTotal)
 	}
 }
 
@@ -528,7 +884,7 @@ func TestCrossStudy_LoadPendingChanges_DetectsOrphaned(t *testing.T) {
 		t.Fatal("expected changes for new snapshot")
 	}
 	for _, ch := range newChanges {
-		if ch.WCode == "W260020" {
+		if ch.WCode == "w260020" {
 			if ch.CurrentCourseName != "" {
 				t.Fatalf("expected empty current_course_name for orphaned student, got %q", ch.CurrentCourseName)
 			}
@@ -1218,9 +1574,11 @@ func TestCrossStudy_DeleteAssignment_RestoresOnlySourceEnrollmentRemovedByCrossS
 	}
 }
 
-// TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent proves
-// cross-study cleanup is scoped to the assignment being edited, not the student.
-func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *testing.T) {
+// TestCrossStudy_SaveAssignment_MovesOwnershipWhenDestAChanges proves that a
+// destination-A change updates the student's existing assignment (keyed by
+// wcode) instead of inserting a second active assignment, and that roster
+// ownership (overrides, course_students) follows the single surviving row.
+func TestCrossStudy_SaveAssignment_MovesOwnershipWhenDestAChanges(t *testing.T) {
 	databaseURL := requireDB(t)
 	migrateUpV2(t, databaseURL)
 	dbpool := newPoolV2(t, databaseURL)
@@ -1230,9 +1588,8 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	sourceAID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-SRC-A", "Multi Source A")
-	sourceBID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-SRC-B", "Multi Source B")
-	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-DST-A", "Multi Dest A")
+	destA1ID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-DST-A", "Multi Dest A")
+	destA2ID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-DST-A2", "Multi Dest A2")
 	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-MULTI-DST-B", "Multi Dest B")
 
 	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
@@ -1247,21 +1604,22 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260101",
-		SourceCourseID:   sourceAID,
 		SnapshotID:       uuidFromPG(t, snapshotID),
-		DestCourseAID:    destAID,
+		CRMCourseName:    "Multi Source A",
+		DestCourseAID:    destA1ID,
 		DestCourseBID:    destBID,
-		AssignedCourseID: destAID,
+		AssignedCourseID: destA1ID,
 		ExtraNoteText:    "source-a",
 	}, userID); err != nil {
 		t.Fatalf("save first assignment: %v", err)
 	}
 
+	// Save with a changed destination A: the existing row is updated in place.
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260101",
-		SourceCourseID:   sourceBID,
 		SnapshotID:       uuidFromPG(t, snapshotID),
-		DestCourseAID:    destAID,
+		CRMCourseName:    "Multi Source B",
+		DestCourseAID:    destA2ID,
 		DestCourseBID:    destBID,
 		AssignedCourseID: destBID,
 		ExtraNoteText:    "source-b",
@@ -1276,8 +1634,19 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	`).Scan(&assignmentCount); err != nil {
 		t.Fatalf("count assignments: %v", err)
 	}
-	if assignmentCount != 2 {
-		t.Fatalf("expected 2 active assignments, got %d", assignmentCount)
+	if assignmentCount != 1 {
+		t.Fatalf("expected exactly 1 active assignment after destination A change, got %d", assignmentCount)
+	}
+
+	var assignmentID, destA uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		SELECT id, dest_course_a_id FROM crm_cross_study_assignments
+		WHERE wcode = 'w260101' AND deleted_at IS NULL
+	`).Scan(&assignmentID, &destA); err != nil {
+		t.Fatalf("load single assignment: %v", err)
+	}
+	if destA != destA2ID {
+		t.Fatalf("expected dest_course_a_id = %s (latest), got %s", destA2ID, destA)
 	}
 
 	var overrideCount int
@@ -1288,35 +1657,52 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	`).Scan(&overrideCount); err != nil {
 		t.Fatalf("count cross-study overrides: %v", err)
 	}
-	if overrideCount != 4 {
-		t.Fatalf("expected 4 cross-study overrides across two assignments, got %d", overrideCount)
+	// destA1's include moved to destA2; destB stays with the surviving
+	// assignment. All overrides point at the single assignment row.
+	if overrideCount != 2 {
+		t.Fatalf("expected 2 cross-study overrides on the single assignment, got %d", overrideCount)
+	}
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM course_roster_overrides
+		WHERE cross_study_assignment_id = $1
+		  AND action = 'include'::override_action
+		  AND override_source = 'cross_study'
+		  AND deleted_at IS NULL
+	`, assignmentID).Scan(&overrideCount); err != nil {
+		t.Fatalf("count include overrides on assignment: %v", err)
+	}
+	if overrideCount != 2 {
+		t.Fatalf("expected 2 include overrides (dest A2 + dest B) on the assignment, got %d", overrideCount)
 	}
 
-	for _, courseID := range []uuid.UUID{destAID, destBID} {
+	// Enrollments follow ownership: new Dest A2 and shared Dest B remain,
+	// the cross-study-created Dest A1 enrollment is removed.
+	for _, tc := range []struct {
+		courseID uuid.UUID
+		want     int
+	}{
+		{destA1ID, 0},
+		{destA2ID, 1},
+		{destBID, 1},
+	} {
 		var enrolled int
 		if err := dbpool.QueryRow(ctx, `
 			SELECT COUNT(*) FROM course_students
 			WHERE course_id = $1
 			  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
-		`, courseID).Scan(&enrolled); err != nil {
-			t.Fatalf("count course_students for %s: %v", courseID, err)
+		`, tc.courseID).Scan(&enrolled); err != nil {
+			t.Fatalf("count course_students for %s: %v", tc.courseID, err)
 		}
-		if enrolled != 1 {
-			t.Fatalf("expected student to remain enrolled in assigned course %s, got %d rows", courseID, enrolled)
+		if enrolled != tc.want {
+			t.Fatalf("expected %d course_students rows for course %s, got %d", tc.want, tc.courseID, enrolled)
 		}
 	}
 
-	var firstAssignmentID uuid.UUID
-	if err := dbpool.QueryRow(ctx, `
-		SELECT id FROM crm_cross_study_assignments
-		WHERE wcode = 'w260101' AND source_course_id = $1 AND deleted_at IS NULL
-	`, sourceAID).Scan(&firstAssignmentID); err != nil {
-		t.Fatalf("lookup first assignment id: %v", err)
+	// Deleting the single assignment removes the remaining overrides and the
+	// cross-study-created enrollments.
+	if err := store.DeleteAssignment(ctx, assignmentID); err != nil {
+		t.Fatalf("delete assignment: %v", err)
 	}
-	if err := store.DeleteAssignment(ctx, firstAssignmentID); err != nil {
-		t.Fatalf("delete first assignment: %v", err)
-	}
-
 	if err := dbpool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM course_roster_overrides
 		WHERE override_source = 'cross_study'
@@ -1324,20 +1710,21 @@ func TestCrossStudy_SaveAssignment_PreservesOtherAssignmentForSameStudent(t *tes
 	`).Scan(&overrideCount); err != nil {
 		t.Fatalf("count cross-study overrides after delete: %v", err)
 	}
-	if overrideCount != 3 {
-		t.Fatalf("expected 3 cross-study overrides for remaining assignment, got %d", overrideCount)
+	if overrideCount != 0 {
+		t.Fatalf("expected 0 cross-study overrides after delete, got %d", overrideCount)
 	}
-
-	var remainingAssigned int
-	if err := dbpool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM course_students
-		WHERE course_id = $1
-		  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
-	`, destBID).Scan(&remainingAssigned); err != nil {
-		t.Fatalf("count remaining assigned course_students: %v", err)
-	}
-	if remainingAssigned != 1 {
-		t.Fatalf("expected second assignment enrollment to remain, got %d rows", remainingAssigned)
+	for _, courseID := range []uuid.UUID{destA2ID, destBID} {
+		var enrolled int
+		if err := dbpool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM course_students
+			WHERE course_id = $1
+			  AND student_id = (SELECT id FROM students WHERE wcode = 'w260101')
+		`, courseID).Scan(&enrolled); err != nil {
+			t.Fatalf("count course_students for %s after delete: %v", courseID, err)
+		}
+		if enrolled != 0 {
+			t.Fatalf("expected 0 course_students rows for %s after delete, got %d", courseID, enrolled)
+		}
 	}
 }
 
@@ -1376,6 +1763,7 @@ func TestCrossStudy_Processor_UpdatesStatus(t *testing.T) {
 		WCode:            "W260030",
 		SourceCourseID:   sourceID,
 		SnapshotID:       uuidFromPG(t, firstSnapID),
+		CRMCourseName:    "Proc Source",
 		DestCourseAID:    destAID,
 		DestCourseBID:    destBID,
 		AssignedCourseID: destAID,

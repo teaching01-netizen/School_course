@@ -1,147 +1,66 @@
 import { useEffect, useMemo, useState } from "react";
+import { DateTime } from "luxon";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "../hooks/useToast";
-import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief, CalendarSitInStudent } from "../types";
+import type { AbsenceStatus, CalendarAbsence, CalendarAbsenceDay, CalendarResponse, CalendarSessionBrief } from "../types";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import SidePanel, { type AbsencePanelTab } from "../components/absences/SidePanel";
 import SitInListView from "../components/absences/SitInListView";
+import {
+  formatFullDayLabel,
+  getAbsenceStudentLabel,
+  getAbsenceSubjectLabel,
+  getSessionLabel,
+  getSitInLabel,
+  getSitInVisitorLabel,
+  sessionDayKey,
+} from "../components/absences/calendarDisplay";
+import { formatUTCToZone, shiftZoneMonthKey, startOfZoneMonthKey, utcISOToZoneDate } from "../utils/timezone";
+import useInstituteMeta from "../hooks/useInstituteMeta";
 import { queryKeys } from "../query/cache";
 import { useOperationalQuery } from "../query/useOperationalQuery";
 
 type CalendarShowMode = "all" | "sessions" | "absences" | "sit-ins";
 type CalendarViewMode = "week" | "month" | "list";
 
-function getMonday(d: Date): Date {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
+function addDaysToKey(dayKey: string, zone: string, days: number): string {
+  const dt = DateTime.fromISO(dayKey, { zone });
+  return dt.isValid ? dt.plus({ days }).toFormat("yyyy-MM-dd") : dayKey;
 }
 
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
+function mondayOf(dayKey: string, zone: string): string {
+  const dt = DateTime.fromISO(dayKey, { zone });
+  return dt.isValid ? dt.startOf("week").toFormat("yyyy-MM-dd") : dayKey;
 }
 
-function formatDay(d: Date): string {
-  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric" });
-}
-
-function formatMonth(d: Date): string {
-  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-}
-
-function formatFullDayLabel(dayKey: string): string {
-  return new Date(`${dayKey}T00:00:00`).toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function yyyyMmDd(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function sessionDayKey(session: CalendarSessionBrief): string {
-  return yyyyMmDd(new Date(session.start_at));
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
-
-function getSessionLabel(session: CalendarSessionBrief): string {
-  return session.subject_name?.trim() || session.course_name?.trim() || session.course_code?.trim() || "Session";
-}
-
-function getAbsenceStudentLabel(absence: CalendarAbsence): string {
-  const name = absence.student_name?.trim();
-  return name ? `${absence.wcode} · ${name}` : absence.wcode;
-}
-
-function getAbsenceSubjectLabel(absence: CalendarAbsence): string {
-  return absence.subject_name?.trim() || absence.subject_code?.trim() || "Subject";
-}
-
-function getSitInLabel(absence: CalendarAbsence): string {
-  switch (absence.sit_in_method) {
-    case "zoom":
-      return "Zoom";
-    case "physical":
-      return absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || "To arrange";
-    case "teacher_case":
-      return "To arrange";
-    default:
-      return "To arrange";
-  }
-}
-
-function getSitInVisitorLabel(student: CalendarSitInStudent): string {
-  const name = student.nickname?.trim() || student.student_name?.trim();
-  const course = student.from_course_name?.trim() || student.from_course_code;
-  return name ? `${name} (${student.wcode}) — ${course}` : `${student.wcode} — ${course}`;
+function formatMonthLabel(dayKey: string, zone: string): string {
+  const dt = DateTime.fromISO(dayKey, { zone });
+  return dt.isValid ? dt.setLocale("en-GB").toFormat("MMMM yyyy") : "";
 }
 
 function absencePuckColor(count: number): string {
-  if (count === 0) return "bg-gray-100 text-gray-400";
-  if (count <= 3) return "bg-green-100 text-green-700";
-  if (count <= 6) return "bg-amber-100 text-amber-700";
-  return "bg-red-100 text-red-700";
+  if (count === 0) return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]";
+  if (count <= 3) return "bg-[var(--color-wi-green-bg)] text-[var(--color-wi-green-dark)]";
+  if (count <= 6) return "bg-[var(--color-wi-amber-bg)] text-[var(--color-wi-amber)]";
+  return "bg-[var(--color-wi-danger-bg)] text-[var(--color-wi-red)]";
 }
 
 function absenceInlineClasses(absence: CalendarAbsence): string {
   switch (absence.sit_in_method) {
     case "physical":
-      return "border-amber-200 bg-amber-50/70";
+      return "bg-[var(--color-wi-amber-bg)] text-[var(--color-wi-amber)]";
     case "zoom":
-      return "border-sky-200 bg-sky-50/70";
+      return "bg-[var(--color-wi-blue-bg)] text-[var(--color-wi-primary-dark)]";
     default:
-      return "border-rose-200 bg-rose-50/70";
+      return "bg-[var(--color-wi-danger-bg)] text-[var(--color-wi-red)]";
   }
 }
 
 function absencesOnDate(day: CalendarAbsenceDay | undefined): CalendarAbsence[] {
   return day?.absences ?? [];
-}
-
-function dayCellOddEven(date: Date): string {
-  return date.getDate() % 2 === 0 ? "bg-gray-50/50" : "";
-}
-
-function getMonthStart(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-function getMonthEnd(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
-}
-function getMonthGrid(d: Date): Date[] {
-  const start = getMonthStart(d);
-  const startDay = start.getDay();
-  const grid: Date[] = [];
-  // Pad to Monday (align with week view)
-  const padStart = new Date(start);
-  padStart.setDate(padStart.getDate() - (startDay === 0 ? 6 : startDay - 1));
-  const end = getMonthEnd(d);
-  const endDay = end.getDay();
-  const padEnd = new Date(end);
-  padEnd.setDate(padEnd.getDate() + (endDay === 0 ? 0 : 7 - endDay));
-  const cursor = new Date(padStart);
-  while (cursor <= padEnd) {
-    grid.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return grid;
 }
 
 export default function OperationsCalendar() {
@@ -156,20 +75,63 @@ export default function OperationsCalendar() {
       : "sit-ins";
   const subjectParam = searchParams.get("subject") ?? "";
   const statusParam = searchParams.get("status") ?? "";
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
-  const [monthStart, setMonthStart] = useState(() => getMonthStart(new Date()));
+
+  const { serverNow, instituteTZ, loaded: instituteMetaLoaded } = useInstituteMeta();
+  const zone = instituteTZ ?? "Asia/Bangkok";
+  const fallbackNowIso = useMemo(() => new Date().toISOString(), []);
+  const todayKey = useMemo(
+    () => utcISOToZoneDate(serverNow ?? fallbackNowIso, zone),
+    [fallbackNowIso, serverNow, zone],
+  );
+
+  const [weekStartKey, setWeekStartKey] = useState<string | null>(null);
+  const [monthStartKey, setMonthStartKey] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<AbsencePanelTab>("sit-ins");
 
+  // Seed the viewed week and month from the institute-zone today once the
+  // server meta has loaded, so the calendar matches the school's calendar day.
+  useEffect(() => {
+    if (!instituteMetaLoaded || weekStartKey !== null || monthStartKey !== null) return;
+    const day = todayKey ?? utcISOToZoneDate(fallbackNowIso, zone);
+    if (!day) return;
+    setWeekStartKey(mondayOf(day, zone));
+    setMonthStartKey(startOfZoneMonthKey(day, zone));
+  }, [fallbackNowIso, instituteMetaLoaded, monthStartKey, todayKey, weekStartKey, zone]);
+
   const weekDates = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  }, [weekStart]);
+    if (!weekStartKey) return [];
+    const start = DateTime.fromISO(weekStartKey, { zone });
+    if (!start.isValid) return [];
+    return Array.from({ length: 7 }, (_, i) => start.plus({ days: i }));
+  }, [weekStartKey, zone]);
+
+  const monthGrid = useMemo(() => {
+    if (!monthStartKey) return [];
+    const start = DateTime.fromISO(monthStartKey, { zone });
+    if (!start.isValid) return [];
+    const startPad = start.weekday - 1;
+    const monthEnd = start.endOf("month").startOf("day");
+    const endPad = monthEnd.weekday === 7 ? 0 : 7 - monthEnd.weekday;
+    const gridStart = start.minus({ days: startPad });
+    const gridEnd = monthEnd.plus({ days: endPad });
+    const days: DateTime[] = [];
+    for (let cursor = gridStart; cursor.toMillis() <= gridEnd.toMillis(); cursor = cursor.plus({ days: 1 })) {
+      days.push(cursor);
+    }
+    return days;
+  }, [monthStartKey, zone]);
 
   const calendarRequest = useMemo(() => {
-    const rangeStart = viewMode === "month" || viewMode === "list" ? getMonthStart(monthStart) : weekStart;
-    const rangeEnd = viewMode === "month" || viewMode === "list" ? getMonthEnd(monthStart) : addDays(weekStart, 6);
-    return `/api/v1/operations/calendar?start=${yyyyMmDd(rangeStart)}&end=${yyyyMmDd(rangeEnd)}`;
-  }, [monthStart, viewMode, weekStart]);
+    if (viewMode === "month" || viewMode === "list") {
+      if (!monthStartKey) return null;
+      const end = DateTime.fromISO(monthStartKey, { zone }).endOf("month").toFormat("yyyy-MM-dd");
+      return `/api/v1/operations/calendar?start=${monthStartKey}&end=${end}`;
+    }
+    if (!weekStartKey) return null;
+    const end = DateTime.fromISO(weekStartKey, { zone }).plus({ days: 6 }).toFormat("yyyy-MM-dd");
+    return `/api/v1/operations/calendar?start=${weekStartKey}&end=${end}`;
+  }, [monthStartKey, viewMode, weekStartKey, zone]);
   const calendarQuery = useOperationalQuery<CalendarResponse>(
     queryKeys.operationsCalendar.range(calendarRequest),
     calendarRequest,
@@ -182,13 +144,21 @@ export default function OperationsCalendar() {
     if (calendarQuery.error) addToast("error", calendarQuery.error.message || "Failed to load calendar data");
   }, [addToast, calendarQuery.error]);
 
-  const goPrevWeek = () => setWeekStart((prev) => addDays(prev, -7));
-  const goNextWeek = () => setWeekStart((prev) => addDays(prev, 7));
-  const goToday = () => setWeekStart(getMonday(new Date()));
+  const goPrevWeek = () => setWeekStartKey((prev) => (prev ? addDaysToKey(prev, zone, -7) : prev));
+  const goNextWeek = () => setWeekStartKey((prev) => (prev ? addDaysToKey(prev, zone, 7) : prev));
+  const goTodayWeek = () => {
+    const day = todayKey;
+    if (!day) return;
+    setWeekStartKey(mondayOf(day, zone));
+  };
 
-  const goPrevMonth = () => setMonthStart((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  const goNextMonth = () => setMonthStart((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-  const goTodayMonth = () => setMonthStart(getMonthStart(new Date()));
+  const goPrevMonth = () => setMonthStartKey((prev) => (prev ? shiftZoneMonthKey(prev, zone, -1) : prev));
+  const goNextMonth = () => setMonthStartKey((prev) => (prev ? shiftZoneMonthKey(prev, zone, 1) : prev));
+  const goTodayMonth = () => {
+    const day = todayKey;
+    if (!day) return;
+    setMonthStartKey(startOfZoneMonthKey(day, zone));
+  };
 
   function setViewMode(mode: CalendarViewMode) {
     const params = new URLSearchParams(searchParams);
@@ -226,7 +196,7 @@ export default function OperationsCalendar() {
 
   useEffect(() => {
     setSelectedDay(null);
-  }, [viewMode, weekStart, monthStart]);
+  }, [viewMode, weekStartKey, monthStartKey]);
 
   const subjects = useMemo(() => {
     const map = new Map<string, string>();
@@ -243,6 +213,19 @@ export default function OperationsCalendar() {
   const subjectFilter = subjectParam && validSubjectIds.has(subjectParam) ? subjectParam : "";
   const statusFilter: AbsenceStatus | "" =
     statusParam === "pending" || statusParam === "reviewed" || statusParam === "actioned" || statusParam === "cancelled" ? statusParam : "";
+
+  // Subject names present on any session in the range, used to apply the
+  // subject filter to absence rows too (absences carry subject codes/names,
+  // not course ids).
+  const subjectNameSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const session of sessions) {
+      for (const candidate of [session.subject_name, session.course_name, session.course_code]) {
+        if (candidate) set.add(candidate.trim().toLowerCase());
+      }
+    }
+    return set;
+  }, [sessions]);
 
   const filteredSessions = useMemo(() => {
     let data = sessions;
@@ -267,22 +250,29 @@ export default function OperationsCalendar() {
       return [];
     }
 
-    if (!statusFilter) return absenceDays;
-    return absenceDays.map((day) => ({
-      ...day,
-      absences: day.absences.filter((a) => a.status === statusFilter),
-    }));
-  }, [absenceDays, statusFilter, showMode]);
+    const keep = (absence: CalendarAbsence): boolean => {
+      if (statusFilter ? absence.status !== statusFilter : absence.status === "cancelled") return false;
+      if (subjectFilter) {
+        const key = (absence.subject_name ?? absence.subject_code ?? "").trim().toLowerCase();
+        if (!key || !subjectNameSet.has(key)) return false;
+      }
+      return true;
+    };
+
+    return absenceDays
+      .map((day) => ({ ...day, absences: day.absences.filter(keep) }))
+      .filter((day) => day.absences.length > 0);
+  }, [absenceDays, showMode, statusFilter, subjectFilter, subjectNameSet]);
 
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, CalendarSessionBrief[]>();
     for (const session of filteredSessions) {
-      const day = sessionDayKey(session);
+      const day = sessionDayKey(session, zone);
       if (!map.has(day)) map.set(day, []);
       map.get(day)!.push(session);
     }
     return map;
-  }, [filteredSessions]);
+  }, [filteredSessions, zone]);
 
   const absencesByDay = useMemo(() => {
     const map = new Map<string, CalendarAbsenceDay>();
@@ -310,6 +300,8 @@ export default function OperationsCalendar() {
     return sessions.reduce((count, session) => count + (session.sit_in_students?.length ?? 0), 0);
   }, [sessions]);
 
+  const allVisibleAbsences = useMemo(() => filteredAbsenceDays.flatMap((day) => day.absences), [filteredAbsenceDays]);
+
   const visibleAbsenceCount = filteredAbsenceDays.reduce((count, day) => count + day.absences.length, 0);
   const hasVisibleCalendarActivity = filteredSessions.length > 0 || visibleAbsenceCount > 0;
   const hasAnySitIns = sessions.some((session) => (session.sit_in_students?.length ?? 0) > 0);
@@ -325,42 +317,42 @@ export default function OperationsCalendar() {
     setSearchParams(params, { replace: true });
   }
 
-  if (loading) return <LoadingSkeleton type="table" lines={10} />;
+  if (loading || !weekStartKey || !monthStartKey) return <LoadingSkeleton type="table" lines={10} />;
+
+  const monthStartDt = DateTime.fromISO(monthStartKey, { zone });
+  const monthLabel = monthStartDt.isValid ? monthStartDt.setLocale("en-GB").toFormat("MMMM yyyy") : "";
+  const weekLabel = weekStartKey ? formatMonthLabel(weekStartKey, zone) : "";
 
   return (
     <div className="w-full">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[32px] font-bold text-[var(--color-wi-text)]">Calendar</h1>
-          <p className="text-sm text-gray-500">Combined view of scheduled sessions and student absences.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">Combined view of scheduled sessions and student absences.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-sm border border-gray-300 bg-white text-sm">
-            <button onClick={() => setViewMode("week")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "week" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>Week</button>
-            <button onClick={() => setViewMode("month")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "month" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>Month</button>
-            <button onClick={() => setViewMode("list")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "list" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900"}`}>List</button>
+          <div className="flex rounded-sm border border-wi-line bg-white text-sm">
+            <button onClick={() => setViewMode("week")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "week" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>Week</button>
+            <button onClick={() => setViewMode("month")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "month" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>Month</button>
+            <button onClick={() => setViewMode("list")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "list" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>List</button>
           </div>
-          <Button variant="secondary" size="sm" onClick={viewMode === "week" ? goToday : goTodayMonth}>
+          <Button variant="secondary" size="sm" onClick={viewMode === "week" ? goTodayWeek : goTodayMonth}>
             Today
           </Button>
-          <div className="flex items-center gap-1 text-sm font-medium text-gray-700">
+          <div className="flex items-center gap-1 text-sm font-medium text-[var(--color-wi-text-light)]">
             <button
               onClick={viewMode === "week" ? goPrevWeek : goPrevMonth}
-              className="rounded-sm p-1 hover:bg-gray-100"
+              className="rounded-sm p-1 hover:bg-[var(--color-wi-row-alt)]"
               aria-label="Previous"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <span className="min-w-[180px] text-center">
-              {viewMode === "month"
-                ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
-                : viewMode === "list"
-                  ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
-                : formatMonth(weekStart)}
+              {viewMode === "month" ? monthLabel : weekLabel}
             </span>
             <button
               onClick={viewMode === "week" ? goNextWeek : goNextMonth}
-              className="rounded-sm p-1 hover:bg-gray-100"
+              className="rounded-sm p-1 hover:bg-[var(--color-wi-row-alt)]"
               aria-label="Next"
             >
               <ChevronRight className="h-4 w-4" />
@@ -369,17 +361,17 @@ export default function OperationsCalendar() {
         </div>
       </div>
 
-      <div className="mb-4 rounded-sm border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-600">
-        Summary: <strong className="text-gray-900">{totalVisibleAbsences}</strong> absences |{" "}
-        <strong className="text-gray-900">{totalVisibleSitIns}</strong> sit-in assignments
+      <div className="mb-4 rounded-sm border border-wi-line bg-white px-4 py-2.5 text-sm text-[var(--color-wi-text-light)]">
+        Summary: <strong className="text-[var(--color-wi-text)]">{totalVisibleAbsences}</strong> absences |{" "}
+        <strong className="text-[var(--color-wi-text)]">{totalVisibleSitIns}</strong> sit-in assignments
       </div>
 
-      <section className="mb-4 rounded-sm border border-gray-200 bg-white p-3">
+      <section className="mb-4 rounded-sm border border-wi-line bg-white p-3">
         <div className="flex flex-wrap gap-3">
-          <span className="inline-flex min-h-[32px] items-center rounded-full bg-gray-100 px-3 text-xs font-semibold text-gray-600">
+          <span className="inline-flex min-h-[32px] items-center rounded-full bg-[var(--color-wi-row-alt)] px-3 text-xs font-semibold text-[var(--color-wi-text-light)]">
             Filters ({activeFilterCount})
           </span>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+          <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
             Show:
             <select
               aria-label="Show"
@@ -412,9 +404,18 @@ export default function OperationsCalendar() {
       </section>
 
       {viewMode === "list" ? (
-        <SitInListView sessions={filteredSessions} absenceDays={filteredAbsenceDays.length ? filteredAbsenceDays : absenceDays} onClearFilters={clearFilters} hasAnySitIns={hasAnySitIns} />
+        <SitInListView
+          sessions={filteredSessions}
+          absenceDays={filteredAbsenceDays.length ? filteredAbsenceDays : absenceDays}
+          absences={allVisibleAbsences}
+          mode={showMode === "absences" ? "absences" : "sit-ins"}
+          zone={zone}
+          hasFilters={activeFilterCount > 0}
+          hasAnySitIns={hasAnySitIns}
+          onClearFilters={clearFilters}
+        />
       ) : showMode !== "all" && !hasVisibleCalendarActivity ? (
-        <div className="rounded-sm border border-gray-200 bg-white">
+        <div className="rounded-sm border border-wi-line bg-white">
           <EmptyState
             message={
               showMode === "sit-ins"
@@ -426,35 +427,41 @@ export default function OperationsCalendar() {
           />
         </div>
       ) : viewMode === "month" ? (
-        <div className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-gray-200 bg-gray-200" style={{ minHeight: "300px" }}>
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-            <div key={d} className="bg-gray-50 px-2 py-1 text-center text-xs font-semibold text-gray-500">{d}</div>
-          ))}
-          {(() => {
-            const grid = getMonthGrid(monthStart);
-            const todayStr = yyyyMmDd(new Date());
-            return grid.map((date) => {
-              const dayStr = yyyyMmDd(date);
+        <div className="overflow-hidden rounded-sm border border-wi-line bg-white" style={{ minHeight: "300px" }}>
+          <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              <div key={d} className="py-1.5">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {monthGrid.map((day) => {
+              const dayStr = day.toFormat("yyyy-MM-dd");
               const dayAbsences = absencesByDay.get(dayStr);
               const daySessions = sessionsByDay.get(dayStr) ?? [];
               const dayAbsenceRows = absencesOnDate(dayAbsences);
               const absenceCount = dayAbsenceRows.length;
-              const isToday = todayStr === dayStr;
-              const isCurrentMonth = date.getMonth() === monthStart.getMonth();
+              const isToday = todayKey === dayStr;
+              const isCurrentMonth = day.year === monthStartDt.year && day.month === monthStartDt.month;
               const dayLabel = formatFullDayLabel(dayStr);
 
               return (
                 <div
                   key={dayStr}
-                  className={`min-h-[80px] bg-white p-1 ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""} ${!isCurrentMonth ? "opacity-40" : ""}`}
+                  className={`min-h-[80px] border-b border-r border-wi-line p-1 last:border-r-0 ${isToday ? "ring-1 ring-inset ring-[var(--color-wi-primary)]" : ""} ${!isCurrentMonth ? "bg-[var(--color-wi-row-alt)]" : ""}`}
                 >
                   <button
                     type="button"
                     onClick={() => openPanel(dayStr)}
                     aria-label={`Open details for ${dayLabel}`}
-                    className={`mb-1 flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${isToday ? "bg-[var(--color-wi-primary)] text-white" : "text-gray-700 hover:bg-gray-100"}`}
+                    className={`mb-1 flex h-5 w-full items-center text-[10px] leading-none ${isToday ? "justify-center" : "justify-end font-medium text-[var(--color-wi-faint)]"}`}
                   >
-                    {date.getDate()}
+                    {isToday ? (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-primary)] font-bold text-white">
+                        {day.day}
+                      </span>
+                    ) : (
+                      day.day
+                    )}
                   </button>
                   <div className="space-y-1">
                     {daySessions.slice(0, 2).map((s) => (
@@ -463,12 +470,12 @@ export default function OperationsCalendar() {
                         type="button"
                         onClick={() => openPanel(dayStr, "sit-ins")}
                         aria-label={`Open details for ${getSessionLabel(s)} on ${dayLabel}`}
-                        className="w-full rounded-sm bg-blue-50 px-1 py-0.5 text-left text-[10px] text-blue-700"
+                        className="w-full rounded-sm bg-[var(--color-wi-blue-bg)] px-1.5 py-1 text-left text-[10px] text-[var(--color-wi-primary-dark)] hover:bg-[var(--color-wi-selected)]"
                       >
                         <div className="space-y-0.5">
-                          <p className="truncate">{getSessionLabel(s)} {formatTime(s.start_at)}</p>
+                          <p className="truncate">{getSessionLabel(s)} {formatUTCToZone(s.start_at, zone, "HH:mm") ?? "--:--"}</p>
                           {s.sit_in_students && s.sit_in_students.length > 0 ? (
-                            <p className="truncate text-[10px] text-amber-700">
+                            <p className="truncate text-[10px] text-[var(--color-wi-amber)]">
                               <span className="font-semibold">Visitors:</span>{" "}
                               {s.sit_in_students.slice(0, 2).map((student, idx) => (
                                 <span key={`${student.wcode}-${student.absence_id}`}>
@@ -477,7 +484,7 @@ export default function OperationsCalendar() {
                                 </span>
                               ))}
                               {s.sit_in_students.length > 2 ? (
-                                <span className="text-amber-500"> +{s.sit_in_students.length - 2} more</span>
+                                <span className="text-[var(--color-wi-amber)]"> +{s.sit_in_students.length - 2} more</span>
                               ) : null}
                             </p>
                           ) : null}
@@ -489,7 +496,7 @@ export default function OperationsCalendar() {
                         type="button"
                         onClick={() => openPanel(dayStr, "sit-ins")}
                         aria-label={`View all session details for ${dayLabel}`}
-                        className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                        className="w-full px-1 text-left text-[10px] text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
                       >
                         +{daySessions.length - 2} more
                       </button>
@@ -500,13 +507,13 @@ export default function OperationsCalendar() {
                         type="button"
                         onClick={() => openPanel(dayStr, "absences")}
                         aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
-                        className={`w-full rounded-sm border-l-2 px-1.5 py-1 text-left text-[10px] leading-snug ${absenceInlineClasses(absence)}`}
+                        className={`w-full rounded-sm px-1.5 py-1 text-left text-[10px] leading-snug hover:bg-[var(--color-wi-selected)] ${absenceInlineClasses(absence)}`}
                       >
-                        <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
-                        <p className="truncate text-[10px] text-amber-700">
+                        <p className="truncate font-semibold text-[var(--color-wi-text)]">{getAbsenceStudentLabel(absence)}</p>
+                        <p className="truncate text-[10px] text-[var(--color-wi-amber)]">
                           <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
                         </p>
-                        <p className="truncate text-[10px] text-sky-700">
+                        <p className="truncate text-[10px] text-[var(--color-wi-primary-dark)]">
                           <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
                         </p>
                       </button>
@@ -516,7 +523,7 @@ export default function OperationsCalendar() {
                         type="button"
                         onClick={() => openPanel(dayStr, "absences")}
                         aria-label={`View all absence details for ${dayLabel}`}
-                        className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                        className="w-full px-1 text-left text-[10px] text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
                       >
                         +{absenceCount - 2} more
                       </button>
@@ -524,36 +531,36 @@ export default function OperationsCalendar() {
                   </div>
                 </div>
               );
-            });
-          })()}
+            })}
+          </div>
         </div>
       ) : (
         <div
-          className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-gray-200 bg-gray-200"
+          className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)]"
           style={{ minHeight: "400px" }}
         >
-          {weekDates.map((date) => {
-            const dayStr = yyyyMmDd(date);
+          {weekDates.map((day) => {
+            const dayStr = day.toFormat("yyyy-MM-dd");
             const dayAbsences = absencesByDay.get(dayStr);
             const daySessions = sessionsByDay.get(dayStr) ?? [];
             const dayAbsenceRows = absencesOnDate(dayAbsences);
             const absenceCount = dayAbsenceRows.length;
-            const isToday = yyyyMmDd(new Date()) === dayStr;
+            const isToday = todayKey === dayStr;
             const dayLabel = formatFullDayLabel(dayStr);
 
             return (
               <div
                 key={dayStr}
-                className={`flex min-h-[200px] flex-col bg-white ${dayCellOddEven(date)} ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""}`}
+                className={`flex min-h-[200px] flex-col bg-white ${day.day % 2 === 0 ? "bg-[var(--color-wi-row-alt)]/50" : ""} ${isToday ? "ring-2 ring-inset ring-[var(--color-wi-primary)]" : ""}`}
               >
                 <button
                   type="button"
                   onClick={() => openPanel(dayStr)}
                   aria-label={`Open details for ${dayLabel}`}
-                  className={`sticky top-0 z-10 border-b border-gray-100 px-2 py-2 text-center ${isToday ? "bg-blue-50" : ""}`}
+                  className={`sticky top-0 z-10 border-b border-wi-line-soft px-2 py-2 text-center ${isToday ? "bg-[var(--color-wi-blue-bg)]" : ""}`}
                 >
-                  <p className={`text-xs font-semibold ${isToday ? "text-[var(--color-wi-primary)]" : "text-gray-600"}`}>
-                    {formatDay(date)}
+                  <p className={`text-xs font-semibold ${isToday ? "text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text-light)]"}`}>
+                    {day.setLocale("en-GB").toFormat("EEE d")}
                   </p>
                   <span
                     className={`mt-1 inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${absencePuckColor(absenceCount)}`}
@@ -570,14 +577,14 @@ export default function OperationsCalendar() {
                       type="button"
                       onClick={() => openPanel(dayStr, "sit-ins")}
                       aria-label={`Open details for ${getSessionLabel(session)} on ${dayLabel}`}
-                      className="w-full rounded-sm border border-gray-100 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
+                      className="w-full rounded-sm border border-wi-line-soft bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
                     >
-                      <p className="font-semibold text-gray-800">{getSessionLabel(session)}</p>
-                      <p className="text-gray-500">{formatTime(session.start_at)} &ndash; {formatTime(session.end_at)}</p>
-                      {session.room_name ? <p className="truncate text-gray-400">{session.room_name}</p> : null}
+                      <p className="font-semibold text-[var(--color-wi-text)]">{getSessionLabel(session)}</p>
+                      <p className="text-[var(--color-wi-text-light)]">{formatUTCToZone(session.start_at, zone, "HH:mm") ?? "--:--"} &ndash; {formatUTCToZone(session.end_at, zone, "HH:mm") ?? "--:--"}</p>
+                      {session.room_name ? <p className="truncate text-[var(--color-wi-text-light)]">{session.room_name}</p> : null}
                       {session.sit_in_students && session.sit_in_students.length > 0 ? (
-                        <div className="mt-1 border-t border-gray-100 pt-1">
-                          <p className="text-[10px] text-amber-700">
+                        <div className="mt-1 border-t border-wi-line-soft pt-1">
+                          <p className="text-[10px] text-[var(--color-wi-amber)]">
                             <span className="font-semibold">Visitors:</span>{" "}
                             {session.sit_in_students.slice(0, 2).map((student, idx) => (
                               <span key={student.wcode}>
@@ -586,7 +593,7 @@ export default function OperationsCalendar() {
                               </span>
                             ))}
                             {session.sit_in_students.length > 2 ? (
-                              <span className="text-amber-500"> +{session.sit_in_students.length - 2} more</span>
+                              <span className="text-[var(--color-wi-amber)]"> +{session.sit_in_students.length - 2} more</span>
                             ) : null}
                           </p>
                         </div>
@@ -599,26 +606,26 @@ export default function OperationsCalendar() {
                       type="button"
                       onClick={() => openPanel(dayStr, "absences")}
                       aria-label={`Open details for ${getAbsenceStudentLabel(absence)} on ${dayLabel}`}
-                      className={`block w-full rounded-sm border-l-2 px-2 py-1.5 text-left text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
+                      className={`block w-full rounded-sm px-2 py-1.5 text-left text-[11px] shadow-sm transition-colors hover:shadow-md ${absenceInlineClasses(absence)}`}
                     >
-                      <p className="truncate font-semibold text-gray-900">{getAbsenceStudentLabel(absence)}</p>
-                      <p className="truncate text-amber-700">
+                      <p className="truncate font-semibold text-[var(--color-wi-text)]">{getAbsenceStudentLabel(absence)}</p>
+                      <p className="truncate text-[var(--color-wi-amber)]">
                         <span className="font-semibold">Leave:</span> {getAbsenceSubjectLabel(absence)}
                       </p>
-                      <p className="truncate text-sky-700">
+                      <p className="truncate text-[var(--color-wi-primary-dark)]">
                         <span className="font-semibold">Sit-in:</span> {getSitInLabel(absence)}
                       </p>
                     </button>
                   ))}
                   {daySessions.length === 0 && absenceCount === 0 ? (
-                    <p className="px-1 py-4 text-center text-xs text-gray-300">No activity</p>
+                    <p className="px-1 py-4 text-center text-xs text-[var(--color-wi-text-light)]">No activity</p>
                   ) : null}
                   {absenceCount > 2 ? (
                     <button
                       type="button"
                       onClick={() => openPanel(dayStr, "absences")}
                       aria-label={`View all absence details for ${dayLabel}`}
-                      className="w-full px-1 text-left text-[10px] text-gray-400 hover:text-gray-600"
+                      className="w-full px-1 text-left text-[10px] text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
                     >
                       +{absenceCount - 2} more absences
                     </button>

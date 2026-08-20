@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"strings"
+
+	"warwick-institute/internal/clientip"
 )
 
 type Config struct {
@@ -12,6 +14,7 @@ type Config struct {
 	RealtimeDatabaseURL string
 	AuthPepper          string
 	CookieSecure        bool
+	TrustedProxyCIDRs   string
 	StaticDir           string
 	LogLevel            string
 	InstituteTZ         string
@@ -43,11 +46,12 @@ type Config struct {
 func FromEnv() (Config, error) {
 	var cfg Config
 	cfg.Addr = envOr("ADDR", ":8080")
+	cfg.StaticDir = envOr("STATIC_DIR", "../dist")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.RealtimeDatabaseURL = strings.TrimSpace(os.Getenv("REALTIME_DATABASE_URL"))
 	cfg.AuthPepper = os.Getenv("AUTH_PEPPER")
 	cfg.CookieSecure = envBoolOr("COOKIE_SECURE", true)
-	cfg.StaticDir = envOr("STATIC_DIR", "../dist")
+	cfg.TrustedProxyCIDRs = strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	cfg.LogLevel = envOr("LOG_LEVEL", "info")
 	cfg.InstituteTZ = envOr("INSTITUTE_TZ", "Asia/Bangkok")
 	cfg.InstituteName = envOr("INSTITUTE_NAME", "Warwick Institute")
@@ -79,6 +83,15 @@ func FromEnv() (Config, error) {
 		}
 	}
 
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if (appEnv == "production" || appEnv == "prod") && !cfg.CookieSecure {
+		return Config{}, errors.New("COOKIE_SECURE=false is forbidden in production")
+	}
+	if (appEnv == "production" || appEnv == "prod") &&
+		(strings.TrimSpace(os.Getenv("ADMIN_USERNAME")) != "" || strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")) != "") {
+		return Config{}, errors.New("ADMIN_USERNAME/ADMIN_PASSWORD seed configuration is forbidden in production")
+	}
+
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
@@ -90,6 +103,10 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.OTPAsyncDeliveryEnabled && cfg.OTPDeliveryEncryptionKeys == "" {
 		return Config{}, errors.New("OTP_DELIVERY_ENCRYPTION_KEYS is required when OTP_ASYNC_DELIVERY_ENABLED=true")
+	}
+
+	if _, err := clientip.NewResolver(cfg.TrustedProxyCIDRs); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil

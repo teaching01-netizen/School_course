@@ -261,6 +261,25 @@ func TestUserStory_CancelSeriesScopesPreserveHistoryAndSoftDeleteFuture(t *testi
 			if total != 10 || active != 4 || deleted != 6 || historyActive != 4 || futureDeleted != 6 {
 				t.Fatalf("cancellation rows=(total=%d,active=%d,deleted=%d,history_active=%d,future_deleted=%d), want (10,4,6,4,6)", total, active, deleted, historyActive, futureDeleted)
 			}
+			var changeCount, impactRunCount int
+			if err := dbpool.QueryRow(ctx, `
+				SELECT count(*) FROM session_changes
+				WHERE session_id IN (SELECT id FROM sessions WHERE course_id=$1 AND series_id=$2 AND deleted_at IS NOT NULL)
+				  AND change_source='series_cancel'`, fx.courseID, created.SeriesID).Scan(&changeCount); err != nil {
+				t.Fatal(err)
+			}
+			if err := dbpool.QueryRow(ctx, `
+				SELECT count(*) FROM session_change_impact_runs
+				WHERE session_change_id IN (
+					SELECT id FROM session_changes
+					WHERE session_id IN (SELECT id FROM sessions WHERE course_id=$1 AND series_id=$2 AND deleted_at IS NOT NULL)
+					  AND change_source='series_cancel'
+				)`, fx.courseID, created.SeriesID).Scan(&impactRunCount); err != nil {
+				t.Fatal(err)
+			}
+			if changeCount != 6 || impactRunCount != 6 {
+				t.Fatalf("series cancellation impact rows = changes %d/runs %d, want 6/6", changeCount, impactRunCount)
+			}
 		})
 	}
 }

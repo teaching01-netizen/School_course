@@ -106,23 +106,23 @@ function MultiSelect<T extends string>({
 
   return (
     <div ref={ref} className="relative">
-      <label className="block text-[11px] text-gray-500 mb-0.5">{label}</label>
+      <label className="block text-[11px] text-[var(--color-wi-text-light)] mb-0.5">{label}</label>
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full text-left px-2 py-1 text-xs border border-gray-300 rounded-sm bg-white hover:bg-gray-50"
+        className="w-full text-left px-2 py-1 text-xs border border-wi-line rounded-sm bg-white hover:bg-[var(--color-wi-row-alt)]"
       >
         {safeSelected.length === 0 ? "Any" : `${safeSelected.length} selected`}
       </button>
       {open && (
-        <div className="absolute z-10 mt-1 w-56 max-h-48 overflow-y-auto border border-gray-200 rounded-sm bg-white shadow">
+        <div className="absolute z-10 mt-1 w-56 max-h-48 overflow-y-auto border border-wi-line rounded-sm bg-white shadow">
           {safeOptions.length === 0 && (
-            <div className="px-2 py-1 text-xs text-gray-400 italic">No options (upload CRM data first)</div>
+            <div className="px-2 py-1 text-xs text-[var(--color-wi-text-light)] italic">No options (upload CRM data first)</div>
           )}
           {safeOptions.map((opt) => (
             <label
               key={opt}
-              className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
+              className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
             >
               <input
                 type="checkbox"
@@ -150,11 +150,11 @@ function BlankModeSelect({
 }) {
   return (
     <div>
-      <label className="block text-[11px] text-gray-500 mb-0.5">{label} blank</label>
+      <label className="block text-[11px] text-[var(--color-wi-text-light)] mb-0.5">{label} blank</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as "any" | "only_blank" | "only_value")}
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded-sm bg-white"
+        className="w-full px-2 py-1 text-xs border border-wi-line rounded-sm bg-white"
       >
         <option value="any">Any</option>
         <option value="only_blank">Blank only</option>
@@ -330,10 +330,10 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
   );
 
   return (
-    <div className={embeddedInModal ? "" : "border border-gray-200 rounded-sm p-4 mb-6"}>
+    <div className={embeddedInModal ? "" : "border border-wi-line rounded-sm p-4 mb-6"}>
       <div className="flex items-center justify-between mb-3">
-        {!embeddedInModal && <h3 className="text-sm font-semibold text-gray-800">CRM Filter</h3>}
-        <label className="inline-flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        {!embeddedInModal && <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">CRM Filter</h3>}
+        <label className="inline-flex items-center gap-2 text-xs text-[var(--color-wi-text-light)] cursor-pointer">
           <input
             type="checkbox"
             checked={enabled}
@@ -415,13 +415,13 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
           onChange={(v) => setFilter((f) => ({ ...f, secondary_school_values: v }))}
         />
         <div>
-          <label className="block text-[11px] text-gray-500 mb-0.5">Teacher(s) contains</label>
+          <label className="block text-[11px] text-[var(--color-wi-text-light)] mb-0.5">Teacher(s) contains</label>
           <input
             type="text"
             value={filter.teachers_contains}
             onChange={(e) => setFilter((f) => ({ ...f, teachers_contains: e.target.value }))}
             placeholder="Substring…"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded-sm"
+            className="w-full px-2 py-1 text-xs border border-wi-line rounded-sm"
           />
         </div>
       </div>
@@ -455,12 +455,12 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-[var(--color-wi-text-light)]">
           Preview:{" "}
           {previewCount != null ? (
-            <span className="font-semibold text-gray-800">{previewCount} distinct students</span>
+            <span className="font-semibold text-[var(--color-wi-text)]">{previewCount} distinct students</span>
           ) : (
-            <span className="text-gray-400">—</span>
+            <span className="text-[var(--color-wi-text-light)]">—</span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -472,7 +472,7 @@ export default function CrmFilterPanel({ courseId, isAdmin, onRosterChanged, emb
               className={`px-3 py-1 text-xs rounded-sm border ${
                 locked
                   ? "border-green-600 text-green-700 hover:bg-green-50"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                  : "border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               {locked ? "Unlock roster" : "Lock roster"}

@@ -814,6 +814,51 @@ func TestSnapshot_DuplicateRowsDeduped(t *testing.T) {
 	}
 }
 
+func TestSnapshot_OlderReadySnapshotCannotReplaceNewerActiveSnapshot(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snapshotSvc, err := NewSnapshotService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	older, err := snapshotSvc.CreateSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := snapshotSvc.CreateSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
+		UPDATE crm_snapshots
+		SET created_at = CASE WHEN id = $1 THEN now() - interval '1 minute' ELSE now() END
+		WHERE id IN ($1, $2)
+	`, older, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshotSvc.MarkSnapshotReady(ctx, newer, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshotSvc.MarkSnapshotReady(ctx, older, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	var active pgtype.UUID
+	if err := dbpool.QueryRow(ctx, `SELECT active_snapshot_id FROM crm_state WHERE singleton = true`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active.Bytes != newer.Bytes {
+		t.Fatalf("active snapshot = %s, want newer snapshot %s", active, newer)
+	}
+}
+
 // ============================================================================
 // Student Sync tests
 // ============================================================================
@@ -944,6 +989,64 @@ func TestStudentSync_PreservesNotes(t *testing.T) {
 	}
 }
 
+func TestStudentSync_DoesNotReplaceExistingNameWithWCodeFallback(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := dbpool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ('w250031', 'Manual Name', '')`); err != nil {
+		t.Fatal(err)
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W250031", CourseName: "Math", CycleLabel: "Cycle A"},
+	})
+
+	if _, err := NewStudentSyncService(dbpool).SyncFromSnapshot(ctx, snapshotID); err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var fullName string
+	if err := dbpool.QueryRow(ctx, `SELECT full_name FROM students WHERE wcode = 'w250031'`).Scan(&fullName); err != nil {
+		t.Fatal(err)
+	}
+	if fullName != "Manual Name" {
+		t.Fatalf("full_name = %q, want existing manual name preserved", fullName)
+	}
+}
+
+func TestStudentSync_CanonicalizesCaseVariantRowsBeforeUpsert(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
+		{WCode: "W250032", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "First", LastName: "Entry"},
+		{WCode: "w250032", CourseName: "Science", CycleLabel: "Cycle B", FirstName: "Second", LastName: "Entry"},
+	})
+
+	if _, err := NewStudentSyncService(dbpool).SyncFromSnapshot(ctx, snapshotID); err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var count int
+	if err := dbpool.QueryRow(ctx, `SELECT count(*) FROM students WHERE lower(wcode) = 'w250032'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("case-variant student rows = %d, want one", count)
+	}
+}
+
 func TestStudentSync_SyncsStudentPhoneFromCRMMobile(t *testing.T) {
 	databaseURL := requireTestDBV2(t)
 	migrateUpV2(t, databaseURL)
@@ -1006,6 +1109,36 @@ func TestStudentSync_SyncsSchoolFromCRMRows(t *testing.T) {
 	}
 	if school != "Bangkok Prep" {
 		t.Fatalf("school = %q, want %q", school, "Bangkok Prep")
+	}
+}
+
+func TestStudentSync_SyncsLevelFromCRMAcademicLevel(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rows := []xlsx.Row{
+		{WCode: "W250046", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Level", LastName: "Student", AcademicLevel: "G1"},
+	}
+
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	syncSvc := NewStudentSyncService(dbpool)
+	if _, err := syncSvc.SyncFromSnapshot(ctx, snapshotID); err != nil {
+		t.Fatalf("SyncFromSnapshot: %v", err)
+	}
+
+	var level string
+	if err := dbpool.QueryRow(ctx, `SELECT level FROM students WHERE wcode = 'w250046'`).Scan(&level); err != nil {
+		t.Fatal(err)
+	}
+	if level != "G1" {
+		t.Fatalf("level = %q, want %q", level, "G1")
 	}
 }
 
@@ -1090,11 +1223,21 @@ func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Simulate an older database that has not run migration 00036 yet.
-	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS email`); err != nil {
+	// Simulate an older database that has not run the dual-source email
+	// migration yet (students e-mail lives in email_crm / email_system).
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS email_crm`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS email_system`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS nickname`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS level`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `ALTER TABLE students DROP COLUMN IF EXISTS year`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1104,6 +1247,7 @@ func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
 			FirstName: "Email", LastName: "Nick",
 			Nickname: "Nicky", PrimaryEmail: "nicky@example.com",
 			MobilePhone: "081-222-3333", ParentPhone: "089-444-5555",
+			AcademicLevel: "G2",
 		},
 	}
 
@@ -1115,13 +1259,13 @@ func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
 		t.Fatalf("SyncFromSnapshot: %v", err)
 	}
 
-	var email, nickname, studentPhone, parentPhone string
-	err = dbpool.QueryRow(ctx, `SELECT email, nickname, student_phone, parent_phone FROM students WHERE wcode = 'w250042'`).Scan(&email, &nickname, &studentPhone, &parentPhone)
+	var emailCRM, nickname, studentPhone, parentPhone, level string
+	err = dbpool.QueryRow(ctx, `SELECT email_crm, nickname, student_phone, parent_phone, level FROM students WHERE wcode = 'w250042'`).Scan(&emailCRM, &nickname, &studentPhone, &parentPhone, &level)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if email != "nicky@example.com" {
-		t.Fatalf("email = %q, want %q", email, "nicky@example.com")
+	if emailCRM != "nicky@example.com" {
+		t.Fatalf("email_crm = %q, want %q", emailCRM, "nicky@example.com")
 	}
 	if nickname != "Nicky" {
 		t.Fatalf("nickname = %q, want %q", nickname, "Nicky")
@@ -1131,6 +1275,9 @@ func TestStudentSync_CreatesMissingContactColumns(t *testing.T) {
 	}
 	if parentPhone != "089-444-5555" {
 		t.Fatalf("parent_phone = %q, want %q", parentPhone, "089-444-5555")
+	}
+	if level != "G2" {
+		t.Fatalf("level = %q, want %q", level, "G2")
 	}
 }
 
@@ -1308,8 +1455,8 @@ func TestReconcileApply_StudentScheduleConflictIncludesStudentAndCourseDetails(t
 	if !errors.As(err, &conflictErr) {
 		t.Fatalf("expected StudentScheduleConflictError, got %T: %v", err, err)
 	}
-	if conflictErr.Details.Student.WCode != "W250042" {
-		t.Fatalf("expected conflicting W-code W250042, got %q", conflictErr.Details.Student.WCode)
+	if conflictErr.Details.Student.WCode != "w250042" {
+		t.Fatalf("expected conflicting W-code w250042, got %q", conflictErr.Details.Student.WCode)
 	}
 	if len(conflictErr.Details.Conflicts) == 0 {
 		t.Fatalf("expected conflicting course details, got %+v", conflictErr.Details)
@@ -1684,6 +1831,14 @@ func TestReconcileDiff_StoresDiffs(t *testing.T) {
 	}
 	if diffCount != 2 {
 		t.Fatalf("expected 2 pending diff rows, got %d", diffCount)
+	}
+
+	var studentCount int
+	if err := dbpool.QueryRow(ctx, `SELECT count(*) FROM students WHERE wcode IN ('w250090', 'w250091')`).Scan(&studentCount); err != nil {
+		t.Fatal(err)
+	}
+	if studentCount != 0 {
+		t.Fatalf("diff created %d student master rows before approval, want 0", studentCount)
 	}
 
 	// Verify course has pending review summary.

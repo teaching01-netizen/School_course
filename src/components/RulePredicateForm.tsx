@@ -93,7 +93,7 @@ export function RulePredicateForm({ ruleType, predicate, onChange }: RulePredica
         <TeacherCaseByCaseFields predicate={local} onChange={update} />
       )}
 
-      <div className="border-t border-gray-100 pt-3">
+      <div className="border-t border-wi-line-soft pt-3">
         <Button
           variant="ghost"
           size="sm"
@@ -106,7 +106,7 @@ export function RulePredicateForm({ ruleType, predicate, onChange }: RulePredica
             aria-label="JSON predicate"
             value={jsonText}
             onChange={(e) => handleJsonCommit(e.target.value)}
-            className="mt-2 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm font-mono focus:border-[var(--color-wi-primary)] focus:outline-none"
+            className="mt-2 w-full rounded-sm border border-wi-line px-3 py-2 text-sm font-mono focus:border-[var(--color-wi-primary)] focus:outline-none"
             rows={6}
             placeholder='{"key": "value"}'
           />
@@ -135,7 +135,7 @@ function CrossSectionFields({
   return (
     <>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="section_match">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor="section_match">
           Section Match
           <Tooltip content={FIELD_TOOLTIPS.section_match} />
         </label>
@@ -149,7 +149,7 @@ function CrossSectionFields({
         </Select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="occurrence_match">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor="occurrence_match">
           Occurrence Match
           <Tooltip content={FIELD_TOOLTIPS.occurrence_match} />
         </label>
@@ -163,7 +163,7 @@ function CrossSectionFields({
         </Select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="day_match">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor="day_match">
           Day Match
           <Tooltip content={FIELD_TOOLTIPS.day_match} />
         </label>
@@ -176,12 +176,12 @@ function CrossSectionFields({
           <option value="same_day">Same Day</option>
         </Select>
       </div>
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-gray-300"
+          className="rounded-sm border-wi-line"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -200,7 +200,7 @@ function AnyDayExceptLastFields({
   return (
     <>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="day_match">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor="day_match">
           Day Match
           <Tooltip content={FIELD_TOOLTIPS.day_match} />
         </label>
@@ -213,12 +213,12 @@ function AnyDayExceptLastFields({
           <option value="same_day">Same Day</option>
         </Select>
       </div>
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-gray-300"
+          className="rounded-sm border-wi-line"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -255,7 +255,7 @@ function RankChainFields({
         {chains.map((chain, i) => (
           <div key={i} className="flex items-end gap-2">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor={`chain-from-${i}`}>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor={`chain-from-${i}`}>
                 From Rank
                 <Tooltip content="The starting rank in this chain" />
               </label>
@@ -268,7 +268,7 @@ function RankChainFields({
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor={`chain-to-${i}`}>
+              <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor={`chain-to-${i}`}>
                 To Rank
                 <Tooltip content="The ending rank in this chain" />
               </label>
@@ -290,7 +290,7 @@ function RankChainFields({
         Add Chain
       </Button>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1" htmlFor="day_match">
+        <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1 flex items-center gap-1" htmlFor="day_match">
           Day Match
           <Tooltip content={FIELD_TOOLTIPS.day_match} />
         </label>
@@ -303,12 +303,12 @@ function RankChainFields({
           <option value="same_day">Same Day</option>
         </Select>
       </div>
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-gray-300"
+          className="rounded-sm border-wi-line"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -326,22 +326,22 @@ function TeacherCaseByCaseFields({
 }) {
   return (
     <>
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           checked={(predicate.auto_assign as boolean) ?? false}
           onChange={(e) => onChange({ auto_assign: e.target.checked })}
-          className="rounded-sm border-gray-300"
+          className="rounded-sm border-wi-line"
         />
         Auto Assign
         <Tooltip content={FIELD_TOOLTIPS.auto_assign} />
       </label>
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           checked={(predicate.requires_teacher_approval as boolean) ?? true}
           onChange={(e) => onChange({ requires_teacher_approval: e.target.checked })}
-          className="rounded-sm border-gray-300"
+          className="rounded-sm border-wi-line"
         />
         Requires Teacher Approval
         <Tooltip content={FIELD_TOOLTIPS.requires_teacher_approval} />

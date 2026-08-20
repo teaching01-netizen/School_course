@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -37,20 +38,45 @@ type Row struct {
 
 // Hash returns a deterministic hash for deduplication within a single upload.
 func (r Row) Hash() string {
-	parts := []string{
-		strings.TrimSpace(r.WCode),
-		strings.TrimSpace(r.CourseName),
-		strings.TrimSpace(r.CycleLabel),
-		strings.TrimSpace(r.TeachersRaw),
-		strings.TrimSpace(r.ExtraNote),
+	hashInput := struct {
+		CycleLabel          string     `json:"cycle_label"`
+		CourseName          string     `json:"course_name"`
+		WCode               string     `json:"wcode"`
+		FirstName           string     `json:"first_name"`
+		LastName            string     `json:"last_name"`
+		Nickname            string     `json:"nickname"`
+		SecondarySchool     string     `json:"secondary_school"`
+		AcademicLevel       string     `json:"academic_level"`
+		MobilePhone         string     `json:"mobile_phone"`
+		Hours               *int32     `json:"hours"`
+		TeachersRaw         string     `json:"teachers_raw"`
+		PrimaryEmail        string     `json:"primary_email"`
+		ParentName          string     `json:"parent_name"`
+		ParentPhone         string     `json:"parent_phone"`
+		ParentEmail         string     `json:"parent_email"`
+		OrderQuoteUpdatedAt *time.Time `json:"order_quote_updated_at"`
+		ExtraNote           string     `json:"extra_note"`
+	}{
+		CycleLabel:          strings.TrimSpace(r.CycleLabel),
+		CourseName:          strings.TrimSpace(r.CourseName),
+		WCode:               strings.ToLower(strings.TrimSpace(r.WCode)),
+		FirstName:           strings.TrimSpace(r.FirstName),
+		LastName:            strings.TrimSpace(r.LastName),
+		Nickname:            strings.TrimSpace(r.Nickname),
+		SecondarySchool:     strings.TrimSpace(r.SecondarySchool),
+		AcademicLevel:       strings.TrimSpace(r.AcademicLevel),
+		MobilePhone:         strings.TrimSpace(r.MobilePhone),
+		Hours:               r.Hours,
+		TeachersRaw:         strings.TrimSpace(r.TeachersRaw),
+		PrimaryEmail:        strings.TrimSpace(r.PrimaryEmail),
+		ParentName:          strings.TrimSpace(r.ParentName),
+		ParentPhone:         strings.TrimSpace(r.ParentPhone),
+		ParentEmail:         strings.TrimSpace(r.ParentEmail),
+		OrderQuoteUpdatedAt: r.OrderQuoteUpdatedAt,
+		ExtraNote:           strings.TrimSpace(r.ExtraNote),
 	}
-	if r.Hours != nil {
-		parts = append(parts, fmt.Sprintf("hours=%d", *r.Hours))
-	}
-	if r.OrderQuoteUpdatedAt != nil {
-		parts = append(parts, "updated_at="+r.OrderQuoteUpdatedAt.UTC().Format(time.RFC3339Nano))
-	}
-	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	payload, _ := json.Marshal(hashInput)
+	h := sha256.Sum256(payload)
 	return hex.EncodeToString(h[:])
 }
 

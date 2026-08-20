@@ -220,7 +220,7 @@ export function ActiveCoursesSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-[var(--color-wi-text-light)]">
         Select which course is active for each subject. The absence form will auto-assign the active course when a student reports an absence.
       </p>
 
@@ -251,7 +251,7 @@ export function ActiveCoursesSection() {
         placeholder="Search subjects..."
       />
       {searchQuery.trim() && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-[var(--color-wi-text-light)]">
           Showing {filteredSubjects.length} of {subjects.length} subjects
         </p>
       )}
@@ -269,12 +269,12 @@ export function ActiveCoursesSection() {
           <div
             key={subject.subject_id}
             className={`rounded-sm border bg-white shadow-sm ${
-              dirty ? "border-l-2 border-l-blue-500 border-gray-200" : "border-gray-200"
+              dirty ? "border-l-2 border-l-blue-500 border-wi-line" : "border-wi-line"
             }`}
           >
-            <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-800">
+                <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
                 </span>
                 {!dirty && active ? (
@@ -308,7 +308,7 @@ export function ActiveCoursesSection() {
                   return (
                     <label
                       key={course.course_id}
-                      className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50/50 ${
+                      className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-[var(--color-wi-row-alt)]/50 ${
                         dirty && isSelected ? "bg-blue-50/50" : ""
                       }`}
                     >
@@ -320,9 +320,9 @@ export function ActiveCoursesSection() {
                         className="accent-[var(--color-wi-primary)]"
                       />
                       <span className="flex-1">
-                        <span className="font-mono text-xs text-gray-500">{course.course_code}</span>
-                        <span className="ml-2 text-gray-700">{course.course_name}</span>
-                        <span className="ml-2 text-xs text-gray-400">({course.cycle_label})</span>
+                        <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_code}</span>
+                        <span className="ml-2 text-[var(--color-wi-text-light)]">{course.course_name}</span>
+                        <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label})</span>
                       </span>
                       {!dirty && course.is_active ? (
                         <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
@@ -345,13 +345,13 @@ export function ActiveCoursesSection() {
                   disabled={isSaving}
                   className="accent-[var(--color-wi-primary)]"
                 />
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-[var(--color-wi-text-light)]">
                   {pendingCourseId === subject.courses[0].course_id ? "Active" : "Set Active"}
                 </span>
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-[var(--color-wi-text-light)]">
                   —{" "}
-                  <span className="font-medium text-gray-700">{subject.courses[0].course_code}</span>
-                  <span className="ml-1 text-xs text-gray-400">({subject.courses[0].cycle_label})</span>
+                  <span className="font-medium text-[var(--color-wi-text-light)]">{subject.courses[0].course_code}</span>
+                  <span className="ml-1 text-xs text-[var(--color-wi-text-light)]">({subject.courses[0].cycle_label})</span>
                 </span>
               </label>
             ) : (
@@ -362,10 +362,10 @@ export function ActiveCoursesSection() {
                   aria-label="No courses available"
                   className="accent-[var(--color-wi-primary)] opacity-50"
                 />
-                <span className="text-sm italic text-gray-400">No courses — create one first</span>
+                <span className="text-sm italic text-[var(--color-wi-text-light)]">No courses — create one first</span>
                 <a
                   href="/courses/create"
-                  className="inline-flex items-center justify-center rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text)] transition-colors hover:bg-gray-50"
+                  className="inline-flex items-center justify-center rounded-sm border border-wi-line bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
                 >
                   Create Course
                 </a>

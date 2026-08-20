@@ -2,6 +2,8 @@ package otp
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -56,16 +58,12 @@ type txExecutor interface {
 
 type tokenPayload struct {
 	SessionID string    `json:"session_id"`
-	Wcode     string    `json:"wcode"`
-	Phone     string    `json:"phone"`
 	IssuedAt  time.Time `json:"issued_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type TokenInfo struct {
 	SessionID uuid.UUID
-	Wcode     string
-	Phone     string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
 }
@@ -190,8 +188,6 @@ func (s *Service) startSessionTx(ctx context.Context, tx txExecutor, wcode strin
 
 	token, err = s.encodeToken(tokenPayload{
 		SessionID: sessionID.String(),
-		Wcode:     wcode,
-		Phone:     normalizedPhone,
 		IssuedAt:  now,
 		ExpiresAt: now.Add(tokenTTL),
 	})
@@ -248,9 +244,6 @@ func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token stri
 	if err != nil {
 		return "", "", err
 	}
-	if row.Wcode != info.Wcode || row.ParentPhone != info.Phone {
-		return "", "", ErrTampered
-	}
 	if row.Status == "consumed" || row.Status == "verified" {
 		return "", "", ErrAlreadyVerified
 	}
@@ -291,8 +284,6 @@ func (s *Service) resendSessionTx(ctx context.Context, tx txExecutor, token stri
 
 	nextToken, err = s.encodeToken(tokenPayload{
 		SessionID: info.SessionID.String(),
-		Wcode:     row.Wcode,
-		Phone:     row.ParentPhone,
 		IssuedAt:  now,
 		ExpiresAt: now.Add(tokenTTL),
 	})
@@ -342,9 +333,6 @@ func (s *Service) verifySessionTx(ctx context.Context, tx txExecutor, token stri
 	row, err := s.loadSession(ctx, tx, info.SessionID, true)
 	if err != nil {
 		return SessionState{}, err
-	}
-	if row.Wcode != info.Wcode || row.ParentPhone != info.Phone {
-		return SessionState{}, ErrTampered
 	}
 	if row.Status == "consumed" || row.Status == "verified" {
 		return row, ErrAlreadyVerified
@@ -442,9 +430,6 @@ func (s *Service) LoadSessionTx(ctx context.Context, tx txExecutor, token string
 	if err != nil {
 		return SessionState{}, err
 	}
-	if row.Wcode != info.Wcode || row.ParentPhone != info.Phone {
-		return SessionState{}, ErrTampered
-	}
 	return row, nil
 }
 
@@ -472,12 +457,23 @@ func (s *Service) ConsumeSessionTx(ctx context.Context, tx txExecutor, token str
 	if err != nil {
 		return err
 	}
-	row, err := s.loadSession(ctx, tx, info.SessionID, true)
+	return s.consumeSessionTx(ctx, tx, info.SessionID, absenceID)
+}
+
+// ConsumeSessionByIDTx consumes a verified verification session identified by
+// its row ID. Flows that authenticate via a student cookie session hold the
+// verification session ID server-side and cannot present the raw token.
+func (s *Service) ConsumeSessionByIDTx(ctx context.Context, tx txExecutor, sessionID uuid.UUID, absenceID uuid.UUID) error {
+	if s == nil {
+		return fmt.Errorf("otp service not configured")
+	}
+	return s.consumeSessionTx(ctx, tx, sessionID, absenceID)
+}
+
+func (s *Service) consumeSessionTx(ctx context.Context, tx txExecutor, sessionID uuid.UUID, absenceID uuid.UUID) error {
+	row, err := s.loadSession(ctx, tx, sessionID, true)
 	if err != nil {
 		return err
-	}
-	if row.Wcode != info.Wcode || row.ParentPhone != info.Phone {
-		return ErrTampered
 	}
 	if row.Status == "consumed" {
 		if row.ConsumedAbsence.Valid {
@@ -501,7 +497,7 @@ func (s *Service) ConsumeSessionTx(ctx context.Context, tx txExecutor, token str
 		    updated_at = now(),
 		    version = version + 1
 		WHERE id = $1
-	`, info.SessionID, now, consumedAbsence); err != nil {
+	`, sessionID, now, consumedAbsence); err != nil {
 		return err
 	}
 	return nil
@@ -603,8 +599,6 @@ func (s *Service) DecodeToken(token string) (TokenInfo, error) {
 	}
 	return TokenInfo{
 		SessionID: sessionID,
-		Wcode:     payload.Wcode,
-		Phone:     payload.Phone,
 		IssuedAt:  payload.IssuedAt,
 		ExpiresAt: payload.ExpiresAt,
 	}, nil
@@ -615,13 +609,71 @@ func (s *Service) encodeToken(payload tokenPayload) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, s.hmacKey)
-	_, _ = mac.Write(raw)
-	sig := mac.Sum(nil)
-	return base64.RawURLEncoding.EncodeToString(raw) + "." + hex.EncodeToString(sig), nil
+	key := sha256.Sum256(s.hmacKey)
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, raw, nil)
+	return base64.RawURLEncoding.EncodeToString(sealed), nil
+}
+func (s *Service) decodeToken(token string) (tokenPayload, error) {
+	payload, err := s.decodeAESToken(token)
+	if err == nil {
+		return payload, nil
+	}
+	// Fall back to the legacy HMAC format: tokens minted before the AES-GCM
+	// switch carry a 24h TTL, so in-flight clients may still present them.
+	// The legacy check is HMAC-bound to the same key, so it cannot widen
+	// forgery surface.
+	legacy, legacyErr := s.decodeLegacyToken(token)
+	if legacyErr != nil {
+		return tokenPayload{}, ErrTampered
+	}
+	return legacy, nil
 }
 
-func (s *Service) decodeToken(token string) (tokenPayload, error) {
+func (s *Service) decodeAESToken(token string) (tokenPayload, error) {
+	sealed, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return tokenPayload{}, err
+	}
+	key := sha256.Sum256(s.hmacKey)
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return tokenPayload{}, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return tokenPayload{}, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(sealed) <= nonceSize {
+		return tokenPayload{}, ErrTampered
+	}
+	raw, err := gcm.Open(nil, sealed[:nonceSize], sealed[nonceSize:], nil)
+	if err != nil {
+		return tokenPayload{}, err
+	}
+	var payload tokenPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return tokenPayload{}, err
+	}
+	if payload.SessionID == "" {
+		return tokenPayload{}, ErrTampered
+	}
+	return payload, nil
+}
+
+func (s *Service) decodeLegacyToken(token string) (tokenPayload, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
 		return tokenPayload{}, ErrTampered
@@ -644,7 +696,7 @@ func (s *Service) decodeToken(token string) (tokenPayload, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return tokenPayload{}, ErrTampered
 	}
-	if payload.SessionID == "" || payload.Wcode == "" || payload.Phone == "" {
+	if payload.SessionID == "" {
 		return tokenPayload{}, ErrTampered
 	}
 	return payload, nil

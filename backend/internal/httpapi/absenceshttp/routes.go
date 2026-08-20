@@ -19,7 +19,7 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/idempotency"
-	"warwick-institute/internal/otp"
+	"warwick-institute/internal/studentauth"
 )
 
 type server struct {
@@ -41,7 +41,50 @@ type sessionRow struct {
 	SubjectName string
 }
 
+// sessionsInRangeSelectSQL lists the student's bookable sessions. When a
+// subject has an active course configured (subject_active_courses) and the
+// student is enrolled in it, only the active course and its same-cycle
+// sibling courses are bookable — stale enrollments from earlier cycles are
+// hidden. Students not enrolled in the active course keep seeing all their
+// enrolled courses so the form never goes empty. Courses are hard-deleted
+// (migration 00032), so no course soft-delete filter is needed.
 func sessionsInRangeSelectSQL() string {
+	return `
+		SELECT sess.id, sess.start_at, sess.end_at,
+		       c.id, c.code, c.name,
+		       sub.id, sub.code, sub.name
+		FROM sessions sess
+		JOIN courses c ON c.id = sess.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
+		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN students st ON st.id = cs.student_id
+		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
+		LEFT JOIN courses ac ON ac.id = sac.course_id
+		WHERE st.wcode = $1
+		  AND sess.start_at >= $2
+		  AND sess.start_at < $3
+		  AND sess.deleted_at IS NULL
+		  AND (
+			sac.course_id IS NULL
+			OR c.id = sac.course_id
+			OR (ac.cycle_id IS NOT NULL AND c.cycle_id = ac.cycle_id)
+			OR NOT EXISTS (
+				SELECT 1 FROM course_students cs2
+				WHERE cs2.course_id = sac.course_id
+				  AND cs2.status = 'enrolled'
+				  AND cs2.student_id = st.id
+			)
+		  )
+		ORDER BY sub.code, sess.start_at
+	`
+}
+
+// sessionsInRangeStaffSelectSQL is the staff-facing view of a student's
+// sessions. The active-course restriction only governs which course students
+// can book from the self-service form; staff reviewing a student's absence
+// options must see every enrolled course, so no active-course predicate is
+// applied. The result shape matches sessionsInRangeSelectSQL.
+func sessionsInRangeStaffSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
 		       c.id, c.code, c.name,
@@ -84,6 +127,9 @@ func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 }
 
 func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
+	if v == nil {
+		return false
+	}
 	user, err := v.RequireUser(r.Context(), r)
 	return err == nil && user.Role == "Admin"
 }
@@ -122,10 +168,12 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("/api/v1/absences", s.handleAbsencesDispatch)
 	mux.HandleFunc("/api/v1/absences/", s.handleAbsencesDispatch)
 
-	// Public sub-routes — register explicitly so literal segments beat {id} wildcard.
-	// parent-verification/{token} cannot be registered here because it conflicts
-	// with {id}/timeline — handled via the dispatch prefix pattern.
-	mux.HandleFunc("GET /api/v1/absences/student-lookup", s.handleStudentLookup)
+	mux.HandleFunc("POST /api/v1/absence-self-service/lookup", s.handleStudentLookup)
+	mux.HandleFunc("GET /api/v1/admin/absences/student-lookup", s.handleStaffStudentLookup)
+	mux.HandleFunc("GET /api/v1/absence-self-service/me", s.handleStudentProfile)
+	mux.HandleFunc("GET /api/v1/absence-self-service/sessions", s.handleStudentSessions)
+	mux.HandleFunc("GET /api/v1/absence-self-service/absences", s.handleStudentAbsenceHistory)
+	mux.HandleFunc("POST /api/v1/absence-self-service/absences/{id}/cancel", s.handleStudentAbsenceCancel)
 	mux.HandleFunc("GET /api/v1/absences/sessions-in-range", s.handleSessionsInRange)
 	mux.HandleFunc("GET /api/v1/absences/sit-in-options", s.handleSitInOptions)
 
@@ -262,6 +310,52 @@ func managedAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
 	}
 	return response
 }
+func studentAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
+	response := map[string]any{
+		"status":      row.Status,
+		"version":     row.Version,
+		"created_at":  row.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at":  row.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"course_code": row.CourseCode,
+		"course_name": row.CourseName,
+		"date_from":   row.DateFrom.Time.Format("2006-01-02"),
+		"date_to":     row.DateTo.Time.Format("2006-01-02"),
+	}
+	if id, err := sUUIDString(row.ID); err == nil {
+		response["id"] = id
+	}
+	if id, err := sUUIDString(row.CourseID); err == nil {
+		response["course_id"] = id
+	}
+	if row.SubjectCode.Valid {
+		response["subject_code"] = row.SubjectCode.String
+	}
+	if row.SubjectName.Valid {
+		response["subject_name"] = row.SubjectName.String
+	}
+	if row.ReasonCategory.Valid {
+		response["reason_category"] = row.ReasonCategory.String
+	}
+	if row.Reason.Valid {
+		response["reason"] = row.Reason.String
+	}
+	if row.SitInMethod.Valid {
+		response["sit_in_method"] = row.SitInMethod.String
+	}
+	if id, err := sUUIDString(row.SitInCourseID); err == nil {
+		response["sit_in_course_id"] = id
+	}
+	if row.SitInCourseCode.Valid {
+		response["sit_in_course_code"] = row.SitInCourseCode.String
+	}
+	if row.SitInCourseName.Valid {
+		response["sit_in_course_name"] = row.SitInCourseName.String
+	}
+	if row.SitInSubjectName.Valid {
+		response["sit_in_subject_name"] = row.SitInSubjectName.String
+	}
+	return response
+}
 
 func sUUIDString(u pgtype.UUID) (string, error) {
 	if !u.Valid {
@@ -278,8 +372,21 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
 	}
+	adminRequest := isAdminRequest(s.deps.Auth, r)
+	studentSession := studentauth.Session{}
+	actorID := idempotency.SystemActorUUID
+	actorRole := "admin"
+	if !adminRequest {
+		var ok bool
+		studentSession, ok = s.requireStudentSession(w, r)
+		if !ok {
+			return
+		}
+		actorID = studentIdempotencyActor(studentSession.Wcode)
+		actorRole = "student"
+	}
 	var createdID string
-	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if !s.a.WithIdempotentTx(w, r, actorID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
 		var body struct {
@@ -302,10 +409,22 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 			return 0, nil, err
 		}
-		body.Wcode = normalizeWCode(body.Wcode)
-		if body.Wcode == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode is required")
-			return 0, nil, fmt.Errorf("wcode is required")
+		if adminRequest {
+			body.Wcode = normalizeWCode(body.Wcode)
+			if body.Wcode == "" {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode is required")
+				return 0, nil, fmt.Errorf("wcode is required")
+			}
+		} else {
+			if strings.TrimSpace(body.Wcode) != "" {
+				s.a.WriteErr(w, http.StatusBadRequest, "identity_parameter_not_allowed", "wcode is derived from the verified student session")
+				return 0, nil, fmt.Errorf("client supplied wcode")
+			}
+			if body.VerificationToken != nil && strings.TrimSpace(*body.VerificationToken) != "" {
+				s.a.WriteErr(w, http.StatusBadRequest, "verification_token_not_allowed", "verification_token is no longer accepted")
+				return 0, nil, fmt.Errorf("client supplied verification token")
+			}
+			body.Wcode = normalizeWCode(studentSession.Wcode)
 		}
 		if body.DateFrom == "" || body.DateTo == "" {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_date", "date_from and date_to are required")
@@ -455,61 +574,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		requireVerification := settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp
-		if !settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp {
-			s.a.WriteErr(w, http.StatusForbidden, "feature_disabled", "Parent verification codes are currently disabled")
-			return 0, nil, fmt.Errorf("verification disabled")
-		}
-
-		var verificationToken string
-		if body.VerificationToken != nil {
-			verificationToken = strings.TrimSpace(*body.VerificationToken)
-		}
-		if verificationToken == "" && requireVerification {
-			s.a.WriteErr(w, http.StatusBadRequest, "verification_required", "Parent verification is required before submitting this absence")
-			return 0, nil, fmt.Errorf("verification required")
-		}
-
-		if verificationToken != "" {
-			session, sessionErr := s.deps.OTP.LoadSessionTx(r.Context(), tx, verificationToken)
-			switch {
-			case sessionErr == nil:
-			case errors.Is(sessionErr, otp.ErrExpired):
-				s.a.WriteErr(w, http.StatusGone, "otp_expired", "Verification token expired")
-				return 0, nil, sessionErr
-			case errors.Is(sessionErr, otp.ErrTampered):
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
-				return 0, nil, sessionErr
-			default:
-				status, code, msg := s.a.ClassifyDBErr(sessionErr)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, sessionErr
-			}
-			if session.Wcode != body.Wcode {
-				s.a.WriteErr(w, http.StatusConflict, "token_mismatch", "Verification token does not match this student")
-				return 0, nil, fmt.Errorf("token mismatch")
-			}
-			if session.Status == "consumed" {
-				if session.ConsumedAbsence.Valid {
-					existingAbsenceID := session.ConsumedAbsence
-					existing, err := qtx.ManagedAbsenceGet(r.Context(), existingAbsenceID)
-					if err != nil {
-						status, code, msg := s.a.ClassifyDBErr(err)
-						s.a.WriteErr(w, status, code, msg)
-						return 0, nil, err
-					}
-					resp := managedAbsenceResponse(existing)
-					return http.StatusOK, resp, nil
-				}
-				s.a.WriteErr(w, http.StatusConflict, "already_submitted", "This verification token has already been used")
-				return 0, nil, fmt.Errorf("token consumed")
-			}
-			if session.Status != "verified" {
-				s.a.WriteErr(w, http.StatusConflict, "verification_required", "Parent verification is not complete")
-				return 0, nil, fmt.Errorf("verification not complete")
-			}
-		}
-
 		item, err := qtx.AbsenceCreate(r.Context(), sqldb.AbsenceCreateParams{
 			Wcode:         body.Wcode,
 			CourseID:      course.CourseID,
@@ -624,34 +688,10 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if verificationToken != "" {
-			absenceIDStr, err := sUUIDString(item.ID)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return 0, nil, err
-			}
-			absenceUUID, err := uuid.Parse(absenceIDStr)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return 0, nil, err
-			}
-			if err := s.deps.OTP.ConsumeSessionTx(r.Context(), tx, verificationToken, absenceUUID); err != nil {
-				if errors.Is(err, otp.ErrAlreadyVerified) {
-					s.a.WriteErr(w, http.StatusConflict, "already_submitted", "This verification token has already been used")
-				} else if errors.Is(err, otp.ErrTampered) {
-					s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
-				} else {
-					status, code, msg := s.a.ClassifyDBErr(err)
-					s.a.WriteErr(w, status, code, msg)
-				}
-				return 0, nil, err
-			}
-		}
-
 		if err := qtx.AbsenceAuditInsert(r.Context(), sqldb.AbsenceAuditInsertParams{
 			AbsenceID: item.ID,
 			Action:    "submitted",
-			ActorRole: "student",
+			ActorRole: actorRole,
 			Details:   map[string]any{"wcode": body.Wcode},
 		}); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write absence timeline")
@@ -703,6 +743,22 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Burn the verification: one OTP + session per submission.
+		if !adminRequest && item.ID.Valid {
+			firstAbsenceID, idErr := uuid.FromBytes(item.ID.Bytes[:])
+			if idErr != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return 0, nil, idErr
+			}
+			if err := s.consumeAndRevokeStudentVerificationTx(r.Context(), tx, studentSession, firstAbsenceID); err != nil {
+				if s.deps.Log != nil {
+					s.deps.Log.Error("failed to burn student verification on submit", "wcode", body.Wcode, "error", err)
+				}
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return 0, nil, err
+			}
+		}
+
 		resp := managedAbsenceResponse(managed)
 		resp["status"] = "pending"
 		if id, ok := resp["id"].(string); ok {
@@ -736,15 +792,86 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 	s.a.WriteJSON(w, http.StatusOK, out)
 }
 
-// Public: lookup student by wcode and return their enrolled subjects
+// Public lookup returns only the values needed to start self-service. It must
+// never become a student directory: profile data is available only after OTP
+// verification has created a student self-service session.
 func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 	if _, hasNickname := r.URL.Query()["nickname"]; hasNickname {
 		s.a.WriteErr(w, http.StatusBadRequest, "nickname_not_supported", "nickname lookup is not supported; use wcode")
 		return
 	}
-	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
+	var body struct {
+		Wcode string `json:"wcode"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	wcode := normalizeWCode(body.Wcode)
 	if len(wcode) < 2 || !strings.HasPrefix(wcode, "w") {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "a valid wcode parameter is required")
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "a valid wcode is required")
+		return
+	}
+	// W-Code lookup is intentionally low-friction, but it must not become an
+	// unlimited student-existence oracle or a database write amplifier.
+	for _, limit := range []struct {
+		key   string
+		count int
+	}{
+		{key: "student-lookup:ip:" + s.requestIP(r), count: 50},
+		{key: "student-lookup:wcode:" + wcode, count: 20},
+	} {
+		if retryAfter, err := s.allowPublicRateLimit(r.Context(), limit.key, limit.count, time.Hour); err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		} else if retryAfter > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			s.a.WriteErr(w, http.StatusTooManyRequests, "rate_limited", "Too many student lookup requests")
+			return
+		}
+	}
+
+	service := s.studentAuthService()
+	if service == nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	// Minting a lookup token is a side effect, so the endpoint follows the
+	// idempotency policy: the response is persisted and replayed on retries.
+	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "student-lookup", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		result, err := service.LookupTx(r.Context(), tx, wcode)
+		if err != nil {
+			if errors.Is(err, studentauth.ErrStudentNotFound) {
+				s.a.WriteErr(w, http.StatusNotFound, "student_not_found", "Student ID was not found")
+				return 0, nil, err
+			}
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		return http.StatusOK, map[string]any{
+			"wcode":                         result.Wcode,
+			"lookup_token":                  result.LookupToken,
+			"email_input_required":          result.EmailInputRequired,
+			"parent_verification_available": result.ParentVerificationAvailable,
+		}, nil
+	}) {
+		return
+	}
+}
+
+// handleStaffStudentLookup is the staff-only counterpart to the minimal
+// self-service lookup. W-Code is an identifier here, but the authenticated
+// admin session is the authorization boundary for returning student details.
+func (s *server) handleStaffStudentLookup(w http.ResponseWriter, r *http.Request) {
+	if !isAdminRequest(s.deps.Auth, r) {
+		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
+		return
+	}
+	wcode := normalizeWCode(r.URL.Query().Get("wcode"))
+	if len(wcode) < 2 || !strings.HasPrefix(wcode, "w") {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "a valid wcode is required")
 		return
 	}
 
@@ -755,39 +882,80 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(rows) == 0 {
-		s.a.WriteErr(w, http.StatusNotFound, "no_subjects", "No enrolled subjects found for this student")
+		student, studentErr := s.deps.Q.StudentGetByWCode(r.Context(), wcode)
+		if errors.Is(studentErr, pgx.ErrNoRows) {
+			s.a.WriteErr(w, http.StatusNotFound, "student_not_found", "Student ID was not found")
+			return
+		}
+		if studentErr != nil {
+			status, code, msg := s.a.ClassifyDBErr(studentErr)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		studentID, idErr := s.a.UUIDString(student.ID)
+		if idErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading student")
+			return
+		}
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{
+			"student_id":   studentID,
+			"wcode":        student.Wcode,
+			"full_name":    student.FullName,
+			"display_name": student.FullName,
+			"subjects":     []any{},
+		})
 		return
 	}
 
-	type subjectDTO struct {
-		ID             string  `json:"id"`
-		Code           string  `json:"code"`
-		Name           string  `json:"name"`
-		ActiveCourseID *string `json:"active_course_id,omitempty"`
-	}
-
-	studentID, _ := s.a.UUIDString(rows[0].StudentID)
-	subjects := make([]subjectDTO, 0, len(rows))
-	for _, r := range rows {
-		sid, _ := s.a.UUIDString(r.SubjectID)
-		dto := subjectDTO{ID: sid, Code: r.SubjectCode, Name: r.SubjectName}
-		if cid, err := s.a.UUIDString(r.ActiveCourseID); err == nil {
-			dto.ActiveCourseID = &cid
+	textValue := func(value pgtype.Text) *string {
+		if !value.Valid || strings.TrimSpace(value.String) == "" {
+			return nil
 		}
-		subjects = append(subjects, dto)
+		result := value.String
+		return &result
 	}
-
+	studentID, idErr := s.a.UUIDString(rows[0].StudentID)
+	if idErr != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading student")
+		return
+	}
+	displayName := rows[0].FullName
+	if nickname := textValue(rows[0].Nickname); nickname != nil {
+		displayName = *nickname
+	}
+	subjects := make([]map[string]any, 0, len(rows))
+	seenSubjects := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		subjectID, subjectErr := s.a.UUIDString(row.SubjectID)
+		if subjectErr != nil {
+			continue
+		}
+		if _, seen := seenSubjects[subjectID]; seen {
+			continue
+		}
+		seenSubjects[subjectID] = struct{}{}
+		activeCourseID, courseErr := s.a.UUIDString(row.ActiveCourseID)
+		subject := map[string]any{
+			"id":   subjectID,
+			"code": row.SubjectCode,
+			"name": row.SubjectName,
+		}
+		if courseErr == nil {
+			subject["active_course_id"] = activeCourseID
+		}
+		subjects = append(subjects, subject)
+	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"student_id":   studentID,
 		"wcode":        rows[0].Wcode,
 		"full_name":    rows[0].FullName,
-		"display_name": stringPtrIfValid(rows[0].Nickname),
-		"nickname":     stringPtrIfValid(rows[0].Nickname),
-		"school":       stringPtrIfValid(rows[0].School),
-		"email":        stringPtrIfValid(rows[0].Email),
-		"email_crm":    stringPtrIfValid(rows[0].EmailCRM),
-		"email_system": stringPtrIfValid(rows[0].EmailSystem),
-		"parent_phone": stringPtrIfValid(rows[0].ParentPhone),
+		"display_name": displayName,
+		"nickname":     textValue(rows[0].Nickname),
+		"school":       textValue(rows[0].School),
+		"email":        textValue(rows[0].Email),
+		"email_crm":    textValue(rows[0].EmailCRM),
+		"email_system": textValue(rows[0].EmailSystem),
+		"parent_phone": textValue(rows[0].ParentPhone),
 		"subjects":     subjects,
 	})
 }
@@ -828,6 +996,11 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 		dateTo = now.AddDate(0, 0, 90)
 	}
 
+	if !isAdminRequest(s.deps.Auth, r) {
+		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
+		return
+	}
+
 	result, err := resolveSitIn(r.Context(), s.deps.Q, wcode, subjectID, dateFrom, dateTo)
 	if err != nil {
 		s.deps.Log.Error("resolve sit-in failed", "error", err)
@@ -842,9 +1015,18 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 	s.a.WriteJSON(w, http.StatusOK, result)
 }
 
-// Public: return all sessions for a student across enrolled subjects (optional date range), with absence flagging
+// handleSessionsInRange serves the staff compatibility endpoint. A student
+// W-Code is not an authorization credential, so valid requests require an
+// authenticated admin session.
 func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
-	wcode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("wcode")))
+	s.handleSessionsInRangeForWCode(w, r, "", true)
+}
+
+func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Request, forcedWCode string, requireAdmin bool) {
+	wcode := normalizeWCode(forcedWCode)
+	if wcode == "" {
+		wcode = normalizeWCode(r.URL.Query().Get("wcode"))
+	}
 	dateFromStr := r.URL.Query().Get("date_from")
 	dateToStr := r.URL.Query().Get("date_to")
 
@@ -884,13 +1066,19 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		dateTo = now.AddDate(0, 0, 90)
 	}
 
+	adminRequest := isAdminRequest(s.deps.Auth, r)
+	if requireAdmin && !adminRequest {
+		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
+		return
+	}
+
 	settings, err := s.readAbsenceSettings(r)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	if dateRangeProvided && !isAdminRequest(s.deps.Auth, r) {
+	if dateRangeProvided && !adminRequest {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
 		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
 		if days > maxLookupRangeDays {
@@ -933,7 +1121,7 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if includeAllSubjects {
-		if !isAdminRequest(s.deps.Auth, r) {
+		if !adminRequest {
 			s.a.WriteErr(w, http.StatusForbidden, "admin_required", "Only staff can load all subject sessions")
 			return
 		}
@@ -958,6 +1146,8 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	var rows pgx.Rows
 	if includeAllSubjects {
 		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeAllSubjectsSelectSQL(), strings.Join(subjectIDFilter, ","), dateFrom, dateTo.AddDate(0, 0, 1))
+	} else if adminRequest {
+		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeStaffSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
 	} else {
 		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
 	}

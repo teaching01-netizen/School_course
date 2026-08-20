@@ -10,7 +10,29 @@ import Input from "../components/ui/Input";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 
-type Student = { id: string; wcode: string; full_name: string; notes: string };
+type Student = {
+  id: string;
+  wcode: string;
+  full_name: string;
+  notes: string;
+  nickname: string;
+  school: string;
+  level: string;
+  year: string;
+  student_phone: string;
+  email: string;
+};
+type StudentInput = {
+  wcode: string;
+  full_name: string;
+  notes: string;
+  nickname: string;
+  school: string;
+  level: string;
+  year: string;
+  student_phone: string;
+  email?: string;
+};
 type StudentPage = { items: Student[]; total_count: number; offset: number; limit: number };
 const PAGE_SIZE = 50;
 
@@ -20,7 +42,7 @@ export default function Students() {
   const [searchQuery, setSearchQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [createModal, setCreateModal] = useState(false);
-  const [form, setForm] = useState({ wcode: "", full_name: "", notes: "" });
+  const [form, setForm] = useState({ wcode: "", full_name: "", notes: "", nickname: "", school: "", level: "", year: "", student_phone: "" });
   const searchRef = useRef<HTMLInputElement>(null);
 
   const apiUrl = useMemo(() => {
@@ -32,7 +54,7 @@ export default function Students() {
   }, [offset, searchQuery]);
 
   const { data: page, loading, error, refetch } = useApiQuery<StudentPage>(apiUrl);
-  const { mutate: createStudent, loading: creating, error: createError } = useApiMutation<{ wcode: string; full_name: string; notes: string }, unknown>("POST");
+  const { mutate: createStudent, loading: creating, error: createError } = useApiMutation<StudentInput, unknown>("POST");
 
   useEffect(() => {
     if (error) addToast("error", error.message);
@@ -67,7 +89,7 @@ export default function Students() {
       await createStudent(form, "/api/v1/students");
       addToast("success", "Student created");
       setCreateModal(false);
-      setForm({ wcode: "", full_name: "", notes: "" });
+      setForm({ wcode: "", full_name: "", notes: "", nickname: "", school: "", level: "", year: "", student_phone: "" });
       setOffset(0);
       refetch();
     } catch {
@@ -91,7 +113,7 @@ export default function Students() {
             className="pl-8"
             aria-label="Search students"
           />
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-wi-text-light)] pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
         <Button variant="secondary" size="sm" onClick={handleSearch}>Search</Button>
         <Button variant="secondary" size="sm" onClick={() => void refetch()}>Refresh</Button>
@@ -103,17 +125,27 @@ export default function Students() {
       <div className="overflow-x-auto data-table-wrapper"><table className="w-full text-[13px]">
         <caption className="sr-only">List of students</caption>
         <thead>
-          <tr className="border-b-2 border-gray-300">
+          <tr className="border-b border-wi-line">
             <th scope="col" className="text-left py-2 px-2 font-semibold">W-Code</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Nickname</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">School</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Level</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Year</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold">Phone</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
           </tr>
         </thead>
         <tbody>
           {items.map((s) => (
-            <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-              <td className="py-2 px-2 font-mono text-xs text-gray-600">{s.wcode}</td>
+            <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+              <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.wcode}</td>
               <td className="py-2 px-2">{s.full_name}</td>
+              <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.nickname || "—"}</td>
+              <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.school || "—"}</td>
+              <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.level || "—"}</td>
+              <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.year || "—"}</td>
+              <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.student_phone || "—"}</td>
               <td className="py-2 px-2">
                 <Link
                   to={`/students/${encodeURIComponent(s.wcode)}`}
@@ -130,12 +162,12 @@ export default function Students() {
       {loading && <LoadingSkeleton type="table" lines={3} />}
       {!loading && items.length === 0 && <EmptyState message="No students found" />}
 
-      <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+      <div className="mt-3 flex items-center justify-between text-sm text-[var(--color-wi-text-light)]">
         <span>{page?.total_count ?? 0} records</span>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
           <div className="flex items-center gap-1">
-            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-gray-300 px-2 py-1 text-sm text-center" />
+            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center" />
             <span>of {totalPages}</span>
           </div>
           <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
@@ -159,16 +191,38 @@ export default function Students() {
         >
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">W-Code *</label>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">W-Code *</label>
               <Input size="sm" value={form.wcode} onChange={(e) => setForm({ ...form, wcode: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Name *</label>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Name *</label>
               <Input size="sm" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Notes</label>
-              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm" rows={3} />
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Nickname</label>
+              <Input size="sm" value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">School</label>
+              <Input size="sm" value={form.school} onChange={(e) => setForm({ ...form, school: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Level</label>
+                <Input size="sm" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Year</label>
+                <Input size="sm" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Phone</label>
+              <Input size="sm" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Notes</label>
+              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm" rows={3} />
             </div>
           </div>
         </Modal>

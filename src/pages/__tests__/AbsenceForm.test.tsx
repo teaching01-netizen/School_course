@@ -44,7 +44,6 @@ const MOCK_CONFIG = {
     sms_parent_enabled: true,
     sms_parent_template: "template",
     sms_success_template: "success template",
-    allow_submit_without_otp: false,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -69,6 +68,24 @@ const MOCK_STUDENT: {
     { id: "subj-2", code: "PHYS", name: "Physics" },
   ],
 };
+
+function publicLookupFor(student: typeof MOCK_STUDENT) {
+  return {
+    wcode: student.wcode,
+    lookup_token: "lookup-token",
+    email_input_required: true,
+    parent_verification_available: Boolean(student.parent_phone),
+  };
+}
+
+function verifiedProfileFor(student: typeof MOCK_STUDENT) {
+  return {
+    wcode: student.wcode,
+    display_name: student.full_name,
+    email_on_file: false,
+    subjects: student.subjects,
+  };
+}
 
 const MOCK_SESSIONS = createMockSessionsInRange();
 
@@ -138,7 +155,7 @@ const OTP_VERIFY_RESPONSE = {
 
 function installHappyPathMocks(overrides?: {
   student?: typeof MOCK_STUDENT;
-  sessions?: unknown;
+  sessions?: unknown | (() => unknown);
   send?: unknown;
   verify?: unknown;
   verificationStatus?: unknown;
@@ -147,10 +164,15 @@ function installHappyPathMocks(overrides?: {
 }) {
   mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
     const path = String(url);
+    const student = overrides?.student ?? MOCK_STUDENT;
     if (path.includes("absence-form-config")) return overrides?.config ?? MOCK_CONFIG;
-    if (path.includes("student-lookup")) return overrides?.student ?? MOCK_STUDENT;
-    if (path.includes("sessions-in-range")) return overrides?.sessions ?? MOCK_SESSIONS;
-    if (path.includes("/parent-verification/") && init?.method === "GET") {
+    if (path.endsWith("/absence-self-service/lookup")) return publicLookupFor(student);
+    if (path.endsWith("/absence-self-service/me")) return verifiedProfileFor(student);
+    if (path.includes("/absence-self-service/sessions")) {
+      const sessions = overrides?.sessions;
+      return typeof sessions === "function" ? sessions() : sessions ?? MOCK_SESSIONS;
+    }
+    if (path.endsWith("/parent-verification/status") && init?.method === "POST") {
       if (overrides?.verificationStatus instanceof Error) throw overrides.verificationStatus;
       return overrides?.verificationStatus ?? OTP_SEND_RESPONSE;
     }
@@ -177,7 +199,7 @@ async function lookupStudent(user: ReturnType<typeof userEvent.setup>, wcode = "
   await user.clear(input);
   await user.type(input, wcode);
   await user.click(screen.getByRole("button", { name: /search/i }));
-  await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 }
 
 async function verifyParent(user: ReturnType<typeof userEvent.setup>) {
@@ -260,6 +282,17 @@ describe("AbsenceForm", () => {
     expect(await screen.findByText("Find your profile")).toBeInTheDocument();
   });
 
+  it("uses a contained app shell with numbered steps and no progress bar", async () => {
+    installHappyPathMocks();
+    renderWithProviders(<AbsenceForm />);
+
+    expect(await screen.findByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveAttribute("id", "absence-form-content");
+    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Student - current" })).toHaveTextContent("1");
+  });
+
   it("uses four ordered steps and keeps verification and session loading on their dedicated screens", async () => {
     const user = userEvent.setup();
     renderAbsenceForm();
@@ -275,21 +308,21 @@ describe("AbsenceForm", () => {
     expect(screen.getByRole("button", { name: "Continue to verification" })).toBeInTheDocument();
 
     await lookupStudent(user);
-    expect(screen.queryByText(/parent verification/i)).not.toBeInTheDocument();
-    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(false);
+    expect(screen.queryByRole("heading", { name: /parent verification/i })).not.toBeInTheDocument();
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(false);
 
     await user.type(screen.getByRole("textbox", { name: /your email address/i }), "student@example.com");
     await user.click(screen.getByRole("button", { name: /continue to verification/i }));
     expect(await screen.findByText(/parent verification/i)).toBeInTheDocument();
     expect(screen.getByText("Step 2 of 4: Verify")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue to classes" })).toBeInTheDocument();
-    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(false);
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(false);
 
     await verifyParent(user);
     expect(await screen.findByText("Courses & classes")).toBeInTheDocument();
     expect(screen.getByText("Step 3 of 4: Classes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review absence" })).toBeInTheDocument();
-    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(true);
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(true);
   });
 
   it("discards the legacy absence draft instead of restoring critical selections", async () => {
@@ -341,7 +374,7 @@ describe("AbsenceForm", () => {
     await waitFor(() => {
       const sendCalls = mockApiJson.mock.calls.filter(([url]) => String(url).endsWith("/parent-verification/send"));
       expect(sendCalls).toHaveLength(2);
-      expect(JSON.parse(String(sendCalls[1][1]?.body))).toEqual({ wcode: MOCK_STUDENT.wcode });
+      expect(JSON.parse(String(sendCalls[1][1]?.body))).toEqual({ lookup_token: "lookup-token" });
     });
     expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toContain("otp-token-new");
 
@@ -367,14 +400,14 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm();
 
-    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     expect(mockApiJson).toHaveBeenCalledWith(
-      `/api/v1/absences/student-lookup?wcode=${MOCK_STUDENT.wcode}`,
-      expect.objectContaining({ method: "GET" }),
+      "/api/v1/absence-self-service/lookup",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ wcode: MOCK_STUDENT.wcode }) }),
     );
     expect(screen.getByDisplayValue("student@example.com")).toBeInTheDocument();
     expect(screen.getByText("Find your profile")).toBeInTheDocument();
-    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("sessions-in-range"))).toBe(false);
+    expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(false);
   });
 
   it("revalidates a stored verified token without restoring the classes step", async () => {
@@ -388,12 +421,15 @@ describe("AbsenceForm", () => {
       verificationStatus: { ...OTP_VERIFY_RESPONSE, token: "stored-verified-token" },
     });
 
-    await screen.findByText("John Smith");
+    await screen.findByText("Student ID found");
     await goToVerification(userEvent.setup());
     expect(await screen.findByText("✓ Verified")).toBeInTheDocument();
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/parent-verification/stored-verified-token",
-      expect.objectContaining({ method: "GET" }),
+      "/api/v1/absences/parent-verification/status",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ token: "stored-verified-token" }),
+      }),
     );
     expect(screen.getByText("Parent verification")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send new code/i })).toBeInTheDocument();
@@ -411,7 +447,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm({ verificationStatus });
 
-    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     await goToVerification(userEvent.setup());
     await waitFor(() => expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toBeNull());
     expect(screen.getByRole("button", { name: /^send code$/i })).toBeInTheDocument();
@@ -430,7 +466,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm({ verificationStatus: verificationError });
 
-    expect(await screen.findByText("John Smith")).toBeInTheDocument();
+    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     await goToVerification(userEvent.setup());
     await waitFor(() => expect(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY)).toBeNull());
     expect(screen.getByRole("button", { name: /^send code$/i })).toBeInTheDocument();
@@ -445,7 +481,7 @@ describe("AbsenceForm", () => {
 
     renderAbsenceForm({ verificationStatus: new TypeError("Network unavailable") });
 
-    await screen.findByText("John Smith");
+    await screen.findByText("Student ID found");
     await goToVerification(userEvent.setup());
     expect(await screen.findByText(/could not validate saved verification/i)).toBeInTheDocument();
     expect(screen.queryByText("✓ Verified")).not.toBeInTheDocument();
@@ -458,8 +494,8 @@ describe("AbsenceForm", () => {
     renderAbsenceForm();
     await lookupStudent(user, "w250389");
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/student-lookup?wcode=W250389",
-      expect.objectContaining({ method: "GET" }),
+      "/api/v1/absence-self-service/lookup",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ wcode: "W250389" }) }),
     );
   });
 
@@ -477,7 +513,7 @@ describe("AbsenceForm", () => {
 
     await goToCourses(user);
 
-    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
+    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("/absence-self-service/sessions"));
     expect(sessionsCall).toBeDefined();
 
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
@@ -508,7 +544,7 @@ describe("AbsenceForm", () => {
         headers: expect.objectContaining({
           "Idempotency-Key": expect.any(String),
         }),
-        body: expect.stringContaining('"verification_token":"otp-token-123"'),
+        body: expect.not.stringContaining('"verification_token"'),
       }),
     );
     expect(mockApiJson).toHaveBeenCalledWith(
@@ -567,7 +603,12 @@ describe("AbsenceForm", () => {
 
   it("prioritizes Classes validation, focuses the first invalid control, and exposes one validation alert", async () => {
     const user = userEvent.setup();
-    renderAbsenceForm();
+    renderAbsenceForm({
+      config: {
+        ...MOCK_CONFIG,
+        form: { ...MOCK_CONFIG.form, require_reason: true },
+      },
+    });
     await lookupStudent(user);
     await verifyParent(user);
     await goToCourses(user);
@@ -594,6 +635,45 @@ describe("AbsenceForm", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: /reason for absence/i })));
   });
 
+  it("allows review without a reason when the form configuration makes it optional", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm();
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+
+    expect(screen.getByRole("textbox", { name: /reason for absence/i })).not.toBeRequired();
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+  });
+  it("preserves selected classes and reason when editing from review", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm();
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Initial reason");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+
+    await user.click(screen.getByRole("button", { name: "Edit reason" }));
+
+    const reason = screen.getByRole("textbox", { name: /reason for absence/i });
+    expect(reason).toHaveValue("Initial reason");
+    expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
+    expect(screen.getByRole("button", { name: /review absence/i })).toBeEnabled();
+
+    await user.clear(reason);
+    await user.type(reason, "Updated reason");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+    expect(screen.getByText("Updated reason")).toBeInTheDocument();
+  });
   it("expands one selected subject at a time for mobile disclosure and keeps completion summaries", async () => {
     const user = userEvent.setup();
     renderAbsenceForm();
@@ -614,75 +694,58 @@ describe("AbsenceForm", () => {
     expect(mathControl).toHaveAccessibleName(/1 class day selected/i);
   });
 
-  it("returns to Verify when parent verification expires on Classes without submitting", async () => {
-    const now = new Date("2026-06-01T00:00:00.000Z");
-    let currentTime = now.getTime();
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
-    try {
-      const user = userEvent.setup();
-      const verify = vi.fn()
-        .mockReturnValueOnce({
-          ...OTP_VERIFY_RESPONSE,
-          expires_at: new Date(now.getTime() + 1_000).toISOString(),
-        })
-        .mockRejectedValue(new ApiRequestError("Verification token expired", { code: "otp_expired", status: 410 }));
-      renderAbsenceForm({
-        verify,
+  it("returns to Verify when the student session expires while loading Classes", async () => {
+    let sessionsReadCount = 0;
+    const sessions = () => {
+      sessionsReadCount += 1;
+      if (sessionsReadCount === 1) return MOCK_SESSIONS;
+      throw new ApiRequestError("Student verification is required", {
+        code: "unauthorized",
+        status: 401,
       });
-      await lookupStudent(user);
-      await verifyParent(user);
-      await goToCourses(user);
-      expect(JSON.parse(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY) || "{}").expiresAt).toBe(now.getTime() + 1_000);
-      await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Keep my class work");
-      await user.click(screen.getAllByRole("checkbox").find((checkbox) => checkbox.id.startsWith("subject-"))!);
+    };
+    const user = userEvent.setup();
+    renderAbsenceForm({ sessions });
 
-      expect(screen.getByRole("heading", { name: /courses & classes/i })).toBeInTheDocument();
-      currentTime = now.getTime() + 1_000;
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+    await screen.findByRole("heading", { name: /parent verification/i });
+    await user.click(screen.getByRole("button", { name: /continue to classes/i }));
 
-      await waitFor(() => {
-        expect(screen.getByRole("heading", { name: /parent verification/i })).toBeInTheDocument();
-        expect(screen.getByText(/verification has expired/i)).toBeInTheDocument();
-      });
-      expect(mockApiJson.mock.calls.some(([url]) => String(url).endsWith("/absences/batch"))).toBe(false);
-    } finally {
-      dateNow.mockRestore();
-    }
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /parent verification/i })).toBeInTheDocument();
+      expect(screen.getByText(/verified session expired/i)).toBeInTheDocument();
+    });
+    expect(sessionsReadCount).toBe(2);
   });
 
-  it("returns to Verify when parent verification expires on Review and never submits", async () => {
-    const now = new Date("2026-06-01T00:00:00.000Z");
-    let currentTime = now.getTime();
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
-    try {
-      const user = userEvent.setup();
-      const verify = vi.fn()
-        .mockReturnValueOnce({
-          ...OTP_VERIFY_RESPONSE,
-          expires_at: new Date(now.getTime() + 1_000).toISOString(),
-        })
-        .mockRejectedValue(new ApiRequestError("Verification token expired", { code: "otp_expired", status: 410 }));
-      renderAbsenceForm({
-        verify,
+  it("returns to Verify when the student session expires during submission", async () => {
+    const user = userEvent.setup();
+    const expiredSubmission = vi.fn(() => {
+      throw new ApiRequestError("Student verification is required", {
+        code: "unauthorized",
+        status: 401,
       });
-      await lookupStudent(user);
-      await verifyParent(user);
-      await goToCourses(user);
-      expect(JSON.parse(window.sessionStorage.getItem(VERIFICATION_STORAGE_KEY) || "{}").expiresAt).toBe(now.getTime() + 1_000);
-      await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Keep review work");
-      await user.click(screen.getAllByRole("checkbox").find((checkbox) => checkbox.id.startsWith("subject-"))!);
-      await user.click(await findSessionCheckbox());
-      await user.click(screen.getByRole("button", { name: /review absence/i }));
-      expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+    });
+    renderAbsenceForm({ submission: expiredSubmission });
 
-      currentTime = now.getTime() + 1_000;
-      await waitFor(() => {
-        expect(screen.getByRole("heading", { name: /parent verification/i })).toBeInTheDocument();
-        expect(screen.getByText(/verification has expired/i)).toBeInTheDocument();
-      });
-      expect(mockApiJson.mock.calls.some(([url]) => String(url).endsWith("/absences/batch"))).toBe(false);
-    } finally {
-      dateNow.mockRestore();
-    }
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Keep review work");
+    await user.click(screen.getAllByRole("checkbox").find((checkbox) => checkbox.id.startsWith("subject-"))!);
+    await user.click(await findSessionCheckbox());
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /parent verification/i })).toBeInTheDocument();
+      expect(screen.getByText(/verified session expired/i)).toBeInTheDocument();
+    });
+    expect(expiredSubmission).toHaveBeenCalledOnce();
   });
 
   it("loads sessions without explicit date range when max_hours_after_session is set", async () => {
@@ -699,7 +762,7 @@ describe("AbsenceForm", () => {
     await verifyParent(user);
     await goToCourses(user);
 
-    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("sessions-in-range"));
+    const sessionsCall = mockApiJson.mock.calls.find(([url]) => String(url).includes("/absence-self-service/sessions"));
     expect(sessionsCall).toBeDefined();
     const sessionsUrl = new URL(String(sessionsCall?.[0]), "https://example.test");
     expect(sessionsUrl.searchParams.has("date_from")).toBe(false);
@@ -722,14 +785,14 @@ describe("AbsenceForm", () => {
     await user.click(sessionCheckbox);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
 
-    const callsBeforeReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length;
+    const callsBeforeReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length;
     await user.click(screen.getByRole("button", { name: /classes - completed/i }));
 
     expect(await screen.findByDisplayValue("Keep this active edit")).toBeInTheDocument();
     expect(subjectCheckbox).toBeChecked();
     expect(sessionCheckbox).toBeChecked();
     await waitFor(() => {
-      const callsAfterReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length;
+      const callsAfterReturn = mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length;
       expect(callsAfterReturn).toBeGreaterThan(callsBeforeReturn);
     });
   }, 30000);
@@ -1017,10 +1080,11 @@ describe("AbsenceForm", () => {
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
-      if (path.includes("sessions-in-range")) return initialSessions;
-      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/absence-self-service/lookup")) return publicLookupFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.endsWith("/absence-self-service/me")) return verifiedProfileFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.includes("/absence-self-service/sessions") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("/absence-self-service/sessions")) return initialSessions;
+      if (path.endsWith("/parent-verification/status") && init?.method === "POST") return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       if (path.endsWith("/absences/batch") && init?.method === "POST") return { items: [SUBMISSION_RESPONSE] };
@@ -1102,11 +1166,11 @@ describe("AbsenceForm", () => {
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
-      if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
-      if (path.includes("sessions-in-range")) return initialSessions;
-      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/absence-self-service/lookup")) return publicLookupFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.endsWith("/absence-self-service/me")) return verifiedProfileFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.includes("/absence-self-service/sessions") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("/absence-self-service/sessions")) return initialSessions;
+      if (path.endsWith("/parent-verification/status") && init?.method === "POST") return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);
@@ -1325,11 +1389,11 @@ describe("AbsenceForm", () => {
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
-      if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
-      if (path.includes("sessions-in-range")) return initialSessions;
-      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/absence-self-service/lookup")) return publicLookupFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.endsWith("/absence-self-service/me")) return verifiedProfileFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.includes("/absence-self-service/sessions") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("/absence-self-service/sessions")) return initialSessions;
+      if (path.endsWith("/parent-verification/status") && init?.method === "POST") return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);
@@ -1443,11 +1507,11 @@ describe("AbsenceForm", () => {
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
       const path = String(url);
-      if (path.includes("absence-form-config")) return MOCK_CONFIG;
-      if (path.includes("student-lookup")) return { ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] };
-      if (path.includes("sessions-in-range") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
-      if (path.includes("sessions-in-range")) return initialSessions;
-      if (path.includes("/parent-verification/") && init?.method === "GET") return OTP_SEND_RESPONSE;
+      if (path.endsWith("/absence-self-service/lookup")) return publicLookupFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.endsWith("/absence-self-service/me")) return verifiedProfileFor({ ...MOCK_STUDENT, subjects: [{ id: "subj-satv", code: "SATV", name: "SAT Verbal" }] });
+      if (path.includes("/absence-self-service/sessions") && path.includes("sat_verbal_after_priority=1")) return nextSessions;
+      if (path.includes("/absence-self-service/sessions")) return initialSessions;
+      if (path.endsWith("/parent-verification/status") && init?.method === "POST") return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/send")) return OTP_SEND_RESPONSE;
       if (path.endsWith("/parent-verification/verify")) return OTP_VERIFY_RESPONSE;
       throw new Error(`Unmocked API call: ${url}`);

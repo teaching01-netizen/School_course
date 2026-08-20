@@ -66,8 +66,8 @@ export default function CrossStudyPage() {
       </div>
 
       {/* Master list */}
-      <section className="border border-gray-200 rounded-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">All Cross-Study Assignments</h2>
+      <section className="border border-wi-line rounded-sm p-4">
+        <h2 className="text-sm font-semibold text-[var(--color-wi-text-light)] mb-3">All Cross-Study Assignments</h2>
         <CrossStudyAssignmentList
           refreshKey={refreshKey}
           onSelectWCode={handleSearch}
@@ -76,21 +76,21 @@ export default function CrossStudyPage() {
       </section>
 
       {/* Separator */}
-      <div className="flex items-center gap-2 text-xs text-gray-300">
-        <span className="flex-1 border-t border-gray-200" />
+      <div className="flex items-center gap-2 text-xs text-[var(--color-wi-text-light)]">
+        <span className="flex-1 border-t border-wi-line" />
         <span>or search a student below</span>
-        <span className="flex-1 border-t border-gray-200" />
+        <span className="flex-1 border-t border-wi-line" />
       </div>
 
       {/* Student lookup */}
-      <section className="border border-gray-200 rounded-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Student Lookup</h2>
+      <section className="border border-wi-line rounded-sm p-4">
+        <h2 className="text-sm font-semibold text-[var(--color-wi-text-light)] mb-3">Student Lookup</h2>
         <CrossStudyStudentSearch onSearch={handleSearch} loading={searching} />
 
         <div className="mt-4">
           {/* Loading state */}
           {searching && (
-            <div className="text-sm text-gray-400 py-4">Loading student data...</div>
+            <div className="text-sm text-[var(--color-wi-text-light)] py-4">Loading student data...</div>
           )}
 
           {/* Error state */}
@@ -112,13 +112,13 @@ export default function CrossStudyPage() {
           {!searching && lookupResult && lookupResult.crm_row && (
             <div className="space-y-4">
               {/* Student info header */}
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-sm">
-                <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-semibold">
+              <div className="flex items-center gap-3 p-3 bg-[var(--color-wi-row-alt)] rounded-sm">
+                <div className="w-8 h-8 rounded-full bg-[var(--color-wi-nav)] text-white flex items-center justify-center text-sm font-semibold">
                   {lookupResult.student.full_name.charAt(0)}
                 </div>
                 <div>
                   <div className="font-semibold text-sm">{lookupResult.student.full_name}</div>
-                  <div className="text-xs text-gray-500 font-mono">{lookupResult.student.wcode}</div>
+                  <div className="text-xs text-[var(--color-wi-text-light)] font-mono">{lookupResult.student.wcode}</div>
                 </div>
               </div>
 

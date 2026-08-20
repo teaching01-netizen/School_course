@@ -21,7 +21,7 @@ export default function SubjectCard({
       className={clsx(
         "flex min-h-[56px] w-full cursor-pointer items-center gap-4 px-4 py-3 transition-all duration-150",
         !disabled && selected && "bg-[var(--color-wi-primary)]/5",
-        !disabled && !selected && "hover:bg-gray-50",
+        !disabled && !selected && "hover:bg-[var(--color-wi-row-alt)]",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
@@ -30,7 +30,7 @@ export default function SubjectCard({
           "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
           selected
             ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]"
-            : "border-gray-300 bg-white",
+            : "border-wi-line bg-white",
         )}
         aria-hidden="true"
       >

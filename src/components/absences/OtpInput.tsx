@@ -63,7 +63,7 @@ export default function OtpInput({
       <label className="block text-sm font-medium text-[var(--color-wi-text)]">
         <span className="mb-3 block text-base font-semibold text-[var(--color-wi-text)]">{label}</span>
         <div
-          className="relative flex items-center justify-center gap-3 cursor-pointer"
+          className="absence-otp-grid relative cursor-pointer"
           onClick={() => inputRef.current?.focus()}
         >
           {Array.from({ length: 6 }, (_, index) => {
@@ -71,16 +71,16 @@ export default function OtpInput({
             return (
               <div
                 key={index}
-              className={clsx(
-                "flex h-16 w-16 items-center justify-center rounded-md border bg-white font-mono text-3xl tabular-nums text-[var(--color-wi-text)] shadow-sm transition-all duration-150",
-                error
-                  ? "border-[var(--color-wi-red)]"
-                  : clsx(
-                      "border-gray-200 hover:border-[var(--color-wi-primary)]/40 hover:bg-gray-50",
-                      index < currentLength && "border-[var(--color-wi-primary)]",
-                      isCurrentEmpty && isFocused && "border-[var(--color-wi-primary)] ring-2 ring-[var(--color-wi-primary)]/20",
-                    ),
-              )}
+                className={clsx(
+                  "absence-otp-cell flex items-center justify-center rounded-md border bg-white font-mono text-3xl tabular-nums text-[var(--color-wi-text)] shadow-sm transition-all duration-150 motion-reduce:transition-none",
+                  error
+                    ? "border-[var(--color-wi-red)]"
+                    : clsx(
+                        "border-wi-line hover:border-[var(--color-wi-primary)]/40 hover:bg-[var(--color-wi-row-alt)]",
+                        index < currentLength && "border-[var(--color-wi-primary)]",
+                        isCurrentEmpty && isFocused && "border-[var(--color-wi-primary)] ring-2 ring-[var(--color-wi-primary)]/20",
+                      ),
+                )}
                 aria-hidden="true"
               >
                 {digits[index] !== " " ? (

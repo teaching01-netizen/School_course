@@ -98,7 +98,7 @@ func TestEvaluateRule_LevelLadder_Level1_AlwaysZoom(t *testing.T) {
 			courseV2("20000000-0000-0000-0000-000000000002", 2),
 			courseV2("30000000-0000-0000-0000-000000000003", 3),
 		},
-		MissedCount:  1,
+		MissedCount: 1,
 	}
 
 	output, err := EvaluateRule(input)

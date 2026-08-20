@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ChevronLeft, Info } from "lucide-react";
 import { apiJson } from "../../api/client";
-import { loadSessionsInRange } from "../../features/absences/api/absenceFormApi";
+import {
+  loadSessionsInRange,
+  lookupStaffStudentByWcode,
+} from "../../features/absences/api/absenceFormApi";
 import { useToast } from "../../hooks/useToast";
 import { formatDate, formatTime } from "../../utils/date";
 import {
@@ -146,7 +149,7 @@ function StepIndicator({ step }: { step: ModalStep }) {
                   ? "bg-[var(--color-wi-primary)] text-white"
                   : isComplete
                     ? "bg-emerald-500 text-white"
-                    : "bg-gray-200 text-gray-400"
+                    : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
               }`}
               aria-current={isActive ? "step" : undefined}
             >
@@ -170,7 +173,7 @@ function StepIndicator({ step }: { step: ModalStep }) {
             </div>
             {i < STEP_KEYS.length - 1 ? (
               <div
-                className={`h-px w-6 transition-colors ${i < currentIdx ? "bg-emerald-300" : "bg-gray-200"}`}
+                className={`h-px w-6 transition-colors ${i < currentIdx ? "bg-emerald-300" : "bg-[var(--color-wi-row-alt)]"}`}
               />
             ) : null}
           </div>
@@ -184,7 +187,7 @@ function SkeletonRows({ count = 2 }: { count?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100" />
+        <div key={i} className="h-12 animate-pulse rounded-lg bg-[var(--color-wi-row-alt)]" />
       ))}
     </div>
   );
@@ -776,14 +779,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   function renderSitInModeToggle(sessionIds: string[], firstSessionId: string) {
     const mode = sitInModes[firstSessionId] ?? "suggested";
     return (
-      <div className="mb-3 inline-flex rounded-md border border-gray-200 bg-gray-100 p-0.5">
+      <div className="mb-3 inline-flex rounded-md border border-wi-line bg-[var(--color-wi-row-alt)] p-0.5">
         <button
           type="button"
           onClick={() => setSitInModeForSessions(sessionIds, "suggested")}
           className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
             mode === "suggested"
-              ? "bg-white text-gray-900 shadow-sm"
-              : "text-gray-500 hover:text-gray-700"
+              ? "bg-white text-[var(--color-wi-text)] shadow-sm"
+              : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
           }`}
         >
           Suggested
@@ -793,8 +796,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           onClick={() => setSitInModeForSessions(sessionIds, "special")}
           className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
             mode === "special"
-              ? "bg-white text-gray-900 shadow-sm"
-              : "text-gray-500 hover:text-gray-700"
+              ? "bg-white text-[var(--color-wi-text)] shadow-sm"
+              : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
           }`}
         >
           Special sit-in
@@ -827,7 +830,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label
-              className="mb-1 block text-xs font-medium text-gray-600"
+              className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]"
               htmlFor={`staff-special-sit-in-subject-${firstSessionId}`}
             >
               Special sit-in subject
@@ -853,7 +856,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           </div>
           <div>
             <label
-              className="mb-1 block text-xs font-medium text-gray-600"
+              className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]"
               htmlFor={`staff-special-sit-in-session-${firstSessionId}`}
             >
               Special sit-in session
@@ -887,7 +890,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
             {error}
           </p>
         ) : selection.subjectId && !loading && sessionOptions.length === 0 ? (
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-[var(--color-wi-text-light)]">
             No sessions found for this subject.
           </p>
         ) : null}
@@ -937,13 +940,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     setLookingUp(true);
     setStudent(null);
     setSelectedSubjectIds([]);
-    clearSubjectOptions();
-    clearSpecialSitInState();
     try {
-      const data = await apiJson<StudentLookupResponse>(
-        `/api/v1/absences/student-lookup?wcode=${encodeURIComponent(wcode.trim())}`,
-        { method: "GET" },
-      );
+      const data = await lookupStaffStudentByWcode(wcode.trim());
       setStudent(data);
       await loadSubjectOptions(data.subjects);
     } catch (err) {
@@ -1281,7 +1279,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           <h2 ref={headingRef} tabIndex={-1} className="sr-only">
             Step 1: Select Absence Type
           </h2>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Choose the type of absence to create:
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1292,20 +1290,20 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               className={`rounded-lg border-2 p-6 text-left transition-colors ${
                 absenceType === "normal"
                   ? "border-blue-500 bg-blue-50"
-                  : "border-gray-200 hover:border-gray-300"
+                  : "border-wi-line hover:border-wi-line"
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`rounded-full p-2 ${
-                  absenceType === "normal" ? "bg-blue-100" : "bg-gray-100"
+                  absenceType === "normal" ? "bg-blue-100" : "bg-[var(--color-wi-row-alt)]"
                 }`}>
                   <Info className={`h-5 w-5 ${
-                    absenceType === "normal" ? "text-blue-600" : "text-gray-500"
+                    absenceType === "normal" ? "text-blue-600" : "text-[var(--color-wi-text-light)]"
                   }`} />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">Normal Absence</p>
-                  <p className="text-sm text-gray-500">Requires review and approval</p>
+                  <p className="font-medium text-[var(--color-wi-text)]">Normal Absence</p>
+                  <p className="text-sm text-[var(--color-wi-text-light)]">Requires review and approval</p>
                 </div>
               </div>
             </button>
@@ -1316,20 +1314,20 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               className={`rounded-lg border-2 p-6 text-left transition-colors ${
                 absenceType === "special"
                   ? "border-purple-500 bg-purple-50"
-                  : "border-gray-200 hover:border-gray-300"
+                  : "border-wi-line hover:border-wi-line"
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`rounded-full p-2 ${
-                  absenceType === "special" ? "bg-purple-100" : "bg-gray-100"
+                  absenceType === "special" ? "bg-purple-100" : "bg-[var(--color-wi-row-alt)]"
                 }`}>
                   <Info className={`h-5 w-5 ${
-                    absenceType === "special" ? "text-purple-600" : "text-gray-500"
+                    absenceType === "special" ? "text-purple-600" : "text-[var(--color-wi-text-light)]"
                   }`} />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">Special Absence</p>
-                  <p className="text-sm text-gray-500">Pre-approved, skips review</p>
+                  <p className="font-medium text-[var(--color-wi-text)]">Special Absence</p>
+                  <p className="text-sm text-[var(--color-wi-text-light)]">Pre-approved, skips review</p>
                 </div>
               </div>
             </button>
@@ -1351,7 +1349,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           <div className="field">
             <label
               htmlFor="staff-wcode"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
+              className="mb-1.5 block text-sm font-medium text-[var(--color-wi-text-light)]"
             >
               Student W-Code
             </label>
@@ -1360,7 +1358,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                 id="staff-wcode"
                 type="text"
                 autoComplete="off"
-                className="flex-1 rounded-sm border border-gray-300 px-3 py-2 text-sm"
+                className="flex-1 rounded-sm border border-wi-line px-3 py-2 text-sm"
                 placeholder="e.g. W001234"
                 required
                 aria-errormessage="wcode-error"
@@ -1411,13 +1409,13 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
               {student.subjects.length > 0 ? (
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                  <label className="mb-2 block text-sm font-medium text-[var(--color-wi-text-light)]">
                     Subjects
                   </label>
-                  <p className="mb-2 text-xs text-gray-500">
+                  <p className="mb-2 text-xs text-[var(--color-wi-text-light)]">
                     Select one or more subjects
                   </p>
-                  <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                  <div className="divide-y divide-wi-line rounded-lg border border-wi-line overflow-hidden">
                     {student.subjects.map((subject) => (
                       <SubjectCard
                         key={subject.id}
@@ -1429,14 +1427,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                     ))}
                   </div>
                   {selectedSubjectIds.length > 0 ? (
-                    <p className="mt-2 text-xs text-gray-500">
+                    <p className="mt-2 text-xs text-[var(--color-wi-text-light)]">
                       {selectedSubjectIds.length} subject
                       {selectedSubjectIds.length !== 1 ? "s" : ""} selected
                     </p>
                   ) : null}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-[var(--color-wi-text-light)]">
                   No enrolled subjects found for this student.
                 </p>
               )}
@@ -1444,7 +1442,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               <div>
                 <label
                   htmlFor="staff-special-subject"
-                  className="mb-2 block text-sm font-medium text-gray-700"
+                  className="mb-2 block text-sm font-medium text-[var(--color-wi-text-light)]"
                 >
                   Special case subject
                 </label>
@@ -1477,13 +1475,13 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                     {subjectOptionsError}
                   </p>
                 ) : (
-                  <p className="mt-1.5 text-xs text-gray-500">
+                  <p className="mt-1.5 text-xs text-[var(--color-wi-text-light)]">
                     Use this when staff need to record an absence outside the
                     enrolled subject list.
                   </p>
                 )}
                 {specialSubjectIds.length > 0 ? (
-                  <div className="mt-3 divide-y divide-gray-100 overflow-hidden rounded-lg border border-amber-200 bg-amber-50/40">
+                  <div className="mt-3 divide-y divide-wi-line overflow-hidden rounded-lg border border-amber-200 bg-amber-50/40">
                     {specialSubjectIds.map((subjectId) => {
                       const subject = subjectById.get(subjectId);
                       if (!subject) return null;
@@ -1522,7 +1520,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               ) : sessions.filter((s) =>
                   selectedSubjectIds.includes(s.subject_id),
                 ).length === 0 ? (
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-[var(--color-wi-text-light)]">
                   No classes found for the selected subjects.
                 </p>
               ) : (
@@ -1541,14 +1539,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                       return (
                         <div
                           key={group.course_id}
-                          className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
+                          className="rounded-lg border border-wi-line bg-white overflow-hidden shadow-sm"
                         >
-                          <div className="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50/50 px-4 py-3">
-                            <span className="text-sm font-semibold text-gray-900 truncate">
+                          <div className="flex items-center justify-between gap-2 border-b border-wi-line bg-[var(--color-wi-row-alt)]/50 px-4 py-3">
+                            <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">
                               {groupLabel} ({sessionGroups.length} class day
                               {sessionGroups.length !== 1 ? "s" : ""})
                             </span>
-                            <span className="text-xs font-semibold text-gray-500 shrink-0">
+                            <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
                               {
                                 sessionGroups.filter((g) =>
                                   isDayGroupSelected(g, selectedSessionIds),
@@ -1599,7 +1597,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                               return (
                                 <div
                                   key={dayGroup.id}
-                                  className={`rounded-lg border px-4 py-3 transition-colors ${selected ? "border-blue-300 bg-blue-50/30" : "border-gray-200 bg-white"}`}
+                                  className={`rounded-lg border px-4 py-3 transition-colors ${selected ? "border-blue-300 bg-blue-50/30" : "border-wi-line bg-white"}`}
                                 >
                                   <div className="flex items-center gap-3">
                                     <input
@@ -1609,13 +1607,13 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                       onChange={() =>
                                         handleSessionGroupToggle(sessionIds)
                                       }
-                                      className="h-4 w-4 shrink-0 rounded border-gray-300 text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
+                                      className="h-4 w-4 shrink-0 rounded border-wi-line text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
                                     />
                                     <label
                                       htmlFor={`staff-session-${dayGroup.id}`}
                                       className="min-w-0 cursor-pointer flex-1"
                                     >
-                                      <span className="text-sm font-medium text-gray-900">
+                                      <span className="text-sm font-medium text-[var(--color-wi-text)]">
                                         {formatDate(dayGroup.date)}{" "}
                                         {formatTime(dayGroup.start_at)}-
                                         {formatTime(dayGroup.end_at)}
@@ -1687,11 +1685,11 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                             unavailable.length === 0
                                           ) {
                                             return (
-                                              <div className="text-sm text-gray-500">
+                                              <div className="text-sm text-[var(--color-wi-text-light)]">
                                                 <p className="font-medium">
                                                   No more options available
                                                 </p>
-                                                <p className="text-xs text-gray-400 mt-0.5">
+                                                <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
                                                   Admin will contact student to
                                                   arrange a make-up class.
                                                 </p>
@@ -1700,7 +1698,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                           }
 
                                           return (
-                                            <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                                            <div className="rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)]/50 p-3">
                                               {(hasPreviousPriority ||
                                                 nextLevelValue) && (
                                                 <div className="mb-3 flex items-center gap-1.5">
@@ -1714,7 +1712,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                           firstSessionId,
                                                         )
                                                       }
-                                                      className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-gray-500 transition hover:bg-white hover:text-gray-700 hover:shadow-sm"
+                                                      className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text-light)] hover:shadow-sm"
                                                     >
                                                       <ChevronLeft className="h-3.5 w-3.5" />
                                                       Back
@@ -1730,7 +1728,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                           firstSessionId,
                                                         )
                                                       }
-                                                      className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-gray-500 transition hover:bg-white hover:text-gray-700 hover:shadow-sm"
+                                                      className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text-light)] hover:shadow-sm"
                                                     >
                                                       <span>
                                                         {revealing
@@ -1747,7 +1745,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                               {available.length > 0 ? (
                                                 <div>
                                                   <label
-                                                    className="mb-1 block text-xs font-medium text-gray-500"
+                                                    className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]"
                                                     htmlFor={`staff-sit-in-${firstSessionId}`}
                                                   >
                                                     Make-up class
@@ -1761,7 +1759,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                         e.target.value,
                                                       )
                                                     }
-                                                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                                                    className="w-full rounded-md border border-wi-line bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                                                   >
                                                     <option value="">
                                                       Not yet selected
@@ -1832,7 +1830,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600 mb-2">
                                             Pick a make-up class
                                           </div>
-                                          <p className="mb-2 text-xs text-gray-500 truncate">
+                                          <p className="mb-2 text-xs text-[var(--color-wi-text-light)] truncate">
                                             Sit-in:{" "}
                                             {getSitInSessionGroupLabel(
                                               rootAvailableSessionsForMissedSessions(
@@ -1854,7 +1852,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 e.target.value,
                                               )
                                             }
-                                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                                            className="w-full rounded-md border border-wi-line bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                                           >
                                             <option value="">
                                               — Not yet —
@@ -1882,7 +1880,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                           </select>
                                         </div>
                                       ) : sitIn.sit_in_method === "zoom" ? (
-                                        <div className="flex items-start gap-2 text-sm text-gray-700">
+                                        <div className="flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">
                                           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
                                             Z
                                           </span>
@@ -1892,11 +1890,11 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                           </span>
                                         </div>
                                       ) : (
-                                        <div className="text-sm text-gray-500">
+                                        <div className="text-sm text-[var(--color-wi-text-light)]">
                                           <p className="font-medium">
                                             To arrange
                                           </p>
-                                          <p className="text-xs text-gray-400 mt-0.5">
+                                          <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
                                             Admin will contact the student.
                                           </p>
                                         </div>
@@ -1913,7 +1911,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                 </div>
               )}
               {selectedSessionCount > 0 ? (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-[var(--color-wi-text-light)]">
                   {selectedSessionCount} class day
                   {selectedSessionCount !== 1 ? "s" : ""} selected
                 </p>
@@ -1929,15 +1927,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           <h2 ref={headingRef} tabIndex={-1} className="sr-only">
             Step 3: Confirm and submit
           </h2>
-          <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 space-y-4">
+          <div className="rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)]/50 p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs text-gray-500">Student</span>
-                <p className="text-sm font-medium text-gray-900">
+                <span className="text-xs text-[var(--color-wi-text-light)]">Student</span>
+                <p className="text-sm font-medium text-[var(--color-wi-text)]">
                   {student?.full_name} ({student?.wcode})
                 </p>
               </div>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-[var(--color-wi-text-light)]">
                 {selectedSubjectIds.length} subject
                 {selectedSubjectIds.length !== 1 ? "s" : ""}
               </span>
@@ -1957,17 +1955,17 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                   group.course_code;
                 return (
                   <div key={group.course_id}>
-                    <p className="text-sm font-semibold text-gray-900">
+                    <p className="text-sm font-semibold text-[var(--color-wi-text)]">
                       {groupLabel}
                     </p>
                     <div className="mt-1 space-y-1">
                       {groupByDay(selectedSessions).map((dayGroup) => (
-                        <p key={dayGroup.id} className="text-xs text-gray-600">
+                        <p key={dayGroup.id} className="text-xs text-[var(--color-wi-text-light)]">
                           {formatDate(dayGroup.date)}{" "}
                           {formatTime(dayGroup.start_at)}–
                           {formatTime(dayGroup.end_at)}
-                          <span className="text-gray-400"> — Make-up: </span>
-                          <span className="font-medium text-gray-800">
+                          <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
+                          <span className="font-medium text-[var(--color-wi-text)]">
                             {getSpecialSitInReviewLabel(dayGroup.items[0].id) ??
                               getReviewSitInLabel(
                                 dayGroup.items[0],
@@ -1999,7 +1997,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           <div className="field">
             <label
               htmlFor="staff-reason-category"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
+              className="mb-1.5 block text-sm font-medium text-[var(--color-wi-text-light)]"
             >
               Reason Category
             </label>
@@ -2030,13 +2028,13 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           <div>
             <label
               htmlFor="staff-reason"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
+              className="mb-1.5 block text-sm font-medium text-[var(--color-wi-text-light)]"
             >
               Additional details (optional)
             </label>
             <textarea
               id="staff-reason"
-              className="w-full rounded-sm border border-gray-300 px-3 py-2 text-sm"
+              className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm"
               rows={3}
               value={reason}
               onChange={(e) => setReason(e.target.value)}

@@ -43,18 +43,18 @@ function EntryCard({
   }, [entry, onRetry]);
 
   return (
-    <div className="border border-gray-200 rounded-sm p-3 mb-2 bg-white">
+    <div className="border border-wi-line rounded-sm p-3 mb-2 bg-white">
       <div className="flex items-start justify-between mb-2">
         <div>
           <span className="font-mono text-sm font-semibold text-[var(--color-wi-text)]">
             {entry.courseCode}
           </span>
-          <span className="ml-2 text-xs text-gray-500">
+          <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">
             Level: {entry.attemptedLevel ?? "Not set"}
           </span>
         </div>
       </div>
-      <p className="text-sm text-gray-600 mb-3">{entry.error.message}</p>
+      <p className="text-sm text-[var(--color-wi-text-light)] mb-3">{entry.error.message}</p>
       <div className="flex gap-2">
         <Button
           variant="primary"
@@ -128,13 +128,13 @@ export default function ReturnsDeskPanel({
           }
         >
           {totalCount === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-8">
+            <p className="text-sm text-[var(--color-wi-text-light)] text-center py-8">
               No failed operations
             </p>
           ) : (
             codes.map((code) => (
               <div key={code} className="mb-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)] mb-2">
                   {entryLabel(code)}
                 </h4>
                 {entries[code].map((entry) => (

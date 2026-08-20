@@ -141,32 +141,32 @@ export default function Availability() {
   return (
     <div>
       <PageHeading>Availability</PageHeading>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-[var(--color-wi-text-light)] mb-4">
         Hard availability windows for teachers and rooms. If any windows exist for a teacher/room, sessions must fit inside a window.
       </p>
 
       <div className="flex flex-wrap items-end gap-2 mb-4">
-        <div className="flex bg-gray-100 rounded-sm p-0.5">
+        <div className="flex bg-[var(--color-wi-row-alt)] rounded-sm p-0.5">
           <button
             onClick={() => setMode("teacher")}
-            className={`px-3 py-1.5 text-xs font-medium rounded-sm ${mode === "teacher" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500"}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-sm ${mode === "teacher" ? "bg-white text-[var(--color-wi-text)] shadow-sm" : "text-[var(--color-wi-text-light)]"}`}
           >
             Teachers
           </button>
           <button
             onClick={() => setMode("room")}
-            className={`px-3 py-1.5 text-xs font-medium rounded-sm ${mode === "room" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500"}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-sm ${mode === "room" ? "bg-white text-[var(--color-wi-text)] shadow-sm" : "text-[var(--color-wi-text-light)]"}`}
           >
             Rooms
           </button>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{mode === "teacher" ? "Teacher" : "Room"}</label>
+          <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">{mode === "teacher" ? "Teacher" : "Room"}</label>
           <select
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
-            className="px-2 py-1 text-sm border border-gray-300 rounded-sm min-w-[240px]"
+            className="px-2 py-1 text-sm border border-wi-line rounded-sm min-w-[240px]"
           >
             <option value="">Select…</option>
             {mode === "teacher" &&
@@ -186,21 +186,21 @@ export default function Availability() {
 
         <div className="ml-auto flex items-end gap-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Start</label>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Start</label>
             <input
               type="datetime-local"
               value={startLocal}
               onChange={(e) => setStartLocal(e.target.value)}
-              className="px-2 py-1 text-sm border border-gray-300 rounded-sm"
+              className="px-2 py-1 text-sm border border-wi-line rounded-sm"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">End</label>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">End</label>
             <input
               type="datetime-local"
               value={endLocal}
               onChange={(e) => setEndLocal(e.target.value)}
-              className="px-2 py-1 text-sm border border-gray-300 rounded-sm"
+              className="px-2 py-1 text-sm border border-wi-line rounded-sm"
             />
           </div>
           <Button variant="primary" size="md" disabled={saving} onClick={submitCreate}>
@@ -209,10 +209,10 @@ export default function Availability() {
         </div>
       </div>
 
-      <div className="mb-2 text-xs text-gray-500">
+      <div className="mb-2 text-xs text-[var(--color-wi-text-light)]">
         {selectedId ? (
           <>
-            Managing windows for <span className="font-mono text-gray-700">{selectedLabel}</span>
+            Managing windows for <span className="font-mono text-[var(--color-wi-text-light)]">{selectedLabel}</span>
           </>
         ) : (
           <>Select a {mode === "teacher" ? "teacher" : "room"} to manage windows.</>
@@ -222,7 +222,7 @@ export default function Availability() {
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
         <caption className="sr-only">Availability windows</caption>
         <thead>
-          <tr className="border-b-2 border-gray-300">
+          <tr className="border-b border-wi-line">
             <th scope="col" className="text-left py-2 px-2 font-semibold">Start (UTC)</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">End (UTC)</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Start (Local)</th>
@@ -232,11 +232,11 @@ export default function Availability() {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-gray-200 hover:bg-gray-50">
-              <td className="py-2 px-2 font-mono text-xs text-gray-600">{r.start_at}</td>
-              <td className="py-2 px-2 font-mono text-xs text-gray-600">{r.end_at}</td>
-              <td className="py-2 px-2 text-xs text-gray-700">{format(new Date(r.start_at), "yyyy-MM-dd HH:mm")}</td>
-              <td className="py-2 px-2 text-xs text-gray-700">{format(new Date(r.end_at), "yyyy-MM-dd HH:mm")}</td>
+            <tr key={r.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+              <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{r.start_at}</td>
+              <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{r.end_at}</td>
+              <td className="py-2 px-2 text-xs text-[var(--color-wi-text-light)]">{format(new Date(r.start_at), "yyyy-MM-dd HH:mm")}</td>
+              <td className="py-2 px-2 text-xs text-[var(--color-wi-text-light)]">{format(new Date(r.end_at), "yyyy-MM-dd HH:mm")}</td>
               <td className="py-2 px-2 text-right">
                 <Button variant="danger" size="sm" disabled={saving} onClick={() => submitDelete(r.id)}>
                   remove

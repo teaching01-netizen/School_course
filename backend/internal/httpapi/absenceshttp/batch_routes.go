@@ -14,8 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
-	"warwick-institute/internal/idempotency"
-	"warwick-institute/internal/otp"
+	"warwick-institute/internal/studentauth"
 )
 
 type batchAbsenceCreateItem struct {
@@ -78,13 +77,39 @@ func (s *server) batchNotificationSlots() chan struct{} {
 	return s.batchNotificationLimiter
 }
 
+// consumeAndRevokeStudentVerificationTx burns the parent OTP verification
+// session and revokes the student's session inside the submission transaction.
+// One verification therefore cannot drive an unlimited number of submissions:
+// the next attempt needs a fresh OTP and re-verification.
+func (s *server) consumeAndRevokeStudentVerificationTx(ctx context.Context, tx pgx.Tx, session studentauth.Session, absenceID uuid.UUID) error {
+	if s.deps.OTP != nil && session.VerificationSessionID != uuid.Nil {
+		if err := s.deps.OTP.ConsumeSessionByIDTx(ctx, tx, session.VerificationSessionID, absenceID); err != nil {
+			return fmt.Errorf("consume verification session: %w", err)
+		}
+	}
+	if session.ID != uuid.Nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE student_self_service_sessions
+			SET revoked_at = now()
+			WHERE id = $1 AND revoked_at IS NULL
+		`, session.ID); err != nil {
+			return fmt.Errorf("revoke student session: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.requestOriginAllowed(w, r) {
 		return
 	}
+	studentSession, ok := s.requireStudentSession(w, r)
+	if !ok {
+		return
+	}
 	createdIDs := []string{}
 	var notifyData *batchNotificationData
-	if !s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if !s.a.WithIdempotentTx(w, r, studentIdempotencyActor(studentSession.Wcode), "absences-public", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 
 		var body batchAbsenceCreateRequest
@@ -92,11 +117,15 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 			return 0, nil, err
 		}
-		body.Wcode = normalizeWCode(body.Wcode)
-		if body.Wcode == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_wcode", "wcode is required")
-			return 0, nil, fmt.Errorf("wcode is required")
+		if strings.TrimSpace(body.Wcode) != "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "identity_parameter_not_allowed", "wcode is derived from the verified student session")
+			return 0, nil, fmt.Errorf("client supplied wcode")
 		}
+		if body.VerificationToken != nil && strings.TrimSpace(*body.VerificationToken) != "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "verification_token_not_allowed", "verification_token is no longer accepted")
+			return 0, nil, fmt.Errorf("client supplied verification token")
+		}
+		body.Wcode = normalizeWCode(studentSession.Wcode)
 		if len(body.Items) == 0 {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_items", "At least one class must be selected")
 			return 0, nil, fmt.Errorf("no items")
@@ -143,45 +172,6 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			return 0, nil, fmt.Errorf("free text disabled")
 		}
 
-		requireVerification := settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp
-		if !settings.Notifications.SmsParentEnabled && !settings.Notifications.AllowSubmitWithoutOtp {
-			s.a.WriteErr(w, http.StatusForbidden, "feature_disabled", "Parent verification codes are currently disabled")
-			return 0, nil, fmt.Errorf("verification disabled")
-		}
-
-		var verificationToken string
-		if body.VerificationToken != nil {
-			verificationToken = strings.TrimSpace(*body.VerificationToken)
-		}
-		if verificationToken == "" && requireVerification {
-			s.a.WriteErr(w, http.StatusBadRequest, "verification_required", "Parent verification is required before submitting this absence")
-			return 0, nil, fmt.Errorf("verification required")
-		}
-		if verificationToken != "" {
-			session, sessionErr := s.deps.OTP.LoadSessionTx(r.Context(), tx, verificationToken)
-			switch {
-			case sessionErr == nil:
-			case errors.Is(sessionErr, otp.ErrExpired):
-				s.a.WriteErr(w, http.StatusGone, "otp_expired", "Verification token expired")
-				return 0, nil, sessionErr
-			case errors.Is(sessionErr, otp.ErrTampered):
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
-				return 0, nil, sessionErr
-			default:
-				status, code, msg := s.a.ClassifyDBErr(sessionErr)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, sessionErr
-			}
-			if session.Wcode != body.Wcode {
-				s.a.WriteErr(w, http.StatusConflict, "token_mismatch", "Verification token does not match this student")
-				return 0, nil, fmt.Errorf("token mismatch")
-			}
-			if session.Status != "verified" {
-				s.a.WriteErr(w, http.StatusConflict, "verification_required", "Parent verification is not complete")
-				return 0, nil, fmt.Errorf("verification not complete")
-			}
-		}
-
 		var studentPhone pgtype.Text
 		var studentEmail pgtype.Text
 		var studentEmailCRM pgtype.Text
@@ -226,26 +216,18 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			created = append(created, record)
 		}
 
-		if verificationToken != "" && len(created) > 0 {
-			absenceIDStr, err := sUUIDString(created[0].row.ID)
+		// Burn the verification: one OTP + session per submission.
+		if len(created) > 0 && created[0].row.ID.Valid {
+			firstAbsenceID, err := uuid.FromBytes(created[0].row.ID.Bytes[:])
 			if err != nil {
 				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 				return 0, nil, err
 			}
-			absenceUUID, err := uuid.Parse(absenceIDStr)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return 0, nil, err
-			}
-			if err := s.deps.OTP.ConsumeSessionTx(r.Context(), tx, verificationToken, absenceUUID); err != nil {
-				if errors.Is(err, otp.ErrAlreadyVerified) {
-					s.a.WriteErr(w, http.StatusConflict, "already_submitted", "This verification token has already been used")
-				} else if errors.Is(err, otp.ErrTampered) {
-					s.a.WriteErr(w, http.StatusBadRequest, "bad_token", "Verification token is invalid")
-				} else {
-					status, code, msg := s.a.ClassifyDBErr(err)
-					s.a.WriteErr(w, status, code, msg)
+			if err := s.consumeAndRevokeStudentVerificationTx(r.Context(), tx, studentSession, firstAbsenceID); err != nil {
+				if s.deps.Log != nil {
+					s.deps.Log.Error("failed to burn student verification on submit", "wcode", body.Wcode, "error", err)
 				}
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 				return 0, nil, err
 			}
 		}
@@ -443,6 +425,10 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false
 	}
+	if len(item.MissedSessionIDs) == 0 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "At least one missed session must be selected")
+		return createdAbsenceRecord{}, false
+	}
 	missedUUIDs, err := parseUUIDStrings(item.MissedSessionIDs)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
@@ -469,6 +455,13 @@ func (s *server) createAbsenceRecordTx(
 		parsed, err := s.a.ParseUUID(strings.TrimSpace(*item.SitInCourseID))
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
+			return createdAbsenceRecord{}, false
+		}
+		// A student may only sit in to courses of the subject they are
+		// submitting for; anything else is outside the resolved selection.
+		sitInCourse, err := qtx.CourseGetFull(r.Context(), parsed)
+		if err != nil || !sitInCourse.SubjectID.Valid || sitInCourse.SubjectID != subjectID {
+			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_outside_selection", "Sit-in course must belong to the selected subject")
 			return createdAbsenceRecord{}, false
 		}
 		sitInCourseID = parsed

@@ -33,7 +33,7 @@ export default function ConfirmModal({
         </div>
       }
     >
-      <p className="text-sm text-gray-700">{message}</p>
+      <p className="text-sm text-[var(--color-wi-text-light)]">{message}</p>
     </Modal>
   );
 }

@@ -12,29 +12,29 @@ import (
 // issueDTOInput groups the fields needed to build an issue DTO,
 // avoiding 21 positional parameters in issueDTO.
 type issueDTOInput struct {
-	ID                          pgtype.UUID
-	AbsenceID                   pgtype.UUID
-	IssueType                   string
-	Severity                    string
-	Status                      string
-	SourceSessionID             pgtype.UUID
-	SitInSessionID              pgtype.UUID
-	MissedSessionID             pgtype.UUID
-	Details                     []byte
-	Suggestions                 []byte
-	Wcode                       string
-	StudentName                 pgtype.Text
-	StudentEmail                pgtype.Text
-	StudentPhone                pgtype.Text
-	StartAt                     pgtype.Timestamptz
-	EndAt                       pgtype.Timestamptz
-	ResolutionAction            pgtype.Text
-	IssueVersion                int32
-	AssignmentSnapshotJSON      []byte
-	AssignmentSnapshotQuality   string
-	AssignmentSnapshotSource    pgtype.Text
-	LatestSessionChangeID       pgtype.UUID
-	AssignedAt                  pgtype.Timestamptz
+	ID                        pgtype.UUID
+	AbsenceID                 pgtype.UUID
+	IssueType                 string
+	Severity                  string
+	Status                    string
+	SourceSessionID           pgtype.UUID
+	SitInSessionID            pgtype.UUID
+	MissedSessionID           pgtype.UUID
+	Details                   []byte
+	Suggestions               []byte
+	Wcode                     string
+	StudentName               pgtype.Text
+	StudentEmail              pgtype.Text
+	StudentPhone              pgtype.Text
+	StartAt                   pgtype.Timestamptz
+	EndAt                     pgtype.Timestamptz
+	ResolutionAction          pgtype.Text
+	IssueVersion              int32
+	AssignmentSnapshotJSON    []byte
+	AssignmentSnapshotQuality string
+	AssignmentSnapshotSource  pgtype.Text
+	LatestSessionChangeID     pgtype.UUID
+	AssignedAt                pgtype.Timestamptz
 }
 
 // ScheduleImpactIssue represents the extended issue response with historical context.
@@ -67,9 +67,9 @@ type AssignmentContext struct {
 
 // OriginalSessionView represents the session state at the time of assignment detection.
 type OriginalSessionView struct {
-	Quality  string                       `json:"quality"`  // "exact", "reconstructed", "unavailable"
-	Source   string                       `json:"source"`   // e.g. "assignment", "detection"
-	Snapshot *snapshot.SessionSnapshotV1  `json:"snapshot"`
+	Quality  string                      `json:"quality"` // "exact", "reconstructed", "unavailable"
+	Source   string                      `json:"source"`  // e.g. "assignment", "detection"
+	Snapshot *snapshot.SessionSnapshotV1 `json:"snapshot"`
 }
 
 // CurrentSessionView represents the current state of the session, or null if deleted.
@@ -88,9 +88,9 @@ type CurrentSessionView struct {
 
 // ChangeContext provides the session change that triggered this issue.
 type ChangeContext struct {
-	ChangeID string                         `json:"change_id"`
-	Before   *snapshot.SessionSnapshotV1    `json:"before"`
-	After    *snapshot.SessionSnapshotV1    `json:"after"`
+	ChangeID string                      `json:"change_id"`
+	Before   *snapshot.SessionSnapshotV1 `json:"before"`
+	After    *snapshot.SessionSnapshotV1 `json:"after"`
 }
 
 // ImpactContext provides the issue classification and reasoning.
@@ -135,8 +135,8 @@ func DecodeIssueDetails(data []byte) IssueDetails {
 func DecodeAssignmentSnapshot(data []byte, quality, source string) OriginalSessionView {
 	if len(data) == 0 {
 		return OriginalSessionView{
-			Quality: "unavailable",
-			Source:  source,
+			Quality:  "unavailable",
+			Source:   source,
 			Snapshot: nil,
 		}
 	}
@@ -145,8 +145,8 @@ func DecodeAssignmentSnapshot(data []byte, quality, source string) OriginalSessi
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return OriginalSessionView{
-			Quality: "unavailable",
-			Source:  source,
+			Quality:  "unavailable",
+			Source:   source,
 			Snapshot: nil,
 		}
 	}
@@ -155,8 +155,8 @@ func DecodeAssignmentSnapshot(data []byte, quality, source string) OriginalSessi
 	if version, ok := raw["schema_version"].(float64); ok {
 		if version != 1 {
 			return OriginalSessionView{
-				Quality: "unavailable",
-				Source:  source,
+				Quality:  "unavailable",
+				Source:   source,
 				Snapshot: nil,
 			}
 		}
@@ -167,8 +167,8 @@ func DecodeAssignmentSnapshot(data []byte, quality, source string) OriginalSessi
 	if err != nil {
 		// Malformed legacy record - return with unavailable quality
 		return OriginalSessionView{
-			Quality: "unavailable",
-			Source:  source,
+			Quality:  "unavailable",
+			Source:   source,
 			Snapshot: nil,
 		}
 	}

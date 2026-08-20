@@ -62,6 +62,30 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 		}
 	}
 
+	// Validate and merge the optional curated properties. Nil command fields
+	// are no-ops; the locked row carries the current values, so a single-field
+	// PATCH never nulls the columns it did not mention.
+	if err := validateOptionalCourseMetadata(command); err != nil {
+		return UpdateCourseResult{}, err
+	}
+	metadata, mergeErr := mergeCourseMetadata(lockedCourse, command)
+	if mergeErr != nil {
+		return UpdateCourseResult{}, mergeErr
+	}
+	if command.SubjectID != nil {
+		exists, existsErr := qtx.SubjectExists(ctx, *command.SubjectID)
+		if existsErr != nil {
+			return UpdateCourseResult{}, fmt.Errorf("check subject existence: %w", existsErr)
+		}
+		if !exists {
+			return UpdateCourseResult{}, &Error{
+				Code:    "invalid_subject",
+				Message: "Subject not found.",
+				Details: map[string]any{"subject_id": uuidString(*command.SubjectID)},
+			}
+		}
+	}
+
 	// A nil teacher set means metadata-only: update code/name/legacy link and
 	// bump the version while leaving the teacher set (course_teachers rows and
 	// the courses.teacher_id compat projection) untouched. An empty NON-nil
@@ -73,9 +97,14 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 			Code:           command.Code,
 			Name:           command.Name,
 			LegacyCourseID: nullableText(command.LegacyCourseID),
+			Year:           metadata.Year,
+			SubjectID:      metadata.SubjectID,
+			Hour:           metadata.Hour,
+			StudentCount:   metadata.StudentCount,
+			CourseType:     metadata.CourseType,
 		})
 		if err != nil {
-			return UpdateCourseResult{}, fmt.Errorf("update course core: %w", err)
+			return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course core: %w", err))
 		}
 		return UpdateCourseResult{CourseID: command.CourseID, Version: updated.Version}, nil
 	}
@@ -130,9 +159,14 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 		Name:           command.Name,
 		LegacyCourseID: nullableText(command.LegacyCourseID),
 		TeacherID:      primaryID,
+		Year:           metadata.Year,
+		SubjectID:      metadata.SubjectID,
+		Hour:           metadata.Hour,
+		StudentCount:   metadata.StudentCount,
+		CourseType:     metadata.CourseType,
 	})
 	if err != nil {
-		return UpdateCourseResult{}, fmt.Errorf("update course aggregate: %w", err)
+		return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course aggregate: %w", err))
 	}
 
 	if err := insertCourseAudit(ctx, qtx, command, existing, updated.Version); err != nil {
@@ -143,6 +177,46 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 		CourseID: command.CourseID,
 		Version:  updated.Version,
 	}, nil
+}
+
+// courseMetadata is the curated set of course properties written together
+// with code/name/legacy link on every update. It always carries the full
+// current values — either from the locked row or overridden by the command —
+// so the two UPDATE paths cannot accidentally null an untouched column.
+type courseMetadata struct {
+	Year         pgtype.Int2
+	SubjectID    pgtype.UUID
+	Hour         pgtype.Int4
+	StudentCount pgtype.Int4
+	CourseType   pgtype.Text
+}
+
+// mergeCourseMetadata overlays the command's optional property pointers onto
+// the course values captured by the row lock.
+func mergeCourseMetadata(locked sqldb.CourseLockForTeacherUpdateRow, command UpdateCourseCommand) (courseMetadata, error) {
+	metadata := courseMetadata{
+		Year:         locked.Year,
+		SubjectID:    locked.SubjectID,
+		Hour:         locked.Hour,
+		StudentCount: locked.StudentCount,
+		CourseType:   locked.CourseType,
+	}
+	if command.Year != nil {
+		metadata.Year = pgtype.Int2{Int16: *command.Year, Valid: true}
+	}
+	if command.SubjectID != nil {
+		metadata.SubjectID = *command.SubjectID
+	}
+	if command.Hour != nil {
+		metadata.Hour = pgtype.Int4{Int32: *command.Hour, Valid: true}
+	}
+	if command.StudentCount != nil {
+		metadata.StudentCount = pgtype.Int4{Int32: *command.StudentCount, Valid: true}
+	}
+	if command.CourseType != nil {
+		metadata.CourseType = pgtype.Text{String: *command.CourseType, Valid: true}
+	}
+	return metadata, nil
 }
 
 // CreateCourseTx atomically creates a course and its teacher set inside the

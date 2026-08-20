@@ -35,11 +35,11 @@ export default function ImpactAcknowledgementModal({ summary, saving = false, on
       size="md"
       footer={<><Button variant="secondary" size="sm" onClick={onBack} disabled={saving}>Back to editing</Button><Button size="sm" loading={saving} onClick={onConfirm}>Save change and review {totalAffected}</Button></>}
     >
-      <p className="text-sm text-gray-700">This change may affect {totalAffected} student arrangement{totalAffected === 1 ? "" : "s"}.</p>
+      <p className="text-sm text-[var(--color-wi-text-light)]">This change may affect {totalAffected} student arrangement{totalAffected === 1 ? "" : "s"}.</p>
       <ul className="mt-4 space-y-2 rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
         {impactRows(summary).map((row) => <li key={row} className="flex gap-2"><span aria-hidden="true">•</span><span>{row}</span></li>)}
       </ul>
-      <p className="mt-4 text-sm text-gray-600">Students will not be contacted until an administrator reviews the results.</p>
+      <p className="mt-4 text-sm text-[var(--color-wi-text-light)]">Students will not be contacted until an administrator reviews the results.</p>
     </Modal>
   );
 }

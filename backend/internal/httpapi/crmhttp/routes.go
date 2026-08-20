@@ -50,6 +50,11 @@ func (s *server) handleUploadV2(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
 
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			s.a.WriteErr(w, http.StatusRequestEntityTooLarge, "request_too_large", "Upload exceeds the 50 MiB limit")
+			return
+		}
 		s.deps.Log.Error("multipart parse failed", "error", err)
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_upload", "Invalid upload")
 		return

@@ -22,12 +22,21 @@ type teacherAssignmentRequest struct {
 // PUT /api/v1/courses/{id}: with no `teachers` key the update is metadata-only
 // (code/name/legacy_course_id) and the existing teacher set is left untouched;
 // with a `teachers` key the set is replaced exactly as on PATCH.
+//
+// The curated properties (year, subject_id, hour, student_count, course_type)
+// are optional on both verbs: absent/null leaves the current value untouched,
+// so the detail page can patch a single property per request.
 type updateCourseRequest struct {
 	ExpectedVersion int32                       `json:"expected_version"`
 	Code            string                      `json:"code"`
 	Name            string                      `json:"name"`
 	LegacyCourseID  *string                     `json:"legacy_course_id"`
 	Teachers        *[]teacherAssignmentRequest `json:"teachers"`
+	Year            *int16                      `json:"year"`
+	SubjectID       *string                     `json:"subject_id"`
+	Hour            *int32                      `json:"hour"`
+	StudentCount    *int32                      `json:"student_count"`
+	CourseType      *string                     `json:"course_type"`
 }
 
 // parseTeacherAssignments converts raw request entries into domain
@@ -55,4 +64,30 @@ func parseTeacherAssignments(a httpadapter.Adapter, input []teacherAssignmentReq
 		out = append(out, courseadmin.TeacherAssignment{TeacherID: teacherID, IsPrimary: entry.IsPrimary})
 	}
 	return out, nil
+}
+
+// applyOptionalCourseMetadata maps the optional curated property fields of an
+// update body onto a command. Absent fields stay nil (the service treats nil
+// as "unchanged"); an unparseable subject_id fails the whole request with the
+// stable invalid_subject error rather than being silently dropped.
+func applyOptionalCourseMetadata(a httpadapter.Adapter, body updateCourseRequest, command *courseadmin.UpdateCourseCommand) error {
+	command.Year = body.Year
+	command.Hour = body.Hour
+	command.StudentCount = body.StudentCount
+	command.CourseType = body.CourseType
+	if body.SubjectID != nil {
+		sid, err := a.ParseUUID(*body.SubjectID)
+		if err != nil {
+			return &courseadmin.Error{
+				Code:    "invalid_subject",
+				Message: "Subject not found.",
+				Details: map[string]any{
+					"subject_id": *body.SubjectID,
+					"reason":     "invalid_id",
+				},
+			}
+		}
+		command.SubjectID = &sid
+	}
+	return nil
 }

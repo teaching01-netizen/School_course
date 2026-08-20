@@ -28,19 +28,19 @@ export default function CourseLevelSearch({ value, onChange }: CourseLevelSearch
   return (
     <div className="relative">
       <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-        <Search className="h-4 w-4 text-gray-400" />
+        <Search className="h-4 w-4 text-[var(--color-wi-text-light)]" />
       </div>
       <input
         type="text"
         value={internalValue}
         onChange={(e) => setInternalValue(e.target.value)}
         placeholder="Search courses, subjects, or groups..."
-        className="block w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+        className="block w-full pl-8 pr-8 py-1.5 text-sm border border-wi-line rounded-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
       />
       {internalValue && (
         <button
           onClick={handleClear}
-          className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-gray-400 hover:text-gray-600"
+          className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
         >
           ×
         </button>

@@ -28,13 +28,8 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 
 	path = strings.TrimPrefix(path, "/")
 	parts := strings.Split(path, "/")
-
 	switch parts[0] {
-	case "student-lookup":
-		if r.Method == http.MethodGet {
-			s.handleStudentLookup(w, r)
-			return
-		}
+
 	case "sit-in-options":
 		if r.Method == http.MethodGet {
 			s.handleSitInOptions(w, r)
@@ -53,9 +48,8 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 		case len(parts) == 2 && parts[1] == "verify" && r.Method == http.MethodPost:
 			s.handleParentVerificationVerify(w, r)
 			return
-		case len(parts) == 2 && r.Method == http.MethodGet:
-			r.SetPathValue("token", parts[1])
-			s.handleParentVerificationGet(w, r)
+		case len(parts) == 2 && parts[1] == "status" && r.Method == http.MethodPost:
+			s.handleParentVerificationStatus(w, r)
 			return
 		}
 	case "stats":

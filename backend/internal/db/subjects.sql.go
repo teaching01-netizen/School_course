@@ -45,6 +45,21 @@ func (q *Queries) SubjectDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const subjectExists = `-- name: SubjectExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM subjects
+    WHERE id = $1
+)
+`
+
+func (q *Queries) SubjectExists(ctx context.Context, id pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, subjectExists, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const subjectGetByID = `-- name: SubjectGetByID :one
 SELECT id, code, name, created_at, updated_at
 FROM subjects

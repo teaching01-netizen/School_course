@@ -224,7 +224,7 @@ export default function CrmAdmin() {
         </div>
         <div>
           <PageHeading>CRM Import</PageHeading>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Upload your CRM export to manage course rosters
           </p>
         </div>
@@ -238,12 +238,12 @@ export default function CrmAdmin() {
           { label: "Processing", done: isSucceeded },
         ].map((step, i) => (
           <div key={step.label} className="flex items-center gap-2">
-            {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-300" />}
+            {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--color-wi-text-light)]" />}
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                 step.done
                   ? "bg-emerald-100 text-emerald-800"
-                  : "bg-gray-100 text-gray-500"
+                  : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
               }`}
             >
               {step.done && <CheckCircle2 className="w-3 h-3" />}
@@ -267,7 +267,7 @@ export default function CrmAdmin() {
               ? "border-emerald-400 bg-emerald-50/70 shadow-lg shadow-emerald-100/50"
               : selectedFile
                 ? "border-emerald-300 bg-emerald-50/40"
-                : "border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50/50"
+                : "border-wi-line bg-white hover:border-wi-line hover:bg-[var(--color-wi-row-alt)]/50"
           }
           ${showSpinner ? "pointer-events-none opacity-60" : ""}
         `}
@@ -284,10 +284,10 @@ export default function CrmAdmin() {
         {showSpinner ? (
           <div className="py-4">
             <Loader2 className="w-10 h-10 text-emerald-600 animate-spin mx-auto mb-3" />
-            <p className="text-sm font-semibold text-gray-800">
+            <p className="text-sm font-semibold text-[var(--color-wi-text)]">
               {uploading ? "Uploading file…" : "Processing CRM data…"}
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-[var(--color-wi-text-light)] mt-1">
               {uploading
                 ? "Please wait while your file is being uploaded"
                 : "Parsing rows, syncing students, and reconciling rosters"}
@@ -298,8 +298,8 @@ export default function CrmAdmin() {
             <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center mx-auto mb-3">
               <FileSpreadsheet className="w-6 h-6 text-emerald-700" />
             </div>
-            <p className="text-sm font-semibold text-gray-800">{selectedFile.name}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{formatBytes(selectedFile.size)}</p>
+            <p className="text-sm font-semibold text-[var(--color-wi-text)]">{selectedFile.name}</p>
+            <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">{formatBytes(selectedFile.size)}</p>
             <div className="flex items-center justify-center gap-2 mt-4">
               <button
                 onClick={(e) => {
@@ -316,7 +316,7 @@ export default function CrmAdmin() {
                   e.stopPropagation();
                   clearSelection();
                 }}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
               >
                 Cancel
               </button>
@@ -324,13 +324,13 @@ export default function CrmAdmin() {
           </div>
         ) : (
           <div className="py-4">
-            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <Upload className="w-7 h-7 text-gray-400" />
+            <div className="w-14 h-14 rounded-2xl bg-[var(--color-wi-row-alt)] flex items-center justify-center mx-auto mb-4">
+              <Upload className="w-7 h-7 text-[var(--color-wi-text-light)]" />
             </div>
-            <p className="text-sm font-semibold text-gray-800">
+            <p className="text-sm font-semibold text-[var(--color-wi-text)]">
               Drop your CRM export here
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-[var(--color-wi-text-light)] mt-1">
               or click to browse &mdash; accepts <strong>.xlsx</strong> files only
             </p>
           </div>
@@ -372,20 +372,20 @@ export default function CrmAdmin() {
                 <AlertTriangle className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-gray-900">
+                <h3 className="text-base font-semibold text-[var(--color-wi-text)]">
                   Replace CRM data?
                 </h3>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-[var(--color-wi-text-light)]">
                   This action will snapshot and replace all existing data
                 </p>
               </div>
             </div>
 
-            <div className="bg-gray-50 rounded-lg px-4 py-3 mb-4 text-sm">
-              <div className="flex items-center gap-2 text-gray-700">
+            <div className="bg-[var(--color-wi-row-alt)] rounded-lg px-4 py-3 mb-4 text-sm">
+              <div className="flex items-center gap-2 text-[var(--color-wi-text-light)]">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                 <span className="font-medium">{selectedFile.name}</span>
-                <span className="text-gray-400">({formatBytes(selectedFile.size)})</span>
+                <span className="text-[var(--color-wi-text-light)]">({formatBytes(selectedFile.size)})</span>
               </div>
             </div>
 
@@ -403,7 +403,7 @@ export default function CrmAdmin() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={clearSelection}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
               >
                 Cancel
               </button>
@@ -421,10 +421,10 @@ export default function CrmAdmin() {
 
       {/* Status / Result Card */}
       {job && (
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden mb-4">
+        <div className="rounded-xl border border-wi-line bg-white overflow-hidden mb-4">
           {/* Status bar */}
           <div
-            className={`flex items-center gap-3 px-5 py-3.5 border-b border-gray-100 ${
+            className={`flex items-center gap-3 px-5 py-3.5 border-b border-wi-line-soft ${
               running
                 ? "bg-blue-50"
                 : isSucceeded
@@ -444,7 +444,7 @@ export default function CrmAdmin() {
               <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800">
+              <p className="text-sm font-semibold text-[var(--color-wi-text)]">
                 {running
                   ? "Processing import…"
                   : isSucceeded
@@ -454,12 +454,12 @@ export default function CrmAdmin() {
                       : statusLabel(job.status)}
               </p>
               {job.message && (
-                <p className="text-xs text-gray-500 truncate">{job.message}</p>
+                <p className="text-xs text-[var(--color-wi-text-light)] truncate">{job.message}</p>
               )}
             </div>
             <button
               onClick={resetStatus}
-              className="shrink-0 p-1.5 rounded-lg hover:bg-white/50 text-gray-400 hover:text-gray-600 transition-colors"
+              className="shrink-0 p-1.5 rounded-lg hover:bg-white/50 text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] transition-colors"
               title="Dismiss"
             >
               <XCircle className="w-4 h-4" />
@@ -468,7 +468,7 @@ export default function CrmAdmin() {
 
           {running && (
             <div className="px-5 py-4 text-center">
-              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center justify-center gap-2 text-sm text-[var(--color-wi-text-light)]">
                 <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
                 {job.status === "importing" && "Parsing file and importing rows…"}
                 {job.status === "queued" && "Waiting for worker…"}
@@ -525,11 +525,11 @@ export default function CrmAdmin() {
           {/* Success completion */}
           {isSucceeded && (
             <div className="px-5 py-4">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
+              <div className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 Upload processed successfully. Downstream roster reconcile jobs completed.
               </div>
-              <div className="mt-3 text-xs text-gray-400">
+              <div className="mt-3 text-xs text-[var(--color-wi-text-light)]">
                 Visit individual course pages to review roster changes.
               </div>
             </div>
@@ -538,21 +538,21 @@ export default function CrmAdmin() {
       )}
 
       {/* Help section — collapsed by default */}
-      <details className="group rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <summary className="flex items-center gap-2 px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 list-none [&::-webkit-details-marker]:hidden">
-          <ChevronRight className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-90" />
+      <details className="group rounded-xl border border-wi-line bg-white overflow-hidden">
+        <summary className="flex items-center gap-2 px-5 py-3 cursor-pointer hover:bg-[var(--color-wi-row-alt)] transition-colors text-sm font-medium text-[var(--color-wi-text-light)] list-none [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="w-4 h-4 text-[var(--color-wi-text-light)] transition-transform group-open:rotate-90" />
           What format does my file need to be in?
         </summary>
-        <div className="px-5 pb-4 pt-1 border-t border-gray-100">
-          <div className="text-xs text-gray-600 space-y-2">
+        <div className="px-5 pb-4 pt-1 border-t border-wi-line-soft">
+          <div className="text-xs text-[var(--color-wi-text-light)] space-y-2">
             <p>
               Your XLSX file must contain at least these columns (by header name):
             </p>
-            <div className="bg-gray-50 rounded-lg px-3 py-2 font-mono text-[11px] text-gray-700 space-y-0.5">
+            <div className="bg-[var(--color-wi-row-alt)] rounded-lg px-3 py-2 font-mono text-[11px] text-[var(--color-wi-text-light)] space-y-0.5">
               <div><span className="text-emerald-700 font-semibold">Student Id</span> — Required</div>
               <div><span className="text-emerald-700 font-semibold">Course Name</span> — Required</div>
               <div><span className="text-emerald-700 font-semibold">Cycle</span> — Required</div>
-              <div className="text-gray-400 pt-0.5">First Name, Last Name, Teacher(s), and more (optional)</div>
+              <div className="text-[var(--color-wi-text-light)] pt-0.5">First Name, Last Name, Teacher(s), and more (optional)</div>
             </div>
             <p>
               Column order doesn't matter — headers are matched by name. Only .xlsx
@@ -562,9 +562,9 @@ export default function CrmAdmin() {
         </div>
       </details>
 
-      <div className="mt-6 text-xs text-center text-gray-400">
+      <div className="mt-6 text-xs text-center text-[var(--color-wi-text-light)]">
         Need help?{" "}
-        <span className="text-gray-500 font-medium">
+        <span className="text-[var(--color-wi-text-light)] font-medium">
           Contact support for the expected XLSX format
         </span>
       </div>

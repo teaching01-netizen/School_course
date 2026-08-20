@@ -1,6 +1,8 @@
 package courseadmin
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -8,6 +10,20 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 )
+
+func assertErrorCode(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error with code %q, got nil", want)
+	}
+	var e *Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *courseadmin.Error, got %T", err)
+	}
+	if e.Code != want {
+		t.Fatalf("expected code %q, got %q", want, e.Code)
+	}
+}
 
 func testUUID(n byte) pgtype.UUID {
 	var b [16]byte
@@ -304,6 +320,11 @@ func TestHTTPStatusForError_MappingTable(t *testing.T) {
 		{"duplicate_teacher", &Error{Code: "duplicate_teacher"}, http.StatusBadRequest},
 		{"multiple_primary_teachers", &Error{Code: "multiple_primary_teachers"}, http.StatusBadRequest},
 		{"invalid_expected_version", &Error{Code: "invalid_expected_version"}, http.StatusBadRequest},
+		{"invalid_year", &Error{Code: "invalid_year"}, http.StatusBadRequest},
+		{"invalid_hour", &Error{Code: "invalid_hour"}, http.StatusBadRequest},
+		{"invalid_student_count", &Error{Code: "invalid_student_count"}, http.StatusBadRequest},
+		{"invalid_course_type", &Error{Code: "invalid_course_type"}, http.StatusBadRequest},
+		{"invalid_subject", &Error{Code: "invalid_subject"}, http.StatusBadRequest},
 		{"teacher_in_use", &Error{Code: "teacher_in_use"}, http.StatusConflict},
 		{"stale_edit", &Error{Code: "stale_edit"}, http.StatusConflict},
 		{"not_found", &Error{Code: "not_found"}, http.StatusNotFound},
@@ -316,4 +337,63 @@ func TestHTTPStatusForError_MappingTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateOptionalCourseMetadata_NilFieldsAreNoOp(t *testing.T) {
+	cmd := UpdateCourseCommand{}
+	if err := validateOptionalCourseMetadata(cmd); err != nil {
+		t.Fatalf("all-nil metadata must validate, got %v", err)
+	}
+}
+
+func TestValidateOptionalCourseMetadata_YearBounds(t *testing.T) {
+	for _, year := range []int16{0, 1, 50, 99} {
+		t.Run(fmt.Sprintf("valid_%d", year), func(t *testing.T) {
+			v := year
+			if err := validateOptionalCourseMetadata(UpdateCourseCommand{Year: &v}); err != nil {
+				t.Fatalf("year %d should validate, got %v", year, err)
+			}
+		})
+	}
+	for _, year := range []int16{-1, 100} {
+		t.Run(fmt.Sprintf("invalid_%d", year), func(t *testing.T) {
+			v := year
+			err := validateOptionalCourseMetadata(UpdateCourseCommand{Year: &v})
+			assertErrorCode(t, err, "invalid_year")
+		})
+	}
+}
+
+func TestValidateOptionalCourseMetadata_HourNonNegative(t *testing.T) {
+	zero := int32(0)
+	if err := validateOptionalCourseMetadata(UpdateCourseCommand{Hour: &zero}); err != nil {
+		t.Fatalf("hour 0 should validate, got %v", err)
+	}
+	negative := int32(-1)
+	err := validateOptionalCourseMetadata(UpdateCourseCommand{Hour: &negative})
+	assertErrorCode(t, err, "invalid_hour")
+}
+
+func TestValidateOptionalCourseMetadata_StudentCountNonNegative(t *testing.T) {
+	zero := int32(0)
+	if err := validateOptionalCourseMetadata(UpdateCourseCommand{StudentCount: &zero}); err != nil {
+		t.Fatalf("student_count 0 should validate, got %v", err)
+	}
+	negative := int32(-1)
+	err := validateOptionalCourseMetadata(UpdateCourseCommand{StudentCount: &negative})
+	assertErrorCode(t, err, "invalid_student_count")
+}
+
+func TestValidateOptionalCourseMetadata_CourseTypeEnum(t *testing.T) {
+	for _, courseType := range []string{"Private", "Group"} {
+		t.Run(courseType, func(t *testing.T) {
+			v := courseType
+			if err := validateOptionalCourseMetadata(UpdateCourseCommand{CourseType: &v}); err != nil {
+				t.Fatalf("course_type %s should validate, got %v", courseType, err)
+			}
+		})
+	}
+	invalid := "SemiPrivate"
+	err := validateOptionalCourseMetadata(UpdateCourseCommand{CourseType: &invalid})
+	assertErrorCode(t, err, "invalid_course_type")
 }

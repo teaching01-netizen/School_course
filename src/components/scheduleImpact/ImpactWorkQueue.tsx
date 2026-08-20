@@ -26,7 +26,7 @@ function SeverityTag({ issue }: { issue: ScheduleImpactIssue }) {
 function LegacyBadge({ quality }: { quality: "exact" | "reconstructed" | "unavailable" }) {
   if (quality === "exact") return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-wi-row-alt)] px-2 py-0.5 text-[10px] text-[var(--color-wi-text-light)]">
       <Info className="h-3 w-3" aria-hidden="true" />
       {quality === "reconstructed" ? "Reconstructed" : "No snapshot"}
     </span>
@@ -36,20 +36,20 @@ function LegacyBadge({ quality }: { quality: "exact" | "reconstructed" | "unavai
 export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: ImpactWorkQueueProps) {
   if (items.length === 0) {
     return (
-      <section className="rounded-sm border border-gray-200 bg-white px-6 py-14 text-center">
-        <Clock3 className="mx-auto h-9 w-9 text-gray-400" aria-hidden="true" />
-        <h2 className="mt-3 text-base font-semibold text-gray-900">No student arrangements need attention</h2>
-        <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">Schedule changes are being monitored automatically.</p>
+      <section className="rounded-sm border border-wi-line bg-white px-6 py-14 text-center">
+        <Clock3 className="mx-auto h-9 w-9 text-[var(--color-wi-text-light)]" aria-hidden="true" />
+        <h2 className="mt-3 text-base font-semibold text-[var(--color-wi-text)]">No student arrangements need attention</h2>
+        <p className="mx-auto mt-1 max-w-md text-sm text-[var(--color-wi-text-light)]">Schedule changes are being monitored automatically.</p>
       </section>
     );
   }
 
   if (density === "compact") {
     return (
-      <section className="overflow-hidden rounded-sm border border-gray-200 bg-white">
+      <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
         <div className="overflow-x-auto">
           <table className="min-w-[760px] text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-600">
+            <thead className="bg-[var(--color-wi-row-alt)] text-xs text-[var(--color-wi-text-light)]">
               <tr><th>Student</th><th>Problem</th><th>Originally / Now</th><th>Urgency</th><th className="text-right">Action</th></tr>
             </thead>
             <tbody>
@@ -58,9 +58,9 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
                 return (
                   <tr key={issue.id} className={selectedID === issue.id ? "bg-blue-50/70" : ""}>
                     <td>
-                      <button type="button" onClick={() => onOpen(issue)} className="text-left font-medium text-gray-900 hover:text-[var(--color-wi-primary)]">
+                      <button type="button" onClick={() => onOpen(issue)} className="text-left font-medium text-[var(--color-wi-text)] hover:text-[var(--color-wi-primary)]">
                         {issue.student_name ?? issue.wcode}
-                        <span className="block text-xs font-normal text-gray-500">
+                        <span className="block text-xs font-normal text-[var(--color-wi-text-light)]">
                           {subjectNameFor(issue)}
                         </span>
                       </button>
@@ -71,7 +71,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
                       {issueMessage(issue)}
                     </td>
                     <td className="whitespace-nowrap"><WorkQueueComparison issue={issue} /></td>
-                    <td className="whitespace-nowrap text-gray-700">{urgencyFor(issue)}</td>
+                    <td className="whitespace-nowrap text-[var(--color-wi-text-light)]">{urgencyFor(issue)}</td>
                     <td className="text-right"><Button variant="ghost" size="sm" onClick={() => onOpen(issue)}>Review</Button></td>
                   </tr>
                 );
@@ -84,25 +84,25 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
   }
 
   return (
-    <section className="overflow-hidden rounded-sm border border-gray-200 bg-white">
-      <div className="divide-y divide-gray-200">
+    <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
+      <div className="divide-y divide-wi-line">
         {items.map((issue) => {
           const selected = selectedID === issue.id;
           const originalQuality = issue.assignment_context.original_session.quality;
           const current = issue.assignment_context.current_session;
           const isDeleted = !current || current.status === "deleted";
           return (
-            <article key={issue.id} className={`px-4 py-4 transition-colors sm:px-5 ${selected ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
+            <article key={issue.id} className={`px-4 py-4 transition-colors sm:px-5 ${selected ? "bg-blue-50/60" : "hover:bg-[var(--color-wi-row-alt)]"}`}>
               <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
                 <button type="button" onClick={() => onOpen(issue)} className="min-w-0 flex-1 text-left focus-visible:rounded-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <SeverityTag issue={issue} />
                     {originalQuality !== "exact" ? <LegacyBadge quality={originalQuality} /> : null}
-                    <span className="font-semibold text-gray-900">{issue.student_name ?? issue.wcode}</span>
-                    <span className="text-sm text-gray-500">{subjectNameFor(issue)}</span>
+                    <span className="font-semibold text-[var(--color-wi-text)]">{issue.student_name ?? issue.wcode}</span>
+                    <span className="text-sm text-[var(--color-wi-text-light)]">{subjectNameFor(issue)}</span>
                   </div>
-                  <p className="mt-2 text-sm font-medium text-gray-800">{issueMessage(issue)}</p>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-2 text-sm font-medium text-[var(--color-wi-text)]">{issueMessage(issue)}</p>
+                  <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">
                     {isDeleted ? "The assigned session has been deleted." : issue.status === "needs_review" ? "Marked for review" : "Open the issue to compare options and confirm the safest action."}
                   </p>
                 </button>
@@ -110,7 +110,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
               </div>
 
               {/* Compact original/current comparison */}
-              <div className="mt-4 rounded-sm border border-gray-100 bg-gray-50/50 p-3">
+              <div className="mt-4 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 p-3">
                 <WorkQueueComparison issue={issue} />
               </div>
 

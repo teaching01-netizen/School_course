@@ -31,7 +31,7 @@ export default function ActiveCourseSelector({
 
   if (courses.length === 0) {
     return (
-      <span className="text-xs text-gray-400 select-none">
+      <span className="text-xs text-[var(--color-wi-text-light)] select-none">
         No courses
       </span>
     );
@@ -44,7 +44,7 @@ export default function ActiveCourseSelector({
 
   if (activeInOtherGroup) {
     triggerContent = (
-      <span className="text-xs text-gray-500">
+      <span className="text-xs text-[var(--color-wi-text-light)]">
         Active: {activeCourseId} (in group)
       </span>
     );
@@ -52,7 +52,7 @@ export default function ActiveCourseSelector({
     triggerContent = (
       <>
         <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block shrink-0" />
-        <span className="text-xs font-medium text-gray-700 truncate">
+        <span className="text-xs font-medium text-[var(--color-wi-text-light)] truncate">
           {activeCourse.code}
         </span>
       </>
@@ -72,14 +72,14 @@ export default function ActiveCourseSelector({
         disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm transition-colors duration-150
-          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-100 cursor-pointer"}
+          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--color-wi-row-alt)] cursor-pointer"}
         `}
         aria-label={`Active course selector for subject ${subjectId}`}
         aria-expanded={open}
       >
         {triggerContent}
         <svg
-          className={`w-3 h-3 text-gray-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+          className={`w-3 h-3 text-[var(--color-wi-text-light)] transition-transform duration-150 ${open ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -90,7 +90,7 @@ export default function ActiveCourseSelector({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white border border-gray-200 rounded-sm shadow-lg">
+        <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white border border-wi-line rounded-sm shadow-lg">
           <div className="py-1">
             {courses.map((course) => {
               const isActive = course.id === activeCourseId;
@@ -103,7 +103,7 @@ export default function ActiveCourseSelector({
                     setOpen(false);
                   }}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors duration-150
-                    ${isActive ? "bg-[var(--color-wi-primary)]/5 font-medium" : "hover:bg-gray-50"}
+                    ${isActive ? "bg-[var(--color-wi-primary)]/5 font-medium" : "hover:bg-[var(--color-wi-row-alt)]"}
                   `}
                 >
                   <span className="w-4 shrink-0 flex items-center justify-center">
@@ -122,8 +122,8 @@ export default function ActiveCourseSelector({
                       </svg>
                     )}
                   </span>
-                  <span className="flex-1 truncate text-gray-700">{course.code}</span>
-                  <span className="shrink-0 text-gray-400">{course.cycleLabel}</span>
+                  <span className="flex-1 truncate text-[var(--color-wi-text-light)]">{course.code}</span>
+                  <span className="shrink-0 text-[var(--color-wi-text-light)]">{course.cycleLabel}</span>
                 </button>
               );
             })}

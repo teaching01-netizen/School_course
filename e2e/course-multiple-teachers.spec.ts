@@ -20,6 +20,12 @@ async function selectTeacher(page: Page, name: string) {
   await page.getByRole("option").filter({ hasText: name }).click();
 }
 
+/** Opens the teachers property popover by clicking the teacher chips. */
+async function openTeachersPopover(page: Page) {
+  await page.getByRole("button", { name: /Alice Smith/ }).click();
+  await expect(page.getByRole("radiogroup", { name: "Primary teacher" })).toBeVisible();
+}
+
 // ---------------------------------------------------------------------------
 // E2E-001: Create multi-teacher course
 // ---------------------------------------------------------------------------
@@ -111,8 +117,8 @@ test.describe("Course Teachers — Change Primary", () => {
     // Navigate to course detail
     await page.goto("/courses/course-1");
 
-    // Click Edit (first on the page — course header, not session rows)
-    await page.getByRole("button", { name: "Edit" }).first().click();
+    // Open the Teachers property popover (click the chips in the property grid)
+    await openTeachersPopover(page);
 
     // Change primary teacher from Alice Smith to Bob Jones
     await page
@@ -141,13 +147,13 @@ test.describe("Course Teachers — Change Primary", () => {
     // Click Save
     await page.getByRole("button", { name: "Save" }).click();
 
-    // Wait for the page to update (edit mode closes)
-    await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+    // Wait for the popover to close after the successful save
+    await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
     // Verify Bob Jones is now primary and Alice Smith is still assigned
-    // The teacher display shows both names
-    await expect(page.getByText("Alice Smith")).toBeVisible();
-    await expect(page.getByText("Bob Jones")).toBeVisible();
+    // The teacher chips show both names
+    await expect(page.getByText("Alice Smith").first()).toBeVisible();
+    await expect(page.getByText("Bob Jones").first()).toBeVisible();
 
     // Primary badge should be visible (now pointing to Bob Jones)
     await expect(page.getByText("Primary")).toBeVisible();
@@ -190,8 +196,8 @@ test.describe("Course Teachers — Remove Active Teacher", () => {
     // Navigate to course detail
     await page.goto("/courses/course-1");
 
-    // Click Edit (first on the page — course header, not session rows)
-    await page.getByRole("button", { name: "Edit" }).first().click();
+    // Open the Teachers property popover (click the chips in the property grid)
+    await openTeachersPopover(page);
 
     // Remove Bob Jones from the teacher selection
     await page.getByRole("button", { name: "Remove Bob Jones" }).click();
@@ -227,11 +233,12 @@ test.describe("Course Teachers — Remove Active Teacher", () => {
     // Verify the teacher_in_use error toast is shown
     await expect(page.getByText("cannot be removed")).toBeVisible();
 
-    // Cancel editing to return to view mode
+    // Cancel the popover to return to the resting property grid
     await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
     // Verify Bob Jones is still assigned (the course data was not changed)
-    // Use .first() because Bob Jones appears in both teacher badges and session rows
+    // Use .first() because Bob Jones appears in both teacher chips and session rows
     await expect(page.getByText("Alice Smith").first()).toBeVisible();
     await expect(page.getByText("Bob Jones").first()).toBeVisible();
   });
@@ -284,8 +291,8 @@ test.describe("Course Teachers — Remove Historical Teacher", () => {
     // Navigate to course detail
     await page.goto("/courses/course-1");
 
-    // Click Edit (first on the page — course header, not session rows)
-    await page.getByRole("button", { name: "Edit" }).first().click();
+    // Open the Teachers property popover (click the chips in the property grid)
+    await openTeachersPopover(page);
 
     // Remove Bob Jones from the teacher selection
     await page.getByRole("button", { name: "Remove Bob Jones" }).click();
@@ -309,14 +316,13 @@ test.describe("Course Teachers — Remove Historical Teacher", () => {
     // Click Save — the PATCH should succeed
     await page.getByRole("button", { name: "Save" }).click();
 
-    // Wait for edit mode to close (course header Edit button is first on page)
-    await expect(page.getByRole("button", { name: "Edit" }).first()).toBeVisible();
+    // Wait for the popover to close after the successful save
+    await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
-    // Verify Bob Jones is no longer shown in the teacher badges area
-    // The teacher area is the div above the Schedule heading
-    const courseInfoDiv = page.locator("div.border-b.border-gray-200.pb-3.mb-6");
-    await expect(courseInfoDiv.getByText("Alice Smith")).toBeVisible();
-    await expect(courseInfoDiv.getByText("Bob Jones")).toHaveCount(0);
+    // Verify Bob Jones is no longer shown in the teacher property chips
+    const courseInfoDiv = page.locator("div.max-w-2xl").first();
+    await expect(courseInfoDiv.getByRole("button", { name: /Alice Smith/ })).toBeVisible();
+    await expect(courseInfoDiv.getByRole("button", { name: /Bob Jones/ })).toHaveCount(0);
 
     // Verify past sessions still show Bob Jones's name
     // Sessions are displayed in the schedule table (2 rows, both show Bob Jones)

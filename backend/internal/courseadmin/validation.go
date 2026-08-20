@@ -76,6 +76,46 @@ func primaryTeacherID(assignments []TeacherAssignment) pgtype.UUID {
 	return pgtype.UUID{Valid: false}
 }
 
+// validateOptionalCourseMetadata checks the bounds of the curated course
+// properties that may be patched independently of the teacher set. It runs
+// before any database access and only inspects non-nil command fields — nil
+// means "unchanged", so it is always a no-op for PUT/legacy clients. The
+// subject existence check needs the DB and lives in the service layer; the
+// schema's own CHECK constraints remain the backstop for all of these rules.
+func validateOptionalCourseMetadata(command UpdateCourseCommand) error {
+	if command.Year != nil {
+		if *command.Year < 0 || *command.Year > 99 {
+			return &Error{
+				Code:    "invalid_year",
+				Message: "Year must be between 0 and 99.",
+				Details: map[string]any{"year": *command.Year},
+			}
+		}
+	}
+	if command.Hour != nil && *command.Hour < 0 {
+		return &Error{
+			Code:    "invalid_hour",
+			Message: "Hour cannot be negative.",
+			Details: map[string]any{"hour": *command.Hour},
+		}
+	}
+	if command.StudentCount != nil && *command.StudentCount < 0 {
+		return &Error{
+			Code:    "invalid_student_count",
+			Message: "Student count cannot be negative.",
+			Details: map[string]any{"student_count": *command.StudentCount},
+		}
+	}
+	if command.CourseType != nil && *command.CourseType != "Private" && *command.CourseType != "Group" {
+		return &Error{
+			Code:    "invalid_course_type",
+			Message: "Course type must be either Private or Group.",
+			Details: map[string]any{"course_type": *command.CourseType},
+		}
+	}
+	return nil
+}
+
 // calculateRemovedTeacherIDs returns the teacher IDs present in the existing
 // assignment rows but absent from the incoming assignments. These are the
 // teachers whose removal must be blocked while they own future sessions.

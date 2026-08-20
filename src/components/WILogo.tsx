@@ -1,15 +1,30 @@
-export default function WILogo({ className = '' }: { className?: string }) {
+interface WILogoProps {
+  className?: string;
+  variant?: "color" | "mono";
+  showWordmark?: boolean;
+  size?: number;
+}
+
+const monoStroke = "#ffffff";
+
+export default function WILogo({ className = "", variant = "color", showWordmark = true, size = 40 }: WILogoProps) {
+  const red = variant === "mono" ? monoStroke : "var(--color-wi-red)";
+  const blue = variant === "mono" ? monoStroke : "var(--color-wi-primary)";
+  const gray = variant === "mono" ? "rgba(255,255,255,0.72)" : "var(--color-wi-text-light)";
+
   return (
     <div className={`flex items-center gap-1 ${className}`}>
-      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M5 8L12 32L18 14L24 32L30 14L35 8" stroke="#c0392b" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M8 8L15 32" stroke="#2980b9" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <path d="M20 8L24 20" stroke="#7f8c8d" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M5 8L12 32L18 14L24 32L30 14L35 8" stroke={red} strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M8 8L15 32" stroke={blue} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <path d="M20 8L24 20" stroke={gray} strokeWidth="2" fill="none" strokeLinecap="round"/>
       </svg>
-      <div className="leading-tight">
-        <div className="text-[11px] font-bold tracking-wider text-gray-800">WARWICK</div>
-        <div className="text-[9px] tracking-[0.2em] text-gray-500">INSTITUTE</div>
-      </div>
+      {showWordmark && (
+        <div className="leading-tight">
+          <div className={`text-[11px] font-bold tracking-wider ${variant === "mono" ? "text-white" : "text-[var(--color-wi-text)]"}`}>WARWICK</div>
+          <div className={`text-[9px] tracking-[0.2em] ${variant === "mono" ? "text-white/60" : "text-[var(--color-wi-text-light)]"}`}>INSTITUTE</div>
+        </div>
+      )}
     </div>
   );
 }

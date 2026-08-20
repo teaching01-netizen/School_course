@@ -32,21 +32,38 @@ type Service struct {
 	users        UserLookup
 	log          *slog.Logger
 	cookieSecure bool
+	ipResolver   ClientIPResolver
 }
 
-func NewService(hasher PasswordHasher, sessions SessionStore, limiter LoginRateLimiter, users UserLookup, log *slog.Logger) *Service {
-	return NewServiceWithCookieSecure(hasher, sessions, limiter, users, log, true)
+// ServiceOptions bundles the auth service dependencies. CookieSecure controls
+// the __Host- cookie prefix (production true, local http false). IPResolver
+// applies the trusted-proxy policy for rate limiting; nil falls back to the
+// RemoteAddr host.
+type ServiceOptions struct {
+	Hasher       PasswordHasher
+	Sessions     SessionStore
+	Limiter      LoginRateLimiter
+	Users        UserLookup
+	Log          *slog.Logger
+	CookieSecure bool
+	IPResolver   ClientIPResolver
 }
 
-func NewServiceWithCookieSecure(hasher PasswordHasher, sessions SessionStore, limiter LoginRateLimiter, users UserLookup, log *slog.Logger, cookieSecure bool) *Service {
+func NewService(opts ServiceOptions) *Service {
 	return &Service{
-		hasher:       hasher,
-		sessions:     sessions,
-		limiter:      limiter,
-		users:        users,
-		log:          log,
-		cookieSecure: cookieSecure,
+		hasher:       opts.Hasher,
+		sessions:     opts.Sessions,
+		limiter:      opts.Limiter,
+		users:        opts.Users,
+		log:          opts.Log,
+		cookieSecure: opts.CookieSecure,
+		ipResolver:   opts.IPResolver,
 	}
+}
+
+// ClientIPResolver applies the server's trusted-proxy policy to a request.
+type ClientIPResolver interface {
+	Resolve(*http.Request) string
 }
 
 func (s *Service) sessionCookieName() string {
@@ -71,12 +88,17 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (Aut
 	ctx, cancel := context.WithTimeout(ctx, authDBTimeout)
 	defer cancel()
 
+	if s.limiter == nil {
+		return AuthenticatedUser{}, Session{}, ErrRateLimiterUnavailable
+	}
 	result, err := s.limiter.Allow(ctx, username, ip)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("rate limiter error", "username", username, "ip", ip, "error", err)
 		}
-	} else if !result.Allowed {
+		return AuthenticatedUser{}, Session{}, fmt.Errorf("%w: %v", ErrRateLimiterUnavailable, err)
+	}
+	if !result.Allowed {
 		return AuthenticatedUser{}, Session{}, ErrTooManyRequests
 	}
 
@@ -120,8 +142,8 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (Aut
 	return authed, sess, nil
 }
 
-// ValidateSession checks a session token and returns the authenticated user.
-// It enforces: not revoked, not expired, not idle, password version match.
+// ValidateSession checks a legacy database session ID and returns the authenticated user.
+// It remains available so active pre-token-migration cookies can expire safely.
 func (s *Service) ValidateSession(ctx context.Context, sessionID uuid.UUID) (AuthenticatedUser, error) {
 	ctx, cancel := context.WithTimeout(ctx, authDBTimeout)
 	defer cancel()
@@ -130,7 +152,34 @@ func (s *Service) ValidateSession(ctx context.Context, sessionID uuid.UUID) (Aut
 	if err != nil {
 		return AuthenticatedUser{}, fmt.Errorf("lookup session: %w", err)
 	}
+	return s.validateSessionRecord(ctx, sess)
+}
 
+// ValidateSessionToken validates a new opaque cookie token and accepts a legacy
+// UUID cookie during the token-hash migration window.
+func (s *Service) ValidateSessionToken(ctx context.Context, token string) (AuthenticatedUser, error) {
+	if strings.TrimSpace(token) == "" {
+		return AuthenticatedUser{}, errors.New("no session")
+	}
+	ctx, cancel := context.WithTimeout(ctx, authDBTimeout)
+	defer cancel()
+
+	var (
+		sess Session
+		err  error
+	)
+	if sessionID, parseErr := uuid.Parse(token); parseErr == nil {
+		sess, err = s.sessions.ByID(ctx, sessionID)
+	} else {
+		sess, err = s.sessions.ByToken(ctx, token)
+	}
+	if err != nil {
+		return AuthenticatedUser{}, fmt.Errorf("lookup session: %w", err)
+	}
+	return s.validateSessionRecord(ctx, sess)
+}
+
+func (s *Service) validateSessionRecord(ctx context.Context, sess Session) (AuthenticatedUser, error) {
 	if sess.RevokedAt != nil {
 		return AuthenticatedUser{}, errors.New("session revoked")
 	}
@@ -152,7 +201,7 @@ func (s *Service) ValidateSession(ctx context.Context, sessionID uuid.UUID) (Aut
 		return AuthenticatedUser{}, errors.New("password version mismatch")
 	}
 
-	s.sessions.TouchLastSeen(ctx, sessionID)
+	s.sessions.TouchLastSeen(ctx, sess.ID)
 
 	return AuthenticatedUser{
 		ID:              user.ID,
@@ -162,7 +211,7 @@ func (s *Service) ValidateSession(ctx context.Context, sessionID uuid.UUID) (Aut
 	}, nil
 }
 
-// Logout revokes a session.
+// Logout revokes a legacy session ID.
 func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
 	if sessionID == uuid.Nil {
 		return nil
@@ -170,6 +219,19 @@ func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, authLogoutTimeout)
 	defer cancel()
 	return s.sessions.Revoke(ctx, sessionID)
+}
+
+// LogoutToken revokes either a new opaque token or a legacy UUID cookie.
+func (s *Service) LogoutToken(ctx context.Context, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	if sessionID, err := uuid.Parse(token); err == nil {
+		return s.Logout(ctx, sessionID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, authLogoutTimeout)
+	defer cancel()
+	return s.sessions.RevokeByToken(ctx, token)
 }
 
 // RevokeAllUserSessions revokes all active sessions for a user.
@@ -191,7 +253,7 @@ type loginRequest struct {
 }
 
 func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) error {
-	ip := stripPort(r.RemoteAddr)
+	ip := s.requestIP(r)
 
 	if r.Header.Get("Content-Type") != "" && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return fmt.Errorf("unexpected content-type")
@@ -213,15 +275,24 @@ func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) error {
 		}
 		return loginErr
 	}
+	if strings.TrimSpace(sess.Token) == "" {
+		return errors.New("session token missing")
+	}
 
+	// The cookie's lifetime is the session's absolute cap, not the idle
+	// timeout: the server re-checks idle time, revocation, and password
+	// version on every request, so the browser-side expiry only needs to cover
+	// the longest session the server allows. A cookie lasting only the idle
+	// window would log out active users after 8 hours regardless of activity.
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.sessionCookieName(),
-		Value:    sess.ID.String(),
+		Value:    sess.Token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.cookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		Expires:  sess.LastSeenAt.Add(sessionIdleTimeout),
+		Expires:  sess.ExpiresAt,
+		MaxAge:   int(time.Until(sess.ExpiresAt).Seconds()),
 	})
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -233,11 +304,8 @@ func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Service) HandleLogout(w http.ResponseWriter, r *http.Request) error {
-	c, err := r.Cookie(s.sessionCookieName())
-	if err == nil && c.Value != "" {
-		if sid, parseErr := uuid.Parse(c.Value); parseErr == nil {
-			_ = s.Logout(r.Context(), sid)
-		}
+	if c, err := r.Cookie(s.sessionCookieName()); err == nil && c.Value != "" {
+		_ = s.LogoutToken(r.Context(), c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.sessionCookieName(),
@@ -256,11 +324,14 @@ func (s *Service) RequireUser(ctx context.Context, r *http.Request) (Authenticat
 	if err != nil || c.Value == "" {
 		return AuthenticatedUser{}, errors.New("no session")
 	}
-	sessionID, err := uuid.Parse(c.Value)
-	if err != nil {
-		return AuthenticatedUser{}, errors.New("bad session id")
+	return s.ValidateSessionToken(ctx, c.Value)
+}
+
+func (s *Service) requestIP(r *http.Request) string {
+	if s.ipResolver != nil {
+		return s.ipResolver.Resolve(r)
 	}
-	return s.ValidateSession(ctx, sessionID)
+	return stripPort(r.RemoteAddr)
 }
 
 // stripPort removes the port from an address, handling IPv6 bracket notation.

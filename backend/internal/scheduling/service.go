@@ -374,23 +374,150 @@ type SplitSeriesResult struct {
 
 // SplitThisAndFutureTx splits a series using an existing tx-bound handle.
 func (s *Service) SplitThisAndFutureTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, p SplitSeriesParams) (SplitSeriesResult, error) {
-	res, err := s.seriesSvc.SplitThisAndFutureTx(ctx, qtx, series.SplitParams{
-		SeriesID:        p.SeriesID,
-		PivotDate:       p.PivotDate,
-		ExpectedVersion: p.ExpectedVersion,
-		Weekdays:        p.Weekdays,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		EndDate:         p.EndDate,
-		Count:           p.Count,
+	// Build preflight candidates for the occurrences the split will create, so
+	// a constraint failure can be explained with actual conflict details. The
+	// split write itself is authoritative: if candidate computation fails
+	// (invalid pivot, count, or an infra error) the write still proceeds and
+	// its own error is returned — candidates are only used for explanation.
+	candidates, candErr := s.splitPreflightCandidates(ctx, qtx, p)
+
+	var res series.SplitResult
+	err := withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+		var writeErr error
+		res, writeErr = s.seriesSvc.SplitThisAndFutureTx(ctx, qsp, series.SplitParams{
+			SeriesID:        p.SeriesID,
+			PivotDate:       p.PivotDate,
+			ExpectedVersion: p.ExpectedVersion,
+			Weekdays:        p.Weekdays,
+			StartLocalTime:  p.StartLocalTime,
+			DurationMinutes: p.DurationMinutes,
+			EndDate:         p.EndDate,
+			Count:           p.Count,
+		})
+		return writeErr
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "stale_edit") {
 			return SplitSeriesResult{}, &Err{Code: "stale_edit", Message: err.Error()}
 		}
+		if candErr == nil {
+			if se := s.explainFromDBErrByRepreflightTx(ctx, err, tx, qtx, candidates); se != nil {
+				return SplitSeriesResult{}, se
+			}
+		}
 		return SplitSeriesResult{}, err
 	}
 	return SplitSeriesResult{OldSeriesID: res.OldSeriesID, NewSeriesID: res.NewSeriesID, NewSessionsAdded: res.NewSessionsAdded}, nil
+}
+
+// splitPreflightCandidates computes the occurrences a split will create and
+// builds preflight inputs for them, mirroring the series service's
+// SplitThisAndFutureTx (internal/series/service.go): same retained-count
+// derivation, same successor bounds, same materialization. The old series'
+// future occurrences are ignored (IgnoreSeries) because the split replaces
+// them in the same write.
+func (s *Service) splitPreflightCandidates(ctx context.Context, qtx *sqldb.Queries, p SplitSeriesParams) ([]preflightInput, error) {
+	old, err := qtx.SeriesGetByID(ctx, p.SeriesID)
+	if err != nil {
+		return nil, err
+	}
+	oldWeekdays := make([]time.Weekday, 0, len(old.Weekdays))
+	for _, wd := range old.Weekdays {
+		oldWeekdays = append(oldWeekdays, time.Weekday(wd))
+	}
+	clock := series.ClockFromPgTime(old.StartLocalTime)
+	if p.StartLocalTime != nil {
+		clock = *p.StartLocalTime
+	}
+	duration := int(old.DurationMinutes)
+	if p.DurationMinutes != nil {
+		duration = *p.DurationMinutes
+	}
+	newWeekdays := oldWeekdays
+	if len(p.Weekdays) > 0 {
+		newWeekdays = p.Weekdays
+	}
+	unchangedDefinition := len(p.Weekdays) == 0 && p.StartLocalTime == nil && p.DurationMinutes == nil && p.EndDate == nil && p.Count == nil
+	if unchangedDefinition {
+		// Pure reparent of the future occurrences: no new sessions are created.
+		return nil, nil
+	}
+
+	pivotDate := pgtype.Date{Time: time.Date(p.PivotDate.Year, p.PivotDate.Month, p.PivotDate.Day, 0, 0, 0, 0, time.UTC), Valid: true}
+	pivot, err := qtx.SessionFindActiveSeriesPivot(ctx, sqldb.SessionFindActiveSeriesPivotParams{SeriesID: p.SeriesID, Column2: pivotDate})
+	if err != nil {
+		return nil, err
+	}
+	pivotUTC := pivot.StartAt.Time.UTC()
+
+	var retainedCount int32
+	if old.Count.Valid {
+		retainedCount, err = series.CountOccurrencesBefore(ctx, oldWeekdays, series.LocalDateFromPgDate(old.StartDate), p.PivotDate, old.Count.Int32)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		retainedCount, err = qtx.SessionCountActiveBeforeSeriesPivot(ctx, sqldb.SessionCountActiveBeforeSeriesPivotParams{
+			SeriesID: old.ID,
+			StartAt:  pgtype.Timestamptz{Time: pivotUTC, Valid: true},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var endLD *series.LocalDate
+	if p.EndDate != nil {
+		tmp := *p.EndDate
+		endLD = &tmp
+	} else if old.EndDate.Valid {
+		tmp := series.LocalDateFromPgDate(old.EndDate)
+		endLD = &tmp
+	}
+	var countNew *int
+	if p.Count != nil {
+		retained := int(retainedCount)
+		if *p.Count <= retained {
+			return nil, fmt.Errorf("invalid_recurrence_count: total count must exceed retained occurrences")
+		}
+		remaining := *p.Count - retained
+		countNew = &remaining
+	} else if old.Count.Valid {
+		value := int(old.Count.Int32)
+		countNew = &value
+	}
+
+	occNew, err := series.Materialize(ctx, series.MaterializeInput{
+		Weekdays:        newWeekdays,
+		StartDate:       p.PivotDate,
+		EndDate:         endLD,
+		Count:           countNew,
+		StartLocalTime:  clock,
+		DurationMinutes: duration,
+		Location:        s.loc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ps, err := newPreflightStrings(old.CourseID, old.RoomID, old.TeacherID)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]preflightInput, 0, len(occNew))
+	for _, o := range occNew {
+		candidates = append(candidates, preflightInput{
+			CourseID:          old.CourseID,
+			RoomID:            old.RoomID,
+			TeacherID:         old.TeacherID,
+			StartUTC:          o.StartUTC,
+			EndUTC:            o.EndUTC,
+			IgnoreSeries:      &p.SeriesID,
+			SkipAdvisoryGates: true,
+			Requested:         ps.conflictRequested(o.StartUTC, o.EndUTC, nil),
+		})
+	}
+	return candidates, nil
 }
 
 func (s *Service) SplitThisAndFuture(ctx context.Context, p SplitSeriesParams) (SplitSeriesResult, error) {
@@ -546,22 +673,35 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 			TeacherID: p.TeacherID,
 			StartUTC:  o.StartUTC,
 			EndUTC:    o.EndUTC,
-			Requested: ps.conflictRequested(o.StartUTC, o.EndUTC, &seriesIDStr),
+			// This series' future occurrences are replaced in the same write, so
+			// overlap/availability preflight must not treat them as conflicts.
+			IgnoreSeries:      &p.SeriesID,
+			SkipAdvisoryGates: true,
+			Requested:         ps.conflictRequested(o.StartUTC, o.EndUTC, &seriesIDStr),
 		})
 	}
 
-	res, err := s.seriesSvc.EditEntireSeriesFutureOnlyTx(ctx, qtx, series.EditEntireFutureParams{
-		SeriesID:        p.SeriesID,
-		ExpectedVersion: p.ExpectedVersion,
-		NowUTC:          nowUTC,
-		CourseID:        p.CourseID,
-		RoomID:          p.RoomID,
-		TeacherID:       p.TeacherID,
-		Weekdays:        p.Weekdays,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		EndDate:         p.EndDate,
-		Count:           p.Count,
+	// The series write itself runs inside a savepoint: a constraint failure
+	// rolls back only the write, leaving the tx usable so the candidates above
+	// can be re-preflighted to explain the conflict with actual details rather
+	// than a synthetic "schedule conflict detected by database constraint".
+	var res series.EditEntireFutureResult
+	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+		var writeErr error
+		res, writeErr = s.seriesSvc.EditEntireSeriesFutureOnlyTx(ctx, qsp, series.EditEntireFutureParams{
+			SeriesID:        p.SeriesID,
+			ExpectedVersion: p.ExpectedVersion,
+			NowUTC:          nowUTC,
+			CourseID:        p.CourseID,
+			RoomID:          p.RoomID,
+			TeacherID:       p.TeacherID,
+			Weekdays:        p.Weekdays,
+			StartLocalTime:  p.StartLocalTime,
+			DurationMinutes: p.DurationMinutes,
+			EndDate:         p.EndDate,
+			Count:           p.Count,
+		})
+		return writeErr
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "stale_edit") {
@@ -1061,6 +1201,20 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	}
 
 	var row sqldb.SessionUpdateOccurrenceRow
+	if courseChanged {
+		// Drop overrides referencing students outside the destination course
+		// BEFORE the session update: the update's busy-range refresh derives
+		// the roster from (course roster ∪ includes \ excludes), so a stale
+		// include for a student who is not in the new course would otherwise
+		// materialize a busy range at the new time — and can collide with that
+		// student's own courses even though the override is being removed.
+		if err := qtx.SessionAttendanceDeleteNotInCourse(ctx, sqldb.SessionAttendanceDeleteNotInCourseParams{
+			SessionID: p.SessionID,
+			CourseID:  newCourseID,
+		}); err != nil {
+			return EditOccurrenceResult{}, err
+		}
+	}
 	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
 		var updateErr error
 		row, updateErr = qsp.SessionUpdateOccurrence(ctx, sqldb.SessionUpdateOccurrenceParams{
@@ -1109,15 +1263,6 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 			}
 		}
 		return EditOccurrenceResult{}, err
-	}
-
-	if courseChanged {
-		if err := qtx.SessionAttendanceDeleteNotInCourse(ctx, sqldb.SessionAttendanceDeleteNotInCourseParams{
-			SessionID: p.SessionID,
-			CourseID:  newCourseID,
-		}); err != nil {
-			return EditOccurrenceResult{}, err
-		}
 	}
 
 	changeID, err := s.recordSessionChange(ctx, qtx, existing, row, p)
@@ -1170,6 +1315,13 @@ type preflightInput struct {
 	IgnoreSeries  *pgtype.UUID
 	StudentIDs    *[]pgtype.UUID
 	Requested     ConflictRequested
+	// SkipAdvisoryGates suppresses the advisory membership/activation checks
+	// (course-teacher membership, teacher-active) that the database does not
+	// enforce. Series-scoped operations (split, edit-entire) legitimately run
+	// with identities that may no longer match the course's current teacher set
+	// or an active teacher flag; only the DB-enforced checks are meaningful for
+	// their preflight/explanation.
+	SkipAdvisoryGates bool
 }
 
 func uuidString(u pgtype.UUID) (string, error) {
@@ -1507,11 +1659,18 @@ func (s *Service) FindAvailableSlots(ctx context.Context, p FindAvailableSlotsPa
 		return FindAvailableSlotsResult{}, fmt.Errorf("teacher availability check: %w", err)
 	}
 	if hasWindows {
+		// Union coverage, matching the database trigger policy (00070): a slot
+		// straddling two abutting windows is covered. The unnest must appear in
+		// the FROM clause for WITH ORDINALITY to be valid SQL.
 		q := fmt.Sprintf(`
 SELECT DISTINCT sr.idx
-FROM (SELECT unnest(%s) WITH ORDINALITY AS (r, idx)) sr
-JOIN teacher_availability a ON a.time_range @> sr.r
-WHERE a.teacher_id = $1 AND a.deleted_at IS NULL`, rangeArray)
+FROM unnest(%s) WITH ORDINALITY AS sr(r, idx)
+CROSS JOIN LATERAL (
+	SELECT COALESCE(range_agg(a.time_range), '{}'::tstzmultirange) AS union_range
+	FROM teacher_availability a
+	WHERE a.teacher_id = $1 AND a.deleted_at IS NULL
+) u
+WHERE u.union_range @> sr.r`, rangeArray)
 		rows, err := s.db.Query(ctx, q, teacherID)
 		if err != nil {
 			return FindAvailableSlotsResult{}, fmt.Errorf("batch teacher availability: %w", err)
@@ -1546,7 +1705,7 @@ WHERE a.teacher_id = $1 AND a.deleted_at IS NULL`, rangeArray)
 	{
 		q := fmt.Sprintf(`
 SELECT DISTINCT sr.idx
-FROM (SELECT unnest(%s) WITH ORDINALITY AS (r, idx)) sr
+FROM unnest(%s) WITH ORDINALITY AS sr(r, idx)
 JOIN sessions s ON s.time_range && sr.r
 WHERE s.teacher_id = $1 AND s.deleted_at IS NULL`, rangeArray)
 		rows, err := s.db.Query(ctx, q, teacherID)
@@ -1577,7 +1736,7 @@ WHERE s.teacher_id = $1 AND s.deleted_at IS NULL`, rangeArray)
 	if len(studentIDs) > 0 {
 		q := fmt.Sprintf(`
 SELECT DISTINCT sr.idx
-FROM (SELECT unnest(%s) WITH ORDINALITY AS (r, idx)) sr
+FROM unnest(%s) WITH ORDINALITY AS sr(r, idx)
 JOIN student_busy_ranges br ON br.time_range && sr.r
 JOIN sessions s ON s.id = br.session_id AND s.deleted_at IS NULL
 WHERE br.student_id = ANY($1::uuid[])

@@ -191,8 +191,6 @@ func (s *server) handleUpdateRootCourseGroup(w http.ResponseWriter, r *http.Requ
 	s.a.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-
-
 func (s *server) handleListRootCourseGroups(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.a.MustAdmin(w, r); !ok {
 		return

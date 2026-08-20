@@ -75,6 +75,11 @@ func normalizedAbsencePaging(p AbsenceFilter) AbsenceFilter {
 	if p.Offset < 0 {
 		p.Offset = 0
 	}
+	// A nil slice binds as SQL NULL, making cardinality($8::uuid[]) = 0
+	// evaluate to NULL and silently filter out every row.
+	if p.IDs == nil {
+		p.IDs = []pgtype.UUID{}
+	}
 	return p
 }
 
@@ -87,7 +92,7 @@ const managedAbsenceListQueryTemplate = `
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at,
 		       COALESCE(impact.open_issue_count, 0),
@@ -99,6 +104,7 @@ const managedAbsenceListQueryTemplate = `
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
 		LEFT JOIN (
 		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
 		  FROM absence_sit_ins asi
@@ -135,7 +141,7 @@ const managedAbsenceGetQueryTemplate = `
 		       st.parent_phone,
 		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, sit_sub.name, sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
 		FROM student_absences sa
@@ -143,6 +149,7 @@ const managedAbsenceGetQueryTemplate = `
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
 		LEFT JOIN (
 		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
 		  FROM absence_sit_ins asi
@@ -1275,7 +1282,10 @@ type AbsenceDayInRangeRow struct {
 	SitInSubjectName pgtype.Text
 }
 
-func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd time.Time) ([]AbsenceDayInRangeRow, error) {
+// AbsenceDaysInRange returns absences whose [date_from, date_to] overlap the
+// requested YYYY-MM-DD range. The bounds are passed as date strings so the
+// ::date casts never depend on the database session timezone.
+func (q *Queries) AbsenceDaysInRange(ctx context.Context, startKey, endKey string) ([]AbsenceDayInRangeRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT
 		  sa.id,
@@ -1289,11 +1299,12 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 		  sa.sit_in_method,
 		  sc.code,
 		  sc.name,
-		  sit_sub.name
+		  COALESCE(sit_sub.name, sit_sc_sub.name)
 		FROM student_absences sa
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
 		LEFT JOIN subjects sub ON sub.id = sa.subject_id
 		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+		LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
 		LEFT JOIN (
 		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
 		  FROM absence_sit_ins asi
@@ -1305,7 +1316,7 @@ func (q *Queries) AbsenceDaysInRange(ctx context.Context, rangeStart, rangeEnd t
 		WHERE sa.date_from <= $2::date
 		  AND sa.date_to >= $1::date
 		ORDER BY sa.date_from ASC, sa.id ASC
-	`, rangeStart, rangeEnd)
+	`, startKey, endKey)
 	if err != nil {
 		return nil, err
 	}

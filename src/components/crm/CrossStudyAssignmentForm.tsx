@@ -41,7 +41,7 @@ function WeekdaySelector({
 }) {
   return (
     <fieldset className="mt-2">
-      <legend className="mb-1 text-xs font-medium text-gray-600">Attend sessions</legend>
+      <legend className="mb-1 text-xs font-medium text-[var(--color-wi-text-light)]">Attend sessions</legend>
       <div className="grid grid-cols-4 gap-1 sm:grid-cols-7">
         {weekdays.map((day) => {
           const checked = values.includes(day.value);
@@ -51,7 +51,7 @@ function WeekdaySelector({
               className={`flex min-h-10 cursor-pointer items-center justify-center rounded-sm border px-2 text-xs font-medium ${
                 checked
                   ? "border-blue-500 bg-blue-50 text-blue-700"
-                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                  : "border-wi-line bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               <input
@@ -149,13 +149,13 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
   return (
     <div className="space-y-4">
       {/* Course A/B selectors */}
-      <div className="bg-gray-50 rounded-sm p-3 space-y-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+      <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">
           Cross-study destination courses
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Course A</label>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Course A</label>
             <TypeaheadSelect
               value={destA}
               onChange={setDestA}
@@ -163,7 +163,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
               placeholder="Search course…"
             />
             {courseA && (
-              <div className="mt-1 text-xs text-gray-400">
+              <div className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 {courseA.code} &middot; {courseA.subject_name || "No subject"}
               </div>
             )}
@@ -172,7 +172,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
             )}
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Course B</label>
+            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Course B</label>
             <TypeaheadSelect
               value={destB}
               onChange={setDestB}
@@ -180,7 +180,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
               placeholder="Search course…"
             />
             {courseB && (
-              <div className="mt-1 text-xs text-gray-400">
+              <div className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 {courseB.code} &middot; {courseB.subject_name || "No subject"}
               </div>
             )}
@@ -198,26 +198,26 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
 
       {/* Assignment summary */}
       {courseA && courseB && (
-        <div className="bg-gray-50 rounded-sm p-3 space-y-2">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign student to both</div>
+        <div className="bg-[var(--color-wi-row-alt)] rounded-sm p-3 space-y-2">
+          <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider">Assign student to both</div>
           <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
             <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course A: {courseA.name}
-              <span className="text-gray-500 ml-1">
+              <span className="text-[var(--color-wi-text-light)] ml-1">
                 ({weekdays.filter((day) => destAWeekdays.includes(day.value)).map((day) => day.label).join(", ") || "choose days"})
               </span>
-              <span className="text-gray-400 ml-1">&middot; {courseA.subject_name}</span>
+              <span className="text-[var(--color-wi-text-light)] ml-1">&middot; {courseA.subject_name}</span>
             </span>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-sm bg-white">
             <span className="text-xs font-semibold text-green-700">Included</span>
             <span className="text-sm">
               Course B: {courseB.name}
-              <span className="text-gray-500 ml-1">
+              <span className="text-[var(--color-wi-text-light)] ml-1">
                 ({weekdays.filter((day) => destBWeekdays.includes(day.value)).map((day) => day.label).join(", ") || "choose days"})
               </span>
-              <span className="text-gray-400 ml-1">&middot; {courseB.subject_name}</span>
+              <span className="text-[var(--color-wi-text-light)] ml-1">&middot; {courseB.subject_name}</span>
             </span>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useId } from "react";
+import { useState, useRef, useCallback, useEffect, useId } from "react";
 import { Info } from "lucide-react";
 
 type TooltipProps = {
@@ -9,20 +9,42 @@ type TooltipProps = {
 export function Tooltip({ content, className = "" }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const delayRef = useRef<number | null>(null);
   const tooltipId = useId();
 
-  const show = useCallback(() => setVisible(true), []);
-  const hide = useCallback(() => setVisible(false), []);
+  // Pointer users get a Notion-style 150ms delay; keyboard focus shows instantly.
+  const showHover = useCallback(() => {
+    if (delayRef.current !== null) window.clearTimeout(delayRef.current);
+    delayRef.current = window.setTimeout(() => setVisible(true), 150);
+  }, []);
+
+  const showFocus = useCallback(() => {
+    if (delayRef.current !== null) window.clearTimeout(delayRef.current);
+    delayRef.current = null;
+    setVisible(true);
+  }, []);
+
+  const hide = useCallback(() => {
+    if (delayRef.current !== null) window.clearTimeout(delayRef.current);
+    delayRef.current = null;
+    setVisible(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (delayRef.current !== null) window.clearTimeout(delayRef.current);
+    };
+  }, []);
 
   return (
     <span className={`relative inline-flex ${className}`}>
       <button
         ref={triggerRef}
         type="button"
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30"
-        onMouseEnter={show}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] hover:bg-[var(--color-wi-row-alt)] transition-colors"
+        onMouseEnter={showHover}
         onMouseLeave={hide}
-        onFocus={show}
+        onFocus={showFocus}
         onBlur={hide}
         aria-describedby={visible ? tooltipId : undefined}
       >
@@ -32,10 +54,10 @@ export function Tooltip({ content, className = "" }: TooltipProps) {
         <span
           id={tooltipId}
           role="tooltip"
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 text-xs text-white bg-gray-800 rounded shadow-lg whitespace-nowrap max-w-[240px] text-wrap z-50 pointer-events-none"
+          className="animate-notion-tooltip-in absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 text-xs text-white bg-[var(--color-wi-text)] rounded-sm shadow-lg whitespace-nowrap max-w-[240px] text-wrap z-50 pointer-events-none motion-reduce:animate-none"
         >
           {content}
-          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[var(--color-wi-text)]" />
         </span>
       )}
     </span>

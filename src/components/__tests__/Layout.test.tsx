@@ -122,3 +122,23 @@ it("does not fetch schedule impact or show its link for teachers", () => {
   expect(mockApiJson.mock.calls.some(([path]) => typeof path === "string" && path.startsWith("/api/v1/operations/schedule-impact"))).toBe(false);
   expect(screen.queryByRole("link", { name: "Schedule Impact" })).toBeNull();
 });
+
+it("shows Legacy Sync to admins directly in the sidebar", () => {
+  mockApiJson.mockImplementation((path: string) => {
+    if (path.startsWith("/api/v1/absences/stats")) return Promise.resolve({ pending_count: 0, today_count: 0 });
+    if (path.startsWith("/api/v1/operations/schedule-impact")) return Promise.resolve({ summary: { critical: 0, need_attention: 0 } });
+    return Promise.resolve({});
+  });
+  render(<TestWrapper><Layout><div>Body</div></Layout></TestWrapper>);
+
+  const legacySyncLink = screen.getByRole("link", { name: "Legacy Sync" });
+  expect(legacySyncLink).toHaveAttribute("href", "/admin/legacy-sync");
+});
+
+it("does not show Legacy Sync to teachers", () => {
+  mockUseAuth.mockReturnValue({ user: { username: "teacher", role: "Teacher" }, logout: vi.fn() });
+  render(<TestWrapper><Layout><div>Body</div></Layout></TestWrapper>);
+
+  expect(screen.queryByRole("link", { name: "Legacy Sync" })).toBeNull();
+  expect(screen.queryByText("Legacy Sync")).toBeNull();
+});

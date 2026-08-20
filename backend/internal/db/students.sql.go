@@ -12,38 +12,78 @@ import (
 )
 
 const studentCreate = `-- name: StudentCreate :one
-INSERT INTO students (wcode, full_name, notes)
-VALUES ($1, $2, $3)
-ON CONFLICT (wcode) DO UPDATE
+INSERT INTO students (wcode, full_name, notes, nickname, school, level, year, student_phone, email)
+VALUES (LOWER(BTRIM($1)), $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (LOWER(wcode)) DO UPDATE
 SET full_name = EXCLUDED.full_name,
     notes = CASE WHEN EXCLUDED.notes = '' THEN students.notes ELSE EXCLUDED.notes END,
+    nickname = CASE WHEN btrim(COALESCE(students.nickname, '')) = '' THEN EXCLUDED.nickname ELSE students.nickname END,
+    school = CASE WHEN btrim(COALESCE(students.school, '')) = '' THEN EXCLUDED.school ELSE students.school END,
+    level = CASE WHEN btrim(COALESCE(students.level, '')) = '' THEN EXCLUDED.level ELSE students.level END,
+    year = CASE WHEN btrim(COALESCE(students.year, '')) = '' THEN EXCLUDED.year ELSE students.year END,
+    student_phone = CASE WHEN btrim(COALESCE(students.student_phone, '')) = '' THEN EXCLUDED.student_phone ELSE students.student_phone END,
+    email = CASE WHEN btrim(COALESCE(students.email, '')) = '' THEN EXCLUDED.email ELSE students.email END,
     updated_at = now()
-RETURNING id, wcode, full_name, notes, created_at, updated_at
+RETURNING id, wcode, full_name, notes, nickname, email, student_phone, parent_phone, email_crm, email_system, school, level, year, created_at, updated_at
 `
 
 type StudentCreateParams struct {
-	Wcode    string `json:"wcode"`
-	FullName string `json:"full_name"`
-	Notes    string `json:"notes"`
+	Wcode        string      `json:"wcode"`
+	FullName     string      `json:"full_name"`
+	Notes        string      `json:"notes"`
+	Nickname     pgtype.Text `json:"nickname"`
+	School       pgtype.Text `json:"school"`
+	Level        pgtype.Text `json:"level"`
+	Year         pgtype.Text `json:"year"`
+	StudentPhone pgtype.Text `json:"student_phone"`
+	Email        pgtype.Text `json:"email"`
 }
 
 type StudentCreateRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentCreate(ctx context.Context, arg StudentCreateParams) (StudentCreateRow, error) {
-	row := q.db.QueryRow(ctx, studentCreate, arg.Wcode, arg.FullName, arg.Notes)
+	row := q.db.QueryRow(ctx, studentCreate,
+		arg.Wcode,
+		arg.FullName,
+		arg.Notes,
+		arg.Nickname,
+		arg.School,
+		arg.Level,
+		arg.Year,
+		arg.StudentPhone,
+		arg.Email,
+	)
 	var i StudentCreateRow
 	err := row.Scan(
 		&i.ID,
 		&i.Wcode,
 		&i.FullName,
 		&i.Notes,
+		&i.Nickname,
+		&i.Email,
+		&i.StudentPhone,
+		&i.ParentPhone,
+		&i.EmailCrm,
+		&i.EmailSystem,
+		&i.School,
+		&i.Level,
+		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -51,9 +91,9 @@ func (q *Queries) StudentCreate(ctx context.Context, arg StudentCreateParams) (S
 }
 
 const studentFindDuplicates = `-- name: StudentFindDuplicates :many
-SELECT wcode, COUNT(*) AS cnt
+SELECT LOWER(BTRIM(wcode)) AS wcode, COUNT(*) AS cnt
 FROM students
-GROUP BY wcode
+GROUP BY LOWER(BTRIM(wcode))
 HAVING COUNT(*) > 1
 ORDER BY cnt DESC
 `
@@ -84,18 +124,27 @@ func (q *Queries) StudentFindDuplicates(ctx context.Context) ([]StudentFindDupli
 }
 
 const studentGetByID = `-- name: StudentGetByID :one
-SELECT id, wcode, full_name, notes, created_at, updated_at
+SELECT id, wcode, full_name, notes, nickname, email, student_phone, parent_phone, email_crm, email_system, school, level, year, created_at, updated_at
 FROM students
 WHERE id = $1
 `
 
 type StudentGetByIDRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentGetByID(ctx context.Context, id pgtype.UUID) (StudentGetByIDRow, error) {
@@ -106,6 +155,15 @@ func (q *Queries) StudentGetByID(ctx context.Context, id pgtype.UUID) (StudentGe
 		&i.Wcode,
 		&i.FullName,
 		&i.Notes,
+		&i.Nickname,
+		&i.Email,
+		&i.StudentPhone,
+		&i.ParentPhone,
+		&i.EmailCrm,
+		&i.EmailSystem,
+		&i.School,
+		&i.Level,
+		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -113,18 +171,27 @@ func (q *Queries) StudentGetByID(ctx context.Context, id pgtype.UUID) (StudentGe
 }
 
 const studentGetByWCode = `-- name: StudentGetByWCode :one
-SELECT id, wcode, full_name, notes, created_at, updated_at
+SELECT id, wcode, full_name, notes, nickname, email, student_phone, parent_phone, email_crm, email_system, school, level, year, created_at, updated_at
 FROM students
-WHERE wcode = $1
+WHERE lower(wcode) = lower($1)
 `
 
 type StudentGetByWCodeRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentGetByWCode(ctx context.Context, wcode string) (StudentGetByWCodeRow, error) {
@@ -135,14 +202,48 @@ func (q *Queries) StudentGetByWCode(ctx context.Context, wcode string) (StudentG
 		&i.Wcode,
 		&i.FullName,
 		&i.Notes,
+		&i.Nickname,
+		&i.Email,
+		&i.StudentPhone,
+		&i.ParentPhone,
+		&i.EmailCrm,
+		&i.EmailSystem,
+		&i.School,
+		&i.Level,
+		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
+const studentImportByWCode = `-- name: StudentImportByWCode :one
+INSERT INTO students (wcode, full_name, nickname)
+VALUES (LOWER(BTRIM($1)), $2, $3)
+ON CONFLICT DO NOTHING
+RETURNING id, wcode
+`
+
+type StudentImportByWCodeParams struct {
+	Wcode    string      `json:"wcode"`
+	FullName string      `json:"full_name"`
+	Nickname pgtype.Text `json:"nickname"`
+}
+
+type StudentImportByWCodeRow struct {
+	ID    pgtype.UUID `json:"id"`
+	Wcode string      `json:"wcode"`
+}
+
+func (q *Queries) StudentImportByWCode(ctx context.Context, arg StudentImportByWCodeParams) (StudentImportByWCodeRow, error) {
+	row := q.db.QueryRow(ctx, studentImportByWCode, arg.Wcode, arg.FullName, arg.Nickname)
+	var i StudentImportByWCodeRow
+	err := row.Scan(&i.ID, &i.Wcode)
+	return i, err
+}
+
 const studentList = `-- name: StudentList :many
-SELECT id, wcode, full_name, notes, created_at, updated_at
+SELECT id, wcode, full_name, notes, nickname, email, student_phone, parent_phone, email_crm, email_system, school, level, year, created_at, updated_at
 FROM students
 WHERE (wcode ILIKE '%' || $3 || '%' OR full_name ILIKE '%' || $3 || '%' OR $3 = '')
 ORDER BY wcode ASC
@@ -156,12 +257,21 @@ type StudentListParams struct {
 }
 
 type StudentListRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentList(ctx context.Context, arg StudentListParams) ([]StudentListRow, error) {
@@ -178,6 +288,15 @@ func (q *Queries) StudentList(ctx context.Context, arg StudentListParams) ([]Stu
 			&i.Wcode,
 			&i.FullName,
 			&i.Notes,
+			&i.Nickname,
+			&i.Email,
+			&i.StudentPhone,
+			&i.ParentPhone,
+			&i.EmailCrm,
+			&i.EmailSystem,
+			&i.School,
+			&i.Level,
+			&i.Year,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -203,37 +322,111 @@ func (q *Queries) StudentListCount(ctx context.Context, dollar_1 pgtype.Text) (i
 	return count, err
 }
 
+const studentProfileUpsert = `-- name: StudentProfileUpsert :one
+INSERT INTO students (wcode, full_name, nickname, school, level, year, student_phone, email)
+VALUES (LOWER(BTRIM($1)), $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (LOWER(wcode)) DO UPDATE
+SET full_name = CASE WHEN btrim(COALESCE(students.full_name, '')) = '' THEN EXCLUDED.full_name ELSE students.full_name END,
+    nickname = CASE WHEN btrim(COALESCE(students.nickname, '')) = '' THEN EXCLUDED.nickname ELSE students.nickname END,
+    school = CASE WHEN btrim(COALESCE(students.school, '')) = '' THEN EXCLUDED.school ELSE students.school END,
+    level = CASE WHEN btrim(COALESCE(students.level, '')) = '' THEN EXCLUDED.level ELSE students.level END,
+    year = CASE WHEN btrim(COALESCE(students.year, '')) = '' THEN EXCLUDED.year ELSE students.year END,
+    student_phone = CASE WHEN btrim(COALESCE(students.student_phone, '')) = '' THEN EXCLUDED.student_phone ELSE students.student_phone END,
+    email = CASE WHEN btrim(COALESCE(students.email, '')) = '' THEN EXCLUDED.email ELSE students.email END,
+    updated_at = now()
+WHERE btrim(COALESCE(students.full_name, '')) = '' AND NULLIF(EXCLUDED.full_name, '') IS NOT NULL
+   OR btrim(COALESCE(students.nickname, '')) = '' AND NULLIF(EXCLUDED.nickname, '') IS NOT NULL
+   OR btrim(COALESCE(students.school, '')) = '' AND NULLIF(EXCLUDED.school, '') IS NOT NULL
+   OR btrim(COALESCE(students.level, '')) = '' AND NULLIF(EXCLUDED.level, '') IS NOT NULL
+   OR btrim(COALESCE(students.year, '')) = '' AND NULLIF(EXCLUDED.year, '') IS NOT NULL
+   OR btrim(COALESCE(students.student_phone, '')) = '' AND NULLIF(EXCLUDED.student_phone, '') IS NOT NULL
+   OR btrim(COALESCE(students.email, '')) = '' AND NULLIF(EXCLUDED.email, '') IS NOT NULL
+RETURNING id
+`
+
+type StudentProfileUpsertParams struct {
+	Wcode        string      `json:"wcode"`
+	FullName     string      `json:"full_name"`
+	Nickname     pgtype.Text `json:"nickname"`
+	School       pgtype.Text `json:"school"`
+	Level        pgtype.Text `json:"level"`
+	Year         pgtype.Text `json:"year"`
+	StudentPhone pgtype.Text `json:"student_phone"`
+	Email        pgtype.Text `json:"email"`
+}
+
+func (q *Queries) StudentProfileUpsert(ctx context.Context, arg StudentProfileUpsertParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, studentProfileUpsert,
+		arg.Wcode,
+		arg.FullName,
+		arg.Nickname,
+		arg.School,
+		arg.Level,
+		arg.Year,
+		arg.StudentPhone,
+		arg.Email,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const studentUpdate = `-- name: StudentUpdate :one
 UPDATE students
-SET wcode = $2, full_name = $3, notes = $4, updated_at = now()
-WHERE students.id = $1
-  AND ($2 = (SELECT s2.wcode FROM students s2 WHERE s2.id = $1)
-       OR NOT EXISTS (SELECT 1 FROM students s3 WHERE s3.wcode = $2 AND s3.id <> $1))
-RETURNING students.id, students.wcode, students.full_name, students.notes, students.created_at, students.updated_at
+SET wcode = LOWER(BTRIM($1)), full_name = $2, notes = $3,
+    nickname = $4, email = $5, student_phone = $6, parent_phone = $7,
+    school = $8, level = $9, year = $10, updated_at = now()
+WHERE students.id = $11
+  AND (LOWER(BTRIM($1)) = (SELECT LOWER(BTRIM(s2.wcode)) FROM students s2 WHERE s2.id = $11)
+       OR NOT EXISTS (SELECT 1 FROM students s3 WHERE LOWER(BTRIM(s3.wcode)) = LOWER(BTRIM($1)) AND s3.id <> $11))
+RETURNING students.id, students.wcode, students.full_name, students.notes, students.nickname, students.email, students.student_phone, students.parent_phone, students.email_crm, students.email_system, students.school, students.level, students.year, students.created_at, students.updated_at
 `
 
 type StudentUpdateParams struct {
-	ID       pgtype.UUID `json:"id"`
-	Wcode    string      `json:"wcode"`
-	FullName string      `json:"full_name"`
-	Notes    string      `json:"notes"`
+	Wcode        string      `json:"wcode"`
+	FullName     string      `json:"full_name"`
+	Notes        string      `json:"notes"`
+	Nickname     pgtype.Text `json:"nickname"`
+	Email        pgtype.Text `json:"email"`
+	StudentPhone pgtype.Text `json:"student_phone"`
+	ParentPhone  pgtype.Text `json:"parent_phone"`
+	School       pgtype.Text `json:"school"`
+	Level        pgtype.Text `json:"level"`
+	Year         pgtype.Text `json:"year"`
+	ID           pgtype.UUID `json:"id"`
 }
 
 type StudentUpdateRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentUpdate(ctx context.Context, arg StudentUpdateParams) (StudentUpdateRow, error) {
 	row := q.db.QueryRow(ctx, studentUpdate,
-		arg.ID,
 		arg.Wcode,
 		arg.FullName,
 		arg.Notes,
+		arg.Nickname,
+		arg.Email,
+		arg.StudentPhone,
+		arg.ParentPhone,
+		arg.School,
+		arg.Level,
+		arg.Year,
+		arg.ID,
 	)
 	var i StudentUpdateRow
 	err := row.Scan(
@@ -241,6 +434,15 @@ func (q *Queries) StudentUpdate(ctx context.Context, arg StudentUpdateParams) (S
 		&i.Wcode,
 		&i.FullName,
 		&i.Notes,
+		&i.Nickname,
+		&i.Email,
+		&i.StudentPhone,
+		&i.ParentPhone,
+		&i.EmailCrm,
+		&i.EmailSystem,
+		&i.School,
+		&i.Level,
+		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -249,11 +451,11 @@ func (q *Queries) StudentUpdate(ctx context.Context, arg StudentUpdateParams) (S
 
 const studentUpsertNameByWCode = `-- name: StudentUpsertNameByWCode :one
 INSERT INTO students (wcode, full_name, notes)
-VALUES ($1, $2, '')
-ON CONFLICT (wcode) DO UPDATE
+VALUES (LOWER(BTRIM($1)), $2, '')
+ON CONFLICT (LOWER(wcode)) DO UPDATE
 SET full_name = EXCLUDED.full_name,
     updated_at = now()
-RETURNING id, wcode, full_name, notes, created_at, updated_at
+RETURNING id, wcode, full_name, notes, nickname, email, student_phone, parent_phone, email_crm, email_system, school, level, year, created_at, updated_at
 `
 
 type StudentUpsertNameByWCodeParams struct {
@@ -262,12 +464,21 @@ type StudentUpsertNameByWCodeParams struct {
 }
 
 type StudentUpsertNameByWCodeRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Wcode     string             `json:"wcode"`
-	FullName  string             `json:"full_name"`
-	Notes     string             `json:"notes"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Wcode        string             `json:"wcode"`
+	FullName     string             `json:"full_name"`
+	Notes        string             `json:"notes"`
+	Nickname     pgtype.Text        `json:"nickname"`
+	Email        pgtype.Text        `json:"email"`
+	StudentPhone pgtype.Text        `json:"student_phone"`
+	ParentPhone  pgtype.Text        `json:"parent_phone"`
+	EmailCrm     pgtype.Text        `json:"email_crm"`
+	EmailSystem  pgtype.Text        `json:"email_system"`
+	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) StudentUpsertNameByWCode(ctx context.Context, arg StudentUpsertNameByWCodeParams) (StudentUpsertNameByWCodeRow, error) {
@@ -278,6 +489,15 @@ func (q *Queries) StudentUpsertNameByWCode(ctx context.Context, arg StudentUpser
 		&i.Wcode,
 		&i.FullName,
 		&i.Notes,
+		&i.Nickname,
+		&i.Email,
+		&i.StudentPhone,
+		&i.ParentPhone,
+		&i.EmailCrm,
+		&i.EmailSystem,
+		&i.School,
+		&i.Level,
+		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, useId } from "react";
 import type { TypeaheadOption } from "./TypeaheadSelect";
 
 export default function MultiTeacherSelect(props: {
@@ -14,6 +14,7 @@ export default function MultiTeacherSelect(props: {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listboxId = useId();
 
   const selectedSet = useMemo(() => new Set(value), [value]);
 
@@ -116,21 +117,24 @@ export default function MultiTeacherSelect(props: {
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
+        aria-controls={open ? listboxId : undefined}
+        aria-label={placeholder ?? "Select teachers"}
         value={query}
         onFocus={() => { if (disabled) return; setQuery(""); setOpen(true); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onKeyDown={handleKeyDown}
         placeholder={value.length === 0 ? (placeholder ?? "Select teachers…") : ""}
         disabled={disabled}
-        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-sm"
+        className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
       />
       {open && !disabled && (
         <div
+          id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border border-gray-200 bg-white rounded-sm shadow animate-dropdown-enter"
+          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border border-wi-line bg-white rounded-sm shadow animate-dropdown-enter"
         >
           {hasNoResults ? (
-            <div className="px-3 py-2 text-sm text-gray-400">No matches found</div>
+            <div className="px-3 py-2 text-sm text-[var(--color-wi-text-light)]">No matches found</div>
           ) : (
             filtered.map((o, i) => (
               <button
@@ -141,8 +145,8 @@ export default function MultiTeacherSelect(props: {
                 onClick={() => add(o.value)}
                 onMouseEnter={() => setHighlightIndex(i)}
                 className={`w-full text-left px-2 py-2 text-sm ${
-                  i === highlightIndex ? "bg-blue-100" : "hover:bg-gray-50"
-                } ${selectedSet.has(o.value) ? "bg-gray-50" : ""}`}
+                  i === highlightIndex ? "bg-blue-100" : "hover:bg-[var(--color-wi-row-alt)]"
+                } ${selectedSet.has(o.value) ? "bg-[var(--color-wi-row-alt)]" : ""}`}
               >
                 {o.label}
               </button>

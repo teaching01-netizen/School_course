@@ -36,29 +36,29 @@ export default function PreviewPanel({ subject, body }: Props) {
   }, [subject, body]);
 
   return (
-    <div className="border border-gray-200 rounded-sm">
-      <div className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 border-b border-gray-200">
+    <div className="border border-wi-line rounded-sm">
+      <div className="px-3 py-2 text-sm font-medium text-[var(--color-wi-text-light)] bg-[var(--color-wi-row-alt)] border-b border-wi-line">
         Preview
       </div>
       <div className="p-3">
-        {loading && <p className="text-sm text-gray-400">Rendering preview...</p>}
+        {loading && <p className="text-sm text-[var(--color-wi-text-light)]">Rendering preview...</p>}
         {error && <p className="text-sm text-red-500">{error}</p>}
         {preview && (
           <div className="space-y-3">
             <div>
-              <span className="text-xs text-gray-400 font-medium">Subject:</span>
-              <p className="text-sm font-medium text-gray-900 mt-0.5">{preview.subject}</p>
+              <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Subject:</span>
+              <p className="text-sm font-medium text-[var(--color-wi-text)] mt-0.5">{preview.subject}</p>
             </div>
             <div>
-              <span className="text-xs text-gray-400 font-medium">Body:</span>
-              <div className="mt-0.5 text-sm text-gray-700 whitespace-pre-wrap rounded-sm border border-gray-100 bg-white p-3">
+              <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Body:</span>
+              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border border-wi-line-soft bg-white p-3">
                 {preview.body}
               </div>
             </div>
           </div>
         )}
         {!preview && !loading && !error && (
-          <p className="text-sm text-gray-400">Edit the template above to see a preview.</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">Edit the template above to see a preview.</p>
         )}
       </div>
     </div>

@@ -17,8 +17,8 @@ export default function RootCourseGroupRail({
   onSelectRootGroup,
 }: RootCourseGroupRailProps) {
   return (
-    <nav className="w-48 shrink-0 border-r border-gray-200 pr-3" aria-label="Root Course Groups">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-2">
+    <nav className="w-48 shrink-0 border-r border-wi-line pr-3" aria-label="Root Course Groups">
+      <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2 px-2">
         Root Course Groups
       </div>
       <ul className="space-y-0.5">
@@ -28,7 +28,7 @@ export default function RootCourseGroupRail({
             className={`w-full text-left px-2 py-1.5 text-sm rounded-sm transition-colors ${
               selectedRootGroupId === null
                 ? "bg-blue-50 text-blue-700 font-medium"
-                : "text-gray-600 hover:bg-gray-50"
+                : "text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
             }`}
           >
             All Groups
@@ -47,7 +47,7 @@ export default function RootCourseGroupRail({
                 className={`w-full text-left px-2 py-1.5 text-sm rounded-sm transition-colors ${
                   isSelected
                     ? "bg-blue-50 text-blue-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-50"
+                    : "text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -59,7 +59,7 @@ export default function RootCourseGroupRail({
                           ? "bg-green-100 text-green-700"
                           : partial
                             ? "bg-amber-100 text-amber-700"
-                            : "bg-gray-100 text-gray-500"
+                            : "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]"
                       }`}
                     >
                       {assigned}/{total}

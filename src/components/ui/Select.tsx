@@ -11,7 +11,7 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "siz
 
 const sizeClasses: Record<SelectSize, string> = {
   sm: "px-2 py-1 text-sm",
-  md: "px-3 py-2 text-sm",
+  md: "px-2.5 py-1.5 text-sm",
 };
 
 const Select = forwardRef<HTMLSelectElement, SelectProps>(
@@ -19,10 +19,10 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <select
         ref={ref}
-        className={`w-full rounded-sm border transition-colors duration-150 appearance-none bg-no-repeat pr-8 focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 select-chevron ${
+        className={`w-full cursor-pointer rounded-sm border transition-[background-color,border-color,box-shadow,color] duration-150 appearance-none bg-no-repeat pr-8 hover:border-[var(--color-wi-text-light)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:cursor-not-allowed disabled:bg-wi-bg disabled:opacity-60 motion-reduce:transition-none select-chevron ${
           error
             ? "border-[var(--color-wi-red)] focus:border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/15"
-            : "border-gray-300"
+            : "border-wi-line"
         } ${sizeClasses[size]} ${className}`}
         aria-invalid={error}
         aria-describedby={describedBy}

@@ -71,14 +71,14 @@ export default function SlideOver({ title, children, onClose, footer }: SlideOve
       aria-labelledby={titleId}
       className="slideover-base"
     >
-      <div className="relative w-full max-w-md bg-white shadow-xl h-full overflow-y-auto">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 sticky top-0 bg-white z-10">
+      <div className="animate-notion-sidepeek-in relative w-full max-w-md bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.05)] h-full overflow-y-auto rounded-l-[8px] motion-reduce:animate-none">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-wi-line sticky top-0 bg-white z-10">
           <h3 id={titleId} className="text-base font-semibold text-[var(--color-wi-text)]">
             {title}
           </h3>
           <button
             onClick={() => onCloseRef.current()}
-            className="text-gray-500 hover:text-gray-700 text-xl leading-none p-1"
+            className="text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] text-xl leading-none p-1"
             aria-label="Close panel"
           >
             &times;
@@ -88,7 +88,7 @@ export default function SlideOver({ title, children, onClose, footer }: SlideOve
         <div className="p-4">{children}</div>
 
         {footer && (
-          <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3">
+          <div className="sticky bottom-0 bg-white border-t border-wi-line px-4 py-3">
             {footer}
           </div>
         )}

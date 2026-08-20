@@ -9,15 +9,19 @@ import Button from "../components/ui/Button";
 type Session = {
   id: string;
   course_id: string;
-  room_id: string;
+  room_id: string | null;
   teacher_id: string;
   start_at: string;
   end_at: string;
 };
 
-type Course = { id: string; code: string; name: string };
+// Legacy sync can produce sessions without a classroom; they are grouped here.
+const UNASSIGNED_ROOM_KEY = 'unassigned';
+const roomDisplayName = (roomId: string, name?: string) => name || (roomId === UNASSIGNED_ROOM_KEY ? 'Unassigned' : roomId);
+
+type Course = { id: string; code: string; name: string; subject_name: string };
 type Room = { id: string; name: string; capacity: number | null };
-type Teacher = { id: string; username: string; role: 'Admin' | 'Teacher' };
+type Teacher = { id: string; username: string; full_name: string | null; role: 'Admin' | 'Teacher' };
 
 export default function Summary() {
   const navigate = useNavigate();
@@ -68,14 +72,15 @@ export default function Summary() {
   const rows = useMemo(() => {
     const byRoom = new Map<string, Session[]>();
     for (const s of sessions) {
-      const arr = byRoom.get(s.room_id) ?? [];
+      const key = s.room_id ?? UNASSIGNED_ROOM_KEY;
+      const arr = byRoom.get(key) ?? [];
       arr.push(s);
-      byRoom.set(s.room_id, arr);
+      byRoom.set(key, arr);
     }
     const out: { room: string; time: string; course: string; student: string; teacher: string; isFirst: boolean }[] = [];
-    const roomsSorted = Array.from(byRoom.keys()).sort((a, b) => (roomById.get(a)?.name ?? a).localeCompare(roomById.get(b)?.name ?? b));
+    const roomsSorted = Array.from(byRoom.keys()).sort((a, b) => roomDisplayName(a, roomById.get(a)?.name).localeCompare(roomDisplayName(b, roomById.get(b)?.name)));
     for (const roomId of roomsSorted) {
-      const rname = roomById.get(roomId)?.name ?? roomId;
+      const rname = roomDisplayName(roomId, roomById.get(roomId)?.name);
       const items = byRoom.get(roomId) ?? [];
       items.sort((a, b) => a.start_at.localeCompare(b.start_at));
       if (items.length === 0) {
@@ -90,9 +95,9 @@ export default function Summary() {
         out.push({
           room: idx === 0 ? rname : '',
           time: `${format(startLocal, 'HH:mm')} - ${format(endLocal, 'HH:mm')}`,
-          course: c ? c.name : s.course_id,
+          course: c ? (c.subject_name || c.name) : s.course_id,
           student: '',
-          teacher: t ? t.username : s.teacher_id,
+          teacher: t ? (t.full_name || t.username) : s.teacher_id,
           isFirst: idx === 0,
         });
       });
@@ -108,7 +113,7 @@ export default function Summary() {
           type="date"
           value={dateStr}
           onChange={(e) => setDate(parseISO(e.target.value))}
-          className="px-2 py-1 text-sm border border-gray-300 rounded-sm"
+          className="px-2 py-1 text-sm border border-wi-line rounded-sm"
         />
         <Button variant="secondary" size="md">Search</Button>
         <Button variant="primary" size="md" onClick={() => navigate('/')}>Back</Button>
@@ -127,30 +132,30 @@ export default function Summary() {
         </div>
 
         {/* Summary table */}
-        <table className="w-full text-[13px] border border-gray-200">
+        <table className="w-full text-[13px] border border-wi-line">
           <caption className="sr-only">Daily classes summary</caption>
           <thead>
-            <tr className="border-b border-gray-200">
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[22%]">Room</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[18%]">Time</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[26%]">Course</th>
-              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-gray-200 w-[16%]">Student</th>
+            <tr className="border-b border-wi-line">
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-wi-line w-[22%]">Room</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-wi-line w-[18%]">Time</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-wi-line w-[26%]">Course</th>
+              <th scope="col" className="text-center py-2 px-2 font-semibold border-r border-wi-line w-[16%]">Student</th>
               <th scope="col" className="text-center py-2 px-2 font-semibold w-[18%]">Teacher</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-500">Loading…</td></tr>
+              <tr><td colSpan={5} className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={5} className="py-6 text-center text-sm text-gray-500">No sessions found.</td></tr>
+              <tr><td colSpan={5} className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">No sessions found.</td></tr>
             ) : rows.map((row, idx) => (
-              <tr key={idx} className="border-b border-gray-200">
-                <td className={`py-2 px-2 border-r border-gray-200 text-center font-semibold ${row.isFirst ? '' : ''}`}>
+              <tr key={idx} className="border-b border-wi-line">
+                <td className={`py-2 px-2 border-r border-wi-line text-center font-semibold ${row.isFirst ? '' : ''}`}>
                   {row.room}
                 </td>
-                <td className="py-2 px-2 border-r border-gray-200 text-center">{row.time}</td>
-                <td className="py-2 px-2 border-r border-gray-200 text-center">{row.course}</td>
-                <td className="py-2 px-2 border-r border-gray-200 text-center">{row.student}</td>
+                <td className="py-2 px-2 border-r border-wi-line text-center">{row.time}</td>
+                <td className="py-2 px-2 border-r border-wi-line text-center">{row.course}</td>
+                <td className="py-2 px-2 border-r border-wi-line text-center">{row.student}</td>
                 <td className="py-2 px-2 text-center">{row.teacher}</td>
               </tr>
             ))}

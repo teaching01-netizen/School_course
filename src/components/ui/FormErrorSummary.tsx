@@ -32,9 +32,9 @@ export default function FormErrorSummary({ errors, touched, autoFocus = true, cl
       tabIndex={-1}
       role="alert"
       aria-live="assertive"
-      className={`rounded-sm border border-red-300 bg-red-50 px-3 py-2 text-sm outline-none ${className}`}
+      className={`rounded-sm border border-[var(--color-wi-red)]/25 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-sm outline-none ${className}`}
     >
-      <p className="font-semibold text-red-800 mb-1 flex items-center gap-1.5">
+      <p className="mb-1 flex items-center gap-1.5 font-semibold text-[var(--color-wi-red-dark)]">
         <AlertTriangle className="w-4 h-4" aria-hidden="true" />
         Please fix the following {entries.length === 1 ? "error" : `${entries.length} errors`}:
       </p>
@@ -44,7 +44,7 @@ export default function FormErrorSummary({ errors, touched, autoFocus = true, cl
             <button
               type="button"
               onClick={() => handleClick(field)}
-              className="text-red-700 underline hover:text-red-900 text-left text-sm"
+              className="text-left text-sm text-[var(--color-wi-red)] underline hover:text-[var(--color-wi-red-dark)]"
             >
               {msg}
             </button>

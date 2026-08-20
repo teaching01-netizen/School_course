@@ -25,7 +25,15 @@ SELECT EXISTS (
 -- name: CourseLockForTeacherUpdate :one
 SELECT
     id,
-    version
+    version,
+    code,
+    name,
+    legacy_course_id,
+    year,
+    subject_id,
+    hour,
+    student_count,
+    course_type
 FROM courses
 WHERE id = $1
 FOR UPDATE;
@@ -61,7 +69,8 @@ SELECT
     ct.course_id,
     ct.teacher_id,
     ct.is_primary,
-    u.username
+    u.username,
+    u.full_name
 FROM course_teachers ct
 JOIN users u ON u.id = ct.teacher_id
 WHERE ct.course_id = ANY($1::uuid[])
@@ -108,6 +117,11 @@ SET
     name = $3,
     legacy_course_id = $4,
     teacher_id = $5,
+    year = $6,
+    subject_id = $7,
+    hour = $8,
+    student_count = $9,
+    course_type = $10,
     version = version + 1,
     updated_at = now()
 WHERE id = $1
@@ -123,6 +137,11 @@ SET
     code = $2,
     name = $3,
     legacy_course_id = $4,
+    year = $5,
+    subject_id = $6,
+    hour = $7,
+    student_count = $8,
+    course_type = $9,
     version = version + 1,
     updated_at = now()
 WHERE id = $1

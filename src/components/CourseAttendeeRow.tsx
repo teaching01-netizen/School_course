@@ -26,7 +26,7 @@ export default function CourseAttendeeRow({
 }: Props) {
   if (loading) {
     return (
-      <div className="px-3 py-4 text-sm text-gray-400">
+      <div className="px-3 py-4 text-sm text-[var(--color-wi-text-light)]">
         Loading attendees…
       </div>
     );
@@ -42,7 +42,7 @@ export default function CourseAttendeeRow({
 
   if (students.length === 0) {
     return (
-      <div className="px-3 py-4 text-sm text-gray-400">
+      <div className="px-3 py-4 text-sm text-[var(--color-wi-text-light)]">
         No students enrolled
       </div>
     );
@@ -51,17 +51,32 @@ export default function CourseAttendeeRow({
   const sorted = [...students].sort((a, b) => a.wcode.localeCompare(b.wcode));
 
   return (
-    <div className="border-t border-gray-100 bg-gray-50/50">
+    <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50">
       <table className="w-full text-[13px]">
         <thead>
-          <tr className="border-b border-gray-200">
-            <th className="w-32 py-2 pl-10 pr-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+          <tr className="border-b border-wi-line">
+            <th className="w-28 py-2 pl-10 pr-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
               W-code
             </th>
-            <th className="py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            <th className="py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
               Name
             </th>
-            <th className="w-24 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            <th className="w-20 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+              Nick
+            </th>
+            <th className="w-28 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+              School
+            </th>
+            <th className="w-14 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+              Level
+            </th>
+            <th className="w-14 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+              Year
+            </th>
+            <th className="w-24 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+              Phone
+            </th>
+            <th className="w-20 py-2 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
               Status
             </th>
           </tr>
@@ -70,12 +85,17 @@ export default function CourseAttendeeRow({
           {sorted.map((student) => (
             <tr
               key={student.id}
-              className="border-b border-gray-100 last:border-b-0 hover:bg-gray-100/50"
+              className="border-b border-wi-line-soft last:border-b-0 hover:bg-[var(--color-wi-row-alt)]/50"
             >
-              <td className="py-1.5 pl-10 pr-2 font-mono text-xs text-gray-700">
+              <td className="py-1.5 pl-10 pr-2 font-mono text-xs text-[var(--color-wi-text-light)]">
                 {student.wcode}
               </td>
-              <td className="py-1.5 px-2 text-gray-800">{student.full_name}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text)]">{student.full_name}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text-light)]">{student.nickname || '—'}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text-light)]">{student.school || '—'}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text-light)]">{student.level || '—'}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text-light)]">{student.year || '—'}</td>
+              <td className="py-1.5 px-2 text-[var(--color-wi-text-light)]">{student.student_phone || '—'}</td>
               <td className="py-1.5 px-2">
                 <StatusBadge status={student.status} />
               </td>

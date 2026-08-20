@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Error is a stable, machine-readable courseadmin domain error. Callers
@@ -29,15 +30,31 @@ func HTTPStatusForError(err *Error) int {
 	}
 	switch err.Code {
 	case "invalid_teacher", "too_many_teachers", "duplicate_teacher",
-		"multiple_primary_teachers", "invalid_expected_version":
+		"multiple_primary_teachers", "invalid_expected_version",
+		"invalid_year", "invalid_hour", "invalid_student_count",
+		"invalid_course_type", "invalid_subject":
 		return http.StatusBadRequest
-	case "stale_edit", "teacher_in_use":
+	case "stale_edit", "teacher_in_use", "legacy_course_id_conflict":
 		return http.StatusConflict
 	case "not_found":
 		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+// classifyCourseWriteError converts a duplicate legacy-course link rejection
+// from the courses_legacy_course_id_unique index into a stable conflict
+// Error; any other error passes through unwrapped.
+func classifyCourseWriteError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "courses_legacy_course_id_unique" {
+		return &Error{
+			Code:    "legacy_course_id_conflict",
+			Message: "This legacy course is already linked to another course.",
+		}
+	}
+	return err
 }
 
 // classifyCourseReadError converts the pgx "no rows" sentinel into a stable

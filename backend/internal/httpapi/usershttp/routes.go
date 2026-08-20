@@ -38,9 +38,10 @@ func (s *server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type userDTO struct {
-		ID       string `json:"id"`
-		Username string `json:"username"`
-		Role     string `json:"role"`
+		ID        string  `json:"id"`
+		Username  string  `json:"username"`
+		FullName  *string `json:"full_name"`
+		Role      string  `json:"role"`
 	}
 	out := make([]userDTO, 0, len(items))
 	for _, u := range items {
@@ -49,7 +50,12 @@ func (s *server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return
 		}
-		out = append(out, userDTO{ID: uid, Username: u.Username, Role: u.Role})
+		var fullName *string
+		if u.FullName.Valid {
+			value := u.FullName.String
+			fullName = &value
+		}
+		out = append(out, userDTO{ID: uid, Username: u.Username, FullName: fullName, Role: u.Role})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }

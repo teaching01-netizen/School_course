@@ -1,4 +1,5 @@
 import type { AbsenceStatus, CalendarAbsence, CalendarSessionBrief, CalendarSitInStudent } from "../../types";
+import { utcISOToZoneDate } from "../../utils/timezone";
 
 export function formatFullDayLabel(dayKey: string): string {
   return new Date(`${dayKey}T00:00:00`).toLocaleDateString("en-GB", {
@@ -19,6 +20,14 @@ export function titleCase(value: string): string {
 
 export function formatCount(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The calendar day a session belongs to in the institute timezone. Sessions
+ * are bucketed under the day users see locally, never under the raw UTC date.
+ */
+export function sessionDayKey(session: CalendarSessionBrief, zone: string): string {
+  return utcISOToZoneDate(session.start_at, zone) ?? session.start_at.slice(0, 10);
 }
 
 export function getSessionLabel(session: CalendarSessionBrief): string {
@@ -71,10 +80,10 @@ export function statusBadgeClasses(status: AbsenceStatus): string {
     case "reviewed":
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "actioned":
-      return "bg-slate-100 text-slate-600 border-slate-200";
+      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line";
     case "cancelled":
       return "bg-red-50 text-red-700 border-red-200";
     default:
-      return "bg-gray-100 text-gray-600 border-gray-200";
+      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line";
   }
 }

@@ -106,31 +106,31 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
         onClick={(event) => event.stopPropagation()}
         onKeyDown={handleTrapFocus}
       >
-        <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <header className="sticky top-0 z-10 border-b border-wi-line bg-white">
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
               <h2 id="absence-panel-title" className="text-base font-semibold text-[var(--color-wi-text)]">{title}</h2>
               <span className="sr-only">Sessions ({sessions.length})</span>
-              <p className="mt-0.5 text-xs text-gray-500">
+              <p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">
                 {sitInAbsences.length} sit-ins · {absences.length} absences
               </p>
             </div>
-            <button type="button" className="rounded-sm p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700" aria-label="Close dialog" onClick={onClose}>
+            <button type="button" className="rounded-sm p-1 text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text-light)]" aria-label="Close dialog" onClick={onClose}>
               <X className="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
           {!studentAbsence ? (
-            <div className="flex border-t border-gray-100 px-4">
+            <div className="flex border-t border-wi-line-soft px-4">
               <button
                 type="button"
-                className={`min-h-[44px] border-b-2 px-3 text-sm font-semibold ${activeTab === "sit-ins" ? "border-[var(--color-wi-primary)] text-gray-900" : "border-transparent text-gray-500 hover:text-gray-900"}`}
+                className={`min-h-[44px] border-b px-3 text-sm font-semibold ${activeTab === "sit-ins" ? "border-[var(--color-wi-primary)] text-[var(--color-wi-text)]" : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}
                 onClick={() => setActiveTab("sit-ins")}
               >
                 Sit-ins ({sitInAbsences.length})
               </button>
               <button
                 type="button"
-                className={`min-h-[44px] border-b-2 px-3 text-sm font-semibold ${activeTab === "absences" ? "border-[var(--color-wi-primary)] text-gray-900" : "border-transparent text-gray-500 hover:text-gray-900"}`}
+                className={`min-h-[44px] border-b px-3 text-sm font-semibold ${activeTab === "absences" ? "border-[var(--color-wi-primary)] text-[var(--color-wi-text)]" : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}
                 onClick={() => setActiveTab("absences")}
               >
                 Absences ({absences.length})
@@ -159,19 +159,19 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
             ) : activeTab === "sit-ins" ? (
               <motion.div key="sit-ins" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.1 }}>
                 <section className="space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Day sessions ({sessions.length})</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Day sessions ({sessions.length})</h3>
                   {sessions.length === 0 ? (
-                    <p className="text-sm text-gray-400">No sessions this day.</p>
+                    <p className="text-sm text-[var(--color-wi-text-light)]">No sessions this day.</p>
                   ) : (
                     sessions.map((session) => (
-                      <article key={session.id} className="rounded-sm border border-gray-100 bg-gray-50 p-3 text-sm">
-                        <p className="font-medium text-gray-800">{getSessionLabel(session)}</p>
-                        <p className="text-xs text-gray-500">
+                      <article key={session.id} className="rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] p-3 text-sm">
+                        <p className="font-medium text-[var(--color-wi-text)]">{getSessionLabel(session)}</p>
+                        <p className="text-xs text-[var(--color-wi-text-light)]">
                           {formatTime(session.start_at)} - {formatTime(session.end_at)}
                           {session.room_name ? ` · ${session.room_name}` : ""}
                         </p>
                         {session.sit_in_students?.length ? (
-                          <p className="mt-2 border-t border-gray-100 pt-2 text-xs text-amber-700">
+                          <p className="mt-2 border-t border-wi-line-soft pt-2 text-xs text-[var(--color-wi-amber)]">
                             <span className="font-semibold">Visitors:</span>{" "}
                             {session.sit_in_students.map((student, index) => (
                               <span key={`${student.wcode}-${student.absence_id}`}>
@@ -186,7 +186,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
                   )}
                 </section>
                 <section className="mt-5 space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Sit-ins ({sitInAbsences.length})</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Sit-ins ({sitInAbsences.length})</h3>
                   {sitInAbsences.length === 0 ? (
                     <EmptyState message="No sit-ins recorded for this day." />
                   ) : (
@@ -199,7 +199,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
             ) : (
               <motion.div key="absences" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.1 }}>
                 <section className="space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Absences ({absences.length})</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Absences ({absences.length})</h3>
                   {absences.length === 0 ? (
                     <EmptyState message="No absences this day." />
                   ) : (

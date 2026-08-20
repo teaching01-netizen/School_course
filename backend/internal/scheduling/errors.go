@@ -4,27 +4,29 @@ import "fmt"
 
 // Validation error codes for resource and membership validation.
 const (
-	ErrCourseNotFound      = "course_not_found"
-	ErrCourseHasNoTeachers = "course_has_no_assigned_teachers"
-	ErrTeacherNotFound     = "teacher_not_found"
-	ErrTeacherInactive     = "teacher_inactive"
-	ErrRoomNotFound        = "room_not_found"
+	ErrCourseNotFound        = "course_not_found"
+	ErrCourseHasNoTeachers   = "course_has_no_assigned_teachers"
+	ErrTeacherNotFound       = "teacher_not_found"
+	ErrTeacherInactive       = "teacher_inactive"
+	ErrRoomNotFound          = "room_not_found"
+	ErrCourseSessionsOverlap = "course_has_overlapping_sessions"
 )
 
 type ConflictKind string
 
 const (
-	ConflictKindRoomOverlap         ConflictKind = "room_overlap"
-	ConflictKindTeacherOverlap      ConflictKind = "teacher_overlap"
-	ConflictKindStudentOverlap      ConflictKind = "student_overlap"
-	ConflictKindTeacherAvailability ConflictKind = "teacher_availability"
-	ConflictKindRoomAvailability    ConflictKind = "room_availability"
-	ConflictKindTeacherNotAssigned  ConflictKind = "teacher_not_assigned_to_course"
-	ConflictKindCourseNotFound      ConflictKind = "course_not_found"
-	ConflictKindCourseHasNoTeachers ConflictKind = "course_has_no_assigned_teachers"
-	ConflictKindTeacherNotFound     ConflictKind = "teacher_not_found"
-	ConflictKindTeacherInactive     ConflictKind = "teacher_inactive"
-	ConflictKindRoomNotFound        ConflictKind = "room_not_found"
+	ConflictKindRoomOverlap           ConflictKind = "room_overlap"
+	ConflictKindTeacherOverlap        ConflictKind = "teacher_overlap"
+	ConflictKindStudentOverlap        ConflictKind = "student_overlap"
+	ConflictKindTeacherAvailability   ConflictKind = "teacher_availability"
+	ConflictKindRoomAvailability      ConflictKind = "room_availability"
+	ConflictKindTeacherNotAssigned    ConflictKind = "teacher_not_assigned_to_course"
+	ConflictKindCourseNotFound        ConflictKind = "course_not_found"
+	ConflictKindCourseHasNoTeachers   ConflictKind = "course_has_no_assigned_teachers"
+	ConflictKindCourseSessionsOverlap ConflictKind = "course_sessions_overlap"
+	ConflictKindTeacherNotFound       ConflictKind = "teacher_not_found"
+	ConflictKindTeacherInactive       ConflictKind = "teacher_inactive"
+	ConflictKindRoomNotFound          ConflictKind = "room_not_found"
 )
 
 type ConflictSession struct {

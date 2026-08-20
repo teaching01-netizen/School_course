@@ -25,8 +25,37 @@ Environment:
 - `REALTIME_DATABASE_URL` (required only when `DATABASE_URL` uses transaction pooling; use a direct or session-pooling endpoint)
 - `AUTH_PEPPER` (required; long random secret)
 - `OTP_HMAC_KEY` (required for direct `go run`; `make dev` provides a local fallback)
-- `COOKIE_SECURE` (optional; defaults to `true`; set `false` only for local http; local mode uses a non-`__Host-` cookie name)
+- `COOKIE_SECURE` (optional; defaults to `true`; production rejects `false`; set `false` only for local http; local mode uses a non-`__Host-` cookie name)
 - `INSTITUTE_TZ` (optional; default `Asia/Bangkok`)
+- `TRUSTED_PROXY_CIDRS` (optional; comma-separated proxy CIDRs; forwarded headers are ignored when the direct peer is outside these networks)
+
+## Trusted proxy configuration
+
+Set `TRUSTED_PROXY_CIDRS` to the exact network(s) of the reverse proxy or load
+balancer that connects directly to the API, for example:
+
+`TRUSTED_PROXY_CIDRS=10.0.0.0/8,192.0.2.0/24`
+
+The server uses the direct TCP peer as the client address unless that peer is
+inside a configured network. Only then does it parse `X-Forwarded-For`, walking
+the chain from the application outward and selecting the first untrusted hop.
+Do not configure public or broad ranges that could contain arbitrary clients:
+an attacker who connects directly must not be able to choose their rate-limit
+identity with a forwarded header. Leave the variable empty when the API is not
+behind a trusted proxy.
+
+The same resolved address is used by login, OTP, and public student-lookup rate
+limits.
+
+> **Must be set when the app is behind a reverse proxy.** When the API runs
+> behind nginx, Cloudflare, Railway's edge routing, or any other reverse proxy
+> and `TRUSTED_PROXY_CIDRS` is left empty, the server treats the direct TCP peer
+> (the proxy itself) as the client address. Every user then shares the proxy IP,
+> so per-IP rate limits silently collapse onto a single bucket: either all users
+> are throttled together or one user's budget applies to everyone. The server
+> logs a startup warning when `TRUSTED_PROXY_CIDRS` is empty; if the app is
+> deployed behind a proxy, set it to the proxy's exact CIDR(s) (see the startup
+> log and the example above). Leave it empty only when clients connect directly.
 
 ## Railway / Docker deploy
 
@@ -59,9 +88,10 @@ A `railway.toml` at repo root defines the build/deploy config:
 |---|---|---|
 | `INSTITUTE_TZ` | `Asia/Bangkok` | Institute timezone |
 | `LOG_LEVEL` | `info` | |
-| `COOKIE_SECURE` | `true` | Set `false` only for local http |
-| `ADMIN_USERNAME` | — | Creates admin on first start |
-| `ADMIN_PASSWORD` | — | Pair with ADMIN_USERNAME |
+| `COOKIE_SECURE` | `true` | Production rejects `false`; set `false` only for local http |
+| `TRUSTED_PROXY_CIDRS` | — | Exact CIDR(s) for directly connecting reverse proxies; **required when deployed behind a proxy** (Railway edge/nginx/Cloudflare) or per-IP rate limits collapse to the proxy IP; leave empty for direct clients |
+| `APP_ENV` | — | Set `production` (or `prod`) for production startup checks |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | Not read by the server; production rejects either variable. Use `go run ./cmd/devseed` explicitly for local development only |
 | `APP_ORIGIN` | — | Railway domain for CSRF checks, e.g. `https://your-project.up.railway.app` |
 | `CRM_BASE_URL` / `CRM_USERNAME` / `CRM_PASSWORD` | — | CRM integration |
 | `OTP_SMS_PROVIDER` | `mock` | `smartsms` for real SMS |
@@ -83,6 +113,34 @@ Two cleanup binaries are built into the image. Create **separate Cron services**
 | Service | startCommand | Schedule | Purpose |
 |---|---|---|---|
 | cleanup-idempotency | `/app/cleanup-idempotency` | `0 */6 * * *` (every 6h) | GC stale idempotency keys |
-| cleanup-verification-sessions | `/app/cleanup-verification-sessions` | `0 */6 * * *` | GC expired OTP sessions |
+| cleanup-verification-sessions | `/app/cleanup-verification-sessions` | `0 */6 * * *` | GC expired OTP, lookup-token, and student-session rows |
 
 Both need `DATABASE_URL` — Railway cron services inherit env vars from the service.
+
+### Legacy sync worker
+
+`cmd/legacy-sync` is a **required worker** for the legacy refresh/reconcile jobs:
+the API queues `legacy_refresh_course` and `legacy_full_reconcile` jobs, and only
+this worker picks them up and applies the legacy-site aggregates. It must be
+deployed and running alongside the server at all times:
+
+- **Local dev:** `make -C backend legacy-sync` (or `npm run dev:full` / `scripts/dev.sh`, which start it automatically)
+- **Deploy:** run the `legacy-sync` binary from the Docker image (e.g. as a dedicated service with `startCommand: /app/legacy-sync`, same env vars as the main service)
+
+It needs `DATABASE_URL` plus the same `LEGACY_SYNC_*` env vars as the server (`LEGACY_SYNC_URL`, `LEGACY_SYNC_USERNAME`, `LEGACY_SYNC_PASSWORD`).
+
+Scrape throughput is tunable (all optional; defaults maximize speed while the
+circuit breaker and the per-request timeout still protect the legacy site):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LEGACY_SYNC_MAX_CONCURRENT` | `16` | Requests in flight against the legacy site at once (was a hardcoded 2); also sizes the student-profile lookup pool and the keep-alive connection pool |
+| `LEGACY_SYNC_MIN_REQUEST_INTERVAL` | `0` (disabled) | Global pacing between requests; set e.g. `500ms` to restore the historical one-request-per-interval politeness |
+| `LEGACY_SYNC_WORKERS` | `8` | Runner processes draining the legacy job queue in parallel |
+| `LEGACY_SYNC_HTTP_TIMEOUT` | `120s` | Per-request budget including redirects and body download |
+
+Two request-reduction behaviors are always on: the search-form antiforgery
+token (students directory and archived course list) is cached per session, so
+lookups cost one request instead of a page read + search; and the token cache
+auto-refreshes on re-login or on a failed search, so a rotated token never
+silently drops students.

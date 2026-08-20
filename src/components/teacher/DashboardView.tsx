@@ -47,14 +47,14 @@ export default function DashboardView({
         totalSitIns={data.summary.total_sit_ins}
       />
 
-      <div className="flex gap-4 border-b border-gray-100 text-sm" aria-label="Dashboard view mode">
+      <div className="flex gap-4 border-b border-wi-line-soft text-sm" aria-label="Dashboard view mode">
         <button
           type="button"
           onClick={() => setMode('calendar')}
-          className={`min-h-11 border-b-2 px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
+          className={`min-h-11 border-b px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
             mode === 'calendar'
               ? 'border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]'
-              : 'border-transparent text-gray-500 hover:text-gray-900'
+              : 'border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]'
           }`}
         >
           Calendar
@@ -62,10 +62,10 @@ export default function DashboardView({
         <button
           type="button"
           onClick={() => setMode('table')}
-          className={`min-h-11 border-b-2 px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
+          className={`min-h-11 border-b px-2 font-medium transition-colors sm:min-h-0 sm:px-1 sm:pb-2 ${
             mode === 'table'
               ? 'border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]'
-              : 'border-transparent text-gray-500 hover:text-gray-900'
+              : 'border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]'
           }`}
         >
           Table
@@ -77,7 +77,7 @@ export default function DashboardView({
           <div className="relative">
             {loadingNewMonth ? (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-sm bg-white/70">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
+                <div className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />

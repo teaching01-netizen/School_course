@@ -85,7 +85,7 @@ export default function SubjectCreate() {
         <FormErrorSummary errors={errors} touched={touched} />
 
         <FormField name="code" label="Id">
-          <Input size="md" value={generating ? "Generating…" : code} readOnly className="bg-gray-50" />
+          <Input size="md" value={generating ? "Generating…" : code} readOnly className="bg-[var(--color-wi-row-alt)]" />
         </FormField>
 
         <FormField name="name" label="Name" error={errors.name} touched={touched.name} required>

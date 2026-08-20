@@ -4,8 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import OperationsCalendar from "../OperationsCalendar";
 import { ToastProvider } from "../../hooks/useToast";
+import { queryClient } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
+let calendarResponse: Parameters<typeof mockApiJson.mockResolvedValueOnce>[0] = {
+  sessions: [],
+  absence_days: [],
+};
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
@@ -23,8 +28,7 @@ function renderPage(initialEntry = "/calendar?view=month") {
 }
 
 function mockCalendarResponse(response: Parameters<typeof mockApiJson.mockResolvedValueOnce>[0]) {
-  mockApiJson.mockReset();
-  mockApiJson.mockResolvedValueOnce(response);
+  calendarResponse = response;
 }
 
 describe("OperationsCalendar", () => {
@@ -42,10 +46,14 @@ describe("OperationsCalendar", () => {
   });
 
   beforeEach(() => {
+    queryClient.clear();
+    calendarResponse = { sessions: [], absence_days: [] };
     mockApiJson.mockReset();
-    mockApiJson.mockResolvedValueOnce({
-      sessions: [],
-      absence_days: [],
+    mockApiJson.mockImplementation((url: string) => {
+      if (url === "/api/v1/meta/time") {
+        return Promise.resolve({ institute_tz: "Asia/Bangkok", server_now: "2026-06-02T12:00:00Z" });
+      }
+      return Promise.resolve(calendarResponse);
     });
   });
 
@@ -602,6 +610,174 @@ describe("OperationsCalendar", () => {
     expect(screen.getByText("W250389")).toBeInTheDocument();
     expect(screen.getAllByText("SAT Math").length).toBeGreaterThan(0);
     expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+
+  it("excludes cancelled absences from the grid unless the status filter asks for them", async () => {
+    mockCalendarResponse({
+      sessions: [],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-1",
+              wcode: "W250389",
+              student_name: "Active Student",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "physical",
+              sit_in_course_name: "Physics",
+              sit_in_subject_name: "Physics",
+            },
+            {
+              id: "abs-2",
+              wcode: "W250390",
+              student_name: "Cancelled Student",
+              status: "cancelled",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "zoom",
+              sit_in_course_name: "Zoom",
+              sit_in_subject_name: "Zoom",
+            },
+          ],
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPage("/calendar?view=month&show=absences");
+
+    await screen.findByText("Calendar");
+    expect(screen.getByText("W250389 · Active Student")).toBeInTheDocument();
+    expect(screen.queryByText("W250390 · Cancelled Student")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Status" }), "cancelled");
+    expect(screen.getByText("W250390 · Cancelled Student")).toBeInTheDocument();
+    expect(screen.queryByText("W250389 · Active Student")).not.toBeInTheDocument();
+  });
+
+  it("applies the subject filter to absence chips as well as sessions", async () => {
+    mockCalendarResponse({
+      sessions: [
+        {
+          id: "sess-1",
+          course_id: "course-1",
+          course_code: "0000000002",
+          course_name: "SAT Math Scholar",
+          subject_name: "SAT Math",
+          start_at: "2026-06-02T09:00:00Z",
+          end_at: "2026-06-02T10:30:00Z",
+          room_name: "Room 101",
+          teacher_name: "Teacher A",
+          sit_in_students: [],
+        },
+      ],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-math",
+              wcode: "W250389",
+              student_name: "Math Student",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-02",
+              sit_in_method: "physical",
+              sit_in_course_name: "Physics",
+              sit_in_subject_name: "Physics",
+            },
+          ],
+        },
+        {
+          date: "2026-06-03",
+          absences: [
+            {
+              id: "abs-sat",
+              wcode: "W250390",
+              student_name: "SAT Student",
+              status: "pending",
+              subject_name: "SAT Math",
+              subject_code: "SATM",
+              date_from: "2026-06-03",
+              date_to: "2026-06-03",
+              sit_in_method: "zoom",
+              sit_in_course_name: "Zoom",
+              sit_in_subject_name: "Zoom",
+            },
+          ],
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPage("/calendar?view=month&show=all");
+
+    await screen.findByText("Calendar");
+    expect(screen.getByText("W250389 · Math Student")).toBeInTheDocument();
+    expect(screen.getByText("W250390 · SAT Student")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Subject" }), "course-1");
+    expect(screen.queryByText("W250389 · Math Student")).not.toBeInTheDocument();
+    expect(screen.getByText("W250390 · SAT Student")).toBeInTheDocument();
+  });
+
+  it("renders absence rows in list view when show is absences", async () => {
+    mockCalendarResponse({
+      sessions: [
+        {
+          id: "sess-1",
+          course_id: "course-1",
+          course_code: "0000000002",
+          course_name: "SAT Math Scholar",
+          subject_name: "SAT Math",
+          start_at: "2026-06-02T09:00:00Z",
+          end_at: "2026-06-02T10:30:00Z",
+          room_name: "Room 101",
+          teacher_name: "Teacher A",
+          sit_in_students: [],
+        },
+      ],
+      absence_days: [
+        {
+          date: "2026-06-02",
+          absences: [
+            {
+              id: "abs-1",
+              wcode: "W250389",
+              student_name: "Absence Student",
+              status: "pending",
+              subject_name: "Mathematics",
+              subject_code: "MATH",
+              date_from: "2026-06-02",
+              date_to: "2026-06-04",
+              sit_in_method: "physical",
+              sit_in_course_name: "Physics",
+              sit_in_subject_name: "Physics",
+            },
+          ],
+        },
+      ],
+    });
+
+    renderPage("/calendar?view=list&show=absences");
+
+    await screen.findByText("Calendar");
+    expect(screen.getByRole("columnheader", { name: /student/i })).toBeInTheDocument();
+    expect(screen.getByText("Absence Student")).toBeInTheDocument();
+    expect(screen.getAllByText("W250389").length).toBeGreaterThan(0);
+    expect(screen.getByText("Mathematics")).toBeInTheDocument();
+    expect(screen.getByText("2 Jun – 4 Jun 2026")).toBeInTheDocument();
+    expect(screen.getByText("Physical")).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
   });
 
   it("opens nested student detail inside the side panel", async () => {

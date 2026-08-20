@@ -276,7 +276,7 @@ SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
        COALESCE(c.code, '') AS course_code,
        COALESCE(c.name, '') AS course_name,
        COALESCE(subj.name, '') AS subject_name,
-       COALESCE(u.username, '') AS teacher_name,
+       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name,
        r.name AS room_name
 FROM sessions s
 JOIN courses c ON c.id = s.course_id

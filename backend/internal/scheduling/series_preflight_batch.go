@@ -266,7 +266,9 @@ func firstOverlap(m map[int][]ConflictSession) (int, []ConflictSession) {
 }
 
 // checkTeacherAvailabilityBatch returns the set of occurrence ordinals whose
-// time range is NOT covered by any teacher availability window.
+// time range is NOT covered by the union of the teacher's availability
+// windows. Union containment matches the database trigger policy (00070): a
+// session straddling two abutting windows is covered.
 func (s *Service) checkTeacherAvailabilityBatch(
 	ctx context.Context,
 	db sqldb.DBTX,
@@ -293,10 +295,13 @@ func (s *Service) checkTeacherAvailabilityBatch(
 		SELECT r.ordinal
 		FROM unnest($1::bigint[], $2::timestamptz[], $3::timestamptz[]) AS r(ordinal, start_at, end_at)
 		WHERE NOT EXISTS (
-			SELECT 1 FROM teacher_availability a
-			WHERE a.teacher_id = $4
-			  AND a.deleted_at IS NULL
-			  AND a.time_range @> tstzrange(r.start_at, r.end_at, '[)')
+			SELECT 1
+			FROM (
+				SELECT COALESCE(range_agg(a.time_range), '{}'::tstzmultirange) AS union_range
+				FROM teacher_availability a
+				WHERE a.teacher_id = $4 AND a.deleted_at IS NULL
+			) u
+			WHERE u.union_range @> tstzrange(r.start_at, r.end_at, '[)')
 		)
 	`, ords, starts, ends, teacherID)
 	if err != nil {
@@ -316,7 +321,7 @@ func (s *Service) checkTeacherAvailabilityBatch(
 }
 
 // checkRoomAvailabilityBatch returns the set of occurrence ordinals whose
-// time range is NOT covered by any room availability window.
+// time range is NOT covered by the union of the room's availability windows.
 func (s *Service) checkRoomAvailabilityBatch(
 	ctx context.Context,
 	db sqldb.DBTX,
@@ -343,10 +348,13 @@ func (s *Service) checkRoomAvailabilityBatch(
 		SELECT r.ordinal
 		FROM unnest($1::bigint[], $2::timestamptz[], $3::timestamptz[]) AS r(ordinal, start_at, end_at)
 		WHERE NOT EXISTS (
-			SELECT 1 FROM room_availability a
-			WHERE a.room_id = $4
-			  AND a.deleted_at IS NULL
-			  AND a.time_range @> tstzrange(r.start_at, r.end_at, '[)')
+			SELECT 1
+			FROM (
+				SELECT COALESCE(range_agg(a.time_range), '{}'::tstzmultirange) AS union_range
+				FROM room_availability a
+				WHERE a.room_id = $4 AND a.deleted_at IS NULL
+			) u
+			WHERE u.union_range @> tstzrange(r.start_at, r.end_at, '[)')
 		)
 	`, ords, starts, ends, roomID)
 	if err != nil {

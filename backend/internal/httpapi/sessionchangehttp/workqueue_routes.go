@@ -31,7 +31,7 @@ func (s *server) handleScheduleImpactQueue(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	limit, offset := pageParams(r)
-	items, err := s.deps.Q.ScheduleImpactQueue(r.Context(), sqldb.ScheduleImpactQueueFilter{Status: status, Severity: severity, Query: strings.TrimSpace(r.URL.Query().Get("q")), Limit: int32(limit), Offset: int32(offset)})
+	items, err := s.deps.Q.ScheduleImpactQueue(r.Context(), sqldb.ScheduleImpactQueueFilter{Status: status, Severity: severity, Query: s.a.SearchQuery(r.URL.Query().Get("q")), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		s.writeDBError(w, err)
 		return
@@ -50,29 +50,29 @@ func (s *server) handleScheduleImpactQueue(w http.ResponseWriter, r *http.Reques
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		dto := s.issueDTO(r.Context(), issueDTOInput{
-			ID:                         item.ID,
-			AbsenceID:                  item.AbsenceID,
-			IssueType:                  item.IssueType,
-			Severity:                   item.Severity,
-			Status:                     item.Status,
-			SourceSessionID:            item.SourceSessionID,
-			SitInSessionID:             item.SitInSessionID,
-			MissedSessionID:            item.MissedSessionID,
-			Details:                    item.Details,
-			Suggestions:                item.SuggestedResolutions,
-			Wcode:                      item.WCode,
-			StudentName:                item.StudentName,
-			StudentEmail:               item.StudentEmail,
-			StudentPhone:               item.StudentPhone,
-			StartAt:                    item.StartAt,
-			EndAt:                      item.EndAt,
-			ResolutionAction:           item.ResolutionAction,
-			IssueVersion:               item.IssueVersion,
-			AssignmentSnapshotJSON:     item.AssignmentSnapshotJSON,
-			AssignmentSnapshotQuality:  item.AssignmentSnapshotQuality,
-			AssignmentSnapshotSource:   item.AssignmentSnapshotSource,
-			LatestSessionChangeID:      item.LatestSessionChangeID,
-			AssignedAt:                 item.AssignedAt,
+			ID:                        item.ID,
+			AbsenceID:                 item.AbsenceID,
+			IssueType:                 item.IssueType,
+			Severity:                  item.Severity,
+			Status:                    item.Status,
+			SourceSessionID:           item.SourceSessionID,
+			SitInSessionID:            item.SitInSessionID,
+			MissedSessionID:           item.MissedSessionID,
+			Details:                   item.Details,
+			Suggestions:               item.SuggestedResolutions,
+			Wcode:                     item.WCode,
+			StudentName:               item.StudentName,
+			StudentEmail:              item.StudentEmail,
+			StudentPhone:              item.StudentPhone,
+			StartAt:                   item.StartAt,
+			EndAt:                     item.EndAt,
+			ResolutionAction:          item.ResolutionAction,
+			IssueVersion:              item.IssueVersion,
+			AssignmentSnapshotJSON:    item.AssignmentSnapshotJSON,
+			AssignmentSnapshotQuality: item.AssignmentSnapshotQuality,
+			AssignmentSnapshotSource:  item.AssignmentSnapshotSource,
+			LatestSessionChangeID:     item.LatestSessionChangeID,
+			AssignedAt:                item.AssignedAt,
 		})
 		dto["course_code"] = item.CourseCode
 		dto["course_name"] = item.CourseName

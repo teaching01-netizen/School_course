@@ -48,7 +48,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
                     isCompleted && "bg-[var(--color-wi-primary)] text-white",
                     isCurrent && "border-2 border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)]",
-                    !isCompleted && !isCurrent && "border-2 border-gray-300 bg-white text-gray-400",
+                    !isCompleted && !isCurrent && "border-2 border-wi-line bg-white text-[var(--color-wi-text-light)]",
                     isClickable && "cursor-pointer hover:shadow-sm",
                     !isClickable && "cursor-default",
                   )}
@@ -65,13 +65,13 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
                       "text-xs font-semibold leading-tight",
                       isCompleted && "text-[var(--color-wi-primary)]",
                       isCurrent && "text-[var(--color-wi-text)]",
-                      !isCompleted && !isCurrent && "text-gray-400",
+                      !isCompleted && !isCurrent && "text-[var(--color-wi-text-light)]",
                     )}
                   >
                     {step.label}
                   </span>
                   {step.description && (
-                    <span className="hidden text-[11px] leading-tight text-gray-500 md:block">{step.description}</span>
+                    <span className="hidden text-[11px] leading-tight text-[var(--color-wi-text-light)] md:block">{step.description}</span>
                   )}
                 </div>
               </div>

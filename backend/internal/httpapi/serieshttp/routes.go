@@ -409,6 +409,10 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 			Count:           body.Count,
 		})
 		if err != nil {
+			var operationErr *series.OperationError
+			if errors.As(err, &operationErr) {
+				return http.StatusConflict, map[string]any{"code": operationErr.Code, "message": operationErr.Message}, err
+			}
 			if r := s.checkRecurrence(r.Context(), err); !r.valid {
 				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
@@ -419,6 +423,9 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 					payload := buildStaleEditPayloadSeries(s.a, r, cur)
 					return http.StatusConflict, map[string]any{"code": "stale_edit", "message": "Stale edit", "details": map[string]any{"current": payload}}, err
 				}
+			}
+			if errors.As(err, &se) {
+				return scheduling.HTTPStatusForErr(se), map[string]any{"code": se.Code, "message": se.Message, "details": se.Details}, err
 			}
 			return 0, nil, err
 		}
@@ -523,6 +530,10 @@ func (s *server) handleSeriesCancel(w http.ResponseWriter, r *http.Request) {
 			ExpectedVersion: *body.ExpectedVersion,
 		})
 		if err != nil {
+			var operationErr *series.OperationError
+			if errors.As(err, &operationErr) {
+				return http.StatusConflict, map[string]any{"code": operationErr.Code, "message": operationErr.Message}, err
+			}
 			if r := s.checkRecurrence(r.Context(), err); !r.valid {
 				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}
@@ -687,6 +698,10 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			Count:           body.Count,
 		})
 		if err != nil {
+			var operationErr *series.OperationError
+			if errors.As(err, &operationErr) {
+				return http.StatusConflict, map[string]any{"code": operationErr.Code, "message": operationErr.Message}, err
+			}
 			if r := s.checkRecurrence(r.Context(), err); !r.valid {
 				return http.StatusBadRequest, map[string]any{"code": r.code, "message": r.msg}, err
 			}

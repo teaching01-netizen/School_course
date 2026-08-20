@@ -4,29 +4,37 @@ import { ChevronLeft } from "lucide-react";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
-import StepIndicator from "@/components/absences/StepIndicator";
-import SubjectCard from "@/components/absences/SubjectCard";
-import StickyFooter from "@/components/absences/StickyFooter";
+import AbsenceAppShell from "@/components/absences/public-form/AbsenceAppShell";
+import AbsenceAppHeader from "@/components/absences/public-form/AbsenceAppHeader";
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
 import StudentStep from "@/components/absences/public-form/StudentStep";
 import VerificationStep from "@/components/absences/public-form/VerificationStep";
 import ClassesStep from "@/components/absences/public-form/ClassesStep";
 import ReviewStep from "@/components/absences/public-form/ReviewStep";
+import AbsenceActionBar from "@/components/absences/public-form/AbsenceActionBar";
+import SubjectRow from "@/components/absences/public-form/SubjectRow";
+import ReasonField from "@/components/absences/public-form/ReasonField";
+import SessionDayCard from "@/components/absences/public-form/SessionDayCard";
+import MakeUpPicker from "@/components/absences/public-form/MakeUpPicker";
 import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
+import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
+import type { AbsenceDraftV1 } from "@/features/absences/storage/absenceDraftStorage";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useOtp } from "@/hooks/useOtp";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
   AbsenceFormConfig,
   ManagedAbsence,
+  PublicStudentLookupResponse,
   SubjectSessions,
-  StudentLookupResponse,
+  VerifiedStudentProfile,
 } from "@/types";
 import { DEFAULT_CONFIG, VERIFICATION_STORAGE_KEY } from "@/features/absences/constants";
 import {
   loadAbsenceFormConfig,
-  loadSessionsInRange,
+  loadStudentProfile,
+  loadStudentSessions,
   lookupStudentByWcode,
   submitAbsenceBatch,
 } from "@/features/absences/api/absenceFormApi";
@@ -63,18 +71,28 @@ import {
 import {
   clearLegacyAbsenceDraft,
   clearStudentResume,
+  clearStudentSessionHint,
   readStudentResume,
   writeStudentResume,
 } from "@/features/absences/storage/studentResumeStorage";
-import { getStudentDisplayName, isWCode, maskPhone, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
+import { isWCode, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
 
 type StepIndex = 0 | 1 | 2 | 3;
+
+function isStudentSessionUnauthorized(error: unknown): boolean {
+  return error instanceof ApiRequestError
+    && error.status === 401
+    && error.code === "unauthorized";
+}
 
 export default function AbsenceForm() {
   const { addToast } = useToast();
   const { online, justRestored } = useConnectivity();
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
   const reduceMotion = useReducedMotion();
+  const { draft: savedDraft, saveDraft, clearDraft } = useAbsenceDraft();
+  const draftRef = useRef<AbsenceDraftV1 | null>(savedDraft);
+  const [draftNeedsReview, setDraftNeedsReview] = useState(false);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const lookupRequestId = useRef(0);
 
@@ -89,7 +107,8 @@ export default function AbsenceForm() {
   const [config, setConfig] = useState<AbsenceFormConfig>(DEFAULT_CONFIG);
   const [configLoading, setConfigLoading] = useState(true);
   const [lookupInput, setLookupInput] = useState("");
-  const [lookup, setLookup] = useState<StudentLookupResponse | null>(null);
+  const [lookup, setLookup] = useState<PublicStudentLookupResponse | null>(null);
+  const [studentProfile, setStudentProfile] = useState<VerifiedStudentProfile | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [collectedEmail, setCollectedEmail] = useState("");
@@ -129,13 +148,10 @@ export default function AbsenceForm() {
   );
   const manualEmail = collectedEmail.trim();
   const manualEmailValid = /^[^\s@]+@[^\s@]+$/.test(manualEmail);
-  const emailSatisfied = !!(
-    lookup?.email_crm?.trim()
-    || lookup?.email_system?.trim()
-    || manualEmailValid
-  );
+  const emailSatisfied = !!lookup && (!lookup.email_input_required || manualEmailValid);
   const canProceedFromStudent = !!lookup && emailSatisfied;
-  const studentDisplayName = getStudentDisplayName(lookup);
+  const studentDisplayName = studentProfile?.display_name || "Student";
+  const verifiedSubjects = studentProfile?.subjects ?? [];
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -162,36 +178,106 @@ export default function AbsenceForm() {
       .finally(() => { if (active) setConfigLoading(false); });
     return () => { active = false; };
   }, [addToast]);
+  const handleStudentSessionExpired = useCallback(() => {
+    clearStudentSessionHint();
+    verification.clearStoredToken();
+    verification.setCode("");
+    setStudentProfile(null);
+    setSessions([]);
+    setVerificationSatisfied(false);
+    setVerificationBlocked(true);
+    setPageError("Your verified session expired. Verify again to continue.");
+    setSubmissionError(null);
+    setStep(1);
+  }, [verification.clearStoredToken, verification.setCode]);
 
   useEffect(() => {
-    if (step !== 2 || !lookup) return;
+    if (step !== 2 || !lookup || !online) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    void loadSessionsInRange(lookup.wcode, undefined, undefined, {
-      signal: controller.signal,
-    })
-      .then((data) => { if (!controller.signal.aborted) setSessions(data.subjects); })
+    void Promise.all([
+      loadStudentProfile(),
+      loadStudentSessions(undefined, undefined, { signal: controller.signal }),
+    ])
+      .then(([profile, data]) => {
+        if (controller.signal.aborted) return;
+        if (profile.wcode !== lookup.wcode) {
+          setStudentProfile(null);
+          setSessions([]);
+          setSessionsError("Verification belongs to a different Student ID. Verify this Student ID again.");
+          setStep(1);
+          return;
+        }
+        setStudentProfile(profile);
+        setSessions(data.subjects);
+        const validSubjectIds = new Set(profile.subjects.map((subject) => subject.id));
+        setSelectedSubjectIds((current) => current.filter((id) => validSubjectIds.has(id)));
+        const draft = draftRef.current;
+        const isSameStudent = Boolean(draft && normalizeLookupWcode(draft.wcode) === lookup.wcode);
+        if (!isSameStudent || !draft) return;
+        const restoredSubjectIds = draft.selectedSubjectIds.filter((subjectId) => validSubjectIds.has(subjectId));
+        setSelectedSubjectIds(restoredSubjectIds);
+
+        const validSessionIds = new Set(data.subjects.flatMap((group) => group.sessions.map((session) => session.id)));
+        const restoredSessionIds = draft.selectedSessionIds.filter((sessionId) => validSessionIds.has(sessionId));
+        const restoredSessionSet = new Set(restoredSessionIds);
+        const missingSavedSessions = draft.selectedSessionIds.length - restoredSessionIds.length;
+        const restoredSitIns: Record<string, string> = {};
+        for (const [sessionId, sitInId] of Object.entries(draft.sitInSelections)) {
+          if (restoredSessionSet.has(sessionId)) restoredSitIns[sessionId] = sitInId;
+        }
+        const restoredPriorityLevels: Record<string, number> = {};
+        for (const [sessionId, priority] of Object.entries(draft.sitInPriorityLevels)) {
+          if (restoredSessionSet.has(sessionId)) restoredPriorityLevels[sessionId] = priority;
+        }
+        setSelectedSessionIds(restoredSessionSet);
+        setSitInSelections(restoredSitIns);
+        setSitInPriorityLevels(restoredPriorityLevels);
+        setExpandedSubjectId(restoredSubjectIds[0] ?? null);
+        setDraftNeedsReview((current) => current || missingSavedSessions > 0);
+        draftRef.current = null;
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        if (isStudentSessionUnauthorized(error)) {
+          handleStudentSessionExpired();
+          return;
+        }
+        setStudentProfile(null);
         setSessions([]);
         setSessionsError(error instanceof Error ? error.message : "Couldn't load your classes");
       })
       .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup]);
+  }, [step, lookup, online, handleStudentSessionExpired]);
 
   useEffect(() => {
     let active = true;
     try {
       clearLegacyAbsenceDraft();
       const resume = readStudentResume();
-      if (!resume) return () => { active = false; };
-      setLookupInput(resume.wcode);
-      if (resume.collectedEmail) setCollectedEmail(resume.collectedEmail);
+      const draft = draftRef.current;
+      const resumeWcode = draft?.wcode ?? resume?.wcode;
+      if (!resumeWcode) return () => { active = false; };
+      const restoredEmail = draft?.collectedEmail ?? resume?.collectedEmail;
+      setLookupInput(resumeWcode);
+      if (restoredEmail) setCollectedEmail(restoredEmail);
+      if (draft?.reason) setReason(draft.reason);
       setLookupLoading(true);
-      void lookupStudentByWcode(resume.wcode)
-        .then((response) => { if (active) setLookup(response); })
+      void lookupStudentByWcode(resumeWcode)
+        .then((response) => {
+          if (!active) return;
+          setLookup(response);
+          setStudentProfile(null);
+          const restoreDraft = draftRef.current;
+          const isSameStudent = Boolean(restoreDraft && normalizeLookupWcode(restoreDraft.wcode) === response.wcode);
+          setSelectedSubjectIds([]);
+          if (isSameStudent && restoreDraft) {
+            setReason(restoreDraft.reason);
+            setDraftNeedsReview(restoreDraft.selectedSubjectIds.length > 0);
+          }
+        })
         .catch((error: unknown) => {
           if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
         })
@@ -204,6 +290,31 @@ export default function AbsenceForm() {
     if (!lookup) return;
     try { writeStudentResume({ wcode: lookup.wcode, collectedEmail }); } catch { }
   }, [lookup, collectedEmail]);
+
+  useEffect(() => {
+    if (!lookup || finalResults) return;
+    saveDraft({
+      wcode: lookup.wcode,
+      collectedEmail: collectedEmail || undefined,
+      step,
+      selectedSubjectIds: [...selectedSubjectIds],
+      selectedSessionIds: [...selectedSessionIds],
+      sitInSelections: { ...sitInSelections },
+      sitInPriorityLevels: { ...sitInPriorityLevels },
+      reason,
+    });
+  }, [
+    lookup,
+    finalResults,
+    collectedEmail,
+    step,
+    selectedSubjectIds,
+    selectedSessionIds,
+    sitInSelections,
+    sitInPriorityLevels,
+    reason,
+    saveDraft,
+  ]);
 
   useEffect(() => {
     if (!verification.token) {
@@ -251,27 +362,42 @@ export default function AbsenceForm() {
     setVerificationBlocked(false);
   }, []);
 
+
   const handleLookup = async () => {
     const requestId = ++lookupRequestId.current;
-    setLookupError(null);
-    setLookup(null);
-    setPageError(null);
     const cleaned = normalizeLookupWcode(lookupInput);
+    setLookupError(null);
+    if (!online) {
+      setLookupError("You're offline. Reconnect to search for your profile.");
+      return;
+    }
+    clearStudentSessionHint();
+    setLookup(null);
+    setStudentProfile(null);
     if (!cleaned || !isWCode(cleaned)) {
       setLookupLoading(false);
       setLookupError("Enter your Student ID (W-Code).");
       return;
+    }
+    const draftForStudent = draftRef.current;
+    const shouldRestoreDraft = Boolean(
+      draftForStudent && normalizeLookupWcode(draftForStudent.wcode) === cleaned,
+    );
+    if (!shouldRestoreDraft) {
+      draftRef.current = null;
+      clearDraft();
     }
     try {
       setLookupLoading(true);
       const response = await lookupStudentByWcode(cleaned);
       if (requestId !== lookupRequestId.current) return;
       setLookup(response);
+      setStudentProfile(null);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
       setExpandedSubjectId(null);
-      setCollectedEmail("");
-      setReason("");
+      setCollectedEmail(shouldRestoreDraft ? draftForStudent?.collectedEmail ?? "" : "");
+      setReason(shouldRestoreDraft ? draftForStudent?.reason ?? "" : "");
       setReasonError(null);
       setSessions([]);
       setSessionsError(null);
@@ -280,6 +406,7 @@ export default function AbsenceForm() {
       setSitInPriorityLevels({});
       setSitInPriorityHistory({});
       setRevealingPrioritySessionIds(new Set());
+      setDraftNeedsReview(Boolean(shouldRestoreDraft && draftForStudent && draftForStudent.selectedSubjectIds.length > 0));
       setSubmissionError(null);
       submissionIdempotencyKey.current = newIdempotencyKey();
       verification.clearStoredToken();
@@ -347,8 +474,7 @@ export default function AbsenceForm() {
       setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
-        const data = await loadSessionsInRange(
-          lookup.wcode,
+        const data = await loadStudentSessions(
           undefined,
           undefined,
           undefined,
@@ -404,7 +530,12 @@ export default function AbsenceForm() {
 
   function focusFirstInvalid(selector: string) {
     window.requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(selector)?.focus();
+      const candidates = [...document.querySelectorAll<HTMLElement>(selector)];
+      const target = candidates.find((candidate) => {
+        const styles = window.getComputedStyle(candidate);
+        return styles.display !== "none" && styles.visibility !== "hidden" && candidate.getClientRects().length > 0;
+      }) ?? candidates[0];
+      target?.focus();
     });
   }
 
@@ -428,10 +559,10 @@ export default function AbsenceForm() {
         selectedSubjectIds.includes(group.subject_id) && group.sessions.some((session) =>
           selectedSessionIds.has(session.id) && sitInForMissedSession(group, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]));
       setExpandedSubjectId(invalidGroup?.subject_id ?? selectedSubjectIds[0] ?? null);
-      focusFirstInvalid('select[aria-label*="make-up" i], select');
+      focusFirstInvalid('[data-make-up-trigger], select[aria-label*="make-up" i], select');
       return false;
     }
-    if (!reason.trim()) {
+    if (config.form.require_reason && !reason.trim()) {
       setPageError("Please tell us why you'll be away.");
       setReasonError("Please tell us why you'll be away.");
       focusFirstInvalid("#absence-reason");
@@ -439,10 +570,13 @@ export default function AbsenceForm() {
     }
     return true;
   }
-
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
+    if (!online) {
+      setSubmissionError("You're offline. Reconnect before submitting your absence.");
+      return;
+    }
     const verificationExpired = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
     if (!verificationSatisfied || verificationBlocked || verificationExpired) {
       setVerificationSatisfied(false);
@@ -473,20 +607,22 @@ export default function AbsenceForm() {
       setIsSubmitting(true);
       const response = await submitAbsenceBatch({
         idempotencyKey: submissionIdempotencyKey.current,
-        wcode: lookup.wcode,
         email: collectedEmail.trim() || undefined,
         reason: reason.trim(),
-        verificationToken: verificationSatisfied && verification.token ? verification.token : undefined,
         items: payloads,
       });
       setFinalResults(response.items);
-      verification.clearStoredToken();
       verification.setCode("");
       try {
         clearLegacyAbsenceDraft();
         clearStudentResume();
+        clearDraft();
       } catch { }
     } catch (error) {
+      if (isStudentSessionUnauthorized(error)) {
+        handleStudentSessionExpired();
+        return;
+      }
       if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
       } else if (error instanceof TypeError) {
@@ -585,27 +721,83 @@ export default function AbsenceForm() {
   }
 
   
+  const classDataAvailable = online || sessions.length > 0;
+
+  const actionCanProceed =
+    step === 0 ? canProceedFromStudent :
+    step === 1 ? verificationSatisfied :
+    step === 2 ? classDataAvailable && !sessionsLoading && !draftNeedsReview :
+    step === 3 ? verificationSatisfied && !verificationBlocked && online : false;
+
+  const primaryActionLabel =
+    step === 0 ? "Continue to verification" :
+    step === 1 ? "Continue to classes" :
+    step === 2 ? "Review absence" :
+    "Submit absence";
+
+  const handlePrimaryAction = () => {
+    if (step === 0) goToStep(1);
+    else if (step === 1) goToStep(2);
+    else if (step === 2) {
+      if (!validateClasses()) return;
+      goToStep(3);
+    } else {
+      void handleSubmitAbsence();
+    }
+  };
 
   if (configLoading) {
     return (
-      <div className="min-h-screen bg-[var(--color-wi-bg)]">
-        <div className="mx-auto max-w-lg px-4 pb-24 pt-6">
+      <AbsenceAppShell
+        header={<AbsenceAppHeader steps={STEP_LABELS} currentStep={0} />}
+        footer={
+          <AbsenceActionBar
+            currentStep={0}
+            canProceed={false}
+            onBack={() => {}}
+            onPrimary={() => {}}
+            primaryLabel="Continue to verification"
+          />
+        }
+      >
+        <div className="mx-auto w-full max-w-3xl px-0 py-6">
           <LoadingSkeleton type="text" lines={3} />
         </div>
-      </div>
+      </AbsenceAppShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-wi-bg)]">
-      <div className="mx-auto max-w-[640px] px-4 pb-24 pt-6 sm:px-6">
-        <StepIndicator
+    <AbsenceAppShell
+      header={
+        <AbsenceAppHeader
           steps={STEP_LABELS}
           currentStep={step}
-          onStepClick={(s) => s < step && goToStep(s as StepIndex)}
+          onStepClick={(next) => { if (next < step) goToStep(next as StepIndex); }}
         />
-
+      }
+      footer={
+        <AbsenceActionBar
+          currentStep={step}
+          canProceed={actionCanProceed}
+          loading={isSubmitting}
+          onBack={() => goToStep(Math.max(0, step - 1) as StepIndex)}
+          onPrimary={handlePrimaryAction}
+          primaryLabel={primaryActionLabel}
+        />
+      }
+    >
+      <div className="mx-auto w-full max-w-3xl py-6">
         {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
+        {!online ? (
+          <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm text-[var(--color-wi-amber)]">
+            You're offline. Network actions are paused; your current progress remains on this device.
+          </div>
+        ) : justRestored ? (
+          <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-[var(--color-wi-green)]/30 bg-[var(--color-wi-green)]/10 px-4 py-3 text-sm font-medium text-[var(--color-wi-green)]">
+            Back online. Rechecking your classes...
+          </div>
+        ) : null}
 
         <div className="space-y-6">
             {step === 0 && (
@@ -645,25 +837,18 @@ export default function AbsenceForm() {
                       <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</p>
+                            <p className="text-sm font-semibold text-[var(--color-wi-text)]">Student ID found</p>
                             <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
                           </div>
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                            Ready to verify
+                          </span>
                         </div>
-
-                        {lookup.email_crm?.trim() ? (
-                          <div className="mt-3 flex items-center gap-2 text-xs">
-                            <span className="text-[var(--color-wi-text-light)]">Email:</span>
-                            <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_crm}</span>
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">CRM</span>
-                          </div>
-                        ) : lookup.email_system?.trim() ? (
-                          <div className="mt-3 flex items-center gap-2 text-xs">
-                            <span className="text-[var(--color-wi-text-light)]">Email:</span>
-                            <span className="font-medium text-[var(--color-wi-text)]">{lookup.email_system}</span>
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">System</span>
-                          </div>
-                        ) : (
-                          <div className="mt-3 space-y-1.5">
+                        <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">
+                          Parent verification is available. Your student details will appear after verification.
+                        </p>
+                        {lookup.email_input_required ? (
+                          <div className="mt-4 space-y-1.5">
                             <label htmlFor="student-email" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
                               Your email address <span className="text-[var(--color-wi-red)]">*</span>
                             </label>
@@ -675,23 +860,14 @@ export default function AbsenceForm() {
                               value={collectedEmail}
                               onChange={(e) => setCollectedEmail(e.target.value)}
                             />
-                            {!collectedEmail.trim() && (
-                              <p className="text-xs text-[var(--color-wi-amber)]">An email is required so we can contact you about your absence.</p>
+                            {!manualEmailValid && (
+                              <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid email to continue.</p>
                             )}
                           </div>
+                        ) : (
+                          <p className="mt-4 text-xs font-medium text-[var(--color-wi-text)]">Email on file</p>
                         )}
-
                       </div>
-
-                      {!online ? (
-                        <div role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm font-medium text-[var(--color-wi-amber)]">
-                          You're offline. Your progress is saved locally.
-                        </div>
-                      ) : justRestored ? (
-                        <div role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-green)]/10 px-4 py-3 text-sm font-medium text-[var(--color-wi-green)]">
-                          Back online!
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -701,27 +877,29 @@ export default function AbsenceForm() {
             {step === 1 && (
               lookup ? (
                 <VerificationStep
-                  studentName={studentDisplayName || lookup.full_name}
+                  studentName={studentDisplayName}
                   wcode={lookup.wcode}
-                  hasPhone={Boolean(lookup.parent_phone)}
-                  phoneLabel={lookup.parent_phone ? `Verification phone: ${maskPhone(lookup.parent_phone)}` : "Verification phone: unavailable"}
+                  hasPhone={lookup.parent_verification_available}
+                  phoneLabel={lookup.parent_verification_available ? "Verification phone available" : "Verification phone unavailable"}
                 >
-                    <StepCoverVerification
-                      wcode={lookup.wcode}
-                      parentPhone={lookup.parent_phone}
-                      smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
-                      adminContact={config.admin_contact}
-                      verification={verification}
-                      completed={verificationSatisfied}
-                      onSatisfied={handleVerificationSatisfied}
-                      onRestart={handleVerificationRestart}
-                      onRestored={handleVerificationRestored}
-                    />
-                    {verificationBlocked ? (
-                      <div role="alert" className="rounded-xl bg-[var(--color-wi-amber-bg)] p-4 text-sm text-[var(--color-wi-amber)]">
-                        Your parent's verification has expired. Please verify again.
-                      </div>
-                    ) : null}
+                  <StepCoverVerification
+                    lookupToken={lookup.lookup_token}
+                    wcode={lookup.wcode}
+                    online={online}
+                    parentVerificationAvailable={lookup.parent_verification_available}
+                    smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
+                    adminContact={config.admin_contact}
+                    verification={verification}
+                    completed={verificationSatisfied}
+                    onSatisfied={handleVerificationSatisfied}
+                    onRestart={handleVerificationRestart}
+                    onRestored={handleVerificationRestored}
+                  />
+                  {verificationBlocked ? (
+                    <div role="alert" className="rounded-xl bg-[var(--color-wi-amber-bg)] p-4 text-sm text-[var(--color-wi-amber)]">
+                      Your parent's verification has expired. Please verify again.
+                    </div>
+                  ) : null}
                 </VerificationStep>
               ) : null
             )}
@@ -730,13 +908,14 @@ export default function AbsenceForm() {
               <ClassesStep>
 
                 {lookup ? (
-                  <div className="space-y-6">
-                    <section>
+                  <div className="absence-classes-layout">
+                    <div className="absence-classes-layout__subjects">
+                      <section>
                       <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">Which classes?</h2>
-                      {lookup.subjects.length > 0 ? (
+                      {studentProfile && verifiedSubjects.length > 0 ? (
                         <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
-                          {lookup.subjects.map((subject) => (
-                          <SubjectCard
+                          {verifiedSubjects.map((subject) => (
+                          <SubjectRow
                             key={subject.id}
                             id={subject.id}
                             name={subject.name}
@@ -749,6 +928,21 @@ export default function AbsenceForm() {
                         <p className="text-sm text-[var(--color-wi-text-light)]">No courses available.</p>
                       )}
                     </section>
+                    </div>
+                    <div className="absence-classes-layout__work space-y-6">
+                    {draftNeedsReview ? (
+                      <div role="status" aria-live="polite" className="rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm text-[var(--color-wi-amber)]">
+                        <p className="font-semibold">Your available classes changed.</p>
+                        <p className="mt-1">Review the current classes before continuing.</p>
+                        <button
+                          type="button"
+                          onClick={() => setDraftNeedsReview(false)}
+                          className="mt-3 min-h-11 rounded-lg border border-[var(--color-wi-amber)] px-3 text-sm font-semibold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]"
+                        >
+                          Review updated classes
+                        </button>
+                      </div>
+                    ) : null}
 
                     {selectedSubjectIds.length > 0 ? (
                       <section>
@@ -763,7 +957,7 @@ export default function AbsenceForm() {
                         </div>
                         <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected subjects">
                           {selectedSubjectIds.map((subjectId) => {
-                            const subject = lookup.subjects.find((item) => item.id === subjectId);
+                            const subject = verifiedSubjects.find((item) => item.id === subjectId);
                             const selectedForSubject = sessions
                               .filter((group) => group.subject_id === subjectId)
                               .reduce((count, group) => count + countSelectedAbsenceDaysForGroup(group, selectedSessionIds), 0);
@@ -860,30 +1054,15 @@ export default function AbsenceForm() {
                                       const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
-                                        <div key={dayGroup.id} className={clsx(
-                                          "rounded-lg border px-4 py-3 transition-colors motion-reduce:transition-none",
-                                          selected ? "border-[var(--color-wi-primary)]/30 bg-[var(--color-wi-primary)]/5" : "border-[var(--color-wi-border)] bg-white",
-                                        )}>
-                                          <div className="flex items-center gap-3">
-                                            <input
-                                              type="checkbox"
-                                              id={`session-${dayGroup.id}`}
-                                              checked={selected}
-                                              disabled={alreadyAbsent || (!selected && (effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions))}
-                                              onChange={() => handleSessionGroupToggle(group, sessionIds)}
-                                              className="h-4 w-4 shrink-0 rounded border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            />
-                                            <label htmlFor={`session-${dayGroup.id}`} className="min-w-0 cursor-pointer flex-1">
-                                              <span className="text-sm font-semibold text-[var(--color-wi-text)]">
-                                                {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}-{formatTime(dayGroup.end_at)}
-                                              </span>
-                                              {alreadyAbsent ? (
-                                                <span className="ml-2 text-xs font-medium text-[var(--color-wi-text-light)]">Already reported</span>
-                                              ) : null}
-                                            </label>
-                                          </div>
-                                          {selected ? (
-                                            <motion.div initial={reduceMotion ? false : { opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={reduceMotion ? { duration: 0 } : undefined} className="mt-3 pl-7">
+                                        <SessionDayCard
+                                          key={dayGroup.id}
+                                          dayGroup={dayGroup}
+                                          selected={selected}
+                                          alreadyAbsent={alreadyAbsent}
+                                          disabled={!selected && (effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions)}
+                                          onToggle={() => handleSessionGroupToggle(group, sessionIds)}
+                                          reduceMotion={reduceMotion}
+                                        >
                                               {sitIn && sitIn.sit_in_method === "physical" ? (
                                                 (() => {
                                                   if (hasPriorities) {
@@ -945,9 +1124,6 @@ export default function AbsenceForm() {
                                                             </div>
                                                           )}
                                                         </div>
-                                                        <label className="mt-3 block text-xs font-medium text-[var(--color-wi-text-light)]" htmlFor={`sit-in-${session.id}`}>
-                                                          Make-up class
-                                                        </label>
                                                         {currentPriorityAvailable.length === 0 ? (
                                                           <div className="mt-1.5 space-y-2">
                                                             <p className="rounded-md border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-3 py-2 text-sm text-[var(--color-wi-text-light)]">
@@ -974,21 +1150,18 @@ export default function AbsenceForm() {
                                                             ) : null}
                                                           </div>
                                                         ) : (
-                                                          <select
+                                                          <MakeUpPicker
                                                             id={`sit-in-${session.id}`}
+                                                            label="Make-up class"
                                                             value={currentSitIn}
-                                                            onChange={(e) => handleSitInSelectForSessions(sessionIds, e.target.value)}
-                                                            className="mt-1.5 w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                                                          >
-                                                            <option value="">Not yet selected</option>
-                                                            {currentPriorities.flatMap(p =>
-                                                              groupByDay(availableSessionsForMissedSessions(p, sessionIds)).map((optionGroup) => (
-                                                                <option key={`${p.sit_in_course?.id ?? "course"}:${optionGroup.id}`} value={mergedSessionValue(optionGroup.items)}>
-                                                                  {getSitInSessionGroupLabel(optionGroup.items, p.sit_in_course, groupLabel, sessions)}
-                                                                </option>
-                                                              ))
+                                                            options={currentPriorities.flatMap((priority) =>
+                                                              groupByDay(availableSessionsForMissedSessions(priority, sessionIds)).map((optionGroup) => ({
+                                                                value: mergedSessionValue(optionGroup.items),
+                                                                label: getSitInSessionGroupLabel(optionGroup.items, priority.sit_in_course, groupLabel, sessions),
+                                                              })),
                                                             )}
-                                                          </select>
+                                                            onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
+                                                          />
                                                         )}
                                                       </div>
                                                     );
@@ -999,21 +1172,16 @@ export default function AbsenceForm() {
                                                         Pick a make-up class
                                                       </div>
                                                       <p className="text-xs text-[var(--color-wi-text-light)] mb-2 truncate">Sit-in class: {sitInClassLabel}</p>
-                                                      <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-end">
-                                                        <span className="text-[var(--color-wi-text)] font-medium">Make-up class:</span>
-                                                        <select
-                                                          value={currentSitIn}
-                                                          onChange={(e) => handleSitInSelectForSessions(sessionIds, e.target.value)}
-                                                          className="w-full rounded-md border border-[var(--color-wi-border)] bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                                                        >
-                                                          <option value="">— Not yet —</option>
-                                                          {groupByDay(sitInAvailable).map((optionGroup) => (
-                                                            <option key={optionGroup.id} value={mergedSessionValue(optionGroup.items)}>
-                                                              {getSitInSessionGroupLabel(optionGroup.items, sitIn?.sit_in_course, groupLabel, sessions)}
-                                                            </option>
-                                                          ))}
-                                                        </select>
-                                                      </div>
+                                                      <MakeUpPicker
+                                                        id={`sit-in-${session.id}`}
+                                                        label="Make-up class"
+                                                        value={currentSitIn}
+                                                        options={groupByDay(sitInAvailable).map((optionGroup) => ({
+                                                          value: mergedSessionValue(optionGroup.items),
+                                                          label: getSitInSessionGroupLabel(optionGroup.items, sitIn?.sit_in_course, groupLabel, sessions),
+                                                        }))}
+                                                        onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
+                                                      />
                                                     </div>
                                                   );
                                                 })()
@@ -1035,9 +1203,7 @@ export default function AbsenceForm() {
                                                   <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to set up a make-up class.</p>
                                                 </div>
                                               )}
-                                            </motion.div>
-                                          ) : null}
-                                        </div>
+                                        </SessionDayCard>
                                       );
                                     })}
                                   </div>
@@ -1050,47 +1216,16 @@ export default function AbsenceForm() {
                       </section>
                     ) : null}
 
-                    <section>
-                      <label htmlFor="absence-reason" className="text-sm font-semibold text-[var(--color-wi-text)] uppercase tracking-wide mb-3 block">
-                        Reason for absence
-                      </label>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs text-[var(--color-wi-text-light)]">{reason.length}/500 characters</span>
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
-                            <div
-                              className={clsx(
-                                "h-full rounded-full transition-all duration-300 motion-reduce:transition-none",
-                                reason.length > 450 ? "bg-[var(--color-wi-amber)]" : reason.length > 0 ? "bg-[var(--color-wi-primary)]" : "bg-transparent",
-                              )}
-                              style={{ width: `${Math.min((reason.length / 500) * 100, 100)}%` }}
-                            />
-                          </div>
-                          <span className={clsx(
-                            "text-xs font-semibold tabular-nums",
-                            reason.length > 450 ? (reason.length >= 500 ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-amber)]") : "text-[var(--color-wi-text-light)]",
-                          )}>
-                            {reason.length}/500
-                          </span>
-                        </div>
-                      </div>
-                      <textarea
-                        id="absence-reason"
-                        className={clsx(
-                          "w-full min-h-[120px] rounded-xl border bg-white px-4 py-3 text-base text-[var(--color-wi-text)] focus:outline-none focus:ring-2",
-                          reasonError
-                            ? "border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20"
-                            : "border-[var(--color-wi-border)] focus:ring-[var(--color-wi-primary)]/20",
-                        )}
-                        value={reason}
-                        onChange={(e) => { setReason(e.target.value); setReasonError(null); }}
-                        maxLength={500}
-                        placeholder="Tell us why you'll be away from class..."
-                        aria-describedby={reasonError ? "reason-error" : undefined}
-                        required
-                      />
-                      {reasonError ? <p id="reason-error" className="text-xs text-[var(--color-wi-red)] mt-1.5">{reasonError}</p> : null}
-                    </section>
+                    <ReasonField
+                      value={reason}
+                      onChange={(value) => {
+                        setReason(value);
+                        setReasonError(null);
+                      }}
+                      error={reasonError}
+                      required={config.form.require_reason}
+                    />
+                    </div>
                   </div>
                 ) : (
                   <p className="text-sm text-[var(--color-wi-text-light)]">Search for your profile first.</p>
@@ -1103,7 +1238,7 @@ export default function AbsenceForm() {
                 {lookup ? (
                   <div className="space-y-4">
                     <p className="text-sm text-[var(--color-wi-text-light)]">
-                      <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName || lookup.full_name}</span> — {lookup.wcode}
+                      <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName}</span> — {lookup.wcode}
                     </p>
 
                     {/* Classes section */}
@@ -1113,9 +1248,9 @@ export default function AbsenceForm() {
                         <button
                           type="button"
                           onClick={() => goToStep(2)}
-                          className="min-h-[32px] text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:text-[var(--color-wi-primary-dark)]"
+                          className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
-                          Edit
+                          Edit classes
                         </button>
                       </div>
                       <div className="px-5 py-4 space-y-3">
@@ -1146,9 +1281,9 @@ export default function AbsenceForm() {
                         <button
                           type="button"
                           onClick={() => goToStep(2)}
-                          className="min-h-[32px] text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:text-[var(--color-wi-primary-dark)]"
+                          className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
-                          Edit
+                          Edit reason
                         </button>
                       </div>
                       <div className="px-5 py-4">
@@ -1161,35 +1296,7 @@ export default function AbsenceForm() {
             )}
         </div>
       </div>
-
-      <StickyFooter
-        currentStep={step}
-        totalSteps={4}
-        canProceed={
-          step === 0 ? canProceedFromStudent :
-          step === 1 ? verificationSatisfied :
-          step === 2 ? !sessionsLoading :
-          step === 3 ? verificationSatisfied && !verificationBlocked : false
-        }
-        loading={isSubmitting}
-        onBack={() => goToStep(Math.max(0, step - 1) as StepIndex)}
-        onPrimary={() => {
-          if (step === 0) goToStep(1);
-          else if (step === 1) goToStep(2);
-          else if (step === 2) {
-            if (!validateClasses()) return;
-            goToStep(3);
-          } else if (step === 3) void handleSubmitAbsence();
-        }}
-        primaryLabel={
-          step === 0 ? "Continue to verification" :
-          step === 1 ? "Continue to classes" :
-          step === 2 ? "Review absence" :
-          "Submit absence"
-        }
-      />
-
       {submissionOverlay}
-    </div>
+    </AbsenceAppShell>
   );
 }

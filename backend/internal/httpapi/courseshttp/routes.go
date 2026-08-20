@@ -2,9 +2,11 @@ package courseshttp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +17,6 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
-	"warwick-institute/internal/legacysync"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
@@ -65,16 +66,82 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/courses/batch-delete", s.handleCoursesBatchDelete)
 }
 
+// handleCoursesList serves the course list with two response contracts:
+//
+//   - No `limit` query param → the legacy bare array of every matching course
+//     (backward compatible with the lookups/dropdown consumers). Defaults to
+//     live courses only so those consumers stop receiving thousands of
+//     archived rows.
+//   - `limit` present → the paginated envelope {"items", "total_count",
+//     "offset", "limit"} used by the courses page.
+//
+// Filters: status (live default | archived), type (private | general, where
+// general covers both the legacy 'General' and native 'Group' vocabulary),
+// teacher_id (user uuid | "none" for no primary teacher), and q (substring
+// search across code, name, subject, teachers, and roster membership).
 func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.a.MustUser(w, r); !ok {
 		return
 	}
-	includeArchived := strings.TrimSpace(r.URL.Query().Get("include_archived")) == "1"
-	items, err := s.deps.Q.CourseOverview(r.Context(), sqldb.CourseOverviewParams{IncludeArchived: includeArchived})
+	params := sqldb.CourseOverviewParams{
+		Archived:   strings.TrimSpace(r.URL.Query().Get("status")) == "archived",
+		CourseType: courseTypeFilter(r.URL.Query().Get("type")),
+		Q:          s.a.SearchQuery(r.URL.Query().Get("q")),
+	}
+	switch teacherParam := strings.TrimSpace(r.URL.Query().Get("teacher_id")); teacherParam {
+	case "":
+		// No teacher filter.
+	case "none":
+		params.TeacherID = "none"
+	default:
+		teacherID, err := s.a.ParseUUID(teacherParam)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_teacher_id", "Invalid teacher_id")
+			return
+		}
+		params.TeacherID = teacherID.String()
+	}
+
+	// The presence of the limit param selects the envelope shape.
+	envelope := r.URL.Query().Get("limit") != ""
+	if envelope {
+		limit := int32(50)
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = int32(min(n, 200))
+			}
+		}
+		offset := int32(0)
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				offset = int32(n)
+			}
+		}
+		params.Limit = limit
+		params.Offset = offset
+	} else {
+		// Legacy bare-array consumers (lookups, dropdowns) omit `limit`, but the
+		// query must stay bounded: LIMIT NULL would scan and ship the whole
+		// table. Cap at a generous ceiling; migrate consumers to the envelope.
+		params.Limit = 1000
+		params.Offset = 0
+	}
+
+	items, err := s.deps.Q.CourseOverview(r.Context(), params)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return
+	}
+
+	var totalCount int64
+	if envelope {
+		totalCount, err = s.deps.Q.CourseOverviewCount(r.Context(), params)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
 	}
 
 	courseIDs := make([]pgtype.UUID, len(items))
@@ -103,7 +170,11 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 				return
 			}
-			teachersByCourse[cid] = append(teachersByCourse[cid], map[string]any{"id": tid, "username": te.Username, "is_primary": te.IsPrimary})
+			var fullName any
+			if te.FullName.Valid && te.FullName.String != "" {
+				fullName = te.FullName.String
+			}
+			teachersByCourse[cid] = append(teachersByCourse[cid], map[string]any{"id": tid, "username": te.Username, "full_name": fullName, "is_primary": te.IsPrimary})
 		}
 	}
 
@@ -184,7 +255,27 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			Teachers:           teachersByCourse[cid],
 		})
 	}
+	if envelope {
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{
+			"items":       out,
+			"total_count": totalCount,
+			"offset":      params.Offset,
+			"limit":       params.Limit,
+		})
+		return
+	}
 	s.a.WriteJSON(w, http.StatusOK, out)
+}
+
+// courseTypeFilter normalizes the type query param: "private" and "general"
+// are the only accepted values; anything else means no type filter.
+func courseTypeFilter(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "private", "general":
+		return strings.TrimSpace(raw)
+	default:
+		return ""
+	}
 }
 
 func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request) {
@@ -343,11 +434,17 @@ func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request
 		return
 	}
 	type studentDTO struct {
-		ID       string `json:"id"`
-		Wcode    string `json:"wcode"`
-		FullName string `json:"full_name"`
-		Notes    string `json:"notes"`
-		Status   string `json:"status"`
+		ID           string `json:"id"`
+		Wcode        string `json:"wcode"`
+		FullName     string `json:"full_name"`
+		Notes        string `json:"notes"`
+		Nickname     string `json:"nickname"`
+		School       string `json:"school"`
+		Level        string `json:"level"`
+		Year         string `json:"year"`
+		StudentPhone string `json:"student_phone"`
+		Email        string `json:"email"`
+		Status       string `json:"status"`
 	}
 	out := make([]studentDTO, 0, len(items))
 	for _, st := range items {
@@ -356,7 +453,12 @@ func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return
 		}
-		out = append(out, studentDTO{ID: id, Wcode: st.Wcode, FullName: st.FullName, Notes: st.Notes, Status: st.Status})
+		out = append(out, studentDTO{
+			ID: id, Wcode: st.Wcode, FullName: st.FullName, Notes: st.Notes,
+			Nickname: st.Nickname.String, School: st.School.String, Level: st.Level.String,
+			Year: st.Year.String, StudentPhone: st.StudentPhone.String, Email: st.Email.String,
+			Status: st.Status,
+		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }
@@ -665,6 +767,10 @@ func (s *server) handleCoursesPatch(w http.ResponseWriter, r *http.Request) {
 		LegacyCourseID:  normalizeLegacyCourseID(body.LegacyCourseID),
 		Teachers:        teachers,
 	}
+	if err := applyOptionalCourseMetadata(s.a, body, &command); err != nil {
+		writeCourseAdminError(w, s.a, err)
+		return
+	}
 	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		result, err := s.deps.CourseAdmin.UpdateCourseTx(r.Context(), qtx, command)
@@ -729,6 +835,10 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		Name:            strings.TrimSpace(body.Name),
 		LegacyCourseID:  normalizeLegacyCourseID(body.LegacyCourseID),
 		Teachers:        teachers,
+	}
+	if err := applyOptionalCourseMetadata(s.a, body, &command); err != nil {
+		writeCourseAdminError(w, s.a, err)
+		return
 	}
 
 	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
@@ -818,35 +928,28 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loc, err := time.LoadLocation(s.deps.InstituteTZ)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Invalid timezone configuration")
-		return
-	}
-
-	client, err := legacysync.NewClient(s.deps.LegacySyncURL, s.deps.LegacySyncUsername, s.deps.LegacySyncPassword)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Failed to create legacy sync client")
-		return
-	}
-
-	scraper := legacysync.NewScraper(client, s.deps.DB, s.deps.Q, s.deps.Log, loc)
-
-	result, err := scraper.SyncCourse(r.Context(), courseID, legacyCourseID.String)
-	if err != nil {
-		s.deps.Log.Error("legacy sync failed", "error", err, "course_id", r.PathValue("id"), "legacy_course_id", legacyCourseID.String)
-		s.a.WriteErr(w, http.StatusInternalServerError, "sync_failed", "Legacy sync failed")
-		return
-	}
-	if result.SessionsCreated > 0 {
-		s.publishSessionsUpdated()
-	}
-
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{
-		"sessions_created": result.SessionsCreated,
-		"synced_at":        result.SyncedAt,
+	payload, _ := json.Marshal(map[string]string{"course_id": courseID.String(), "requested_by": "course_detail"})
+	now := timeNowUTC()
+	job, err := s.deps.Q.LegacyJobEnqueue(r.Context(), sqldb.LegacyJobEnqueueParams{
+		JobType:     "legacy_refresh_course",
+		EntityType:  pgtype.Text{String: "course", Valid: true},
+		ExternalID:  legacyCourseID,
+		Payload:     string(payload),
+		UniqueKey:   pgtype.Text{String: "legacy:course:" + legacyCourseID.String, Valid: true},
+		Priority:    1,
+		DeadlineAt:  pgtype.Timestamptz{Time: now.Add(10 * time.Minute), Valid: true},
+		MaxAttempts: 5,
+		RunAfter:    pgtype.Timestamptz{Time: now, Valid: true},
 	})
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	s.a.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "queued", "job_id": job.ID.String()})
 }
+
+func timeNowUTC() time.Time { return time.Now().UTC() }
 
 func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)

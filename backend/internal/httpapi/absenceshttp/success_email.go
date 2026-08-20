@@ -85,7 +85,6 @@ func defaultEmailSuccessBody() string {
 </body></html>`
 }
 
-
 func renderAbsenceCard(row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
 	if loc == nil {
 		loc = time.UTC

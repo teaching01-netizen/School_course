@@ -125,13 +125,13 @@ export default function LeavePolicyRules() {
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-[var(--color-wi-text-light)]">
             Map each hard-coded SAT Verbal course rule to the exact production course. The absence resolver activates
             from this course mapping, so subject names and production course names do not need to match the policy text.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-[var(--color-wi-text-light)]">
             {matchedCount}/{totalRules} mapped
           </span>
           <Button loading={saving} disabled={courses.length === 0} onClick={() => void applyPolicy()}>
@@ -155,7 +155,7 @@ export default function LeavePolicyRules() {
                 </div>
               )}
               {unmatchedPolicyRows.length > 0 && (
-                <div className="text-gray-600">Unmapped policy rows: {unmatchedPolicyRows.join(", ")}</div>
+                <div className="text-[var(--color-wi-text-light)]">Unmapped policy rows: {unmatchedPolicyRows.join(", ")}</div>
               )}
             </div>
           )}
@@ -163,13 +163,13 @@ export default function LeavePolicyRules() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b-2 border-gray-200">
-                  <th className="w-[220px] px-2 py-2 text-left font-semibold text-gray-700">Course Rule</th>
-                  <th className="w-[100px] px-2 py-2 text-left font-semibold text-gray-700">Subject</th>
-                  <th className="w-[120px] px-2 py-2 text-left font-semibold text-gray-700">Rule Type</th>
-                  <th className="w-[80px] px-2 py-2 text-left font-semibold text-gray-700">Priorities</th>
-                  <th className="min-w-[280px] px-2 py-2 text-left font-semibold text-gray-700">Production Course</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-700">Makeup Rules</th>
+                <tr className="border-b border-wi-line">
+                  <th className="w-[220px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Course Rule</th>
+                  <th className="w-[100px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Subject</th>
+                  <th className="w-[120px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Rule Type</th>
+                  <th className="w-[80px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Priorities</th>
+                  <th className="min-w-[280px] px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Production Course</th>
+                  <th className="px-2 py-2 text-left font-semibold text-[var(--color-wi-text-light)]">Makeup Rules</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,19 +180,19 @@ export default function LeavePolicyRules() {
                   return (
                     <tr
                       key={rule.id}
-                      className={`border-b border-gray-100 hover:bg-gray-50 ${idx % 2 === 1 ? "bg-gray-50/40" : ""}`}
+                      className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}
                     >
                       <td className="px-2 py-2">
                         <button
                           type="button"
                           onClick={() => setExpandedRuleId(isExpanded ? null : rule.id)}
-                          className="text-left font-medium text-gray-800 hover:text-[var(--color-wi-primary)]"
+                          className="text-left font-medium text-[var(--color-wi-text)] hover:text-[var(--color-wi-primary)]"
                         >
                           {rule.courseName}
                         </button>
                       </td>
                       <td className="px-2 py-2">
-                        <span className="text-xs font-medium text-gray-600">{rule.subject}</span>
+                        <span className="text-xs font-medium text-[var(--color-wi-text-light)]">{rule.subject}</span>
                       </td>
                       <td className="px-2 py-2">
                         <span className={`inline-block rounded-sm px-2 py-0.5 text-xs font-medium ${badge.bg} ${badge.text}`}>
@@ -200,7 +200,7 @@ export default function LeavePolicyRules() {
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-wi-row-alt)] text-xs font-semibold text-[var(--color-wi-text-light)]">
                           {rule.priorityCount}
                         </span>
                       </td>
@@ -212,7 +212,7 @@ export default function LeavePolicyRules() {
                             const courseId = event.target.value;
                             setSelectedCourseIds((current) => ({ ...current, [rule.id]: courseId }));
                           }}
-                          className="w-full rounded-sm border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                          className="w-full rounded-sm border border-wi-line bg-white px-2 py-1.5 text-sm"
                         >
                           <option value="">-- Not mapped --</option>
                           {courses.map((course) => (
@@ -222,7 +222,7 @@ export default function LeavePolicyRules() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-2 py-2 text-gray-600">
+                      <td className="px-2 py-2 text-[var(--color-wi-text-light)]">
                         {rule.description}
                       </td>
                     </tr>
@@ -235,14 +235,14 @@ export default function LeavePolicyRules() {
       )}
 
       {expandedRuleId && (
-        <div className="mt-4 rounded-sm border border-gray-200 bg-gray-50 p-4">
+        <div className="mt-4 rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-4">
           {(() => {
             const rule = LEAVE_POLICY_COURSE_RULES.find((r) => r.id === expandedRuleId);
             if (!rule) return null;
             return (
               <div>
-                <h4 className="mb-2 text-sm font-semibold text-gray-800">{rule.courseName}</h4>
-                <ul className="list-inside list-disc space-y-1 text-sm text-gray-600">
+                <h4 className="mb-2 text-sm font-semibold text-[var(--color-wi-text)]">{rule.courseName}</h4>
+                <ul className="list-inside list-disc space-y-1 text-sm text-[var(--color-wi-text-light)]">
                   {rule.makeupRules.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
@@ -253,8 +253,8 @@ export default function LeavePolicyRules() {
                   </p>
                 )}
                 <div className="mt-2">
-                  <span className="text-xs text-gray-400">Eligible targets: </span>
-                  <span className="text-xs text-gray-600">{rule.eligibleTargets.join(", ")}</span>
+                  <span className="text-xs text-[var(--color-wi-text-light)]">Eligible targets: </span>
+                  <span className="text-xs text-[var(--color-wi-text-light)]">{rule.eligibleTargets.join(", ")}</span>
                 </div>
               </div>
             );

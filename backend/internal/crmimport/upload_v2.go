@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"sort"
 	"strings"
 	"time"
 
@@ -261,53 +260,39 @@ func ImportSnapshotJobHandler(snapshotSvc *SnapshotService, syncSvc *StudentSync
 
 		snapshotID := pgtype.UUID{Bytes: payload.SnapshotID, Valid: true}
 
-		data, err := getUploadBlob(ctx, snapshotSvc.db, payload.UploadID)
+		status, err := snapshotSvc.snapshotStatus(ctx, snapshotID)
 		if err != nil {
-			snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("get upload blob: %v", err))
-			return fmt.Errorf("get upload blob: %w", err)
+			return fmt.Errorf("get snapshot status: %w", err)
 		}
-
-		_, _ = snapshotSvc.db.Exec(ctx, `DELETE FROM crm_upload_blobs WHERE id = $1`, payload.UploadID)
-
-		parsed, err := xlsx.ParseXLSX(data, snapshotSvc.instituteLoc)
-		if err != nil {
-			snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("parse error: %v", err))
-			return fmt.Errorf("parse xlsx: %w", err)
-		}
-
-		sort.SliceStable(parsed.Rows, func(i, j int) bool {
-			a, b := parsed.Rows[i].OrderQuoteUpdatedAt, parsed.Rows[j].OrderQuoteUpdatedAt
-			if a == nil && b == nil {
-				return false
+		if status == string(SnapshotImporting) {
+			data, err := getUploadBlob(ctx, snapshotSvc.db, payload.UploadID)
+			if err != nil {
+				_ = snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("get upload blob: %v", err))
+				return fmt.Errorf("get upload blob: %w", err)
 			}
-			if a == nil {
-				return false
-			}
-			if b == nil {
-				return true
-			}
-			return a.After(*b)
-		})
 
-		seen := map[string]struct{}{}
-		deduped := make([]xlsx.Row, 0, len(parsed.Rows))
-		for _, r := range parsed.Rows {
-			h := r.Hash()
-			if _, ok := seen[h]; ok {
-				continue
+			parsed, err := xlsx.ParseXLSX(data, snapshotSvc.instituteLoc)
+			if err != nil {
+				_ = snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("parse error: %v", err))
+				return fmt.Errorf("parse xlsx: %w", err)
 			}
-			seen[h] = struct{}{}
-			deduped = append(deduped, r)
-		}
 
-		if _, err := snapshotSvc.PopulateRows(ctx, snapshotID, deduped, len(parsed.Rows)); err != nil {
-			snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("populate rows: %v", err))
-			return fmt.Errorf("populate rows: %w", err)
-		}
+			deduped := deduplicateRows(parsed.Rows)
+			if err := snapshotSvc.resetSnapshotRows(ctx, snapshotID); err != nil {
+				_ = snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("clear rows: %v", err))
+				return fmt.Errorf("clear snapshot rows: %w", err)
+			}
+			if _, err := snapshotSvc.PopulateRows(ctx, snapshotID, deduped, len(parsed.Rows)); err != nil {
+				_ = snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("populate rows: %v", err))
+				return fmt.Errorf("populate rows: %w", err)
+			}
 
-		if err := snapshotSvc.MarkSnapshotReady(ctx, snapshotID, len(deduped)); err != nil {
-			snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("mark ready: %v", err))
-			return fmt.Errorf("mark snapshot ready: %w", err)
+			if err := snapshotSvc.MarkSnapshotReady(ctx, snapshotID, len(deduped)); err != nil {
+				_ = snapshotSvc.MarkSnapshotFailed(ctx, snapshotID, fmt.Sprintf("mark ready: %v", err))
+				return fmt.Errorf("mark snapshot ready: %w", err)
+			}
+		} else if status != string(SnapshotReady) {
+			return queue.MarkNonRetryable(fmt.Errorf("snapshot %s is in terminal status %q", snapshotID, status))
 		}
 
 		snapshotUUID, err := uuid.FromBytes(snapshotID.Bytes[:])
@@ -338,12 +323,14 @@ func ImportSnapshotJobHandler(snapshotSvc *SnapshotService, syncSvc *StudentSync
 			return fmt.Errorf("enqueue reconcile jobs: %w", err)
 		}
 
+		_, _ = snapshotSvc.db.Exec(ctx, `DELETE FROM crm_upload_blobs WHERE id = $1`, payload.UploadID)
+
 		return nil
 	}
 }
 
 // StudentSyncJobHandler returns a handler for the student_sync job type.
-func StudentSyncJobHandler(syncSvc *StudentSyncService) queue.JobHandler {
+func StudentSyncJobHandler(syncSvc *StudentSyncService, snapshotSvcs ...*SnapshotService) queue.JobHandler {
 	return func(ctx context.Context, job queue.JobRow) error {
 		var payload StudentSyncPayload
 		if err := json.Unmarshal(job.Payload, &payload); err != nil {
@@ -351,6 +338,15 @@ func StudentSyncJobHandler(syncSvc *StudentSyncService) queue.JobHandler {
 		}
 
 		snapshotID := pgtype.UUID{Bytes: payload.SnapshotID, Valid: true}
+		if len(snapshotSvcs) > 0 && snapshotSvcs[0] != nil {
+			active, err := snapshotSvcs[0].isActiveSnapshot(ctx, snapshotID)
+			if err != nil {
+				return fmt.Errorf("check active snapshot: %w", err)
+			}
+			if !active {
+				return queue.MarkNonRetryable(fmt.Errorf("snapshot %s is stale", snapshotID))
+			}
+		}
 		_, err := syncSvc.SyncFromSnapshot(ctx, snapshotID)
 		return err
 	}

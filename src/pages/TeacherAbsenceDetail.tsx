@@ -26,21 +26,21 @@ function titleCase(value: string): string {
 
 function SessionList({ title, sessions }: { title: string; sessions: TeacherAbsenceSession[] }) {
   return (
-    <section className="rounded-sm border border-gray-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+    <section className="rounded-sm border border-wi-line bg-white p-5">
+      <h2 className="text-sm font-semibold text-[var(--color-wi-text)]">{title}</h2>
       {sessions.length === 0 ? (
-        <p className="mt-3 text-sm text-gray-500">No sessions assigned to you.</p>
+        <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">No sessions assigned to you.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-gray-100">
+        <ul className="mt-3 divide-y divide-wi-line">
           {sessions.map((session) => (
             <li key={session.session_id} className="py-3 first:pt-0 last:pb-0">
-              <p className="font-medium text-gray-900">{session.subject_name?.trim() || session.course_name}</p>
-              <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
+              <p className="font-medium text-[var(--color-wi-text)]">{session.subject_name?.trim() || session.course_name}</p>
+              <p className="mt-1 flex items-center gap-1.5 text-sm text-[var(--color-wi-text-light)]">
                 <CalendarDays className="h-4 w-4" aria-hidden="true" />
                 {formatSession(session.start_at)}
               </p>
               {session.room_name ? (
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
+                <p className="mt-1 flex items-center gap-1.5 text-sm text-[var(--color-wi-text-light)]">
                   <MapPin className="h-4 w-4" aria-hidden="true" />{session.room_name}
                 </p>
               ) : null}
@@ -79,9 +79,9 @@ export default function TeacherAbsenceDetail() {
   if (loading) return <LoadingSkeleton lines={6} />;
   if (!detail) {
     return (
-      <div className="rounded-sm border border-gray-200 bg-white p-6">
-        <h1 className="text-lg font-semibold text-gray-900">Absence not available</h1>
-        <p className="mt-2 text-sm text-gray-600">This request does not exist or is not assigned to one of your courses.</p>
+      <div className="rounded-sm border border-wi-line bg-white p-6">
+        <h1 className="text-lg font-semibold text-[var(--color-wi-text)]">Absence not available</h1>
+        <p className="mt-2 text-sm text-[var(--color-wi-text-light)]">This request does not exist or is not assigned to one of your courses.</p>
         <Link to={backTo} className="mt-4 inline-flex text-sm font-medium text-[var(--color-wi-primary)]">Back to dashboard</Link>
       </div>
     );
@@ -96,12 +96,12 @@ export default function TeacherAbsenceDetail() {
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-gray-500">Student absence request</p>
+          <p className="text-sm text-[var(--color-wi-text-light)]">Student absence request</p>
           <h1 className="mt-1 text-2xl font-semibold text-gray-950">{displayName}</h1>
-          <p className="mt-1 font-mono text-sm text-gray-500">{detail.wcode}</p>
+          <p className="mt-1 font-mono text-sm text-[var(--color-wi-text-light)]">{detail.wcode}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{titleCase(detail.status)}</span>
+          <span className="rounded-full bg-[var(--color-wi-row-alt)] px-3 py-1 text-xs font-semibold text-[var(--color-wi-text-light)]">{titleCase(detail.status)}</span>
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
             <Eye className="h-3.5 w-3.5" aria-hidden="true" /> Read-only
           </span>
@@ -111,11 +111,11 @@ export default function TeacherAbsenceDetail() {
         </div>
       </header>
 
-      <section className="grid gap-4 rounded-sm border border-gray-200 bg-white p-5 sm:grid-cols-2">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subject</p><p className="mt-1 font-medium text-gray-900">{detail.subject_name?.trim() || detail.course_name}</p></div>
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Absence dates</p><p className="mt-1 font-medium text-gray-900">{formatDate(detail.date_from)}{detail.date_from === detail.date_to ? "" : ` – ${formatDate(detail.date_to)}`}</p></div>
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reason category</p><p className="mt-1 text-gray-900">{detail.reason_category ? titleCase(detail.reason_category) : "Not provided"}</p></div>
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reason</p><p className="mt-1 whitespace-pre-wrap text-gray-900">{detail.reason ?? "Not provided"}</p></div>
+      <section className="grid gap-4 rounded-sm border border-wi-line bg-white p-5 sm:grid-cols-2">
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Subject</p><p className="mt-1 font-medium text-[var(--color-wi-text)]">{detail.subject_name?.trim() || detail.course_name}</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Absence dates</p><p className="mt-1 font-medium text-[var(--color-wi-text)]">{formatDate(detail.date_from)}{detail.date_from === detail.date_to ? "" : ` – ${formatDate(detail.date_to)}`}</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason category</p><p className="mt-1 text-[var(--color-wi-text)]">{detail.reason_category ? titleCase(detail.reason_category) : "Not provided"}</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</p><p className="mt-1 whitespace-pre-wrap text-[var(--color-wi-text)]">{detail.reason ?? "Not provided"}</p></div>
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">

@@ -38,7 +38,6 @@ const MOCK_CONFIG = {
     sms_parent_enabled: true,
     sms_parent_template: "template",
     sms_success_template: "success template",
-    allow_submit_without_otp: true,
   },
   admin_contact: {
     email: "office@example.edu",
@@ -47,11 +46,17 @@ const MOCK_CONFIG = {
   },
 };
 
-const MOCK_STUDENT = {
-  student_id: "s1",
+const MOCK_LOOKUP = {
   wcode: "W250389",
-  full_name: "John Smith",
-  parent_phone: "+66812345678",
+  lookup_token: "opaque-lookup-token",
+  email_input_required: false,
+  parent_verification_available: true,
+};
+
+const MOCK_PROFILE = {
+  wcode: "W250389",
+  display_name: "Student",
+  email_on_file: true,
   subjects: [
     { id: "subj-1", code: "MATH", name: "Mathematics" },
   ],
@@ -126,12 +131,12 @@ describe("AbsenceForm - error handling", () => {
 
   it("displays absence_limit_exceeded error message when backend returns 403", async () => {
     const sessions = createSessionsWithLimits(0, 10);
-    
-    // Mock the batch endpoint to throw absence_limit_exceeded error
+
     mockApiByPattern({
       "absence-form-config": MOCK_CONFIG,
-      "student-lookup": MOCK_STUDENT,
-      "sessions-in-range": { subjects: sessions },
+      "absence-self-service/lookup": MOCK_LOOKUP,
+      "absence-self-service/me": MOCK_PROFILE,
+      "absence-self-service/sessions": { subjects: sessions },
       "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
       "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
       "absences/batch": () => {
@@ -147,12 +152,11 @@ describe("AbsenceForm - error handling", () => {
     await user.clear(input);
     await user.type(input, "W250389");
     await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
     await continueToVerification(user);
     await completeVerification(user);
 
-    // Select a session
     const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
     await user.click(courseCheckbox);
 
@@ -174,7 +178,7 @@ describe("AbsenceForm - error handling", () => {
 
     expect(await screen.findByText(
       "You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.",
-      { selector: '[role="alert"]' },
+      { selector: "[role=\"alert\"]" },
     )).toBeInTheDocument();
     expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/absences/batch",
@@ -235,10 +239,18 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
       },
     ];
 
+    const multiSubjectProfile = {
+      ...MOCK_PROFILE,
+      subjects: [
+        { id: "subj-1", code: "MATH", name: "Mathematics" },
+        { id: "subj-2", code: "PHYS", name: "Physics" },
+      ],
+    };
     mockApiByPattern({
       "absence-form-config": MOCK_CONFIG,
-      "student-lookup": MOCK_STUDENT,
-      "sessions-in-range": { subjects: sessions },
+      "absence-self-service/lookup": MOCK_LOOKUP,
+      "absence-self-service/me": multiSubjectProfile,
+      "absence-self-service/sessions": { subjects: sessions },
       "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
       "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
       "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
@@ -252,7 +264,7 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
     await user.clear(input);
     await user.type(input, "W250389");
     await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
 
     await continueToVerification(user);
     await completeVerification(user);

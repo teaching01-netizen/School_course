@@ -19,7 +19,7 @@ export default function AutoSitInToggle({
 }: AutoSitInToggleProps) {
   return (
     <div className="flex items-center gap-3">
-      <label className="flex items-center gap-1.5 text-xs text-gray-600">
+      <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]">
         <input
           type="checkbox"
           aria-label={`Auto sit-in for ${label}`}

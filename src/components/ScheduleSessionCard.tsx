@@ -37,14 +37,14 @@ export default function ScheduleSessionCard({ session, course, room, zone, teach
       {/* Card */}
       <div className="bg-[color-mix(in_oklab,var(--color-wi-primary)_10%,transparent)] border border-[color-mix(in_oklab,var(--color-wi-primary)_20%,transparent)] p-1 text-[10px] cursor-default">
         <p className="font-semibold">{course?.name ?? session.course_id}</p>
-        <p className="text-gray-500">{room?.name ?? session.room_id}</p>
-        <p className="text-gray-400">{startTime}–{endTime}</p>
+        <p className="text-[var(--color-wi-text-light)]">{room?.name ?? session.room_id}</p>
+        <p className="text-[var(--color-wi-text-light)]">{startTime}–{endTime}</p>
       </div>
 
       {/* Tooltip — flips above/below based on available space */}
       <div
         className={`
-          pointer-events-none absolute z-10 w-52 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg
+          pointer-events-none absolute z-10 w-52 rounded-md border border-wi-line bg-white px-3 py-2 text-xs shadow-lg
           transition-opacity duration-150
           ${tooltip.visible ? 'opacity-100' : 'opacity-0'}
           ${tooltip.above
@@ -53,12 +53,12 @@ export default function ScheduleSessionCard({ session, course, room, zone, teach
           }
         `}
       >
-        <p className="font-semibold text-gray-800 mb-0.5">{course?.code ?? '—'} – {course?.name ?? '—'}</p>
-        <div className="space-y-0.5 text-gray-600">
-          <p><span className="text-gray-400">Subject:</span> {course?.subject_name || course?.subject_code || '—'}</p>
-          <p><span className="text-gray-400">Teacher:</span> {teacherName ?? course?.teacher_name ?? '—'}</p>
-          <p><span className="text-gray-400">Room:</span> {room?.name ?? '—'}{room?.capacity != null ? ` (cap. ${room.capacity})` : ''}</p>
-          <p><span className="text-gray-400">Time:</span> {tooltipStart}–{tooltipEnd}</p>
+        <p className="font-semibold text-[var(--color-wi-text)] mb-0.5">{course?.code ?? '—'} – {course?.name ?? '—'}</p>
+        <div className="space-y-0.5 text-[var(--color-wi-text-light)]">
+          <p><span className="text-[var(--color-wi-text-light)]">Subject:</span> {course?.subject_name || course?.subject_code || '—'}</p>
+          <p><span className="text-[var(--color-wi-text-light)]">Teacher:</span> {teacherName ?? course?.teacher_name ?? '—'}</p>
+          <p><span className="text-[var(--color-wi-text-light)]">Room:</span> {room?.name ?? '—'}{room?.capacity != null ? ` (cap. ${room.capacity})` : ''}</p>
+          <p><span className="text-[var(--color-wi-text-light)]">Time:</span> {tooltipStart}–{tooltipEnd}</p>
         </div>
       </div>
     </div>

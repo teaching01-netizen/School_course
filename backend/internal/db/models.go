@@ -301,6 +301,7 @@ type AuthSession struct {
 	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
 	PasswordVersion int32              `json:"password_version"`
+	TokenHash       []byte             `json:"token_hash"`
 }
 
 type Course struct {
@@ -332,6 +333,12 @@ type Course struct {
 	LegacyLastSyncedAt         pgtype.Timestamptz `json:"legacy_last_synced_at"`
 	CohortID                   pgtype.UUID        `json:"cohort_id"`
 	Version                    int32              `json:"version"`
+	LegacyStatus               pgtype.Text        `json:"legacy_status"`
+	LegacyExpireDate           pgtype.Date        `json:"legacy_expire_date"`
+	LegacyArchived             bool               `json:"legacy_archived"`
+	LegacySourceHash           pgtype.Text        `json:"legacy_source_hash"`
+	LegacyLastSeenAt           pgtype.Timestamptz `json:"legacy_last_seen_at"`
+	SourceKind                 string             `json:"source_kind"`
 }
 
 type CourseCohort struct {
@@ -513,6 +520,19 @@ type EmailWorkflow struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ExternalRef struct {
+	Source         string             `json:"source"`
+	EntityType     string             `json:"entity_type"`
+	ExternalID     string             `json:"external_id"`
+	InternalID     pgtype.UUID        `json:"internal_id"`
+	SourceHash     pgtype.Text        `json:"source_hash"`
+	FirstSeenAt    pgtype.Timestamptz `json:"first_seen_at"`
+	LastSeenAt     pgtype.Timestamptz `json:"last_seen_at"`
+	LastAppliedAt  pgtype.Timestamptz `json:"last_applied_at"`
+	LastGeneration pgtype.Int8        `json:"last_generation"`
+	State          string             `json:"state"`
+}
+
 type HttpRateLimitEvent struct {
 	Key       string             `json:"key"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
@@ -528,6 +548,125 @@ type IdempotencyKey struct {
 	ResponseBody   []byte             `json:"response_body"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+}
+
+type LegacyChangeEvent struct {
+	ID             pgtype.UUID        `json:"id"`
+	SourceEventKey string             `json:"source_event_key"`
+	Detector       string             `json:"detector"`
+	EntityType     pgtype.Text        `json:"entity_type"`
+	ExternalID     pgtype.Text        `json:"external_id"`
+	Action         pgtype.Text        `json:"action"`
+	ObservedAt     pgtype.Timestamptz `json:"observed_at"`
+	RawPayload     []byte             `json:"raw_payload"`
+	Status         string             `json:"status"`
+	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
+	LastError      pgtype.Text        `json:"last_error"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type LegacyEntitySnapshot struct {
+	Source        string             `json:"source"`
+	EntityType    string             `json:"entity_type"`
+	ExternalID    string             `json:"external_id"`
+	CanonicalData []byte             `json:"canonical_data"`
+	SourceHash    string             `json:"source_hash"`
+	ParserVersion int32              `json:"parser_version"`
+	ObservedAt    pgtype.Timestamptz `json:"observed_at"`
+	AppliedAt     pgtype.Timestamptz `json:"applied_at"`
+	Quality       string             `json:"quality"`
+}
+
+type LegacySyncConflict struct {
+	ID            pgtype.UUID        `json:"id"`
+	EntityType    string             `json:"entity_type"`
+	ExternalID    string             `json:"external_id"`
+	ConflictType  string             `json:"conflict_type"`
+	Category      string             `json:"category"`
+	SourcePayload []byte             `json:"source_payload"`
+	LocalPayload  []byte             `json:"local_payload"`
+	Message       pgtype.Text        `json:"message"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt    pgtype.Timestamptz `json:"resolved_at"`
+}
+
+type LegacySyncControl struct {
+	ID               bool               `json:"id"`
+	DetectionEnabled bool               `json:"detection_enabled"`
+	FetchEnabled     bool               `json:"fetch_enabled"`
+	ApplyEnabled     bool               `json:"apply_enabled"`
+	TombstoneEnabled bool               `json:"tombstone_enabled"`
+	RealtimeEnabled  bool               `json:"realtime_enabled"`
+	ShadowMode       bool               `json:"shadow_mode"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	StudentEnabled   bool               `json:"student_enabled"`
+}
+
+type LegacySyncDeadLetter struct {
+	ID            pgtype.UUID        `json:"id"`
+	JobType       string             `json:"job_type"`
+	UniqueKey     pgtype.Text        `json:"unique_key"`
+	EntityType    pgtype.Text        `json:"entity_type"`
+	ExternalID    pgtype.Text        `json:"external_id"`
+	Payload       []byte             `json:"payload"`
+	ErrorCategory pgtype.Text        `json:"error_category"`
+	LastError     string             `json:"last_error"`
+	Attempts      int32              `json:"attempts"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type LegacySyncJob struct {
+	ID          pgtype.UUID        `json:"id"`
+	JobType     string             `json:"job_type"`
+	EntityType  pgtype.Text        `json:"entity_type"`
+	ExternalID  pgtype.Text        `json:"external_id"`
+	Payload     []byte             `json:"payload"`
+	UniqueKey   pgtype.Text        `json:"unique_key"`
+	Priority    int32              `json:"priority"`
+	Status      string             `json:"status"`
+	DeadlineAt  pgtype.Timestamptz `json:"deadline_at"`
+	Attempt     int32              `json:"attempt"`
+	MaxAttempts int32              `json:"max_attempts"`
+	LockedBy    pgtype.Text        `json:"locked_by"`
+	LockedUntil pgtype.Timestamptz `json:"locked_until"`
+	HeartbeatAt pgtype.Timestamptz `json:"heartbeat_at"`
+	RunAfter    pgtype.Timestamptz `json:"run_after"`
+	LastError   pgtype.Text        `json:"last_error"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type LegacySyncOutbox struct {
+	ID             pgtype.UUID        `json:"id"`
+	SourceEventKey string             `json:"source_event_key"`
+	EventType      string             `json:"event_type"`
+	Channel        string             `json:"channel"`
+	EntityType     pgtype.Text        `json:"entity_type"`
+	ExternalID     pgtype.Text        `json:"external_id"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	PublishedAt    pgtype.Timestamptz `json:"published_at"`
+	LastError      pgtype.Text        `json:"last_error"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	ClaimUntil     pgtype.Timestamptz `json:"claim_until"`
+}
+
+type LegacySyncRun struct {
+	ID                       pgtype.UUID        `json:"id"`
+	Mode                     string             `json:"mode"`
+	Status                   string             `json:"status"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
+	PagesRequested           int32              `json:"pages_requested"`
+	EntitiesParsed           int32              `json:"entities_parsed"`
+	EntitiesChanged          int32              `json:"entities_changed"`
+	EntitiesApplied          int32              `json:"entities_applied"`
+	ParseFailures            int32              `json:"parse_failures"`
+	ReconciliationMismatches int32              `json:"reconciliation_mismatches"`
+	SourceLatencyMs          pgtype.Int4        `json:"source_latency_ms"`
+	LastError                pgtype.Text        `json:"last_error"`
 }
 
 type NotificationOutbox struct {
@@ -603,18 +742,25 @@ type SatVerbalPolicyMapping struct {
 }
 
 type Session struct {
-	ID        pgtype.UUID                      `json:"id"`
-	SeriesID  pgtype.UUID                      `json:"series_id"`
-	CourseID  pgtype.UUID                      `json:"course_id"`
-	RoomID    pgtype.UUID                      `json:"room_id"`
-	TeacherID pgtype.UUID                      `json:"teacher_id"`
-	StartAt   pgtype.Timestamptz               `json:"start_at"`
-	EndAt     pgtype.Timestamptz               `json:"end_at"`
-	DeletedAt pgtype.Timestamptz               `json:"deleted_at"`
-	CreatedAt pgtype.Timestamptz               `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz               `json:"updated_at"`
-	TimeRange pgtype.Range[pgtype.Timestamptz] `json:"time_range"`
-	Version   int32                            `json:"version"`
+	ID                 pgtype.UUID                      `json:"id"`
+	SeriesID           pgtype.UUID                      `json:"series_id"`
+	CourseID           pgtype.UUID                      `json:"course_id"`
+	RoomID             pgtype.UUID                      `json:"room_id"`
+	TeacherID          pgtype.UUID                      `json:"teacher_id"`
+	StartAt            pgtype.Timestamptz               `json:"start_at"`
+	EndAt              pgtype.Timestamptz               `json:"end_at"`
+	DeletedAt          pgtype.Timestamptz               `json:"deleted_at"`
+	CreatedAt          pgtype.Timestamptz               `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz               `json:"updated_at"`
+	TimeRange          pgtype.Range[pgtype.Timestamptz] `json:"time_range"`
+	Version            int32                            `json:"version"`
+	LegacyScheduleID   pgtype.Text                      `json:"legacy_schedule_id"`
+	LegacyConfirmed    bool                             `json:"legacy_confirmed"`
+	LegacyConfirmedBy  pgtype.Text                      `json:"legacy_confirmed_by"`
+	LegacySourceHash   pgtype.Text                      `json:"legacy_source_hash"`
+	LegacyLastSyncedAt pgtype.Timestamptz               `json:"legacy_last_synced_at"`
+	LegacyLastSeenAt   pgtype.Timestamptz               `json:"legacy_last_seen_at"`
+	SourceKind         string                           `json:"source_kind"`
 }
 
 type SessionAttendance struct {
@@ -683,21 +829,24 @@ type SessionChangeImpactTarget struct {
 }
 
 type SessionSeries struct {
-	ID              pgtype.UUID        `json:"id"`
-	CourseID        pgtype.UUID        `json:"course_id"`
-	RoomID          pgtype.UUID        `json:"room_id"`
-	TeacherID       pgtype.UUID        `json:"teacher_id"`
-	InstituteTz     string             `json:"institute_tz"`
-	StartLocalTime  pgtype.Time        `json:"start_local_time"`
-	DurationMinutes int32              `json:"duration_minutes"`
-	StartDate       pgtype.Date        `json:"start_date"`
-	EndDate         pgtype.Date        `json:"end_date"`
-	Count           pgtype.Int4        `json:"count"`
-	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	Weekdays        []int16            `json:"weekdays"`
-	Version         int32              `json:"version"`
+	ID                  pgtype.UUID        `json:"id"`
+	CourseID            pgtype.UUID        `json:"course_id"`
+	RoomID              pgtype.UUID        `json:"room_id"`
+	TeacherID           pgtype.UUID        `json:"teacher_id"`
+	InstituteTz         string             `json:"institute_tz"`
+	StartLocalTime      pgtype.Time        `json:"start_local_time"`
+	DurationMinutes     int32              `json:"duration_minutes"`
+	StartDate           pgtype.Date        `json:"start_date"`
+	EndDate             pgtype.Date        `json:"end_date"`
+	Count               pgtype.Int4        `json:"count"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	Weekdays            []int16            `json:"weekdays"`
+	Version             int32              `json:"version"`
+	SourceKind          string             `json:"source_kind"`
+	MaterializationMode string             `json:"materialization_mode"`
+	LegacyGroupKey      pgtype.Text        `json:"legacy_group_key"`
 }
 
 type SitInPriority struct {
@@ -765,6 +914,8 @@ type Student struct {
 	EmailCrm     pgtype.Text        `json:"email_crm"`
 	EmailSystem  pgtype.Text        `json:"email_system"`
 	School       pgtype.Text        `json:"school"`
+	Level        pgtype.Text        `json:"level"`
+	Year         pgtype.Text        `json:"year"`
 }
 
 type StudentAbsence struct {
@@ -830,6 +981,28 @@ type StudentParentVerificationSession struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
+type StudentSelfServiceLookupToken struct {
+	ID         pgtype.UUID        `json:"id"`
+	TokenHash  []byte             `json:"token_hash"`
+	Wcode      string             `json:"wcode"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type StudentSelfServiceSession struct {
+	ID                    pgtype.UUID        `json:"id"`
+	TokenHash             []byte             `json:"token_hash"`
+	Wcode                 string             `json:"wcode"`
+	VerificationSessionID pgtype.UUID        `json:"verification_session_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	LastSeenAt            pgtype.Timestamptz `json:"last_seen_at"`
+	ExpiresAt             pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt     pgtype.Timestamptz `json:"absolute_expires_at"`
+	RevokedAt             pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type Subject struct {
 	ID        pgtype.UUID        `json:"id"`
 	Code      string             `json:"code"`
@@ -866,4 +1039,5 @@ type User struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	Email           pgtype.Text        `json:"email"`
+	FullName        pgtype.Text        `json:"full_name"`
 }

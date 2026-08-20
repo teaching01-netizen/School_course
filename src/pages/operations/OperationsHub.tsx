@@ -40,18 +40,18 @@ export default function OperationsHub() {
             Course Levels
           </Link>
         </div>
-        <p className="text-sm text-gray-500">Manage sit-in rules, active course mappings, form settings, and operational policies.</p>
+        <p className="text-sm text-[var(--color-wi-text-light)]">Manage sit-in rules, active course mappings, form settings, and operational policies.</p>
       </div>
 
-      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-0 border-b border-wi-line overflow-x-auto scrollbar-hide">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => handleTabChange(tab.key)}
-            className={`shrink-0 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`shrink-0 px-4 py-2.5 text-sm font-medium transition-colors border-b -mb-px ${
               activeTab === tab.key
                 ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)]"
             }`}
           >
             {tab.label}

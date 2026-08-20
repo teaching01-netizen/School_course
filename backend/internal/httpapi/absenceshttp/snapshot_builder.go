@@ -26,18 +26,18 @@ func BuildSnapshotFromSessionRow(
 	timezone string,
 ) ([]byte, int16, error) {
 	s := snapshot.AssignmentSession{
-		ID:         uuidFromPgtype(sessionID),
-		SeriesID:   ptrUUID(uuidFromPgtype(seriesID)),
-		CourseID:   uuidFromPgtype(courseID),
-		RoomID:     ptrUUID(uuidFromPgtype(roomID)),
-		TeacherID:  uuidFromPgtype(teacherID),
-		StartAt:    startAt.Time.UTC(),
-		EndAt:      endAt.Time.UTC(),
-		Version:    version,
-		CourseCode: courseCode,
-		CourseName: courseName,
+		ID:          uuidFromPgtype(sessionID),
+		SeriesID:    ptrUUID(uuidFromPgtype(seriesID)),
+		CourseID:    uuidFromPgtype(courseID),
+		RoomID:      ptrUUID(uuidFromPgtype(roomID)),
+		TeacherID:   uuidFromPgtype(teacherID),
+		StartAt:     startAt.Time.UTC(),
+		EndAt:       endAt.Time.UTC(),
+		Version:     version,
+		CourseCode:  courseCode,
+		CourseName:  courseName,
 		TeacherName: teacherName,
-		RoomName:   roomName,
+		RoomName:    roomName,
 	}
 
 	if s.RoomID != nil && *s.RoomID == uuid.Nil {

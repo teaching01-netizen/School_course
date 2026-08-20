@@ -1,4 +1,3 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import {
   boundarySitInSession,
@@ -6,68 +5,44 @@ import {
   studentLookup,
   type SubmittedPayload,
 } from "./fixtures/absence";
+import {
+  expectAccessiblePage,
+  expectAnimationsSettled,
+  expectCurrentStep,
+  expectNoHorizontalOverflow,
+  expectOtpBoxesInsideViewport,
+  expectAdaptiveTabletClassesLayout,
+} from "./helpers/absenceAssertions";
+import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
 
-async function expectAccessiblePage(page: Page) {
-  const results = await new AxeBuilder({ page }).analyze();
-  const blocking = results.violations.filter(
-    (violation) => violation.impact === "critical" || violation.impact === "serious",
-  );
-  expect(blocking, blocking.map(({ id, help }) => `${id}: ${help}`).join("\n")).toEqual([]);
-}
 
-async function expectNoHorizontalOverflow(page: Page) {
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-      ),
-    )
-    .toBe(true);
-}
-
-async function expectAnimationsSettled(page: Page) {
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          [...document.querySelectorAll<HTMLElement>('[style*="opacity"]')].filter((element) => {
-            const opacity = Number.parseFloat(getComputedStyle(element).opacity);
-            return element.getClientRects().length > 0 && opacity < 0.999;
-          }).length,
-      ),
-    )
-    .toBe(0);
-}
-
-async function expectOtpBoxesInsideViewport(page: Page) {
-  const boxes = page
-    .locator('input[aria-label="Verification code"]')
-    .locator("xpath=..")
-    .locator(':scope > div[aria-hidden="true"]');
-  await expect(boxes).toHaveCount(6);
-  const viewportWidth = await page.evaluate(() => window.innerWidth);
-  for (const box of await boxes.all()) {
-    const bounds = await box.boundingBox();
-    expect(bounds).not.toBeNull();
-    expect(bounds!.x).toBeGreaterThanOrEqual(0);
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewportWidth);
+async function chooseMakeUpClass(page: Page) {
+  const select = page.getByRole("combobox");
+  if (await select.isVisible()) {
+    await select.selectOption(boundarySitInSession.id);
+  } else {
+    await page.getByRole("button", { name: /choose a make-up class/i }).click();
+    const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
+    await dialog.getByRole("radio").first().check();
+    await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
+  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
 }
+test.use({
+  timezoneId: "Asia/Bangkok",
+});
+test.setTimeout(120_000);
 
-test("public absence form stays accessible and contained through every mobile step", async ({
-  browser,
+test("public absence form stays accessible and contained through every supported viewport", async ({
+  page,
 }) => {
-  const context = await browser.newContext({
-    timezoneId: "Asia/Bangkok",
-    viewport: { width: 320, height: 844 },
-    reducedMotion: "reduce",
-  });
-  const page = await context.newPage();
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
-
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/absence");
-  await expect(page.getByText("Step 1 of 4: Student")).toBeVisible();
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+
+  await expectCurrentStep(page, 1, "Student");
   await expectAccessiblePage(page);
   await expectNoHorizontalOverflow(page);
 
@@ -75,8 +50,7 @@ test("public absence form stays accessible and contained through every mobile st
   await page.getByRole("button", { name: /search/i }).click();
   await page.getByLabel(/your email address/i).fill("student@example.com");
   await page.getByRole("button", { name: "Continue to verification" }).click();
-
-  await expect(page.getByText("Step 2 of 4: Verify")).toBeVisible();
+  await expectCurrentStep(page, 2, "Verify");
   await expect(page.getByRole("button", { name: /send code/i }).locator("span")).toHaveCSS(
     "opacity",
     "1",
@@ -90,17 +64,15 @@ test("public absence form stays accessible and contained through every mobile st
   await expectOtpBoxesInsideViewport(page);
   await expectAccessiblePage(page);
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
-
-  await expect(page.getByText("Step 3 of 4: Classes")).toBeVisible();
+  await expectCurrentStep(page, 3, "Classes");
   await expectAccessiblePage(page);
-  await expectNoHorizontalOverflow(page);
-  await page.locator("#subject-subject-math").check({ force: true });
-  await page.locator("#session-missed-boundary").check();
-  await page.getByRole("combobox").selectOption(boundarySitInSession.id);
+  await expectAdaptiveTabletClassesLayout(page);
+  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "session-missed-boundary");
+  await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill("Accessibility regression test");
   await page.getByRole("button", { name: "Review absence" }).click();
-
-  await expect(page.getByText("Step 4 of 4: Review")).toBeVisible();
+  await expectCurrentStep(page, 4, "Review");
   await expectAccessiblePage(page);
   await expectNoHorizontalOverflow(page);
   await page.getByRole("button", { name: "Submit absence" }).click();
@@ -109,5 +81,4 @@ test("public absence form stays accessible and contained through every mobile st
   await expect.poll(() => submitted.length).toBe(1);
   await expectAccessiblePage(page);
   await expectNoHorizontalOverflow(page);
-  await context.close();
 });

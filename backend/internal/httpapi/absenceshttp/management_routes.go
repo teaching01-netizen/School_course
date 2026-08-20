@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -209,7 +209,7 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 
 func (s *server) parseFilter(w http.ResponseWriter, r *http.Request, defaultLimit int32) (sqldb.AbsenceFilter, bool) {
 	query := r.URL.Query()
-	filter := sqldb.AbsenceFilter{Query: strings.TrimSpace(query.Get("query")), Status: strings.TrimSpace(query.Get("status")), Limit: defaultLimit, IDs: []pgtype.UUID{}}
+	filter := sqldb.AbsenceFilter{Query: s.a.SearchQuery(query.Get("query")), Status: strings.TrimSpace(query.Get("status")), Limit: defaultLimit, IDs: []pgtype.UUID{}}
 	if filter.Status != "" && !validAbsenceStatus(filter.Status) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_status", "Unsupported status")
 		return filter, false
@@ -328,8 +328,14 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_end", "end must be YYYY-MM-DD")
 		return
 	}
-	rangeStart := startDate.UTC()
-	rangeEnd := endDate.Add(24*time.Hour - time.Nanosecond).UTC()
+	tz := time.UTC
+	if s.deps.InstituteTZ != "" {
+		if loaded, err := time.LoadLocation(s.deps.InstituteTZ); err == nil {
+			tz = loaded
+		}
+	}
+	rangeStart := calendarRangeStart(startDate, tz)
+	rangeEnd := calendarRangeEnd(endDate, tz)
 
 	sessionRows, err := s.deps.Q.CalendarSessionsInRange(r.Context(), rangeStart, rangeEnd)
 	if err != nil {
@@ -338,7 +344,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absRows, err := s.deps.Q.AbsenceDaysInRange(r.Context(), startDate, endDate)
+	absRows, err := s.deps.Q.AbsenceDaysInRange(r.Context(), startRaw, endRaw)
 	if err != nil {
 		status, code, message := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, message)
@@ -399,7 +405,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			absID, _ := s.a.UUIDString(missed.AbsenceID)
-			dateKey := missed.StartAt.Time.UTC().Format("2006-01-02")
+			dateKey := absenceDayKey(missed.StartAt.Time, tz)
 			if missedDatesByAbsence[absID] == nil {
 				missedDatesByAbsence[absID] = make(map[string]struct{})
 			}
@@ -407,7 +413,7 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	absenceDays := buildCalendarAbsenceDays(entries, missedDatesByAbsence, rangeStart, rangeEnd)
+	absenceDays := buildCalendarAbsenceDays(entries, missedDatesByAbsence, startRaw, endRaw)
 
 	sessionIDs := make([]pgtype.UUID, 0, len(sessionRows))
 	for _, row := range sessionRows {
@@ -442,41 +448,6 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		Sessions:    sessions,
 		AbsenceDays: absenceDays,
 	})
-}
-
-func buildCalendarAbsenceDays(entries []calendarAbsenceEntry, missedDatesByAbsence map[string]map[string]struct{}, rangeStart, rangeEnd time.Time) []calendarAbsenceDayDTO {
-	startKey := rangeStart.UTC().Format("2006-01-02")
-	endKey := rangeEnd.UTC().Format("2006-01-02")
-
-	absByDate := make(map[string][]calendarAbsenceDTO)
-	for _, entry := range entries {
-		dates := make([]string, 0, len(missedDatesByAbsence[entry.ID]))
-		for dateKey := range missedDatesByAbsence[entry.ID] {
-			if dateKey < startKey || dateKey > endKey {
-				continue
-			}
-			dates = append(dates, dateKey)
-		}
-		if len(dates) == 0 {
-			dates = []string{entry.DTO.DateFrom}
-		} else {
-			sort.Strings(dates)
-		}
-		for _, dateKey := range dates {
-			absByDate[dateKey] = append(absByDate[dateKey], entry.DTO)
-		}
-	}
-
-	dates := make([]string, 0, len(absByDate))
-	for d := range absByDate {
-		dates = append(dates, d)
-	}
-	sort.Strings(dates)
-	absenceDays := make([]calendarAbsenceDayDTO, 0, len(dates))
-	for _, d := range dates {
-		absenceDays = append(absenceDays, calendarAbsenceDayDTO{Date: d, Absences: absByDate[d]})
-	}
-	return absenceDays
 }
 
 func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
@@ -1185,7 +1156,7 @@ func (s *server) handleAbsenceExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="absences-%s.csv"`, time.Now().Format("2006-01-02")))
 	writer := csv.NewWriter(w)
-	_ = writer.Write([]string{"WCode", "StudentName", "Subject", "Course", "DateFrom", "DateTo", "Reason", "SitInMethod", "SitInCourse", "Status", "SubmittedAt", "ReviewedAt", "ReviewedBy"})
+	_ = writer.Write(spreadsheetSafeCSVRow([]string{"WCode", "StudentName", "Subject", "Course", "DateFrom", "DateTo", "Reason", "SitInMethod", "SitInCourse", "Status", "SubmittedAt", "ReviewedAt", "ReviewedBy"}))
 	for _, row := range rows {
 		reviewedAt := ""
 		if row.ReviewedAt.Valid {
@@ -1195,14 +1166,33 @@ func (s *server) handleAbsenceExport(w http.ResponseWriter, r *http.Request) {
 		if row.ReviewedBy.Valid {
 			reviewedBy, _ = s.a.UUIDString(row.ReviewedBy)
 		}
-		_ = writer.Write([]string{
+		_ = writer.Write(spreadsheetSafeCSVRow([]string{
 			row.Wcode, textValue(row.StudentName), textValue(row.SubjectCode), row.CourseCode,
 			row.DateFrom.Time.Format("2006-01-02"), row.DateTo.Time.Format("2006-01-02"), textValue(row.Reason),
 			textValue(row.SitInMethod), textValue(row.SitInCourseCode), row.Status,
 			row.CreatedAt.Time.UTC().Format(time.RFC3339), reviewedAt, reviewedBy,
-		})
+		}))
 	}
 	writer.Flush()
+}
+func spreadsheetSafeCSVCell(value string) string {
+	trimmed := strings.TrimLeftFunc(value, unicode.IsSpace)
+	if trimmed == "" {
+		return value
+	}
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
+}
+
+func spreadsheetSafeCSVRow(row []string) []string {
+	for i := range row {
+		row[i] = spreadsheetSafeCSVCell(row[i])
+	}
+	return row
 }
 
 func textValue(value pgtype.Text) string {
@@ -1239,7 +1229,6 @@ type absenceNotificationsSettings struct {
 	SmsParentTemplate          string `json:"sms_parent_template"`
 	SmsSuccessTemplate         string `json:"sms_success_template"`
 	SmsSpecialApprovedTemplate string `json:"sms_special_approved_template"`
-	AllowSubmitWithoutOtp      bool   `json:"allow_submit_without_otp"`
 	EmailSuccessEnabled        bool   `json:"email_success_enabled"`
 	EmailSuccessSubject        string `json:"email_success_subject"`
 	EmailSuccessBody           string `json:"email_success_body"`
@@ -1276,11 +1265,11 @@ func defaultAbsenceSettings() absenceSettings {
 			SmsParentTemplate:          "Your Warwick verification code is {{code}}.",
 			SmsSuccessTemplate:         "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
 			SmsSpecialApprovedTemplate: "Warwick Institute: {{nickname}} จะมีเรียนชดเชย {{absence_summary}} และมีกำหนดเข้าเรียน {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
-			AllowSubmitWithoutOtp:      false,
 			EmailSuccessEnabled:        false,
 			EmailSuccessSubject:        defaultEmailSuccessConfig().Subject,
 			EmailSuccessBody:           defaultEmailSuccessConfig().Body,
 		},
+		StudentSelfService: studentSelfServiceSettings{CanViewOwn: true, CanCancelOwn: true},
 	}
 }
 
@@ -1329,7 +1318,25 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 		settings.AdminContact = *policies.AdminContact
 	}
 	if policies.StudentSelfService != nil {
-		settings.StudentSelfService = *policies.StudentSelfService
+		// Merge instead of replacing wholesale: documents written before the
+		// gates existed carry only one field, and the omitted gate must keep
+		// its default (enabled) instead of collapsing to false.
+		merged := defaultAbsenceSettings().StudentSelfService
+		var stored struct {
+			StudentSelfService struct {
+				CanViewOwn   *bool `json:"can_view_own"`
+				CanCancelOwn *bool `json:"can_cancel_own"`
+			} `json:"student_self_service"`
+		}
+		if json.Unmarshal(raw, &stored) == nil {
+			if stored.StudentSelfService.CanViewOwn != nil {
+				merged.CanViewOwn = *stored.StudentSelfService.CanViewOwn
+			}
+			if stored.StudentSelfService.CanCancelOwn != nil {
+				merged.CanCancelOwn = *stored.StudentSelfService.CanCancelOwn
+			}
+		}
+		settings.StudentSelfService = merged
 	}
 	return settings
 }

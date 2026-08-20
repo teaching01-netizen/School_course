@@ -65,10 +65,10 @@ export default function Subjects() {
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
         <caption className="sr-only">List of subjects</caption>
         <thead>
-          <tr className="border-b-2 border-gray-200">
-            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Id</th>
-            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
-            <th scope="col" className="text-left py-2 px-2 font-semibold text-gray-700"></th>
+          <tr className="border-b border-wi-line">
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Id</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Name</th>
+            <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]"></th>
           </tr>
         </thead>
         <tbody>
@@ -86,8 +86,8 @@ export default function Subjects() {
             </tr>
           ) : (
             filteredSubjects.map((s, idx) => (
-              <tr key={s.id} className={`border-b border-gray-100 hover:bg-gray-50 ${idx % 2 === 1 ? "bg-gray-50/40" : ""}`}>
-                <td className="py-2 px-2 font-mono text-xs text-gray-700">{s.code}</td>
+              <tr key={s.id} className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}>
+                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.code}</td>
                 <td className="py-2 px-2">{s.name}</td>
                 <td className="py-2 px-2">
                   <div className="flex items-center gap-2">
