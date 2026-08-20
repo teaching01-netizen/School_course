@@ -36,7 +36,7 @@ function LegacyBadge({ quality }: { quality: "exact" | "reconstructed" | "unavai
 export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: ImpactWorkQueueProps) {
   if (items.length === 0) {
     return (
-      <section className="rounded-sm border border-wi-line bg-white px-6 py-14 text-center">
+      <section className="rounded-sm border var(--color-wi-line) bg-white px-6 py-14 text-center">
         <Clock3 className="mx-auto h-9 w-9 text-[var(--color-wi-text-light)]" aria-hidden="true" />
         <h2 className="mt-3 text-base font-semibold text-[var(--color-wi-text)]">No student arrangements need attention</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-[var(--color-wi-text-light)]">Schedule changes are being monitored automatically.</p>
@@ -46,7 +46,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
 
   if (density === "compact") {
     return (
-      <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
+      <section className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
         <div className="overflow-x-auto">
           <table className="min-w-[760px] text-sm">
             <thead className="bg-[var(--color-wi-row-alt)] text-xs text-[var(--color-wi-text-light)]">
@@ -84,7 +84,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
   }
 
   return (
-    <section className="overflow-hidden rounded-sm border border-wi-line bg-white">
+    <section className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
       <div className="divide-y divide-wi-line">
         {items.map((issue) => {
           const selected = selectedID === issue.id;
@@ -110,7 +110,7 @@ export default function ImpactWorkQueue({ items, density, selectedID, onOpen }: 
               </div>
 
               {/* Compact original/current comparison */}
-              <div className="mt-4 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 p-3">
+              <div className="mt-4 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 p-3">
                 <WorkQueueComparison issue={issue} />
               </div>
 

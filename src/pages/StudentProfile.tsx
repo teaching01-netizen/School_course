@@ -209,7 +209,7 @@ export default function StudentProfile() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Profile Card */}
-        <div className="border border-wi-line rounded-sm bg-white p-4">
+        <div className="border var(--color-wi-line) rounded-sm bg-white p-4">
           <h3 className="text-sm font-semibold mb-2">Profile</h3>
           <div className="space-y-1 text-sm">
             <div className="flex justify-between">
@@ -260,7 +260,7 @@ export default function StudentProfile() {
         </div>
 
         {/* Enrolled Courses */}
-        <div className="border border-wi-line rounded-sm bg-white p-4 lg:col-span-2">
+        <div className="border var(--color-wi-line) rounded-sm bg-white p-4 lg:col-span-2">
           <h3 className="text-sm font-semibold mb-2">Enrolled Courses ({enrolledCourses.length})</h3>
           {enrolledCourses.length === 0 ? (
             <p className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">No courses enrolled.</p>
@@ -268,7 +268,7 @@ export default function StudentProfile() {
             <div className="overflow-x-auto"><table className="w-full text-[13px]">
               <caption className="sr-only">Enrolled courses</caption>
               <thead>
-                <tr className="border-b border-wi-line">
+                <tr className="border-b var(--color-wi-line)">
                   <th scope="col" className="text-left py-1 px-2 font-semibold">Code</th>
                   <th scope="col" className="text-left py-1 px-2 font-semibold">Course</th>
                   <th scope="col" className="text-left py-1 px-2 font-semibold">Teacher</th>
@@ -278,7 +278,7 @@ export default function StudentProfile() {
               </thead>
               <tbody>
                 {enrolledCourses.map((c) => (
-                  <tr key={c.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+                  <tr key={c.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-1 px-2">
                       <Link to={`/courses/${c.id}`} className="text-[var(--color-wi-primary)] hover:underline font-mono text-xs">
                         {c.code}
@@ -297,25 +297,25 @@ export default function StudentProfile() {
       </div>
 
       {/* Weekly Schedule */}
-      <div className="border border-wi-line rounded-sm bg-white p-4 mt-4">
+      <div className="border var(--color-wi-line) rounded-sm bg-white p-4 mt-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold">Weekly Schedule</h3>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setWeekStart((prev) => addDays(prev, -7))}
-              className="px-2 py-1 text-xs border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+              className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)]"
             >
               &lsaquo; Prev
             </button>
             <button
               onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-              className="px-2 py-1 text-xs border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)] font-medium text-[var(--color-wi-primary)]"
+              className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)] font-medium text-[var(--color-wi-primary)]"
             >
               Today
             </button>
             <button
               onClick={() => setWeekStart((prev) => addDays(prev, 7))}
-              className="px-2 py-1 text-xs border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+              className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm hover:bg-[var(--color-wi-row-alt)]"
             >
               Next &rsaquo;
             </button>
@@ -328,24 +328,24 @@ export default function StudentProfile() {
           <p className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">No enrolled courses to display a schedule.</p>
         ) : (
           <div>
-            <div className="overflow-x-auto"><table className="w-full text-[12px] border border-wi-line">
+            <div className="overflow-x-auto"><table className="w-full text-[12px] border var(--color-wi-line)">
               <caption className="sr-only">Weekly schedule</caption>
               <thead>
                 <tr className="bg-[var(--color-wi-row-alt)]">
-                  <th scope="col" className="text-left py-1 px-1 font-semibold border-r border-wi-line w-12">Time</th>
+                  <th scope="col" className="text-left py-1 px-1 font-semibold border-r var(--color-wi-line) w-12">Time</th>
                 {days.map((d) => (
-                  <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r border-wi-line min-w-[100px]">{d}</th>
+                  <th scope="col" key={d} className="text-center py-1 px-1 font-semibold border-r var(--color-wi-line) min-w-[100px]">{d}</th>
                 ))}
                 </tr>
               </thead>
               <tbody>
                 {timeSlots.map((slot) => (
-                  <tr key={slot} className="border-b border-wi-line">
-                    <td className="py-1 px-1 text-xs text-[var(--color-wi-text-light)] font-medium border-r border-wi-line">{slot}</td>
+                  <tr key={slot} className="border-b var(--color-wi-line)">
+                    <td className="py-1 px-1 text-xs text-[var(--color-wi-text-light)] font-medium border-r var(--color-wi-line)">{slot}</td>
                     {[1, 2, 3, 4, 5].map((day) => {
                       const sessList = sessionsByWeekdayAndHour.get(`${day}-${slot}`) ?? [];
                       return (
-                        <td key={day} className="px-1 py-1 border-r border-wi-line align-top">
+                        <td key={day} className="px-1 py-1 border-r var(--color-wi-line) align-top">
                           {sessList.length > 0 ? (
                             <div className="space-y-0.5">
                               {sessList.map((sess) => {
@@ -428,7 +428,7 @@ export default function StudentProfile() {
               <textarea
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+                className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
                 rows={5}
               />
             </div>

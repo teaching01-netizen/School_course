@@ -41,7 +41,7 @@ export default function TemplateEditor({ subject, body, onChange, name, onNameCh
             type="text"
             value={name ?? ""}
             onChange={(e) => onNameChange(e.target.value)}
-            className="w-full rounded-sm border border-wi-line p-2 text-sm"
+            className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm"
             placeholder="e.g. Sit-in Day Reminder"
           />
         </div>
@@ -54,7 +54,7 @@ export default function TemplateEditor({ subject, body, onChange, name, onNameCh
             type="text"
             value={subject}
             onChange={(e) => onChange(e.target.value, body)}
-            className="flex-1 rounded-sm border border-wi-line p-2 text-sm font-mono"
+            className="flex-1 rounded-sm border var(--color-wi-line) p-2 text-sm font-mono"
             placeholder="Enter email subject..."
           />
           <PlaceholderGuide onInsert={(t) => insertAt(subjectRef.current, t)} />
@@ -68,7 +68,7 @@ export default function TemplateEditor({ subject, body, onChange, name, onNameCh
             value={body}
             onChange={(e) => onChange(subject, e.target.value)}
             rows={12}
-            className="w-full rounded-sm border border-wi-line p-2 text-sm font-mono resize-y"
+            className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm font-mono resize-y"
             placeholder="Enter email body..."
           />
           <PlaceholderGuide onInsert={(t) => insertAt(bodyRef.current, t)} />

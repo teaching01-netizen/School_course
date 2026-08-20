@@ -84,12 +84,12 @@ export default function Modal({ title, children, onClose, footer, size = "md", m
       className="modal-base"
     >
       <div className={`animate-notion-dialog-in bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.05)] w-full ${maxWidth ?? sizeMap[size]} motion-reduce:animate-none`}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-wi-line">
+        <div className="flex items-center justify-between px-4 py-3 border-b var(--color-wi-line)">
           <h3 id={titleId} className="text-base font-semibold text-[var(--color-wi-text)]">{title}</h3>
           <button onClick={() => onCloseRef.current()} className="text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] text-xl leading-none p-1" aria-label="Close dialog">&times;</button>
         </div>
         <div className="p-4 overflow-y-auto max-h-[70vh]">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-4 py-3 border-t border-wi-line bg-[var(--color-wi-callout)] rounded-b-lg">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 px-4 py-3 border-t var(--color-wi-line) bg-[var(--color-wi-callout)] rounded-b-lg">{footer}</div>}
       </div>
     </dialog>
   );

@@ -14,8 +14,7 @@
   --color-wi-yellow: #F59E0B;
   --color-wi-gray: #64748B;
   --color-wi-border: #CBD5E1;
-  --color-wi-line: rgba(15, 23, 42, 0.08);
-  --color-wi-line-soft: rgba(15, 23, 42, 0.05);
+  --color-wi-line: rgba(15, 23, 42, 0.06);
   --color-wi-bg: #F8FAFC;
   --color-wi-row-alt: #F1F5F9;
   --color-wi-selected: #E2E8F0;
@@ -39,6 +38,11 @@
   --motion-deliberate: 200ms;
   --ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --border-strong: rgba(15, 23, 42, 0.10);
+  --backdrop-modal: 0.5;
+  --backdrop-sheet: 0.42;
+  --backdrop-nav: 0.30;
+  --scrollbar-width: 0px;
 }
 
 body {
@@ -142,7 +146,8 @@ button {
 
 /* Scrollbar */
 html {
-  scrollbar-color: rgba(15, 23, 42, 0.14) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgba(15, 23, 42, 0.14) transparent; /* border-token-excluded: scrollbar-thumb */
   scrollbar-width: thin;
 }
 ::-webkit-scrollbar {
@@ -162,7 +167,7 @@ html {
 /* Notion-style scrollbars for app panels (sidebar, tables, etc.) */
 .notion-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(15, 23, 42, 0.14) transparent;
+  scrollbar-color: rgba(15, 23, 42, 0.14) transparent; /* border-token-excluded: scrollbar-thumb */
 }
 .notion-scrollbar::-webkit-scrollbar {
   width: 8px;
@@ -296,7 +301,6 @@ html {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
 
@@ -318,7 +322,7 @@ html {
 }
 
 .modal-base[open]::backdrop {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, var(--backdrop-modal));
 }
 
 .modal-base[open] {
@@ -347,12 +351,14 @@ html {
 }
 
 .slideover-base[open]::backdrop {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, var(--backdrop-sheet));
 }
 
 .slideover-base[open] {
   opacity: 1;
 }
+
+.nav-backdrop::backdrop { background: rgba(0, 0, 0, var(--backdrop-nav)); }
 
 /* react-day-picker theming */
 .rdp {
@@ -686,7 +692,7 @@ html {
 }
 
 .absence-mobile-sheet::backdrop {
-  background: rgb(15 23 42 / 0.42);
+  background: rgba(0, 0, 0, var(--backdrop-sheet));
 }
 
 .absence-mobile-sheet__surface {

@@ -17,7 +17,7 @@ export default function RootCourseGroupRail({
   onSelectRootGroup,
 }: RootCourseGroupRailProps) {
   return (
-    <nav className="w-48 shrink-0 border-r border-wi-line pr-3" aria-label="Root Course Groups">
+    <nav className="w-48 shrink-0 border-r var(--color-wi-line) pr-3" aria-label="Root Course Groups">
       <div className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2 px-2">
         Root Course Groups
       </div>

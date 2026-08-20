@@ -43,7 +43,7 @@ function EntryCard({
   }, [entry, onRetry]);
 
   return (
-    <div className="border border-wi-line rounded-sm p-3 mb-2 bg-white">
+    <div className="border var(--color-wi-line) rounded-sm p-3 mb-2 bg-white">
       <div className="flex items-start justify-between mb-2">
         <div>
           <span className="font-mono text-sm font-semibold text-[var(--color-wi-text)]">

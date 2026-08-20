@@ -2,22 +2,31 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import { useMainInert } from "../../hooks/useMainInert";
 
 const COLLAPSED_KEY = "wi.sidebar.collapsed";
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(() => {
+function safeGetCollapsed(): boolean {
+  try {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(COLLAPSED_KEY) === "1";
-  });
+  } catch {
+    return false;
+  }
+}
+
+export default function AppShell({ children }: { children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = useState<boolean>(() => safeGetCollapsed());
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { add, remove } = useMainInert();
 
   useEffect(() => {
-    window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {}
   }, [collapsed]);
 
-  // Close the mobile nav on route change and lock body scroll while it is open.
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
@@ -28,13 +37,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (e.key === "Escape") setMobileOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    add("app-shell-mobile-nav");
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previous;
+      remove("app-shell-mobile-nav");
     };
-  }, [mobileOpen]);
+  }, [mobileOpen, add, remove]);
 
   return (
     <div className="flex min-h-screen bg-white">
@@ -56,10 +64,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         />
         <main id="main" className="flex-1">
           <div
-            className="mx-auto w-full max-w-[1100px] px-4 py-5"
+            className="mx-auto w-full max-w-[1080px] px-6 py-6 md:px-8"
             style={{
-              paddingLeft: "max(1rem, env(safe-area-inset-left))",
-              paddingRight: "max(1rem, env(safe-area-inset-right))",
+              paddingLeft: "max(1.5rem, env(safe-area-inset-left))",
+              paddingRight: "max(1.5rem, env(safe-area-inset-right))",
             }}
           >
             {children}

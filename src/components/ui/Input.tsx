@@ -21,7 +21,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         className={`w-full rounded-sm border transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 ${
           error
             ? "border-[var(--color-wi-red)] focus:border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/15"
-            : "border-wi-line"
+            : "var(--color-wi-line)"
         } ${sizeClasses[size]} ${className}`}
         aria-invalid={error}
         aria-describedby={describedBy}

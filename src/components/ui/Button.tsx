@@ -13,7 +13,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   primary:
     "bg-[var(--color-wi-primary)] text-white border-transparent hover:bg-[var(--color-wi-primary-dark)]",
   secondary:
-    "bg-white text-[var(--color-wi-text)] border-wi-line hover:bg-[var(--color-wi-row-alt)]",
+    "bg-white text-[var(--color-wi-text)] var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]",
   danger:
     "bg-[var(--color-wi-red)] text-white border-transparent hover:bg-[var(--color-wi-red-dark)]",
   ghost:

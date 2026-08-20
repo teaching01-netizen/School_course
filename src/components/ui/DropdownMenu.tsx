@@ -144,7 +144,7 @@ export function DropdownMenu({ items, triggerClassName = "", trigger }: Dropdown
           <div
             ref={menuRef}
             id={menuId}
-            className="animate-notion-popover-in fixed z-50 w-40 max-w-[calc(100vw-0.5rem)] origin-top-right rounded-md border border-wi-line bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)] motion-reduce:animate-none"
+            className="animate-notion-popover-in fixed z-50 w-40 max-w-[calc(100vw-0.5rem)] origin-top-right rounded-md border var(--border-strong) bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)] motion-reduce:animate-none"
             style={{
               top: menuPosition?.top ?? 0,
               left: menuPosition?.left ?? 0,

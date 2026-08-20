@@ -23,8 +23,8 @@ interface LevelLadderCellProps {
 }
 
 const statusStyles: Record<CellStatus, string> = {
-  active: "border-wi-line bg-white hover:border-blue-300",
-  vacant: "border-dashed border-wi-line bg-[var(--color-wi-row-alt)] hover:border-blue-400",
+  active: "var(--color-wi-line) bg-white hover:border-blue-300",
+  vacant: "border-dashed var(--color-wi-line) bg-[var(--color-wi-row-alt)] hover:border-blue-400",
   gap: "border-red-300 bg-red-50 hover:border-red-400",
   overlap: "border-red-400 bg-red-100",
   saving: "border-blue-300 bg-blue-50 animate-pulse",

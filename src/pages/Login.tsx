@@ -42,7 +42,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-[var(--color-wi-row-alt)] flex items-center justify-center px-4">
-      <div className="w-full max-w-sm bg-white p-6 rounded-sm shadow-sm border border-wi-line">
+      <div className="w-full max-w-sm bg-white p-6 rounded-sm shadow-sm border var(--border-strong)">
         <div className="flex justify-center mb-6">
           <WILogo />
         </div>
@@ -57,7 +57,7 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter username..."
-              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
               onBlur={() => { touch("username"); validate("username"); }}
             />
           </FormField>
@@ -69,7 +69,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
               onBlur={() => { touch("password"); validate("password"); }}
             />
           </FormField>

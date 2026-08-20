@@ -48,7 +48,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick }: StepI
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
                     isCompleted && "bg-[var(--color-wi-primary)] text-white",
                     isCurrent && "border-2 border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)]",
-                    !isCompleted && !isCurrent && "border-2 border-wi-line bg-white text-[var(--color-wi-text-light)]",
+                    !isCompleted && !isCurrent && "border-2 var(--color-wi-line) bg-white text-[var(--color-wi-text-light)]",
                     isClickable && "cursor-pointer hover:shadow-sm",
                     !isClickable && "cursor-default",
                   )}

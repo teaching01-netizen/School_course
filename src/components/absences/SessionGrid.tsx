@@ -62,7 +62,7 @@ export default function SessionGrid({
 
   if (subjects.length === 0) {
     return (
-      <div className="rounded-sm border border-wi-line bg-white p-5 text-center text-gray-650 font-medium">
+      <div className="rounded-sm border var(--color-wi-line) bg-white p-5 text-center text-gray-650 font-medium">
         No classes found in this date range
       </div>
     );
@@ -91,7 +91,7 @@ export default function SessionGrid({
           aria-label="Select all sessions"
           checked={allSelected}
           onChange={onToggleAll}
-          className="h-4 w-4 rounded border-wi-line text-green-600 focus:ring-green-500"
+          className="h-4 w-4 rounded var(--color-wi-line) text-green-600 focus:ring-green-500"
         />
         All selected
       </label>
@@ -110,10 +110,10 @@ export default function SessionGrid({
             key={subject.subject_id}
             role="group"
             aria-label={`${subject.subject_code} sessions`}
-            className="rounded-sm border border-wi-line bg-white overflow-hidden"
+            className="rounded-sm border var(--color-wi-line) bg-white overflow-hidden"
           >
             {/* Subject header */}
-            <div className="flex items-center gap-2 border-b border-wi-line-soft bg-[var(--color-wi-row-alt)] px-4 py-2.5">
+            <div className="flex items-center gap-2 border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-2.5">
               <input
                 type="checkbox"
                 role="checkbox"
@@ -121,7 +121,7 @@ export default function SessionGrid({
                 aria-label={`Toggle all ${subject.subject_code} sessions`}
                 checked={subjectAllSelected}
                 onChange={() => onToggleSubject(subject.subject_id)}
-                className="h-4 w-4 rounded border-wi-line text-green-600 focus:ring-green-500"
+                className="h-4 w-4 rounded var(--color-wi-line) text-green-600 focus:ring-green-500"
               />
               <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                 {subject.subject_code}

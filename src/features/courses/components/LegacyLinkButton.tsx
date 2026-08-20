@@ -130,7 +130,7 @@ export function LegacyLinkButton({ course, onLinked }: { course: Course; onLinke
                 }
               }}
               placeholder="Paste old system URL or numeric ID"
-              className="min-w-0 flex-1 rounded-sm border border-wi-line px-2.5 py-1.5 text-sm transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 focus-visible:outline-none"
+              className="min-w-0 flex-1 rounded-sm border var(--color-wi-line) px-2.5 py-1.5 text-sm transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 focus-visible:outline-none"
             />
             <Button variant="primary" size="sm" onClick={() => void handleLink()} loading={saving} disabled={saving || !urlInput.trim()}>
               {saving ? "Linking…" : "Link"}

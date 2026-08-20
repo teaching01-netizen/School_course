@@ -253,7 +253,7 @@ export default function AbsenceDetail() {
             </div>
           </div>
         </div>
-        <div className="hidden md:flex flex-wrap items-center gap-2 rounded-sm border border-wi-line bg-white p-3 shadow-sm md:flex-nowrap">
+        <div className="hidden md:flex flex-wrap items-center gap-2 rounded-sm border var(--border-strong) bg-white p-3 shadow-sm md:flex-nowrap">
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusClasses}`}>{titleCase(absence.status)}</span>
           {absence.status === "pending" ? <Button size="sm" loading={saving} onClick={() => void updateStatus("reviewed")}>Mark Reviewed</Button> : null}
           {absence.status === "reviewed" ? (
@@ -282,8 +282,8 @@ export default function AbsenceDetail() {
       ) : null}
 
       <div className="mt-4 grid gap-4">
-        <section className="rounded-sm border border-wi-line bg-white">
-          <h2 className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Absence Summary</h2>
+        <section className="rounded-sm border var(--color-wi-line) bg-white">
+          <h2 className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Absence Summary</h2>
           <div className="grid gap-4 p-4 md:grid-cols-2">
             <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
               <dt className="text-[var(--color-wi-text-light)]">Subject</dt>
@@ -302,8 +302,8 @@ export default function AbsenceDetail() {
           </div>
         </section>
 
-        <section className="rounded-sm border border-wi-line bg-white">
-          <h2 className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Sit-in Plan</h2>
+        <section className="rounded-sm border var(--color-wi-line) bg-white">
+          <h2 className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Sit-in Plan</h2>
           <div className="p-4">
             <div className="mb-3 flex items-center gap-2">
               <span className="rounded-sm bg-blue-50 px-2 py-1 text-sm font-medium text-blue-700">
@@ -319,7 +319,7 @@ export default function AbsenceDetail() {
                     if (group.items.length > 1) {
                       const rooms = [...new Set(group.items.map((s) => s.room_name ?? "No room"))].join(", ");
                       return (
-                        <div key={group.start_at} className="flex items-center justify-between rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+                        <div key={group.start_at} className="flex items-center justify-between rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
                           <span>{displayDate(group.date)} {displayTime(group.start_at)} &ndash; {displayTime(group.end_at)}</span>
                           <span className="text-[var(--color-wi-text-light)]">{rooms}</span>
                         </div>
@@ -327,7 +327,7 @@ export default function AbsenceDetail() {
                     }
                     const s = group.items[0];
                     return (
-                      <div key={s.id} className="flex items-center justify-between rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+                      <div key={s.id} className="flex items-center justify-between rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
                         <span>{displayDateTime(s.start_at)} &ndash; {displayTime(s.end_at)}</span>
                         <span className="text-[var(--color-wi-text-light)]">{s.room_name ?? "No room"}</span>
                       </div>
@@ -346,8 +346,8 @@ export default function AbsenceDetail() {
         </section>
 
         <div className="grid gap-4">
-          <section className="rounded-sm border border-wi-line bg-white">
-            <h2 className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Admin Notes</h2>
+          <section className="rounded-sm border var(--color-wi-line) bg-white">
+            <h2 className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Admin Notes</h2>
             <div className="p-4">
               <label className="sr-only" htmlFor="detail-note">Internal note</label>
               <textarea
@@ -355,7 +355,7 @@ export default function AbsenceDetail() {
                 value={notes}
                 onChange={(e) => { setNotes(e.target.value); setNotesDirty(true); }}
                 rows={5}
-                className="w-full rounded-sm border border-wi-line p-2 text-sm"
+                className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm"
                 placeholder="Visible to staff only..."
               />
               <div className="mt-3 flex items-center justify-between">
@@ -367,8 +367,8 @@ export default function AbsenceDetail() {
             </div>
           </section>
 
-          <section className="rounded-sm border border-wi-line bg-white">
-            <h2 className="border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Timeline</h2>
+          <section className="rounded-sm border var(--color-wi-line) bg-white">
+            <h2 className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3 text-sm font-semibold text-[var(--color-wi-text)]">Timeline</h2>
             <div className="p-4">
               <ol className="space-y-3">
                 {(absence.timeline ?? []).map((entry) => (
@@ -392,7 +392,7 @@ export default function AbsenceDetail() {
           footer={<><Button variant="secondary" onClick={() => setCancelOpen(false)}>Back</Button><Button variant="danger" disabled={!cancelReasonCategory} loading={saving} onClick={() => void updateStatus("cancelled", JSON.stringify({ category: cancelReasonCategory, detail: cancelReasonDetail })).then(() => setCancelOpen(false))}>Cancel Absence</Button></>}>
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">This action is retained in the audit timeline.</p>
           <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="detail-cancel-category">Cancellation reason</label>
-          <select id="detail-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(e) => setCancelReasonCategory(e.target.value)}>
+          <select id="detail-cancel-category" className="mt-1 w-full rounded-sm border var(--color-wi-line) p-2 text-sm" value={cancelReasonCategory} onChange={(e) => setCancelReasonCategory(e.target.value)}>
             <option value="">Select a reason...</option>
             <option value="duplicate">Duplicate submission</option>
             <option value="student_requested">Student requested cancellation</option>
@@ -401,7 +401,7 @@ export default function AbsenceDetail() {
             <option value="other">Other</option>
           </select>
           <label className="mt-3 block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="detail-cancel-detail">Additional details (optional)</label>
-          <textarea id="detail-cancel-detail" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(e) => setCancelReasonDetail(e.target.value)} />
+          <textarea id="detail-cancel-detail" className="mt-1 w-full rounded-sm border var(--color-wi-line) p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(e) => setCancelReasonDetail(e.target.value)} />
         </Modal>
       ) : null}
 

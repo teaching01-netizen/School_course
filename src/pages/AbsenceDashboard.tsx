@@ -111,7 +111,7 @@ export default function AbsenceDashboard() {
             onChange={(e) => {
               setSelectedTeacherId(e.target.value || null);
             }}
-            className="px-3 py-1.5 text-sm border border-wi-line rounded-sm bg-white min-w-[200px]"
+            className="px-3 py-1.5 text-sm border var(--color-wi-line) rounded-sm bg-white min-w-[200px]"
           >
             <option value="">All Teachers</option>
             {teachers.map((t) => (
@@ -133,7 +133,7 @@ export default function AbsenceDashboard() {
             <table className="w-full text-[13px]">
               <caption className="sr-only">Teacher dashboard</caption>
               <thead>
-                <tr className="border-b border-wi-line">
+                <tr className="border-b var(--color-wi-line)">
                   <th scope="col" className="text-left py-2 px-2 font-semibold">ID</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
@@ -141,7 +141,7 @@ export default function AbsenceDashboard() {
               </thead>
               <tbody>
                 {teachers.map((t) => (
-                  <tr key={t.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+                  <tr key={t.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.id}</td>
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>
                     <td className="py-2 px-2">

@@ -181,7 +181,7 @@ export default function AssignRooms() {
           type="date"
           value={dateStr}
           onChange={(e) => setDateStr(e.target.value)}
-          className="px-2 py-1 text-sm border border-wi-line rounded-sm"
+          className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
         />
         <p className="text-xs text-[var(--color-wi-text-light)]">
           {sessions.length} session{sessions.length !== 1 ? "s" : ""} ·{" "}
@@ -195,7 +195,7 @@ export default function AssignRooms() {
         <EmptyState message={`No sessions on ${dateStr}.`} />
       ) : (
         <div>
-          <div className="grid grid-cols-[88px_minmax(0,1fr)_152px_minmax(240px,auto)] items-center gap-4 border-b border-wi-line px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
+          <div className="grid grid-cols-[88px_minmax(0,1fr)_152px_minmax(240px,auto)] items-center gap-4 border-b var(--color-wi-line) px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
             <span>Time</span>
             <span>Subject</span>
             <span>Teacher</span>

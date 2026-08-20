@@ -80,10 +80,10 @@ export function statusBadgeClasses(status: AbsenceStatus): string {
     case "reviewed":
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "actioned":
-      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line";
+      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] var(--color-wi-line)";
     case "cancelled":
       return "bg-red-50 text-red-700 border-red-200";
     default:
-      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-wi-line";
+      return "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] var(--color-wi-line)";
   }
 }

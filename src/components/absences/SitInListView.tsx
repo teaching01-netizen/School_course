@@ -116,7 +116,7 @@ export default function SitInListView({ sessions, absenceDays, absences, mode, z
         ? "No absences recorded in this date range."
         : "No sit-ins recorded in this date range.";
     return (
-      <div className="rounded-sm border border-wi-line bg-white">
+      <div className="rounded-sm border var(--color-wi-line) bg-white">
         <EmptyState
           message={message}
           action={hasFilters ? <Button variant="secondary" size="sm" onClick={onClearFilters}>Clear filters</Button> : undefined}
@@ -126,10 +126,10 @@ export default function SitInListView({ sessions, absenceDays, absences, mode, z
   }
 
   return (
-    <div className="overflow-hidden rounded-sm border border-wi-line bg-white">
+    <div className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-full text-left">
-          <thead className="border-b border-wi-line bg-[var(--color-wi-row-alt)] text-xs font-semibold text-[var(--color-wi-text-light)]">
+          <thead className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-xs font-semibold text-[var(--color-wi-text-light)]">
             <tr>
               <th className="px-3 py-2">#</th>
               {headers.map(([key, label]) => (
@@ -150,7 +150,7 @@ export default function SitInListView({ sessions, absenceDays, absences, mode, z
         </table>
       </div>
       {visibleCount < rows.length ? (
-        <div className="border-t border-wi-line-soft p-3 text-center">
+        <div className="border-t var(--color-wi-line) p-3 text-center">
           <Button variant="secondary" size="sm" onClick={() => setVisibleCount((count) => count + 20)}>
             Load more
           </Button>

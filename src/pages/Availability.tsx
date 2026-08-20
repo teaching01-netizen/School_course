@@ -166,7 +166,7 @@ export default function Availability() {
           <select
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
-            className="px-2 py-1 text-sm border border-wi-line rounded-sm min-w-[240px]"
+            className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm min-w-[240px]"
           >
             <option value="">Select…</option>
             {mode === "teacher" &&
@@ -191,7 +191,7 @@ export default function Availability() {
               type="datetime-local"
               value={startLocal}
               onChange={(e) => setStartLocal(e.target.value)}
-              className="px-2 py-1 text-sm border border-wi-line rounded-sm"
+              className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
             />
           </div>
           <div>
@@ -200,7 +200,7 @@ export default function Availability() {
               type="datetime-local"
               value={endLocal}
               onChange={(e) => setEndLocal(e.target.value)}
-              className="px-2 py-1 text-sm border border-wi-line rounded-sm"
+              className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
             />
           </div>
           <Button variant="primary" size="md" disabled={saving} onClick={submitCreate}>
@@ -222,7 +222,7 @@ export default function Availability() {
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
         <caption className="sr-only">Availability windows</caption>
         <thead>
-          <tr className="border-b border-wi-line">
+          <tr className="border-b var(--color-wi-line)">
             <th scope="col" className="text-left py-2 px-2 font-semibold">Start (UTC)</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">End (UTC)</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Start (Local)</th>
@@ -232,7 +232,7 @@ export default function Availability() {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
+            <tr key={r.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
               <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{r.start_at}</td>
               <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{r.end_at}</td>
               <td className="py-2 px-2 text-xs text-[var(--color-wi-text-light)]">{format(new Date(r.start_at), "yyyy-MM-dd HH:mm")}</td>

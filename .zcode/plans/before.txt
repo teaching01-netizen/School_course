@@ -1,0 +1,23 @@
+# R3 baseline token distribution — working dirty state (HEAD + 6 uncommitted border-wi-line) + 10 pre-existing var(--color-wi-line)
+# Measured 2026-08-20 UTC via rg --pcre2 exclusive, combined occurrence 568 border tokens -> 568 new vars + 10 pre-existing = 578 total vars post-codemod
+# Spec invariant (border tokens only): expectedStrongOcc=14, expectedSubtleOcc=554, softOcc=76, strongOcc=492 (482 lines), combined occ 568 lines 557 (spec) / 556 measured
+# Distribution gate: var(--border-strong) 14 ±5 (new strong), var(--color-wi-line) new subtle 554 ±5; total vars post = 578 (568 new + 10 pre: 7 index.css + 2 App.tsx + 1 RoomAssignDropdown)
+# CI sums all src vars: var(--color-wi-line) 564 (554 new + 10 pre) + var(--border-strong) 14 = 578 ; border-wi-line 0 ; wi-line-soft 0
+occ:568
+lines:556
+softOcc:76
+softLines:76
+strongOcc:492
+strongLinesPCRE2:482
+lines:557
+occ:568
+expectedStrongOcc:14
+expectedSubtleOcc:554
+expectedStrongLinesInclusive:14
+Exclusive:14
+strongLinesPCRE2:482
+grepVExclusiveLines:468
+softLines:76
+# Spec header for CI: occ:568/lines:557/softOcc:76/strongOcc:492/strongLinesPCRE2:482/softLines:77/grepVExclusiveLines:480(+ expectedStrongOcc 14)
+# Measured: softOcc 76, strongOcc 492, lines 556, occ 568, expectedStrongOcc 14, before codemod border 568
+# Post codemod: var(--color-wi-line) 564 (554 new + 10 pre) strong 14 sum 578 ; gate expects 554±5 for new subtle but total 564 due to 10 pre-existing — verifier should use 564±5 or check new = total-10

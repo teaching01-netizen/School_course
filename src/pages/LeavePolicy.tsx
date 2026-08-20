@@ -18,7 +18,7 @@ export default function LeavePolicy() {
       <PageHeading>SAT Verbal Leave Policy</PageHeading>
 
       {/* Tab navigation */}
-      <div className="border-b border-wi-line mb-4">
+      <div className="border-b var(--color-wi-line) mb-4">
         <nav className="flex gap-0" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
@@ -27,7 +27,7 @@ export default function LeavePolicy() {
               className={`px-4 py-2.5 text-sm font-medium border-b transition-colors -mb-px ${
                 activeTab === tab.id
                   ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]"
-                  : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] hover:border-wi-line"
+                  : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] hover:var(--color-wi-line)"
               }`}
               aria-current={activeTab === tab.id ? "page" : undefined}
             >

@@ -103,7 +103,7 @@ export default function CalendarMonth({
             type="button"
             aria-label="Previous month"
             onClick={onPrevMonth}
-            className="flex h-11 w-11 items-center justify-center rounded-sm border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -112,7 +112,7 @@ export default function CalendarMonth({
             type="button"
             aria-label="Next month"
             onClick={onNextMonth}
-            className="flex h-11 w-11 items-center justify-center rounded-sm border border-wi-line text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:h-6 sm:w-6"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
@@ -121,10 +121,10 @@ export default function CalendarMonth({
           type="button"
           aria-label="Go to today"
           onClick={handleToday}
-          className="flex min-h-11 items-center gap-1.5 rounded-sm border border-wi-line px-3 py-1.5 text-[12px] font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:min-h-0"
+          className="flex min-h-11 items-center gap-1.5 rounded-sm border var(--color-wi-line) px-3 py-1.5 text-[12px] font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] sm:min-h-0"
         >
           Today
-          <kbd className="hidden sm:inline-flex items-center rounded-sm border border-wi-line bg-white px-1 py-0.5 text-[10px] font-mono text-[var(--color-wi-text-light)]">T</kbd>
+          <kbd className="hidden sm:inline-flex items-center rounded-sm border var(--color-wi-line) bg-white px-1 py-0.5 text-[10px] font-mono text-[var(--color-wi-text-light)]">T</kbd>
         </button>
       </div>
 
@@ -143,8 +143,8 @@ export default function CalendarMonth({
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-sm border border-wi-line bg-white">
-        <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-normal text-[var(--color-wi-text-light)] sm:tracking-wider">
+      <div className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
+        <div className="grid grid-cols-7 border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-normal text-[var(--color-wi-text-light)] sm:tracking-wider">
           {DAY_NAMES.map((d) => (
             <div key={d} className="py-1.5">
               <span className="sm:hidden">{d.slice(0, 1)}</span><span className="hidden sm:inline">{d}</span>

@@ -21,9 +21,15 @@ interface SidebarProps {
 }
 
 function loadWidth(): number {
-  const stored = Number(window.localStorage.getItem(WIDTH_KEY));
-  if (!Number.isFinite(stored)) return DEFAULT_WIDTH;
-  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, stored));
+  try {
+    const raw = window.localStorage.getItem(WIDTH_KEY);
+    if (raw === null) return DEFAULT_WIDTH;
+    const stored = Number(raw);
+    if (!Number.isFinite(stored)) return DEFAULT_WIDTH;
+    return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, stored));
+  } catch {
+    return DEFAULT_WIDTH;
+  }
 }
 
 export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
@@ -34,8 +40,24 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
   const resizeState = useRef<{ startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(WIDTH_KEY, String(width));
+    try {
+      window.localStorage.setItem(WIDTH_KEY, String(width));
+    } catch {}
   }, [width]);
+
+  useEffect(() => {
+    const onWindowResize = () => {
+      try {
+        const cap = window.innerWidth - 80;
+        setWidth((prev) => {
+          const next = Math.min(prev, cap);
+          return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next));
+        });
+      } catch {}
+    };
+    window.addEventListener("resize", onWindowResize);
+    return () => window.removeEventListener("resize", onWindowResize);
+  }, []);
 
   const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     resizeState.current = { startX: e.clientX, startWidth: width };
@@ -148,7 +170,7 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
       </nav>
 
       {/* Bottom: identity + copyright */}
-      <div className="shrink-0 border-t border-wi-line-soft px-2 py-1.5">
+      <div className="shrink-0 border-t var(--color-wi-line) px-2 py-1.5">
         <div className="flex items-center gap-2 rounded-sm px-1 py-1">
           <WorkspaceTile size={20} />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--color-wi-text)]">
@@ -174,7 +196,7 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
     <>
       {/* Desktop sidebar */}
       <aside
-        className={`relative z-30 hidden shrink-0 self-start border-r border-wi-line-soft bg-wi-bg transition-[width] duration-150 motion-reduce:transition-none md:block ${
+        className={`relative z-30 hidden shrink-0 self-start border-r var(--color-wi-line) bg-wi-bg transition-[width] duration-150 motion-reduce:transition-none md:block ${
           collapsed ? "overflow-hidden" : ""
         }`}
         style={{ width: collapsed ? 0 : width, height: "100vh", position: "sticky", top: 0 }}
@@ -189,10 +211,21 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize sidebar"
-            className="absolute inset-y-0 -right-[3px] z-10 w-[6px] cursor-col-resize touch-none"
+            tabIndex={0}
+            aria-valuenow={width}
+            aria-valuemin={MIN_WIDTH}
+            aria-valuemax={MAX_WIDTH}
+            aria-valuetext={`${width}px`}
+            className="absolute inset-y-0 -right-[3px] z-10 w-[6px] cursor-col-resize touch-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-0 focus:outline-none"
             style={{ background: "transparent" }}
             onPointerDown={handleResizeStart}
             onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") setWidth((v) => Math.max(MIN_WIDTH, v - 10));
+              else if (e.key === "ArrowRight") setWidth((v) => Math.min(MAX_WIDTH, v + 10));
+              else if (e.key === "Home") setWidth(MIN_WIDTH);
+              else if (e.key === "End") setWidth(MAX_WIDTH);
+            }}
           >
             <div className="h-full w-full transition-colors duration-150 hover:bg-[var(--color-wi-primary)]/20" />
           </div>
@@ -207,7 +240,7 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
             onClick={onCloseMobile}
             aria-hidden="true"
           />
-          <aside className="absolute inset-y-0 left-0 z-10 w-[280px] max-w-[85vw] border-r border-wi-line-soft bg-wi-bg shadow-[10px_0_32px_rgba(0,0,0,0.08)]">
+          <aside className="absolute inset-y-0 left-0 z-10 w-[280px] max-w-[85vw] border-r var(--color-wi-line) bg-wi-bg shadow-[10px_0_32px_rgba(0,0,0,0.08)]">
             <div className="h-full">{content}</div>
           </aside>
         </div>

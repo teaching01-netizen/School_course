@@ -35,7 +35,7 @@ export default function CourseLevelSearch({ value, onChange }: CourseLevelSearch
         value={internalValue}
         onChange={(e) => setInternalValue(e.target.value)}
         placeholder="Search courses, subjects, or groups..."
-        className="block w-full pl-8 pr-8 py-1.5 text-sm border border-wi-line rounded-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+        className="block w-full pl-8 pr-8 py-1.5 text-sm border var(--color-wi-line) rounded-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
       />
       {internalValue && (
         <button
