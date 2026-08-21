@@ -49,6 +49,7 @@ func (s *server) publishSessionsUpdated() {
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
+	registerCourseGroupRoutes(mux, deps)
 
 	mux.HandleFunc("GET /api/v1/courses", s.handleCoursesList)
 	mux.HandleFunc("POST /api/v1/courses", s.handleCoursesCreate)

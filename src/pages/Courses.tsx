@@ -15,6 +15,7 @@ import Modal from "@/components/Modal";
 import StudentStatusBadge from "@/components/StudentStatusBadge";
 import CourseAttendeeRow from "@/components/CourseAttendeeRow";
 import { createCourseDetailNavigationState } from "@/features/courses/navigation";
+import type { CourseGroupSummary } from "@/features/courses/types";
 
 const PAGE_SIZE = 50;
 const COURSE_TABLE_COLUMN_WIDTHS = [
@@ -84,6 +85,7 @@ export default function Courses() {
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const { cache, loading: studentsLoading, errors: studentsErrors, fetchStudents } = useCourseStudents();
+  const { data: mergedGroups } = useApiQuery<CourseGroupSummary[]>("/api/v1/course-groups", []);
 
   // The list is fully server-driven: every filter and the page offset live in
   // the URL, and the query key is URL-derived so each combination gets its own
@@ -224,6 +226,23 @@ export default function Courses() {
   return (
     <div>
       <PageHeading>Course</PageHeading>
+
+      {mergedGroups && mergedGroups.length > 0 ? (
+        <section className="mb-4 rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-callout)] p-3" aria-label="Merged views">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-[var(--color-wi-text)]">Merged views</h2>
+            <span className="text-xs text-[var(--color-wi-text-light)]">Combined schedules for source courses</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            {mergedGroups.map((mergedGroup) => (
+              <Link key={mergedGroup.id} to={`/course-groups/${mergedGroup.id}`} className="rounded-sm border border-[var(--color-wi-line)] bg-white px-3 py-2 transition-colors hover:border-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)]">
+                <p className="text-sm font-medium text-[var(--color-wi-text)]">{mergedGroup.name}</p>
+                <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{mergedGroup.course_codes.join(" + ")} · {mergedGroup.member_count} courses</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mb-4 rounded-sm border border-wi-line bg-white p-3" aria-label="Course filters">
         <div className="flex flex-wrap items-center gap-3">

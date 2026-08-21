@@ -1,7 +1,7 @@
 import { apiJson } from "@/api/client";
 import type { Room, Session } from "@/features/scheduling/types";
 import type { Student, User, Subject } from "@/types/shared";
-import type { Course, EditableTeacher, LegacyCourseConflict } from "../types";
+import type { Course, CourseGroup, CourseMergeCandidate, EditableTeacher, LegacyCourseConflict } from "../types";
 
 export type CourseCrmFilter = {
   enabled: boolean;
@@ -119,4 +119,36 @@ export type LegacyConflictsResponse = {
 
 export function getCourseLegacyConflicts(courseId: string): Promise<LegacyConflictsResponse> {
   return apiJson<LegacyConflictsResponse>(`/api/v1/courses/${courseId}/legacy-conflicts`);
+}
+
+export type CourseGroupSessions = {
+  id: string;
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  room_id: string | null;
+  teacher_id: string;
+  teacher_name: string;
+  start_at: string;
+  end_at: string;
+  version: number;
+};
+
+export function createCourseGroup(body: { name: string; course_ids: string[] }): Promise<{ id: string; name: string; course_ids: string[] }> {
+  return apiJson<{ id: string; name: string; course_ids: string[] }>("/api/v1/course-groups", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getCourseGroup(groupId: string): Promise<CourseGroup> {
+  return apiJson<CourseGroup>(`/api/v1/course-groups/${groupId}`, { method: "GET" });
+}
+
+export function getCourseGroupSessions(groupId: string): Promise<CourseGroupSessions[]> {
+  return apiJson<CourseGroupSessions[]>(`/api/v1/course-groups/${groupId}/sessions`, { method: "GET" });
+}
+
+export function getCourseMergeCandidates(): Promise<{ items: CourseMergeCandidate[] }> {
+  return apiJson<{ items: CourseMergeCandidate[] }>("/api/v1/courses?limit=200&offset=0", { method: "GET" });
 }

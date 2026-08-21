@@ -10,6 +10,10 @@ import Select from "../components/ui/Select";
 import FormField from "../components/ui/FormField";
 import FormErrorSummary from "../components/ui/FormErrorSummary";
 import MultiTeacherSelect from "../components/MultiTeacherSelect";
+import { queryClient } from "../query/cache";
+import MergeCourseForm from "../features/courses/components/MergeCourseForm";
+import { createCourseGroup, getCourseMergeCandidates } from "../features/courses/api/courseApi";
+import type { CourseMergeCandidate } from "../features/courses/types";
 
 type Teacher = { id: string; username: string; full_name: string | null; role: "Admin" | "Teacher" };
 type Subject = { id: string; code: string; name: string };
@@ -26,6 +30,7 @@ export default function CourseCreate() {
   const navigate = useNavigate();
   const { addToast } = useToast();
 
+  const [creationMode, setCreationMode] = useState<"single" | "merge">("single");
   const [year, setYear] = useState(() => String(new Date().getFullYear() % 100));
   const [teacherIDs, setTeacherIDs] = useState<string[]>([]);
   const [subjectID, setSubjectID] = useState("");
@@ -38,6 +43,9 @@ export default function CourseCreate() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [cycles, setCycles] = useState<{ id: string; label: string; display_name?: string | null }[]>([]);
+  const [mergeCourses, setMergeCourses] = useState<CourseMergeCandidate[]>([]);
+  const [mergeName, setMergeName] = useState("");
+  const [mergeCourseIDs, setMergeCourseIDs] = useState<string[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,6 +65,12 @@ export default function CourseCreate() {
         setTeachers(t);
         setSubjects(s);
         setCycles(c);
+        try {
+          const merge = await getCourseMergeCandidates();
+          setMergeCourses(merge.items);
+        } catch {
+          setMergeCourses([]);
+        }
       } catch {
         // Non-blocking: the page still renders with empty option lists.
       } finally {
@@ -67,25 +81,35 @@ export default function CourseCreate() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateAll()) return;
+    if (creationMode === "single" && !validateAll()) return;
+    if (creationMode === "merge" && (mergeName.trim() === "" || mergeCourseIDs.length !== 2)) {
+      addToast("error", mergeName.trim() === "" ? "Enter a name for the merged course" : "Select exactly two courses to merge");
+      return;
+    }
     try {
       setSubmitting(true);
-      await apiJson("/api/v1/courses", {
-        method: "POST",
-        body: JSON.stringify({
-          year: Number.parseInt(year, 10),
-          subject_id: subjectID,
-          hour,
-          student_count: studentCount,
-          course_type: courseType,
-          cycle_id: cycleID || null,
-          expiry_days: expiryDays === "" ? null : Number(expiryDays),
-          // Versioned contract: the first selected teacher is the primary.
-          teachers: teacherIDs.map((id, index) => ({ teacher_id: id, is_primary: index === 0 })),
-        }),
-      });
-      addToast("success", "Course created");
-      navigate("/courses");
+      if (creationMode === "merge") {
+        const group = await createCourseGroup({ name: mergeName.trim(), course_ids: mergeCourseIDs });
+        await queryClient.invalidateQueries({ queryKey: ["api", "/api/v1/course-groups"] });
+        addToast("success", "Merged course created");
+        navigate(`/course-groups/${group.id}`);
+      } else {
+        await apiJson("/api/v1/courses", {
+          method: "POST",
+          body: JSON.stringify({
+            year: Number.parseInt(year, 10),
+            subject_id: subjectID,
+            hour,
+            student_count: studentCount,
+            course_type: courseType,
+            cycle_id: cycleID || null,
+            expiry_days: expiryDays === "" ? null : Number(expiryDays),
+            teachers: teacherIDs.map((id, index) => ({ teacher_id: id, is_primary: index === 0 })),
+          }),
+        });
+        addToast("success", "Course created");
+        navigate("/courses");
+      }
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Create failed");
     } finally {
@@ -95,11 +119,44 @@ export default function CourseCreate() {
 
   return (
     <div className="w-full">
-      <PageHeading className="text-center">New Course</PageHeading>
+      <PageHeading className="text-center">{creationMode === "merge" ? "Merge Courses" : "New Course"}</PageHeading>
 
-      <form onSubmit={onSubmit} className="max-w-xl mx-auto space-y-4">
-        <FormErrorSummary errors={errors} touched={touched} />
+      <div className="mx-auto mb-6 flex max-w-xl rounded-md border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-1" role="tablist" aria-label="Course creation type">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={creationMode === "single"}
+          className={`flex-1 rounded-sm px-3 py-2 text-sm font-medium transition-colors ${creationMode === "single" ? "bg-white text-[var(--color-wi-text)] shadow-sm" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}
+          onClick={() => setCreationMode("single")}
+        >
+          Single course
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={creationMode === "merge"}
+          className={`flex-1 rounded-sm px-3 py-2 text-sm font-medium transition-colors ${creationMode === "merge" ? "bg-white text-[var(--color-wi-text)] shadow-sm" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}
+          onClick={() => setCreationMode("merge")}
+        >
+          Merge existing courses
+        </button>
+      </div>
 
+      <form onSubmit={onSubmit} className="mx-auto max-w-xl space-y-4">
+        {creationMode === "single" ? <FormErrorSummary errors={errors} touched={touched} /> : null}
+
+        {creationMode === "merge" ? (
+          <MergeCourseForm
+            name={mergeName}
+            onNameChange={setMergeName}
+            courseIDs={mergeCourseIDs}
+            onCourseIDsChange={setMergeCourseIDs}
+            courses={mergeCourses}
+            loading={loadingOptions}
+          />
+        ) : null}
+
+        {creationMode === "single" ? <>
         <FormField name="year" label="Year" error={errors.year} touched={touched.year} required>
           <Input size="md" value={year} onChange={(e) => setYear(e.target.value)} inputMode="numeric" onBlur={() => { touch("year"); validate("year"); }} />
         </FormField>
@@ -159,10 +216,11 @@ export default function CourseCreate() {
         <FormField name="expiryDays" label="Expiration days">
           <Input size="md" type="number" min="0" step="1" value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)} placeholder="No expiration" />
         </FormField>
+        </> : null}
 
         <div className="flex gap-3 mt-6">
           <Button type="submit" variant="primary" size="lg" loading={submitting}>
-            {submitting ? "Saving…" : "Save"}
+            {submitting ? "Saving…" : creationMode === "merge" ? "Create merged course" : "Save"}
           </Button>
           <Button type="button" variant="secondary" size="lg" onClick={() => navigate("/courses")}>
             Back

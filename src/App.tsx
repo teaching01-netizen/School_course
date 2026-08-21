@@ -15,6 +15,7 @@ const AssignRooms = lazy(() => import('./pages/AssignRooms'));
 const Courses = lazy(() => import('./pages/Courses'));
 const CourseCreate = lazy(() => import('./pages/CourseCreate'));
 const CourseDetail = lazy(() => import('./pages/CourseDetail'));
+const CourseGroupDetail = lazy(() => import('./pages/CourseGroupDetail'));
 const Students = lazy(() => import('./pages/Students'));
 const StudentProfile = lazy(() => import('./pages/StudentProfile'));
 const Teachers = lazy(() => import('./pages/Teachers'));
@@ -147,6 +148,7 @@ function App() {
               <Route element={<RequireAdmin />}>
                 <Route path="/courses" element={<Courses />} />
                 <Route path="/courses/create" element={<CourseCreate />} />
+                <Route path="/course-groups/:id" element={<CourseGroupDetail />} />
                 <Route path="/courses/:id" element={<CourseDetail />} />
                 <Route path="/students" element={<Students />} />
                 <Route path="/students/:wcode" element={<StudentProfile />} />

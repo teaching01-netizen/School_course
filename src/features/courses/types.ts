@@ -62,3 +62,46 @@ export type LegacyCourseConflict = {
   local_payload: Record<string, unknown> | null;
   created_at: string;
 };
+
+export type CourseMergeCandidate = {
+  id: string;
+  code: string;
+  name: string;
+  subject_code: string;
+  subject_name: string;
+  teacher_name: string;
+  legacy_course_id?: string | null;
+};
+
+export type CourseGroupTeacher = {
+  id: string;
+  username: string;
+  full_name: string | null;
+  course_ids: string[];
+  course_codes: string[];
+};
+
+export type CourseGroupMember = CourseMergeCandidate & {
+  year: number | null;
+  hour: number | null;
+  student_count: number | null;
+  course_type: string | null;
+  cycle_id: string | null;
+  root_course_group_id: string | null;
+  legacy_archived: boolean;
+  teachers: CourseTeacher[];
+};
+
+export type CourseGroup = {
+  id: string;
+  name: string;
+  members: CourseGroupMember[];
+  teachers: CourseGroupTeacher[];
+};
+
+export type CourseGroupSummary = {
+  id: string;
+  name: string;
+  member_count: number;
+  course_codes: string[];
+};
