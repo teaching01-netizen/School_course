@@ -23,9 +23,12 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedOption = options.find((option) => option.value === value);
 
+  const labelId = `${id}-label`;
+  const valueId = `${id}-value`;
+
   return (
     <div className="space-y-2">
-      <label htmlFor={id} className="block text-xs font-semibold text-[var(--color-wi-text-light)]">{label}</label>
+      <label id={labelId} htmlFor={id} className="block text-xs font-semibold text-[var(--color-wi-text-light)]">{label}</label>
       <select
         id={id}
         name={id}
@@ -47,13 +50,14 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         disabled={disabled || options.length === 0}
         aria-haspopup="dialog"
         aria-expanded={sheetOpen}
+        aria-labelledby={`${labelId} ${valueId}`}
         onClick={() => {
           setPendingValue(value);
           setSheetOpen(true);
         }}
-        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
+        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-left text-base text-[var(--color-wi-text)] transition-colors duration-[150ms] ease-[var(--ease-ui)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
       >
-        <span className={selectedOption ? "font-medium" : "text-[var(--color-wi-text-light)]"}>{selectedOption?.label ?? "Choose a make-up class"}</span>
+        <span id={valueId} className={selectedOption ? "font-medium" : "text-[var(--color-wi-text-light)]"}>{selectedOption?.label ?? "Choose a make-up class"}</span>
         <ChevronRight className="h-5 w-5 shrink-0 text-[var(--color-wi-text-light)]" aria-hidden="true" />
       </button>
 

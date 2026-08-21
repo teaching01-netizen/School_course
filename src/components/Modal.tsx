@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useLayoutEffect, useId, useRef } from 'react';
+import { type ReactNode, useId, useRef } from 'react';
+import { useDialogModal } from '@/hooks/useDialogModal';
 
 type ModalSize = "sm" | "md" | "lg" | "xl" | "full";
 
@@ -22,57 +23,7 @@ interface ModalProps {
 export default function Modal({ title, children, onClose, footer, size = "md", maxWidth }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const onCloseRef = useRef(onClose);
-  const suppressCloseRef = useRef(false);
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    dialog.removeAttribute("open");
-
-    try { dialog.showModal(); } catch { return; }
-
-    if (!('closedBy' in HTMLDialogElement.prototype)) {
-      const handleBackdropClick = (e: MouseEvent) => {
-        const rect = dialog.getBoundingClientRect();
-        const isOutside = (
-          e.clientX < rect.left || e.clientX > rect.right ||
-          e.clientY < rect.top || e.clientY > rect.bottom
-        );
-        if (isOutside) onCloseRef.current();
-      };
-      dialog.addEventListener("click", handleBackdropClick);
-      return () => {
-        dialog.removeEventListener("click", handleBackdropClick);
-        suppressCloseRef.current = true;
-        dialog.close();
-      };
-    }
-
-    return () => {
-      suppressCloseRef.current = true;
-      dialog.close();
-    };
-  }, []);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handleClose = () => {
-      if (suppressCloseRef.current) {
-        suppressCloseRef.current = false;
-        return;
-      }
-      onCloseRef.current();
-    };
-    dialog.addEventListener("close", handleClose);
-    return () => dialog.removeEventListener("close", handleClose);
-  }, []);
+  const { close } = useDialogModal(dialogRef, { onClose, closeOnBackdrop: true });
 
   return (
     <dialog
@@ -86,7 +37,7 @@ export default function Modal({ title, children, onClose, footer, size = "md", m
       <div className={`animate-notion-dialog-in bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.05)] w-full ${maxWidth ?? sizeMap[size]} motion-reduce:animate-none`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-b-[var(--color-wi-line)]">
           <h3 id={titleId} className="text-base font-semibold text-[var(--color-wi-text)]">{title}</h3>
-          <button onClick={() => onCloseRef.current()} className="text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] text-xl leading-none p-1" aria-label="Close dialog">&times;</button>
+          <button type="button" aria-label="Close dialog" onClick={() => void close()} className="text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] text-xl leading-none p-1">&times;</button>
         </div>
         <div className="p-4 overflow-y-auto max-h-[70vh]">{children}</div>
         {footer && <div className="flex justify-end gap-2 px-4 py-3 border-t border-t-[var(--color-wi-line)] bg-[var(--color-wi-callout)] rounded-b-lg">{footer}</div>}

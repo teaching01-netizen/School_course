@@ -74,40 +74,72 @@ export default function SmsSendButton({
   parentPhoneMissing = false,
 }: SmsSendButtonProps) {
   const [cooldown, setCooldown] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expiryRef = useRef<number | null>(null);
   const cooldownKeyRef = useRef(0);
 
   useEffect(() => {
     if (!isSending && sendCount > 0 && cooldown === 0) {
       cooldownKeyRef.current += 1;
       const key = cooldownKeyRef.current;
+      const expiry = Date.now() + cooldownDuration * 1000;
+      expiryRef.current = expiry;
       setCooldown(cooldownDuration);
 
-      intervalRef.current = setInterval(() => {
-        setCooldown((prev) => {
-          if (prev <= 1) {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            intervalRef.current = null;
-            return 0;
+      const schedule = () => {
+        if (cooldownKeyRef.current !== key) return;
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        const remaining = expiryRef.current != null ? Math.max(0, Math.ceil((expiryRef.current - Date.now()) / 1000)) : 0;
+        if (remaining <= 0) {
+          setCooldown(0);
+          expiryRef.current = null;
+          timeoutRef.current = null;
+          return;
+        }
+        timeoutRef.current = setTimeout(() => {
+          if (cooldownKeyRef.current !== key) return;
+          const nextRemaining = expiryRef.current != null ? Math.max(0, Math.ceil((expiryRef.current - Date.now()) / 1000)) : 0;
+          if (nextRemaining <= 0) {
+            setCooldown(0);
+            expiryRef.current = null;
+            timeoutRef.current = null;
+          } else {
+            setCooldown(nextRemaining);
+            schedule();
           }
-          return prev - 1;
-        });
-      }, 1000);
+        }, 1000);
+      };
+      schedule();
 
+      const onVisibility = () => {
+        if (!document.hidden && cooldownKeyRef.current === key && expiryRef.current != null) {
+          const remaining = Math.max(0, Math.ceil((expiryRef.current - Date.now()) / 1000));
+          setCooldown(remaining);
+          if (remaining <= 0) {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            expiryRef.current = null;
+            timeoutRef.current = null;
+          } else {
+            schedule();
+          }
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
       return () => {
-        if (intervalRef.current && cooldownKeyRef.current === key) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
+        document.removeEventListener("visibilitychange", onVisibility);
+        if (timeoutRef.current && cooldownKeyRef.current === key) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
         }
       };
     }
-  }, [isSending, sendCount, cooldownDuration]);
+  }, [isSending, sendCount, cooldownDuration, cooldown]);
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
   }, []);
