@@ -126,6 +126,7 @@ const managedAbsenceListQueryTemplate = `
 		  AND ($4::date IS NULL OR sa.date_to >= $4)
 		  AND ($5::date IS NULL OR sa.date_from <= $5)
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
+		  -- keep status buckets in sync with internal/absences/status.go (AllStatuses); active=pending+reviewed, archived=actioned+cancelled+special_approved
 		  AND ($10::boolean OR $9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled', 'special_approved')))
 		  AND (NOT $10::boolean OR COALESCE(impact.open_issue_count, 0) > 0)
 		ORDER BY (COALESCE(impact.open_issue_count, 0) > 0) DESC,

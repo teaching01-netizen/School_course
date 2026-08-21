@@ -97,7 +97,8 @@ Run: `bash scripts/validate-migrations.sh [migrations-dir] [--strict]` (env `VAL
 ## Lane C coverage
 
 - C1 (this document + tombstones + linter) — done.
-- C2 (phantom-history trust repair) and C3 (backfill split-brain policy) are separate lanes in `.zcode/plans/data-model-audit-roadmap.md`.
+- C2 (phantom-history trust repair) — done: trust-repair annotations in migrations, 1784592000000 deleted.
+- C3 (backfill policy) — done: CONTRIBUTING.md + validate-migrations.sh check 6.
 
 ## Phantom-history / trust repair (C2)
 
