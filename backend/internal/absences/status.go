@@ -67,8 +67,9 @@ func StudentCancellable(s Status) bool {
 	return s == StatusPending || s == StatusReviewed
 }
 
-// StatusesForSQL returns a comma-quoted list of status strings for use in SQL IN clauses.
-// Example: "'pending', 'reviewed', 'actioned'"
+// StatusesForSQL is deprecated: use parameterized ANY($n::text[]) with a []string
+// derived from Status constants (e.g. AllStatuses) instead of string-interpolating
+// an IN list. Kept for backwards compatibility only.
 func StatusesForSQL(statuses ...Status) string {
 	parts := make([]string, len(statuses))
 	for i, s := range statuses {

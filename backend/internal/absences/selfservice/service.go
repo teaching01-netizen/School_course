@@ -111,14 +111,13 @@ func CancelOwn(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request Cance
 	if !absences.StudentCancellable(absences.Status(row.Status)) {
 		return sqldb.ManagedAbsenceRow{}, ErrNotCancellable
 	}
-	// keep in sync with absences.StudentCancellable; see status.go
 	tag, err := tx.Exec(ctx, `
 		UPDATE student_absences
 		SET status = 'cancelled', updated_at = now(), version = version + 1
 		WHERE id = $1
 		  AND lower(wcode) = lower($2)
-		  AND status IN ('pending', 'reviewed')
-	`, request.AbsenceID, request.Wcode)
+		  AND status = ANY($3::text[])
+	`, request.AbsenceID, request.Wcode, []string{string(absences.StatusPending), string(absences.StatusReviewed)})
 	if err != nil {
 		return sqldb.ManagedAbsenceRow{}, err
 	}

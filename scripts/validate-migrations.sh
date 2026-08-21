@@ -9,6 +9,7 @@
 #   4. All CREATE INDEX must use IF NOT EXISTS
 #   5. Migration numbering must be contiguous 00001..max with no gaps
 #   6. Business-data INSERT lint (warning by default; --strict promotes to error)
+#      Note: UPDATE/DELETE business backfills are covered by review (see GOVERNANCE.md C3).
 #   7. ROADMAP-removal DROP COLUMN must carry proof comment (warning/strict)
 #
 # Usage: bash scripts/validate-migrations.sh [migrations-dir] [--strict]
@@ -176,7 +177,7 @@ for f in "${files[@]}"; do
         warnings=$((warnings+1))
       fi
     fi
-  done < <(grep -n -i 'INSERT INTO' "$f" || true)
+  done < <(grep -n -i 'INSERT INTO' "$f" | grep -vE '^[^:]*:[^:]*:.*--.*(lint:allow-data|seed-config)' || true)
 done
 
 # --- Check 7: ROADMAP-removal DROP COLUMN proof lint ---

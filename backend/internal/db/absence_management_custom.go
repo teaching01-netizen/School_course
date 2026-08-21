@@ -127,7 +127,7 @@ const managedAbsenceListQueryTemplate = `
 		  AND ($5::date IS NULL OR sa.date_from <= $5)
 		  AND (cardinality($8::uuid[]) = 0 OR sa.id = ANY($8::uuid[]))
 		  -- keep status buckets in sync with internal/absences/status.go (AllStatuses); active=pending+reviewed, archived=actioned+cancelled+special_approved
-		  AND ($10::boolean OR $9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status IN ('pending', 'reviewed')) OR ($9 = 'archived' AND sa.status IN ('actioned', 'cancelled', 'special_approved')))
+		  AND ($10::boolean OR $9 = '' OR $3 <> '' OR ($9 = 'active' AND sa.status = ANY($11::text[])) OR ($9 = 'archived' AND sa.status = ANY($12::text[])))
 		  AND (NOT $10::boolean OR COALESCE(impact.open_issue_count, 0) > 0)
 		ORDER BY (COALESCE(impact.open_issue_count, 0) > 0) DESC,
 		         (COALESCE(impact.critical_issue_count, 0) > 0) DESC,
@@ -184,13 +184,18 @@ func (q *Queries) absenceStudentNicknameColumnExists(ctx context.Context) (bool,
 	return exists, err
 }
 
+var (
+	managedAbsenceActiveStatuses   = []string{"pending", "reviewed"}
+	managedAbsenceArchivedStatuses = []string{"actioned", "cancelled", "special_approved"}
+)
+
 func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]ManagedAbsenceRow, int64, error) {
 	p = normalizedAbsencePaging(p)
 	hasStudentNicknameColumn, err := q.absenceStudentNicknameColumnExists(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs, p.Bucket, p.ScheduleImpactOnly)
+	rows, err := q.db.Query(ctx, managedAbsenceQuerySQL(managedAbsenceListQueryTemplate, hasStudentNicknameColumn), p.Query, p.SubjectID, p.Status, p.DateFrom, p.DateTo, p.Limit, p.Offset, p.IDs, p.Bucket, p.ScheduleImpactOnly, managedAbsenceActiveStatuses, managedAbsenceArchivedStatuses)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -121,7 +121,7 @@ func TestStatusDrift_SQL(t *testing.T) {
 		}
 	}
 	if data == nil {
-		t.Skipf("migration file not found (tried %v); skipping drift test", candidates)
+		t.Fatalf("migration file not found (tried %v); drift test must fail when governing file is missing", candidates)
 	}
 
 	// Collect all CHECK (status IN (...)) occurrences; pick the largest set
@@ -187,7 +187,7 @@ func TestStatusDrift_Frontend(t *testing.T) {
 		}
 	}
 	if data == nil {
-		t.Skipf("frontend types file not found (tried %v); skipping drift test", candidates)
+		t.Fatalf("frontend types file not found (tried %v); drift test must fail when governing file is missing", candidates)
 	}
 
 	m := arrayRE.FindStringSubmatch(string(data))
