@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEventHandler, type ReactElement, type Ref } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MoreVertical, Pencil, SlidersHorizontal } from "lucide-react";
 import Modal from "../components/Modal";
 import TypeaheadSelect, { type TypeaheadOption } from "../components/TypeaheadSelect";
@@ -51,6 +51,7 @@ import {
   getCourse,
   getCourseCrmFilter,
   getCourseSessions,
+  getCourseCycles,
   getCourseStudents,
   getInstituteTimeMeta,
   getRooms,
@@ -70,11 +71,18 @@ import {
   type Student,
   type ConflictDetails,
   type CourseEditChanges,
+  type LegacyCourseConflict,
 } from "@/types";
+import { getCourseLegacyConflicts } from "@/features/courses/api/courseApi";
+import { LegacyConflictsBanner } from "@/features/courses/components/LegacyConflictsBanner";
+import { SessionConflictPopover } from "@/features/courses/components/SessionConflictPopover";
+import { getCoursesReturnPath } from "@/features/courses/navigation";
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
+  const coursesReturnPath = getCoursesReturnPath(location.state);
   const { addToast } = useToast();
   const { user } = useAuth();
 
@@ -109,6 +117,7 @@ export default function CourseDetail() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
+  const [cycles, setCycles] = useState<Awaited<ReturnType<typeof getCourseCycles>>>([]);
   /** Name of the field being saved, or null. Locks every property row so two
    *  edits cannot race the optimistic-concurrency version bump. */
   const [savingField, setSavingField] = useState<string | null>(null);
@@ -140,6 +149,9 @@ export default function CourseDetail() {
   const [calendarMode, setCalendarMode] = useState<'day' | 'week' | 'month'>('week');
   /** Anchor date of the active calendar sub-view. */
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
+
+  // Legacy sync conflicts for the current course.
+  const [conflicts, setConflicts] = useState<LegacyCourseConflict[]>([]);
 
   /** Institute "today" from server time; falls back to the device clock. */
   const todayDate = useMemo(() => {
@@ -272,6 +284,23 @@ export default function CourseDetail() {
     void loadCrmFilter();
   }, [addToast, id]);
 
+  // Fetch legacy sync conflicts when the course loads and has a legacy_course_id.
+  useEffect(() => {
+    if (!course?.legacy_course_id) {
+      setConflicts([]);
+      return;
+    }
+    let cancelled = false;
+    getCourseLegacyConflicts(course.id)
+      .then((res) => {
+        if (!cancelled) setConflicts(res.open_conflicts);
+      })
+      .catch(() => {
+        // Swallow: banner just doesn't show.
+      });
+    return () => { cancelled = true; };
+  }, [course?.id, course?.legacy_course_id]);
+
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -297,6 +326,11 @@ export default function CourseDetail() {
       ]);
       setRooms(r);
       setTeachers(t);
+      try {
+        setCycles(await getCourseCycles());
+      } catch {
+        setCycles([]);
+      }
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to load lookups");
     }
@@ -437,6 +471,9 @@ export default function CourseDetail() {
                 sess,
                 "start",
               )}
+              <div className="mt-1 px-1">
+                <SessionConflictPopover conflicts={sess.conflicts ?? []} currentCourseId={sess.course_id} zone={zone} />
+              </div>
               {impactedSessionIDs.has(sess.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-[11px] font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
             </div>
           );
@@ -483,6 +520,8 @@ export default function CourseDetail() {
         ...(changes.year !== undefined ? { year: changes.year } : {}),
         ...(changes.hour !== undefined ? { hour: changes.hour } : {}),
         ...(changes.student_count !== undefined ? { student_count: changes.student_count } : {}),
+        ...(changes.cycle_id !== undefined ? { cycle_id: changes.cycle_id } : {}),
+        ...(changes.expiry_days !== undefined ? { expiry_days: changes.expiry_days } : {}),
       });
       setCourse(updated);
       addToast("success", "Course updated");
@@ -945,7 +984,7 @@ export default function CourseDetail() {
     <div>
       <div className="mb-6">
         <Link
-          to="/courses"
+          to={coursesReturnPath}
           className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-wi-text-light)] transition-colors duration-150 hover:text-[var(--color-wi-text)] motion-reduce:transition-none"
         >
           <ArrowLeft size={14} aria-hidden="true" />
@@ -972,6 +1011,8 @@ export default function CourseDetail() {
               <CoursePropertiesPanel
                 course={course}
                 teacherOptions={teacherOptions}
+                teacherNameById={teacherById}
+                cycles={cycles}
                 savingField={savingField}
                 onSave={saveCourse}
               />
@@ -983,7 +1024,14 @@ export default function CourseDetail() {
             />
           </div>
         </div>
-        <CourseInfoStrip course={course} usedMinutes={usedMinutes} />
+        <CourseInfoStrip
+          course={course}
+          teacherName={course.teachers?.length
+            ? course.teachers.map((teacher) => teacherById.get(teacher.id) ?? teacher.full_name ?? teacher.username).join(", ")
+            : course.primary_teacher_id ? teacherById.get(course.primary_teacher_id) : null}
+          usedMinutes={usedMinutes}
+        />
+        {conflicts.length > 0 && <LegacyConflictsBanner conflicts={conflicts} />}
       </div>
 
       <div className="mb-8">
@@ -1063,7 +1111,7 @@ export default function CourseDetail() {
             <div className="hidden md:block">
               {calendarMode === 'month' ? (
                 <div className="overflow-hidden rounded-sm border border-wi-line">
-                  <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+                  <div className="grid grid-cols-7 border-b border-b-wi-line bg-[var(--color-wi-row-alt)] text-center text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
                     {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
                       <div key={d} className="py-1.5">{d}</div>
                     ))}
@@ -1077,7 +1125,7 @@ export default function CourseDetail() {
                       return (
                         <div
                           key={dayKey}
-                          className={`min-h-[84px] border-b border-r border-wi-line p-1 last:border-r-0 ${isToday ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''} ${!inMonth ? 'bg-[var(--color-wi-row-alt)]' : ''}`}
+                          className={`min-h-[84px] border-b border-r border-r-wi-line p-1 last:border-r-0 ${isToday ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''} ${!inMonth ? 'bg-[var(--color-wi-row-alt)]' : ''}`}
                         >
                           <button
                             type="button"
@@ -1108,6 +1156,9 @@ export default function CourseDetail() {
                                     sess,
                                     "start",
                                   )}
+                                  <div className="mt-0.5">
+                                    <SessionConflictPopover conflicts={sess.conflicts ?? []} currentCourseId={sess.course_id} zone={zone} />
+                                  </div>
                                 </div>
                               );
                             })}
@@ -1135,7 +1186,7 @@ export default function CourseDetail() {
                       {calendarRange.days.map((day) => {
                         const isToday = isSameDay(day, todayDate);
                         return (
-                          <th key={format(day, 'yyyy-MM-dd')} scope="col" className={`py-1 px-1 text-center font-semibold border-r border-wi-line last:border-r-0 ${isToday ? 'text-[var(--color-wi-primary-dark)]' : 'text-[var(--color-wi-text-light)]'}`}>
+                          <th key={format(day, 'yyyy-MM-dd')} scope="col" className={`py-1 px-1 text-center font-semibold border-r border-r-wi-line last:border-r-0 ${isToday ? 'text-[var(--color-wi-primary-dark)]' : 'text-[var(--color-wi-text-light)]'}`}>
                             <div className="text-[10px] uppercase tracking-wider">{format(day, 'EEE')}</div>
                             <div className="text-[11px]">{format(day, 'd MMM')}</div>
                           </th>
@@ -1146,7 +1197,7 @@ export default function CourseDetail() {
                   <tbody>
                     <tr>
                       {calendarRange.days.map((day) => (
-                        <td key={format(day, 'yyyy-MM-dd')} className={`border-r border-wi-line align-top last:border-r-0 ${isSameDay(day, todayDate) ? 'bg-[var(--color-wi-blue-bg)]' : ''}`}>
+                        <td key={format(day, 'yyyy-MM-dd')} className={`border-r border-r-wi-line align-top last:border-r-0 ${isSameDay(day, todayDate) ? 'bg-[var(--color-wi-blue-bg)]' : ''}`}>
                           <div className="min-h-[420px]">
                             {renderDaySessions(sessionsByDay.get(format(day, 'yyyy-MM-dd')) ?? [], calendarMode === 'day')}
                           </div>
@@ -1167,7 +1218,7 @@ export default function CourseDetail() {
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Course schedule</caption>
             <thead className="bg-[var(--color-wi-row-alt)]">
-              <tr className="border-b border-wi-line">
+              <tr className="border-b border-b-wi-line">
                 <th scope="col" className="w-12 py-2 px-3 text-center">
                   <input
                     type="checkbox"
@@ -1183,19 +1234,20 @@ export default function CourseDetail() {
                 <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Duration</th>
                 <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Classroom</th>
                 <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">By</th>
+                <th scope="col" className="text-start py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Conflict</th>
                 <th scope="col" className="w-14 py-2 px-2" aria-label="Row actions" />
               </tr>
             </thead>
             <tbody>
               {sessionsLoading ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <LoadingSkeleton type="table" lines={3} />
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <EmptyState message="No sessions in range" />
                   </td>
                 </tr>
@@ -1209,7 +1261,7 @@ export default function CourseDetail() {
                   return (
                     <tr
                       key={s.id}
-                      className={`group border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${selectedIds.has(s.id) ? "bg-[var(--color-wi-selected)]/50" : ""} ${isEditing ? "bg-[var(--color-wi-selected)]/40" : ""}`}
+                      className={`group border-b border-b-wi-line hover:bg-[var(--color-wi-row-alt)] ${selectedIds.has(s.id) ? "bg-[var(--color-wi-selected)]/50" : ""} ${isEditing ? "bg-[var(--color-wi-selected)]/40" : ""}`}
                     >
                       <td className="w-10 py-2 px-1 text-center">
                         <input
@@ -1270,6 +1322,9 @@ export default function CourseDetail() {
                             {teacherById.get(s.teacher_id) ?? "—"}
                           </span>
                         </button>
+                      </td>
+                      <td className="py-2 px-3">
+                        <SessionConflictPopover conflicts={s.conflicts ?? []} currentCourseId={s.course_id} zone={zone} />
                       </td>
                       <td className="py-2 px-2">
                         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
@@ -1424,7 +1479,7 @@ export default function CourseDetail() {
       <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
                       <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
                         <thead className="bg-[var(--color-wi-row-alt)]">
-                          <tr className="border-b border-wi-line">
+                          <tr className="border-b border-b-wi-line">
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
@@ -1436,7 +1491,7 @@ export default function CourseDetail() {
                           {parsedPaste.rows.map((row) => {
                             const matchedRoomId = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) : null;
                             return (
-                              <tr key={row.rowNumber} className="border-b border-wi-line-soft">
+                              <tr key={row.rowNumber} className="border-b border-b-wi-line">
                                 <td className="py-2 px-2 font-mono">{row.date}</td>
                                 <td className="py-2 px-2 font-mono">{row.begin}</td>
                                 <td className="py-2 px-2 font-mono">{row.end}</td>
@@ -1559,7 +1614,7 @@ export default function CourseDetail() {
                 <table className="w-full text-[12px]">
                   <caption className="sr-only">Schedule conflict preview</caption>
                   <thead className="bg-[var(--color-wi-row-alt)]">
-                    <tr className="border-b border-wi-line">
+                    <tr className="border-b border-b-wi-line">
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
@@ -1569,7 +1624,7 @@ export default function CourseDetail() {
                   </thead>
                   <tbody>
                     {pastePreflights.map((pf) => (
-                      <tr key={pf.rowNumber} className="border-b border-wi-line-soft">
+                      <tr key={pf.rowNumber} className="border-b border-b-wi-line">
                         <td className="py-2 px-2 font-mono">{pf.date}</td>
                         <td className="py-2 px-2 font-mono">{pf.begin}</td>
                         <td className="py-2 px-2 font-mono">{pf.end}</td>
@@ -1606,6 +1661,7 @@ export default function CourseDetail() {
         onSetAddingWcode={setAddingWcode}
         onAddStudentByWcode={addStudentByWcode}
         onRemoveStudent={removeStudent}
+        zone={zone}
       />
 
       <ConfirmModal
@@ -1852,7 +1908,7 @@ function BulkEditModal({
         <table className="w-full text-[13px] border border-wi-line">
           <caption className="sr-only">Bulk edit sessions</caption>
           <thead className="bg-[var(--color-wi-row-alt)]">
-            <tr className="border-b border-wi-line">
+            <tr className="border-b border-b-wi-line">
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">#</th>
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
@@ -1875,7 +1931,7 @@ function BulkEditModal({
                 const hasError = hasDurationError(eff);
                 const isFillMode = editMode === 'fill-all';
                 return (
-                  <tr key={r.sessionId} className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
+                  <tr key={r.sessionId} className={`border-b border-b-wi-line hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
                     <td className="py-1.5 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{rows.indexOf(r) + 1}</td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (

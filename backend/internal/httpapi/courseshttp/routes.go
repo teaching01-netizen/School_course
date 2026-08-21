@@ -64,6 +64,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/courses/{id}/sessions", s.handleCourseSessionsList)
 	mux.HandleFunc("POST /api/v1/courses/{id}/legacy-sync", s.handleLegacySync)
 	mux.HandleFunc("POST /api/v1/courses/batch-delete", s.handleCoursesBatchDelete)
+	mux.HandleFunc("GET /api/v1/courses/{id}/legacy-conflicts", s.handleCourseLegacyConflicts)
 }
 
 // handleCoursesList serves the course list with two response contracts:
@@ -194,6 +195,14 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		CourseType         any              `json:"course_type"`
 		LegacyCourseID     any              `json:"legacy_course_id"`
 		LegacyLastSyncedAt any              `json:"legacy_last_synced_at"`
+		CycleID            any              `json:"cycle_id"`
+		CycleLabel         string           `json:"cycle_label"`
+		ExpiryDays         any              `json:"expiry_days"`
+		LastSessionAt      any              `json:"last_session_at"`
+		ExpiresAt          any              `json:"expires_at"`
+		ExpiryStatus       string           `json:"expiry_status"`
+		HasOverlap         bool             `json:"has_overlap"`
+		HasConflict        bool             `json:"has_conflict"`
 		Teachers           []map[string]any `json:"teachers"`
 	}
 	out := make([]courseDTO, 0, len(items))
@@ -235,6 +244,19 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		if c.LegacyLastSyncedAt.Valid {
 			legacyLastSyncedAt, _ = s.a.TimeString(c.LegacyLastSyncedAt)
 		}
+		var cycleID any = nil
+		if c.CycleID.Valid {
+			cycleID = c.CycleID.String
+		}
+		var expiryDays any = nil
+		if c.ExpiryDays.Valid {
+			expiryDays = c.ExpiryDays.Int32
+		}
+		var lastSessionAt any = nil
+		if c.LastSessionAt.Valid {
+			lastSessionAt, _ = s.a.TimeString(c.LastSessionAt)
+		}
+		expiresAt, expiryStatus := courseExpiry(c.ExpiryDays, c.LastSessionAt)
 		cid := id
 		out = append(out, courseDTO{
 			ID:                 cid,
@@ -252,6 +274,14 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			CourseType:         courseType,
 			LegacyCourseID:     legacyCourseID,
 			LegacyLastSyncedAt: legacyLastSyncedAt,
+			CycleID:            cycleID,
+			CycleLabel:         c.CycleLabel,
+			ExpiryDays:         expiryDays,
+			LastSessionAt:      lastSessionAt,
+			ExpiresAt:          expiresAt,
+			ExpiryStatus:       expiryStatus,
+			HasOverlap:         c.HasOverlap,
+			HasConflict:        c.HasConflict,
 			Teachers:           teachersByCourse[cid],
 		})
 	}
@@ -293,15 +323,61 @@ func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
+	conflicts, err := s.deps.Q.SessionConflictsByCourse(r.Context(), courseID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	type sessionConflictDTO struct {
+		Kind                  string `json:"kind"`
+		Resource              string `json:"resource"`
+		ConflictingSessionID  string `json:"conflicting_session_id"`
+		ConflictingCourseID   string `json:"conflicting_course_id"`
+		ConflictingCourseCode string `json:"conflicting_course_code"`
+		ConflictingCourseName string `json:"conflicting_course_name"`
+		ConflictingStartAt    string `json:"conflicting_start_at"`
+		ConflictingEndAt      string `json:"conflicting_end_at"`
+	}
+	conflictsBySession := make(map[string][]sessionConflictDTO)
+	for _, conflict := range conflicts {
+		sessionID, err := s.a.UUIDString(conflict.SessionID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		conflictingSessionID, err := s.a.UUIDString(conflict.ConflictingSessionID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		conflictingCourseID, err := s.a.UUIDString(conflict.ConflictingCourseID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		startAt, _ := s.a.TimeString(conflict.ConflictingStartAt)
+		endAt, _ := s.a.TimeString(conflict.ConflictingEndAt)
+		resource := "teacher"
+		if conflict.Kind == "room_overlap" {
+			resource = "room"
+		}
+		conflictsBySession[sessionID] = append(conflictsBySession[sessionID], sessionConflictDTO{
+			Kind: conflict.Kind, Resource: resource, ConflictingSessionID: conflictingSessionID,
+			ConflictingCourseID: conflictingCourseID, ConflictingCourseCode: conflict.ConflictingCourseCode,
+			ConflictingCourseName: conflict.ConflictingCourseName, ConflictingStartAt: startAt, ConflictingEndAt: endAt,
+		})
+	}
 	type sessionDTO struct {
-		ID        string  `json:"id"`
-		SeriesID  *string `json:"series_id"`
-		CourseID  string  `json:"course_id"`
-		RoomID    *string `json:"room_id"`
-		TeacherID string  `json:"teacher_id"`
-		StartAt   string  `json:"start_at"`
-		EndAt     string  `json:"end_at"`
-		Version   int32   `json:"version"`
+		ID        string               `json:"id"`
+		SeriesID  *string              `json:"series_id"`
+		CourseID  string               `json:"course_id"`
+		RoomID    *string              `json:"room_id"`
+		TeacherID string               `json:"teacher_id"`
+		StartAt   string               `json:"start_at"`
+		EndAt     string               `json:"end_at"`
+		Version   int32                `json:"version"`
+		Conflicts []sessionConflictDTO `json:"conflicts"`
 	}
 	out := make([]sessionDTO, 0, len(items))
 	for _, ss := range items {
@@ -340,7 +416,11 @@ func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request
 			}
 			seriesID = &v
 		}
-		out = append(out, sessionDTO{ID: sid, SeriesID: seriesID, CourseID: cid, RoomID: rid, TeacherID: tid, StartAt: startS, EndAt: endS, Version: ss.Version})
+		sessionConflicts := conflictsBySession[sid]
+		if sessionConflicts == nil {
+			sessionConflicts = []sessionConflictDTO{}
+		}
+		out = append(out, sessionDTO{ID: sid, SeriesID: seriesID, CourseID: cid, RoomID: rid, TeacherID: tid, StartAt: startS, EndAt: endS, Version: ss.Version, Conflicts: sessionConflicts})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }
@@ -360,9 +440,15 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		StudentCount int32                      `json:"student_count"`
 		CourseType   string                     `json:"course_type"`
 		Teachers     []teacherAssignmentRequest `json:"teachers"`
+		CycleID      *string                    `json:"cycle_id"`
+		ExpiryDays   *int32                     `json:"expiry_days"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.ExpiryDays != nil && (*body.ExpiryDays < 0 || *body.ExpiryDays > maxExpiryDays) {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_expiry_days", fmt.Sprintf("expiry_days must be between 0 and %d", maxExpiryDays))
 		return
 	}
 
@@ -381,6 +467,8 @@ func (s *server) handleCoursesCreate(w http.ResponseWriter, r *http.Request) {
 		Hour:         pgtype.Int4{Int32: body.Hour, Valid: true},
 		StudentCount: pgtype.Int4{Int32: body.StudentCount, Valid: true},
 		CourseType:   body.CourseType,
+		CycleID:      body.CycleID,
+		ExpiryDays:   body.ExpiryDays,
 	}
 	// The course-generation variant (CourseCreateV2: code derived from
 	// course_no, name kept empty) requires a subject_id and at least one
@@ -433,18 +521,71 @@ func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
+	conflicts, err := s.deps.Q.StudentConflictsByCourse(r.Context(), courseID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	type studentConflictDTO struct {
+		Kind                  string `json:"kind"`
+		CurrentSessionID      string `json:"current_session_id"`
+		CurrentStartAt        string `json:"current_start_at"`
+		CurrentEndAt          string `json:"current_end_at"`
+		ConflictingSessionID  string `json:"conflicting_session_id"`
+		ConflictingCourseID   string `json:"conflicting_course_id"`
+		ConflictingCourseCode string `json:"conflicting_course_code"`
+		ConflictingCourseName string `json:"conflicting_course_name"`
+		ConflictingStartAt    string `json:"conflicting_start_at"`
+		ConflictingEndAt      string `json:"conflicting_end_at"`
+	}
+	conflictsByStudent := make(map[string][]studentConflictDTO)
+	for _, conflict := range conflicts {
+		studentID, err := s.a.UUIDString(conflict.StudentID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		currentSessionID, err := s.a.UUIDString(conflict.CurrentSessionID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		conflictingSessionID, err := s.a.UUIDString(conflict.ConflictingSessionID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		conflictingCourseID, err := s.a.UUIDString(conflict.ConflictingCourseID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		currentStartAt, _ := s.a.TimeString(conflict.CurrentStartAt)
+		currentEndAt, _ := s.a.TimeString(conflict.CurrentEndAt)
+		conflictingStartAt, _ := s.a.TimeString(conflict.ConflictingStartAt)
+		conflictingEndAt, _ := s.a.TimeString(conflict.ConflictingEndAt)
+		conflictsByStudent[studentID] = append(conflictsByStudent[studentID], studentConflictDTO{
+			Kind: "student_overlap", CurrentSessionID: currentSessionID,
+			CurrentStartAt: currentStartAt, CurrentEndAt: currentEndAt,
+			ConflictingSessionID: conflictingSessionID, ConflictingCourseID: conflictingCourseID,
+			ConflictingCourseCode: conflict.ConflictingCourseCode, ConflictingCourseName: conflict.ConflictingCourseName,
+			ConflictingStartAt: conflictingStartAt, ConflictingEndAt: conflictingEndAt,
+		})
+	}
 	type studentDTO struct {
-		ID           string `json:"id"`
-		Wcode        string `json:"wcode"`
-		FullName     string `json:"full_name"`
-		Notes        string `json:"notes"`
-		Nickname     string `json:"nickname"`
-		School       string `json:"school"`
-		Level        string `json:"level"`
-		Year         string `json:"year"`
-		StudentPhone string `json:"student_phone"`
-		Email        string `json:"email"`
-		Status       string `json:"status"`
+		ID           string               `json:"id"`
+		Wcode        string               `json:"wcode"`
+		FullName     string               `json:"full_name"`
+		Notes        string               `json:"notes"`
+		Nickname     string               `json:"nickname"`
+		School       string               `json:"school"`
+		Level        string               `json:"level"`
+		Year         string               `json:"year"`
+		StudentPhone string               `json:"student_phone"`
+		Email        string               `json:"email"`
+		Status       string               `json:"status"`
+		Conflicts    []studentConflictDTO `json:"conflicts"`
 	}
 	out := make([]studentDTO, 0, len(items))
 	for _, st := range items {
@@ -453,11 +594,15 @@ func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return
 		}
+		studentConflicts := conflictsByStudent[id]
+		if studentConflicts == nil {
+			studentConflicts = []studentConflictDTO{}
+		}
 		out = append(out, studentDTO{
 			ID: id, Wcode: st.Wcode, FullName: st.FullName, Notes: st.Notes,
 			Nickname: st.Nickname.String, School: st.School.String, Level: st.Level.String,
 			Year: st.Year.String, StudentPhone: st.StudentPhone.String, Email: st.Email.String,
-			Status: st.Status,
+			Status: st.Status, Conflicts: studentConflicts,
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -771,6 +916,13 @@ func (s *server) handleCoursesPatch(w http.ResponseWriter, r *http.Request) {
 		writeCourseAdminError(w, s.a, err)
 		return
 	}
+	lifecycle, err := parseLifecycle(body)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	command.CycleSet, command.CycleID = lifecycle.CycleSet, lifecycle.CycleID
+	command.ExpirySet, command.ExpiryDays = lifecycle.ExpirySet, lifecycle.ExpiryDays
 	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		result, err := s.deps.CourseAdmin.UpdateCourseTx(r.Context(), qtx, command)
@@ -840,6 +992,13 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 		writeCourseAdminError(w, s.a, err)
 		return
 	}
+	lifecycle, err := parseLifecycle(body)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	command.CycleSet, command.CycleID = lifecycle.CycleSet, lifecycle.CycleID
+	command.ExpirySet, command.ExpiryDays = lifecycle.ExpirySet, lifecycle.ExpiryDays
 
 	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
@@ -947,6 +1106,89 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.a.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "queued", "job_id": job.ID.String()})
+}
+
+func (s *server) handleCourseLegacyConflicts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustUser(w, r); !ok {
+		return
+	}
+	courseID, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid course id")
+		return
+	}
+	// Verify course exists
+	var legacyCourseID pgtype.Text
+	if err := s.deps.DB.QueryRow(r.Context(), `SELECT legacy_course_id FROM courses WHERE id=$1`, courseID).Scan(&legacyCourseID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
+			return
+		}
+		s.a.WriteErr(w, http.StatusInternalServerError, "db_error", "Database error")
+		return
+	}
+	if !legacyCourseID.Valid {
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{
+			"course_id":        courseID.String(),
+			"legacy_course_id": nil,
+			"open_conflicts":   []any{},
+		})
+		return
+	}
+	// Query conflicts via the custom query
+	queries := sqldb.New(s.deps.DB)
+	conflicts, err := queries.LegacyCourseConflicts(r.Context(), courseID)
+	if err != nil {
+		s.deps.Log.Error("legacy_course_conflicts failed", "error", err, "course_id", courseID.String())
+		s.a.WriteErr(w, http.StatusInternalServerError, "db_error", "Database error")
+		return
+	}
+	type conflictDTO struct {
+		ID            string  `json:"id"`
+		ConflictType  string  `json:"conflict_type"`
+		Category      string  `json:"category"`
+		Message       *string `json:"message"`
+		SourcePayload *string `json:"source_payload"`
+		LocalPayload  *string `json:"local_payload"`
+		CreatedAt     *string `json:"created_at"`
+	}
+	out := make([]conflictDTO, 0, len(conflicts))
+	for _, c := range conflicts {
+		idStr, _ := s.a.UUIDString(c.ID)
+		var msg *string
+		if c.Message.Valid {
+			msg = &c.Message.String
+		}
+		var srcPayload *string
+		if len(c.SourcePayload) > 0 {
+			s := string(c.SourcePayload)
+			srcPayload = &s
+		}
+		var localPayload *string
+		if len(c.LocalPayload) > 0 {
+			s := string(c.LocalPayload)
+			localPayload = &s
+		}
+		var createdAt *string
+		if c.CreatedAt.Valid {
+			t := c.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+			createdAt = &t
+		}
+		out = append(out, conflictDTO{
+			ID:            idStr,
+			ConflictType:  c.ConflictType,
+			Category:      c.Category,
+			Message:       msg,
+			SourcePayload: srcPayload,
+			LocalPayload:  localPayload,
+			CreatedAt:     createdAt,
+		})
+	}
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{
+		"course_id":        courseID.String(),
+		"legacy_course_id": legacyCourseID.String,
+		"open_conflicts":   out,
+	})
 }
 
 func timeNowUTC() time.Time { return time.Now().UTC() }
@@ -1060,6 +1302,19 @@ func (s *server) enrichStaleEditCurrent(ctx context.Context, qtx *sqldb.Queries,
 	e.Details["current"] = rich
 }
 
+const maxExpiryDays int32 = 106751
+
+func courseExpiry(expiryDays pgtype.Int4, lastSessionAt pgtype.Timestamptz) (any, string) {
+	if !expiryDays.Valid || !lastSessionAt.Valid || expiryDays.Int32 < 0 || expiryDays.Int32 > maxExpiryDays {
+		return nil, "not_configured"
+	}
+	expires := lastSessionAt.Time.UTC().Add(time.Duration(expiryDays.Int32) * 24 * time.Hour)
+	if !time.Now().UTC().Before(expires) {
+		return expires.Format(time.RFC3339Nano), "expired"
+	}
+	return expires.Format(time.RFC3339Nano), "active"
+}
+
 // courseOverviewResponse builds the legacy rich course payload (all overview
 // fields plus version and the teacher set). GET and the transitional PUT share
 // it so legacy clients keep receiving the full shape during the migration.
@@ -1106,6 +1361,19 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 	if item.CourseType.Valid {
 		courseType = item.CourseType.String
 	}
+	var cycleID any
+	if item.CycleID.Valid {
+		cycleID = item.CycleID.String
+	}
+	var expiryDays any
+	if item.ExpiryDays.Valid {
+		expiryDays = item.ExpiryDays.Int32
+	}
+	var lastSessionAt any
+	if item.LastSessionAt.Valid {
+		lastSessionAt, _ = s.a.TimeString(item.LastSessionAt)
+	}
+	expiresAt, expiryStatus := courseExpiry(item.ExpiryDays, item.LastSessionAt)
 	return map[string]any{
 		"id":                    cid,
 		"course_no":             item.CourseNo,
@@ -1121,6 +1389,12 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		"hour":                  hour,
 		"student_count":         studentCount,
 		"course_type":           courseType,
+		"cycle_id":              cycleID,
+		"cycle_label":           item.CycleLabel,
+		"expiry_days":           expiryDays,
+		"last_session_at":       lastSessionAt,
+		"expires_at":            expiresAt,
+		"expiry_status":         expiryStatus,
 		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
 		"version":               item.Version.Int32,

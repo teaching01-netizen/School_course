@@ -9,7 +9,7 @@ import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 
-type Teacher = { id: string; username: string; role: 'Admin' | 'Teacher' };
+type Teacher = { id: string; username: string; full_name?: string | null; role: 'Admin' | 'Teacher' };
 type Course = { id: string; code: string; name: string; teacher_name?: string; subject_code?: string; subject_name?: string; student_count?: number | null };
 type Room = { id: string; name: string; capacity: number | null };
 type Session = { id: string; course_id: string; room_id: string; teacher_id: string; start_at: string; end_at: string };
@@ -106,7 +106,7 @@ export default function TeacherProfile() {
       <Link to="/teachers" className="text-sm text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] mb-2 inline-block">&larr; Back</Link>
       <div className="flex items-start justify-between mb-4">
         <div>
-          <PageHeading>{teacher?.username ?? 'Teacher'}</PageHeading>
+          <PageHeading>{teacher ? (teacher.full_name || teacher.username) : 'Teacher'}</PageHeading>
           <p className="text-sm text-[var(--color-wi-text-light)] font-mono text-xs">{id}</p>
         </div>
         <div className="flex items-center gap-3">
@@ -192,7 +192,7 @@ export default function TeacherProfile() {
                                   course={course}
                                   room={room}
                                   zone={zone}
-                                  teacherName={teacher?.username}
+                                  teacherName={teacher ? (teacher.full_name || teacher.username) : undefined}
                                 />
                               );
                             })}

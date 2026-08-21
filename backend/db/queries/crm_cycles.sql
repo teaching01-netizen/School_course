@@ -1,13 +1,13 @@
 -- name: CrmCycleUpsert :one
-INSERT INTO crm_cycles (id, label)
-VALUES ($1, $2)
+INSERT INTO crm_cycles (id, label, source_kind)
+VALUES ($1, $2, 'imported')
 ON CONFLICT (id) DO UPDATE
 SET label = EXCLUDED.label,
     updated_at = now()
-RETURNING id, label, last_imported_at, created_at, updated_at;
+RETURNING id, label, source_kind, import_key, display_name, start_date, end_date, last_imported_at, created_at, updated_at;
 
 -- name: CrmCyclesList :many
-SELECT id, label, last_imported_at, created_at, updated_at
+SELECT id, label, source_kind, import_key, display_name, start_date, end_date, last_imported_at, created_at, updated_at
 FROM crm_cycles
 ORDER BY label ASC;
 

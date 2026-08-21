@@ -43,6 +43,7 @@ func (s *server) handleAdminUsersList(w http.ResponseWriter, r *http.Request) {
 	type dto struct {
 		ID        string  `json:"id"`
 		Username  string  `json:"username"`
+		FullName  *string `json:"full_name"`
 		Role      string  `json:"role"`
 		DeletedAt *string `json:"deleted_at"`
 		CreatedAt string  `json:"created_at"`
@@ -60,7 +61,12 @@ func (s *server) handleAdminUsersList(w http.ResponseWriter, r *http.Request) {
 			ds, _ := s.a.TimeString(u.DeletedAt)
 			deletedAt = &ds
 		}
-		out = append(out, dto{ID: id, Username: u.Username, Role: u.Role, DeletedAt: deletedAt, CreatedAt: created})
+		var fullName *string
+		if u.FullName.Valid {
+			v := u.FullName.String
+			fullName = &v
+		}
+		out = append(out, dto{ID: id, Username: u.Username, FullName: fullName, Role: u.Role, DeletedAt: deletedAt, CreatedAt: created})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
 }

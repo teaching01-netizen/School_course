@@ -6,6 +6,7 @@ import type { TypeaheadOption } from "@/components/TypeaheadSelect";
 import { CourseTeacherEditor } from "./CourseTeacherEditor";
 import { SubjectPicker } from "./SubjectPicker";
 import type { Course, CourseEditChanges, CourseTeacher, EditableTeacher } from "../types";
+import type { CourseCycle } from "../api/courseApi";
 
 const TEACHER_ICON = (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -20,13 +21,15 @@ const ROW_GRID = "grid grid-cols-[minmax(0,6rem)_minmax(0,1fr)] items-center gap
 interface CoursePropertiesPanelProps {
   course: Course;
   teacherOptions: TypeaheadOption[];
+  teacherNameById?: Map<string, string>;
+  cycles?: CourseCycle[];
   /** The field currently being saved, or null. While any save is in flight
    *  every row is locked so two edits cannot race the version bump. */
   savingField: string | null;
   onSave: (field: string, changes: CourseEditChanges) => Promise<boolean>;
 }
 
-export function CoursePropertiesPanel({ course, teacherOptions, savingField, onSave }: CoursePropertiesPanelProps) {
+export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById, cycles = [], savingField, onSave }: CoursePropertiesPanelProps) {
   const busy = savingField !== null;
 
   const typeOptions = useMemo(
@@ -66,7 +69,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, savingField, onS
           label="Teachers"
           saving={busy}
           contentClassName="w-80"
-          value={<TeacherChips teachers={course.teachers} primaryId={course.primary_teacher_id} fallbackName={course.teacher_name} />}
+          value={<TeacherChips teachers={course.teachers} primaryId={course.primary_teacher_id} teacherNameById={teacherNameById} fallbackName={course.teacher_name} />}
           placeholder="No teachers"
           editor={(close) => <TeachersEditor course={course} teacherOptions={teacherOptions} saving={busy} onSave={onSave} close={close} />}
         />
@@ -123,6 +126,32 @@ export function CoursePropertiesPanel({ course, teacherOptions, savingField, onS
           placeholder="None"
           editor={(close) => <NumberEditor field="student_count" label="Students" value={course.student_count} saving={busy} onSave={onSave} close={close} />}
         />
+
+        <PropertyRow
+          label="Cycle"
+          saving={busy}
+          contentClassName="w-72"
+          value={course.cycle_label ? <span className="min-w-0 truncate">{course.cycle_label}</span> : null}
+          placeholder="No cycle"
+          editor={(close) => (
+            <ChoiceEditor
+              ariaLabel="Course cycle"
+              options={[{ id: "__none__", label: "No cycle" }, ...cycles.map((cycle) => ({ id: cycle.id, label: cycle.display_name ?? cycle.label }))]}
+              selectedId={course.cycle_id ?? "__none__"}
+              disabled={busy}
+              onPick={(id) => void onSave("cycle_id", { cycle_id: id === "__none__" ? null : id }).then((ok) => { if (ok) close(); })}
+            />
+          )}
+        />
+
+        <PropertyRow
+          label="Expires"
+          saving={busy}
+          contentClassName="w-56"
+          value={course.expiry_days == null ? null : <span className="min-w-0 truncate">{course.expiry_days} days</span>}
+          placeholder="No expiration"
+          editor={(close) => <ExpiryEditor value={course.expiry_days} saving={busy} onSave={onSave} close={close} />}
+        />
       </div>
     </div>
   );
@@ -176,10 +205,12 @@ function PropertyRow(props: {
 function TeacherChips({
   teachers,
   primaryId,
+  teacherNameById,
   fallbackName,
 }: {
   teachers?: CourseTeacher[];
   primaryId: string | null | undefined;
+  teacherNameById?: Map<string, string>;
   fallbackName?: string | null;
 }) {
   if (teachers?.length) {
@@ -188,7 +219,7 @@ function TeacherChips({
         {teachers.map((teacher) => (
           <span key={teacher.id} className="inline-flex min-w-0 items-center gap-1">
             {TEACHER_ICON}
-            <span className="truncate">{teacher.full_name || teacher.username}</span>
+            <span className="truncate">{teacherNameById?.get(teacher.id) ?? teacher.full_name ?? teacher.username}</span>
             {primaryId === teacher.id && (
               <span className="rounded-sm bg-[var(--color-wi-row-alt)] px-1 py-px text-[10px] font-semibold uppercase text-[var(--color-wi-text-light)]">
                 Primary
@@ -384,6 +415,28 @@ function TextEditor(props: {
         <Button variant="primary" size="sm" onClick={() => void commit()} loading={submitting || saving}>
           Save
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function ExpiryEditor({ value, saving, onSave, close }: { value: number | null | undefined; saving: boolean; onSave: (field: string, changes: CourseEditChanges) => Promise<boolean>; close: () => void }) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  const [submitting, setSubmitting] = useState(false);
+  const commit = async (next: number | null) => {
+    if (submitting || saving) return;
+    setSubmitting(true);
+    const ok = await onSave("expiry_days", { expiry_days: next });
+    setSubmitting(false);
+    if (ok) close();
+  };
+  return (
+    <div className="w-full space-y-2 p-2">
+      <p className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Expiration days</p>
+      <input autoFocus type="number" min="0" step="1" aria-label="Expiration days" value={draft} onChange={(e) => setDraft(e.target.value)} className="h-8 w-full rounded-sm border border-wi-line bg-white px-2.5 text-sm" />
+      <div className="flex justify-between gap-2">
+        <Button variant="secondary" size="sm" disabled={submitting || saving} onClick={() => void commit(null)}>No expiration</Button>
+        <Button variant="primary" size="sm" loading={submitting || saving} onClick={() => { const n = Number(draft); if (Number.isInteger(n) && n >= 0) void commit(n); }}>Save</Button>
       </div>
     </div>
   );

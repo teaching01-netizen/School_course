@@ -53,9 +53,29 @@ type ActiveCoursesResponse = {
   }>;
 };
 
+type CourseLevelsPage = {
+  items: CourseLevelItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  max_level?: number;
+};
+
+function parseCourseLevelsPage(value: CourseLevelItem[] | CourseLevelsPage): CourseLevelsPage {
+  if (Array.isArray(value)) {
+    return { items: value, total: value.length, limit: value.length, offset: 0 };
+  }
+  return value;
+}
+
+const COURSE_PAGE_SIZE = 100;
+
 export default function CourseLevels() {
   const { addToast } = useToast();
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
+  const [courseTotal, setCourseTotal] = useState(0);
+  const [courseOffset, setCourseOffset] = useState(0);
+  const [coursePageLoading, setCoursePageLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editLevels, setEditLevels] = useState<Record<string, string>>({});
   const [savingCourse, setSavingCourse] = useState<Record<string, boolean>>({});
@@ -122,16 +142,38 @@ export default function CourseLevels() {
   const [savingRule, setSavingRule] = useState<Record<string, boolean>>({});
 
   // Load data
+  const loadCoursePage = useCallback(async (offset: number) => {
+    setCoursePageLoading(true);
+    try {
+      const response = await apiJson<CourseLevelItem[] | CourseLevelsPage>(
+        `/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=${offset}`,
+        { method: "GET" },
+      );
+      const page = parseCourseLevelsPage(response);
+      setCourses(page.items);
+      setCourseTotal(page.total);
+      setCourseOffset(page.offset);
+      const levels: Record<string, string> = {};
+      for (const c of page.items) levels[c.id] = c.level?.toString() ?? "";
+      setEditLevels(levels);
+    } finally {
+      setCoursePageLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
-        const [coursesData, policiesResp, groupsData, activeCoursesData] = await Promise.all([
-          apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" }),
+        const [coursesResponse, policiesResp, groupsData, activeCoursesData] = await Promise.all([
+          apiJson<CourseLevelItem[] | CourseLevelsPage>(`/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=0`, { method: "GET" }),
           apiJson<import("../utils/levels").PolicyResponse>("/api/v1/admin/absence-policies", { method: "GET" }),
           apiJson<import("../utils/levels").RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" }),
-          apiJson<ActiveCoursesResponse>("/api/v1/admin/active-courses", { method: "GET" }),
+          apiJson<ActiveCoursesResponse>("/api/v1/admin/active-courses?limit=50&offset=0", { method: "GET" }),
         ]);
-        setCourses(coursesData);
+        const coursesPage = parseCourseLevelsPage(coursesResponse);
+        setCourses(coursesPage.items);
+        setCourseTotal(coursesPage.total);
+        setCourseOffset(coursesPage.offset);
         setRootCourseGroups(groupsData);
 
         // Initialize rule assignments from data
@@ -161,7 +203,7 @@ export default function CourseLevels() {
         setPolicyInitialState(toggles);
 
         const levels: Record<string, string> = {};
-        for (const c of coursesData) {
+        for (const c of coursesPage.items) {
           levels[c.id] = c.level?.toString() ?? "";
         }
         setEditLevels(levels);
@@ -685,7 +727,7 @@ export default function CourseLevels() {
                     const successCount = results.filter((r) => r.status === "fulfilled").length;
                     addToast("success", `Undid ${successCount} change${successCount === 1 ? "" : "s"}`);
                     // Refresh courses from server
-                    apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" }).then(setCourses);
+                    loadCoursePage(courseOffset);
                     // Rebuild editLevels
                     const levels: Record<string, string> = {};
                     for (const [courseId, level] of Object.entries(restored)) {
@@ -749,6 +791,26 @@ export default function CourseLevels() {
           )}
         </div>
       )}
+
+      {courseTotal > COURSE_PAGE_SIZE ? (
+        <div className="mt-5 flex items-center justify-between border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
+          <span>Showing {courseOffset + 1}–{Math.min(courseOffset + courses.length, courseTotal)} of {courseTotal} courses</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={courseOffset === 0 || coursePageLoading}
+              onClick={() => loadCoursePage(Math.max(0, courseOffset - COURSE_PAGE_SIZE))}
+            >Previous</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={courseOffset + courses.length >= courseTotal || coursePageLoading}
+              onClick={() => loadCoursePage(courseOffset + COURSE_PAGE_SIZE)}
+            >Next</Button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Verification report */}
       {verificationReport && (
@@ -1000,7 +1062,7 @@ export default function CourseLevels() {
                                         />
                                       </th>
                                       <th scope="col" className="py-1.5 pr-3 font-medium">Code</th>
-                                      <th scope="col" className="py-1.5 pr-3 font-medium">Name</th>
+                                      <th scope="col" className="py-1.5 pr-3 font-medium">Subject Name</th>
                                       <th scope="col" className="py-1.5 pr-3 font-medium">Level</th>
                                       <th scope="col" className="py-1.5 pr-3 font-medium">Group</th>
                                       <th scope="col" className="py-1.5 pr-3 font-medium">Status</th>
@@ -1046,7 +1108,7 @@ export default function CourseLevels() {
                                             />
                                           </td>
                                           <td className="py-1.5 pr-3 font-mono text-xs">{course.code}</td>
-                                          <td className="py-1.5 pr-3 text-xs text-[var(--color-wi-text-light)]">{course.name}</td>
+                                          <td className="py-1.5 pr-3 text-xs text-[var(--color-wi-text-light)]">{course.subject_name}</td>
                                           <td className="py-1.5 pr-3">
                                             <LevelStepper
                                               value={displayLevel}

@@ -95,9 +95,9 @@ export default function Reports() {
     return Array.from(byTeacher.entries())
       .map(([teacherId, v]) => {
         const t = teacherById.get(teacherId);
-        return { id: teacherId, username: (t?.full_name || t?.username) ?? teacherId, sessions: v.sessions, hours: v.minutes / 60 };
+        return { id: teacherId, name: (t?.full_name || t?.username) ?? teacherId, sessions: v.sessions, hours: v.minutes / 60 };
       })
-      .sort((a, b) => a.username.localeCompare(b.username));
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [sessions, teacherById]);
 
   const courseSummary = useMemo(() => {
@@ -210,7 +210,7 @@ export default function Reports() {
           <tbody>
             {teacherLoad.map((t) => (
               <tr key={t.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
-                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>
+                <td className="py-2 px-2">{t.name}</td>
                 <td className="py-2 px-2">{t.sessions}</td>
                 <td className="py-2 px-2">{t.hours.toFixed(1)}h</td>
               </tr>

@@ -109,9 +109,13 @@ func (q *Queries) LegacyAuditSkipCounts(ctx context.Context) (LegacyAuditSkipCou
 	SELECT
 	    (SELECT count(*) FROM legacy_sync_conflicts WHERE source_payload->>'legacy_schedule_id' IS NOT NULL)::int,
 	    (SELECT count(*) FROM legacy_sync_conflicts WHERE source_payload->>'legacy_schedule_id' IS NOT NULL AND status = 'open')::int,
-	    (SELECT count(*) FROM legacy_sync_conflicts WHERE entity_type = 'course' AND source_payload->>'legacy_schedule_id' IS NULL)::int
+	    (SELECT count(*) FROM legacy_sync_conflicts c
+	     WHERE c.entity_type = 'course' AND c.source_payload->>'legacy_schedule_id' IS NULL
+	       AND NOT EXISTS (SELECT 1 FROM courses co WHERE co.legacy_course_id = c.external_id))::int
 	        + (SELECT count(*) FROM legacy_sync_dead_letters WHERE entity_type = 'course')::int,
-	    (SELECT count(*) FROM legacy_sync_conflicts WHERE entity_type = 'course' AND source_payload->>'legacy_schedule_id' IS NULL AND status = 'open')::int
+	    (SELECT count(*) FROM legacy_sync_conflicts c
+	     WHERE c.entity_type = 'course' AND c.source_payload->>'legacy_schedule_id' IS NULL AND c.status = 'open'
+	       AND NOT EXISTS (SELECT 1 FROM courses co WHERE co.legacy_course_id = c.external_id))::int
 	        + (SELECT count(*) FROM legacy_sync_dead_letters WHERE entity_type = 'course')::int,
 	    (SELECT count(*) FROM legacy_entity_snapshots WHERE quality = 'partial')::int
 	`).Scan(
@@ -195,6 +199,10 @@ type LegacyAuditSkippedSession struct {
 }
 
 func (q *Queries) LegacyAuditSkippedSessions(ctx context.Context, limit int32) ([]LegacyAuditSkippedSession, error) {
+	return q.LegacyAuditSkippedSessionsPaginated(ctx, limit, 0)
+}
+
+func (q *Queries) LegacyAuditSkippedSessionsPaginated(ctx context.Context, limit, offset int32) ([]LegacyAuditSkippedSession, error) {
 	rows, err := q.db.Query(ctx, `
 	SELECT
 	    c.source_payload->>'legacy_schedule_id',
@@ -215,8 +223,8 @@ func (q *Queries) LegacyAuditSkippedSessions(ctx context.Context, limit int32) (
 	LEFT JOIN courses co ON co.legacy_course_id = c.external_id
 	WHERE c.source_payload->>'legacy_schedule_id' IS NOT NULL
 	ORDER BY (c.status = 'open') DESC, c.created_at DESC
-	LIMIT $1
-	`, limit)
+	LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +272,10 @@ type LegacyAuditSkippedCourse struct {
 }
 
 func (q *Queries) LegacyAuditSkippedCourses(ctx context.Context, limit int32) ([]LegacyAuditSkippedCourse, error) {
+	return q.LegacyAuditSkippedCoursesPaginated(ctx, limit, 0)
+}
+
+func (q *Queries) LegacyAuditSkippedCoursesPaginated(ctx context.Context, limit, offset int32) ([]LegacyAuditSkippedCourse, error) {
 	rows, err := q.db.Query(ctx, `
 	SELECT reason_kind, external_id, conflict_type, error_category, message, status, created_at,
 	       course_id, course_code, course_name
@@ -274,6 +286,7 @@ func (q *Queries) LegacyAuditSkippedCourses(ctx context.Context, limit int32) ([
 	    FROM legacy_sync_conflicts c
 	    LEFT JOIN courses co ON co.legacy_course_id = c.external_id
 	    WHERE c.entity_type = 'course' AND c.source_payload->>'legacy_schedule_id' IS NULL
+	      AND NOT EXISTS (SELECT 1 FROM courses co WHERE co.legacy_course_id = c.external_id)
 	    UNION ALL
 	    SELECT 'dead_letter', d.external_id, d.job_type, d.error_category,
 	           d.last_error, 'dead', d.created_at,
@@ -283,8 +296,8 @@ func (q *Queries) LegacyAuditSkippedCourses(ctx context.Context, limit int32) ([
 	    WHERE d.entity_type = 'course'
 	) skipped
 	ORDER BY (status = 'open' OR status = 'dead') DESC, created_at DESC
-	LIMIT $1
-	`, limit)
+	LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -311,16 +324,68 @@ func (q *Queries) LegacyAuditSkippedCourses(ctx context.Context, limit int32) ([
 	return out, rows.Err()
 }
 
+// LegacyCourseConflicts returns open conflicts for a specific course, joining
+// through the courses table via legacy_course_id. Includes both course-level
+// conflicts (entity_type = 'course') and schedule-level conflicts (entity_type = 'schedule')
+// that belong to sessions of this course.
+func (q *Queries) LegacyCourseConflicts(ctx context.Context, courseID pgtype.UUID) ([]LegacyCourseConflictRow, error) {
+	rows, err := q.db.Query(ctx, `
+	SELECT c.id, c.conflict_type, c.category, c.message, c.source_payload, c.local_payload, c.created_at
+	FROM legacy_sync_conflicts c
+	LEFT JOIN courses co ON co.legacy_course_id = c.external_id
+	LEFT JOIN sessions s ON s.legacy_schedule_id = c.external_id AND s.course_id = $1
+	WHERE (co.id = $1 AND c.entity_type = 'course' AND c.status = 'open')
+	   OR (s.course_id = $1 AND c.entity_type = 'schedule' AND c.status = 'open')
+	ORDER BY c.created_at DESC
+	`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LegacyCourseConflictRow
+	for rows.Next() {
+		var row LegacyCourseConflictRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.ConflictType,
+			&row.Category,
+			&row.Message,
+			&row.SourcePayload,
+			&row.LocalPayload,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// LegacyCourseConflictRow is a single conflict row for a course endpoint.
+type LegacyCourseConflictRow struct {
+	ID            pgtype.UUID
+	ConflictType  string
+	Category      string
+	Message       pgtype.Text
+	SourcePayload []byte
+	LocalPayload  []byte
+	CreatedAt     pgtype.Timestamptz
+}
+
 // LegacyAuditDeadLetters lists dead-lettered sync jobs with the entity they
 // failed for and the recorded error category.
 func (q *Queries) LegacyAuditDeadLetters(ctx context.Context, limit int32) ([]LegacySyncDeadLetter, error) {
+	return q.LegacyAuditDeadLettersPaginated(ctx, limit, 0)
+}
+
+func (q *Queries) LegacyAuditDeadLettersPaginated(ctx context.Context, limit, offset int32) ([]LegacySyncDeadLetter, error) {
 	rows, err := q.db.Query(ctx, `
 	SELECT id, job_type, unique_key, entity_type, external_id, payload, error_category,
 	       last_error, attempts, created_at
 	FROM legacy_sync_dead_letters
 	ORDER BY created_at DESC
-	LIMIT $1
-	`, limit)
+	LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}

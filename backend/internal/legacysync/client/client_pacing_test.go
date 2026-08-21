@@ -37,6 +37,25 @@ func TestMinRequestIntervalNegativeSelectsDefault(t *testing.T) {
 	}
 }
 
+// TestPacingEnforcesMinimumGap pins the R-002 acceptance "min gap >= 400ms
+// for a parallel Do burst": a 500ms interval serializes consecutive requests
+// so the measured gap between two slot acquisitions is at least ~500ms.
+func TestPacingEnforcesMinimumGap(t *testing.T) {
+	c, err := New(Config{BaseURL: "https://example.com", Username: "user", Password: "pass", MinRequestInterval: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	for i := 0; i < 2; i++ {
+		if err := c.waitForRequestSlot(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed < 400*time.Millisecond {
+		t.Fatalf("two paced slot requests took %v, want >= 400ms (min request gap)", elapsed)
+	}
+}
+
 func TestMaxConcurrentGetter(t *testing.T) {
 	c, err := New(Config{BaseURL: "https://example.com", Username: "user", Password: "pass", MaxConcurrent: 5})
 	if err != nil {

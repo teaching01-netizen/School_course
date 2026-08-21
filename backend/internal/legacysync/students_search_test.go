@@ -63,6 +63,7 @@ func studentsLegacySiteServer(t *testing.T, pageBody string) (*httptest.Server, 
 // SearchText and the page's antiforgery token, and its response is what
 // callers see (the plain page shows no rows until searched).
 func TestClient_SearchStudentsPageContext_SubmitsSearchForm(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv, searchPosts, lastSubmission := studentsLegacySiteServer(t, studentsPageBody(true))
 	client, err := NewClient(srv.URL, "user", "pass")
 	if err != nil {
@@ -96,6 +97,7 @@ func TestClient_SearchStudentsPageContext_SubmitsSearchForm(t *testing.T) {
 // A students page without the search form is an error, never a silent
 // fallback: the student directory must not vanish unnoticed.
 func TestClient_SearchStudentsPageContext_MissingFormErrors(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv, searchPosts, _ := studentsLegacySiteServer(t, studentsPageBody(false))
 	client, err := NewClient(srv.URL, "user", "pass")
 	if err != nil {

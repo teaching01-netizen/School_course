@@ -7,31 +7,73 @@ import { cachePolicies, queryKeys } from "../query/cache";
 import { useToast } from "../hooks/useToast";
 import Button from "../components/ui/Button";
 import PageHeading from "../components/ui/PageHeading";
-import { entityOptions, errorMessage, formatFreshness, formatPayload, formatTime, isFreshnessStale, statusClass, statusCopy, type SyncConflict, type SyncControl, type SyncHealth, type SyncJob } from "./LegacySyncHealth.model";
+import { errorMessage, formatFreshness, formatPayload, formatTime, isFreshnessStale, statusClass, statusCopy, type SyncControl, type SyncHealth, type SyncJob, type PaginatedConflicts, type PaginatedJobs, type SyncConflictSummary, type SyncConflict } from "./LegacySyncHealth.model";
+import { entityOptions } from "./LegacySyncHealth.model";
 import LegacySyncProgress from "./LegacySyncProgress";
+
+function usePaginatedConflicts(limit: number, offset: number) {
+  return useQuery({
+    queryKey: queryKeys.legacySync.conflictsPaginated(limit, offset),
+    queryFn: async () => {
+      const res = await apiJson<PaginatedConflicts | SyncConflictSummary[]>(`/api/v1/admin/legacy-sync/conflicts?limit=${limit}&offset=${offset}`);
+      if (Array.isArray(res)) return { items: res, total: res.length, limit, offset } as PaginatedConflicts;
+      return res as PaginatedConflicts;
+    },
+    ...cachePolicies.operational,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+function usePaginatedJobs(limit: number, offset: number) {
+  return useQuery({
+    queryKey: queryKeys.legacySync.jobsPaginated(limit, offset),
+    queryFn: async () => {
+      const url = `/api/v1/admin/legacy-sync/jobs?limit=${limit}&offset=${offset}`;
+      const res = await apiJson<PaginatedJobs | SyncJob[]>(url);
+      if (Array.isArray(res)) return { items: res, total: res.length, limit, offset } as PaginatedJobs;
+      return res as PaginatedJobs;
+    },
+    ...cachePolicies.operational,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+}
 
 export default function LegacySyncHealth() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
   const [entityType, setEntityType] = useState("course");
   const [externalID, setExternalID] = useState("");
+  const [conflictsPage, setConflictsPage] = useState(0);
+  const [jobsPage, setJobsPage] = useState(0);
+  const [selectedConflictId, setSelectedConflictId] = useState<string | null>(null);
+  const conflictsLimit = 20;
+  const jobsLimit = 20;
 
   const healthQuery = useQuery({
     queryKey: queryKeys.legacySync.health,
     queryFn: () => apiJson<SyncHealth>("/api/v1/admin/legacy-sync/health"),
-    ...cachePolicies.operational,
-    refetchInterval: 2_000,
+    staleTime: 5_000,
+    gcTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    refetchInterval: (query) => {
+      const h = query.state.data as SyncHealth | undefined;
+      const isSyncing = h?.status === "syncing" || h?.latest_run?.status === "running";
+      return isSyncing ? 2_000 : 10_000;
+    },
+    refetchIntervalInBackground: false,
   });
-  const jobsQuery = useQuery({
-    queryKey: queryKeys.legacySync.jobs,
-    queryFn: () => apiJson<SyncJob[]>("/api/v1/admin/legacy-sync/jobs?limit=12"),
-    ...cachePolicies.operational,
-    refetchInterval: 2_000,
-  });
-  const conflictsQuery = useQuery({
-    queryKey: queryKeys.legacySync.conflicts,
-    queryFn: () => apiJson<SyncConflict[]>("/api/v1/admin/legacy-sync/conflicts"),
-    ...cachePolicies.operational,
+
+  const paginatedConflictsQuery = usePaginatedConflicts(conflictsLimit, conflictsPage * conflictsLimit);
+  const paginatedJobsQuery = usePaginatedJobs(jobsLimit, jobsPage * jobsLimit);
+
+  const detailQuery = useQuery({
+    queryKey: selectedConflictId ? queryKeys.legacySync.conflictDetail(selectedConflictId) : (["legacy-sync", "conflict", "none"] as const),
+    queryFn: () => apiJson<SyncConflict>(`/api/v1/admin/legacy-sync/conflicts/${selectedConflictId}`),
+    enabled: selectedConflictId !== null,
+    staleTime: 60_000,
   });
 
   const controlMutation = useMutation({
@@ -72,7 +114,9 @@ export default function LegacySyncHealth() {
       apiJson<SyncConflict>(`/api/v1/admin/legacy-sync/conflicts/${id}/${action}`, { method: "POST" }),
     onSuccess: (_, { action }) => {
       addToast("success", action === "resolve" ? "Conflict resolved" : "Conflict ignored");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.legacySync.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.legacySync.conflictsPaginated(conflictsLimit, conflictsPage * conflictsLimit) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.legacySync.health });
+      setSelectedConflictId(null);
     },
     onError: (error) => addToast("error", errorMessage(error)),
   });
@@ -93,8 +137,12 @@ export default function LegacySyncHealth() {
   const health = healthQuery.data;
   const requiresExternalID = entityType !== "full";
   const refreshDisabled = refreshMutation.isPending || (requiresExternalID && externalID.trim() === "");
-  const recentJobs = jobsQuery.data ?? [];
-  const conflicts = conflictsQuery.data ?? [];
+  const conflictsData = paginatedConflictsQuery.data;
+  const jobsData = paginatedJobsQuery.data;
+  const conflicts: SyncConflictSummary[] = conflictsData?.items ?? [];
+  const jobs: SyncJob[] = jobsData?.items ?? [];
+  const conflictsTotal = conflictsData?.total ?? (health?.open_conflicts ?? 0);
+  const jobsTotal = jobsData?.total ?? 0;
   const metricCards = useMemo(() => {
     if (!health) return [];
     return [
@@ -221,40 +269,66 @@ export default function LegacySyncHealth() {
                   Shadow mode is on: reconciles observe the legacy site but never create, link, or update local courses.
                 </p>
               ) : null}
-              <div className="mt-4 flex gap-2 border-t border-wi-line pt-4 text-xs text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> Local application reads remain available during source outages.</div>
+              <div className="mt-4 flex gap-2 border-t border-t-[var(--color-wi-line)] pt-4 text-xs text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> Local application reads remain available during source outages.</div>
             </section>
           </div>
         </>
       ) : (
-        <div className="border border-wi-line bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading synchronization status…</div>
+        <div className="border border-[var(--color-wi-line)] bg-white p-8 text-sm text-[var(--color-wi-text-light)]">Loading synchronization status…</div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="jobs-heading">
-          <div className="flex items-center justify-between border-b border-wi-line px-5 py-4"><h2 id="jobs-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Recent jobs</h2><span className="text-xs text-[var(--color-wi-text-light)]">Last 12</span></div>
+          <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4">
+            <h2 id="jobs-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Recent jobs</h2>
+            <span className="text-xs text-[var(--color-wi-text-light)]">{jobsTotal ? `Page ${jobsPage + 1} · ${jobsTotal} total` : `Page ${jobsPage + 1}`}</span>
+          </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm"><thead className="bg-[var(--color-wi-row-alt)] text-xs uppercase tracking-wide text-[var(--color-wi-text-light)]"><tr><th className="px-5 py-3 font-semibold">Job</th><th className="px-5 py-3 font-semibold">Status</th><th className="px-5 py-3 font-semibold">Attempts</th></tr></thead><tbody className="divide-y divide-wi-line">{recentJobs.map((job) => <tr key={job.id}><td className="px-5 py-3"><div className="font-medium text-[var(--color-wi-text)]">{job.entity_type ?? "full"}{job.external_id ? ` · ${job.external_id}` : ""}</div><div className="text-xs text-[var(--color-wi-text-light)]">{job.job_type}</div></td><td className="px-5 py-3"><span className={job.status === "dead" ? "font-medium text-[var(--color-wi-red)]" : job.status === "completed" ? "font-medium text-[var(--color-wi-green)]" : "text-[var(--color-wi-text)]"}>{job.status}</span>{job.last_error ? <div className="max-w-[220px] truncate text-xs text-[var(--color-wi-red)]" title={job.last_error}>{job.last_error}</div> : null}</td><td className="px-5 py-3 tabular-nums text-[var(--color-wi-text-light)]">{job.attempt}/{job.max_attempts}</td></tr>)}{recentJobs.length === 0 ? <tr><td colSpan={3} className="px-5 py-8 text-center text-[var(--color-wi-text-light)]">No jobs recorded.</td></tr> : null}</tbody></table>
+            <table className="min-w-full text-left text-sm"><thead className="bg-[var(--color-wi-row-alt)] text-xs uppercase tracking-wide text-[var(--color-wi-text-light)]"><tr><th className="px-5 py-3 font-semibold">Job</th><th className="px-5 py-3 font-semibold">Status</th><th className="px-5 py-3 font-semibold">Attempts</th></tr></thead><tbody className="divide-y divide-wi-line">{jobs.map((job) => <tr key={job.id}><td className="px-5 py-3"><div className="font-medium text-[var(--color-wi-text)]">{job.entity_type ?? "full"}{job.external_id ? ` · ${job.external_id}` : ""}</div><div className="text-xs text-[var(--color-wi-text-light)]">{job.job_type}</div></td><td className="px-5 py-3"><span className={job.status === "dead" ? "font-medium text-[var(--color-wi-red)]" : job.status === "completed" ? "font-medium text-[var(--color-wi-green)]" : "text-[var(--color-wi-text)]"}>{job.status}</span>{job.last_error ? <div className="max-w-[220px] truncate text-xs text-[var(--color-wi-red)]" title={job.last_error}>{job.last_error.slice(0, 240)}</div> : null}</td><td className="px-5 py-3 tabular-nums text-[var(--color-wi-text-light)]">{job.attempt}/{job.max_attempts}</td></tr>)}{jobs.length === 0 ? <tr><td colSpan={3} className="px-5 py-8 text-center text-[var(--color-wi-text-light)]">No jobs recorded.</td></tr> : null}</tbody></table>
+          </div>
+          <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
+            <Button variant="secondary" size="sm" disabled={jobsPage === 0} onClick={() => setJobsPage((p) => Math.max(0, p - 1))}>Previous</Button>
+            <span className="text-xs text-[var(--color-wi-text-light)]">{jobs.length} on this page</span>
+            <Button variant="secondary" size="sm" disabled={jobs.length < jobsLimit} onClick={() => setJobsPage((p) => p + 1)}>Next</Button>
           </div>
         </section>
 
         <section className="border border-[var(--color-wi-border)] bg-white" aria-labelledby="conflicts-heading">
-          <div className="flex items-center justify-between border-b border-wi-line px-5 py-4"><h2 id="conflicts-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Open conflicts</h2><span className="text-xs text-[var(--color-wi-text-light)]">{conflicts.length} open</span></div>
+          <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] px-5 py-4"><h2 id="conflicts-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Open conflicts</h2><span className="text-xs text-[var(--color-wi-text-light)]">{conflictsTotal} open · page {conflictsPage + 1}</span></div>
           <div className="divide-y divide-wi-line">{conflicts.map((conflict) => <div key={conflict.id} className="px-5 py-4"><div className="flex items-start justify-between gap-4"><div><p className="font-medium text-[var(--color-wi-text)]">{conflict.entity_type} · {conflict.external_id}</p><p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{conflict.message ?? conflict.conflict_type}</p></div><span className="shrink-0 text-xs font-medium text-[var(--color-wi-red)]">{conflict.category}</span></div>
-            {(conflict.source_payload !== null || conflict.local_payload !== null) ? (
-              <dl className="mt-3 grid gap-2 text-xs">
-                {conflict.source_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Source payload</dt><dd><pre className="mt-1 max-h-32 overflow-y-auto rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(conflict.source_payload)}</pre></dd></div> : null}
-                {conflict.local_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Local payload</dt><dd><pre className="mt-1 max-h-32 overflow-y-auto rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(conflict.local_payload)}</pre></dd></div> : null}
-              </dl>
-            ) : null}
             <div className="mt-3 flex gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setSelectedConflictId(conflict.id)}>Details</Button>
               <Button variant="secondary" size="sm" loading={conflictMutation.isPending && conflictMutation.variables?.id === conflict.id && conflictMutation.variables?.action === "resolve"} onClick={() => conflictMutation.mutate({ id: conflict.id, action: "resolve" })}>Resolve</Button>
               <Button variant="secondary" size="sm" loading={conflictMutation.isPending && conflictMutation.variables?.id === conflict.id && conflictMutation.variables?.action === "ignore"} onClick={() => conflictMutation.mutate({ id: conflict.id, action: "ignore" })}>Ignore</Button>
             </div>
           </div>)}{conflicts.length === 0 ? <div className="flex items-center gap-2 px-5 py-8 text-sm text-[var(--color-wi-text-light)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-wi-green)]" aria-hidden="true" /> No open conflicts.</div> : null}</div>
+          <div className="flex items-center justify-between border-t border-t-[var(--color-wi-line)] px-5 py-3">
+            <Button variant="secondary" size="sm" disabled={conflictsPage === 0} onClick={() => setConflictsPage((p) => Math.max(0, p - 1))}>Previous</Button>
+            <span className="text-xs text-[var(--color-wi-text-light)]">{conflicts.length} on this page</span>
+            <Button variant="secondary" size="sm" disabled={conflicts.length < conflictsLimit} onClick={() => setConflictsPage((p) => p + 1)}>Next</Button>
+          </div>
         </section>
       </div>
 
-      {(jobsQuery.isError || conflictsQuery.isError) ? <p className="text-sm text-[var(--color-wi-red)]" role="status">Some secondary sync details could not be loaded. The health summary remains authoritative.</p> : null}
+      {selectedConflictId && detailQuery.data ? (
+        <section className="border border-[var(--color-wi-border)] bg-white p-5" aria-labelledby="conflict-detail-heading">
+          <div className="flex items-center justify-between">
+            <h2 id="conflict-detail-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Conflict detail</h2>
+            <Button variant="secondary" size="sm" onClick={() => setSelectedConflictId(null)}>Close</Button>
+          </div>
+          <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{detailQuery.data.entity_type} · {detailQuery.data.external_id} · {detailQuery.data.conflict_type}</p>
+          {(detailQuery.data.source_payload !== null || detailQuery.data.local_payload !== null) ? (
+            <dl className="mt-3 grid gap-2 text-xs">
+              {detailQuery.data.source_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Source payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.source_payload)}</pre></dd></div> : null}
+              {detailQuery.data.local_payload !== null ? <div><dt className="font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Local payload</dt><dd><pre className="mt-1 max-h-64 overflow-y-auto rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-2 font-mono text-[11px] leading-4 text-[var(--color-wi-text)]">{formatPayload(detailQuery.data.local_payload)}</pre></dd></div> : null}
+            </dl>
+          ) : <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">No payloads recorded.</p>}
+        </section>
+      ) : selectedConflictId && detailQuery.isLoading ? (
+        <div className="border border-[var(--color-wi-line)] bg-white p-5 text-sm text-[var(--color-wi-text-light)]">Loading conflict detail…</div>
+      ) : null}
+
+      {(paginatedJobsQuery.isError || paginatedConflictsQuery.isError) ? <p className="text-sm text-[var(--color-wi-red)]" role="status">Some secondary sync details could not be loaded. The health summary remains authoritative.</p> : null}
     </div>
   );
 }

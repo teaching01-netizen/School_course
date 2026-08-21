@@ -23,14 +23,15 @@ var (
 )
 
 type ScheduleApplyRequest struct {
-	CourseID        pgtype.UUID
-	LegacyCourseID  string
-	TeacherID       pgtype.UUID
-	Aggregate       normalize.LegacyCourseAggregate
-	ObservedAt      time.Time
-	InstituteTZ     string
-	ShadowMode      bool
-	RealtimeEnabled bool
+	CourseID                  pgtype.UUID
+	LegacyCourseID            string
+	TeacherID                 pgtype.UUID
+	Aggregate                 normalize.LegacyCourseAggregate
+	ObservedAt                time.Time
+	InstituteTZ               string
+	ShadowMode                bool
+	RealtimeEnabled           bool
+	AllowConstraintViolations bool
 }
 
 type ScheduleApplyResult struct {
@@ -134,6 +135,8 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	if err := tx.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id=$1`, request.CourseID).Scan(&currentTeacherID); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("load current legacy course teacher: %w", err)
 	}
+	// The course's stored teacher is authoritative once set (mirrored by the
+	// course apply); until then the request teacher from the aggregate is used.
 	if currentTeacherID.Valid {
 		request.TeacherID = currentTeacherID
 	}
@@ -219,9 +222,37 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 		if err != nil {
 			return 0, err
 		}
+		if _, err := tx.Exec(ctx, `SAVEPOINT external_series_upsert`); err != nil {
+			return 0, fmt.Errorf("savepoint external series: %w", err)
+		}
 		seriesID, err := a.ensureExternalSeries(ctx, tx, request, loc, firstRoomID)
 		if err != nil {
-			return 0, err
+			if isNotNullViolation(err) && !request.TeacherID.Valid {
+				if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT external_series_upsert`); rbErr != nil {
+					return 0, fmt.Errorf("rollback savepoint external series: %w", rbErr)
+				}
+				if _, cErr := qtx.ConflictInsert(ctx, sqldb.ConflictInsertParams{
+					EntityType:    "course",
+					ExternalID:    request.LegacyCourseID,
+					ConflictType:  "missing_reference:teacher",
+					Category:      "missing_reference",
+					SourcePayload: `{"reference_type":"teacher","series_teacher_required":true}`,
+					LocalPayload:  "{}",
+					Message:       pgtype.Text{String: fmt.Sprintf("course %s has no teacher so legacy sessions synced without an external series", request.LegacyCourseID), Valid: true},
+				}); cErr != nil && !errors.Is(cErr, pgx.ErrNoRows) {
+					return 0, fmt.Errorf("record teacherless series conflict: %w", cErr)
+				}
+				if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:teacher' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
+					return 0, fmt.Errorf("close teacherless series conflict: %w", ignoreErr)
+				}
+				seriesID = pgtype.UUID{}
+			} else {
+				return 0, err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT external_series_upsert`); err != nil {
+				return 0, fmt.Errorf("release savepoint external series: %w", err)
+			}
 		}
 		if err := a.hitFault("after_series_upsert"); err != nil {
 			return 0, err
@@ -256,10 +287,30 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 				if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT legacy_schedule_upsert`); err != nil {
 					return skipped, fmt.Errorf("release savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 				}
-			case isExclusionViolation(upsertErr) || isAvailabilityViolation(upsertErr):
+			case (isExclusionViolation(upsertErr) || isAvailabilityViolation(upsertErr)) && request.AllowConstraintViolations:
 				if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT legacy_schedule_upsert`); err != nil {
 					return skipped, fmt.Errorf("rollback savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 				}
+				if err := tx.QueryRow(ctx, `
+					INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at, legacy_schedule_id,
+						legacy_confirmed, legacy_confirmed_by, legacy_source_hash, legacy_last_synced_at, legacy_last_seen_at,
+						source_kind, legacy_conflict_override)
+					VALUES ($1,$2,NULLIF($3::text,'')::uuid,$4,$5,$6,$7,$8,NULLIF($9::text,''),$10,$11,$11,'legacy',true)
+					ON CONFLICT (legacy_schedule_id) WHERE legacy_schedule_id IS NOT NULL DO UPDATE SET
+						series_id=EXCLUDED.series_id, course_id=EXCLUDED.course_id, room_id=EXCLUDED.room_id,
+						teacher_id=EXCLUDED.teacher_id, start_at=EXCLUDED.start_at, end_at=EXCLUDED.end_at,
+						deleted_at=NULL, legacy_confirmed=EXCLUDED.legacy_confirmed, legacy_confirmed_by=EXCLUDED.legacy_confirmed_by,
+						legacy_source_hash=EXCLUDED.legacy_source_hash, legacy_last_synced_at=EXCLUDED.legacy_last_synced_at,
+						legacy_last_seen_at=EXCLUDED.legacy_last_seen_at, source_kind='legacy', legacy_conflict_override=true,
+						updated_at=now(), version=sessions.version+1 RETURNING id`, seriesID, request.CourseID, uuidText(roomID), request.TeacherID,
+					start, end, schedule.LegacyScheduleID, schedule.Confirmed, schedule.ConfirmedBy, scheduleHash, request.ObservedAt).Scan(&sessionID); err != nil {
+					return skipped, fmt.Errorf("materialize conflicting legacy schedule %s: %w", schedule.LegacyScheduleID, err)
+				}
+				if err := a.resolveScheduleConflict(ctx, tx, request, schedule.LegacyScheduleID); err != nil {
+					return skipped, err
+				}
+				upsertErr = nil
+			case isExclusionViolation(upsertErr) || isAvailabilityViolation(upsertErr):
 				if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, upsertErr); err != nil {
 					return skipped, err
 				}
@@ -375,6 +426,11 @@ func isAvailabilityViolation(err error) bool {
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func isNotNullViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23502"
 }
 
 // recordScheduleConflict stores a skipped schedule row in

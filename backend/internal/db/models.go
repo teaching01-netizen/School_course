@@ -404,6 +404,11 @@ type CrmCrossStudyAssignment struct {
 type CrmCycle struct {
 	ID             string             `json:"id"`
 	Label          string             `json:"label"`
+	SourceKind     string             `json:"source_kind"`
+	ImportKey      pgtype.Text        `json:"import_key"`
+	DisplayName    pgtype.Text        `json:"display_name"`
+	StartDate      pgtype.Date        `json:"start_date"`
+	EndDate        pgtype.Date        `json:"end_date"`
 	LastImportedAt pgtype.Timestamptz `json:"last_imported_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`

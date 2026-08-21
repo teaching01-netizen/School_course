@@ -152,7 +152,7 @@ export default function Sidebar({ collapsed, mobileOpen, onCloseMobile }: Sideba
         <div className="flex items-center gap-2 rounded-sm px-1 py-1">
           <WorkspaceTile size={20} />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--color-wi-text)]">
-            {user?.username ?? "—"}
+            {user ? (user.full_name || user.username) : "—"}
           </span>
           <button
             type="button"

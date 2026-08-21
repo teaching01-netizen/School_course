@@ -68,6 +68,32 @@ type conflictDTO struct {
 	ResolvedAt    *string `json:"resolved_at"`
 }
 
+type conflictSummaryDTO struct {
+	ID           string  `json:"id"`
+	EntityType   string  `json:"entity_type"`
+	ExternalID   string  `json:"external_id"`
+	ConflictType string  `json:"conflict_type"`
+	Category     string  `json:"category"`
+	Message      *string `json:"message"`
+	Status       string  `json:"status"`
+	CreatedAt    *string `json:"created_at"`
+	ResolvedAt   *string `json:"resolved_at"`
+}
+
+type paginatedConflictsDTO struct {
+	Items  []conflictSummaryDTO `json:"items"`
+	Total  int                  `json:"total"`
+	Limit  int32                `json:"limit"`
+	Offset int32                `json:"offset"`
+}
+
+type paginatedJobsDTO struct {
+	Items  []jobDTO `json:"items"`
+	Total  int      `json:"total"`
+	Limit  int32    `json:"limit"`
+	Offset int32    `json:"offset"`
+}
+
 type jobDTO struct {
 	ID          string  `json:"id"`
 	JobType     string  `json:"job_type"`
@@ -189,6 +215,34 @@ type legacyAuditDTO struct {
 	DeadLetters     []deadLetterDTO      `json:"dead_letters"`
 }
 
+type legacyAuditSummaryDTO struct {
+	GeneratedAt string               `json:"generated_at"`
+	Totals      legacyAuditTotalsDTO `json:"totals"`
+	Runs        legacyAuditRunsDTO   `json:"runs"`
+	Skips       legacyAuditSkipsDTO  `json:"skips"`
+}
+
+type paginatedSkippedSessionsDTO struct {
+	Items  []skippedSessionDTO `json:"items"`
+	Total  int                 `json:"total"`
+	Limit  int32               `json:"limit"`
+	Offset int32               `json:"offset"`
+}
+
+type paginatedSkippedCoursesDTO struct {
+	Items  []skippedCourseDTO `json:"items"`
+	Total  int                `json:"total"`
+	Limit  int32              `json:"limit"`
+	Offset int32              `json:"offset"`
+}
+
+type paginatedDeadLettersDTO struct {
+	Items  []deadLetterDTO `json:"items"`
+	Total  int             `json:"total"`
+	Limit  int32           `json:"limit"`
+	Offset int32           `json:"offset"`
+}
+
 func controlToDTO(control sqldb.LegacySyncControl) controlDTO {
 	return controlDTO{
 		DetectionEnabled: control.DetectionEnabled,
@@ -246,6 +300,20 @@ func conflictToDTO(conflict sqldb.LegacySyncConflict) conflictDTO {
 		Status:        conflict.Status,
 		CreatedAt:     timePtr(conflict.CreatedAt),
 		ResolvedAt:    timePtr(conflict.ResolvedAt),
+	}
+}
+
+func conflictSummaryToDTO(row sqldb.ConflictListOpenPaginatedRow) conflictSummaryDTO {
+	return conflictSummaryDTO{
+		ID:           uuidString(row.ID),
+		EntityType:   row.EntityType,
+		ExternalID:   row.ExternalID,
+		ConflictType: row.ConflictType,
+		Category:     row.Category,
+		Message:      textPtr(row.Message),
+		Status:       row.Status,
+		CreatedAt:    timePtr(row.CreatedAt),
+		ResolvedAt:   timePtr(row.ResolvedAt),
 	}
 }
 

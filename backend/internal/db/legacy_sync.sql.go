@@ -55,6 +55,42 @@ func (q *Queries) ChangeEventInsert(ctx context.Context, arg ChangeEventInsertPa
 	return i, err
 }
 
+const conflictCountOpen = `-- name: ConflictCountOpen :one
+SELECT count(*)::int FROM legacy_sync_conflicts
+WHERE status = 'open'
+`
+
+func (q *Queries) ConflictCountOpen(ctx context.Context) (int32, error) {
+	row := q.db.QueryRow(ctx, conflictCountOpen)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const conflictGet = `-- name: ConflictGet :one
+SELECT id, entity_type, external_id, conflict_type, category, source_payload, local_payload, message, status, created_at, resolved_at FROM legacy_sync_conflicts
+WHERE id = $1
+`
+
+func (q *Queries) ConflictGet(ctx context.Context, id pgtype.UUID) (LegacySyncConflict, error) {
+	row := q.db.QueryRow(ctx, conflictGet, id)
+	var i LegacySyncConflict
+	err := row.Scan(
+		&i.ID,
+		&i.EntityType,
+		&i.ExternalID,
+		&i.ConflictType,
+		&i.Category,
+		&i.SourcePayload,
+		&i.LocalPayload,
+		&i.Message,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
 const conflictInsert = `-- name: ConflictInsert :one
 INSERT INTO legacy_sync_conflicts (entity_type, external_id, conflict_type, category, source_payload, local_payload, message)
 SELECT $1, $2, $3, $4, $5::text::jsonb, $6::text::jsonb, $7
@@ -126,6 +162,61 @@ func (q *Queries) ConflictListOpen(ctx context.Context) ([]LegacySyncConflict, e
 			&i.Category,
 			&i.SourcePayload,
 			&i.LocalPayload,
+			&i.Message,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const conflictListOpenPaginated = `-- name: ConflictListOpenPaginated :many
+SELECT id, entity_type, external_id, conflict_type, category, message, status, created_at, resolved_at
+FROM legacy_sync_conflicts
+WHERE status = 'open'
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ConflictListOpenPaginatedParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type ConflictListOpenPaginatedRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	EntityType   string             `json:"entity_type"`
+	ExternalID   string             `json:"external_id"`
+	ConflictType string             `json:"conflict_type"`
+	Category     string             `json:"category"`
+	Message      pgtype.Text        `json:"message"`
+	Status       string             `json:"status"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt   pgtype.Timestamptz `json:"resolved_at"`
+}
+
+func (q *Queries) ConflictListOpenPaginated(ctx context.Context, arg ConflictListOpenPaginatedParams) ([]ConflictListOpenPaginatedRow, error) {
+	rows, err := q.db.Query(ctx, conflictListOpenPaginated, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConflictListOpenPaginatedRow
+	for rows.Next() {
+		var i ConflictListOpenPaginatedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.ExternalID,
+			&i.ConflictType,
+			&i.Category,
 			&i.Message,
 			&i.Status,
 			&i.CreatedAt,
@@ -545,6 +636,56 @@ func (q *Queries) LegacyJobHeartbeat(ctx context.Context, arg LegacyJobHeartbeat
 	return err
 }
 
+const legacyJobListPaginated = `-- name: LegacyJobListPaginated :many
+SELECT id, job_type, entity_type, external_id, payload, unique_key, priority, status, deadline_at, attempt, max_attempts, locked_by, locked_until, heartbeat_at, run_after, last_error, created_at, updated_at FROM legacy_sync_jobs
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type LegacyJobListPaginatedParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) LegacyJobListPaginated(ctx context.Context, arg LegacyJobListPaginatedParams) ([]LegacySyncJob, error) {
+	rows, err := q.db.Query(ctx, legacyJobListPaginated, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LegacySyncJob
+	for rows.Next() {
+		var i LegacySyncJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobType,
+			&i.EntityType,
+			&i.ExternalID,
+			&i.Payload,
+			&i.UniqueKey,
+			&i.Priority,
+			&i.Status,
+			&i.DeadlineAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.LockedBy,
+			&i.LockedUntil,
+			&i.HeartbeatAt,
+			&i.RunAfter,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const legacyJobListRecent = `-- name: LegacyJobListRecent :many
 SELECT id, job_type, entity_type, external_id, payload, unique_key, priority, status, deadline_at, attempt, max_attempts, locked_by, locked_until, heartbeat_at, run_after, last_error, created_at, updated_at FROM legacy_sync_jobs
 ORDER BY created_at DESC
@@ -850,6 +991,33 @@ RETURNING id, mode, status, started_at, completed_at, pages_requested, entities_
 
 func (q *Queries) SyncRunCreate(ctx context.Context, mode string) (LegacySyncRun, error) {
 	row := q.db.QueryRow(ctx, syncRunCreate, mode)
+	var i LegacySyncRun
+	err := row.Scan(
+		&i.ID,
+		&i.Mode,
+		&i.Status,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.PagesRequested,
+		&i.EntitiesParsed,
+		&i.EntitiesChanged,
+		&i.EntitiesApplied,
+		&i.ParseFailures,
+		&i.ReconciliationMismatches,
+		&i.SourceLatencyMs,
+		&i.LastError,
+	)
+	return i, err
+}
+
+const syncRunGetLatest = `-- name: SyncRunGetLatest :one
+SELECT id, mode, status, started_at, completed_at, pages_requested, entities_parsed, entities_changed, entities_applied, parse_failures, reconciliation_mismatches, source_latency_ms, last_error FROM legacy_sync_runs
+ORDER BY started_at DESC
+LIMIT 1
+`
+
+func (q *Queries) SyncRunGetLatest(ctx context.Context) (LegacySyncRun, error) {
+	row := q.db.QueryRow(ctx, syncRunGetLatest)
 	var i LegacySyncRun
 	err := row.Scan(
 		&i.ID,

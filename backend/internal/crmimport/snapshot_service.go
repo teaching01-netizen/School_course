@@ -152,6 +152,7 @@ func (s *SnapshotService) MarkSnapshotReady(ctx context.Context, snapshotID pgty
 		SET label = EXCLUDED.label,
 		    last_imported_at = now(),
 		    updated_at = now()
+		WHERE crm_cycles.source_kind = 'imported'
 	`, snapshotID); err != nil {
 		return fmt.Errorf("upsert cycles: %w", err)
 	}

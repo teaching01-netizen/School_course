@@ -14,13 +14,21 @@ function StatItem({ label, value }: { label: string; value: ReactNode }) {
 /** Compact summary row at the top of the course detail page — the four fields
  *  the legacy site showed at a glance (Teacher, Hour, Student, Type), plus the
  *  hours remaining once the scheduled sessions are counted. */
-export function CourseInfoStrip({ course, usedMinutes = 0 }: { course: Course; usedMinutes?: number }) {
-  const teacherValue = course.teachers?.length
-    ? course.teachers.map((t) => t.full_name || t.username).join(", ")
-    : course.teacher_name ?? null;
+export function CourseInfoStrip({ course, teacherName, usedMinutes = 0 }: { course: Course; teacherName?: string | null; usedMinutes?: number }) {
+  const teacherValue = teacherName ?? course.teacher_name ?? (
+    course.teachers?.length
+      ? course.teachers.map((t) => t.full_name || t.username).join(", ")
+      : null
+  );
 
   const remaining = remainingMinutes(course.hour, usedMinutes);
   const status = remaining == null ? null : remainingStatus(remaining);
+  const expiryDate = course.expires_at ? new Date(course.expires_at).toLocaleDateString() : null;
+  const expiryValue = course.expiry_status === "expired"
+    ? expiryDate ? `Expired on ${expiryDate}` : "Expired"
+    : course.expiry_status === "active" && expiryDate
+      ? `Until ${expiryDate}`
+      : "No expiration";
 
   return (
     <div
@@ -53,6 +61,8 @@ export function CourseInfoStrip({ course, usedMinutes = 0 }: { course: Course; u
       />
       <StatItem label="Student" value={course.student_count ?? "—"} />
       <StatItem label="Type" value={course.course_type ?? "—"} />
+      {(course.cycle_id || course.cycle_label || course.expiry_days != null || course.expiry_status) && <StatItem label="Cycle" value={course.cycle_label ?? "—"} />}
+      {(course.expiry_days != null || course.expiry_status) && <StatItem label="Expires" value={expiryValue} />}
     </div>
   );
 }

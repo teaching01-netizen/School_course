@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { apiJson } from "@/api/client";
 import { useToast } from "@/hooks/useToast";
@@ -14,8 +14,25 @@ import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import Modal from "@/components/Modal";
 import StudentStatusBadge from "@/components/StudentStatusBadge";
 import CourseAttendeeRow from "@/components/CourseAttendeeRow";
+import { createCourseDetailNavigationState } from "@/features/courses/navigation";
 
 const PAGE_SIZE = 50;
+const COURSE_TABLE_COLUMN_WIDTHS = [
+  "w-[4%]",
+  "w-[3%]",
+  "w-[5%]",
+  "w-[9%]",
+  "w-[4%]",
+  "w-[10%]",
+  "w-[20%]",
+  "w-[4%]",
+  "w-[9%]",
+  "w-[7%]",
+  "w-[5%]",
+  "w-[7%]",
+  "w-[7%]",
+  "w-[6%]",
+] as const;
 
 type CourseRow = {
   id: string;
@@ -32,6 +49,8 @@ type CourseRow = {
   student_count: number | null;
   course_type: string | null;
   legacy_course_id?: string | null;
+  has_overlap?: boolean;
+  has_conflict?: boolean;
   teachers?: { id: string; username: string; full_name?: string | null }[];
 };
 
@@ -46,6 +65,7 @@ type CourseBucket = "live" | "archived";
 
 export default function Courses() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const { addToast } = useToast();
 
   const bucket: CourseBucket = searchParams.get("status") === "archived" ? "archived" : "live";
@@ -293,21 +313,12 @@ export default function Courses() {
       ) : (
         <>
           <div className="overflow-x-auto data-table-wrapper">
-            <table className="w-full table-fixed text-[13px]">
+            <table className="w-full min-w-[66rem] table-fixed text-[13px]">
               <caption className="sr-only">List of courses</caption>
               <colgroup>
-                <col className="w-[5%]" />
-                <col className="w-[4%]" />
-                <col className="w-[5%]" />
-                <col className="w-[10%]" />
-                <col className="w-[5%]" />
-                <col className="w-[10%]" />
-                <col className="w-[28%]" />
-                <col className="w-[5%]" />
-                <col className="w-[10%]" />
-                <col className="w-[7%]" />
-                <col className="w-[5%]" />
-                <col className="w-[6%]" />
+                {COURSE_TABLE_COLUMN_WIDTHS.map((className, index) => (
+                  <col key={index} className={className} />
+                ))}
               </colgroup>
               <thead>
                 <tr className="border-b border-wi-line">
@@ -334,6 +345,8 @@ export default function Courses() {
                   <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Student</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Type</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Legacy</th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Overlap</th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Conflict</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]"></th>
                 </tr>
               </thead>
@@ -371,7 +384,7 @@ export default function Courses() {
                         {(course.teachers ?? []).length > 0
                           ? (course.teachers ?? []).map((t) => (
                               <span key={t.id} className="inline-block mr-1 mb-0.5 px-1.5 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-sm">
-                                {t.username}
+                                {t.full_name || t.username}
                               </span>
                             ))
                           : course.teacher_name || "—"}
@@ -393,8 +406,15 @@ export default function Courses() {
                         )}
                       </td>
                       <td className="py-3 px-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${course.has_overlap ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`} aria-label={course.has_overlap ? "Overlap detected" : "No overlap"}>{course.has_overlap ? "Yes" : "No"}</span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${course.has_conflict ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`} aria-label={course.has_conflict ? "Conflict detected" : "No conflict"}>{course.has_conflict ? "Yes" : "No"}</span>
+                      </td>
+                      <td className="py-3 px-2">
                         <Link
                           to={`/courses/${course.id}`}
+                          state={createCourseDetailNavigationState(`${location.pathname}${location.search}`)}
                           className="px-3 py-1 text-xs bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm inline-block"
                         >
                           detail
@@ -403,7 +423,7 @@ export default function Courses() {
                     </tr>
                     {expandedIds.has(course.id) && (
                       <tr className="border-b border-wi-line">
-                        <td colSpan={12} className="p-0">
+                        <td colSpan={COURSE_TABLE_COLUMN_WIDTHS.length} className="p-0">
                           <CourseAttendeeRow
                             students={cache[course.id] ?? []}
                             loading={!!studentsLoading[course.id]}

@@ -1,0 +1,17 @@
+Independent runtime verification: frontend Courses
+
+Invocation:
+  npm exec vitest run src/pages/__tests__/Courses.filters.test.tsx src/features/courses/components/CourseInfoStrip.test.tsx
+
+Observed:
+  PASS — 2 test files, 21 tests passed.
+  Courses.filters.test.tsx exercised red conflict/overlap and green clear
+  states, live/archived loading, filtering, search debounce, and pagination.
+  CourseInfoStrip.test.tsx passed all 16 component assertions in the run.
+
+Build invocation:
+  npm run build
+
+Observed:
+  PASS — Vite 7.3.2 transformed 2,747 modules and emitted the production
+  bundle, including dist/assets/Courses-BagMXKOz.js.

@@ -46,6 +46,29 @@ describe("CourseInfoStrip", () => {
     expect(screen.getByText("Legacy Teacher")).toBeInTheDocument();
   });
 
+  it("prefers the teacher name over teacher usernames when both are present", () => {
+    render(
+      <CourseInfoStrip
+        course={makeCourse({ teacher_name: "Jane Teacher" })}
+      />,
+    );
+
+    expect(screen.getByText("Jane Teacher")).toBeInTheDocument();
+    expect(screen.queryByText("Teacher One, Teacher Two")).not.toBeInTheDocument();
+  });
+
+  it("uses a resolved teacher directory name when supplied", () => {
+    render(
+      <CourseInfoStrip
+        course={makeCourse({ teacher_name: "legacy:95" })}
+        teacherName="AJ Bosch"
+      />,
+    );
+
+    expect(screen.getByText("AJ Bosch")).toBeInTheDocument();
+    expect(screen.queryByText("legacy:95")).not.toBeInTheDocument();
+  });
+
   it("renders an em dash for missing values", () => {
     render(<CourseInfoStrip course={makeCourse({ hour: null, student_count: null, course_type: null, teachers: [], teacher_name: null })} />);
 

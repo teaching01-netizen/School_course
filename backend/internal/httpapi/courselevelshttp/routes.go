@@ -1,10 +1,14 @@
 package courselevelshttp
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 )
@@ -52,6 +56,22 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, offset, paginated, err := parsePagination(r.URL.Query())
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_pagination", err.Error())
+		return
+	}
+	if paginated {
+		rows, total, maxLevel, err := s.deps.Q.CourseLevelsListV2Paginated(r.Context(), limit, offset)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{"items": courseLevelDTOs(s, rows), "total": total, "max_level": maxLevel, "limit": limit, "offset": offset})
+		return
+	}
+
 	rows, err := s.deps.Q.CourseLevelsListV2(r.Context())
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
@@ -59,6 +79,11 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	out := courseLevelDTOs(s, rows)
+	s.a.WriteJSON(w, http.StatusOK, out)
+}
+
+func courseLevelDTOs(s *server, rows []sqldb.CourseLevelRowV2) []courseLevelDTO {
 	out := make([]courseLevelDTO, 0, len(rows))
 	for _, row := range rows {
 		id, _ := s.a.UUIDString(row.ID)
@@ -93,7 +118,32 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, dto)
 	}
-	s.a.WriteJSON(w, http.StatusOK, out)
+	return out
+}
+
+func parsePagination(query url.Values) (int, int, bool, error) {
+	_, hasLimit := query["limit"]
+	_, hasOffset := query["offset"]
+	if !hasLimit && !hasOffset {
+		return 0, 0, false, nil
+	}
+	limit := 50
+	if hasLimit {
+		value, err := strconv.Atoi(query.Get("limit"))
+		if err != nil || value < 1 || value > 200 {
+			return 0, 0, true, fmt.Errorf("limit must be between 1 and 200")
+		}
+		limit = value
+	}
+	offset := 0
+	if hasOffset {
+		value, err := strconv.Atoi(query.Get("offset"))
+		if err != nil || value < 0 {
+			return 0, 0, true, fmt.Errorf("offset must be non-negative")
+		}
+		offset = value
+	}
+	return limit, offset, true, nil
 }
 
 func (s *server) handleUpdateLevel(w http.ResponseWriter, r *http.Request) {

@@ -104,3 +104,64 @@ func TestBuildCourseIndex(t *testing.T) {
 		t.Fatalf("subjects index[5] = %#v, want Maths", got)
 	}
 }
+
+func TestTuningHelpers(t *testing.T) {
+	t.Run("workerConcurrency", func(t *testing.T) {
+		t.Setenv("LEGACY_SYNC_WORKERS", "")
+		if got := workerConcurrency(32); got != 32 {
+			t.Fatalf("unset env: workerConcurrency = %d, want clientMax 32", got)
+		}
+		t.Setenv("LEGACY_SYNC_WORKERS", "junk")
+		if got := workerConcurrency(32); got != 32 {
+			t.Fatalf("junk env: workerConcurrency = %d, want clientMax 32", got)
+		}
+		t.Setenv("LEGACY_SYNC_WORKERS", "3")
+		if got := workerConcurrency(32); got != 3 {
+			t.Fatalf("workerConcurrency = %d, want 3", got)
+		}
+	})
+
+	t.Run("reconcileWorkers", func(t *testing.T) {
+		// Unset falls back to min(clientMax, 16).
+		t.Setenv("LEGACY_SYNC_RECONCILE_WORKERS", "")
+		if got := reconcileWorkers(32); got != 16 {
+			t.Fatalf("unset env: reconcileWorkers = %d, want 16 (min(32,16))", got)
+		}
+		if got := reconcileWorkers(8); got != 8 {
+			t.Fatalf("unset env: reconcileWorkers = %d, want 8 (min(8,16))", got)
+		}
+		// Zero preserves the serial path.
+		t.Setenv("LEGACY_SYNC_RECONCILE_WORKERS", "0")
+		if got := reconcileWorkers(32); got != 0 {
+			t.Fatalf("reconcileWorkers = %d, want 0 (serial)", got)
+		}
+		t.Setenv("LEGACY_SYNC_RECONCILE_WORKERS", "1")
+		if got := reconcileWorkers(32); got != 1 {
+			t.Fatalf("reconcileWorkers = %d, want 1", got)
+		}
+		t.Setenv("LEGACY_SYNC_RECONCILE_WORKERS", "8")
+		if got := reconcileWorkers(32); got != 8 {
+			t.Fatalf("reconcileWorkers = %d, want 8", got)
+		}
+		t.Setenv("LEGACY_SYNC_RECONCILE_WORKERS", "junk")
+		if got := reconcileWorkers(32); got != 16 {
+			t.Fatalf("junk env: reconcileWorkers = %d, want 16 (default)", got)
+		}
+	})
+
+	t.Run("maxPoolConns", func(t *testing.T) {
+		cases := []struct {
+			env, workers, want int
+		}{
+			{0, 8, 64},
+			{0, 40, 80},
+			{100, 8, 100},
+			{-5, 8, 64},
+		}
+		for _, tc := range cases {
+			if got := maxPoolConns(tc.env, tc.workers); got != tc.want {
+				t.Fatalf("maxPoolConns(%d, %d) = %d, want %d", tc.env, tc.workers, got, tc.want)
+			}
+		}
+	})
+}

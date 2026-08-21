@@ -21,6 +21,8 @@ export type CourseEditChanges = {
   year?: number | null;
   hour?: number | null;
   student_count?: number | null;
+  cycle_id?: string | null;
+  expiry_days?: number | null;
 };
 
 export type Course = {
@@ -38,9 +40,25 @@ export type Course = {
   subject_name?: string | null;
   hour?: number | null;
   student_count?: number | null;
+  cycle_id?: string | null;
+  cycle_label?: string | null;
+  expiry_days?: number | null;
+  last_session_at?: string | null;
+  expires_at?: string | null;
+  expiry_status?: "active" | "expired" | "not_configured";
   course_type?: string | null;
   deleted_at?: string | null;
   legacy_course_id?: string | null;
   legacy_last_synced_at?: string | null;
   teachers?: CourseTeacher[];
+};
+
+export type LegacyCourseConflict = {
+  id: string;
+  conflict_type: string;
+  category: string;
+  message: string | null;
+  source_payload: Record<string, unknown> | null;
+  local_payload: Record<string, unknown> | null;
+  created_at: string;
 };

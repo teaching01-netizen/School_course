@@ -1,0 +1,32 @@
+{
+  "surface": "built frontend Courses page",
+  "invocation": "Chromium via Playwright against npm run preview -- --host 127.0.0.1 --port 4173",
+  "route": "/courses",
+  "readOnlyMocks": [
+    "GET /api/v1/me",
+    "GET /api/v1/users?role=Teacher",
+    "GET /api/v1/courses?limit=50&offset=0"
+  ],
+  "actions": [
+    "navigate /courses",
+    "wait for QA-OVERLAP",
+    "query aria-label Conflict detected",
+    "query aria-label Overlap detected",
+    "scroll conflict badge into view"
+  ],
+  "observed": {
+    "url": "http://127.0.0.1:4173/courses",
+    "title": "Courses — Warwick Institute",
+    "conflictCount": 1,
+    "overlapCount": 1,
+    "conflictVisible": true,
+    "overlapVisible": true,
+    "courseText": "QA-OVERLAP"
+  },
+  "mutations": "none",
+  "screenshots": [
+    "courses-built-browser.png",
+    "courses-built-browser-fields.png",
+    "courses-built-browser-wide.png"
+  ]
+}

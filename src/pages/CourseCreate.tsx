@@ -32,9 +32,12 @@ export default function CourseCreate() {
   const [hour, setHour] = useState(0);
   const [studentCount, setStudentCount] = useState(0);
   const [courseType, setCourseType] = useState<"Private" | "Group">("Private");
+  const [cycleID, setCycleID] = useState("");
+  const [expiryDays, setExpiryDays] = useState("");
 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [cycles, setCycles] = useState<{ id: string; label: string; display_name?: string | null }[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -46,12 +49,14 @@ export default function CourseCreate() {
     (async () => {
       try {
         setLoadingOptions(true);
-        const [t, s] = await Promise.all([
+        const [t, s, c] = await Promise.all([
           apiJson<Teacher[]>("/api/v1/users?role=Teacher", { method: "GET" }),
           apiJson<Subject[]>("/api/v1/subjects", { method: "GET" }),
+          apiJson<{ id: string; label: string; display_name?: string | null }[]>("/api/v1/crm/cycles", { method: "GET" }),
         ]);
         setTeachers(t);
         setSubjects(s);
+        setCycles(c);
       } catch {
         // Non-blocking: the page still renders with empty option lists.
       } finally {
@@ -73,6 +78,8 @@ export default function CourseCreate() {
           hour,
           student_count: studentCount,
           course_type: courseType,
+          cycle_id: cycleID || null,
+          expiry_days: expiryDays === "" ? null : Number(expiryDays),
           // Versioned contract: the first selected teacher is the primary.
           teachers: teacherIDs.map((id, index) => ({ teacher_id: id, is_primary: index === 0 })),
         }),
@@ -140,6 +147,17 @@ export default function CourseCreate() {
             <option value="Private">Private</option>
             <option value="Group">Group</option>
           </Select>
+        </FormField>
+
+        <FormField name="cycleID" label="Cycle">
+          <Select size="md" value={cycleID} onChange={(e) => setCycleID(e.target.value)} disabled={loadingOptions}>
+            <option value="">No cycle</option>
+            {cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.display_name ?? cycle.label}</option>)}
+          </Select>
+        </FormField>
+
+        <FormField name="expiryDays" label="Expiration days">
+          <Input size="md" type="number" min="0" step="1" value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)} placeholder="No expiration" />
         </FormField>
 
         <div className="flex gap-3 mt-6">

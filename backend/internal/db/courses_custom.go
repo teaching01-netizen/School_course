@@ -56,10 +56,12 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		       c.hour, c.student_count, c.course_type,
 		       c.created_at, c.updated_at,
 		       c.legacy_course_id, c.legacy_last_synced_at,
-		       c.version
+		       c.version, c.cycle_id, COALESCE(cy.display_name, cy.label, ''), c.expiry_days,
+		       (SELECT MAX(sess.end_at) FROM sessions sess WHERE sess.course_id = c.id AND sess.deleted_at IS NULL)
 		FROM courses c
 		LEFT JOIN users u ON u.id = c.teacher_id
 		LEFT JOIN subjects s ON s.id = c.subject_id
+		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		WHERE c.id = $1
 	`, courseID).Scan(
 		&row.ID, &row.CourseNo, &row.Code, &row.Name, &row.Year,
@@ -67,7 +69,7 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		&row.Hour, &row.StudentCount, &row.CourseType,
 		&row.CreatedAt, &row.UpdatedAt,
 		&row.LegacyCourseID, &row.LegacyLastSyncedAt,
-		&row.Version,
+		&row.Version, &row.CycleID, &row.CycleLabel, &row.ExpiryDays, &row.LastSessionAt,
 	)
 	return row, err
 }

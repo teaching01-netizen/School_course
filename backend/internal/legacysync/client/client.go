@@ -17,18 +17,30 @@ const defaultMinRequestInterval = 500 * time.Millisecond
 const defaultCircuitBreakerFailures = 3
 const defaultCircuitBreakerCooldown = 10 * time.Second
 const defaultAuthenticationCooldown = 10 * time.Second
+const maxBodyBytesUpperBound int64 = 16 << 20
+
+// defaultEstimatedBodyBytes is the per-request egress reservation made at
+// admission time, before any body has been read. It bounds how far a
+// concurrent burst can overshoot the byte budget in a single window.
+const defaultEstimatedBodyBytes int64 = 256 << 10
 
 type Config struct {
-	BaseURL                string
-	Username               string
-	Password               string
-	HTTPClient             *http.Client
-	MaxBodyBytes           int64
-	MaxConcurrent          int
-	MinRequestInterval     time.Duration
-	CircuitBreakerFailures int
-	CircuitBreakerCooldown time.Duration
-	AuthenticationCooldown time.Duration
+	BaseURL                 string
+	Username                string
+	Password                string
+	HTTPClient              *http.Client
+	MaxBodyBytes            int64
+	MaxConcurrent           int
+	MinRequestInterval      time.Duration
+	CircuitBreakerFailures  int
+	CircuitBreakerCooldown  time.Duration
+	AuthenticationCooldown  time.Duration
+	MaxRequestsPerMinute    int
+	MaxEgressBytesPerMinute int64
+	// EstimatedBodyBytes is the per-request egress reservation charged at
+	// admission time, before any response body is read (see reserveBudget).
+	// <= 0 selects the default.
+	EstimatedBodyBytes int64
 }
 
 type Response struct {
@@ -57,6 +69,15 @@ type Client struct {
 	breakerThreshold   int
 	breakerOpenUntil   time.Time
 	breakerCooldown    time.Duration
+	bucketMu           sync.Mutex
+	bucketWindowStart  time.Time
+	bucketReqCount     int
+	bucketByteCount    int64
+	bucketPendingBytes int64
+	bucketEstimate     int64
+	bucketMaxReq       int
+	bucketMaxBytes     int64
+	now                func() time.Time
 }
 
 func New(config Config) (*Client, error) {
@@ -89,14 +110,22 @@ func New(config Config) (*Client, error) {
 	if maxBodyBytes <= 0 {
 		maxBodyBytes = defaultMaxBodyBytes
 	}
+	if maxBodyBytes > maxBodyBytesUpperBound {
+		maxBodyBytes = maxBodyBytesUpperBound
+	}
 	maxConcurrent := config.MaxConcurrent
 	if maxConcurrent <= 0 {
-		maxConcurrent = 2
+		maxConcurrent = 32
+	}
+	if maxConcurrent > 128 {
+		maxConcurrent = 128
+	}
+	estimate := config.EstimatedBodyBytes
+	if estimate <= 0 {
+		estimate = defaultEstimatedBodyBytes
 	}
 	minRequestInterval := config.MinRequestInterval
 	if minRequestInterval < 0 {
-		// A negative value selects the politeness default; zero disables the
-		// pacing entirely (callers that want maximum scrape throughput pass 0).
 		minRequestInterval = defaultMinRequestInterval
 	}
 	breakerThreshold := config.CircuitBreakerFailures
@@ -111,13 +140,16 @@ func New(config Config) (*Client, error) {
 	if authCooldown <= 0 {
 		authCooldown = defaultAuthenticationCooldown
 	}
-	return &Client{
+	c := &Client{
 		baseURL: baseURL, username: config.Username, password: config.Password,
 		httpClient: httpClient, maxBodyBytes: maxBodyBytes,
 		semaphore: make(chan struct{}, maxConcurrent), minRequestInterval: minRequestInterval,
 		breakerThreshold: breakerThreshold, breakerCooldown: breakerCooldown,
 		authCooldown: authCooldown,
-	}, nil
+		bucketMaxReq: config.MaxRequestsPerMinute, bucketMaxBytes: config.MaxEgressBytesPerMinute,
+		bucketEstimate: estimate, now: time.Now,
+	}
+	return c, nil
 }
 
 func validateRedirect(base *url.URL, next *http.Request) error {
@@ -189,6 +221,103 @@ func (c *Client) checkCircuit() error {
 	c.breakerOpenUntil = time.Time{}
 	c.breakerFailures = 0
 	return nil
+}
+
+func (c *Client) CircuitState() (bool, time.Time) {
+	c.breakerMu.Lock()
+	defer c.breakerMu.Unlock()
+	if c.breakerOpenUntil.IsZero() || time.Now().After(c.breakerOpenUntil) {
+		return false, time.Time{}
+	}
+	return true, c.breakerOpenUntil
+}
+
+// BudgetExceeded reports whether the per-minute egress budget (requests or
+// bytes) has been exhausted for the current window. The legacy runner uses
+// this to pause enqueueing new work while the budget is spent; an expired
+// window rolls forward here too, so the pause cannot stick once the minute
+// has passed even if no further requests flow.
+func (c *Client) BudgetExceeded() bool {
+	if c.bucketMaxReq <= 0 && c.bucketMaxBytes <= 0 {
+		return false
+	}
+	c.bucketMu.Lock()
+	defer c.bucketMu.Unlock()
+	c.resetWindowLocked(c.now())
+	if c.bucketMaxReq > 0 && c.bucketReqCount >= c.bucketMaxReq {
+		return true
+	}
+	return c.bucketMaxBytes > 0 && c.bucketByteCount+c.bucketPendingBytes >= c.bucketMaxBytes
+}
+
+func (c *Client) EgressStats() (int, int64, time.Time) {
+	c.bucketMu.Lock()
+	defer c.bucketMu.Unlock()
+	resetAt := c.bucketWindowStart.Add(time.Minute)
+	if c.bucketWindowStart.IsZero() {
+		resetAt = c.now().Add(time.Minute)
+	}
+	return c.bucketReqCount, c.bucketByteCount, resetAt
+}
+
+// resetWindowLocked rolls the per-minute budget window forward when it has
+// expired. Callers must hold bucketMu.
+func (c *Client) resetWindowLocked(now time.Time) {
+	if c.bucketWindowStart.IsZero() || now.Sub(c.bucketWindowStart) >= time.Minute {
+		c.bucketWindowStart = now
+		c.bucketReqCount = 0
+		c.bucketByteCount = 0
+		c.bucketPendingBytes = 0
+	}
+}
+
+func (c *Client) reserveBudget() error {
+	if c.bucketMaxReq <= 0 && c.bucketMaxBytes <= 0 {
+		return nil
+	}
+	c.bucketMu.Lock()
+	defer c.bucketMu.Unlock()
+	c.resetWindowLocked(c.now())
+	if c.bucketMaxReq > 0 && c.bucketReqCount+1 > c.bucketMaxReq {
+		return &EgressBudgetError{ResetAt: c.bucketWindowStart.Add(time.Minute)}
+	}
+	// Admit only when recorded bytes plus the reservations of every in-flight
+	// request plus this request's estimate stay within the byte budget; a
+	// concurrent burst cannot push egress past the budget before any body has
+	// been read.
+	if c.bucketMaxBytes > 0 && c.bucketByteCount+c.bucketPendingBytes+c.bucketEstimate > c.bucketMaxBytes {
+		return &EgressBudgetError{ResetAt: c.bucketWindowStart.Add(time.Minute)}
+	}
+	c.bucketReqCount++
+	c.bucketPendingBytes += c.bucketEstimate
+	return nil
+}
+
+// releaseBudgetEstimate returns the reservation made by reserveBudget once
+// the request has finished, whether or not any body was read. Every admitted
+// request must release exactly once.
+func (c *Client) releaseBudgetEstimate() {
+	if c.bucketMaxBytes <= 0 {
+		return
+	}
+	c.bucketMu.Lock()
+	c.bucketPendingBytes -= c.bucketEstimate
+	if c.bucketPendingBytes < 0 {
+		c.bucketPendingBytes = 0
+	}
+	c.bucketMu.Unlock()
+}
+
+func (c *Client) recordEgressBytes(n int) {
+	if n <= 0 {
+		return
+	}
+	c.bucketMu.Lock()
+	if c.bucketWindowStart.IsZero() {
+		c.bucketWindowStart = c.now()
+	}
+	c.bucketByteCount += int64(n)
+	c.bucketMu.Unlock()
 }
 
 func (c *Client) recordFailure(err error) {
@@ -320,7 +449,6 @@ func (c *Client) hasSessionCookie() bool {
 		}
 		return true
 	}
-
 	return false
 }
 

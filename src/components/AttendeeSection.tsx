@@ -5,6 +5,8 @@ import CrmFilterPanel from "./crm/CrmFilterPanel";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { formatConflictToastMessage } from "../utils/conflictErrors";
+import type { StudentConflict } from "@/types";
+import { StudentConflictPopover } from "@/features/courses/components/StudentConflictPopover";
 
 
 export type Student = {
@@ -19,6 +21,7 @@ export type Student = {
   student_phone?: string;
   email?: string;
   status?: string;
+  conflicts?: StudentConflict[];
 };
 export type AddStudentResult = { ok: true } | { ok: false; error: string };
 
@@ -35,6 +38,7 @@ type Props = {
   onSetAddingWcode: (v: string) => void;
   onAddStudentByWcode: () => Promise<AddStudentResult>;
   onRemoveStudent: (studentId: string) => Promise<void>;
+  zone?: string;
 };
 
 export function AttendeeSection({
@@ -50,6 +54,7 @@ export function AttendeeSection({
   onSetAddingWcode,
   onAddStudentByWcode,
   onRemoveStudent,
+  zone = "Asia/Bangkok",
 }: Props) {
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
@@ -220,6 +225,7 @@ export function AttendeeSection({
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Year</th>
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Phone</th>
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Status</th>
+              <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Conflict</th>
               <th className="text-left py-2 px-3 font-semibold text-[var(--color-wi-text-light)]">Notes</th>
               <th className="text-right py-2 px-3 font-semibold text-[var(--color-wi-text-light)]"></th>
             </tr>
@@ -227,13 +233,13 @@ export function AttendeeSection({
           <tbody>
             {rosterLoading ? (
               <tr>
-                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={10}>
+                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={11}>
                   Loading…
                 </td>
               </tr>
             ) : roster.length === 0 ? (
               <tr>
-                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={10}>
+                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={11}>
                   No students
                 </td>
               </tr>
@@ -264,6 +270,9 @@ export function AttendeeSection({
                           ENROLLED
                         </span>
                       )}
+                    </td>
+                    <td className="py-2 px-3">
+                      <StudentConflictPopover conflicts={st.conflicts ?? []} zone={zone} />
                     </td>
                     <td className="py-2 px-3 text-[var(--color-wi-text-light)]">{st.notes}</td>
                     <td className="py-2 px-3 text-right">

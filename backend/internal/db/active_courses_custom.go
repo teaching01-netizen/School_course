@@ -95,6 +95,75 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 	return subjects, coursesBySubject, nil
 }
 
+func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset int) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, int64, int64, error) {
+	var totalSubjects, totalCourses int64
+	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM subjects`).Scan(&totalSubjects); err != nil {
+		return nil, nil, 0, 0, err
+	}
+	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM courses c JOIN subjects s ON s.id = c.subject_id`).Scan(&totalCourses); err != nil {
+		return nil, nil, 0, 0, err
+	}
+
+	rows, err := q.db.Query(ctx, `
+		WITH paged_subjects AS (
+			SELECT s.id, s.code, s.name
+			FROM subjects s
+			ORDER BY s.code ASC, s.id ASC
+			LIMIT $1 OFFSET $2
+		)
+		SELECT ps.id, ps.code, ps.name,
+		       c.id, c.code, c.name,
+		       c.cycle_id, COALESCE(cy.label, ''),
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
+		FROM paged_subjects ps
+		LEFT JOIN LATERAL (
+			SELECT c.id, c.code, c.name, c.cycle_id
+			FROM courses c
+			WHERE c.subject_id = ps.id
+			ORDER BY c.code ASC NULLS LAST, c.id ASC
+		) c ON true
+		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = ps.id
+		ORDER BY ps.code ASC, ps.id ASC, c.code ASC NULLS LAST, c.id ASC
+	`, limit, offset)
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	defer rows.Close()
+
+	var subjects []ActiveCourseSubjectRow
+	var coursesBySubject [][]ActiveCourseCourseRow
+	for rows.Next() {
+		var subjectID pgtype.UUID
+		var subjectCode, subjectName string
+		var courseID pgtype.UUID
+		var courseCode, courseName pgtype.Text
+		var cycleID pgtype.Text
+		var cycleLabel string
+		var isActive bool
+		if err := rows.Scan(&subjectID, &subjectCode, &subjectName, &courseID, &courseCode, &courseName, &cycleID, &cycleLabel, &isActive); err != nil {
+			return nil, nil, 0, 0, err
+		}
+
+		if len(subjects) == 0 || subjects[len(subjects)-1].SubjectID.Bytes != subjectID.Bytes {
+			subjects = append(subjects, ActiveCourseSubjectRow{SubjectID: subjectID, SubjectCode: subjectCode, SubjectName: subjectName})
+			coursesBySubject = append(coursesBySubject, nil)
+		}
+		if !courseID.Valid {
+			continue
+		}
+		idx := len(subjects) - 1
+		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
+			CourseID: courseID, CourseCode: courseCode.String, CourseName: courseName.String,
+			CycleID: cycleID, CycleLabel: cycleLabel, IsActive: isActive,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, 0, 0, err
+	}
+	return subjects, coursesBySubject, totalSubjects, totalCourses, nil
+}
+
 type ActiveCourseUpsertParams struct {
 	SubjectID pgtype.UUID
 	CourseID  pgtype.UUID

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,10 +34,24 @@ import (
 // are excluded: they are frozen ("sync once, then skip"), so the leader
 // sweep must stop enqueuing refresh jobs for them.
 func listLinkedLegacyCourses(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	return listLinkedLegacyCoursesWithCooldown(ctx, pool, legacyCourseRefreshInterval())
+}
+
+func legacyCourseRefreshInterval() time.Duration {
+	if raw := os.Getenv("LEGACY_SYNC_COURSE_REFRESH_INTERVAL"); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 30 * time.Minute
+}
+
+func listLinkedLegacyCoursesWithCooldown(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration) ([]string, error) {
 	rows, err := pool.Query(ctx, `SELECT legacy_course_id FROM courses
 		WHERE legacy_course_id IS NOT NULL
 		  AND NOT (legacy_archived AND legacy_last_synced_at IS NOT NULL)
-		ORDER BY legacy_course_id`)
+		  AND (legacy_last_synced_at IS NULL OR legacy_last_synced_at < now() - $1::interval)
+		ORDER BY legacy_course_id`, refreshInterval.String())
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +109,28 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	// The client is constructed before the pool: it performs no DB or network
+	// I/O (transport, cookie jar, and source client only) and its in-flight
+	// ceiling sizes the worker pool and the pgx connection budget below.
+	client, err := legacysync.NewClient(cfg.LegacySyncURL, cfg.LegacySyncUsername, cfg.LegacySyncPassword, legacysync.WithMaxBodyBytes(16<<20))
+	if err != nil {
+		log.Error("legacy client", "error", err)
+		os.Exit(1)
+	}
+	workers := workerConcurrency(client.MaxConcurrent())
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		log.Error("database connection", "error", err)
+		os.Exit(1)
+	}
+	if envPool := intEnv("LEGACY_SYNC_POOL_MAX_CONNS", 0); envPool > 0 {
+		poolConfig.MaxConns = int32(envPool) // explicit env knob wins
+	} else if !strings.Contains(cfg.DatabaseURL, "pool_max_conns") {
+		// ParseConfig always sets a default MaxConns, so a URL that never
+		// tuned pool_max_conns gets the worker-derived budget instead.
+		poolConfig.MaxConns = int32(maxPoolConns(0, workers))
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Error("database connection", "error", err)
 		os.Exit(1)
@@ -121,24 +157,21 @@ func main() {
 		os.Exit(1)
 	}
 	defer leaderConn.Release()
-	client, err := legacysync.NewClient(cfg.LegacySyncURL, cfg.LegacySyncUsername, cfg.LegacySyncPassword, legacysync.WithMaxBodyBytes(16<<20))
-	if err != nil {
-		log.Error("legacy client", "error", err)
-		os.Exit(1)
-	}
 	store := jobqueue.NewPostgresStore(q)
 	applier := apply.NewScheduleApplier(pool, q, "legacy_warwick")
 	courseApplier := apply.NewCourseApplier(pool, q, "legacy_warwick")
 	masterData := apply.NewMasterDataService(pool, q, "legacy_warwick")
 	fullReconciler := reconcile.NewFullReconciler(pool, q, store, masterData, "legacy_warwick")
-	syncer := newCourseSyncer(pool, q, client, masterData, courseApplier, applier, cfg.InstituteTZ, log, client.MaxConcurrent())
+	syncer := newCourseSyncer(pool, q, client, masterData, courseApplier, applier, cfg.InstituteTZ, log, client.MaxConcurrent(), legacyCourseRefreshInterval())
 	runner, err := legacysync.NewRunner(legacysync.RunnerConfig{
-		Store:       store,
-		WorkerID:    workerID(),
-		SweepEvery:  durationEnv("LEGACY_SYNC_SWEEP_INTERVAL", 30*time.Second),
-		Lease:       durationEnv("LEGACY_SYNC_LEASE", 30*time.Second),
-		Concurrency: intEnv("LEGACY_SYNC_WORKERS", 8),
-		Logger:      log,
+		Store:          store,
+		WorkerID:       workerID(),
+		SweepEvery:     durationEnv("LEGACY_SYNC_SWEEP_INTERVAL", 30*time.Second),
+		Lease:          durationEnv("LEGACY_SYNC_LEASE", 30*time.Second),
+		Concurrency:    workers,
+		Logger:         log,
+		Circuit:        client.CircuitState,
+		BudgetExceeded: client.BudgetExceeded,
 		ListCourses: func(ctx context.Context) ([]string, error) {
 			return listLinkedLegacyCourses(ctx, pool)
 		},
@@ -220,6 +253,7 @@ func main() {
 				ObservedAt:     time.Now().UTC(),
 				ShadowMode:     control.ShadowMode,
 				StudentEnabled: control.StudentEnabled,
+				Concurrency:    reconcileWorkers(client.MaxConcurrent()),
 				Progress: func(update reconcile.FullReconcileProgress) error {
 					return progress.update(ctx, update.Phase, update.CurrentLegacyID, update.ProcessedEntities, update.TotalEntities, update.ChangedEntities, update.AppliedEntities, update.Failures, false)
 				},

@@ -42,8 +42,9 @@ export function SitInRuleInventoryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [courseLevels, setCourseLevels] = useState<CourseLevelItem[]>([]);
+  const [maxLevel, setMaxLevel] = useState<number | null>(null);
 
-  const maxLevel = useMemo(() => {
+  const fallbackMaxLevel = useMemo(() => {
     const levels = courseLevels
       .map((c) => c.level)
       .filter((l): l is number => l !== null);
@@ -51,19 +52,27 @@ export function SitInRuleInventoryPage() {
   }, [courseLevels]);
 
   useEffect(() => {
-    apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" })
-      .then(setCourseLevels)
+    apiJson<CourseLevelItem[] | { items: CourseLevelItem[]; max_level?: number }>("/api/v1/admin/course-levels?limit=1&offset=0", { method: "GET" })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setCourseLevels(data);
+        } else {
+          setCourseLevels(data.items);
+          setMaxLevel(data.max_level ?? null);
+        }
+      })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (form.type === "level_ladder" && maxLevel !== null) {
+    const effectiveMaxLevel = maxLevel ?? fallbackMaxLevel;
+    if (form.type === "level_ladder" && effectiveMaxLevel !== null) {
       setForm((prev) => ({
         ...prev,
-        predicate: { ...prev.predicate, min_level_for_sit_lower: maxLevel },
+        predicate: { ...prev.predicate, min_level_for_sit_lower: effectiveMaxLevel },
       }));
     }
-  }, [form.type, maxLevel]);
+  }, [form.type, maxLevel, fallbackMaxLevel]);
 
   function openCreate() {
     setEditingId(null);

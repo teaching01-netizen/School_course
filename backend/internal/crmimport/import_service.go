@@ -102,6 +102,7 @@ func (s *ImportService) ImportUpload(ctx context.Context, rows []xlsx.Row) (Uplo
 		SET label = EXCLUDED.label,
 		    last_imported_at = now(),
 		    updated_at = now()
+		WHERE crm_cycles.source_kind = 'imported'
 	`, snapshotID); err != nil {
 		return UploadResult{}, err
 	}

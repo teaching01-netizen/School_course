@@ -12,18 +12,22 @@ import (
 )
 
 type RunnerConfig struct {
-	Store       jobqueue.Store
-	WorkerID    string
-	SweepEvery  time.Duration
-	Lease       time.Duration
-	Concurrency int // parallel job processors draining the queue; 1 = sequential
-	Logger      *slog.Logger
-	ListCourses func(context.Context) ([]string, error)
-	SyncCourse  func(context.Context, string) error
-	Detect      func(context.Context) ([]jobqueue.EnqueueRequest, error)
-	ProcessJob  func(context.Context, jobqueue.Job) error
-	Leader      func(context.Context) (bool, error)
-	Controls    func(context.Context) (RunnerControls, error)
+	Store          jobqueue.Store
+	WorkerID       string
+	SweepEvery     time.Duration
+	Lease          time.Duration
+	Concurrency    int // parallel job processors draining the queue; 1 = sequential
+	Logger         *slog.Logger
+	ListCourses    func(context.Context) ([]string, error)
+	SyncCourse     func(context.Context, string) error
+	Detect         func(context.Context) ([]jobqueue.EnqueueRequest, error)
+	ProcessJob     func(context.Context, jobqueue.Job) error
+	Leader         func(context.Context) (bool, error)
+	Controls       func(context.Context) (RunnerControls, error)
+	Circuit        func() (bool, time.Time)
+	BudgetExceeded func() bool
+	Now            func() time.Time
+	Rand           func(int) int
 }
 
 type RunnerControls struct {
@@ -56,6 +60,17 @@ func NewRunner(config RunnerConfig) (*Runner, error) {
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
+	if config.Now == nil {
+		config.Now = time.Now
+	}
+	if config.Rand == nil {
+		config.Rand = func(n int) int {
+			if n <= 0 {
+				return 0
+			}
+			return int(time.Now().UnixNano() % int64(n))
+		}
+	}
 	if config.Controls == nil {
 		config.Controls = func(context.Context) (RunnerControls, error) {
 			return RunnerControls{DetectionEnabled: true, FetchEnabled: true}, nil
@@ -68,15 +83,38 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err := r.cycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		r.cfg.Logger.Error("legacy sync cycle failed", "error", err)
 	}
-	ticker := time.NewTicker(r.cfg.SweepEvery)
-	defer ticker.Stop()
+	consecutiveErrors := 0
 	for {
+		d := r.cfg.SweepEvery
+		if consecutiveErrors > 2 {
+			mult := 1 << min(consecutiveErrors-2, 3)
+			d = time.Duration(int64(d) * int64(mult))
+			if d > 5*time.Minute {
+				d = 5 * time.Minute
+			}
+		}
+		jitter := time.Duration(0)
+		if d > 0 {
+			jitterRange := int(d / 5)
+			if jitterRange > 0 {
+				jitter = time.Duration(r.cfg.Rand(jitterRange*2+1) - jitterRange)
+			}
+		}
+		d += jitter
+		if d < time.Second {
+			d = time.Second
+		}
+		timer := time.NewTimer(d)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 			if err := r.cycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				r.cfg.Logger.Error("legacy sync cycle failed", "error", err)
+				consecutiveErrors++
+			} else if err == nil {
+				consecutiveErrors = 0
 			}
 		}
 	}
@@ -97,10 +135,15 @@ func (r *Runner) cycle(ctx context.Context) error {
 				return r.processAvailable(ctx, controls)
 			}
 		}
-		if err := r.enqueueLinkedCourses(ctx); err != nil {
+		// Fetch disabled pauses enqueue entirely: anything queued now would
+		// just wait for a fetch window, and detection feeds the same queue.
+		enqueueAllowed := controls.FetchEnabled && r.shouldEnqueue()
+		if !enqueueAllowed {
+			r.cfg.Logger.Info("skipping legacy enqueue: fetch disabled, circuit open, or budget exceeded")
+		} else if err := r.enqueueLinkedCourses(ctx); err != nil {
 			return err
 		}
-		if r.cfg.Detect != nil {
+		if r.cfg.Detect != nil && enqueueAllowed {
 			requests, err := r.cfg.Detect(ctx)
 			if err != nil {
 				return fmt.Errorf("detect legacy changes: %w", err)
@@ -155,7 +198,7 @@ func (r *Runner) processAvailable(ctx context.Context, controls RunnerControls) 
 // is done, or a hard store error occurs.
 func (r *Runner) drainJobs(ctx context.Context, controls RunnerControls) error {
 	for {
-		job, claimErr := r.cfg.Store.Claim(ctx, r.cfg.WorkerID, time.Now().UTC(), r.cfg.Lease)
+		job, claimErr := r.cfg.Store.Claim(ctx, r.cfg.WorkerID, r.cfg.Now().UTC(), r.cfg.Lease)
 		if errors.Is(claimErr, jobqueue.ErrNoJobs) {
 			return nil
 		}
@@ -164,7 +207,7 @@ func (r *Runner) drainJobs(ctx context.Context, controls RunnerControls) error {
 		}
 		if err := r.process(ctx, job); err != nil {
 			r.cfg.Logger.Error("legacy job failed", "job_id", job.ID, "job_type", job.JobType, "external_id", job.ExternalID, "error", err)
-			if retryErr := r.cfg.Store.Retry(ctx, job.ID, r.cfg.WorkerID, time.Now().UTC(), err); retryErr != nil {
+			if retryErr := r.cfg.Store.Retry(ctx, job.ID, r.cfg.WorkerID, r.cfg.Now().UTC(), err); retryErr != nil {
 				return fmt.Errorf("retry legacy job %s: %w", job.ID, retryErr)
 			}
 			continue
@@ -175,17 +218,41 @@ func (r *Runner) drainJobs(ctx context.Context, controls RunnerControls) error {
 	}
 }
 
+func (r *Runner) shouldEnqueue() bool {
+	if r.cfg.Circuit != nil {
+		if open, _ := r.cfg.Circuit(); open {
+			return false
+		}
+	}
+	if r.cfg.BudgetExceeded != nil && r.cfg.BudgetExceeded() {
+		return false
+	}
+	return true
+}
+
 func (r *Runner) enqueueLinkedCourses(ctx context.Context) error {
 	courses, err := r.cfg.ListCourses(ctx)
 	if err != nil {
 		return fmt.Errorf("list linked legacy courses: %w", err)
 	}
-	now := time.Now().UTC()
+	// Spread a sweep's admissions uniformly across the sweep window so the
+	// batch does not share one RunAfter and hit the queue (and later the
+	// client budget) as a synchronized burst.
+	sweepWindowMs := int(r.cfg.SweepEvery / time.Millisecond)
+	if sweepWindowMs < 1 {
+		sweepWindowMs = 1
+	}
+	now := r.cfg.Now().UTC()
 	for _, courseID := range courses {
 		if courseID == "" {
 			continue
 		}
-		if _, err := r.cfg.Store.Enqueue(ctx, jobqueue.EnqueueRequest{JobType: "legacy_refresh_course", EntityType: "course", ExternalID: courseID, UniqueKey: "legacy:course:" + courseID, Priority: 2, RunAfter: now, MaxAttempts: 5}); err != nil {
+		jitterMs := 0
+		if r.cfg.Rand != nil {
+			jitterMs = r.cfg.Rand(sweepWindowMs)
+		}
+		runAfter := now.Add(time.Duration(jitterMs) * time.Millisecond)
+		if _, err := r.cfg.Store.Enqueue(ctx, jobqueue.EnqueueRequest{JobType: "legacy_refresh_course", EntityType: "course", ExternalID: courseID, UniqueKey: "legacy:course:" + courseID, Priority: 2, RunAfter: runAfter, MaxAttempts: 5}); err != nil {
 			return fmt.Errorf("enqueue legacy course %s: %w", courseID, err)
 		}
 	}

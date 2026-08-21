@@ -194,6 +194,10 @@ ALTER TABLE courses
 DROP TABLE IF EXISTS legacy_sync_outbox;
 DROP TABLE IF EXISTS legacy_sync_dead_letters;
 DROP TABLE IF EXISTS legacy_sync_conflicts;
+-- legacy_sync_run_progress (00098) FK-references legacy_sync_runs; drop the
+-- dependent first so this down block also runs cleanly when executed without
+-- the intervening migrations (rollback correctness for the whole chain).
+DROP TABLE IF EXISTS legacy_sync_run_progress;
 DROP TABLE IF EXISTS legacy_sync_runs;
 DROP TABLE IF EXISTS legacy_entity_snapshots;
 DROP TABLE IF EXISTS legacy_change_events;

@@ -1,6 +1,9 @@
 package courseshttp
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/httpapi/httpadapter"
 )
@@ -37,6 +40,40 @@ type updateCourseRequest struct {
 	Hour            *int32                      `json:"hour"`
 	StudentCount    *int32                      `json:"student_count"`
 	CourseType      *string                     `json:"course_type"`
+	CycleID         json.RawMessage             `json:"cycle_id"`
+	ExpiryDays      json.RawMessage             `json:"expiry_days"`
+}
+
+type lifecycleRequest struct {
+	CycleSet   bool
+	CycleID    *string
+	ExpirySet  bool
+	ExpiryDays *int32
+}
+
+func parseLifecycle(body updateCourseRequest) (lifecycleRequest, error) {
+	out := lifecycleRequest{}
+	if body.CycleID != nil {
+		out.CycleSet = true
+		if !bytes.Equal(bytes.TrimSpace(body.CycleID), []byte("null")) {
+			var value string
+			if err := json.Unmarshal(body.CycleID, &value); err != nil || value == "" {
+				return lifecycleRequest{}, fmt.Errorf("cycle_id must be a string or null")
+			}
+			out.CycleID = &value
+		}
+	}
+	if body.ExpiryDays != nil {
+		out.ExpirySet = true
+		if !bytes.Equal(bytes.TrimSpace(body.ExpiryDays), []byte("null")) {
+			var value int32
+			if err := json.Unmarshal(body.ExpiryDays, &value); err != nil || value < 0 || value > maxExpiryDays {
+				return lifecycleRequest{}, fmt.Errorf("expiry_days must be between 0 and %d or null", maxExpiryDays)
+			}
+			out.ExpiryDays = &value
+		}
+	}
+	return out, nil
 }
 
 // parseTeacherAssignments converts raw request entries into domain

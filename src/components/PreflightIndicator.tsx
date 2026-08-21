@@ -62,7 +62,7 @@ export function getConflictItemLabel(
   const course = coursesById.get(conflict.course_id);
   const teacher = teachersById.get(conflict.teacher_id);
   const courseStr = course ? `${course.code}` : conflict.course_id.slice(0, 8) + "\u2026";
-  const teacherStr = teacher ? teacher.username : conflict.teacher_id.slice(0, 8) + "\u2026";
+  const teacherStr = teacher ? (teacher.full_name || teacher.username) : conflict.teacher_id.slice(0, 8) + "\u2026";
   let label = `${teacherStr} \u2013 ${courseStr}`;
   if (conflict.room_id && roomsById) {
     const room = roomsById.get(conflict.room_id);

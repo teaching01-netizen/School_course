@@ -78,10 +78,12 @@ export function RealtimeProvider({
     let reconnectAttempt = 0;
     let hasConnected = false;
     let hasDisconnected = false;
+    let currentSocket: WebSocket | null = null;
 
     const connect = () => {
       if (disposed) return;
       const socket = new WebSocket(realtimeURL());
+      currentSocket = socket;
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
@@ -115,15 +117,46 @@ export function RealtimeProvider({
         reconnectTimer = window.setTimeout(connect, delay);
       });
 
-      socket.addEventListener("error", () => socket.close());
+      socket.addEventListener("error", () => {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          try {
+            socket.close();
+          } catch {
+            // Ignore close errors during teardown.
+          }
+        }
+      });
     };
 
     connect();
     return () => {
       disposed = true;
       if (reconnectTimer != null) window.clearTimeout(reconnectTimer);
-      socketRef.current?.close();
+      const socket = currentSocket;
+      currentSocket = null;
       socketRef.current = null;
+      if (!socket) return;
+      if (socket.readyState === WebSocket.CONNECTING) {
+        socket.addEventListener(
+          "open",
+          () => {
+            try {
+              socket.close();
+            } catch {
+              // Ignore close errors during teardown.
+            }
+          },
+          { once: true },
+        );
+        return;
+      }
+      if (socket.readyState === WebSocket.OPEN) {
+        try {
+          socket.close();
+        } catch {
+          // Ignore close errors during teardown.
+        }
+      }
     };
   }, [enabled]);
 

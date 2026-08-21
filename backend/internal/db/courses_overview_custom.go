@@ -25,6 +25,12 @@ type CourseOverviewRow struct {
 	LegacyCourseID     pgtype.Text        `json:"legacy_course_id"`
 	LegacyLastSyncedAt pgtype.Timestamptz `json:"legacy_last_synced_at"`
 	Version            pgtype.Int4        `json:"version"`
+	CycleID            pgtype.Text        `json:"cycle_id"`
+	CycleLabel         string             `json:"cycle_label"`
+	ExpiryDays         pgtype.Int4        `json:"expiry_days"`
+	LastSessionAt      pgtype.Timestamptz `json:"last_session_at"`
+	HasOverlap         bool               `json:"has_overlap"`
+	HasConflict        bool               `json:"has_conflict"`
 }
 
 type CourseCreateV2Params struct {
@@ -34,6 +40,24 @@ type CourseCreateV2Params struct {
 	Hour         pgtype.Int4
 	StudentCount pgtype.Int4
 	CourseType   string
+}
+
+type CourseLifecycleChanges struct {
+	ExpirySet  bool
+	ExpiryDays *int32
+	CycleSet   bool
+	CycleID    *string
+}
+
+func (q *Queries) CourseLifecycleUpdate(ctx context.Context, courseID pgtype.UUID, changes CourseLifecycleChanges) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE courses
+		SET expiry_days = CASE WHEN $2 THEN $3::integer ELSE expiry_days END,
+		    cycle_id = CASE WHEN $4 THEN $5::text ELSE cycle_id END,
+		    updated_at = now()
+		WHERE id = $1
+	`, courseID, changes.ExpirySet, changes.ExpiryDays, changes.CycleSet, changes.CycleID)
+	return err
 }
 
 func (q *Queries) CourseCreateV2(ctx context.Context, p CourseCreateV2Params) (CourseOverviewRow, error) {
@@ -156,20 +180,59 @@ func (q *Queries) StudentCoursesList(ctx context.Context, studentID pgtype.UUID)
 
 func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([]CourseOverviewRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.course_no, c.code, c.name, c.year, c.teacher_id, COALESCE(NULLIF(u.full_name, ''), u.username, ''), c.subject_id, COALESCE(s.code, ''), COALESCE(s.name, ''),
-		       c.hour, COALESCE(roster.student_count, 0)::int4, c.course_type, c.created_at, c.updated_at,
-		       c.legacy_course_id, c.legacy_last_synced_at
-		FROM courses c
-		LEFT JOIN users u ON u.id = c.teacher_id
-		LEFT JOIN subjects s ON s.id = c.subject_id
-		LEFT JOIN (
-			SELECT course_id, COUNT(*) FILTER (WHERE status = 'enrolled') AS student_count
-			FROM course_students
-			GROUP BY course_id
-		) roster ON roster.course_id = c.id
-		`+courseOverviewWhere+`
-		ORDER BY c.course_no DESC
-		LIMIT NULLIF($5, 0) OFFSET $6
+		WITH page AS MATERIALIZED (
+			SELECT c.id, c.course_no, c.code, c.name, c.year, c.teacher_id,
+			       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name, c.subject_id,
+			       COALESCE(s.code, '') AS subject_code, COALESCE(s.name, '') AS subject_name,
+			       c.hour, c.course_type,
+			       c.created_at, c.updated_at, c.legacy_course_id, c.legacy_last_synced_at,
+			       c.cycle_id, COALESCE(cy.display_name, cy.label, '') AS cycle_label,
+			       c.expiry_days, c.legacy_code_conflict
+			FROM courses c
+			LEFT JOIN users u ON u.id = c.teacher_id
+			LEFT JOIN subjects s ON s.id = c.subject_id
+			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+			`+courseOverviewWhere+`
+			ORDER BY c.course_no DESC
+			LIMIT NULLIF($5, 0) OFFSET $6
+		)
+		SELECT page.id, page.course_no, page.code, page.name, page.year, page.teacher_id,
+		       page.teacher_name, page.subject_id, page.subject_code, page.subject_name,
+		       page.hour,
+		       COALESCE((SELECT COUNT(*) FROM course_students cs
+		                 WHERE cs.course_id = page.id AND cs.status = 'enrolled'), 0)::int4,
+		       page.course_type, page.created_at, page.updated_at,
+		       page.legacy_course_id, page.legacy_last_synced_at,
+		       page.cycle_id, page.cycle_label, page.expiry_days,
+		       (SELECT MAX(sess.end_at) FROM sessions sess
+		        WHERE sess.course_id = page.id AND sess.deleted_at IS NULL),
+		       EXISTS (
+		         SELECT 1 FROM sessions own
+		         WHERE own.course_id = page.id AND own.deleted_at IS NULL
+		           AND (
+		             (own.room_id IS NOT NULL AND EXISTS (
+		               SELECT 1 FROM sessions other
+		               WHERE other.id <> own.id AND other.deleted_at IS NULL
+		                 AND other.room_id = own.room_id
+		                 AND other.time_range && own.time_range
+		             ))
+		             OR (own.teacher_id IS NOT NULL AND EXISTS (
+		               SELECT 1 FROM sessions other
+		               WHERE other.id <> own.id AND other.deleted_at IS NULL
+		                 AND other.teacher_id = own.teacher_id
+		                 AND other.time_range && own.time_range
+		             ))
+		           )
+		       ),
+		       (page.legacy_code_conflict OR EXISTS (SELECT 1 FROM legacy_sync_conflicts lc
+		         WHERE lc.entity_type = 'course' AND lc.status = 'open' AND lc.external_id = page.legacy_course_id)
+		        OR EXISTS (SELECT 1 FROM sessions ls
+		         WHERE ls.course_id = page.id
+		           AND EXISTS (SELECT 1 FROM legacy_sync_conflicts lc
+		             WHERE lc.status = 'open'
+		               AND lc.source_payload->>'legacy_schedule_id' = ls.legacy_schedule_id)))
+		FROM page
+		ORDER BY page.course_no DESC
 	`, append(courseOverviewFilterArgs(p), p.Limit, p.Offset)...)
 	if err != nil {
 		return nil, err
@@ -185,6 +248,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			&r.Hour, &r.StudentCount, &r.CourseType,
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.LegacyCourseID, &r.LegacyLastSyncedAt,
+			&r.CycleID, &r.CycleLabel, &r.ExpiryDays, &r.LastSessionAt, &r.HasOverlap, &r.HasConflict,
 		); err != nil {
 			return nil, err
 		}

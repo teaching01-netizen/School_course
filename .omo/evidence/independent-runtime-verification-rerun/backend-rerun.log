@@ -1,0 +1,35 @@
+Independent runtime verification rerun after adding Goose StatementBegin/StatementEnd
+
+Invocation (single run):
+  cd backend
+  mkdir -p ../.omo/evidence/independent-runtime-verification-rerun
+  set -a; source ../.env; set +a
+  go test -count=1 -timeout=180s ./internal/legacysync/apply -run '^(TestScheduleApply_(ReusesStableLegacyScheduleIdentity|IdenticalAggregateIsNoOp|OverlappingScheduleSkippedAndRecorded|PartialApplyRetriesAfterConflictResolution|ShadowModeDoesNotStampOkSnapshot)|TestCourseApply_CodeCollisionRecordsSyncConflict)$'
+  go test -count=1 -timeout=180s ./internal/httpapi/courseshttp -run '^(TestCoursesList_|Test(GetCourse_ReturnsLegacyFields|ListCourses_IncludesLegacyFlag|UpdateLegacyLink_))'
+  go test -count=1 -timeout=180s ./internal/httpapi/legacysynchttp -run '^TestConflict(ResolveTransitions|IgnoreTransitions|SetStatusErrors)$'
+  cd ..
+  npm run migrate:validate
+
+Observed migration setup:
+  PASS — test harness applied 00103_legacy_conflict_materialization.sql;
+  logged: "goose: successfully migrated database to version: 103".
+
+Observed legacy apply result:
+  FAIL ./internal/legacysync/apply
+  TestCourseApply_CodeCollisionRecordsSyncConflict failed because the
+  recorded conflict status was "ignored", expected "open".
+  TestScheduleApply_OverlappingScheduleSkippedAndRecorded failed while
+  recording the overlap conflict: PostgreSQL SQLSTATE 25P02, current
+  transaction is aborted and commands are ignored until transaction end.
+  TestScheduleApply_PartialApplyRetriesAfterConflictResolution failed while
+  recording the partial conflict with the same SQLSTATE 25P02.
+
+Observed Courses API result:
+  PASS ./internal/httpapi/courseshttp (60.970s).
+
+Observed legacy conflict endpoint result:
+  PASS ./internal/httpapi/legacysynchttp (0.666s).
+
+Observed migration validator result:
+  PASS — 103 files, contiguous 00001..00103, 35 historical data-insert
+  warnings.

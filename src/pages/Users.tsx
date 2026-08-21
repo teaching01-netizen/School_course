@@ -16,6 +16,7 @@ import FormErrorSummary from "../components/ui/FormErrorSummary";
 type AdminUser = {
   id: string;
   username: string;
+  full_name?: string | null;
   role: "Admin" | "Teacher";
   deleted_at: string | null;
   created_at: string;
@@ -199,8 +200,8 @@ export default function Users() {
             {filtered.map((u) => (
               <tr key={u.id} className="border-b border-wi-line-soft last:border-b-0 hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2">
-                  <div className="text-[var(--color-wi-text)]">{u.username}</div>
-                  <div className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{u.id}</div>
+                  <div className="text-[var(--color-wi-text)]">{u.full_name || u.username}</div>
+                  <div className="font-mono text-[11px] text-[var(--color-wi-text-light)]">{u.username} · {u.id}</div>
                 </td>
                 <td className="py-2 px-2">
                   <span className={`text-xs px-2 py-0.5 rounded-sm ${u.role === "Admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
@@ -277,7 +278,7 @@ export default function Users() {
 
       {resetUser && (
         <Modal
-          title={`Reset password: ${resetUser.username}`}
+          title={`Reset password: ${resetUser.full_name || resetUser.username}`}
           onClose={() => setResetUser(null)}
           footer={
             <>
@@ -313,7 +314,7 @@ export default function Users() {
           }
         >
           <p className="text-sm text-[var(--color-wi-text-light)]">
-            Deactivate <span className="font-semibold">{deactivateUser.username}</span>? They will no longer be able to sign in.
+            Deactivate <span className="font-semibold">{deactivateUser.full_name || deactivateUser.username}</span>? They will no longer be able to sign in.
           </p>
         </Modal>
       )}

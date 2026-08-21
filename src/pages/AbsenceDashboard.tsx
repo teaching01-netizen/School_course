@@ -10,7 +10,7 @@ import EmptyState from '../components/ui/EmptyState';
 import useInstituteMeta from '../hooks/useInstituteMeta';
 import { shiftZoneMonthKey, startOfZoneMonthKey, utcISOToZoneDate } from '../utils/timezone';
 
-type Teacher = { id: string; username: string; role: string };
+type Teacher = { id: string; username: string; full_name?: string | null; role: string };
 
 function friendlyDashboardError(error: unknown): string {
   const msg = typeof error === 'object' && error !== null && 'message' in error
@@ -116,7 +116,7 @@ export default function AbsenceDashboard() {
             <option value="">All Teachers</option>
             {teachers.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.username}
+                {t.full_name || t.username}
               </option>
             ))}
           </select>
@@ -135,7 +135,7 @@ export default function AbsenceDashboard() {
               <thead>
                 <tr className="border-b border-wi-line">
                   <th scope="col" className="text-left py-2 px-2 font-semibold">ID</th>
-                  <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
+                  <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold"></th>
                 </tr>
               </thead>
@@ -143,7 +143,7 @@ export default function AbsenceDashboard() {
                 {teachers.map((t) => (
                   <tr key={t.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.id}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>
+                    <td className="py-2 px-2 text-xs text-[var(--color-wi-text)]">{t.full_name || t.username}</td>
                     <td className="py-2 px-2">
                       <Button
                         variant="primary"

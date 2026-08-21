@@ -32,6 +32,8 @@ type UploadJobStatusResponse = {
   details?: CRMStudentScheduleConflictDetails | Record<string, unknown> | null;
 };
 
+type CycleConfig = { id: string; label: string; display_name?: string | null; start_date?: string | null; end_date?: string | null };
+
 
 
 function formatBytes(bytes: number): string {
@@ -102,6 +104,8 @@ export default function CrmAdmin() {
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [cycles, setCycles] = useState<CycleConfig[]>([]);
+  const [cycleDraft, setCycleDraft] = useState({ id: "", display_name: "", start_date: "", end_date: "" });
   const fileRef = useRef<HTMLInputElement>(null);
 
   const poll = useCallback(async (jid: string) => {
@@ -122,6 +126,27 @@ export default function CrmAdmin() {
     const t = setInterval(() => void poll(jobID), 1500);
     return () => clearInterval(t);
   }, [jobID, poll]);
+
+  const loadCycles = useCallback(async () => {
+    try { setCycles(await apiJson<CycleConfig[]>("/api/v1/crm/cycles", { method: "GET" })); } catch { /* optional admin lookup */ }
+  }, []);
+
+  useEffect(() => { void loadCycles(); }, [loadCycles]);
+
+  const saveCycle = async () => {
+    if (!cycleDraft.id.trim() || !cycleDraft.display_name.trim()) return;
+    const editing = cycles.some((cycle) => cycle.id === cycleDraft.id);
+    try {
+      await apiJson(`/api/v1/crm/cycles${editing ? `/${encodeURIComponent(cycleDraft.id)}` : ""}`, {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(cycleDraft),
+      });
+      addToast("success", "Cycle saved");
+      setCycleDraft({ id: "", display_name: "", start_date: "", end_date: "" });
+      await loadCycles();
+    } catch (err) { addToast("error", err instanceof Error ? err.message : "Cycle save failed"); }
+  };
 
   const handleFileSelect = (file: File | null) => {
     if (!file) {
@@ -229,6 +254,20 @@ export default function CrmAdmin() {
           </p>
         </div>
       </div>
+
+      <section className="mb-6 rounded-lg border border-wi-line bg-white p-4">
+        <h2 className="text-sm font-semibold text-[var(--color-wi-text)]">Cycle configuration</h2>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <input aria-label="Cycle ID" className="rounded-sm border border-wi-line px-2 py-1.5 text-sm" placeholder="Cycle ID" value={cycleDraft.id} onChange={(e) => setCycleDraft((d) => ({ ...d, id: e.target.value }))} />
+          <input aria-label="Cycle name" className="rounded-sm border border-wi-line px-2 py-1.5 text-sm" placeholder="Name" value={cycleDraft.display_name} onChange={(e) => setCycleDraft((d) => ({ ...d, display_name: e.target.value }))} />
+          <input aria-label="Cycle start" type="date" className="rounded-sm border border-wi-line px-2 py-1.5 text-sm" value={cycleDraft.start_date} onChange={(e) => setCycleDraft((d) => ({ ...d, start_date: e.target.value }))} />
+          <input aria-label="Cycle end" type="date" className="rounded-sm border border-wi-line px-2 py-1.5 text-sm" value={cycleDraft.end_date} onChange={(e) => setCycleDraft((d) => ({ ...d, end_date: e.target.value }))} />
+        </div>
+        <button type="button" className="mt-3 rounded-sm bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white" onClick={() => void saveCycle()}>Save cycle</button>
+        <div className="mt-3 space-y-1 text-xs text-[var(--color-wi-text-light)]">
+          {cycles.map((cycle) => <button type="button" key={cycle.id} className="block hover:underline" onClick={() => setCycleDraft({ id: cycle.id, display_name: cycle.display_name ?? cycle.label, start_date: cycle.start_date ?? "", end_date: cycle.end_date ?? "" })}>{cycle.display_name ?? cycle.label} {cycle.start_date && cycle.end_date ? `(${cycle.start_date} to ${cycle.end_date})` : ""}</button>)}
+        </div>
+      </section>
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-6 text-sm">

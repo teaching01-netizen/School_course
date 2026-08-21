@@ -24,13 +24,14 @@ var (
 )
 
 type CourseApplyRequest struct {
-	CourseID        pgtype.UUID
-	LegacyCourseID  string
-	Aggregate       normalize.LegacyCourseAggregate
-	ObservedAt      time.Time
-	InstituteTZ     string
-	ShadowMode      bool
-	RealtimeEnabled bool
+	CourseID                  pgtype.UUID
+	LegacyCourseID            string
+	Aggregate                 normalize.LegacyCourseAggregate
+	ObservedAt                time.Time
+	InstituteTZ               string
+	ShadowMode                bool
+	RealtimeEnabled           bool
+	AllowConstraintViolations bool
 }
 
 // FaultPoint is an injectable failure boundary used by deterministic integration tests.
@@ -99,6 +100,12 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, legacyCourseLockKey(a.source, request.LegacyCourseID)); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("lock legacy course %s: %w", request.LegacyCourseID, err)
 	}
+	// Lock on code as well (order: id then code) to prevent code collisions during update.
+	if request.Aggregate.Course.Code != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, a.source+":code:"+request.Aggregate.Course.Code); err != nil {
+			return ScheduleApplyResult{}, fmt.Errorf("lock legacy course code %s: %w", request.Aggregate.Course.Code, err)
+		}
+	}
 	qtx := a.q.WithTx(tx)
 	previous, err := qtx.SnapshotGet(ctx, sqldb.SnapshotGetParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -106,17 +113,21 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	// The unchanged-hash fast path may only fire when the previous run
 	// applied the whole aggregate; a partial snapshot must stay retryable.
+	// Additionally, verify local code and references still match (integrity check).
 	if err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
-		if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course metadata: %w", err)
+		if a.fastPathIntegrityValid(ctx, tx, request) {
+			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course metadata: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE external_refs SET last_seen_at=$1 WHERE source=$2 AND entity_type='course' AND external_id=$3`, request.ObservedAt, a.source, request.LegacyCourseID); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course mapping: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("commit unchanged legacy course: %w", err)
+			}
+			return ScheduleApplyResult{SourceHash: sourceHash, AppliedAt: request.ObservedAt}, nil
 		}
-		if _, err := tx.Exec(ctx, `UPDATE external_refs SET last_seen_at=$1 WHERE source=$2 AND entity_type='course' AND external_id=$3`, request.ObservedAt, a.source, request.LegacyCourseID); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course mapping: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("commit unchanged legacy course: %w", err)
-		}
-		return ScheduleApplyResult{SourceHash: sourceHash, AppliedAt: request.ObservedAt}, nil
+		// Integrity check failed, fall through to full apply (will record conflict via R2/R3).
 	}
 	if request.ShadowMode {
 		if err := tx.Commit(ctx); err != nil {
@@ -126,30 +137,93 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	teacherID, err := a.resolveReference(ctx, tx, "teacher", request.Aggregate.Course.TeacherID)
 	if err != nil {
-		return ScheduleApplyResult{}, err
+		if errors.Is(err, ErrMissingReference) {
+			if _, recordErr := qtx.ConflictInsert(ctx, sqldb.ConflictInsertParams{
+				EntityType:    "course",
+				ExternalID:    request.LegacyCourseID,
+				ConflictType:  "missing_reference:teacher",
+				Category:      "missing_reference",
+				SourcePayload: fmt.Sprintf(`{"reference_type":"teacher","reference_id":%q}`, request.Aggregate.Course.TeacherID),
+				LocalPayload:  "{}",
+				Message:       pgtype.Text{String: fmt.Sprintf("teacher reference %s not found for legacy course %s", request.Aggregate.Course.TeacherID, request.LegacyCourseID), Valid: true},
+			}); recordErr != nil && !errors.Is(recordErr, pgx.ErrNoRows) {
+				return ScheduleApplyResult{}, fmt.Errorf("record missing teacher reference: %w", recordErr)
+			}
+			if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:teacher' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("close missing teacher reference: %w", ignoreErr)
+			}
+			teacherID = pgtype.UUID{} // zero UUID
+		} else {
+			return ScheduleApplyResult{}, err
+		}
 	}
 	if err := a.hitFault("after_teacher_mapping_resolution"); err != nil {
 		return ScheduleApplyResult{}, err
 	}
 	subjectID, err := a.resolveReference(ctx, tx, "subject", request.Aggregate.Course.SubjectID)
 	if err != nil {
-		return ScheduleApplyResult{}, err
+		if errors.Is(err, ErrMissingReference) {
+			if _, recordErr := qtx.ConflictInsert(ctx, sqldb.ConflictInsertParams{
+				EntityType:    "course",
+				ExternalID:    request.LegacyCourseID,
+				ConflictType:  "missing_reference:subject",
+				Category:      "missing_reference",
+				SourcePayload: fmt.Sprintf(`{"reference_type":"subject","reference_id":%q}`, request.Aggregate.Course.SubjectID),
+				LocalPayload:  "{}",
+				Message:       pgtype.Text{String: fmt.Sprintf("subject reference %s not found for legacy course %s", request.Aggregate.Course.SubjectID, request.LegacyCourseID), Valid: true},
+			}); recordErr != nil && !errors.Is(recordErr, pgx.ErrNoRows) {
+				return ScheduleApplyResult{}, fmt.Errorf("record missing subject reference: %w", recordErr)
+			}
+			if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:subject' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("close missing subject reference: %w", ignoreErr)
+			}
+			subjectID = pgtype.UUID{} // zero UUID
+		} else {
+			return ScheduleApplyResult{}, err
+		}
 	}
 	if err := a.hitFault("after_subject_mapping_resolution"); err != nil {
 		return ScheduleApplyResult{}, err
 	}
+	// Wrap updateCourse in a SAVEPOINT to handle code collisions gracefully.
+	if _, err := tx.Exec(ctx, `SAVEPOINT course_update`); err != nil {
+		return ScheduleApplyResult{}, fmt.Errorf("savepoint course update: %w", err)
+	}
+	// Read current code before update to retain it on collision.
+	var currentCode string
+	if err := tx.QueryRow(ctx, `SELECT code FROM courses WHERE id=$1`, request.CourseID).Scan(&currentCode); err != nil {
+		return ScheduleApplyResult{}, fmt.Errorf("read course code for savepoint: %w", err)
+	}
+	codeCollision := false
 	if err := a.updateCourse(ctx, tx, request, teacherID, subjectID, sourceHash); err != nil {
-		// A source change that collides with native uniqueness (e.g. the
-		// legacy course now reuses another local course's code) can never be
-		// resolved by retrying: record it as an admin-visible conflict outside
-		// the aborted transaction before surfacing the error.
 		if isUniqueViolation(err) {
-			_ = tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT course_update`); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("rollback course update savepoint: %w", err)
+			}
+			// Record conflict in-tx, then re-run updateCourse with the retained current code.
 			if recordErr := a.recordCourseCodeConflict(ctx, request, request.Aggregate.Course.Code, err); recordErr != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("%w (recording conflict failed: %v)", err, recordErr)
 			}
+			if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='course_code_conflict' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("close course code conflict: %w", ignoreErr)
+			}
+			// Re-run updateCourse with retained code to apply the rest of the aggregate.
+			retainedRequest := request
+			retainedRequest.Aggregate.Course.Code = currentCode
+			if err := a.updateCourse(ctx, tx, retainedRequest, teacherID, subjectID, sourceHash); err != nil {
+				return ScheduleApplyResult{}, err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_source_code=$1, legacy_code_conflict=true WHERE id=$2`, request.Aggregate.Course.Code, request.CourseID); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("store legacy course code conflict: %w", err)
+			}
+			codeCollision = true
+		} else {
+			return ScheduleApplyResult{}, err
 		}
-		return ScheduleApplyResult{}, err
+	} else {
+		if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT course_update`); err != nil {
+			return ScheduleApplyResult{}, fmt.Errorf("release course update savepoint: %w", err)
+		}
 	}
 	// Mirror courses.teacher_id into course_teachers as the primary row so
 	// legacy-synced courses keep the INV-001 invariant established by
@@ -174,12 +248,13 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	scheduleApplier := &ScheduleApplier{source: a.source, fault: a.fault}
 	scheduleRequest := ScheduleApplyRequest{
-		CourseID:       request.CourseID,
-		LegacyCourseID: request.LegacyCourseID,
-		TeacherID:      teacherID,
-		Aggregate:      request.Aggregate,
-		ObservedAt:     request.ObservedAt,
-		InstituteTZ:    loc.String(),
+		CourseID:                  request.CourseID,
+		LegacyCourseID:            request.LegacyCourseID,
+		TeacherID:                 teacherID,
+		Aggregate:                 request.Aggregate,
+		ObservedAt:                request.ObservedAt,
+		InstituteTZ:               loc.String(),
+		AllowConstraintViolations: request.AllowConstraintViolations,
 	}
 	skipped, err = scheduleApplier.applyDomain(ctx, tx, qtx, scheduleRequest, loc, sourceHash)
 	if err != nil {
@@ -192,7 +267,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 		return ScheduleApplyResult{}, err
 	}
 	quality := "ok"
-	if skipped > 0 {
+	if skipped > 0 && !request.AllowConstraintViolations {
 		quality = "partial"
 	}
 	if _, err := qtx.SnapshotUpsert(ctx, sqldb.SnapshotUpsertParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID, CanonicalData: string(canonical), SourceHash: sourceHash, ParserVersion: 1, ObservedAt: timestamp(request.ObservedAt), Quality: quality}); err != nil {
@@ -209,6 +284,13 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	if err := a.hitFault("after_outbox_insert"); err != nil {
 		return ScheduleApplyResult{}, err
+	}
+	// R7: auto-resolve conflicts that this apply healed.
+	// Best-effort: non-fatal if resolution fails.
+	codeAppliedCleanly := !codeCollision
+	_ = a.resolveHealedConflicts(ctx, tx, request, teacherID, subjectID, codeAppliedCleanly)
+	if _, err := tx.Exec(ctx, `DELETE FROM legacy_sync_dead_letters WHERE job_type='legacy_refresh_course' AND external_id=$1`, request.LegacyCourseID); err != nil {
+		return ScheduleApplyResult{}, fmt.Errorf("clear completed legacy dead letter %s: %w", request.LegacyCourseID, err)
 	}
 	if err := a.hitFault("before_commit"); err != nil {
 		return ScheduleApplyResult{}, err
@@ -240,8 +322,8 @@ func (a *CourseApplier) recordCourseCodeConflict(ctx context.Context, request Co
 	}
 	message := fmt.Sprintf("legacy course %s code %q conflicts with an existing local course (%s)", request.LegacyCourseID, code, constraint)
 	if _, err := a.pool.Exec(ctx, `
-		INSERT INTO legacy_sync_conflicts (entity_type, external_id, conflict_type, category, source_payload, message)
-		SELECT 'course', $1, 'course_code_conflict', 'database_constraint', $2::jsonb, $3
+		INSERT INTO legacy_sync_conflicts (entity_type, external_id, conflict_type, category, source_payload, message, status, resolved_at)
+		SELECT 'course', $1, 'course_code_conflict', 'database_constraint', $2::jsonb, $3, 'ignored', now()
 		WHERE NOT EXISTS (
 			SELECT 1 FROM legacy_sync_conflicts
 			WHERE entity_type = 'course' AND external_id = $1
@@ -288,6 +370,9 @@ func (a *CourseApplier) updateCourse(ctx context.Context, tx pgx.Tx, request Cou
 }
 func (a *CourseApplier) mirrorPrimaryTeacher(ctx context.Context, tx pgx.Tx, courseID, teacherID pgtype.UUID) error {
 	if !teacherID.Valid {
+		if _, err := tx.Exec(ctx, `DELETE FROM course_teachers WHERE course_id=$1 AND is_primary=true`, courseID); err != nil {
+			return fmt.Errorf("remove stale primary teacher %s: %w", courseID, err)
+		}
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `
@@ -312,6 +397,75 @@ func (a *CourseApplier) hitFault(name string) error {
 	}
 	if err := a.fault.Hit(name); err != nil {
 		return fmt.Errorf("legacy course fault %s: %w", name, err)
+	}
+	return nil
+}
+
+// fastPathIntegrityValid checks whether the local course state still matches the
+// aggregate code and references for the fast-path to be safe.
+func (a *CourseApplier) fastPathIntegrityValid(ctx context.Context, tx pgx.Tx, request CourseApplyRequest) bool {
+	// Verify local code still matches the aggregate code.
+	var currentCode string
+	if err := tx.QueryRow(ctx, `SELECT code FROM courses WHERE id=$1`, request.CourseID).Scan(&currentCode); err != nil {
+		return false
+	}
+	if currentCode != request.Aggregate.Course.Code {
+		return false
+	}
+	// Verify teacher reference still resolves.
+	if request.Aggregate.Course.TeacherID != "" {
+		if _, err := a.resolveReference(ctx, tx, "teacher", request.Aggregate.Course.TeacherID); err != nil {
+			return false
+		}
+	}
+	// Verify subject reference still resolves.
+	if request.Aggregate.Course.SubjectID != "" {
+		if _, err := a.resolveReference(ctx, tx, "subject", request.Aggregate.Course.SubjectID); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// resolveHealedConflicts resolves open conflicts that this apply healed.
+// It is best-effort: errors are returned but should not fail the apply.
+func (a *CourseApplier) resolveHealedConflicts(ctx context.Context, tx pgx.Tx, request CourseApplyRequest, teacherID, subjectID pgtype.UUID, codeAppliedCleanly bool) error {
+	if codeAppliedCleanly {
+		if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_code_conflict=false, legacy_source_code=NULL WHERE id=$1`, request.CourseID); err != nil {
+			return fmt.Errorf("clear healed course code conflict for %s: %w", request.LegacyCourseID, err)
+		}
+	}
+	// If code applied cleanly, resolve code-related conflicts.
+	if codeAppliedCleanly {
+		for _, conflictType := range []string{"course_code_conflict", "code_collision"} {
+			if _, err := tx.Exec(ctx, `
+				UPDATE legacy_sync_conflicts
+				SET status='resolved', resolved_at=now()
+				WHERE entity_type='course' AND external_id=$1 AND conflict_type=$2 AND status='open'
+			`, request.LegacyCourseID, conflictType); err != nil {
+				return fmt.Errorf("resolve %s for %s: %w", conflictType, request.LegacyCourseID, err)
+			}
+		}
+	}
+	// If teacher reference is valid, resolve missing teacher reference conflicts.
+	if teacherID.Valid {
+		if _, err := tx.Exec(ctx, `
+			UPDATE legacy_sync_conflicts
+			SET status='resolved', resolved_at=now()
+			WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:teacher' AND status='open'
+		`, request.LegacyCourseID); err != nil {
+			return fmt.Errorf("resolve missing_reference:teacher for %s: %w", request.LegacyCourseID, err)
+		}
+	}
+	// If subject reference is valid, resolve missing subject reference conflicts.
+	if subjectID.Valid {
+		if _, err := tx.Exec(ctx, `
+			UPDATE legacy_sync_conflicts
+			SET status='resolved', resolved_at=now()
+			WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:subject' AND status='open'
+		`, request.LegacyCourseID); err != nil {
+			return fmt.Errorf("resolve missing_reference:subject for %s: %w", request.LegacyCourseID, err)
+		}
 	}
 	return nil
 }

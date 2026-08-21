@@ -4,6 +4,7 @@ import { apiJson } from "../api/client";
 type AuthUser = {
   id: string;
   username: string;
+  full_name?: string | null;
   role: "Admin" | "Teacher";
 };
 

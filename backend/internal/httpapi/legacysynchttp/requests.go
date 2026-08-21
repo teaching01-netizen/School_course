@@ -67,3 +67,11 @@ func limitFromRequest(r *http.Request, defaultLimit, maxLimit int32) int32 {
 	}
 	return int32(value)
 }
+
+func offsetFromRequest(r *http.Request) int32 {
+	value, err := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 32)
+	if err != nil || value < 0 {
+		return 0
+	}
+	return int32(value)
+}

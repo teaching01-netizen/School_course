@@ -36,6 +36,10 @@ type UpdateCourseCommand struct {
 	Hour         *int32
 	StudentCount *int32
 	CourseType   *string
+	CycleSet     bool
+	CycleID      *string
+	ExpirySet    bool
+	ExpiryDays   *int32
 }
 
 // UpdateCourseResult reports the outcome of a successful teacher-set update.
@@ -62,6 +66,8 @@ type CreateCourseCommand struct {
 	Hour         pgtype.Int4
 	StudentCount pgtype.Int4
 	CourseType   string
+	CycleID      *string
+	ExpiryDays   *int32
 }
 
 // CreateCourseResult reports the outcome of a successful course creation.

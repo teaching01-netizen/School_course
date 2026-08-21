@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync"
 	"warwick-institute/internal/legacysync/apply"
+	sourceclient "warwick-institute/internal/legacysync/client"
 	"warwick-institute/internal/legacysync/normalize"
 )
 
@@ -87,6 +89,8 @@ func studentsDirectoryPage(rowOf string, withRow bool) string {
 
 func newStudentSyncer(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server) *courseSyncer {
 	t.Helper()
+	// Pacing is covered by the client's own tests; keep these tests fast.
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	client, err := legacysync.NewClient(srv.URL, "u", "p")
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +98,7 @@ func newStudentSyncer(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server) *c
 	q := sqldb.New(pool)
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	// Sequential profile lookups (1 worker) keep these tests deterministic.
-	return newCourseSyncer(pool, q, client, apply.NewMasterDataService(pool, q, "studenttest"), nil, nil, "Asia/Bangkok", log, 1)
+	return newCourseSyncer(pool, q, client, apply.NewMasterDataService(pool, q, "studenttest"), nil, nil, "Asia/Bangkok", log, 1, 30*time.Minute)
 }
 
 func TestSyncStudentProfiles_FetchesOneRowPerKnownWCode(t *testing.T) {
@@ -262,6 +266,64 @@ func TestListStudentWcodes_FiltersToDirectoryShape(t *testing.T) {
 	}
 	if len(wcodes) != 3 {
 		t.Fatalf("listStudentWcodes = %v, want exactly 3 distinct W-codes", wcodes)
+	}
+}
+
+// studentRateLimitedServer answers the student search with HTTP 429, carrying
+// a text/html content type exactly like the live site (transport.go rejects
+// non-HTML replies with the skip-class ErrUnexpectedContentType before it ever
+// sees the status code). Login flows normally so the profile phase is what
+// hits the rate limit.
+func studentRateLimitedServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Account/Login":
+			http.SetCookie(w, &http.Cookie{Name: ".AspNetCore.Antiforgery.abc", Value: "af", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "s1", Path: "/"})
+			_, _ = w.Write([]byte(`<html><form action="/Account/Login" method="post"><input name="__RequestVerificationToken" value="login-token" /></form></html>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/Account/Login":
+			_, _ = w.Write([]byte(`<html><a href="/Account/Logout">logout</a></html>`))
+		case r.URL.Path == "/Admin/Students":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`<html><body>Too Many Requests</body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestSyncStudentProfiles_SystemicRateLimitAbortsRun pins the profile-phase
+// systemic guard: when the source rate-limits a lookup (429), the whole phase
+// must fail with an error carrying the rate-limit sentinel instead of
+// silently skipping that wcode and reporting success — otherwise every
+// reconcile would keep hammering a throttled source with a green run record.
+func TestSyncStudentProfiles_SystemicRateLimitAbortsRun(t *testing.T) {
+	pool := mainLookupTestPool(t)
+	ctx := context.Background()
+	cleanupStudentRows(t, pool)
+	t.Cleanup(func() { cleanupStudentRows(t, pool) })
+
+	srv := studentRateLimitedServer(t)
+	syncer := newStudentSyncer(t, pool, srv)
+
+	suffix := digitsOnly(fmt.Sprintf("%d", time.Now().UnixNano()))
+	if _, err := pool.Exec(ctx, `INSERT INTO students (wcode, full_name, notes) VALUES ($1, 'Rate Limited', '')`, "W7021"+suffix); err != nil {
+		t.Fatal(err)
+	}
+
+	profiles, err := syncer.syncStudentProfiles(ctx)
+	if err == nil {
+		t.Fatal("syncStudentProfiles: want error when the source rate limits, got nil")
+	}
+	if !errors.Is(err, sourceclient.ErrRateLimited) {
+		t.Fatalf("syncStudentProfiles error = %v, want an error carrying the rate-limit sentinel", err)
+	}
+	if len(profiles) != 0 {
+		t.Fatalf("profiles = %d, want 0 on abort", len(profiles))
 	}
 }
 

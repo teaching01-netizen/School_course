@@ -46,6 +46,8 @@ type Course = {
   student_count: number | null;
   course_type: string | null;
   legacy_course_id: string | null;
+  has_overlap?: boolean;
+  has_conflict?: boolean;
 };
 
 // 120 live courses: even indexes Private, odd General; every third course has
@@ -65,6 +67,8 @@ const LIVE_COURSES: Course[] = Array.from({ length: 120 }, (_, i) => ({
   student_count: null,
   course_type: i % 2 === 0 ? "Private" : "General",
   legacy_course_id: null,
+  has_overlap: i === 1,
+  has_conflict: i === 0,
 }));
 
 const ARCHIVED_COURSES: Course[] = Array.from({ length: 10 }, (_, i) => ({
@@ -142,6 +146,15 @@ describe("Courses filters and pagination", () => {
     expect(fetches).toHaveLength(1);
     expect(fetches[0]).toBe("/api/v1/courses?limit=50&offset=0");
     expect(fetches[0]).not.toContain("status=");
+  });
+
+  it("shows red conflict statuses and green clear statuses in the course table", async () => {
+    renderCourses();
+    await waitForFirstPage();
+    expect(screen.getByLabelText("Conflict detected")).toBeTruthy();
+    expect(screen.getByLabelText("Overlap detected")).toBeTruthy();
+    expect(screen.getAllByLabelText("No conflict").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("No overlap").length).toBeGreaterThan(0);
   });
 
   it("loads the archived bucket lazily when the tab is opened", async () => {
@@ -232,7 +245,10 @@ describe("Courses filters and pagination", () => {
     renderCourses();
     await waitForFirstPage();
 
-    expect(screen.getByRole("table")).toHaveClass("table-fixed");
+    const table = screen.getByRole("table");
+    expect(table).toHaveClass("table-fixed");
+    expect(table).toHaveClass("min-w-[66rem]");
+    expect(table.querySelectorAll("col")).toHaveLength(table.querySelectorAll("thead th").length);
 
     await userEvent.click(screen.getByText("Next"));
     await waitFor(() => {

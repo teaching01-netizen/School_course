@@ -51,25 +51,57 @@ func httpTimeoutFromEnv() time.Duration {
 }
 
 // maxConcurrentFromEnv returns how many requests may be in flight against
-// the legacy site at once. The default (16) gives a large speedup over the
-// historical 2 without hammering the site; raise or lower with
+// the legacy site at once. The default (32) gives a large speedup over the
+// historical 8 without hammering the site; raise or lower with
 // LEGACY_SYNC_MAX_CONCURRENT.
 func maxConcurrentFromEnv() int {
 	raw := os.Getenv("LEGACY_SYNC_MAX_CONCURRENT")
 	if raw == "" {
-		return 16
+		return 32
 	}
 	if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 		return parsed
 	}
-	return 16
+	return 32
+}
+
+// maxRequestsPerMinuteFromEnv returns the rolling per-minute cap on requests
+// issued to the legacy site, enforced by the client's token-bucket budget.
+// The default (720, ~12 requests/sec) keeps bursts bounded so egress stays
+// steady; raise or lower with LEGACY_SYNC_MAX_REQUESTS_PER_MINUTE.
+func maxRequestsPerMinuteFromEnv() int {
+	raw := os.Getenv("LEGACY_SYNC_MAX_REQUESTS_PER_MINUTE")
+	if raw == "" {
+		return 720
+	}
+	if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+		return parsed
+	}
+	return 720
+}
+
+// maxEgressBytesPerMinuteFromEnv returns the rolling per-minute cap on bytes
+// downloaded from the legacy site, enforced by the client's token-bucket
+// budget. The default (200 MiB) bounds the provider's egress bill while still
+// allowing full crawls; override with LEGACY_SYNC_MAX_EGRESS_BYTES_PER_MINUTE
+// (byte counts only).
+func maxEgressBytesPerMinuteFromEnv() int64 {
+	raw := os.Getenv("LEGACY_SYNC_MAX_EGRESS_BYTES_PER_MINUTE")
+	if raw == "" {
+		return 200 << 20
+	}
+	if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed >= 0 {
+		return parsed
+	}
+	return 200 << 20
 }
 
 // minRequestIntervalFromEnv returns the global minimum spacing between
-// requests to the legacy site ("politeness" pacing). The default is 0 — no
-// pacing — because the circuit breaker and bounded concurrency already
-// protect the site. Set LEGACY_SYNC_MIN_REQUEST_INTERVAL (Go duration, e.g.
-// "500ms") to restore the historical one-request-per-interval behavior.
+// requests to the legacy site ("politeness" pacing). The default is 0 —
+// disabled — so the concurrency semaphore and the per-minute budget govern
+// throughput instead of a client-wide slot lock; override with
+// LEGACY_SYNC_MIN_REQUEST_INTERVAL (Go duration, e.g. "500ms"), or set it to
+// "0" to keep pacing disabled explicitly.
 func minRequestIntervalFromEnv() time.Duration {
 	raw := os.Getenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL")
 	if raw == "" {
@@ -91,7 +123,12 @@ type clientOptions struct {
 // WithMaxBodyBytes raises the per-response body cap beyond the default
 // 2 MiB. The archived course listing on the old site is several MB.
 func WithMaxBodyBytes(n int64) ClientOption {
-	return func(o *clientOptions) { o.maxBodyBytes = n }
+	return func(o *clientOptions) {
+		if n > 16<<20 {
+			n = 16 << 20
+		}
+		o.maxBodyBytes = n
+	}
 }
 
 func NewClient(baseURL, username, password string, opts ...ClientOption) (*Client, error) {
@@ -103,16 +140,27 @@ func NewClient(baseURL, username, password string, opts ...ClientOption) (*Clien
 	if maxBodyBytes == 0 {
 		maxBodyBytes = 2 << 20
 	}
+	if maxBodyBytes > 16<<20 {
+		maxBodyBytes = 16 << 20
+	}
 	maxConcurrent := maxConcurrentFromEnv()
+	if maxConcurrent < 1 {
+		maxConcurrent = 32
+	}
+	if maxConcurrent > 128 {
+		maxConcurrent = 128
+	}
 	httpClient := &http.Client{Timeout: httpTimeoutFromEnv(), Transport: httpTransportForConcurrency(maxConcurrent)}
 	source, err := sourceclient.New(sourceclient.Config{
-		BaseURL:            baseURL,
-		Username:           username,
-		Password:           password,
-		HTTPClient:         httpClient,
-		MaxBodyBytes:       maxBodyBytes,
-		MaxConcurrent:      maxConcurrent,
-		MinRequestInterval: minRequestIntervalFromEnv(),
+		BaseURL:                 baseURL,
+		Username:                username,
+		Password:                password,
+		HTTPClient:              httpClient,
+		MaxBodyBytes:            maxBodyBytes,
+		MaxConcurrent:           maxConcurrent,
+		MinRequestInterval:      minRequestIntervalFromEnv(),
+		MaxRequestsPerMinute:    maxRequestsPerMinuteFromEnv(),
+		MaxEgressBytesPerMinute: maxEgressBytesPerMinuteFromEnv(),
 	})
 	if err != nil {
 		return nil, err
@@ -145,6 +193,12 @@ func (c *Client) Login() error {
 // parallel profile lookups from this so no caller queues more than the
 // client can carry.
 func (c *Client) MaxConcurrent() int { return c.source.MaxConcurrent() }
+
+func (c *Client) CircuitState() (bool, time.Time) { return c.source.CircuitState() }
+
+func (c *Client) EgressStats() (int, int64, time.Time) { return c.source.EgressStats() }
+
+func (c *Client) BudgetExceeded() bool { return c.source.BudgetExceeded() }
 
 func (c *Client) FetchSchedulePage(legacyCourseID string) (string, error) {
 	return c.FetchSchedulePageContext(context.Background(), legacyCourseID)
@@ -322,6 +376,19 @@ func (c *Client) dropCourseForm() {
 	c.formMu.Lock()
 	c.courseForm = nil
 	c.formMu.Unlock()
+}
+
+// FetchArchivedWithPlainPage submits the archived search using a token derived from plainPage HTML without an extra GET.
+func (c *Client) FetchArchivedWithPlainPage(ctx context.Context, plainPage string) (string, error) {
+	form, err := parseCourseSearchForm(plainPage)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.submitCourseSearch(ctx, form)
+	if err != nil {
+		return "", err
+	}
+	return string(resp.Body), nil
 }
 
 func (c *Client) submitCourseSearch(ctx context.Context, form *courseSearchForm) (sourceclient.Response, error) {

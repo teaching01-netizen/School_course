@@ -12,6 +12,20 @@ export type Student = {
   student_phone?: string;
   email?: string;
   status?: string;
+  conflicts?: StudentConflict[];
+};
+
+export type StudentConflict = {
+  kind: "student_overlap";
+  current_session_id: string;
+  current_start_at: string;
+  current_end_at: string;
+  conflicting_session_id: string;
+  conflicting_course_id: string;
+  conflicting_course_code: string;
+  conflicting_course_name: string;
+  conflicting_start_at: string;
+  conflicting_end_at: string;
 };
 
 export interface Teacher {

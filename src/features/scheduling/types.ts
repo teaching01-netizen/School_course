@@ -7,6 +7,18 @@ export type Session = {
   start_at: string;
   end_at: string;
   version: number;
+  conflicts?: SessionConflict[];
+};
+
+export type SessionConflict = {
+  kind: "room_overlap" | "teacher_overlap";
+  resource: "room" | "teacher";
+  conflicting_session_id: string;
+  conflicting_course_id: string;
+  conflicting_course_code: string;
+  conflicting_course_name: string;
+  conflicting_start_at: string;
+  conflicting_end_at: string;
 };
 
 export type Room = { id: string; name: string; capacity: number | null };

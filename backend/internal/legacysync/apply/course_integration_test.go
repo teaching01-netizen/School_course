@@ -691,11 +691,11 @@ func TestCourseApply_HonorsConfiguredTimezone(t *testing.T) {
 
 // TestCourseApply_CodeCollisionRecordsSyncConflict pins CB-08: when a source
 // course code change collides with an existing local course's unique code,
-// the failure must become an actionable database_constraint conflict in the
-// admin health view instead of only an opaque retrying job error.
+// the apply succeeds with the retained code, a conflict is recorded, and
+// quality is 'partial'.
 func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
-	request, _ := legacyCourseRequest(t, pool, master.source, suffix, false)
+	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
 	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
@@ -706,13 +706,27 @@ func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), `INSERT INTO courses (code, name) VALUES ($1, 'Native owner')`, takenCode); err != nil {
 		t.Fatal(err)
 	}
+	originalCode := request.Aggregate.Course.Code
 	request.Aggregate.Course.Code = takenCode
 	request.ObservedAt = request.ObservedAt.Add(time.Hour)
-	_, err := applier.Apply(t.Context(), request)
-	if err == nil {
-		t.Fatal("code collision apply unexpectedly succeeded")
+	result, err := applier.Apply(t.Context(), request)
+	if err != nil {
+		t.Fatalf("code collision apply failed: %v", err)
+	}
+	if !result.Changed {
+		t.Fatal("code collision apply should report changed")
 	}
 
+	// The code should be retained (not changed to the conflicting code).
+	var retainedCode string
+	if err := pool.QueryRow(t.Context(), `SELECT code FROM courses WHERE id=$1`, courseID).Scan(&retainedCode); err != nil {
+		t.Fatal(err)
+	}
+	if retainedCode != originalCode {
+		t.Fatalf("course code = %q, want retained original code %q", retainedCode, originalCode)
+	}
+
+	// A conflict was recorded.
 	var category, conflictType, status string
 	if err := pool.QueryRow(t.Context(), `
 		SELECT category, conflict_type, status FROM legacy_sync_conflicts
@@ -721,7 +735,16 @@ func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	).Scan(&category, &conflictType, &status); err != nil {
 		t.Fatalf("no database_constraint conflict recorded: %v", err)
 	}
-	if category != "database_constraint" || conflictType != "course_code_conflict" || status != "open" {
-		t.Fatalf("conflict = %q/%q/%q, want database_constraint/course_code_conflict/open", category, conflictType, status)
+	if category != "database_constraint" || conflictType != "course_code_conflict" || status == "open" {
+		t.Fatalf("conflict = %q/%q/%q, want database_constraint/course_code_conflict/non-open", category, conflictType, status)
+	}
+
+	// Migration code collisions are materialized successfully.
+	var quality string
+	if err := pool.QueryRow(t.Context(), `SELECT quality FROM legacy_entity_snapshots WHERE source=$1 AND entity_type='course' AND external_id=$2`, master.source, request.LegacyCourseID).Scan(&quality); err != nil {
+		t.Fatal(err)
+	}
+	if quality != "ok" {
+		t.Fatalf("snapshot quality = %q, want ok", quality)
 	}
 }

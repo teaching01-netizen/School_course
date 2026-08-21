@@ -54,6 +54,7 @@ func newFormCacheServer(t *testing.T) *formCacheServer {
 // must reuse the cached form: one page read, two search POSTs. This is what
 // turns the student directory sync from 2N requests into N+1.
 func TestClient_SearchStudentsPageContext_ReusesCachedForm(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv := newFormCacheServer(t)
 	client, err := NewClient(srv.srv.URL, "user", "pass")
 	if err != nil {
@@ -79,6 +80,7 @@ func TestClient_SearchStudentsPageContext_ReusesCachedForm(t *testing.T) {
 // A re-login re-issues the antiforgery cookie, so previously parsed tokens
 // are invalid: the cache must be dropped and the page read again.
 func TestClient_SearchStudentsPageContext_RefetchesFormAfterRelogin(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv := newFormCacheServer(t)
 	client, err := NewClient(srv.srv.URL, "user", "pass")
 	if err != nil {
@@ -101,6 +103,7 @@ func TestClient_SearchStudentsPageContext_RefetchesFormAfterRelogin(t *testing.T
 // A failed search drops the cached form and retries once with a freshly read
 // page, so a stale token heals instead of silently losing students.
 func TestClient_SearchStudentsPageContext_RefetchesFormAfterFailure(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv := newFormCacheServer(t)
 	client, err := NewClient(srv.srv.URL, "user", "pass")
 	if err != nil {

@@ -134,9 +134,13 @@ circuit breaker and the per-request timeout still protect the legacy site):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LEGACY_SYNC_MAX_CONCURRENT` | `16` | Requests in flight against the legacy site at once (was a hardcoded 2); also sizes the student-profile lookup pool and the keep-alive connection pool |
+| `LEGACY_SYNC_MAX_CONCURRENT` | `32` | Requests in flight against the legacy site at once (clamped to 128); also sizes the student-profile lookup pool and the keep-alive connection pool |
 | `LEGACY_SYNC_MIN_REQUEST_INTERVAL` | `0` (disabled) | Global pacing between requests; set e.g. `500ms` to restore the historical one-request-per-interval politeness |
-| `LEGACY_SYNC_WORKERS` | `8` | Runner processes draining the legacy job queue in parallel |
+| `LEGACY_SYNC_MAX_REQUESTS_PER_MINUTE` | `720` | Per-minute request budget; when exhausted the run pauses until the window resets |
+| `LEGACY_SYNC_MAX_EGRESS_BYTES_PER_MINUTE` | `200 MiB` | Per-minute download budget; like the request budget, a systemic limit |
+| `LEGACY_SYNC_WORKERS` | client `MaxConcurrent` (32) | Runner processes draining the legacy job queue in parallel |
+| `LEGACY_SYNC_RECONCILE_WORKERS` | `min(MaxConcurrent, 16)` | Worker pool for the full-reconcile DB phases; `0`/`1` force the exact serial path |
+| `LEGACY_SYNC_POOL_MAX_CONNS` | worker-derived budget (`max(64, 2×workers)`) | pgx pool connection cap; wins over a `pool_max_conns` URL parameter, which is otherwise preserved |
 | `LEGACY_SYNC_HTTP_TIMEOUT` | `120s` | Per-request budget including redirects and body download |
 
 Two request-reduction behaviors are always on: the search-form antiforgery

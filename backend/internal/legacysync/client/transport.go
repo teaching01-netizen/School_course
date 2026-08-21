@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,10 @@ func (c *Client) request(ctx context.Context, method, path string, query, form u
 			return Response{}, ErrUnsafeEndpoint
 		}
 	}
+	if err := c.reserveBudget(); err != nil {
+		return Response{}, err
+	}
+	defer c.releaseBudgetEstimate()
 	target, err := url.Parse(c.baseURL + path)
 	if err != nil {
 		return Response{}, fmt.Errorf("build source URL: %w", err)
@@ -50,6 +55,12 @@ func (c *Client) request(ctx context.Context, method, path string, query, form u
 		}
 	}
 	defer response.Body.Close()
+	if response.ContentLength > 0 && response.ContentLength > c.maxBodyBytes {
+		// Abort before reading the body: no body bytes are counted against
+		// the egress budget (the admission reservation is released by the
+		// caller's defer).
+		return Response{}, ErrResponseTooLarge
+	}
 	limited := io.LimitReader(response.Body, c.maxBodyBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
@@ -58,6 +69,7 @@ func (c *Client) request(ctx context.Context, method, path string, query, form u
 		}
 		return Response{}, ErrSourceUnavailable
 	}
+	c.recordEgressBytes(len(data))
 	if int64(len(data)) > c.maxBodyBytes {
 		return Response{}, ErrResponseTooLarge
 	}
@@ -66,7 +78,8 @@ func (c *Client) request(ctx context.Context, method, path string, query, form u
 		return Response{}, ErrUnexpectedContentType
 	}
 	if response.StatusCode == http.StatusTooManyRequests {
-		return Response{}, ErrRateLimited
+		retryAfter := parseRetryAfter(response.Header.Get("Retry-After"))
+		return Response{}, &RateLimitedError{RetryAfter: retryAfter, StatusCode: response.StatusCode}
 	}
 	if response.StatusCode >= http.StatusInternalServerError {
 		return Response{}, ErrSourceUnavailable
@@ -77,8 +90,27 @@ func (c *Client) request(ctx context.Context, method, path string, query, form u
 	return Response{StatusCode: response.StatusCode, Path: path, Body: data}, nil
 }
 
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(value); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		return d
+	}
+	return 0
+}
+
 func (c *Client) waitForRequestSlot(ctx context.Context) error {
 	c.rateMu.Lock()
+	prevNext := c.nextRequestAt
 	now := time.Now()
 	start := now
 	if c.nextRequestAt.After(now) {
@@ -96,6 +128,11 @@ func (c *Client) waitForRequestSlot(ctx context.Context) error {
 	case <-timer.C:
 		return nil
 	case <-ctx.Done():
+		c.rateMu.Lock()
+		if c.nextRequestAt.Equal(start.Add(c.minRequestInterval)) {
+			c.nextRequestAt = prevNext
+		}
+		c.rateMu.Unlock()
 		return ctx.Err()
 	}
 }

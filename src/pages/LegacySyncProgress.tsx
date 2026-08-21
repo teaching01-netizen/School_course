@@ -32,7 +32,7 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
             <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{syncPhaseCopy(progress.phase)}</p>
           </div>
         </div>
-        <p className="text-xs font-medium text-[var(--color-wi-text-light)]">Updates automatically every 2 seconds</p>
+        <p className="text-xs font-medium text-[var(--color-wi-text-light)]">{!isComplete && !isFailed ? "Live — updates every 2 seconds while syncing" : "Snapshot from last run"}</p>
       </div>
 
       {percent !== null ? (
@@ -66,7 +66,7 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
         </div>
       </dl>
 
-      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
+      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-t-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
         <span>Current item: <strong className="font-medium text-[var(--color-wi-text)]">{progress.current_entity ?? "Preparing next stage"}</strong></span>
         <span>Last update: {formatTime(progress.updated_at)}</span>
       </div>

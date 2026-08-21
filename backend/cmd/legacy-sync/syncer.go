@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -54,8 +56,33 @@ func buildCourseIndex(result *parser.CourseListResult) *courseIndex {
 // (legacy_last_synced_at is set by a real, non-shadow successful apply —
 // never in shadow mode or after a failed apply) is left alone on every
 // later sync. Courses that never synced — or are active — keep syncing.
+func defaultRefreshInterval(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 30 * time.Minute
+	}
+	return d
+}
+
 func shouldSkipArchivedSync(archived bool, lastSynced pgtype.Timestamptz) bool {
 	return archived && lastSynced.Valid
+}
+
+func (s *courseSyncer) withinRefreshCooldown(lastSynced pgtype.Timestamptz) bool {
+	if !lastSynced.Valid {
+		return false
+	}
+	cooldown := 30 * time.Minute
+	if raw := s.refreshInterval(); raw > 0 {
+		cooldown = raw
+	}
+	return time.Since(lastSynced.Time) < cooldown
+}
+
+func (s *courseSyncer) refreshInterval() time.Duration {
+	if s.refreshIntervalDur > 0 {
+		return s.refreshIntervalDur
+	}
+	return 30 * time.Minute
 }
 
 // courseSyncer runs one linked legacy course through the whole refresh
@@ -76,13 +103,15 @@ type courseSyncer struct {
 	// studentProfileWorkers bounds the parallel /Admin/Students lookups
 	// during profile sync; 1 runs the historical sequential loop.
 	studentProfileWorkers int
+	refreshIntervalDur    time.Duration
 
 	indexMu      sync.Mutex
 	courseList   *parser.CourseListResult
 	courseListAt time.Time
+	sf           singleflight.Group
 }
 
-func newCourseSyncer(pool *pgxpool.Pool, q *sqldb.Queries, client *legacysync.Client, master *apply.MasterDataService, courseApp *apply.CourseApplier, scheduleApp *apply.ScheduleApplier, instituteTZ string, log *slog.Logger, studentProfileWorkers int) *courseSyncer {
+func newCourseSyncer(pool *pgxpool.Pool, q *sqldb.Queries, client *legacysync.Client, master *apply.MasterDataService, courseApp *apply.CourseApplier, scheduleApp *apply.ScheduleApplier, instituteTZ string, log *slog.Logger, studentProfileWorkers int, refreshInterval time.Duration) *courseSyncer {
 	return &courseSyncer{
 		pool:                  pool,
 		q:                     q,
@@ -93,6 +122,7 @@ func newCourseSyncer(pool *pgxpool.Pool, q *sqldb.Queries, client *legacysync.Cl
 		instituteTZ:           instituteTZ,
 		log:                   log,
 		studentProfileWorkers: studentProfileWorkers,
+		refreshIntervalDur:    defaultRefreshInterval(refreshInterval),
 	}
 }
 
@@ -103,57 +133,41 @@ func newCourseSyncer(pool *pgxpool.Pool, q *sqldb.Queries, client *legacysync.Cl
 // concurrently — they are independent reads — cutting the directory
 // observation from two round trips to one.
 func (s *courseSyncer) fetchCourseList(ctx context.Context) (*parser.CourseListResult, error) {
-	var (
-		plainPage, archivedPage string
-		errMu                   sync.Mutex
-		fetchErr                error
-		wg                      sync.WaitGroup
-	)
-	record := func(err error) {
-		if err == nil {
-			return
+	val, err, _ := s.sf.Do("courseList", func() (interface{}, error) {
+		plainPage, err := s.client.FetchCourseListPageContext(ctx)
+		if err != nil {
+			return nil, err
 		}
-		errMu.Lock()
-		if fetchErr == nil {
-			fetchErr = err
+		archivedPage, err := s.fetchArchivedWithPlainToken(ctx, plainPage)
+		if err != nil {
+			return nil, err
 		}
-		errMu.Unlock()
-	}
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		page, err := s.client.FetchCourseListPageContext(ctx)
-		record(err)
-		if err == nil {
-			plainPage = page
+		plain, err := parser.ParseCourseList(plainPage)
+		if err != nil {
+			return nil, err
 		}
-	}()
-	go func() {
-		defer wg.Done()
-		page, err := s.client.FetchArchivedCourseListPageContext(ctx)
-		record(err)
-		if err == nil {
-			archivedPage = page
+		archived, err := parser.ParseCourseList(archivedPage)
+		if err != nil {
+			return nil, err
 		}
-	}()
-	wg.Wait()
-	if fetchErr != nil {
-		return nil, fetchErr
-	}
-	plain, err := parser.ParseCourseList(plainPage)
+		merged := parser.MergeCourseLists(plain, archived)
+		s.log.Info("legacy course list fetched",
+			"plain", len(plain.Courses),
+			"archived", len(archived.Courses),
+			"merged", len(merged.Courses))
+		return merged, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	archived, err := parser.ParseCourseList(archivedPage)
-	if err != nil {
-		return nil, err
+	return val.(*parser.CourseListResult), nil
+}
+
+func (s *courseSyncer) fetchArchivedWithPlainToken(ctx context.Context, plainPage string) (string, error) {
+	if page, err := s.client.FetchArchivedWithPlainPage(ctx, plainPage); err == nil {
+		return page, nil
 	}
-	merged := parser.MergeCourseLists(plain, archived)
-	s.log.Info("legacy course list fetched",
-		"plain", len(plain.Courses),
-		"archived", len(archived.Courses),
-		"merged", len(merged.Courses))
-	return merged, nil
+	return s.client.FetchArchivedCourseListPageContext(ctx)
 }
 
 // loadCourseIndex returns the indexed course directory, cached for five
@@ -161,17 +175,22 @@ func (s *courseSyncer) fetchCourseList(ctx context.Context) (*parser.CourseListR
 // every course.
 func (s *courseSyncer) loadCourseIndex(ctx context.Context) (*courseIndex, error) {
 	s.indexMu.Lock()
-	defer s.indexMu.Unlock()
 	if s.courseList != nil && time.Since(s.courseListAt) < 5*time.Minute {
-		return buildCourseIndex(s.courseList), nil
+		idx := buildCourseIndex(s.courseList)
+		s.indexMu.Unlock()
+		return idx, nil
 	}
+	s.indexMu.Unlock()
 	parsed, err := s.fetchCourseList(ctx)
 	if err != nil {
 		return nil, err
 	}
+	s.indexMu.Lock()
 	s.courseList = parsed
 	s.courseListAt = time.Now()
-	return buildCourseIndex(parsed), nil
+	idx := buildCourseIndex(parsed)
+	s.indexMu.Unlock()
+	return idx, nil
 }
 
 // applyCourseMasterData makes the master data referenced by a course
@@ -223,6 +242,13 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 		s.log.Info("skipping archived legacy course (already synced once)", "legacy_course_id", legacyID)
 		return nil
 	}
+	if s.withinRefreshCooldown(linked.lastSyncedAt) {
+		snap, err := s.q.SnapshotGet(ctx, sqldb.SnapshotGetParams{Source: "legacy_warwick", EntityType: "course", ExternalID: legacyID})
+		if err == nil && snap.Quality == "ok" && snap.SourceHash != "" {
+			s.log.Info("skipping legacy course within cooldown (snapshot ok)", "legacy_course_id", legacyID)
+			return nil
+		}
+	}
 	page, err := s.client.FetchSchedulePageContext(ctx, legacyID)
 	if err != nil {
 		return err
@@ -267,25 +293,27 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 		return err
 	}
 	if _, err := s.courseApp.Apply(ctx, apply.CourseApplyRequest{
-		CourseID:        linked.courseID,
-		LegacyCourseID:  legacyID,
-		Aggregate:       *aggregate,
-		ObservedAt:      observedAt,
-		InstituteTZ:     s.instituteTZ,
-		ShadowMode:      control.ShadowMode,
-		RealtimeEnabled: control.RealtimeEnabled,
+		CourseID:                  linked.courseID,
+		LegacyCourseID:            legacyID,
+		Aggregate:                 *aggregate,
+		ObservedAt:                observedAt,
+		InstituteTZ:               s.instituteTZ,
+		ShadowMode:                control.ShadowMode,
+		RealtimeEnabled:           control.RealtimeEnabled,
+		AllowConstraintViolations: true,
 	}); err != nil {
 		return err
 	}
 	_, err = s.scheduleApp.Apply(ctx, apply.ScheduleApplyRequest{
-		CourseID:        linked.courseID,
-		LegacyCourseID:  legacyID,
-		TeacherID:       linked.teacherID,
-		Aggregate:       *aggregate,
-		ObservedAt:      observedAt,
-		InstituteTZ:     s.instituteTZ,
-		ShadowMode:      control.ShadowMode,
-		RealtimeEnabled: control.RealtimeEnabled,
+		CourseID:                  linked.courseID,
+		LegacyCourseID:            legacyID,
+		TeacherID:                 linked.teacherID,
+		Aggregate:                 *aggregate,
+		ObservedAt:                observedAt,
+		InstituteTZ:               s.instituteTZ,
+		ShadowMode:                control.ShadowMode,
+		RealtimeEnabled:           control.RealtimeEnabled,
+		AllowConstraintViolations: true,
 	})
 	return err
 }

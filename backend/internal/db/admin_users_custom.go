@@ -18,14 +18,14 @@ func (q *Queries) AdminUserList(ctx context.Context, p AdminUserListParams) ([]U
 	var err error
 	if p.IncludeDeleted {
 		rows, err = q.db.Query(ctx, `
-			SELECT id, username, role, password_hash, password_version, deleted_at, created_at, updated_at
+			SELECT id, username, full_name, role, password_hash, password_version, deleted_at, created_at, updated_at
 			FROM users
 			WHERE ($1 = '' OR username ILIKE '%' || $1 || '%' OR id::text ILIKE '%' || $1 || '%')
 			ORDER BY username ASC
 		`, p.Search)
 	} else {
 		rows, err = q.db.Query(ctx, `
-			SELECT id, username, role, password_hash, password_version, deleted_at, created_at, updated_at
+			SELECT id, username, full_name, role, password_hash, password_version, deleted_at, created_at, updated_at
 			FROM users
 			WHERE deleted_at IS NULL
 			  AND ($1 = '' OR username ILIKE '%' || $1 || '%' OR id::text ILIKE '%' || $1 || '%')
@@ -40,7 +40,7 @@ func (q *Queries) AdminUserList(ctx context.Context, p AdminUserListParams) ([]U
 	var items []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.PasswordHash, &u.PasswordVersion, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.PasswordHash, &u.PasswordVersion, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, u)

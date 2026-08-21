@@ -7,7 +7,7 @@ import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 
-type UserRow = { id: string; username: string; role: "Admin" | "Teacher" };
+type UserRow = { id: string; username: string; full_name?: string | null; role: "Admin" | "Teacher" };
 type RoomRow = { id: string; name: string; capacity: number | null };
 type AvailabilityRow = { id: string; start_at: string; end_at: string };
 
@@ -35,7 +35,10 @@ export default function Availability() {
 
   const selectedLabel = useMemo(() => {
     if (!selectedId) return "";
-    if (mode === "teacher") return teachers.find((t) => t.id === selectedId)?.username ?? selectedId;
+    if (mode === "teacher") {
+      const teacher = teachers.find((t) => t.id === selectedId);
+      return teacher ? (teacher.full_name || teacher.username) : selectedId;
+    }
     return rooms.find((r) => r.id === selectedId)?.name ?? selectedId;
   }, [mode, selectedId, teachers, rooms]);
 
@@ -172,7 +175,7 @@ export default function Availability() {
             {mode === "teacher" &&
               teachers.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.username} ({t.id.slice(0, 8)}…)
+                  {t.full_name || t.username} ({t.id.slice(0, 8)}…)
                 </option>
               ))}
             {mode === "room" &&

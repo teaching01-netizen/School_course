@@ -9,7 +9,13 @@ import type { ActiveCoursePayload, ActiveCourseSubject } from "../../types";
 
 type ActiveCoursesResponse = {
   subjects: ActiveCourseSubject[];
+  total_subjects?: number;
+  total_courses?: number;
+  limit?: number;
+  offset?: number;
 };
+
+const SUBJECT_PAGE_SIZE = 50;
 
 type SubjectDraft = {
   subjectId: string;
@@ -25,6 +31,9 @@ export function ActiveCoursesSection() {
   const [originals, setOriginals] = useState<Record<string, string | null>>({});
   const [savingSubjects, setSavingSubjects] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const [totalSubjects, setTotalSubjects] = useState(0);
+  const [subjectOffset, setSubjectOffset] = useState(0);
+  const [pageLoading, setPageLoading] = useState(false);
 
   const filteredSubjects = useMemo(() => {
     if (!searchQuery.trim()) return subjects;
@@ -55,12 +64,17 @@ export function ActiveCoursesSection() {
 
   const hasBulkDirty = dirtySubjectIds.length >= 2;
 
-  async function loadSubjects() {
+  async function loadSubjects(offset = subjectOffset) {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await apiJson<ActiveCoursesResponse>("/api/v1/admin/active-courses", { method: "GET" });
+      const data = await apiJson<ActiveCoursesResponse>(
+        `/api/v1/admin/active-courses?limit=${SUBJECT_PAGE_SIZE}&offset=${offset}`,
+        { method: "GET" },
+      );
       setSubjects(data.subjects);
+      setTotalSubjects(data.total_subjects ?? data.subjects.length);
+      setSubjectOffset(data.offset ?? offset);
       const initDrafts: Record<string, SubjectDraft> = {};
       const initOriginals: Record<string, string | null> = {};
       for (const subject of data.subjects) {
@@ -77,6 +91,15 @@ export function ActiveCoursesSection() {
       addToast("error", message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadPage(offset: number) {
+    setPageLoading(true);
+    try {
+      await loadSubjects(offset);
+    } finally {
+      setPageLoading(false);
     }
   }
 
@@ -252,7 +275,7 @@ export function ActiveCoursesSection() {
       />
       {searchQuery.trim() && (
         <p className="text-xs text-[var(--color-wi-text-light)]">
-          Showing {filteredSubjects.length} of {subjects.length} subjects
+          Showing {filteredSubjects.length} of {subjects.length} loaded subjects
         </p>
       )}
 
@@ -321,7 +344,7 @@ export function ActiveCoursesSection() {
                       />
                       <span className="flex-1">
                         <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_code}</span>
-                        <span className="ml-2 text-[var(--color-wi-text-light)]">{course.course_name}</span>
+                        <span className="ml-2 text-[var(--color-wi-text-light)]">{subject.subject_name}</span>
                         <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label})</span>
                       </span>
                       {!dirty && course.is_active ? (
@@ -387,6 +410,16 @@ export function ActiveCoursesSection() {
             <Button variant="primary" size="sm" onClick={() => void saveAllDirty()}>
               Save All
             </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {totalSubjects > SUBJECT_PAGE_SIZE ? (
+        <div className="flex items-center justify-between border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
+          <span>Showing {subjectOffset + 1}–{Math.min(subjectOffset + subjects.length, totalSubjects)} of {totalSubjects} subjects</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" disabled={subjectOffset === 0 || pageLoading} onClick={() => void loadPage(Math.max(0, subjectOffset - SUBJECT_PAGE_SIZE))}>Previous</Button>
+            <Button variant="secondary" size="sm" disabled={subjectOffset + subjects.length >= totalSubjects || pageLoading} onClick={() => void loadPage(subjectOffset + SUBJECT_PAGE_SIZE)}>Next</Button>
           </div>
         </div>
       ) : null}

@@ -176,6 +176,60 @@ func TestClient_ClassifiesSourceFailuresAndLimitsBody(t *testing.T) {
 	}
 }
 
+func TestClient_ZeroMinRequestIntervalDoesNotSlotConcurrentRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Account/Login" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := New(Config{BaseURL: server.URL, Username: "user", Password: "pass", MinRequestInterval: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.authenticated = true
+	start := time.Now()
+	errCh := make(chan error, 4)
+	for range 4 {
+		go func() {
+			_, requestErr := client.Do(context.Background(), Request{Method: http.MethodGet, Path: "/Admin/Courses"})
+			errCh <- requestErr
+		}()
+	}
+	for range 4 {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+	elapsed := time.Since(start)
+	// Four 150ms requests with no global slotting finish in roughly one
+	// latency; a 500ms global slot would force at least 4*500ms.
+	if elapsed >= 500*time.Millisecond {
+		t.Fatalf("4 concurrent requests took %v; MinRequestInterval=0 must not slot requests", elapsed)
+	}
+}
+
+func TestNewDefaultsAndClampsConcurrency(t *testing.T) {
+	client, err := New(Config{BaseURL: "https://example.invalid", Username: "user", Password: "pass", MaxConcurrent: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.MaxConcurrent(); got != 128 {
+		t.Fatalf("MaxConcurrent = %d, want clamp 128", got)
+	}
+	client, err = New(Config{BaseURL: "https://example.invalid", Username: "user", Password: "pass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.MaxConcurrent(); got != 32 {
+		t.Fatalf("MaxConcurrent = %d, want default 32", got)
+	}
+}
+
 func TestClient_CircuitBreakerStopsRepeatedSourceFailures(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

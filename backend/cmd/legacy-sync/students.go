@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
+	sourceclient "warwick-institute/internal/legacysync/client"
 	"warwick-institute/internal/legacysync/normalize"
 	"warwick-institute/internal/legacysync/parser"
 )
@@ -17,6 +19,21 @@ import (
 // that do not match (free text, placeholders) are not valid directory keys
 // and are skipped.
 var wcodeLookupRe = regexp.MustCompile(`^W\d+$`)
+
+// isSystemicProfileError classifies a profile-lookup failure that will not
+// heal within this run: the source is rate limiting us, we tripped our own
+// egress budget or circuit breaker, or the session can no longer authenticate.
+// Per-wcode search/parse failures (including 4xx and transient source 5xx)
+// keep their skip-and-retry-next-run behavior; a systemic failure instead
+// aborts the whole profile phase so the reconcile is marked failed and the
+// job retried with backoff instead of silently hammering a throttled source
+// with a green run record.
+func isSystemicProfileError(err error) bool {
+	return errors.Is(err, sourceclient.ErrRateLimited) ||
+		errors.Is(err, sourceclient.ErrEgressBudgetExceeded) ||
+		errors.Is(err, sourceclient.ErrCircuitOpen) ||
+		errors.Is(err, sourceclient.ErrAuthentication)
+}
 
 type StudentProfileProgress struct {
 	CurrentWCode  string
@@ -36,6 +53,10 @@ type StudentProfileProgress struct {
 // not know (deleted or never imported upstream) simply yields no profile.
 // Search/parse failures are logged and skipped per wcode so one flaky lookup
 // never aborts the whole reconcile; the wcode is simply retried next run.
+// Systemic failures — rate limiting, egress budget, open circuit, dead
+// session — abort the phase instead (see isSystemicProfileError), so the
+// reconcile is marked failed and retried with backoff rather than hammering
+// a throttled source while reporting success.
 //
 // Lookups run through a bounded worker pool sized by the client's in-flight
 // request cap (studentProfileWorkers) because per-wcode round trips dominate
@@ -71,6 +92,10 @@ func (s *courseSyncer) syncStudentProfiles(ctx context.Context, progressCallback
 		student *normalize.LegacyStudent // nil when the lookup failed or nothing matched
 		failed  bool
 	}
+	var (
+		firstErrMu sync.Mutex
+		firstErr   error
+	)
 	jobs := make(chan string)
 	results := make(chan lookupResult)
 	var wg sync.WaitGroup
@@ -84,6 +109,16 @@ func (s *courseSyncer) syncStudentProfiles(ctx context.Context, progressCallback
 				}
 				page, err := s.client.SearchStudentsPageContext(workCtx, wcode)
 				if err != nil {
+					if isSystemicProfileError(err) {
+						firstErrMu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						firstErrMu.Unlock()
+						cancelWork()
+						results <- lookupResult{wcode: wcode, failed: true}
+						return
+					}
 					s.log.Warn("legacy student profile lookup failed (skipping)", "wcode", wcode, "error", err)
 					results <- lookupResult{wcode: wcode, failed: true}
 					continue
@@ -143,6 +178,12 @@ func (s *courseSyncer) syncStudentProfiles(ctx context.Context, progressCallback
 				return nil, err
 			}
 		}
+	}
+	firstErrMu.Lock()
+	systemicErr := firstErr
+	firstErrMu.Unlock()
+	if systemicErr != nil {
+		return nil, systemicErr
 	}
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].WCode < profiles[j].WCode })
 	return profiles, nil

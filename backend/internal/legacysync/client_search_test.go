@@ -84,6 +84,7 @@ func assertSearchSubmission(t *testing.T, lastSubmission *atomic.Value, query st
 // page carries one: the POST returns the archived-only list, which would
 // silently shadow the active/draft courses.
 func TestClient_FetchCourseListPageContext_NeverSubmitsSearchForm(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	body := courseListPageBody(true, false)
 	srv, searchPosts, _ := legacySiteServer(t, body)
 	client, err := NewClient(srv.URL, "user", "pass")
@@ -103,6 +104,7 @@ func TestClient_FetchCourseListPageContext_NeverSubmitsSearchForm(t *testing.T) 
 }
 
 func TestClient_FetchArchivedCourseListPageContext_SubmitsActionlessForm(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv, searchPosts, lastSubmission := legacySiteServer(t, courseListPageBody(true, false))
 	client, err := NewClient(srv.URL, "user", "pass")
 	if err != nil {
@@ -125,6 +127,7 @@ func TestClient_FetchArchivedCourseListPageContext_SubmitsActionlessForm(t *test
 // The legacy action-based form must keep working alongside the
 // action-less live-page shape.
 func TestClient_FetchArchivedCourseListPageContext_SubmitsActionForm(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	srv, searchPosts, lastSubmission := legacySiteServer(t, courseListPageBody(true, true))
 	client, err := NewClient(srv.URL, "user", "pass")
 	if err != nil {
@@ -147,6 +150,7 @@ func TestClient_FetchArchivedCourseListPageContext_SubmitsActionForm(t *testing.
 // A page without the search form is an error, never a silent fallback: the
 // archived list must not vanish unnoticed.
 func TestClient_FetchArchivedCourseListPageContext_MissingFormErrors(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	body := courseListPageBody(false, false)
 	srv, searchPosts, _ := legacySiteServer(t, body)
 	client, err := NewClient(srv.URL, "user", "pass")
@@ -158,5 +162,61 @@ func TestClient_FetchArchivedCourseListPageContext_MissingFormErrors(t *testing.
 	}
 	if searchPosts.Load() != 0 {
 		t.Fatalf("search handler submissions = %d, want 0", searchPosts.Load())
+	}
+}
+
+// TestEgress_CourseIndexColdStartTwoHits pins the R-003 acceptance "cold
+// start does exactly 2 hits": the plain course list GET plus the archived
+// search POST submitted with the token derived from that same plain page —
+// no second GET to fetch the archived form. A regression back to 3 requests
+// would fail here.
+func TestEgress_CourseIndexColdStartTwoHits(t *testing.T) {
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
+	var listGets atomic.Int32
+	var searchPosts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Account/Login":
+			http.SetCookie(w, &http.Cookie{Name: ".AspNetCore.Antiforgery.abc", Value: "af", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "s1", Path: "/"})
+			_, _ = w.Write([]byte(`<html><form action="/Account/Login" method="post"><input name="__RequestVerificationToken" value="login-token" /></form></html>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/Account/Login":
+			_, _ = w.Write([]byte(`<html><a href="/Account/Logout">logout</a></html>`))
+		case r.Method == http.MethodGet && r.URL.Path == "/Admin/Courses":
+			listGets.Add(1)
+			_, _ = w.Write([]byte(courseListPageBody(true, false)))
+		case r.Method == http.MethodPost && r.URL.Path == "/Admin/Courses":
+			searchPosts.Add(1)
+			_, _ = w.Write([]byte("<p>ARCHIVED LIST</p>"))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, "user", "pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := client.FetchCourseListPageContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain, "course list") {
+		t.Fatalf("plain page = %q, want the live course list", plain)
+	}
+	archived, err := client.FetchArchivedWithPlainPage(context.Background(), plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(archived, "ARCHIVED LIST") {
+		t.Fatalf("archived page = %q, want the search response", archived)
+	}
+	if got := listGets.Load(); got != 1 {
+		t.Fatalf("course list GETs = %d, want 1 (archived form must reuse the plain page token)", got)
+	}
+	if got := searchPosts.Load(); got != 1 {
+		t.Fatalf("archived search POSTs = %d, want 1", got)
 	}
 }

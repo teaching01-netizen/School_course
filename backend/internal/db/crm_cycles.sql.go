@@ -10,12 +10,12 @@ import (
 )
 
 const crmCycleUpsert = `-- name: CrmCycleUpsert :one
-INSERT INTO crm_cycles (id, label)
-VALUES ($1, $2)
+INSERT INTO crm_cycles (id, label, source_kind)
+VALUES ($1, $2, 'imported')
 ON CONFLICT (id) DO UPDATE
 SET label = EXCLUDED.label,
     updated_at = now()
-RETURNING id, label, last_imported_at, created_at, updated_at
+RETURNING id, label, source_kind, import_key, display_name, start_date, end_date, last_imported_at, created_at, updated_at
 `
 
 type CrmCycleUpsertParams struct {
@@ -29,6 +29,11 @@ func (q *Queries) CrmCycleUpsert(ctx context.Context, arg CrmCycleUpsertParams) 
 	err := row.Scan(
 		&i.ID,
 		&i.Label,
+		&i.SourceKind,
+		&i.ImportKey,
+		&i.DisplayName,
+		&i.StartDate,
+		&i.EndDate,
 		&i.LastImportedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -47,7 +52,7 @@ func (q *Queries) CrmCyclesDeleteUnused(ctx context.Context) error {
 }
 
 const crmCyclesList = `-- name: CrmCyclesList :many
-SELECT id, label, last_imported_at, created_at, updated_at
+SELECT id, label, source_kind, import_key, display_name, start_date, end_date, last_imported_at, created_at, updated_at
 FROM crm_cycles
 ORDER BY label ASC
 `
@@ -64,6 +69,11 @@ func (q *Queries) CrmCyclesList(ctx context.Context) ([]CrmCycle, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Label,
+			&i.SourceKind,
+			&i.ImportKey,
+			&i.DisplayName,
+			&i.StartDate,
+			&i.EndDate,
 			&i.LastImportedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

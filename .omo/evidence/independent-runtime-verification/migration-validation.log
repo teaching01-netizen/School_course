@@ -1,0 +1,24 @@
+Independent runtime verification: migration validation
+
+Invocation:
+  npm run migrate:validate
+
+Observed:
+  PASS — 103 files; sequence contiguous 00001..00103; no convention errors.
+  The repository validator reported 35 data-insert warnings and exited
+  successfully.
+
+Invocation:
+  VALIDATE_STRICT=1 bash scripts/validate-migrations.sh
+
+Observed:
+  FAIL — strict mode promoted the same 35 historical data-insert warnings to
+  errors. The findings are in migrations 00004, 00008, 00028, 00061, 00075,
+  00079, 00087, 00092, 00093, and 00096; no 00103-specific lint error was
+  reported.
+
+Direct migration evidence:
+  00103_legacy_conflict_materialization.sql contains a multi-statement
+  dollar-quoted PL/pgSQL function at lines 14-31 without Goose
+  StatementBegin/StatementEnd markers. The integration runner therefore
+  splits the function at its first semicolon and PostgreSQL rejects it.

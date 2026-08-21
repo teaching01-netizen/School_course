@@ -17,6 +17,7 @@ type CardCourse = {
   id: string;
   code: string;
   name: string;
+  subject_name: string;
   level: number | null;
   cycle_label: string;
   cycle_id: string;
@@ -31,11 +32,29 @@ type CardGroup = {
   sitInRuleId: string | null;
 };
 
+type CourseLevelsPage = {
+  items: CourseLevelItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+function parseCourseLevelsPage(value: CourseLevelItem[] | CourseLevelsPage): CourseLevelsPage {
+  return Array.isArray(value)
+    ? { items: value, total: value.length, limit: value.length, offset: 0 }
+    : value;
+}
+
+const COURSE_PAGE_SIZE = 100;
+
 export function SitInRulesSection() {
   const { addToast } = useToast();
   const returnsDesk = useReturnsDesk();
   const { rules: sitInRules } = useSitInRules();
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
+  const [courseTotal, setCourseTotal] = useState(0);
+  const [courseOffset, setCourseOffset] = useState(0);
+  const [coursePageLoading, setCoursePageLoading] = useState(false);
   const [autoToggles, setAutoToggles] = useState<Record<string, boolean>>({});
   const [initialAutoToggles, setInitialAutoToggles] = useState<Record<string, boolean>>({});
   const [windowWeeks, setWindowWeeks] = useState<Record<string, number>>({});
@@ -52,15 +71,35 @@ export function SitInRulesSection() {
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
   const [rootCourseGroupMap, setRootCourseGroupMap] = useState<Map<string, RootCourseGroupInfo>>(new Map());
 
+  async function loadCoursePage(offset: number) {
+    setCoursePageLoading(true);
+    try {
+      const response = await apiJson<CourseLevelItem[] | CourseLevelsPage>(
+        `/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=${offset}`,
+        { method: "GET" },
+      );
+      const page = parseCourseLevelsPage(response);
+      setCourses(page.items);
+      setCourseTotal(page.total);
+      setCourseOffset(page.offset);
+      setEditLevels(Object.fromEntries(page.items.map((course) => [course.id, course.level])));
+    } finally {
+      setCoursePageLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
         const [coursesData, policiesResp, rootGroupsData] = await Promise.all([
-          apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" }),
+          apiJson<CourseLevelItem[] | CourseLevelsPage>(`/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=0`, { method: "GET" }),
           apiJson<PolicyResponse>("/api/v1/admin/absence-policies", { method: "GET" }),
           apiJson<RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" }),
         ]);
-        setCourses(coursesData);
+        const coursesPage = parseCourseLevelsPage(coursesData);
+        setCourses(coursesPage.items);
+        setCourseTotal(coursesPage.total);
+        setCourseOffset(coursesPage.offset);
         setRootCourseGroupMap(new Map(rootGroupsData.map(g => [g.id, g])));
         const rootPolicies = policiesResp.absence_policies?.root_course_groups ?? {};
         const toggles: Record<string, boolean> = {};
@@ -78,7 +117,7 @@ export function SitInRulesSection() {
         setWindowWeeks(weeks);
         setInitialWindowWeeks(initialWeeks);
         const levels: Record<string, number | null> = {};
-        for (const c of coursesData) {
+        for (const c of coursesPage.items) {
           levels[c.id] = c.level;
         }
         setEditLevels(levels);
@@ -170,6 +209,7 @@ export function SitInRulesSection() {
         id: c.id,
         code: c.code,
         name: c.name,
+        subject_name: c.subject_name,
         level: editLevels[c.id] ?? null,
         cycle_label: c.cycle_label,
         cycle_id: c.cycle_id,
@@ -415,7 +455,7 @@ export function SitInRulesSection() {
                     />
                     <div className="flex-1 min-w-0">
                       <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.code}</span>
-                      <span className="ml-2 text-[var(--color-wi-text-light)] truncate">{course.name}</span>
+                      <span className="ml-2 text-[var(--color-wi-text-light)] truncate">{course.subject_name}</span>
                       <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label})</span>
                     </div>
                     <LevelStepper
@@ -448,6 +488,16 @@ export function SitInRulesSection() {
           <p className="py-8 text-center text-sm text-[var(--color-wi-text-light)]">No course groups found.</p>
         ) : null}
       </div>
+
+      {courseTotal > COURSE_PAGE_SIZE ? (
+        <div className="mt-5 flex items-center justify-between border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
+          <span>Showing {courseOffset + 1}–{Math.min(courseOffset + courses.length, courseTotal)} of {courseTotal} courses</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" disabled={courseOffset === 0 || coursePageLoading} onClick={() => loadCoursePage(Math.max(0, courseOffset - COURSE_PAGE_SIZE))}>Previous</Button>
+            <Button variant="secondary" size="sm" disabled={courseOffset + courses.length >= courseTotal || coursePageLoading} onClick={() => loadCoursePage(courseOffset + COURSE_PAGE_SIZE)}>Next</Button>
+          </div>
+        </div>
+      ) : null}
 
       {bulkEditGroup ? (
         <Modal

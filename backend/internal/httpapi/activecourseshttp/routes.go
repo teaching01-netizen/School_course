@@ -1,7 +1,10 @@
 package activecourseshttp
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
@@ -43,6 +46,30 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, offset, paginated, err := parsePagination(r.URL.Query())
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_pagination", err.Error())
+		return
+	}
+	if paginated {
+		subjects, coursesBySubject, totalSubjects, totalCourses, err := s.deps.Q.ActiveCoursesListPaginated(r.Context(), limit, offset)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return
+		}
+		out, err := outSubjectDTOs(s, subjects, coursesBySubject)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		s.a.WriteJSON(w, http.StatusOK, map[string]any{
+			"subjects": out, "total_subjects": totalSubjects,
+			"total_courses": totalCourses, "limit": limit, "offset": offset,
+		})
+		return
+	}
+
 	subjects, coursesBySubject, err := s.deps.Q.ActiveCoursesList(r.Context())
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
@@ -50,20 +77,27 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	out, err := outSubjectDTOs(s, subjects, coursesBySubject)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"subjects": out})
+}
+
+func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesBySubject [][]sqldb.ActiveCourseCourseRow) ([]subjectDTO, error) {
 	out := make([]subjectDTO, 0, len(subjects))
 	for i, subj := range subjects {
 		subjID, err := s.a.UUIDString(subj.SubjectID)
 		if err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-			return
+			return nil, err
 		}
 		courses := coursesBySubject[i]
 		courseDTOs := make([]courseDTO, 0, len(courses))
 		for _, c := range courses {
 			cID, err := s.a.UUIDString(c.CourseID)
 			if err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
-				return
+				return nil, err
 			}
 			cycleID := ""
 			if c.CycleID.Valid {
@@ -86,7 +120,32 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]any{"subjects": out})
+	return out, nil
+}
+
+func parsePagination(query url.Values) (int, int, bool, error) {
+	_, hasLimit := query["limit"]
+	_, hasOffset := query["offset"]
+	if !hasLimit && !hasOffset {
+		return 0, 0, false, nil
+	}
+	limit := 50
+	if hasLimit {
+		value, err := strconv.Atoi(query.Get("limit"))
+		if err != nil || value < 1 || value > 200 {
+			return 0, 0, true, fmt.Errorf("limit must be between 1 and 200")
+		}
+		limit = value
+	}
+	offset := 0
+	if hasOffset {
+		value, err := strconv.Atoi(query.Get("offset"))
+		if err != nil || value < 0 {
+			return 0, 0, true, fmt.Errorf("offset must be non-negative")
+		}
+		offset = value
+	}
+	return limit, offset, true, nil
 }
 
 func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {

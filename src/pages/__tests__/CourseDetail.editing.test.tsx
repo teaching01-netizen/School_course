@@ -70,6 +70,7 @@ function baseImpl(path: string, init?: RequestInit) {
   if (path === "/api/v1/courses/course-1/crm-filter") return Promise.resolve({ enabled: false, locked: false, filter: null });
   if (path === "/api/v1/courses/course-1/students") return Promise.resolve([]);
   if (path === "/api/v1/courses/course-1/sessions") return Promise.resolve([]);
+  if (path === "/api/v1/courses/course-1/legacy-conflicts") return Promise.resolve({ course_id: "course-1", legacy_course_id: null, open_conflicts: [] });
   if (path === "/api/v1/rooms") return Promise.resolve([{ id: "room-1", name: "Room 101", capacity: 20 }]);
   if (path === "/api/v1/users?role=Teacher") return Promise.resolve(makeTeacherUsers());
   if (path === "/api/v1/subjects") return Promise.resolve(makeSubjects());

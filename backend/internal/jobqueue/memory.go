@@ -2,7 +2,7 @@ package jobqueue
 
 import (
 	"context"
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/hex"
 	"errors"
 	"sort"
@@ -118,7 +118,8 @@ func (s *MemoryStore) Retry(ctx context.Context, id, workerID string, now time.T
 		return nil
 	}
 	job.Status = "queued"
-	job.RunAfter = now.Add(time.Duration(job.Attempt) * time.Second)
+	delay := retryBackoff(job.Attempt, cause)
+	job.RunAfter = now.Add(delay)
 	return nil
 }
 
@@ -129,7 +130,7 @@ func copyJob(job Job) Job {
 
 func newID() string {
 	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
+	if _, err := crand.Read(value[:]); err != nil {
 		return hex.EncodeToString([]byte(time.Now().UTC().String()))
 	}
 	return hex.EncodeToString(value[:])

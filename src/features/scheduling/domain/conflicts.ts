@@ -33,7 +33,8 @@ export type ConflictDisplayCtx = {
 export function conflictHeadline(details: ConflictDetails, ctx: ConflictDisplayCtx = {}): string {
   const { kind, requested } = details;
   const room = requested.room_id ? ctx.roomsById?.get(requested.room_id)?.name ?? null : null;
-  const teacher = ctx.teachersById?.get(requested.teacher_id)?.username ?? null;
+  const requestedTeacher = ctx.teachersById?.get(requested.teacher_id);
+  const teacher = requestedTeacher ? (requestedTeacher.full_name || requestedTeacher.username) : null;
   const course = ctx.coursesById?.get(requested.course_id)?.code ?? null;
   switch (kind) {
     case "room_overlap":
@@ -81,8 +82,10 @@ export function conflictSharedResourceName(
       return item.room_id ? ctx.roomsById?.get(item.room_id)?.name ?? null : null;
     case "teacher_overlap":
     case "teacher_availability":
-    case "teacher_not_assigned_to_course":
-      return ctx.teachersById?.get(item.teacher_id)?.username ?? null;
+    case "teacher_not_assigned_to_course": {
+      const teacher = ctx.teachersById?.get(item.teacher_id);
+      return teacher ? (teacher.full_name || teacher.username) : null;
+    }
     default:
       return null;
   }
@@ -96,6 +99,6 @@ export function getRequestedLabel(
   const course = coursesById.get(requested.course_id);
   const teacher = teachersById.get(requested.teacher_id);
   const courseStr = course ? `${course.code}` : requested.course_id.slice(0, 8) + "…";
-  const teacherStr = teacher ? teacher.username : requested.teacher_id.slice(0, 8) + "…";
+  const teacherStr = teacher ? (teacher.full_name || teacher.username) : requested.teacher_id.slice(0, 8) + "…";
   return `${teacherStr} – ${courseStr}`;
 }

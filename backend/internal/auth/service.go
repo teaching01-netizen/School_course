@@ -127,6 +127,7 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (Aut
 	authed := AuthenticatedUser{
 		ID:              user.ID,
 		Username:        user.Username,
+		FullName:        user.FullName,
 		Role:            user.Role,
 		PasswordVersion: user.PasswordVersion,
 	}
@@ -206,6 +207,7 @@ func (s *Service) validateSessionRecord(ctx context.Context, sess Session) (Auth
 	return AuthenticatedUser{
 		ID:              user.ID,
 		Username:        user.Username,
+		FullName:        user.FullName,
 		Role:            user.Role,
 		PasswordVersion: user.PasswordVersion,
 	}, nil
@@ -297,9 +299,10 @@ func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) error {
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	return json.NewEncoder(w).Encode(map[string]any{
-		"id":       authedUser.ID.String(),
-		"username": authedUser.Username,
-		"role":     authedUser.Role,
+		"id":        authedUser.ID.String(),
+		"username":  authedUser.Username,
+		"full_name": authedUser.FullName,
+		"role":      authedUser.Role,
 	})
 }
 

@@ -1,7 +1,7 @@
 import { apiJson } from "@/api/client";
 import type { Room, Session } from "@/features/scheduling/types";
 import type { Student, User, Subject } from "@/types/shared";
-import type { Course, EditableTeacher } from "../types";
+import type { Course, EditableTeacher, LegacyCourseConflict } from "../types";
 
 export type CourseCrmFilter = {
   enabled: boolean;
@@ -13,6 +13,18 @@ export type InstituteTimeMeta = {
   institute_tz: string;
   server_now: string;
 };
+
+export type CourseCycle = {
+  id: string;
+  label: string;
+  display_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+};
+
+export function getCourseCycles(): Promise<CourseCycle[]> {
+  return apiJson<CourseCycle[]>("/api/v1/crm/cycles", { method: "GET" });
+}
 
 export function getCourse(courseId: string): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, { method: "GET" });
@@ -38,6 +50,8 @@ export function patchCourse(
     year?: number | null;
     hour?: number | null;
     student_count?: number | null;
+    cycle_id?: string | null;
+    expiry_days?: number | null;
   },
 ): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, {
@@ -95,4 +109,14 @@ export function getStudentByWcode(wcode: string): Promise<Student> {
 
 export function syncLegacyCourse(courseId: string): Promise<void> {
   return apiJson(`/api/v1/courses/${courseId}/legacy-sync`, { method: "POST" });
+}
+
+export type LegacyConflictsResponse = {
+  course_id: string;
+  legacy_course_id: string | null;
+  open_conflicts: LegacyCourseConflict[];
+};
+
+export function getCourseLegacyConflicts(courseId: string): Promise<LegacyConflictsResponse> {
+  return apiJson<LegacyConflictsResponse>(`/api/v1/courses/${courseId}/legacy-conflicts`);
 }

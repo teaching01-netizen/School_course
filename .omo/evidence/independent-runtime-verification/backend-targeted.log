@@ -1,0 +1,31 @@
+Independent runtime verification: backend
+Repository: /Users/rd-cream/Downloads/warwick-institute-ux-documentation copy 2
+Database: repository .env TEST_DATABASE_URL (value not recorded)
+
+Invocation:
+  cd backend
+  set -a; source ../.env; set +a
+  go test -count=1 -timeout=180s ./internal/legacysync/apply -run '^(TestScheduleApply_(ReusesStableLegacyScheduleIdentity|IdenticalAggregateIsNoOp|OverlappingScheduleSkippedAndRecorded|PartialApplyRetriesAfterConflictResolution|ShadowModeDoesNotStampOkSnapshot)|TestCourseApply_CodeCollisionRecordsSyncConflict)$'
+  go test -count=1 -timeout=180s ./internal/httpapi/courseshttp -run '^(TestCoursesList_|Test(GetCourse_ReturnsLegacyFields|ListCourses_IncludesLegacyFlag|UpdateLegacyLink_))'
+  go test -count=1 -timeout=180s ./internal/httpapi/legacysynchttp -run '^TestConflict(ResolveTransitions|IgnoreTransitions|SetStatusErrors)$'
+
+Observed:
+  FAIL ./internal/legacysync/apply
+  FAIL ./internal/httpapi/courseshttp
+  Both failures occur during test database setup while applying
+  00103_legacy_conflict_materialization.sql:
+    ERROR: unterminated dollar-quoted string at or near "$$
+    DECLARE teacher_has_windows boolean; room_has_windows boolean;
+    teacher_ok boolean; room_ok boolean;"
+  This prevents the overlap, partial-retry, stable-identity, shadow, code-
+  collision, and Courses API assertions from executing.
+
+  PASS ./internal/httpapi/legacysynchttp
+  ConflictResolveTransitions, ConflictIgnoreTransitions, and
+  ConflictSetStatusErrors passed.
+
+Independent unit/static follow-up:
+  go test -count=1 -timeout=120s ./internal/legacysync/apply -run '^(TestValidate|TestScheduleHash|TestMasterDataApplyRejectsMissingIdentity|TestDisabledPasswordHashIsDeterministicAndUnusable)'
+  PASS, package result ok.
+  go test -count=1 -timeout=120s ./internal/db -run '^Test(CodeDoesNotQueryDroppedCourseOrSubjectDeletedAtColumns|.*Migration.*)$'
+  PASS, package result ok.

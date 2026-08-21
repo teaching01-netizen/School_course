@@ -11,6 +11,7 @@ import (
 type AuthenticatedUser struct {
 	ID              uuid.UUID
 	Username        string
+	FullName        *string
 	Role            string
 	PasswordVersion int32
 }
@@ -33,6 +34,7 @@ type Session struct {
 type User struct {
 	ID              uuid.UUID
 	Username        string
+	FullName        *string
 	Role            string
 	PasswordHash    string
 	PasswordVersion int32

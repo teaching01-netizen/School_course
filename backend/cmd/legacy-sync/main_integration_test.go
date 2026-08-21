@@ -124,23 +124,28 @@ func TestLinkedCourseLookup_ExcludesDeletedAndUnlinkedCourses(t *testing.T) {
 // TestListLinkedLegacyCourses_SkipsArchivedAlreadySynced pins the sweep
 // filter behind "sync once, then skip": courses that are archived AND have
 // already been synced (legacy_last_synced_at set) are NOT listed for
-// enqueue every sweep. An archived course that has never synced is still
-// listed so its one-time sync happens, and active courses are unaffected.
+// enqueue every sweep, and courses synced within the refresh cooldown are
+// not re-listed until the interval passes. Archived-never-synced courses and
+// courses whose cooldown has elapsed are still listed so their sync happens.
 func TestListLinkedLegacyCourses_SkipsArchivedAlreadySynced(t *testing.T) {
 	pool := mainLookupTestPool(t)
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	activeSynced := "list-active-" + suffix
+	activeDue := "list-active-due-" + suffix
+	activeRecent := "list-active-recent-" + suffix
 	archivedSynced := "list-arch-synced-" + suffix
 	archivedUnsynced := "list-arch-unsynced-" + suffix
-	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived, legacy_last_synced_at) VALUES ($1, 'Active synced', $2, 'legacy', false, now())`, "list-a-"+suffix, activeSynced); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived, legacy_last_synced_at) VALUES ($1, 'Active due', $2, 'legacy', false, now() - interval '2 hours')`, "list-a-"+suffix, activeDue); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived, legacy_last_synced_at) VALUES ($1, 'Archived synced', $2, 'legacy', true, now())`, "list-b-"+suffix, archivedSynced); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived, legacy_last_synced_at) VALUES ($1, 'Active synced recently', $2, 'legacy', false, now())`, "list-b-"+suffix, activeRecent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived) VALUES ($1, 'Archived never synced', $2, 'legacy', true)`, "list-c-"+suffix, archivedUnsynced); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived, legacy_last_synced_at) VALUES ($1, 'Archived synced', $2, 'legacy', true, now())`, "list-c-"+suffix, archivedSynced); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO courses (code, name, legacy_course_id, source_kind, legacy_archived) VALUES ($1, 'Archived never synced', $2, 'legacy', true)`, "list-d-"+suffix, archivedUnsynced); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,22 +153,24 @@ func TestListLinkedLegacyCourses_SkipsArchivedAlreadySynced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range listed {
-		if id == archivedSynced {
-			t.Fatalf("listLinkedLegacyCourses returned already-synced archived course %q; it must not be enqueued every sweep", id)
+	for _, id := range []string{archivedSynced, activeRecent} {
+		for _, got := range listed {
+			if got == id {
+				t.Fatalf("listLinkedLegacyCourses returned %q; it is within its refresh cooldown or already synced and must not be enqueued every sweep", id)
+			}
 		}
 	}
-	foundActive, foundArchivedUnsynced := false, false
+	foundActiveDue, foundArchivedUnsynced := false, false
 	for _, id := range listed {
-		if id == activeSynced {
-			foundActive = true
+		if id == activeDue {
+			foundActiveDue = true
 		}
 		if id == archivedUnsynced {
 			foundArchivedUnsynced = true
 		}
 	}
-	if !foundActive {
-		t.Fatalf("listLinkedLegacyCourses = %v, want active course %q included", listed, activeSynced)
+	if !foundActiveDue {
+		t.Fatalf("listLinkedLegacyCourses = %v, want active course past its cooldown %q included", listed, activeDue)
 	}
 	if !foundArchivedUnsynced {
 		t.Fatalf("listLinkedLegacyCourses = %v, want never-synced archived course %q included (one-time sync)", listed, archivedUnsynced)

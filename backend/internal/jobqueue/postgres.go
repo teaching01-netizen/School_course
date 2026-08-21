@@ -72,12 +72,23 @@ func (s *PostgresStore) Complete(ctx context.Context, id, workerID string) error
 	return nil
 }
 
-func (s *PostgresStore) Retry(ctx context.Context, id, workerID string, _ time.Time, cause error) error {
+func (s *PostgresStore) Retry(ctx context.Context, id, workerID string, now time.Time, cause error) error {
 	jobID, err := parseUUID(id)
 	if err != nil {
 		return err
 	}
-	owned, err := s.q.LegacyJobRetryOwned(ctx, jobID, pgtype.Text{String: workerID, Valid: true}, cause.Error())
+	attempt, err := s.q.LegacyJobAttemptGet(ctx, jobID)
+	if err != nil {
+		// Job vanished (already completed/dead): nothing to retry. A no-op
+		// keeps the drain cycle going instead of aborting every processor.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	delay := retryBackoff(int(attempt), cause)
+	runAfter := pgtype.Timestamptz{Time: now.Add(delay), Valid: true}
+	owned, err := s.q.LegacyJobRetryOwnedWithRunAfter(ctx, jobID, pgtype.Text{String: workerID, Valid: true}, cause.Error(), runAfter)
 	if err != nil {
 		return err
 	}

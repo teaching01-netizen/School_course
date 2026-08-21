@@ -102,7 +102,8 @@ export function SessionAvailabilityStatus({
     // Carry the conflict into the slot finder so the next page can restate
     // the reason instead of greeting a blank search form.
     const requestedRoomName = details.requested.room_id ? roomsById?.get(details.requested.room_id)?.name ?? null : null;
-    const requestedTeacherName = teachersById.get(details.requested.teacher_id)?.username ?? null;
+    const requestedTeacher = teachersById.get(details.requested.teacher_id);
+    const requestedTeacherName = requestedTeacher ? (requestedTeacher.full_name || requestedTeacher.username) : null;
     const alternativeSearch = new URLSearchParams();
     alternativeSearch.set("kind", details.kind);
     alternativeSearch.set("course_id", details.requested.course_id);
@@ -148,7 +149,8 @@ export function SessionAvailabilityStatus({
                       {(details.conflicts ?? []).slice(0, MAX_VISIBLE_CONFLICTS).map((c) => {
                         const shared = conflictSharedResourceName(details.kind, c, { roomsById, teachersById });
                         const courseCode = coursesById.get(c.course_id)?.code ?? `${c.course_id.slice(0, 8)}…`;
-                        const teacherName = teachersById.get(c.teacher_id)?.username ?? `${c.teacher_id.slice(0, 8)}…`;
+                        const conflictTeacher = teachersById.get(c.teacher_id);
+                        const teacherName = conflictTeacher ? (conflictTeacher.full_name || conflictTeacher.username) : `${c.teacher_id.slice(0, 8)}…`;
                         const roomName = c.room_id ? roomsById?.get(c.room_id)?.name ?? `${c.room_id.slice(0, 8)}…` : null;
                         const highlight = shared ? (
                           <span className="font-semibold text-[var(--color-wi-red)]">{shared}</span>

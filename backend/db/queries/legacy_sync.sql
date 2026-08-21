@@ -87,10 +87,30 @@ WHERE NOT EXISTS (
 )
 RETURNING *;
 
+-- name: ConflictCountOpen :one
+SELECT count(*)::int FROM legacy_sync_conflicts
+WHERE status = 'open';
+
 -- name: ConflictListOpen :many
 SELECT * FROM legacy_sync_conflicts
 WHERE status = 'open'
 ORDER BY created_at DESC;
+
+-- name: ConflictListOpenPaginated :many
+SELECT id, entity_type, external_id, conflict_type, category, message, status, created_at, resolved_at
+FROM legacy_sync_conflicts
+WHERE status = 'open'
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: ConflictGet :one
+SELECT * FROM legacy_sync_conflicts
+WHERE id = $1;
+
+-- name: SyncRunGetLatest :one
+SELECT * FROM legacy_sync_runs
+ORDER BY started_at DESC
+LIMIT 1;
 
 -- name: ConflictSetStatus :one
 UPDATE legacy_sync_conflicts
@@ -169,6 +189,11 @@ WHERE id = sqlc.arg(id) AND status = 'running' AND locked_by = sqlc.arg(worker_i
 SELECT * FROM legacy_sync_jobs
 ORDER BY created_at DESC
 LIMIT $1;
+
+-- name: LegacyJobListPaginated :many
+SELECT * FROM legacy_sync_jobs
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
 
 -- name: LegacyJobCounts :one
 SELECT

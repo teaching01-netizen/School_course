@@ -408,6 +408,48 @@ func (q *Queries) CourseLevelsListV2(ctx context.Context) ([]CourseLevelRowV2, e
 	return out, nil
 }
 
+func (q *Queries) CourseLevelsListV2Paginated(ctx context.Context, limit, offset int) ([]CourseLevelRowV2, int64, int16, error) {
+	var total int64
+	var maxLevel pgtype.Int2
+	if err := q.db.QueryRow(ctx, `
+		SELECT count(*), max(level)
+		FROM courses
+		WHERE subject_id IS NOT NULL
+	`).Scan(&total, &maxLevel); err != nil {
+		return nil, 0, 0, err
+	}
+
+	rows, err := q.db.Query(ctx, `
+		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
+		       c.cycle_id, cy.label, c.level,
+		       c.root_course_group_id, rcg.name
+		FROM courses c
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE c.subject_id IS NOT NULL
+		ORDER BY sub.code ASC NULLS LAST, c.cycle_id ASC NULLS LAST, c.level ASC NULLS LAST, c.code ASC, c.id ASC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer rows.Close()
+
+	var out []CourseLevelRowV2
+	for rows.Next() {
+		var r CourseLevelRowV2
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.CycleLabel, &r.Level, &r.RootCourseGroupID, &r.RootCourseGroupName); err != nil {
+			return nil, 0, 0, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, err
+	}
+	return out, total, maxLevel.Int16, nil
+}
+
 func (q *Queries) CourseLevelUpdateV2(ctx context.Context, courseID pgtype.UUID, cycleID pgtype.Text, level pgtype.Int2) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE courses

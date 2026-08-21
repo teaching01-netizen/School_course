@@ -32,6 +32,10 @@ func TestRunnerEnqueuesAndProcessesLinkedCourses(t *testing.T) {
 			mu.Unlock()
 			return nil
 		},
+		// Fixed jitter keeps RunAfter == now so the cycle's own drain claims
+		// both jobs; the jitter-spread path is covered by
+		// TestEgress_RunnerJitterSpreadsRunAfter.
+		Rand: func(int) int { return 0 },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +73,34 @@ func TestRunnerDoesNotFetchWhenPaused(t *testing.T) {
 	}
 }
 
+// TestRunnerSkipsEnqueueWhenFetchDisabled pins the R-EGRESS-001 intent (e):
+// with FetchEnabled=false the leader must not enqueue anything — listing
+// courses for enqueue would only produce jobs that wait for a fetch window.
+func TestRunnerSkipsEnqueueWhenFetchDisabled(t *testing.T) {
+	store := jobqueue.NewMemoryStore()
+	runner, err := NewRunner(RunnerConfig{
+		Store:    store,
+		WorkerID: "test-worker",
+		ListCourses: func(context.Context) ([]string, error) {
+			t.Fatal("list should not run while fetch disabled")
+			return nil, nil
+		},
+		SyncCourse: func(context.Context, string) error { t.Fatal("sync should not run while fetch disabled"); return nil },
+		Controls: func(context.Context) (RunnerControls, error) {
+			return RunnerControls{DetectionEnabled: true, FetchEnabled: false}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(context.Background(), "w", time.Now().Add(time.Minute), time.Minute); !errors.Is(err, jobqueue.ErrNoJobs) {
+		t.Fatalf("claim error = %v, want ErrNoJobs (nothing enqueued while fetch disabled)", err)
+	}
+}
+
 func TestRunnerRetriesFailedJobs(t *testing.T) {
 	store := jobqueue.NewMemoryStore()
 	attempts := 0
@@ -80,6 +112,9 @@ func TestRunnerRetriesFailedJobs(t *testing.T) {
 			attempts++
 			return errors.New("source unavailable")
 		},
+		// Fixed jitter keeps RunAfter == now so the cycle's own drain claims
+		// the job (jitter-spread behavior is covered by the egress tests).
+		Rand: func(int) int { return 0 },
 	})
 	if err != nil {
 		t.Fatal(err)

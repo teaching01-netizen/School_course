@@ -3,10 +3,13 @@ package crmhttp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/crmimport/crmtypes"
@@ -29,6 +32,8 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/crm/conflicts", s.handleListReconcileConflicts)
 
 	mux.HandleFunc("GET /api/v1/crm/cycles", s.handleCyclesList)
+	mux.HandleFunc("POST /api/v1/crm/cycles", s.handleCycleCreate)
+	mux.HandleFunc("PUT /api/v1/crm/cycles/{id}", s.handleCycleUpdate)
 	mux.HandleFunc("GET /api/v1/crm/options", s.handleCrmOptions)
 
 	mux.HandleFunc("GET /api/v1/courses/{id}/crm-filter", s.handleCourseFilterGet)
@@ -109,7 +114,142 @@ func (s *server) handleCyclesList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	s.a.WriteJSON(w, http.StatusOK, items)
+	cycles := make([]cycleResponse, 0, len(items))
+	for _, item := range items {
+		cycles = append(cycles, cycleResponseFromDB(item.ID, item.Label, item.SourceKind, item.DisplayName, item.StartDate, item.EndDate))
+	}
+	s.a.WriteJSON(w, http.StatusOK, cycles)
+}
+
+type cycleWriteRequest struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	StartDate   string `json:"start_date"`
+	EndDate     string `json:"end_date"`
+}
+
+type cycleResponse struct {
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	SourceKind  string  `json:"source_kind"`
+	DisplayName *string `json:"display_name,omitempty"`
+	StartDate   *string `json:"start_date,omitempty"`
+	EndDate     *string `json:"end_date,omitempty"`
+}
+
+func validateCycleWrite(req cycleWriteRequest) error {
+	if strings.TrimSpace(req.ID) == "" || strings.TrimSpace(req.DisplayName) == "" {
+		return fmt.Errorf("cycle id and name are required")
+	}
+	if req.StartDate != "" {
+		if _, err := time.Parse("2006-01-02", req.StartDate); err != nil {
+			return fmt.Errorf("start date must be YYYY-MM-DD")
+		}
+	}
+	if req.EndDate != "" {
+		if _, err := time.Parse("2006-01-02", req.EndDate); err != nil {
+			return fmt.Errorf("end date must be YYYY-MM-DD")
+		}
+	}
+	if req.StartDate != "" && req.EndDate != "" && req.StartDate > req.EndDate {
+		return fmt.Errorf("start date must not be after end date")
+	}
+	return nil
+}
+
+func cycleResponseFromDB(id, label, sourceKind string, displayName pgtype.Text, startDate, endDate pgtype.Date) cycleResponse {
+	response := cycleResponse{ID: id, Label: label, SourceKind: sourceKind}
+	if displayName.Valid {
+		response.DisplayName = &displayName.String
+	}
+	if startDate.Valid {
+		value := startDate.Time.Format("2006-01-02")
+		response.StartDate = &value
+	}
+	if endDate.Valid {
+		value := endDate.Time.Format("2006-01-02")
+		response.EndDate = &value
+	}
+	return response
+}
+
+func (s *server) handleCycleCreate(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	var req cycleWriteRequest
+	if err := s.a.DecodeJSON(w, r, &req); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if err := validateCycleWrite(req); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_cycle", err.Error())
+		return
+	}
+	s.a.WithIdempotentTx(w, r, user.ID, "crm-cycles", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		var item struct {
+			ID          string
+			Label       string
+			SourceKind  string
+			DisplayName pgtype.Text
+			StartDate   pgtype.Date
+			EndDate     pgtype.Date
+		}
+		err := tx.QueryRow(r.Context(), `
+			INSERT INTO crm_cycles (id, label, source_kind, display_name, start_date, end_date)
+			VALUES ($1, $2, 'manual', $2, NULLIF($3, '')::date, NULLIF($4, '')::date)
+			RETURNING id, label, source_kind, display_name, start_date, end_date`, req.ID, req.DisplayName, req.StartDate, req.EndDate).
+			Scan(&item.ID, &item.Label, &item.SourceKind, &item.DisplayName, &item.StartDate, &item.EndDate)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		return http.StatusCreated, cycleResponseFromDB(item.ID, item.Label, item.SourceKind, item.DisplayName, item.StartDate, item.EndDate), nil
+	})
+}
+
+func (s *server) handleCycleUpdate(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	var req cycleWriteRequest
+	if err := s.a.DecodeJSON(w, r, &req); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	req.ID = r.PathValue("id")
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if err := validateCycleWrite(req); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_cycle", err.Error())
+		return
+	}
+	s.a.WithIdempotentTx(w, r, user.ID, "crm-cycles", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		var item struct {
+			ID          string
+			Label       string
+			SourceKind  string
+			DisplayName pgtype.Text
+			StartDate   pgtype.Date
+			EndDate     pgtype.Date
+		}
+		err := tx.QueryRow(r.Context(), `
+			UPDATE crm_cycles
+			SET display_name = $2, start_date = NULLIF($3, '')::date, end_date = NULLIF($4, '')::date, updated_at = now()
+			WHERE id = $1
+			RETURNING id, label, source_kind, display_name, start_date, end_date`, req.ID, req.DisplayName, req.StartDate, req.EndDate).
+			Scan(&item.ID, &item.Label, &item.SourceKind, &item.DisplayName, &item.StartDate, &item.EndDate)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		return http.StatusOK, cycleResponseFromDB(item.ID, item.Label, item.SourceKind, item.DisplayName, item.StartDate, item.EndDate), nil
+	})
 }
 
 func (s *server) handleCrmOptions(w http.ResponseWriter, r *http.Request) {

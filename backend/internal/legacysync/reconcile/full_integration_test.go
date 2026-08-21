@@ -30,6 +30,13 @@ var (
 
 func fullReconcileFixture(t *testing.T) (*FullReconciler, *pgxpool.Pool, string) {
 	t.Helper()
+	// The shared fixture caps the pool at 2 connections; the parallel-mode
+	// fixture sizes its own pool (fullReconcileParallelFixture).
+	return fullReconcileFixtureWithConns(t, 2)
+}
+
+func fullReconcileFixtureWithConns(t *testing.T, maxConns int32) (*FullReconciler, *pgxpool.Pool, string) {
+	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set TEST_DATABASE_URL to run PostgreSQL integration tests")
@@ -62,7 +69,7 @@ func fullReconcileFixture(t *testing.T) (*FullReconciler, *pgxpool.Pool, string)
 		t.Fatal(err)
 	}
 	cfg.MinConns = 0
-	cfg.MaxConns = 2
+	cfg.MaxConns = maxConns
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -119,8 +126,8 @@ func TestFullReconcile_LinksCreatesAndRecordsConflicts(t *testing.T) {
 	if stats.MasterData != 2 {
 		t.Fatalf("master data applies = %d, want 2 (teacher + subject)", stats.MasterData)
 	}
-	if stats.Enqueued != 3 {
-		t.Fatalf("enqueued = %d, want 3 (linked, created, claimed-by-code)", stats.Enqueued)
+	if stats.Enqueued != 4 {
+		t.Fatalf("enqueued = %d, want 4 (linked, created, claimed-by-code, suffixed)", stats.Enqueued)
 	}
 
 	// The by-code claim kept the manual course's identity.
@@ -161,8 +168,9 @@ func TestFullReconcile_LinksCreatesAndRecordsConflicts(t *testing.T) {
 		t.Fatalf("open conflicts for %s = %d, want 1", conflictLegacyID, conflicts)
 	}
 
-	// Refresh jobs are queued for the three linkable courses.
-	for _, legacyID := range []string{linkedLegacyID, "9003" + suffixDigits(suffix), "9004" + suffixDigits(suffix)} {
+	// Refresh jobs are queued for all four linkable courses — including the
+	// suffixed one, which still needs its schedule synced.
+	for _, legacyID := range []string{linkedLegacyID, "9003" + suffixDigits(suffix), "9004" + suffixDigits(suffix), conflictLegacyID} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_jobs WHERE unique_key = $1 AND status = 'queued'`, "legacy:course:"+legacyID).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -216,9 +224,8 @@ func suffixDigits(suffix string) string {
 
 // TestFullReconcile_ConcurrentSameCodeClaimsResolveToOne pins CB-06: two
 // legacy courses with the same code concurrently claiming the one unlinked
-// local course must resolve to exactly one link and one mapping conflict.
-// The claim previously ignored RowsAffected, so both reconciles reported
-// success and the loser's refresh job could never find its course.
+// local course must resolve to exactly one link and one suffixed course with
+// a code_collision conflict. Both courses are linked.
 func TestFullReconcile_ConcurrentSameCodeClaimsResolveToOne(t *testing.T) {
 	reconciler, pool, suffix := fullReconcileFixture(t)
 	ctx := context.Background()
@@ -247,23 +254,35 @@ func TestFullReconcile_ConcurrentSameCodeClaimsResolveToOne(t *testing.T) {
 		}
 	}
 	totalLinked := stats[0].LinkedByCode + stats[1].LinkedByCode
+	totalSuffixed := stats[0].Suffixed + stats[1].Suffixed
 	totalConflicts := stats[0].Conflicts + stats[1].Conflicts
-	if totalLinked != 1 || totalConflicts != 1 {
-		t.Fatalf("linked=%d conflicts=%d (stats %+v / %+v), want exactly one link and one conflict", totalLinked, totalConflicts, stats[0], stats[1])
+	// One course claims the original code, the other is suffixed.
+	if totalLinked != 1 || totalSuffixed != 1 || totalConflicts != 1 {
+		t.Fatalf("linked=%d suffixed=%d conflicts=%d (stats %+v / %+v), want exactly one link, one suffixed, one conflict", totalLinked, totalSuffixed, totalConflicts, stats[0], stats[1])
 	}
-	var links int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM courses WHERE code=$1 AND legacy_course_id IS NOT NULL`, code).Scan(&links); err != nil {
+	// Both legacy courses are linked to local courses.
+	var linkedCourses int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM courses WHERE legacy_course_id IN ($1, $2)`, legacyA, legacyB).Scan(&linkedCourses); err != nil {
 		t.Fatal(err)
 	}
-	if links != 1 {
-		t.Fatalf("courses linked through code = %d, want 1", links)
+	if linkedCourses != 2 {
+		t.Fatalf("courses linked = %d, want 2", linkedCourses)
 	}
+	// One course has the original code, one has a suffixed code.
+	var originalCodeCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM courses WHERE code=$1 AND legacy_course_id IS NOT NULL`, code).Scan(&originalCodeCount); err != nil {
+		t.Fatal(err)
+	}
+	if originalCodeCount != 1 {
+		t.Fatalf("courses with original code = %d, want 1", originalCodeCount)
+	}
+	// A code_collision conflict was recorded for the suffixed course.
 	var conflicts int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE conflict_type='code_claimed' AND external_id = ANY($1)`, []string{legacyA, legacyB}).Scan(&conflicts); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE conflict_type='code_collision' AND external_id = ANY($1)`, []string{legacyA, legacyB}).Scan(&conflicts); err != nil {
 		t.Fatal(err)
 	}
 	if conflicts != 1 {
-		t.Fatalf("code_claimed conflicts = %d, want 1 (loser must become a visible conflict)", conflicts)
+		t.Fatalf("code_collision conflicts = %d, want 1", conflicts)
 	}
 }
 
@@ -300,9 +319,11 @@ func TestFullReconcile_ImportsRostersWhenEnabled(t *testing.T) {
 		t.Fatalf("roster stats = %+v, want 2 created / 3 enrollments", stats)
 	}
 
-	// W222222 and W333333 were created; W111111 was reused untouched.
+	// W222222 and W333333 were created; W111111 was reused untouched. The
+	// import stores wcodes in canonical lowercase, so the count must compare
+	// case-insensitively.
 	var studentCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM students WHERE wcode = ANY($1)`, []string{wcodeA, wcodeB, wcodeC}).Scan(&studentCount); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM students WHERE lower(wcode) = ANY($1)`, []string{strings.ToLower(wcodeA), strings.ToLower(wcodeB), strings.ToLower(wcodeC)}).Scan(&studentCount); err != nil {
 		t.Fatal(err)
 	}
 	if studentCount != 3 {
@@ -491,41 +512,63 @@ func TestFullReconcile_DeduplicatesAndAutoResolvesCodeClaim(t *testing.T) {
 	}
 	courses := []normalize.LegacyCourse{{LegacyID: loserLegacyID, Code: code, Status: "active"}}
 
-	for i := 0; i < 2; i++ {
-		if _, err := reconciler.Reconcile(ctx, courses, nil, nil, FullReconcileOptions{ObservedAt: time.Now().UTC()}); err != nil {
-			t.Fatalf("Reconcile run %d: %v", i+1, err)
-		}
-		var conflicts int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_claimed' AND status = 'open'`, loserLegacyID).Scan(&conflicts); err != nil {
-			t.Fatal(err)
-		}
-		if conflicts != 1 {
-			t.Fatalf("open conflicts after run %d = %d, want 1 (deduplicated)", i+1, conflicts)
-		}
+	// First run: loser is suffixed because code is taken.
+	if _, err := reconciler.Reconcile(ctx, courses, nil, nil, FullReconcileOptions{ObservedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Reconcile run 1: %v", err)
+	}
+	var suffixedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_collision' AND status <> 'open'`, loserLegacyID).Scan(&suffixedCount); err != nil {
+		t.Fatal(err)
+	}
+	if suffixedCount != 1 {
+		t.Fatalf("non-open code_collision conflicts after run 1 = %d, want 1", suffixedCount)
+	}
+	// Verify the loser got a suffixed course.
+	var loserCourseCode string
+	if err := pool.QueryRow(ctx, `SELECT code FROM courses WHERE legacy_course_id = $1`, loserLegacyID).Scan(&loserCourseCode); err != nil {
+		t.Fatal(err)
+	}
+	if loserCourseCode == code {
+		t.Fatalf("loser course code = %q, want suffixed code (not original)", loserCourseCode)
 	}
 
-	// The winner releases the code; the loser now claims it, and the open
-	// conflict must auto-resolve on the next pass.
+	// Second run: idempotent, still one conflict.
+	if _, err := reconciler.Reconcile(ctx, courses, nil, nil, FullReconcileOptions{ObservedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Reconcile run 2: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_collision' AND status <> 'open'`, loserLegacyID).Scan(&suffixedCount); err != nil {
+		t.Fatal(err)
+	}
+	if suffixedCount != 1 {
+		t.Fatalf("non-open code_collision conflicts after run 2 = %d, want 1 (deduplicated)", suffixedCount)
+	}
+
+	// The winner releases the code; the loser now claims it on the next pass.
 	if _, err := pool.Exec(ctx, `UPDATE courses SET legacy_course_id = NULL WHERE legacy_course_id = $1`, winnerLegacyID); err != nil {
+		t.Fatal(err)
+	}
+	// Reset the loser's course to re-link via code.
+	if _, err := pool.Exec(ctx, `DELETE FROM courses WHERE legacy_course_id = $1`, loserLegacyID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := reconciler.Reconcile(ctx, courses, nil, nil, FullReconcileOptions{ObservedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Reconcile run 3: %v", err)
 	}
+	// The loser now claims the original code.
+	if err := pool.QueryRow(ctx, `SELECT code FROM courses WHERE legacy_course_id = $1`, loserLegacyID).Scan(&loserCourseCode); err != nil {
+		t.Fatal(err)
+	}
+	if loserCourseCode != code {
+		t.Fatalf("loser course code after re-claim = %q, want %q", loserCourseCode, code)
+	}
+	// The old code_collision conflict must auto-resolve.
 	var status string
 	var resolvedAt *time.Time
-	if err := pool.QueryRow(ctx, `SELECT status, resolved_at FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_claimed'`, loserLegacyID).Scan(&status, &resolvedAt); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT status, resolved_at FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_collision'`, loserLegacyID).Scan(&status, &resolvedAt); err != nil {
 		t.Fatal(err)
 	}
-	if status != "resolved" || resolvedAt == nil {
-		t.Fatalf("conflict status = %q resolved_at=%v, want resolved with a timestamp", status, resolvedAt)
-	}
-	var total int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts WHERE external_id = $1 AND conflict_type = 'code_claimed'`, loserLegacyID).Scan(&total); err != nil {
-		t.Fatal(err)
-	}
-	if total != 1 {
-		t.Fatalf("conflict rows for %s = %d, want 1", loserLegacyID, total)
+	if status == "open" || resolvedAt == nil {
+		t.Fatalf("conflict status = %q resolved_at=%v, want non-open with a timestamp", status, resolvedAt)
 	}
 }
 

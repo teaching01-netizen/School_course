@@ -108,7 +108,7 @@ export default function Teachers() {
       <ConfirmModal
         open={!!confirmTeacher}
         title="Delete Teacher"
-        message={confirmTeacher ? `Delete teacher "${confirmTeacher.username}"?` : ""}
+        message={confirmTeacher ? `Delete teacher "${confirmTeacher.full_name || confirmTeacher.username}"?` : ""}
         variant="danger"
         confirmLabel="Delete"
         loading={deleting}

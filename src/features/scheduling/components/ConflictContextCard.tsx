@@ -55,7 +55,7 @@ export function ConflictContextCard({
   const { details, teacherName, roomName } = context;
   const teachersById: Map<string, User> | undefined =
     teacherName && details.requested.teacher_id
-      ? new Map([[details.requested.teacher_id, { id: details.requested.teacher_id, username: teacherName, role: "Teacher" }]])
+      ? new Map([[details.requested.teacher_id, { id: details.requested.teacher_id, username: teacherName, full_name: teacherName, role: "Teacher" }]])
       : undefined;
   const roomsById = roomName && details.requested.room_id
     ? new Map([[details.requested.room_id, { id: details.requested.room_id, name: roomName, capacity: null }]])

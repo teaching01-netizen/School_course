@@ -111,6 +111,8 @@ func syncerDetailPage() string {
 // the refresh path's self-applied master data resolves).
 func newSyncerUnderTest(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server) *courseSyncer {
 	t.Helper()
+	// Pacing is covered by the client's own tests; keep these tests fast.
+	t.Setenv("LEGACY_SYNC_MIN_REQUEST_INTERVAL", "0")
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `UPDATE legacy_sync_controls SET shadow_mode = false, realtime_enabled = false`); err != nil {
 		t.Fatal(err)
@@ -128,7 +130,7 @@ func newSyncerUnderTest(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server) 
 	courseApp := apply.NewCourseApplier(pool, q, source)
 	scheduleApp := apply.NewScheduleApplier(pool, q, source)
 	return newCourseSyncer(pool, q, client, master, courseApp, scheduleApp, "Asia/Bangkok",
-		slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), 1, 30*time.Minute)
 }
 
 // seedLinkedCourse inserts a local course linked to a legacy id with the
@@ -268,9 +270,13 @@ func TestCourseSyncer_AppliesUnknownTeacherAndSubject(t *testing.T) {
 	}
 }
 
-// TestCourseSyncer_RefreshesActiveCourseOnEverySync pins that the skip rule
-// is archived-only: an active course refreshes on every sync call, even
-// after it has synced before.
+// TestCourseSyncer_RefreshesActiveCourseOnEverySync pins the R-004 fallback
+// path: without an ok-quality snapshot under the production source
+// (legacy_warwick), an active course past its archived-skip guard still
+// fetches on every sync. The applier in this fixture writes snapshots under
+// a scratch source (see newSyncerUnderTest), so the cooldown gate sees no
+// legacy_warwick snapshot and falls through to the network; the gated path
+// itself is pinned by TestCourseSyncer_WithinCooldownSkipsDetailFetch.
 func TestCourseSyncer_RefreshesActiveCourseOnEverySync(t *testing.T) {
 	pool := mainLookupTestPool(t)
 	ctx := context.Background()
@@ -290,6 +296,39 @@ func TestCourseSyncer_RefreshesActiveCourseOnEverySync(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := site.detailRequests.Load(); got != 2 {
-		t.Fatalf("detail page fetches = %d, want 2 (active courses refresh on every sync)", got)
+		t.Fatalf("detail page fetches = %d, want 2 (no legacy_warwick snapshot, cooldown falls through)", got)
+	}
+}
+
+// TestCourseSyncer_WithinCooldownSkipsDetailFetch pins the R-004 pre-fetch
+// gate: with a fresh last_synced timestamp and an ok-quality snapshot under
+// the production source, syncCourse returns before a single source request.
+func TestCourseSyncer_WithinCooldownSkipsDetailFetch(t *testing.T) {
+	pool := mainLookupTestPool(t)
+	ctx := context.Background()
+	legacyID := numericLegacyID("8")
+	teacherID := numericLegacyID("9")
+	subjectID := numericLegacyID("7")
+	code := "SYNC-GATED-" + uuid.NewString()
+	seedLinkedCourse(t, pool, code, legacyID, false, true) // fresh legacy_last_synced_at
+
+	if _, err := pool.Exec(ctx, `INSERT INTO legacy_entity_snapshots
+		(source, entity_type, external_id, canonical_data, source_hash, parser_version, observed_at, applied_at, quality)
+		VALUES ('legacy_warwick', 'course', $1, '{}'::jsonb, 'hash-1', 1, now(), now(), 'ok')
+		ON CONFLICT (source, entity_type, external_id) DO UPDATE SET
+			canonical_data = EXCLUDED.canonical_data,
+			source_hash    = EXCLUDED.source_hash,
+			quality        = EXCLUDED.quality`, legacyID); err != nil {
+		t.Fatal(err)
+	}
+
+	site := newFakeLegacySite(t, syncerListPage(syncerListRow(legacyID, code, "["+teacherID+"] T", "["+subjectID+"] S", "Active")), syncerDetailPage())
+	syncer := newSyncerUnderTest(t, pool, site.srv)
+
+	if err := syncer.syncCourse(ctx, legacyID); err != nil {
+		t.Fatal(err)
+	}
+	if got := site.detailRequests.Load(); got != 0 {
+		t.Fatalf("detail page fetches = %d, want 0 (within cooldown with ok legacy_warwick snapshot)", got)
 	}
 }
