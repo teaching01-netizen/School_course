@@ -1,3 +1,4 @@
+-- NOTE (C2 trust repair): Requires writer quiesce for is_primary backfill (see operating assumption below). See GOVERNANCE.md.
 -- +goose NO TRANSACTION
 -- +goose Up
 

@@ -83,4 +83,5 @@ WHERE deleted_at IS NULL
   AND (dest_course_a_enrollment_created = false OR dest_course_b_enrollment_created = false);
 
 -- +goose Down
+-- NOTE (C2 trust repair): No down migration — behavioral fix is permanent, see GOVERNANCE.md.
 -- No down migration — the behavioral fix in store.go makes this permanent.

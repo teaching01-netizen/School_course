@@ -98,3 +98,23 @@ Run: `bash scripts/validate-migrations.sh [migrations-dir] [--strict]` (env `VAL
 
 - C1 (this document + tombstones + linter) — done.
 - C2 (phantom-history trust repair) and C3 (backfill split-brain policy) are separate lanes in `.zcode/plans/data-model-audit-roadmap.md`.
+
+## Phantom-history / trust repair (C2)
+
+The following migrations carry trust-repair annotations (added in lane C2) because they repair or reference schema states that never existed in this chain:
+
+| Migration | Issue | Repair |
+|---|---|---|
+| 00018 | Tombstone: no DDL, kept for contiguity | Header clarifies no-op, points to GOVERNANCE.md |
+| 00020 | Down added `text NOT NULL` / `uuid NOT NULL REFERENCES` on populated tables → would fail | Down now adds nullable columns with explanatory comment; restore NOT NULL manually if rollback needed |
+| 00025 | `otp_code_hash` / `pending_otp` cleanup references pre-chain prod states | Narrow annotation: OTP cleanup is prod-drift; `parent_phone`, `student_parent_verification_sessions`, `http_rate_limit_events`, `sms_circuit_breaker_state` are canonical |
+| 00039 | Primary repair for `sat_verbal_policy_mappings` (table from 00038) | Annotated as primary; 00040 is duplicate-retry |
+| 00040 | Near-verbatim duplicate of 00039 | Annotated as duplicate-retry for partial-apply environments |
+| 00041 | Relax legacy denormalized columns (`subject_id`, `root_course_group_id`, etc.) | Annotated as prod-drift repair; columns never created by this chain |
+| 00042 | Relax legacy `policy` column | Annotated as prod-drift repair |
+| 00061 | Down is intentional no-op (behavioral fix) | Annotated with advisory note |
+| 00079 | `course_teachers.is_primary` backfill | Quiesce advisory at file top; `NO TRANSACTION` with `CONCURRENTLY` |
+| 00099 | Untracked until C2 (`00099_legacy_sync_monitor_opt.sql`) | Now tracked; `NO TRANSACTION` + `CONCURRENTLY IF NOT EXISTS` indexes |
+| 1784592000000 | Stray empty file at repo root | Deleted in C2 |
+
+Reviewer check: `grep -n "C2 trust repair" backend/db/migrations/*.sql` should list the annotated files above.

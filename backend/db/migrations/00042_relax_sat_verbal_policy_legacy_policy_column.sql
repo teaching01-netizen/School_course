@@ -1,3 +1,5 @@
+-- NOTE (C2 trust repair): Repairs prod-drift — `policy` column never created by
+-- this chain's 00038; kept for environment compatibility. See GOVERNANCE.md.
 -- +goose Up
 
 -- Older production tables may still contain an obsolete `policy` column.

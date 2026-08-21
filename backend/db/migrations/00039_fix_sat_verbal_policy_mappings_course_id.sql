@@ -1,3 +1,7 @@
+-- NOTE (C2 trust repair): Primary repair for sat_verbal_policy_mappings drift.
+-- 00040 is a duplicate-retry of this file for environments where 00039 partially
+-- applied. 00038 introduced the base table; these repairs handle prod environments
+-- where the table existed with a different column set. See GOVERNANCE.md.
 -- +goose Up
 
 -- The sat_verbal_policy_mappings table exists in production but may be

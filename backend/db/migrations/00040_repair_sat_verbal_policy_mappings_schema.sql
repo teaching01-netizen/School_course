@@ -1,3 +1,7 @@
+-- NOTE (C2 trust repair): Duplicate-retry of 00039 for environments where 00039
+-- partially applied. This file intentionally repeats the repair body for prod
+-- compatibility. Sat_verbal columns here were never created by 00038 in this chain;
+-- kept for environment compatibility. See GOVERNANCE.md.
 -- +goose Up
 
 -- Repair environments where 00039 already ran but the pre-existing

@@ -1,3 +1,8 @@
+-- NOTE (C2 trust repair): The otp_code_hash / pending_otp / chk_absence_dates
+-- cleanup below references pre-chain production states that never existed in this
+-- migration chain. The parent_phone backfill, student_parent_verification_sessions,
+-- student_otp_lockouts, http_rate_limit_events, sms_circuit_breaker_state, and
+-- absence_audit_log wiring are canonical. See GOVERNANCE.md.
 -- +goose Up
 
 ALTER TABLE students

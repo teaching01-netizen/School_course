@@ -1,3 +1,6 @@
+-- NOTE (C2 trust repair): Repairs prod-drift — legacy denormalized columns
+-- (subject_id, root_course_group_id, warnings, etc.) never created by this chain's
+-- 00038; kept for environment compatibility. See GOVERNANCE.md.
 -- +goose Up
 
 -- Some production environments had an older sat_verbal_policy_mappings shape

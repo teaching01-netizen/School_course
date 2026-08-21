@@ -3,5 +3,9 @@ ALTER TABLE root_course_groups DROP COLUMN IF EXISTS subject_id;
 ALTER TABLE root_course_groups DROP COLUMN IF EXISTS code;
 
 -- +goose Down
-ALTER TABLE root_course_groups ADD COLUMN code text NOT NULL;
-ALTER TABLE root_course_groups ADD COLUMN subject_id uuid NOT NULL REFERENCES subjects(id);
+-- NOTE: Up drops subject_id/code added by pre-00019 schema. Down intentionally
+-- restores them as nullable — the original NOT NULL cannot be restored on
+-- populated tables without data loss. Populate subject_id/code manually if
+-- rollback is required, then add NOT NULL in a follow-up migration.
+ALTER TABLE root_course_groups ADD COLUMN IF NOT EXISTS code text;
+ALTER TABLE root_course_groups ADD COLUMN IF NOT EXISTS subject_id uuid REFERENCES subjects(id);
