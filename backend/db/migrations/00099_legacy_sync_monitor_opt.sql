@@ -1,5 +1,6 @@
--- +goose Up
+-- NOTE (C2 trust repair): Untracked until C2 — now tracked. See GOVERNANCE.md.
 -- +goose NO TRANSACTION
+-- +goose Up
 
 -- Optimal read path for the legacy sync monitor when thousands of open
 -- conflicts and dead letters pile up: health must count without shipping JSONB,

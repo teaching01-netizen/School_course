@@ -3,7 +3,7 @@
 -- allocated. The intended change was purely logical (stop using
 -- level_action_map in application code) and required no DDL. This file
 -- intentionally carries no structural change so the chain stays contiguous.
--- See GOVERNANCE.md — Phantom-history / trust repair (C2).
+-- NOTE (C2 trust repair): See GOVERNANCE.md — Phantom-history / trust repair (C2).
 -- Future migrations must not reuse this number.
 
 -- +goose Up
