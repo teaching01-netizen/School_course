@@ -11,14 +11,6 @@ type StepProgressProps = {
   onStepClick?: (step: number) => void;
 };
 
-function CheckIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
 export default function StepProgress({ steps, currentStep, onStepClick }: StepProgressProps) {
   return (
     <nav aria-label="Progress" className="absence-step-progress">
@@ -40,7 +32,7 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
                   aria-current={isCurrent ? "step" : undefined}
                   aria-label={`${step.label}${isCompleted ? " - completed" : ""}${isCurrent ? " - current" : ""}`}
                   className={clsx(
-                    "relative z-10 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-[background-color,color,border-color] duration-[150ms] ease-[var(--ease-ui)] motion-reduce:transition-none",
+                    "relative z-10 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors motion-reduce:transition-none",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
                     isCompleted && "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]",
                     isCurrent && "border-2 border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)]",
@@ -48,7 +40,7 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
                     !isClickable && !isCurrent && "cursor-default",
                   )}
                 >
-                  {isCompleted ? <CheckIcon /> : index + 1}
+                  {index + 1}
                 </button>
                 <div className="hidden min-w-0 flex-col sm:flex">
                   <span className={clsx(

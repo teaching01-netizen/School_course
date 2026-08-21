@@ -1,5 +1,4 @@
-import { type ReactNode, useId, useRef } from "react";
-import { useDialogModal } from "@/hooks/useDialogModal";
+import { type ReactNode, useEffect, useLayoutEffect, useId, useRef } from "react";
 
 interface SlideOverProps {
   title: string;
@@ -11,7 +10,57 @@ interface SlideOverProps {
 export default function SlideOver({ title, children, onClose, footer }: SlideOverProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const { close } = useDialogModal(dialogRef, { onClose, closeOnBackdrop: true });
+  const onCloseRef = useRef(onClose);
+  const suppressCloseRef = useRef(false);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    dialog.removeAttribute("open");
+
+    try { dialog.showModal(); } catch { return; }
+
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      const handleBackdropClick = (e: MouseEvent) => {
+        const rect = dialog.getBoundingClientRect();
+        const isOutside = (
+          e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom
+        );
+        if (isOutside) onCloseRef.current();
+      };
+      dialog.addEventListener("click", handleBackdropClick);
+      return () => {
+        dialog.removeEventListener("click", handleBackdropClick);
+        suppressCloseRef.current = true;
+        dialog.close();
+      };
+    }
+
+    return () => {
+      suppressCloseRef.current = true;
+      dialog.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClose = () => {
+      if (suppressCloseRef.current) {
+        suppressCloseRef.current = false;
+        return;
+      }
+      onCloseRef.current();
+    };
+    dialog.addEventListener("close", handleClose);
+    return () => dialog.removeEventListener("close", handleClose);
+  }, []);
 
   return (
     <dialog
@@ -28,10 +77,9 @@ export default function SlideOver({ title, children, onClose, footer }: SlideOve
             {title}
           </h3>
           <button
-            type="button"
-            aria-label="Close panel"
-            onClick={() => void close()}
+            onClick={() => onCloseRef.current()}
             className="text-[var(--color-wi-faint)] hover:text-[var(--color-wi-text)] text-xl leading-none p-1"
+            aria-label="Close panel"
           >
             &times;
           </button>

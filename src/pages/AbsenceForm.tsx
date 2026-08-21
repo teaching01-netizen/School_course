@@ -333,25 +333,16 @@ export default function AbsenceForm() {
 
   useEffect(() => {
     if (!verification.token || !verification.expiresAt) return;
-    const expiry = verification.expiresAt;
     const enforceExpiry = () => {
-      if (expiry <= Date.now()) {
+      if (verification.expiresAt && verification.expiresAt <= Date.now()) {
         setVerificationBlocked(true);
         setVerificationSatisfied(false);
         setStep((current) => current >= 2 ? 1 : current);
       }
     };
     enforceExpiry();
-    const delay = Math.max(0, expiry - Date.now());
-    const tid = setTimeout(enforceExpiry, delay);
-    const onVisibility = () => {
-      if (!document.hidden) enforceExpiry();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      clearTimeout(tid);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
+    const timer = window.setInterval(enforceExpiry, 100);
+    return () => window.clearInterval(timer);
   }, [verification.expiresAt, verification.token]);
 
   const handleVerificationSatisfied = useCallback(() => {

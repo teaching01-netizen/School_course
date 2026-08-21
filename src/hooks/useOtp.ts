@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type StoredOtpState = {
   token: string;
@@ -37,7 +37,6 @@ export function useOtp(storageKey: string) {
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [tick, forceTick] = useState(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const stored = readStoredOtp(storageKey);
@@ -48,43 +47,11 @@ export function useOtp(storageKey: string) {
   }, [storageKey]);
 
   useEffect(() => {
-    if (expiresAt == null) return;
-    const schedule = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      const delay = Math.max(0, expiresAt - Date.now());
-      // expiry already passed — tick immediately
-      if (delay === 0) {
-        forceTick((v) => v + 1);
-        return;
-      }
-      timeoutRef.current = setTimeout(() => {
-        forceTick((v) => v + 1);
-        // reschedule if still not expired (handles long delays split)
-        const remaining = Math.max(0, expiresAt - Date.now());
-        if (remaining > 0) schedule();
-      }, delay);
-    };
-    schedule();
-    const onVisibility = () => {
-      if (!document.hidden) {
-        forceTick((v) => v + 1);
-        schedule();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    };
-  }, [expiresAt]);
-
-  // fallback tick while no expiry (keeps secondsLeft at 0 stable without leaking interval)
-  useEffect(() => {
-    if (expiresAt != null) return;
-    // no timer needed when no expiry
-    return;
-  }, [expiresAt]);
+    const timer = window.setInterval(() => {
+      forceTick((value) => value + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const secondsLeft = useMemo(() => {
     if (!expiresAt) return 0;

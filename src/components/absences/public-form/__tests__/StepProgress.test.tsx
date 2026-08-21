@@ -18,8 +18,7 @@ describe("StepProgress", () => {
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.getByText("Step 3 of 4: Classes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Classes.*current/i })).toHaveTextContent("3");
-    // Completed steps show a check SVG rather than the numeric text
-    expect(screen.getByRole("button", { name: /Student.*completed/i }).querySelector("svg")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Student.*completed/i })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: /Review/i })).toHaveTextContent("4");
   });
 

@@ -22,10 +22,9 @@ type SidePanelProps = {
   absences: CalendarAbsence[];
   initialTab: AbsencePanelTab;
   onClose: () => void;
-  onInertChange?: (open: boolean) => void;
 };
 
-export default function SidePanel({ dayKey, sessions, absences, initialTab, onClose, onInertChange }: SidePanelProps) {
+export default function SidePanel({ dayKey, sessions, absences, initialTab, onClose }: SidePanelProps) {
   const reduceMotion = useReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
@@ -39,7 +38,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
 
   useEffect(() => {
     previousFocus.current = document.activeElement as HTMLElement;
-    onInertChange?.(true);
+    document.body.style.overflow = "hidden";
     const panel = panelRef.current;
     const firstFocusable = panel?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
     firstFocusable?.focus();
@@ -51,12 +50,10 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      onInertChange?.(false);
-      const prev = previousFocus.current;
-      if (prev && document.contains(prev)) prev.focus();
-      else (document.body as HTMLElement).focus?.();
+      document.body.style.overflow = "";
+      previousFocus.current?.focus();
     };
-  }, [onClose, onInertChange]);
+  }, [onClose]);
 
   function handleTrapFocus(event: React.KeyboardEvent) {
     if (event.key !== "Tab") return;
@@ -97,7 +94,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
       />
       <motion.aside
         key="absence-panel"
-        ref={panelRef as unknown as React.RefObject<HTMLDivElement>}
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="absence-panel-title"
@@ -105,8 +102,8 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
         initial={{ x: reduceMotion ? 0 : "100%" }}
         animate={{ x: 0 }}
         exit={{ x: reduceMotion ? 0 : "100%" }}
-        transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" as const }}
-        onClick={(event: React.MouseEvent) => event.stopPropagation()}
+        transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
+        onClick={(event) => event.stopPropagation()}
         onKeyDown={handleTrapFocus}
       >
         <header className="sticky top-0 z-10 border-b border-b-[var(--color-wi-line)] bg-white">

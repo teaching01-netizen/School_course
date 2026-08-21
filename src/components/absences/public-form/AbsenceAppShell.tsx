@@ -10,26 +10,10 @@ type AbsenceAppShellProps = {
 export default function AbsenceAppShell({ children, header, footer }: AbsenceAppShellProps) {
   const viewport = useVisualViewport();
   const mainRef = useRef<HTMLElement | null>(null);
-  const headingRef = useRef<HTMLElement | null>(null);
-  const announceRef = useRef<HTMLDivElement | null>(null);
   const style = {
     "--absence-visual-viewport-height": `${viewport.height}px`,
     "--absence-visual-viewport-offset": `${viewport.offsetTop}px`,
   } as CSSProperties;
-
-  useEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const heading = (main.querySelector("h1, [data-absence-heading]") as HTMLElement | null) ?? main;
-    headingRef.current = heading;
-    const label = heading.textContent?.trim() ?? "";
-    if (announceRef.current) announceRef.current.textContent = label;
-    heading.tabIndex = -1;
-    heading.focus({ preventScroll: true });
-    try {
-      heading.scrollIntoView({ behavior: "auto", block: "start" });
-    } catch {}
-  }, [children]);
 
   useEffect(() => {
     const main = mainRef.current;
@@ -77,7 +61,6 @@ export default function AbsenceAppShell({ children, header, footer }: AbsenceApp
       data-keyboard-open={viewport.keyboardLikelyOpen ? "true" : "false"}
       style={style}
     >
-      <div ref={announceRef} aria-live="polite" aria-atomic="true" className="sr-only" />
       <header className="absence-app-shell__header">{header}</header>
       <main ref={mainRef} id="absence-form-content" tabIndex={-1} className="absence-app-shell__main">
         {children}

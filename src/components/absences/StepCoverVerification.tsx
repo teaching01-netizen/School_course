@@ -151,8 +151,7 @@ export default function StepCoverVerification({
     const token = session?.token ?? verification.token;
     if (!online || !token || !deliveryPending) return;
     const controller = new AbortController();
-    let tid: ReturnType<typeof setTimeout> | null = null;
-    const pollOnce = () => {
+    const poll = window.setInterval(() => {
       void apiJson<ParentVerificationResponse>(
         "/api/v1/absences/parent-verification/status",
         { method: "POST", body: JSON.stringify({ token }), signal: controller.signal },
@@ -160,25 +159,13 @@ export default function StepCoverVerification({
         if (controller.signal.aborted) return;
         setSession(response);
         if (response.delivery_status === "accepted") setLastSentAt(Date.now());
-        if (!controller.signal.aborted) {
-          tid = setTimeout(pollOnce, 1000);
-        }
       }).catch(() => {
-        if (!controller.signal.aborted) tid = setTimeout(pollOnce, 1000);
+        // A later poll can recover from a transient status-read failure.
       });
-    };
-    tid = setTimeout(pollOnce, 1000);
-    const onVisibility = () => {
-      if (!document.hidden && !controller.signal.aborted) {
-        if (tid) clearTimeout(tid);
-        tid = setTimeout(pollOnce, 0);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    }, 1000);
     return () => {
       controller.abort();
-      if (tid) clearTimeout(tid);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(poll);
     };
   }, [session?.token, verification.token, deliveryPending, online]);
 
