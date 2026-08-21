@@ -45,6 +45,7 @@ artifacts/
 
 # dev scripts
 scripts/
+!scripts/validate-migrations.sh
 
 # planning / specs
 specs/

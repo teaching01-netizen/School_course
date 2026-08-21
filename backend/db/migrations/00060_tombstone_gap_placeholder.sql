@@ -1,0 +1,11 @@
+-- +goose Up
+-- Tombstone: migration 00060 was never allocated. This file exists solely
+-- to preserve contiguous numbering (00001..max with no gaps). Verified via
+-- `git log --follow --diff-filter=R -- backend/db/migrations` — the gap
+-- 00057-00060 never existed; the only rename in history is R100
+-- 00053->00055 at 39a9a37. No schema change; intentionally no-op.
+-- See GOVERNANCE.md for provenance. Future migrations must not reuse this
+-- number; `scripts/validate-migrations.sh` enforces contiguity.
+
+-- +goose Down
+-- Tombstone no-op. No rollback required.
