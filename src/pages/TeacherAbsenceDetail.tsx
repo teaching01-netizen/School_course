@@ -26,7 +26,7 @@ function titleCase(value: string): string {
 
 function SessionList({ title, sessions }: { title: string; sessions: TeacherAbsenceSession[] }) {
   return (
-    <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-5">
+    <section className="rounded-sm border var(--color-wi-line) bg-white p-5">
       <h2 className="text-sm font-semibold text-[var(--color-wi-text)]">{title}</h2>
       {sessions.length === 0 ? (
         <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">No sessions assigned to you.</p>
@@ -79,7 +79,7 @@ export default function TeacherAbsenceDetail() {
   if (loading) return <LoadingSkeleton lines={6} />;
   if (!detail) {
     return (
-      <div className="rounded-sm border border-[var(--color-wi-line)] bg-white p-6">
+      <div className="rounded-sm border var(--color-wi-line) bg-white p-6">
         <h1 className="text-lg font-semibold text-[var(--color-wi-text)]">Absence not available</h1>
         <p className="mt-2 text-sm text-[var(--color-wi-text-light)]">This request does not exist or is not assigned to one of your courses.</p>
         <Link to={backTo} className="mt-4 inline-flex text-sm font-medium text-[var(--color-wi-primary)]">Back to dashboard</Link>
@@ -111,7 +111,7 @@ export default function TeacherAbsenceDetail() {
         </div>
       </header>
 
-      <section className="grid gap-4 rounded-sm border border-[var(--color-wi-line)] bg-white p-5 sm:grid-cols-2">
+      <section className="grid gap-4 rounded-sm border var(--color-wi-line) bg-white p-5 sm:grid-cols-2">
         <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Subject</p><p className="mt-1 font-medium text-[var(--color-wi-text)]">{detail.subject_name?.trim() || detail.course_name}</p></div>
         <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Absence dates</p><p className="mt-1 font-medium text-[var(--color-wi-text)]">{formatDate(detail.date_from)}{detail.date_from === detail.date_to ? "" : ` – ${formatDate(detail.date_to)}`}</p></div>
         <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason category</p><p className="mt-1 text-[var(--color-wi-text)]">{detail.reason_category ? titleCase(detail.reason_category) : "Not provided"}</p></div>

@@ -86,7 +86,7 @@ export default function AbsenceRequestTable({ sessions, zone }: AbsenceRequestTa
     <>
       <div className="space-y-2 sm:hidden" data-testid="mobile-absence-list">
         {rows.map((row) => (
-          <article key={row.id} className="rounded-sm border border-[var(--color-wi-line)] bg-white p-3">
+          <article key={row.id} className="rounded-sm border var(--color-wi-line) bg-white p-3">
             <div className="flex items-start gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
                 {initials(row.studentName)}
@@ -99,7 +99,7 @@ export default function AbsenceRequestTable({ sessions, zone }: AbsenceRequestTa
                 View →
               </Link>
             </div>
-            <dl className="mt-2 grid gap-2 border-t border-t-[var(--color-wi-line)] pt-2 text-xs">
+            <dl className="mt-2 grid gap-2 border-t var(--color-wi-line) pt-2 text-xs">
               <div><dt className="font-medium text-[var(--color-wi-text-light)]">Course</dt><dd className="break-words text-[var(--color-wi-text)]">{row.subjectName?.trim() || row.courseName}</dd></div>
               <div><dt className="font-medium text-[var(--color-wi-text-light)]">Missed</dt><dd className="break-words text-[var(--color-wi-text)]">{row.missedSubject} · {row.missedDateLabel}, {row.missedTimeLabel}</dd></div>
               <div><dt className="font-medium text-[var(--color-wi-text-light)]">Sit-in</dt><dd className="break-words text-[var(--color-wi-text)]">{row.sitInSubject ? `${row.sitInSubject} · ${row.sitInTimeLabel}` : '—'}</dd></div>
@@ -108,7 +108,7 @@ export default function AbsenceRequestTable({ sessions, zone }: AbsenceRequestTa
           </article>
         ))}
       </div>
-      <div className="hidden overflow-x-auto rounded-sm border border-[var(--color-wi-line)] bg-white sm:block">
+      <div className="hidden overflow-x-auto rounded-sm border var(--color-wi-line) bg-white sm:block">
         <table className="w-full text-sm">
           <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
             <tr>

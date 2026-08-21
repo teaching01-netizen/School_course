@@ -150,7 +150,7 @@ export default function SessionChanges() {
         <Button variant="secondary" size="sm" loading={queue.refreshing || processing.refreshing || history.refreshing} onClick={() => { void queue.refetch(); void processing.refetch(); void history.refetch(); }}><RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />Refresh</Button>
       </div>
 
-      <nav className="mb-4 flex flex-wrap gap-1 border-b border-b-[var(--color-wi-line)]" aria-label="Schedule impact views">
+      <nav className="mb-4 flex flex-wrap gap-1 border-b var(--color-wi-line)" aria-label="Schedule impact views">
         {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setView(tab.id)} className={`border-b px-3 py-2 text-sm font-medium ${view === tab.id ? "border-[var(--color-wi-primary)] text-[var(--color-wi-primary)]" : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>{tab.label}{tab.id === "queue" && queue.data?.summary.need_attention ? <span className="ml-2 rounded-full bg-red-50 px-1.5 py-0.5 text-xs text-red-700">{queue.data.summary.need_attention}</span> : null}</button>)}
       </nav>
 
@@ -177,7 +177,7 @@ export default function SessionChanges() {
           ) : null}
         </section>
         {queue.data && !queue.data.summary.notifications_configured ? <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><span>SMS and email templates are not configured. Decisions can be recorded, but students will not be notified automatically.</span><Link to="/admin/absence-settings" className="font-medium text-[var(--color-wi-primary)] hover:underline">Open notification settings</Link></section> : null}
-        <section className="mb-4 flex flex-wrap items-center gap-2 rounded-sm border border-[var(--color-wi-line)] bg-white p-3">
+        <section className="mb-4 flex flex-wrap items-center gap-2 rounded-sm border var(--color-wi-line) bg-white p-3">
           <label className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-3 top-2 h-4 w-4 text-[var(--color-wi-text-light)]" aria-hidden="true" /><input ref={searchRef} value={queryText} onChange={(event) => updateParams({ q: event.target.value })} placeholder="Search student, course, session" className="w-full pl-9" aria-label="Search student, course, or session" /></label>
           <select value={severity} onChange={(event) => updateParams({ severity: event.target.value })} aria-label="Filter severity"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warnings</option></select>
           <select value={status} onChange={(event) => updateParams({ status: event.target.value })} aria-label="Filter issue status"><option value="all">All unresolved</option><option value="open">Open issues</option><option value="needs_review">Needs review</option></select>
@@ -238,14 +238,14 @@ function ProcessingView({ loading, items, error }: { loading: boolean; items: Im
   if (loading) return <LoadingSkeleton type="table" lines={4} />;
   if (error) return <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load processing changes: {error}</p>;
   if (items.length === 0) return (
-    <section className="rounded-sm border border-[var(--color-wi-line)] bg-white p-8 text-center">
+    <section className="rounded-sm border var(--color-wi-line) bg-white p-8 text-center">
       <h2 className="font-semibold text-[var(--color-wi-text)]">No impact analyses are processing</h2>
       <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Completed changes are available in History.</p>
     </section>
   );
 
   return (
-    <section className="overflow-hidden rounded-sm border border-[var(--color-wi-line)] bg-white">
+    <section className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
       <div className="divide-y divide-wi-line">
         {items.map((item) => {
           const isFailed = item.status === "failed";
@@ -296,7 +296,7 @@ function HistoryView({ loading, items, error }: { loading: boolean; items: Histo
   if (error) return <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load history: {error}</p>;
 
   return (
-    <section className="overflow-hidden rounded-sm border border-[var(--color-wi-line)] bg-white">
+    <section className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white">
       {items.length === 0 ? (
         <p className="p-6 text-sm text-[var(--color-wi-text-light)]">No completed schedule changes have been recorded.</p>
       ) : (

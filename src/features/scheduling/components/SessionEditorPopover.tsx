@@ -199,7 +199,7 @@ function SessionEditorPanel(props: Omit<SessionEditorPopoverProps, "open" | "tri
         roomMissing={!form.room_id}
       />
 
-      <div className="flex items-center justify-end gap-2 border-t border-t-[var(--color-wi-line)] pt-2">
+      <div className="flex items-center justify-end gap-2 border-t var(--color-wi-line) pt-2">
         <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
           Cancel
         </Button>

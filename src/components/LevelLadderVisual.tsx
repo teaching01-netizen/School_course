@@ -10,7 +10,7 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
   const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1);
 
   return (
-    <div className="rounded-sm border border-[var(--color-wi-line)] bg-white p-3">
+    <div className="rounded-sm border var(--color-wi-line) bg-white p-3">
       <div className="text-xs font-medium text-[var(--color-wi-text-light)] uppercase tracking-wide mb-2">
         Sit-In Level Map
       </div>
@@ -28,7 +28,7 @@ export function LevelLadderVisual({ minLevelForSitLower }: LevelLadderVisualProp
                   className={`w-24 rounded-sm px-3 py-1.5 text-center text-sm font-medium border ${
                     isBottom
                       ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-[var(--color-wi-row-alt)] border-[var(--color-wi-line)] text-[var(--color-wi-text-light)]"
+                      : "bg-[var(--color-wi-row-alt)] var(--color-wi-line) text-[var(--color-wi-text-light)]"
                   }`}
                 >
                   Level {level}

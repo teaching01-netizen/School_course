@@ -65,7 +65,7 @@ export default function Teachers() {
       <div className="overflow-x-auto data-table-wrapper"><table className="w-full text-[13px]">
         <caption className="sr-only">List of teachers</caption>
         <thead>
-          <tr className="border-b border-b-[var(--color-wi-line)]">
+          <tr className="border-b var(--color-wi-line)">
             <th scope="col" className="text-left py-2 px-2 font-semibold">ID</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Username</th>
@@ -80,7 +80,7 @@ export default function Teachers() {
           ) : filtered.length === 0 ? (
             <tr><td colSpan={4}><EmptyState message="No teachers found." /></td></tr>
           ) : filtered.map((t) => (
-              <tr key={t.id} className="border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]">
+              <tr key={t.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.id}</td>
                 <td className="py-2 px-2 text-xs text-[var(--color-wi-text)]">{t.full_name || '—'}</td>
                 <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>

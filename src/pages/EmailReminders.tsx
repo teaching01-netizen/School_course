@@ -35,7 +35,7 @@ function EmailChipInput({ value, onChange }: { value: string[]; onChange: (v: st
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-sm border border-[var(--color-wi-line)] p-2 min-h-[42px] focus-within:border-gray-500">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-sm border var(--color-wi-line) p-2 min-h-[42px] focus-within:border-gray-500">
       {value.map((email) => (
         <span
           key={email}
@@ -96,7 +96,7 @@ function TemplateCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="border border-[var(--color-wi-line)] rounded-sm p-4 flex flex-col gap-2">
+    <div className="border var(--color-wi-line) rounded-sm p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{tmpl.name}</h3>
         <div className="flex gap-1 shrink-0">
@@ -108,7 +108,7 @@ function TemplateCard({
         {tmpl.subject.trim() || "Missing subject"}
       </p>
       <p className="text-xs text-[var(--color-wi-text-light)] line-clamp-2">{tmpl.body.slice(0, 120)}</p>
-      <div className="text-[10px] text-[var(--color-wi-text-light)] mt-auto pt-1 border-t border-t-[var(--color-wi-line)]">
+      <div className="text-[10px] text-[var(--color-wi-text-light)] mt-auto pt-1 border-t var(--color-wi-line)">
         {(workflowCounts[tmpl.id] ?? 0)} workflow(s)
       </div>
     </div>
@@ -135,7 +135,7 @@ function WorkflowCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="border border-[var(--color-wi-line)] rounded-sm p-4 space-y-3">
+    <div className="border var(--color-wi-line) rounded-sm p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">{wf.name}</h3>
@@ -168,7 +168,7 @@ function WorkflowCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-1 border-t border-t-[var(--color-wi-line)]">
+      <div className="flex items-center justify-between pt-1 border-t var(--color-wi-line)">
         <div className="text-[11px] text-[var(--color-wi-text-light)]">
           <p>{wf.trigger_description}</p>
           {wf.last_sent_at && (
@@ -492,7 +492,7 @@ export default function EmailReminders() {
                 <p className="text-sm text-[var(--color-wi-text-light)]">Choose a starting point or start from scratch.</p>
                 <button
                   onClick={startFromScratch}
-                  className="w-full text-left rounded-sm border border-dashed border-[var(--color-wi-line)] p-3 text-sm text-[var(--color-wi-text-light)] hover:border-gray-500 hover:text-[var(--color-wi-text-light)] transition-colors"
+                  className="w-full text-left rounded-sm border border-dashed var(--color-wi-line) p-3 text-sm text-[var(--color-wi-text-light)] hover:border-gray-500 hover:text-[var(--color-wi-text-light)] transition-colors"
                 >
                   <span className="font-medium text-[var(--color-wi-text)]">Start from scratch</span>
                   <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Blank template with no content</p>
@@ -501,7 +501,7 @@ export default function EmailReminders() {
                   <button
                     key={tmpl.id}
                     onClick={() => selectPreset(tmpl)}
-                    className="w-full text-left rounded-sm border border-[var(--color-wi-line)] p-3 hover:border-[var(--color-wi-line)] transition-colors"
+                    className="w-full text-left rounded-sm border var(--color-wi-line) p-3 hover:var(--color-wi-line) transition-colors"
                   >
                     <span className="text-sm font-medium text-[var(--color-wi-text)]">{tmpl.name}</span>
                     <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5 line-clamp-1">{tmpl.subject}</p>
@@ -563,7 +563,7 @@ export default function EmailReminders() {
                 type="text"
                 value={wfName}
                 onChange={(e) => setWfName(e.target.value)}
-                className="w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm"
+                className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm"
                 placeholder="e.g. Sit-in Day Reminder"
               />
             </div>
@@ -573,7 +573,7 @@ export default function EmailReminders() {
               <select
                 value={wfTemplateId}
                 onChange={(e) => setWfTemplateId(e.target.value)}
-                className="w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm"
+                className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm"
               >
                 <option value="">Select a template...</option>
                 {templates.map((t) => (
@@ -594,7 +594,7 @@ export default function EmailReminders() {
                 type="text"
                 value={wfTriggerDescription}
                 onChange={(e) => setWfTriggerDescription(e.target.value)}
-                className="w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm"
+                className="w-full rounded-sm border var(--color-wi-line) p-2 text-sm"
               />
               <p className="text-xs text-[var(--color-wi-text-light)] mt-1">
                 Describes when this workflow runs. Displayed to staff so they understand the schedule.
@@ -614,7 +614,7 @@ export default function EmailReminders() {
             </div>
 
             {/* Trigger visual */}
-            <div className="rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-3">
+            <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3">
               <p className="text-xs font-medium text-[var(--color-wi-text-light)] mb-2">⏰ When this workflow runs</p>
               <div className="relative h-6">
                 <div className="absolute inset-x-0 top-2.5 h-0.5 bg-gray-300" />
@@ -646,7 +646,7 @@ export default function EmailReminders() {
             </div>
             <div>
               <span className="text-xs text-[var(--color-wi-text-light)] font-medium">Body:</span>
-              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border border-[var(--color-wi-line)] bg-white p-3">
+              <div className="mt-0.5 text-sm text-[var(--color-wi-text-light)] whitespace-pre-wrap rounded-sm border var(--color-wi-line) bg-white p-3">
                 {previewOpen.body}
               </div>
             </div>

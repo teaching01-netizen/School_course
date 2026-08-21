@@ -26,7 +26,7 @@ export default function CrossStudyStudentSearch({ onSearch, loading }: Props) {
           value={wcode}
           onChange={(e) => setWcode(e.target.value)}
           placeholder="e.g. W12345"
-          className="w-full px-2 py-1.5 text-sm border border-[var(--color-wi-line)] rounded-sm"
+          className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
         />
       </div>
       <Button type="submit" variant="primary" size="md" loading={loading} disabled={loading || !wcode.trim()}>

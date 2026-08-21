@@ -142,7 +142,7 @@ export default function CrmConflicts() {
         <button
           onClick={() => void fetchConflicts()}
           disabled={loading}
-          className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-wi-line)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 text-sm rounded-md border var(--color-wi-line) text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] transition-colors disabled:opacity-50"
         >
           Refresh
         </button>
@@ -166,7 +166,7 @@ export default function CrmConflicts() {
           <table className="w-full text-[13px]">
             <caption className="sr-only">Schedule conflicts</caption>
             <thead>
-              <tr className="border-b border-b-[var(--color-wi-line)]">
+              <tr className="border-b var(--color-wi-line)">
                 <th scope="col" className="w-8 px-2"></th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Student</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Course</th>
@@ -177,7 +177,7 @@ export default function CrmConflicts() {
             <tbody>
               {conflicts.map((item) => (
                 <Fragment key={item.job_id}>
-                  <tr className="border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]">
+                  <tr className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
                     <td className="w-8 py-3 px-1">
                       <button
                         type="button"
@@ -211,7 +211,7 @@ export default function CrmConflicts() {
                     </td>
                   </tr>
                   {expandedIds.has(item.job_id) && (
-                    <tr className="border-b border-b-[var(--color-wi-line)]">
+                    <tr className="border-b var(--color-wi-line)">
                       <td colSpan={5} className="p-0">
                         <div className="px-8 py-3 bg-[var(--color-wi-row-alt)]/50">
                           <CRMConflictResolutionPanel

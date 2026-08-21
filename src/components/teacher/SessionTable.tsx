@@ -31,7 +31,7 @@ function AbsenceCard({ student, sessionCourse, sessionStart, sessionEnd, zone }:
 }) {
   const name = student.nickname ?? student.student_name ?? student.wcode;
   return (
-    <div className="flex items-center gap-3 rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
         {initials(name)}
       </span>
@@ -57,7 +57,7 @@ function AbsenceCard({ student, sessionCourse, sessionStart, sessionEnd, zone }:
 function SitInCard({ visitor, zone }: { visitor: TeacherDashboardSitInVisitor; zone: string }) {
   const name = visitor.nickname ?? visitor.student_name ?? visitor.wcode;
   return (
-    <div className="flex items-center gap-3 rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 px-3 py-2.5">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-[10px] font-bold text-white">
         {initials(name)}
       </span>
@@ -109,7 +109,7 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-sm border border-[var(--color-wi-line)] bg-white">
+    <div className="overflow-x-auto rounded-sm border var(--color-wi-line) bg-white">
       <table className="w-full text-sm">
         <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
           <tr>
@@ -203,7 +203,7 @@ export default function SessionTable({ sessions, zone }: SessionTableProps) {
 
                     {isExpanded ? (
                       <tr>
-                        <td colSpan={7} className="border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/30 px-6 py-4">
+                        <td colSpan={7} className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/30 px-6 py-4">
                           <div className="space-y-4">
                             {hasAbsences ? (
                               <div>

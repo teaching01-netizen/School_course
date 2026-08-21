@@ -173,7 +173,7 @@ export default function RoomAssignDropdown({
         aria-controls={listboxId}
         aria-busy={saving || undefined}
         title={selected?.name}
-        className="flex h-8 w-56 items-center justify-between gap-2 rounded-sm border border-[var(--color-wi-line)] bg-white px-2.5 text-[13px] text-left transition-[border-color] duration-150 hover:border-[var(--color-wi-text-light)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:cursor-not-allowed disabled:bg-wi-bg disabled:opacity-60 motion-reduce:transition-none"
+        className="flex h-8 w-56 items-center justify-between gap-2 rounded-sm border var(--color-wi-line) bg-white px-2.5 text-[13px] text-left transition-[border-color] duration-150 hover:border-[var(--color-wi-text-light)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:cursor-not-allowed disabled:bg-wi-bg disabled:opacity-60 motion-reduce:transition-none"
       >
         <span className={`min-w-0 flex-1 truncate ${selected ? "" : "text-[var(--color-wi-text-light)]"}`}>
           {selected ? selected.name : placeholder}
@@ -197,7 +197,7 @@ export default function RoomAssignDropdown({
       {open && (
         <div
           ref={panelRef}
-          className={`absolute right-0 z-20 w-max min-w-64 max-w-[28rem] rounded-sm border border-[var(--border-strong)] bg-white shadow-lg ${
+          className={`absolute right-0 z-20 w-max min-w-64 max-w-[28rem] rounded-sm border var(--border-strong) bg-white shadow-lg ${
             placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5"
           }`}
         >
@@ -216,7 +216,7 @@ export default function RoomAssignDropdown({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search rooms…"
-              className="h-8 w-full rounded-sm border border-[var(--color-wi-line)] px-2.5 text-sm placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+              className="h-8 w-full rounded-sm border var(--color-wi-line) px-2.5 text-sm placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
             />
           </div>
           {hasNoResults ? (
@@ -259,7 +259,7 @@ export default function RoomAssignDropdown({
                         className="mt-px flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[3px] border transition-[background-color,border-color,transform] duration-100 motion-reduce:transition-none"
                         style={{
                           backgroundColor: checked ? "var(--color-wi-primary)" : undefined,
-                          borderColor: checked ? "var(--color-wi-primary)" : "border-[var(--color-wi-line)]",
+                          borderColor: checked ? "var(--color-wi-primary)" : "var(--color-wi-line)",
                           transform: checked ? "scale(1)" : "scale(0.95)",
                         }}
                       >

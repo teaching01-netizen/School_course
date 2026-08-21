@@ -72,7 +72,7 @@ export default function LeavePolicyTestPanel() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Input form */}
-        <div className="rounded-sm border border-[var(--color-wi-line)] bg-white p-4">
+        <div className="rounded-sm border var(--color-wi-line) bg-white p-4">
           <h3 className="text-sm font-semibold text-[var(--color-wi-text)] mb-4">Test Input</h3>
 
           <div className="space-y-4">
@@ -86,7 +86,7 @@ export default function LeavePolicyTestPanel() {
                   setMaxPriorityToShow(1);
                   setResult(null);
                 }}
-                className="w-full text-sm border border-[var(--color-wi-line)] rounded-sm px-3 py-2 bg-white"
+                className="w-full text-sm border var(--color-wi-line) rounded-sm px-3 py-2 bg-white"
               >
                 <option value="">-- Select a course rule --</option>
                 {LEAVE_POLICY_COURSE_RULES.map((rule) => (
@@ -139,7 +139,7 @@ export default function LeavePolicyTestPanel() {
                 value={missedCourseName}
                 onChange={(e) => setMissedCourseName(e.target.value)}
                 placeholder={selectedRule?.courseName || "e.g., SAT Verbal Rank 3"}
-                className="w-full text-sm border border-[var(--color-wi-line)] rounded-sm px-3 py-2"
+                className="w-full text-sm border var(--color-wi-line) rounded-sm px-3 py-2"
               />
               <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 The rank is extracted from this name (e.g., "Rank 3" → Rank 3)
@@ -152,7 +152,7 @@ export default function LeavePolicyTestPanel() {
               <select
                 value={missedSection}
                 onChange={(e) => setMissedSection(e.target.value)}
-                className="w-full text-sm border border-[var(--color-wi-line)] rounded-sm px-3 py-2 bg-white"
+                className="w-full text-sm border var(--color-wi-line) rounded-sm px-3 py-2 bg-white"
               >
                 <option value="Section 1">Section 1</option>
                 <option value="Section 2">Section 2</option>
@@ -169,7 +169,7 @@ export default function LeavePolicyTestPanel() {
                 max={totalSessions}
                 value={missedOccurrence}
                 onChange={(e) => setMissedOccurrence(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full text-sm border border-[var(--color-wi-line)] rounded-sm px-3 py-2"
+                className="w-full text-sm border var(--color-wi-line) rounded-sm px-3 py-2"
               />
             </div>
 
@@ -181,7 +181,7 @@ export default function LeavePolicyTestPanel() {
                 min={1}
                 value={totalSessions}
                 onChange={(e) => setTotalSessions(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full text-sm border border-[var(--color-wi-line)] rounded-sm px-3 py-2"
+                className="w-full text-sm border var(--color-wi-line) rounded-sm px-3 py-2"
               />
             </div>
 
@@ -192,7 +192,7 @@ export default function LeavePolicyTestPanel() {
                 id="isLastClass"
                 checked={isLastClass}
                 onChange={(e) => setIsLastClass(e.target.checked)}
-                className="rounded border-[var(--color-wi-line)]"
+                className="rounded var(--color-wi-line)"
               />
               <label htmlFor="isLastClass" className="text-sm text-[var(--color-wi-text-light)]">
                 This is the last class of the cycle (End-of-class Meal)
@@ -217,7 +217,7 @@ export default function LeavePolicyTestPanel() {
         </div>
 
         {/* Results */}
-        <div className="rounded-sm border border-[var(--color-wi-line)] bg-white p-4">
+        <div className="rounded-sm border var(--color-wi-line) bg-white p-4">
           <h3 className="text-sm font-semibold text-[var(--color-wi-text)] mb-4">Test Result</h3>
 
           {!result ? (
@@ -268,7 +268,7 @@ export default function LeavePolicyTestPanel() {
                         className={`flex items-center justify-between rounded-sm px-3 py-2 text-sm ${
                           opt.available
                             ? "bg-green-50 border border-green-200"
-                            : "bg-[var(--color-wi-row-alt)] border border-[var(--color-wi-line)] opacity-50"
+                            : "bg-[var(--color-wi-row-alt)] border var(--color-wi-line) opacity-50"
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -290,7 +290,7 @@ export default function LeavePolicyTestPanel() {
 
               {/* Not available button for stepped reveal */}
               {!result.isBlocked && selectedRule && maxPriorityToShow < selectedRule.priorityCount && (
-                <div className="mt-4 pt-4 border-t border-t-[var(--color-wi-line)]">
+                <div className="mt-4 pt-4 border-t var(--color-wi-line)">
                   <p className="text-xs text-[var(--color-wi-text-light)] mb-2">
                     If the student cannot attend the {maxPriorityToShow === 1 ? "1st" : maxPriorityToShow === 2 ? "2nd" : "3rd"} Priority option:
                   </p>

@@ -15,7 +15,7 @@ type SidePanelAbsenceRowProps = {
 
 export default function SidePanelAbsenceRow({ absence }: SidePanelAbsenceRowProps) {
   return (
-    <article className={`rounded-sm border border-[var(--color-wi-line)] border-l-2 bg-white p-3 text-sm shadow-sm ${absenceInlineClasses(absence)}`}>
+    <article className={`rounded-sm border var(--color-wi-line) border-l-2 bg-white p-3 text-sm shadow-sm ${absenceInlineClasses(absence)}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-[var(--color-wi-text)]">{getAbsenceStudentLabel(absence)}</p>
@@ -34,7 +34,7 @@ export default function SidePanelAbsenceRow({ absence }: SidePanelAbsenceRowProp
         <Link
           to={`/absences/${absence.id}`}
           aria-label={`View details for ${getAbsenceStudentLabel(absence)}`}
-          className="inline-flex min-h-[28px] items-center rounded-sm border border-[var(--color-wi-line)] bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+          className="inline-flex min-h-[28px] items-center rounded-sm border var(--color-wi-line) bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
         >
           View details
         </Link>

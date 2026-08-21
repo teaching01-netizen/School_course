@@ -76,7 +76,7 @@ export default function OtpInput({
                   error
                     ? "border-[var(--color-wi-red)]"
                     : clsx(
-                        "border-[var(--color-wi-line)] hover:border-[var(--color-wi-primary)]/40 hover:bg-[var(--color-wi-row-alt)]",
+                        "var(--color-wi-line) hover:border-[var(--color-wi-primary)]/40 hover:bg-[var(--color-wi-row-alt)]",
                         index < currentLength && "border-[var(--color-wi-primary)]",
                         isCurrentEmpty && isFocused && "border-[var(--color-wi-primary)] ring-2 ring-[var(--color-wi-primary)]/20",
                       ),

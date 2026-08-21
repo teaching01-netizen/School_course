@@ -269,10 +269,10 @@ export function ActiveCoursesSection() {
           <div
             key={subject.subject_id}
             className={`rounded-sm border bg-white shadow-sm ${
-              dirty ? "border-l-2 border-l-blue-500 border-[var(--color-wi-line)]" : "border-[var(--color-wi-line)]"
+              dirty ? "border-l-2 border-l-blue-500 var(--color-wi-line)" : "var(--color-wi-line)"
             }`}
           >
-            <div className="flex items-center justify-between border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
+            <div className="flex items-center justify-between border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
@@ -365,7 +365,7 @@ export function ActiveCoursesSection() {
                 <span className="text-sm italic text-[var(--color-wi-text-light)]">No courses — create one first</span>
                 <a
                   href="/courses/create"
-                  className="inline-flex items-center justify-center rounded-sm border border-[var(--color-wi-line)] bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
+                  className="inline-flex items-center justify-center rounded-sm border var(--color-wi-line) bg-white px-2 py-1 text-xs font-medium text-[var(--color-wi-text)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
                 >
                   Create Course
                 </a>

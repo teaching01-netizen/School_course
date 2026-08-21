@@ -20,7 +20,7 @@ export default function Topbar({ collapsed, mobileOpen, onToggleCollapse, onOpen
   }, [title]);
 
   return (
-    <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-1 border-b border-b-[var(--color-wi-line)] bg-white px-3">
+    <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-1 border-b var(--color-wi-line) bg-white px-3">
       {/* Mobile menu toggle */}
       <button
         type="button"

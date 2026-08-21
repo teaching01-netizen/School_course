@@ -24,7 +24,7 @@ export default function SubjectRow({ id, name, selected, onToggle, disabled = fa
         aria-hidden="true"
         className={clsx(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors motion-reduce:transition-none",
-          selected ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)] text-white" : "border-[var(--color-wi-line)] bg-white",
+          selected ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)] text-white" : "var(--color-wi-line) bg-white",
         )}
       >
         {selected ? <Check className="h-4 w-4" strokeWidth={3} /> : null}

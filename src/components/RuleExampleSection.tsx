@@ -47,7 +47,7 @@ export function RuleExampleSection({ form }: RuleExampleSectionProps) {
   const scenario = buildExampleScenario(form);
 
   return (
-    <div className="border-t border-t-[var(--color-wi-line)] pt-3">
+    <div className="border-t var(--color-wi-line) pt-3">
       <p className="text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Example Scenario</p>
       <p className="text-sm text-[var(--color-wi-text-light)] pl-0">{scenario}</p>
     </div>

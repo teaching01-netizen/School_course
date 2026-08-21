@@ -44,13 +44,3 @@ export type Course = {
   legacy_last_synced_at?: string | null;
   teachers?: CourseTeacher[];
 };
-
-export type LegacyCourseConflict = {
-  id: string;
-  conflict_type: string;
-  category: string;
-  message: string | null;
-  source_payload: Record<string, unknown> | null;
-  local_payload: Record<string, unknown> | null;
-  created_at: string;
-};

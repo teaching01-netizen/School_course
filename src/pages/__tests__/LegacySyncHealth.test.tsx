@@ -33,7 +33,6 @@ function renderPage() {
 
 describe("Legacy sync health shadow toggle", () => {
   beforeEach(() => {
-    queryClient.clear();
     mockApiJson.mockReset();
     mockApiJson.mockImplementation((path: string) => {
       if (path === "/api/v1/admin/legacy-sync/health") {
@@ -49,8 +48,8 @@ describe("Legacy sync health shadow toggle", () => {
           freshness_seconds: null,
         });
       }
-      if (path.startsWith("/api/v1/admin/legacy-sync/jobs")) return Promise.resolve([]);
-      if (path.startsWith("/api/v1/admin/legacy-sync/conflicts") && !path.includes("/conflict-1/")) return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/jobs?limit=12") return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/conflicts") return Promise.resolve([]);
       if (path === "/api/v1/admin/legacy-sync/shadow") {
         return Promise.resolve({ ...controlFixture, shadow_mode: false });
       }
@@ -88,8 +87,8 @@ describe("Legacy sync health shadow toggle", () => {
           freshness_seconds: null,
         });
       }
-      if (path.startsWith("/api/v1/admin/legacy-sync/jobs")) return Promise.resolve([]);
-      if (path.startsWith("/api/v1/admin/legacy-sync/conflicts") && !path.includes("/conflict-1/")) return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/jobs?limit=12") return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/conflicts") return Promise.resolve([]);
       throw new Error(`Unexpected API call: ${path}`);
     });
     renderPage();
@@ -100,7 +99,6 @@ describe("Legacy sync health shadow toggle", () => {
 
 describe("Legacy sync health student import toggle", () => {
   beforeEach(() => {
-    queryClient.clear();
     mockApiJson.mockReset();
     mockApiJson.mockImplementation((path: string) => {
       if (path === "/api/v1/admin/legacy-sync/health") {
@@ -116,8 +114,8 @@ describe("Legacy sync health student import toggle", () => {
           freshness_seconds: null,
         });
       }
-      if (path.startsWith("/api/v1/admin/legacy-sync/jobs")) return Promise.resolve([]);
-      if (path.startsWith("/api/v1/admin/legacy-sync/conflicts") && !path.includes("/conflict-1/")) return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/jobs?limit=12") return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/conflicts") return Promise.resolve([]);
       if (path === "/api/v1/admin/legacy-sync/student-import") {
         return Promise.resolve({ ...controlFixture, student_enabled: true });
       }
@@ -141,7 +139,6 @@ describe("Legacy sync health student import toggle", () => {
 });
 
 describe("Legacy sync health conflict actions", () => {
-  beforeEach(() => { queryClient.clear(); });
   const openConflict = {
     id: "conflict-1",
     entity_type: "course",
@@ -171,13 +168,8 @@ describe("Legacy sync health conflict actions", () => {
           freshness_seconds: null,
         });
       }
-      if (path.startsWith("/api/v1/admin/legacy-sync/jobs")) return Promise.resolve([]);
-      // New paginated list trims payloads — list response carries only summary fields
-      if (path.startsWith("/api/v1/admin/legacy-sync/conflicts?limit=")) {
-        const { source_payload: _sp, local_payload: _lp, ...summary } = openConflict as Record<string, unknown>;
-        return Promise.resolve([summary]);
-      }
-      if (path === "/api/v1/admin/legacy-sync/conflicts/conflict-1") return Promise.resolve(openConflict);
+      if (path === "/api/v1/admin/legacy-sync/jobs?limit=12") return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/conflicts") return Promise.resolve([openConflict]);
       if (path === "/api/v1/admin/legacy-sync/conflicts/conflict-1/resolve" || path === "/api/v1/admin/legacy-sync/conflicts/conflict-1/ignore") {
         return Promise.resolve({ ...openConflict, status: path.endsWith("/resolve") ? "resolved" : "ignored" });
       }
@@ -188,10 +180,7 @@ describe("Legacy sync health conflict actions", () => {
   it("renders payloads for open conflicts", async () => {
     renderPage();
     expect(await screen.findByText(/Legacy course 7306 already claimed/)).toBeInTheDocument();
-    // Payloads are no longer in the list for heavy-data performance — they load on Details click
-    const detailsButton = await screen.findByRole("button", { name: "Details" });
-    fireEvent.click(detailsButton);
-    expect(await screen.findByText("Source payload")).toBeInTheDocument();
+    expect(screen.getByText("Source payload")).toBeInTheDocument();
     expect(screen.getByText("Local payload")).toBeInTheDocument();
     expect(screen.getByText(/"title": "Computing"/)).toBeInTheDocument();
   });
@@ -221,7 +210,6 @@ describe("Legacy sync health conflict actions", () => {
 
 describe("Legacy sync live progress", () => {
   beforeEach(() => {
-    queryClient.clear();
     mockApiJson.mockReset();
     mockApiJson.mockImplementation((path: string) => {
       if (path === "/api/v1/admin/legacy-sync/health") {
@@ -261,8 +249,8 @@ describe("Legacy sync live progress", () => {
           freshness_seconds: null,
         });
       }
-      if (path.startsWith("/api/v1/admin/legacy-sync/jobs")) return Promise.resolve([]);
-      if (path.startsWith("/api/v1/admin/legacy-sync/conflicts") && !path.includes("/conflict-1/")) return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/jobs?limit=12") return Promise.resolve([]);
+      if (path === "/api/v1/admin/legacy-sync/conflicts") return Promise.resolve([]);
       throw new Error(`Unexpected API call: ${path}`);
     });
   });

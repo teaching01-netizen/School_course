@@ -66,7 +66,7 @@ export default function CrossStudyPage() {
       </div>
 
       {/* Master list */}
-      <section className="border border-[var(--color-wi-line)] rounded-sm p-4">
+      <section className="border var(--color-wi-line) rounded-sm p-4">
         <h2 className="text-sm font-semibold text-[var(--color-wi-text-light)] mb-3">All Cross-Study Assignments</h2>
         <CrossStudyAssignmentList
           refreshKey={refreshKey}
@@ -77,13 +77,13 @@ export default function CrossStudyPage() {
 
       {/* Separator */}
       <div className="flex items-center gap-2 text-xs text-[var(--color-wi-text-light)]">
-        <span className="flex-1 border-t border-t-[var(--color-wi-line)]" />
+        <span className="flex-1 border-t var(--color-wi-line)" />
         <span>or search a student below</span>
-        <span className="flex-1 border-t border-t-[var(--color-wi-line)]" />
+        <span className="flex-1 border-t var(--color-wi-line)" />
       </div>
 
       {/* Student lookup */}
-      <section className="border border-[var(--color-wi-line)] rounded-sm p-4">
+      <section className="border var(--color-wi-line) rounded-sm p-4">
         <h2 className="text-sm font-semibold text-[var(--color-wi-text-light)] mb-3">Student Lookup</h2>
         <CrossStudyStudentSearch onSearch={handleSearch} loading={searching} />
 

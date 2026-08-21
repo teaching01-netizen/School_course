@@ -90,7 +90,7 @@ export default function ActiveCourseSelector({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white border border-[var(--border-strong)] rounded-sm shadow-lg">
+        <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white border var(--border-strong) rounded-sm shadow-lg">
           <div className="py-1">
             {courses.map((course) => {
               const isActive = course.id === activeCourseId;

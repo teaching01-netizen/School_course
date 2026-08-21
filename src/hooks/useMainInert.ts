@@ -52,11 +52,10 @@ export function useMainInert() {
   useEffect(() => {
     return () => {
       if (typeof document === "undefined") return;
-      inertCounts.current.clear();
-      scrollLockCounts.current.clear();
-      sync();
+      const keys = new Set([...inertCounts.current.keys(), ...scrollLockCounts.current.keys()]);
+      for (const k of keys) remove(k);
     };
-  }, [sync]);
+  }, [remove]);
 
   return { add, remove };
 }

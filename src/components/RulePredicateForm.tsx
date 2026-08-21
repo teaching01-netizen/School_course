@@ -93,7 +93,7 @@ export function RulePredicateForm({ ruleType, predicate, onChange }: RulePredica
         <TeacherCaseByCaseFields predicate={local} onChange={update} />
       )}
 
-      <div className="border-t border-t-[var(--color-wi-line)] pt-3">
+      <div className="border-t var(--color-wi-line) pt-3">
         <Button
           variant="ghost"
           size="sm"
@@ -106,7 +106,7 @@ export function RulePredicateForm({ ruleType, predicate, onChange }: RulePredica
             aria-label="JSON predicate"
             value={jsonText}
             onChange={(e) => handleJsonCommit(e.target.value)}
-            className="mt-2 w-full rounded-sm border border-[var(--color-wi-line)] px-3 py-2 text-sm font-mono focus:border-[var(--color-wi-primary)] focus:outline-none"
+            className="mt-2 w-full rounded-sm border var(--color-wi-line) px-3 py-2 text-sm font-mono focus:border-[var(--color-wi-primary)] focus:outline-none"
             rows={6}
             placeholder='{"key": "value"}'
           />
@@ -181,7 +181,7 @@ function CrossSectionFields({
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-[var(--color-wi-line)]"
+          className="rounded-sm var(--color-wi-line)"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -218,7 +218,7 @@ function AnyDayExceptLastFields({
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-[var(--color-wi-line)]"
+          className="rounded-sm var(--color-wi-line)"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -308,7 +308,7 @@ function RankChainFields({
           type="checkbox"
           checked={(predicate.last_class_excluded as boolean) ?? true}
           onChange={(e) => onChange({ last_class_excluded: e.target.checked })}
-          className="rounded-sm border-[var(--color-wi-line)]"
+          className="rounded-sm var(--color-wi-line)"
         />
         Last Class Excluded
         <Tooltip content={FIELD_TOOLTIPS.last_class_excluded} />
@@ -331,7 +331,7 @@ function TeacherCaseByCaseFields({
           type="checkbox"
           checked={(predicate.auto_assign as boolean) ?? false}
           onChange={(e) => onChange({ auto_assign: e.target.checked })}
-          className="rounded-sm border-[var(--color-wi-line)]"
+          className="rounded-sm var(--color-wi-line)"
         />
         Auto Assign
         <Tooltip content={FIELD_TOOLTIPS.auto_assign} />
@@ -341,7 +341,7 @@ function TeacherCaseByCaseFields({
           type="checkbox"
           checked={(predicate.requires_teacher_approval as boolean) ?? true}
           onChange={(e) => onChange({ requires_teacher_approval: e.target.checked })}
-          className="rounded-sm border-[var(--color-wi-line)]"
+          className="rounded-sm var(--color-wi-line)"
         />
         Requires Teacher Approval
         <Tooltip content={FIELD_TOOLTIPS.requires_teacher_approval} />

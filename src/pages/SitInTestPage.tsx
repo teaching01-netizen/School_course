@@ -512,7 +512,7 @@ export default function SitInTestPage() {
       </div>
 
       {/* Step 1: WCode Lookup */}
-      <section className="rounded-lg border border-[var(--color-wi-line)] bg-white p-5 mb-6">
+      <section className="rounded-lg border var(--color-wi-line) bg-white p-5 mb-6">
         <h2 className="text-sm font-semibold text-[var(--color-wi-text)] mb-3">1. Lookup Student</h2>
         <div className="flex gap-3">
           <input
@@ -520,7 +520,7 @@ export default function SitInTestPage() {
             onChange={(e) => setWcodeInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}
             placeholder="e.g. W250389"
-            className="min-h-[44px] flex-1 rounded-lg border border-[var(--color-wi-line)] px-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="min-h-[44px] flex-1 rounded-lg border var(--color-wi-line) px-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
           <button
             onClick={() => void handleLookup()}
@@ -532,7 +532,7 @@ export default function SitInTestPage() {
         </div>
         {lookupError && <p className="text-sm text-red-600 mt-2">{lookupError}</p>}
         {lookup && (
-          <div className="mt-4 rounded-lg bg-[var(--color-wi-row-alt)] border border-[var(--color-wi-line)] p-4">
+          <div className="mt-4 rounded-lg bg-[var(--color-wi-row-alt)] border var(--color-wi-line) p-4">
             <p className="text-sm font-semibold text-[var(--color-wi-text)]">{lookupName || lookup.full_name}</p>
             <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
             {lookup.email_crm?.trim() ? (
@@ -556,7 +556,7 @@ export default function SitInTestPage() {
 
       {/* Step 2: Select Subjects */}
       {lookup && lookup.subjects.length > 0 && (
-        <section className="rounded-lg border border-[var(--color-wi-line)] bg-white p-5 mb-6">
+        <section className="rounded-lg border var(--color-wi-line) bg-white p-5 mb-6">
           <h2 className="text-sm font-semibold text-[var(--color-wi-text)] mb-3">2. Select Subject(s)</h2>
           <div className="space-y-2">
             {lookup.subjects.map((subject: StudentLookupSubject) => (
@@ -565,7 +565,7 @@ export default function SitInTestPage() {
                   type="checkbox"
                   checked={selectedSubjectIds.includes(subject.id)}
                   onChange={() => toggleSubject(subject.id)}
-                  className="h-4 w-4 rounded border-[var(--color-wi-line)] text-blue-600"
+                  className="h-4 w-4 rounded var(--color-wi-line) text-blue-600"
                 />
                 <span className="text-sm text-[var(--color-wi-text)]">{subject.name}</span>
                 <span className="text-xs text-[var(--color-wi-text-light)] font-mono">{subject.code}</span>
@@ -597,9 +597,9 @@ export default function SitInTestPage() {
                 const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
                 const sessionGroups = groupByDay(group.sessions);
                 return (
-                  <div key={group.course_id} className="rounded-lg border border-[var(--color-wi-line)] bg-white overflow-hidden">
+                  <div key={group.course_id} className="rounded-lg border var(--color-wi-line) bg-white overflow-hidden">
                     {/* Subject header with sit-in rule info */}
-                    <div className="border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-4 py-3">
+                    <div className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-4 py-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</span>
                         <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
@@ -675,7 +675,7 @@ export default function SitInTestPage() {
                                 checked={selected}
                                 disabled={!selected && atMaxSessions}
                                 onChange={() => toggleSession(sessionIds)}
-                                className="mt-0.5 h-4 w-4 rounded border-[var(--color-wi-line)] text-blue-600 disabled:opacity-50"
+                                className="mt-0.5 h-4 w-4 rounded var(--color-wi-line) text-blue-600 disabled:opacity-50"
                               />
                               <div className="min-w-0 flex-1">
                                 <span className="text-sm font-medium text-[var(--color-wi-text)]">
@@ -686,7 +686,7 @@ export default function SitInTestPage() {
 
                             {/* Sit-in detail card */}
                             {selected && sitIn && (
-                              <div className="mt-3 ml-7 rounded-lg border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/50 p-4">
+                              <div className="mt-3 ml-7 rounded-lg border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 p-4">
                                 {renderSitInDetail(
                                   sitIn,
                                   hasPriorities,
@@ -723,7 +723,7 @@ export default function SitInTestPage() {
       )}
 
       {!lookup && (
-        <div className="rounded-lg border border-dashed border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-8 text-center text-sm text-[var(--color-wi-text-light)]">
+        <div className="rounded-lg border border-dashed var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-8 text-center text-sm text-[var(--color-wi-text-light)]">
           Enter a W-Code above to start testing sit-in rules.
         </div>
       )}
@@ -824,7 +824,7 @@ function renderSitInDetail(
               <button
                 onClick={() => onPreviousPriority(priorityGroup, session.id)}
                 disabled={revealingPriority}
-                className="rounded-full border border-[var(--color-wi-line)] bg-white px-3 py-1 text-xs font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
+                className="rounded-full border var(--color-wi-line) bg-white px-3 py-1 text-xs font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
               >
                 &larr; Back
               </button>
@@ -833,7 +833,7 @@ function renderSitInDetail(
               <button
                 onClick={() => onNotAvailable(priorityGroup, session.id)}
                 disabled={revealingPriority}
-                className="rounded-full border border-[var(--color-wi-line)] bg-white px-3 py-1 text-xs font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
+                className="rounded-full border var(--color-wi-line) bg-white px-3 py-1 text-xs font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] disabled:opacity-50"
               >
                 {revealingPriority ? "Loading..." : "See other times &rarr;"}
               </button>
@@ -850,7 +850,7 @@ function renderSitInDetail(
                 groupByDay(availableSessionsForMissedSessions(p, sessionIds)).map((optGroup) => (
                   <div
                     key={`${p.sit_in_course?.id ?? "course"}:${optGroup.id}`}
-                    className="rounded-md border border-[var(--color-wi-line)] bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
+                    className="rounded-md border var(--color-wi-line) bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
                   >
                     {getSitInSessionGroupLabel(optGroup.items, p.sit_in_course, groupLabel, allSubjects)}
                   </div>
@@ -886,7 +886,7 @@ function renderSitInDetail(
         )}
 
         {/* Rule metadata */}
-        <div className="mt-3 border-t border-t-[var(--color-wi-line)] pt-2 text-xs text-[var(--color-wi-text-light)]">
+        <div className="mt-3 border-t var(--color-wi-line) pt-2 text-xs text-[var(--color-wi-text-light)]">
           <span className="font-medium text-[var(--color-wi-text-light)]">Type:</span> {sitIn.rule_type ?? "—"}
           {sitIn.has_next_priority !== undefined && (
             <span className="ml-3">
@@ -912,7 +912,7 @@ function renderSitInDetail(
           {groupByDay(sitInAvailable).map((optGroup) => (
             <div
               key={optGroup.id}
-              className="rounded-md border border-[var(--color-wi-line)] bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
+              className="rounded-md border var(--color-wi-line) bg-white px-3 py-2 text-xs text-[var(--color-wi-text-light)]"
             >
               {getSitInSessionGroupLabel(optGroup.items, sitIn.sit_in_course, groupLabel, allSubjects)}
             </div>

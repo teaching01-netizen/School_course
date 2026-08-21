@@ -44,7 +44,7 @@ export default function ScheduleSessionCard({ session, course, room, zone, teach
       {/* Tooltip — flips above/below based on available space */}
       <div
         className={`
-          pointer-events-none absolute z-10 w-52 rounded-md border border-[var(--border-strong)] bg-white px-3 py-2 text-xs shadow-lg
+          pointer-events-none absolute z-10 w-52 rounded-md border var(--border-strong) bg-white px-3 py-2 text-xs shadow-lg
           transition-opacity duration-150
           ${tooltip.visible ? 'opacity-100' : 'opacity-0'}
           ${tooltip.above

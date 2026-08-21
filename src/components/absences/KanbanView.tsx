@@ -21,7 +21,7 @@ export const COLUMNS: { key: AbsenceStatus; label: string }[] = [
 const COLUMN_STYLES: Record<string, string> = {
   pending: "border-blue-200 bg-blue-50/30",
   reviewed: "border-emerald-200 bg-emerald-50/30",
-  actioned: "border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/30",
+  actioned: "var(--color-wi-line) bg-[var(--color-wi-row-alt)]/30",
   special_approved: "border-purple-200 bg-purple-50/30",
 };
 
@@ -62,7 +62,7 @@ function AbsenceCard({
       tabIndex={0}
       aria-label={`View absence for ${absence.student_name ?? absence.wcode}`}
       className={`group relative cursor-pointer rounded-sm border p-3 text-sm shadow-sm transition-shadow hover:shadow-md ${
-        critical ? "border-red-400 bg-red-50/70" : impacted ? "border-amber-400 bg-amber-50/70" : "border-[var(--color-wi-line)] bg-white"
+        critical ? "border-red-400 bg-red-50/70" : impacted ? "border-amber-400 bg-amber-50/70" : "var(--color-wi-line) bg-white"
       }`}
       onClick={() => navigate(`/absences/${absence.id}`)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/absences/${absence.id}`); } }}
@@ -259,7 +259,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
     <>
       <div className="grid gap-4 md:grid-cols-3">
         {COLUMNS.map(({ key, label }) => (
-          <div key={key} className={`rounded-sm border p-3 ${COLUMN_STYLES[key] ?? "border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/30"}`}>
+          <div key={key} className={`rounded-sm border p-3 ${COLUMN_STYLES[key] ?? "var(--color-wi-line) bg-[var(--color-wi-row-alt)]/30"}`}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</h3>
               <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-[var(--color-wi-text-light)]">{columns[key].length}</span>
@@ -310,7 +310,7 @@ export default function KanbanView({ filters }: { filters: { query: string; subj
           </>}>
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Assigned sit-in sessions will be released.</p>
           <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="kanban-cancel-reason">Cancellation reason</label>
-          <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+          <textarea id="kanban-cancel-reason" className="mt-2 w-full rounded-sm border var(--color-wi-line) p-2 text-sm" rows={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
         </Modal>
       ) : null}
 

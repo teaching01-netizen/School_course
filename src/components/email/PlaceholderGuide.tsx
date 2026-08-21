@@ -18,7 +18,7 @@ export default function PlaceholderGuide({ onInsert }: { onInsert: (token: strin
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border border-[var(--color-wi-line)] rounded-sm">
+    <div className="border var(--color-wi-line) rounded-sm">
       <button
         type="button"
         onClick={() => setOpen(!open)}

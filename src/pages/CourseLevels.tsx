@@ -631,7 +631,7 @@ export default function CourseLevels() {
           </Link>
           <CourseLevelSearch value={searchTerm} onChange={setSearchTerm} />
           {/* View mode toggle */}
-          <div className="flex border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
+          <div className="flex border var(--color-wi-line) rounded-sm overflow-hidden">
             <button
               onClick={() => setViewMode("classic")}
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
@@ -752,7 +752,7 @@ export default function CourseLevels() {
 
       {/* Verification report */}
       {verificationReport && (
-        <div className="mb-5 border border-[var(--color-wi-line)] bg-white px-4 py-3 rounded-sm text-sm text-[var(--color-wi-text-light)]" role="status">
+        <div className="mb-5 border var(--color-wi-line) bg-white px-4 py-3 rounded-sm text-sm text-[var(--color-wi-text-light)]" role="status">
           <p className="font-medium mb-1">Verification results</p>
           {verificationReport.map((message) => <p key={message}>{message}</p>)}
         </div>
@@ -790,7 +790,7 @@ export default function CourseLevels() {
                 const rootKey = rootGroup.rootCourseGroupId ?? UNGROUPED_KEY;
                 return (
                   <div key={rootKey} className="mb-6">
-                    <div className="text-sm font-semibold text-[var(--color-wi-text)] mb-3 pb-2 border-b border-b-[var(--color-wi-line)]">
+                    <div className="text-sm font-semibold text-[var(--color-wi-text)] mb-3 pb-2 border-b var(--color-wi-line)">
                       {rootGroup.label}
                     </div>
                     {rootGroup.subjects.map((subject) => (
@@ -856,7 +856,7 @@ export default function CourseLevels() {
                     <span className="text-xs text-[var(--color-wi-text-light)] transition-transform duration-150">
                       {isCollapsed ? "▶" : "▼"}
                     </span>
-                    <div className="text-sm font-semibold text-[var(--color-wi-text)] pb-2 border-b border-b-[var(--color-wi-line)] flex-1">
+                    <div className="text-sm font-semibold text-[var(--color-wi-text)] pb-2 border-b var(--color-wi-line) flex-1">
                       <span>{rootGroup.label}</span>
                       <span
                         className={`ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
@@ -876,7 +876,7 @@ export default function CourseLevels() {
                     <>
                       {/* Action bar for this root group */}
                       {rootGroup.rootCourseGroupId !== null && (
-                        <div className="flex items-center gap-4 mb-2 mt-2 border-b border-b-[var(--color-wi-line)] pb-2">
+                        <div className="flex items-center gap-4 mb-2 mt-2 border-b var(--color-wi-line) pb-2">
                           {(() => {
                             const barSubjectId = rootGroup.subjects[0]?.subjectId ?? "";
                             const barCourses = rootGroup.subjects.flatMap((s) =>
@@ -971,7 +971,7 @@ export default function CourseLevels() {
                                 <table className="w-full text-sm border-collapse">
                                   <caption className="sr-only">Courses in cycle</caption>
                                   <thead>
-                                    <tr className="border-b border-b-[var(--color-wi-line)] text-left text-[var(--color-wi-text-light)]">
+                                    <tr className="border-b var(--color-wi-line) text-left text-[var(--color-wi-text-light)]">
                                       <th scope="col" className="py-1.5 pr-3 font-medium w-8">
                                         <input
                                           type="checkbox"
@@ -1025,7 +1025,7 @@ export default function CourseLevels() {
                                       return (
                                         <tr
                                           key={course.id}
-                                          className="border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]"
+                                          className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]"
                                         >
                                           <td className="py-1.5 pr-3 w-8">
                                             <input
@@ -1131,7 +1131,7 @@ export default function CourseLevels() {
           <table className="w-full text-sm">
             <caption className="sr-only">Bulk edit levels</caption>
             <thead>
-              <tr className="border-b border-b-[var(--color-wi-line)] text-left text-[var(--color-wi-text-light)]">
+              <tr className="border-b var(--color-wi-line) text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="py-2 pr-3 font-medium">Course</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Cycle</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Current</th>
@@ -1140,7 +1140,7 @@ export default function CourseLevels() {
             </thead>
             <tbody>
               {bulkEditTarget.courses.map((course) => (
-                <tr key={course.id} className="border-b border-b-[var(--color-wi-line)]">
+                <tr key={course.id} className="border-b var(--color-wi-line)">
                   <td className="py-2 pr-3 font-mono text-xs">{course.code}</td>
                   <td className="py-2 pr-3 text-[var(--color-wi-text-light)]">{course.cycle_label}</td>
                   <td className="py-2 pr-3">{course.level ?? "Not set"}</td>

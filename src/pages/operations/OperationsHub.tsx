@@ -43,7 +43,7 @@ export default function OperationsHub() {
         <p className="text-sm text-[var(--color-wi-text-light)]">Manage sit-in rules, active course mappings, form settings, and operational policies.</p>
       </div>
 
-      <div className="flex gap-0 border-b border-b-[var(--color-wi-line)] overflow-x-auto scrollbar-hide">
+      <div className="flex gap-0 border-b var(--color-wi-line) overflow-x-auto scrollbar-hide">
         {TABS.map((tab) => (
           <button
             key={tab.key}

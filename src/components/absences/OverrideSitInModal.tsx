@@ -226,8 +226,8 @@ export default function OverrideSitInModal({
             <>
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">Recipients</p>
-                <div className="rounded-lg border border-[var(--color-wi-line)]">
-                  <div className="flex items-center gap-3 border-b border-b-[var(--color-wi-line)] px-4 py-3">
+                <div className="rounded-lg border var(--color-wi-line)">
+                  <div className="flex items-center gap-3 border-b var(--color-wi-line) px-4 py-3">
                     <Phone className="h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-[var(--color-wi-text-light)]">Student</p>
@@ -246,13 +246,13 @@ export default function OverrideSitInModal({
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">Message preview</p>
-                <div className="rounded-lg border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/50 px-4 py-3">
+                <div className="rounded-lg border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 px-4 py-3">
                   <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-wi-text-light)]">{smsPreview.student_sms}</p>
                 </div>
               </div>
             </>
           ) : (
-            <div className="flex items-start gap-3 rounded-lg border border-[var(--color-wi-line)] px-4 py-3">
+            <div className="flex items-start gap-3 rounded-lg border var(--color-wi-line) px-4 py-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
               <p className="text-sm text-[var(--color-wi-text-light)]">SMS preview unavailable. You can still send the notification.</p>
             </div>
@@ -261,7 +261,7 @@ export default function OverrideSitInModal({
       ) : (
         <div className="space-y-6">
           {hasCurrentState ? (
-            <div className="rounded-lg border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/50 px-4 py-3 text-sm text-[var(--color-wi-text-light)]">
+            <div className="rounded-lg border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50 px-4 py-3 text-sm text-[var(--color-wi-text-light)]">
               <span className="font-medium text-[var(--color-wi-text-light)]">Current:</span>{" "}
               {currentLabel ?? "None"}
               {currentCourseId && selectedCourseName ? ` — ${selectedCourseName}` : ""}
@@ -280,7 +280,7 @@ export default function OverrideSitInModal({
                   className={`relative flex flex-col items-start gap-1 rounded-xl border-2 p-4 text-left transition-all duration-200 ${
                     selected
                       ? "border-[var(--color-wi-primary)] bg-blue-50/40 shadow-sm"
-                      : "border-[var(--color-wi-line)] bg-white hover:border-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]/50"
+                      : "var(--color-wi-line) bg-white hover:var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]/50"
                   }`}
                 >
                   {selected ? (
@@ -345,14 +345,14 @@ export default function OverrideSitInModal({
                           className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-150 ${
                             selected
                               ? "border-blue-400 bg-blue-50/30 ring-1 ring-blue-500/20"
-                              : "border-[var(--color-wi-line)] bg-white hover:border-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)]/50"
+                              : "var(--color-wi-line) bg-white hover:var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]/50"
                           }`}
                         >
                           <span
                             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                               selected
                                 ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)] text-white"
-                                : "border-[var(--color-wi-line)] bg-white"
+                                : "var(--color-wi-line) bg-white"
                             }`}
                           >
                             {selected ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
@@ -385,7 +385,7 @@ export default function OverrideSitInModal({
               ) : null}
             </div>
           ) : (
-            <div className="flex items-start gap-3 rounded-lg border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)]/30 px-4 py-3">
+            <div className="flex items-start gap-3 rounded-lg border var(--color-wi-line) bg-[var(--color-wi-row-alt)]/30 px-4 py-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-wi-text-light)]" />
               <p className="text-sm leading-relaxed text-[var(--color-wi-text-light)]">
                 The student will attend via Zoom. No physical sit-in sessions are needed.

@@ -1014,7 +1014,7 @@ export default function CourseDetail() {
         <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 mb-3">
           <div className="flex items-end gap-2">
             <h2 className="text-xl font-semibold text-[var(--color-wi-text)]">Schedule</h2>
-            <div className="inline-flex rounded-sm border border-[var(--color-wi-line)] overflow-hidden self-end" role="group" aria-label="View mode">
+            <div className="inline-flex rounded-sm border var(--color-wi-line) overflow-hidden self-end" role="group" aria-label="View mode">
               <button
                 type="button"
                 onClick={() => { setViewMode('table'); edit.closeModal(); }}
@@ -1052,7 +1052,7 @@ export default function CourseDetail() {
             )}
             {viewMode === 'calendar' && (
               <div className="flex flex-wrap items-center gap-1.5 self-end pb-0.5">
-                <div className="inline-flex rounded-sm border border-[var(--color-wi-line)] overflow-hidden" role="group" aria-label="Calendar period">
+                <div className="inline-flex rounded-sm border var(--color-wi-line) overflow-hidden" role="group" aria-label="Calendar period">
                   {(["day", "week", "month"] as const).map((mode) => (
                     <button
                       key={mode}
@@ -1083,11 +1083,11 @@ export default function CourseDetail() {
         </div>
 
         {viewMode === 'calendar' ? (
-          <div className="border border-[var(--color-wi-line)] p-4 bg-white">
+          <div className="border var(--color-wi-line) p-4 bg-white">
             <div className="hidden md:block">
               {calendarMode === 'month' ? (
-                <div className="overflow-hidden rounded-sm border border-[var(--color-wi-line)]">
-                  <div className="grid grid-cols-7 border-b border-b-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] text-center text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+                <div className="overflow-hidden rounded-sm border var(--color-wi-line)">
+                  <div className="grid grid-cols-7 border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-center text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
                     {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
                       <div key={d} className="py-1.5">{d}</div>
                     ))}
@@ -1101,7 +1101,7 @@ export default function CourseDetail() {
                       return (
                         <div
                           key={dayKey}
-                          className={`min-h-[84px] border-b border-r border-r-[var(--color-wi-line)] p-1 last:border-r-0 ${isToday ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''} ${!inMonth ? 'bg-[var(--color-wi-row-alt)]' : ''}`}
+                          className={`min-h-[84px] border-b border-r var(--color-wi-line) p-1 last:border-r-0 ${isToday ? 'ring-1 ring-inset ring-[var(--color-wi-primary)]' : ''} ${!inMonth ? 'bg-[var(--color-wi-row-alt)]' : ''}`}
                         >
                           <button
                             type="button"
@@ -1152,14 +1152,14 @@ export default function CourseDetail() {
                   </div>
                 </div>
               ) : (
-                <table className="w-full table-fixed text-[12px] border border-[var(--color-wi-line)]">
+                <table className="w-full table-fixed text-[12px] border var(--color-wi-line)">
                   <caption className="sr-only">Calendar view</caption>
                   <thead>
                     <tr className="bg-[var(--color-wi-row-alt)]">
                       {calendarRange.days.map((day) => {
                         const isToday = isSameDay(day, todayDate);
                         return (
-                          <th key={format(day, 'yyyy-MM-dd')} scope="col" className={`py-1 px-1 text-center font-semibold border-r border-r-[var(--color-wi-line)] last:border-r-0 ${isToday ? 'text-[var(--color-wi-primary-dark)]' : 'text-[var(--color-wi-text-light)]'}`}>
+                          <th key={format(day, 'yyyy-MM-dd')} scope="col" className={`py-1 px-1 text-center font-semibold border-r var(--color-wi-line) last:border-r-0 ${isToday ? 'text-[var(--color-wi-primary-dark)]' : 'text-[var(--color-wi-text-light)]'}`}>
                             <div className="text-[10px] uppercase tracking-wider">{format(day, 'EEE')}</div>
                             <div className="text-[11px]">{format(day, 'd MMM')}</div>
                           </th>
@@ -1170,7 +1170,7 @@ export default function CourseDetail() {
                   <tbody>
                     <tr>
                       {calendarRange.days.map((day) => (
-                        <td key={format(day, 'yyyy-MM-dd')} className={`border-r border-r-[var(--color-wi-line)] align-top last:border-r-0 ${isSameDay(day, todayDate) ? 'bg-[var(--color-wi-blue-bg)]' : ''}`}>
+                        <td key={format(day, 'yyyy-MM-dd')} className={`border-r var(--color-wi-line) align-top last:border-r-0 ${isSameDay(day, todayDate) ? 'bg-[var(--color-wi-blue-bg)]' : ''}`}>
                           <div className="min-h-[420px]">
                             {renderDaySessions(sessionsByDay.get(format(day, 'yyyy-MM-dd')) ?? [], calendarMode === 'day')}
                           </div>
@@ -1187,11 +1187,11 @@ export default function CourseDetail() {
             </div>
           </div>
         ) : (
-          <div className="border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
+          <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Course schedule</caption>
             <thead className="bg-[var(--color-wi-row-alt)]">
-              <tr className="border-b border-b-[var(--color-wi-line)]">
+              <tr className="border-b var(--color-wi-line)">
                 <th scope="col" className="w-12 py-2 px-3 text-center">
                   <input
                     type="checkbox"
@@ -1233,7 +1233,7 @@ export default function CourseDetail() {
                   return (
                     <tr
                       key={s.id}
-                      className={`group border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)] ${selectedIds.has(s.id) ? "bg-[var(--color-wi-selected)]/50" : ""} ${isEditing ? "bg-[var(--color-wi-selected)]/40" : ""}`}
+                      className={`group border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${selectedIds.has(s.id) ? "bg-[var(--color-wi-selected)]/50" : ""} ${isEditing ? "bg-[var(--color-wi-selected)]/40" : ""}`}
                     >
                       <td className="w-10 py-2 px-1 text-center">
                         <input
@@ -1384,7 +1384,7 @@ export default function CourseDetail() {
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="inline-flex rounded-sm border border-[var(--color-wi-line)] overflow-hidden" role="tablist" aria-label="Schedule creation method">
+              <div className="inline-flex rounded-sm border var(--color-wi-line) overflow-hidden" role="tablist" aria-label="Schedule creation method">
                 <button
                   type="button"
                   onClick={() => setCreateTab("series")}
@@ -1431,7 +1431,7 @@ export default function CourseDetail() {
                     id="paste-schedule-rows"
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
-                    className="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-[var(--color-wi-line)] rounded-sm focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+                    className="w-full min-h-40 px-2 py-1.5 text-sm font-mono border var(--color-wi-line) rounded-sm focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
                     placeholder={"Date\tBegin\tEnd\tDuration\tClassroom\tConfirm\tBy\nSun 31 May 26\t13:00\t15:00\t02:00"}
                   />
                   {parsedPaste.errors.length > 0 && (
@@ -1444,11 +1444,11 @@ export default function CourseDetail() {
                 </div>
 
                 {parsedPaste.rows.length > 0 && (
-                  <div className="border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
+                  <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
       <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
                       <table aria-label="Pasted schedule preview" className="w-full text-[12px]">
                         <thead className="bg-[var(--color-wi-row-alt)]">
-                          <tr className="border-b border-b-[var(--color-wi-line)]">
+                          <tr className="border-b var(--color-wi-line)">
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
                             <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
@@ -1460,7 +1460,7 @@ export default function CourseDetail() {
                           {parsedPaste.rows.map((row) => {
                             const matchedRoomId = row.classroom ? roomIdByPastedName.get(row.classroom.trim().toLowerCase()) : null;
                             return (
-                              <tr key={row.rowNumber} className="border-b border-b-[var(--color-wi-line)]">
+                              <tr key={row.rowNumber} className="border-b var(--color-wi-line)">
                                 <td className="py-2 px-2 font-mono">{row.date}</td>
                                 <td className="py-2 px-2 font-mono">{row.begin}</td>
                                 <td className="py-2 px-2 font-mono">{row.end}</td>
@@ -1578,12 +1578,12 @@ export default function CourseDetail() {
               {pastePreflights.filter((p) => p.status === "blocked").length} of {pastePreflights.length} pasted session{pastePreflights.length !== 1 ? "s" : ""} {" "}
               {pastePreflights.filter((p) => p.status === "blocked").length === 1 ? "has" : "have"} scheduling conflicts.
             </p>
-            <div className="border border-[var(--color-wi-line)] rounded-sm overflow-hidden">
+            <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <caption className="sr-only">Schedule conflict preview</caption>
                   <thead className="bg-[var(--color-wi-row-alt)]">
-                    <tr className="border-b border-b-[var(--color-wi-line)]">
+                    <tr className="border-b var(--color-wi-line)">
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
                       <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">End</th>
@@ -1593,7 +1593,7 @@ export default function CourseDetail() {
                   </thead>
                   <tbody>
                     {pastePreflights.map((pf) => (
-                      <tr key={pf.rowNumber} className="border-b border-b-[var(--color-wi-line)]">
+                      <tr key={pf.rowNumber} className="border-b var(--color-wi-line)">
                         <td className="py-2 px-2 font-mono">{pf.date}</td>
                         <td className="py-2 px-2 font-mono">{pf.begin}</td>
                         <td className="py-2 px-2 font-mono">{pf.end}</td>
@@ -1844,19 +1844,19 @@ function BulkEditModal({
           <div className="flex flex-wrap gap-3 items-end">
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Date</label>
-              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Begin</label>
-              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">End</label>
-              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Classroom</label>
-              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm">
+              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm">
                 <option value="__keep__">[KEEP ORIGINAL]</option>
                           <option value="">Not set</option>
                 {rooms.map((room) => (
@@ -1873,10 +1873,10 @@ function BulkEditModal({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-[13px] border border-[var(--color-wi-line)]">
+        <table className="w-full text-[13px] border var(--color-wi-line)">
           <caption className="sr-only">Bulk edit sessions</caption>
           <thead className="bg-[var(--color-wi-row-alt)]">
-            <tr className="border-b border-b-[var(--color-wi-line)]">
+            <tr className="border-b var(--color-wi-line)">
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">#</th>
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Date</th>
               <th scope="col" className="text-start py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Begin</th>
@@ -1899,27 +1899,27 @@ function BulkEditModal({
                 const hasError = hasDurationError(eff);
                 const isFillMode = editMode === 'fill-all';
                 return (
-                  <tr key={r.sessionId} className={`border-b border-b-[var(--color-wi-line)] hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
+                  <tr key={r.sessionId} className={`border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
                     <td className="py-1.5 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{rows.indexOf(r) + 1}</td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.date !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.date}</span>
                       ) : (
-                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.begin !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.begin}</span>
                       ) : (
-                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.end !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.end}</span>
                       ) : (
-                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm" />
+                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm" />
                       )}
                     </td>
                     <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-[var(--color-wi-text-light)]'}`}>
@@ -1931,7 +1931,7 @@ function BulkEditModal({
                           {rooms.find((rm) => rm.id === eff.room_id)?.name ?? 'Not set'}
                         </span>
                       ) : (
-                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-[var(--color-wi-line)] rounded-sm">
+                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border var(--color-wi-line) rounded-sm">
                 <option value="">Not set</option>
                           {rooms.map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>

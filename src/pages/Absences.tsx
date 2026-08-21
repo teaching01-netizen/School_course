@@ -39,7 +39,7 @@ function initials(name: string): string {
 const statusPresentation: Record<AbsenceStatus, { label: string; classes: string }> = {
   pending: { label: "Pending", classes: "bg-blue-50 text-blue-700 border-blue-200" },
   reviewed: { label: "Reviewed", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  actioned: { label: "Actioned", classes: "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] border-[var(--color-wi-line)]" },
+  actioned: { label: "Actioned", classes: "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] var(--color-wi-line)" },
   cancelled: { label: "Cancelled", classes: "bg-red-50 text-red-700 border-red-200 line-through" },
   special_approved: { label: "Special Approved", classes: "bg-purple-50 text-purple-700 border-purple-200" },
 };
@@ -576,7 +576,7 @@ export default function Absences() {
             <p className="text-sm text-[var(--color-wi-text-light)]">Kanban-style triage for student absences.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded-sm border border-[var(--color-wi-line)] bg-white text-sm">
+            <div className="flex rounded-sm border var(--color-wi-line) bg-white text-sm">
               <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium"><LayoutGrid className="h-4 w-4" /> Board</button>
               <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"><Table2 className="h-4 w-4" /> Table</button>
             </div>
@@ -588,7 +588,7 @@ export default function Absences() {
           impactOnly={filters.impactOnly}
           onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
         />
-        <section className="mb-4 rounded-sm border border-[var(--color-wi-line)] bg-white p-3" aria-label="Absence filters">
+        <section className="mb-4 rounded-sm border var(--color-wi-line) bg-white p-3" aria-label="Absence filters">
           <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr]">
             <FilterField label="Search">
               <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
@@ -653,14 +653,14 @@ export default function Absences() {
           <p className="text-sm text-[var(--color-wi-text-light)]">Review active absences, then archive completed requests after staff action.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="flex rounded-sm border border-[var(--color-wi-line)] bg-white text-sm">
+          <div className="flex rounded-sm border var(--color-wi-line) bg-white text-sm">
             <button onClick={() => setViewMode("table")} className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium"><Table2 className="h-4 w-4" /> Table</button>
             <button onClick={() => setViewMode("board")} className="flex items-center gap-1 px-3 py-1.5 text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"><LayoutGrid className="h-4 w-4" /> Board</button>
           </div>
-          <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border border-[var(--color-wi-line)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">Dashboard</Link>
+          <Link to="/absences/dashboard" className="inline-flex min-h-[34px] items-center rounded-sm border var(--color-wi-line) bg-white px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-wi-row-alt)]">Dashboard</Link>
           <Link
             to="/admin/operations?tab=form-settings"
-            className="inline-flex items-center gap-1 rounded-sm border border-[var(--color-wi-line)] bg-white px-2.5 py-1.5 text-sm text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text-light)]"
+            className="inline-flex items-center gap-1 rounded-sm border var(--color-wi-line) bg-white px-2.5 py-1.5 text-sm text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text-light)]"
             title="Configure absence form settings"
           >
             <Settings className="h-4 w-4" aria-hidden="true" /> Settings
@@ -678,7 +678,7 @@ export default function Absences() {
         onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
       />
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-b-[var(--color-wi-line)]">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b var(--color-wi-line)">
         <div className="flex gap-4 text-sm" aria-label="Absence table sections">
           <button
             type="button"
@@ -727,7 +727,7 @@ export default function Absences() {
         </p>
       </div>
 
-      <section className="mb-4 rounded-sm border border-[var(--color-wi-line)] bg-white p-3" aria-label="Absence filters">
+      <section className="mb-4 rounded-sm border var(--color-wi-line) bg-white p-3" aria-label="Absence filters">
         <div className="grid gap-3 md:grid-cols-[minmax(200px,2fr)_1fr_1fr_1fr_1fr]">
           <FilterField label="Search">
             <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
@@ -786,7 +786,7 @@ export default function Absences() {
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-sm border border-[var(--color-wi-line)] bg-white data-table-wrapper">
+      <div className="overflow-x-auto rounded-sm border var(--color-wi-line) bg-white data-table-wrapper">
         <table className="w-full text-sm absence-inbox-table">
           <caption className="sr-only">Absence inbox</caption>
           <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_var(--color-wi-border)]">
@@ -892,7 +892,7 @@ export default function Absences() {
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => updateFilter("offset", String(Math.max(0, filters.offset - PAGE_SIZE)))}>Previous</Button>
           <div className="flex items-center gap-1">
-            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-[var(--color-wi-line)] px-2 py-1 text-sm text-center" />
+            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border var(--color-wi-line) px-2 py-1 text-sm text-center" />
             <span>of {totalPages}</span>
           </div>
           <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => updateFilter("offset", String(filters.offset + PAGE_SIZE))}>Next</Button>
@@ -915,12 +915,12 @@ export default function Absences() {
         >
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Assigned sit-in sessions will be released. This action is retained in the audit timeline.</p>
           <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-category">Cancellation reason</label>
-          <select id="inbox-cancel-category" className="mt-1 w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
+          <select id="inbox-cancel-category" className="mt-1 w-full rounded-sm border var(--color-wi-line) p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
             <option value="">Select a reason...</option>
             {CANCEL_REASON_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
           <label className="mt-3 block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-detail">Additional details (optional)</label>
-          <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border border-[var(--color-wi-line)] p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
+          <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border var(--color-wi-line) p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
         </Modal>
       ) : null}
 
@@ -957,7 +957,7 @@ export default function Absences() {
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">
             This will mark the absence as <strong>Special Approved</strong> — it will <strong>not</strong> count toward the student's absence rate limit.
           </p>
-          <div className="rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] p-3 text-sm">
+          <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3 text-sm">
             <div className="flex justify-between"><span className="text-[var(--color-wi-text-light)]">Student:</span><span className="font-medium">{specialApprovedTarget.student_name ?? "Unknown"} ({specialApprovedTarget.wcode})</span></div>
             <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Subject:</span><span className="font-medium">{specialApprovedTarget.subject_code ?? "-"}</span></div>
             <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Dates:</span><span className="font-medium">{specialApprovedTarget.date_from === specialApprovedTarget.date_to ? specialApprovedTarget.date_from : `${specialApprovedTarget.date_from} – ${specialApprovedTarget.date_to}`}</span></div>
