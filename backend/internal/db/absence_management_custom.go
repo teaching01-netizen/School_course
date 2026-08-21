@@ -1178,6 +1178,81 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 	return out, rows.Err()
 }
 
+type SitInCandidateValidationRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	CourseID      pgtype.UUID        `json:"course_id"`
+	StartAt       pgtype.Timestamptz `json:"start_at"`
+	EndAt         pgtype.Timestamptz `json:"end_at"`
+	Occupancy     int64              `json:"occupancy"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	Version       int32              `json:"version"`
+	MissedOverlap bool               `json:"missed_overlap"`
+	NormalOverlap bool               `json:"normal_overlap"`
+	SitInOverlap  bool               `json:"sit_in_overlap"`
+}
+
+func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, courseID pgtype.UUID, instituteTZ string) ([]SitInCandidateValidationRow, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT sess.id, sess.course_id, sess.start_at, sess.end_at,
+		       (SELECT count(*) FROM course_students cs WHERE cs.course_id = sess.course_id) +
+		       (SELECT count(*) FROM absence_sit_ins asi WHERE asi.session_id = sess.id AND asi.absence_id <> $1) AS occupancy,
+		       sess.deleted_at, sess.version,
+		       EXISTS (
+				SELECT 1 FROM absence_missed_sessions ams
+				JOIN sessions missed ON missed.id = ams.session_id
+				WHERE ams.absence_id = $1 AND missed.deleted_at IS NULL
+				  AND sess.start_at < missed.end_at AND sess.end_at > missed.start_at
+		       ) AS missed_overlap,
+		       EXISTS (
+				SELECT 1
+				FROM student_absences sa
+				JOIN students st ON st.wcode = sa.wcode
+				JOIN course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
+				JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
+				WHERE sa.id = $1 AND normal.id <> sess.id
+				  AND sess.start_at < normal.end_at AND sess.end_at > normal.start_at
+		       ) AS normal_overlap,
+		       EXISTS (
+				SELECT 1 FROM absence_sit_ins other
+				JOIN sessions other_s ON other_s.id = other.session_id
+				WHERE other.absence_id = $1 AND other.session_id <> sess.id AND other_s.deleted_at IS NULL
+				  AND sess.start_at < other_s.end_at AND sess.end_at > other_s.start_at
+		       ) AS sit_in_overlap
+		FROM sessions sess
+		JOIN student_absences sa ON sa.id = $1
+		WHERE sess.course_id = $2
+		  AND sess.deleted_at IS NULL
+		  AND EXISTS (
+		    SELECT 1 FROM sessions later
+		    WHERE later.course_id = sess.course_id
+		      AND later.deleted_at IS NULL
+		      AND (later.start_at AT TIME ZONE $3)::date > (sess.start_at AT TIME ZONE $3)::date
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM sessions missed
+		    WHERE missed.course_id = sa.course_id
+		      AND missed.deleted_at IS NULL
+		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
+		      AND sess.start_at < missed.end_at
+		      AND sess.end_at > missed.start_at
+		  )
+		ORDER BY sess.start_at ASC
+	`, absenceID, courseID, instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SitInCandidateValidationRow
+	for rows.Next() {
+		var r SitInCandidateValidationRow
+		if err := rows.Scan(&r.ID, &r.CourseID, &r.StartAt, &r.EndAt, &r.Occupancy, &r.DeletedAt, &r.Version, &r.MissedOverlap, &r.NormalOverlap, &r.SitInOverlap); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 type AbsenceStats struct {
 	TotalCount           int64 `json:"total_count"`
 	PendingCount         int64 `json:"pending_count"`

@@ -157,7 +157,7 @@ func (s *Service) SuggestReplacements(ctx context.Context, absenceID pgtype.UUID
 	if !courseID.Valid {
 		courseID = absence.CourseID
 	}
-	rows, err := s.q.SitInCandidateSessions(ctx, absenceID, courseID, s.instituteTZ)
+	rows, err := s.q.SitInCandidateValidationBatch(ctx, absenceID, courseID, s.instituteTZ)
 	if err != nil {
 		return nil, fmt.Errorf("load sit-in candidates: %w", err)
 	}
@@ -170,10 +170,7 @@ func (s *Service) SuggestReplacements(ctx context.Context, absenceID pgtype.UUID
 		if _, ok := excluded[row.ID]; ok {
 			continue
 		}
-		validation, err := s.validateCandidate(ctx, absenceID, row.ID)
-		if err != nil {
-			return nil, err
-		}
+		validation := candidateRowToValidation(row, s.now())
 		if !validation.Valid {
 			continue
 		}
@@ -194,6 +191,26 @@ func (s *Service) validateCandidate(ctx context.Context, absenceID, sessionID pg
 		return ValidationResult{}, fmt.Errorf("validate sit-in candidate: %w", err)
 	}
 	return s.ValidateCandidate(ctx, absenceID, sessionID)
+}
+
+func candidateRowToValidation(row sqldb.SitInCandidateValidationRow, now time.Time) ValidationResult {
+	reasons := make([]string, 0, 4)
+	if row.DeletedAt.Valid {
+		reasons = append(reasons, "session_deleted")
+	}
+	if row.MissedOverlap {
+		reasons = append(reasons, "missed_session_overlap")
+	}
+	if row.NormalOverlap || row.SitInOverlap {
+		reasons = append(reasons, "session_overlap")
+	}
+	if row.StartAt.Valid && !row.StartAt.Time.After(now) {
+		reasons = append(reasons, "past_time")
+	}
+	if row.StartAt.Valid && row.EndAt.Valid && !row.EndAt.Time.After(row.StartAt.Time) {
+		reasons = append(reasons, "invalid_time_range")
+	}
+	return ValidationResult{Valid: len(reasons) == 0, Severity: severityForReasons(reasons), Reasons: reasons, SessionVersion: row.Version}
 }
 
 func factsToValidation(facts sqldb.SitInAssignmentFactsRow, now time.Time) ValidationResult {
