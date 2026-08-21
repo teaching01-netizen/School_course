@@ -190,7 +190,7 @@ function CreateSessionPanel(props: Omit<CreateSessionPopoverProps, "open" | "tri
         actionVerb="create"
       />
 
-      <div className="space-y-1.5 border-t var(--color-wi-line) pt-2">
+      <div className="space-y-1.5 border-t border-wi-line-soft pt-2">
         <div className="flex items-center gap-1.5 px-0.5">
           <button
             type="button"

@@ -24,7 +24,7 @@ export default function PendingAbsenceTable({ requests }: PendingAbsenceTablePro
   }
 
   return (
-    <div className="overflow-x-auto rounded-sm border var(--color-wi-line) bg-white">
+    <div className="overflow-x-auto rounded-sm border border-wi-line bg-white">
       <table className="w-full text-sm">
         <thead className="text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
           <tr>

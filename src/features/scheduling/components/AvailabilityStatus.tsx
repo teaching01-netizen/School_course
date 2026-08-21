@@ -55,8 +55,8 @@ export function SessionAvailabilityStatus({
 
   if (preflight.loading) {
     return (
-      <div className="flex items-center gap-2 rounded-md border var(--color-wi-line) bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text-light)]">
-        <span data-testid="session-availability-spinner" className="inline-block h-3 w-3 animate-spin rounded-full border-2 var(--color-wi-line) border-t-transparent" aria-hidden="true" />
+      <div className="flex items-center gap-2 rounded-md border border-wi-line-soft bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text-light)]">
+        <span data-testid="session-availability-spinner" className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-wi-line border-t-transparent" aria-hidden="true" />
         <span>Checking availability…</span>
       </div>
     );
@@ -64,7 +64,7 @@ export function SessionAvailabilityStatus({
 
   if (status === "available") {
     return (
-      <div className="flex items-center gap-2 rounded-md border var(--color-wi-line) bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text)]">
+      <div className="flex items-center gap-2 rounded-md border border-wi-line-soft bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text)]">
         <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-green)] text-[10px] font-bold text-white">✓</span>
         <span>
           <span className="font-medium text-[var(--color-wi-green)]">Available</span>
@@ -76,7 +76,7 @@ export function SessionAvailabilityStatus({
 
   if (status === "provisional") {
     return (
-      <div className="flex items-center gap-2 rounded-md border var(--color-wi-line) bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text)]">
+      <div className="flex items-center gap-2 rounded-md border border-wi-line-soft bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text)]">
         <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-wi-amber)]" />
         <span>
           <span className="font-medium text-[var(--color-wi-amber)]">Provisional</span>
@@ -262,8 +262,8 @@ export function SessionAvailabilityStatus({
   // idle — not enough of the form filled in to check yet.
   const missing = (missingFields ?? []).filter(Boolean);
   return (
-    <div className="flex items-center gap-2 rounded-md border var(--color-wi-line) bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text-light)]">
-      <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full border var(--color-wi-line)" />
+    <div className="flex items-center gap-2 rounded-md border border-wi-line-soft bg-[var(--color-wi-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-text-light)]">
+      <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full border border-wi-line" />
       <span>
         {missing.length > 0
           ? `Set ${missing.join(", ")} to check availability`

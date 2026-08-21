@@ -205,7 +205,7 @@ export default function Courses() {
     <div>
       <PageHeading>Course</PageHeading>
 
-      <section className="mb-4 rounded-sm border var(--color-wi-line) bg-white p-3" aria-label="Course filters">
+      <section className="mb-4 rounded-sm border border-wi-line bg-white p-3" aria-label="Course filters">
         <div className="flex flex-wrap items-center gap-3">
           <div className="w-full max-w-sm">
             <SearchInput
@@ -218,7 +218,7 @@ export default function Courses() {
             aria-label="Course type filter"
             value={typeFilter}
             onChange={(event) => updateFilter("type", event.target.value)}
-            className="w-full max-w-[200px] rounded-sm border var(--color-wi-line) px-2 py-1 text-sm"
+            className="w-full max-w-[200px] rounded-sm border border-wi-line px-2 py-1 text-sm"
           >
             <option value="">All types</option>
             <option value="private">Private</option>
@@ -228,7 +228,7 @@ export default function Courses() {
             aria-label="Teacher filter"
             value={teacherFilter}
             onChange={(event) => updateFilter("teacher_id", event.target.value)}
-            className="w-full max-w-[200px] rounded-sm border var(--color-wi-line) px-2 py-1 text-sm"
+            className="w-full max-w-[200px] rounded-sm border border-wi-line px-2 py-1 text-sm"
           >
             <option value="">All teachers</option>
             <option value="none">No teacher</option>
@@ -247,7 +247,7 @@ export default function Courses() {
         </div>
       </section>
 
-      <div className="mb-4 flex gap-4 border-b var(--color-wi-line) text-sm" aria-label="Course sections">
+      <div className="mb-4 flex gap-4 border-b border-wi-line text-sm" aria-label="Course sections">
         <button
           type="button"
           onClick={() => setBucket("live")}
@@ -310,7 +310,7 @@ export default function Courses() {
                 <col className="w-[6%]" />
               </colgroup>
               <thead>
-                <tr className="border-b var(--color-wi-line)">
+                <tr className="border-b border-wi-line">
                   <th scope="col" className="w-8 px-2">
                     <input
                       aria-label="Select all courses"
@@ -340,7 +340,7 @@ export default function Courses() {
               <tbody>
                 {items.map((course) => (
                   <Fragment key={course.id}>
-                    <tr className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
+                    <tr className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                       <td className="py-3 px-2">
                         <input
                           aria-label={`Select ${course.code}`}
@@ -402,7 +402,7 @@ export default function Courses() {
                       </td>
                     </tr>
                     {expandedIds.has(course.id) && (
-                      <tr className="border-b var(--color-wi-line)">
+                      <tr className="border-b border-wi-line">
                         <td colSpan={12} className="p-0">
                           <CourseAttendeeRow
                             students={cache[course.id] ?? []}
@@ -427,7 +427,7 @@ export default function Courses() {
             <div className="flex items-center gap-2">
               <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => updateFilter("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</Button>
               <div className="flex items-center gap-1">
-                <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border var(--color-wi-line) px-2 py-1 text-sm text-center" />
+                <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center" />
                 <span>of {totalPages}</span>
               </div>
               <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => updateFilter("offset", String(offset + PAGE_SIZE))}>Next</Button>

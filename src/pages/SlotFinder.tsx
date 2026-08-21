@@ -262,7 +262,7 @@ export default function SlotFinder() {
       )}
 
       {/* Search Form */}
-      <div className="bg-[var(--color-wi-row-alt)] border var(--color-wi-line) rounded-sm p-4 mb-6">
+      <div className="bg-[var(--color-wi-row-alt)] border border-wi-line rounded-sm p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <div>
             <label htmlFor="slot-finder-student" className="block text-xs text-[var(--color-wi-text-light)] mb-1">Student</label>
@@ -299,7 +299,7 @@ export default function SlotFinder() {
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="mt-1 w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
               />
             </label>
           </div>
@@ -310,7 +310,7 @@ export default function SlotFinder() {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="mt-1 w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
               />
             </label>
           </div>
@@ -399,8 +399,8 @@ export default function SlotFinder() {
               const blockedCount = daySlots.filter((s) => s.status === "blocked").length;
 
               return (
-                <div key={dateStr} className="border var(--color-wi-line) rounded-sm overflow-hidden">
-                  <div className="bg-[var(--color-wi-row-alt)] border-b var(--color-wi-line) px-4 py-2 flex items-center justify-between">
+                <div key={dateStr} className="border border-wi-line rounded-sm overflow-hidden">
+                  <div className="bg-[var(--color-wi-row-alt)] border-b border-wi-line px-4 py-2 flex items-center justify-between">
                     <div>
                       <span className="font-semibold text-[var(--color-wi-text)]">{dateStr}</span>
                       <span className="text-[var(--color-wi-text-light)] text-sm ml-2">{dayName}</span>

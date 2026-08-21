@@ -107,13 +107,13 @@ export default function Home() {
           value={roomFilter}
           onChange={(e) => setRoomFilter(e.target.value)}
           placeholder="Classroom ID"
-          className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm w-40"
+          className="px-2 py-1 text-sm border border-wi-line rounded-sm w-40"
         />
         <input
           type="date"
           value={dateStr}
           onChange={(e) => setDate(parseISO(e.target.value))}
-          className="px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
+          className="px-2 py-1 text-sm border border-wi-line rounded-sm"
         />
         <label className="flex items-center gap-1 text-sm text-[var(--color-wi-text-light)] cursor-pointer">
           <input
@@ -147,7 +147,7 @@ export default function Home() {
             <div className="overflow-x-auto"><table className="w-full text-[13px]">
               <caption className="sr-only">Daily schedule</caption>
               <thead>
-                <tr className="border-b var(--color-wi-line)">
+                <tr className="border-b border-wi-line">
                   <th scope="col" className="text-left py-2 px-2 font-semibold">Begin</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold">End</th>
                   <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
@@ -161,7 +161,7 @@ export default function Home() {
                   const startLocal = new Date(s.start_at);
                   const endLocal = new Date(s.end_at);
                   return (
-                    <tr key={s.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
+                    <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                       <td className="py-2 px-2">{format(startLocal, 'HH:mm')}</td>
                       <td className="py-2 px-2">{format(endLocal, 'HH:mm')}</td>
                       <td className="py-2 px-2">

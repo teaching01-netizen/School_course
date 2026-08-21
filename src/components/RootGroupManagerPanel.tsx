@@ -88,7 +88,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-          className="flex-1 px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+          className="flex-1 px-2 py-1.5 text-sm border border-wi-line rounded-sm"
         />
         <Button
           variant="primary"
@@ -108,10 +108,10 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
         <div className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">No groups yet</div>
       ) : (
         <>
-          <div className="border var(--color-wi-line) rounded-sm">
+          <div className="border border-wi-line rounded-sm">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-left text-[var(--color-wi-text-light)]">
+                <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)] text-left text-[var(--color-wi-text-light)]">
                   <th className="py-2 px-3 font-medium">Name</th>
                   <th className="py-2 px-3 font-medium w-24">Courses</th>
                   <th className="py-2 px-3 font-medium w-32" />
@@ -119,7 +119,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
               </thead>
               <tbody>
                 {paged.map((g: GroupWithCount) => (
-                  <tr key={g.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
+                  <tr key={g.id} className="border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-2 px-3">
                       {editingGroupId === g.id ? (
                         <div className="flex items-center gap-1">
@@ -131,7 +131,7 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
                               if (e.key === "Enter") handleRename(g.id);
                               if (e.key === "Escape") setEditingGroupId(null);
                             }}
-                            className="flex-1 px-2 py-1 text-sm border var(--color-wi-line) rounded-sm"
+                            className="flex-1 px-2 py-1 text-sm border border-wi-line rounded-sm"
                             autoFocus
                           />
                           <button

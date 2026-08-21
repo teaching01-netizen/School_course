@@ -331,7 +331,7 @@ export default function OperationsCalendar() {
           <p className="text-sm text-[var(--color-wi-text-light)]">Combined view of scheduled sessions and student absences.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-sm border var(--color-wi-line) bg-white text-sm">
+          <div className="flex rounded-sm border border-wi-line bg-white text-sm">
             <button onClick={() => setViewMode("week")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "week" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>Week</button>
             <button onClick={() => setViewMode("month")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "month" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>Month</button>
             <button onClick={() => setViewMode("list")} className={`flex items-center gap-1 px-3 py-1.5 ${viewMode === "list" ? "bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)] font-medium" : "text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}>List</button>
@@ -361,12 +361,12 @@ export default function OperationsCalendar() {
         </div>
       </div>
 
-      <div className="mb-4 rounded-sm border var(--color-wi-line) bg-white px-4 py-2.5 text-sm text-[var(--color-wi-text-light)]">
+      <div className="mb-4 rounded-sm border border-wi-line bg-white px-4 py-2.5 text-sm text-[var(--color-wi-text-light)]">
         Summary: <strong className="text-[var(--color-wi-text)]">{totalVisibleAbsences}</strong> absences |{" "}
         <strong className="text-[var(--color-wi-text)]">{totalVisibleSitIns}</strong> sit-in assignments
       </div>
 
-      <section className="mb-4 rounded-sm border var(--color-wi-line) bg-white p-3">
+      <section className="mb-4 rounded-sm border border-wi-line bg-white p-3">
         <div className="flex flex-wrap gap-3">
           <span className="inline-flex min-h-[32px] items-center rounded-full bg-[var(--color-wi-row-alt)] px-3 text-xs font-semibold text-[var(--color-wi-text-light)]">
             Filters ({activeFilterCount})
@@ -415,7 +415,7 @@ export default function OperationsCalendar() {
           onClearFilters={clearFilters}
         />
       ) : showMode !== "all" && !hasVisibleCalendarActivity ? (
-        <div className="rounded-sm border var(--color-wi-line) bg-white">
+        <div className="rounded-sm border border-wi-line bg-white">
           <EmptyState
             message={
               showMode === "sit-ins"
@@ -427,8 +427,8 @@ export default function OperationsCalendar() {
           />
         </div>
       ) : viewMode === "month" ? (
-        <div className="overflow-hidden rounded-sm border var(--color-wi-line) bg-white" style={{ minHeight: "300px" }}>
-          <div className="grid grid-cols-7 border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
+        <div className="overflow-hidden rounded-sm border border-wi-line bg-white" style={{ minHeight: "300px" }}>
+          <div className="grid grid-cols-7 border-b border-wi-line bg-[var(--color-wi-row-alt)] text-center text-[10px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
               <div key={d} className="py-1.5">{d}</div>
             ))}
@@ -447,7 +447,7 @@ export default function OperationsCalendar() {
               return (
                 <div
                   key={dayStr}
-                  className={`min-h-[80px] border-b border-r var(--color-wi-line) p-1 last:border-r-0 ${isToday ? "ring-1 ring-inset ring-[var(--color-wi-primary)]" : ""} ${!isCurrentMonth ? "bg-[var(--color-wi-row-alt)]" : ""}`}
+                  className={`min-h-[80px] border-b border-r border-wi-line p-1 last:border-r-0 ${isToday ? "ring-1 ring-inset ring-[var(--color-wi-primary)]" : ""} ${!isCurrentMonth ? "bg-[var(--color-wi-row-alt)]" : ""}`}
                 >
                   <button
                     type="button"
@@ -536,7 +536,7 @@ export default function OperationsCalendar() {
         </div>
       ) : (
         <div
-          className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)]"
+          className="grid grid-cols-7 gap-px overflow-hidden rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)]"
           style={{ minHeight: "400px" }}
         >
           {weekDates.map((day) => {
@@ -557,7 +557,7 @@ export default function OperationsCalendar() {
                   type="button"
                   onClick={() => openPanel(dayStr)}
                   aria-label={`Open details for ${dayLabel}`}
-                  className={`sticky top-0 z-10 border-b var(--color-wi-line) px-2 py-2 text-center ${isToday ? "bg-[var(--color-wi-blue-bg)]" : ""}`}
+                  className={`sticky top-0 z-10 border-b border-wi-line-soft px-2 py-2 text-center ${isToday ? "bg-[var(--color-wi-blue-bg)]" : ""}`}
                 >
                   <p className={`text-xs font-semibold ${isToday ? "text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text-light)]"}`}>
                     {day.setLocale("en-GB").toFormat("EEE d")}
@@ -577,13 +577,13 @@ export default function OperationsCalendar() {
                       type="button"
                       onClick={() => openPanel(dayStr, "sit-ins")}
                       aria-label={`Open details for ${getSessionLabel(session)} on ${dayLabel}`}
-                      className="w-full rounded-sm border var(--color-wi-line) bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
+                      className="w-full rounded-sm border border-wi-line-soft bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md"
                     >
                       <p className="font-semibold text-[var(--color-wi-text)]">{getSessionLabel(session)}</p>
                       <p className="text-[var(--color-wi-text-light)]">{formatUTCToZone(session.start_at, zone, "HH:mm") ?? "--:--"} &ndash; {formatUTCToZone(session.end_at, zone, "HH:mm") ?? "--:--"}</p>
                       {session.room_name ? <p className="truncate text-[var(--color-wi-text-light)]">{session.room_name}</p> : null}
                       {session.sit_in_students && session.sit_in_students.length > 0 ? (
-                        <div className="mt-1 border-t var(--color-wi-line) pt-1">
+                        <div className="mt-1 border-t border-wi-line-soft pt-1">
                           <p className="text-[10px] text-[var(--color-wi-amber)]">
                             <span className="font-semibold">Visitors:</span>{" "}
                             {session.sit_in_students.slice(0, 2).map((student, idx) => (

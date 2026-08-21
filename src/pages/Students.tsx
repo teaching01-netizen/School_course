@@ -125,7 +125,7 @@ export default function Students() {
       <div className="overflow-x-auto data-table-wrapper"><table className="w-full text-[13px]">
         <caption className="sr-only">List of students</caption>
         <thead>
-          <tr className="border-b var(--color-wi-line)">
+          <tr className="border-b border-wi-line">
             <th scope="col" className="text-left py-2 px-2 font-semibold">W-Code</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Name</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold">Nickname</th>
@@ -138,7 +138,7 @@ export default function Students() {
         </thead>
         <tbody>
           {items.map((s) => (
-            <tr key={s.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
+            <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
               <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.wcode}</td>
               <td className="py-2 px-2">{s.full_name}</td>
               <td className="py-2 px-2 text-[var(--color-wi-text-light)]">{s.nickname || "—"}</td>
@@ -167,7 +167,7 @@ export default function Students() {
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
           <div className="flex items-center gap-1">
-            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border var(--color-wi-line) px-2 py-1 text-sm text-center" />
+            <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center" />
             <span>of {totalPages}</span>
           </div>
           <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
@@ -222,7 +222,7 @@ export default function Students() {
             </div>
             <div>
               <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Notes</label>
-              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm" rows={3} />
+              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm" rows={3} />
             </div>
           </div>
         </Modal>

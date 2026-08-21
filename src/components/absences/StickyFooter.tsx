@@ -21,7 +21,7 @@ export default function StickyFooter({
   primaryLabel,
 }: StickyFooterProps) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-wi-border)] bg-white">
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-wi-border)] bg-white/95 backdrop-blur-sm">
       <div className="mx-auto flex min-h-16 max-w-[640px] items-center justify-between gap-3 px-4 py-2 sm:px-6">
         <div className="flex items-center gap-3">
           {currentStep > 0 ? (

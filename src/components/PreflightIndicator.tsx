@@ -81,7 +81,7 @@ type PreflightBadgeProps = {
 export function PreflightBadge({ status, details, loading }: PreflightBadgeProps) {
   if (loading) return (
     <span className="flex items-center gap-1 text-xs text-[var(--color-wi-text-light)]">
-      <span data-testid="preflight-spinner-badge" className="inline-block w-2.5 h-2.5 border-2 var(--color-wi-line) border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+      <span data-testid="preflight-spinner-badge" className="inline-block w-2.5 h-2.5 border-2 border-wi-line border-t-transparent rounded-full animate-spin" aria-hidden="true" />
       Checking…
     </span>
   );
@@ -124,13 +124,13 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
   }, [details]);
 
   return (
-    <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+    <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
       <div className="flex items-center justify-between">
         <div className="font-medium text-[var(--color-wi-text)]">Preflight</div>
         <div aria-live="polite" aria-atomic="true">
           {preflight.loading ? (
             <div className="flex items-center gap-1.5 text-[var(--color-wi-text-light)]">
-              <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 var(--color-wi-line) border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              <span data-testid="preflight-spinner" className="inline-block w-3 h-3 border-2 border-wi-line border-t-transparent rounded-full animate-spin" aria-hidden="true" />
               <span>Checking schedule…</span>
             </div>
           ) : status === "available" ? (

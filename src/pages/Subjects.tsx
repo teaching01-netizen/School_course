@@ -65,7 +65,7 @@ export default function Subjects() {
       <div className="overflow-x-auto"><table className="w-full text-[13px]">
         <caption className="sr-only">List of subjects</caption>
         <thead>
-          <tr className="border-b var(--color-wi-line)">
+          <tr className="border-b border-wi-line">
             <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Id</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Name</th>
             <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]"></th>
@@ -86,7 +86,7 @@ export default function Subjects() {
             </tr>
           ) : (
             filteredSubjects.map((s, idx) => (
-              <tr key={s.id} className={`border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}>
+              <tr key={s.id} className={`border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)] ${idx % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : ""}`}>
                 <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.code}</td>
                 <td className="py-2 px-2">{s.name}</td>
                 <td className="py-2 px-2">

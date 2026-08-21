@@ -125,13 +125,13 @@ export default function MultiTeacherSelect(props: {
         onKeyDown={handleKeyDown}
         placeholder={value.length === 0 ? (placeholder ?? "Select teachers…") : ""}
         disabled={disabled}
-        className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+        className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
       />
       {open && !disabled && (
         <div
           id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border var(--border-strong) bg-white rounded-sm shadow animate-dropdown-enter"
+          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border border-wi-line bg-white rounded-sm shadow animate-dropdown-enter"
         >
           {hasNoResults ? (
             <div className="px-3 py-2 text-sm text-[var(--color-wi-text-light)]">No matches found</div>

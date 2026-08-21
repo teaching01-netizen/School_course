@@ -288,7 +288,7 @@ export function Popover({
             tabIndex={-1}
             data-state="open"
             className={cn(
-              "animate-notion-popover-in fixed z-50 rounded-md border var(--border-strong) bg-white shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)] motion-reduce:animate-none",
+              "animate-notion-popover-in fixed z-50 rounded-md border border-wi-line bg-white shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)] motion-reduce:animate-none",
               contentClassName,
             )}
             style={{

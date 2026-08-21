@@ -190,14 +190,14 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
                 {candidates.map((candidate) => {
                   const selectable = isCandidateSelectable(candidate);
                   return (
-                    <label key={candidate.session_id} className={`block rounded-sm border p-3 ${!selectable ? "cursor-not-allowed var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" : selectedID === candidate.session_id ? "cursor-pointer border-[var(--color-wi-primary)] bg-blue-50/60" : "cursor-pointer var(--color-wi-line) hover:var(--color-wi-line)"}`}>
+                    <label key={candidate.session_id} className={`block rounded-sm border p-3 ${!selectable ? "cursor-not-allowed border-wi-line-soft bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" : selectedID === candidate.session_id ? "cursor-pointer border-[var(--color-wi-primary)] bg-blue-50/60" : "cursor-pointer border-wi-line hover:border-wi-line"}`}>
                       <input type="radio" name="replacement" className="sr-only" checked={selectedID === candidate.session_id} disabled={!selectable || busy} onChange={() => setSelectedID(candidate.session_id)} />
                       <div className="flex gap-3"><span className="mt-0.5 text-sm font-semibold text-[var(--color-wi-primary)]" aria-hidden="true">{selectedID === candidate.session_id ? "●" : "○"}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-[var(--color-wi-text)]">{formatBangkokDateTime(candidate.start_at, candidate.end_at)}</p>{!selectable ? <span className="rounded-full bg-[var(--color-wi-row-alt)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-wi-text-light)]">Cannot be selected</span> : null}</div><p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{candidate.room_name || "Room not assigned"} · Teacher: {candidate.teacher || "Not assigned"}</p><div className="mt-1 flex flex-wrap gap-2 text-xs"><span className={candidate.eligible ? "text-emerald-700" : "text-red-700"}>{candidate.eligible ? "\u2713 Eligible" : "\u2717 Not eligible"}</span><span className={candidate.student_conflicts ? "text-red-700" : "text-emerald-700"}>{candidate.student_conflicts ? "\u2717 Conflicts with regular class" : "\u2713 No timetable conflicts"}</span><span className={candidate.available_capacity === 0 ? "text-red-700" : candidate.available_capacity < 0 ? "text-[var(--color-wi-text-light)]" : "text-[var(--color-wi-text-light)]"}>{capacityLabel(candidate)}</span></div></div></div>
                     </label>
                   );
                 })}
                 {candidates.length === 0 ? (
-                  <p className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3 text-sm text-[var(--color-wi-text-light)]">No safe replacement is currently available. Cancel the sit-in or mark this issue for review.</p>
+                  <p className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-3 text-sm text-[var(--color-wi-text-light)]">No safe replacement is currently available. Cancel the sit-in or mark this issue for review.</p>
                 ) : null}
               </div>
             )}
@@ -256,7 +256,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
 
         {/* Activity trail */}
         {!resolutionSuccess ? (
-          <section className="border-t var(--color-wi-line) pt-4" aria-labelledby="activity-heading">
+          <section className="border-t border-wi-line pt-4" aria-labelledby="activity-heading">
             <h3 id="activity-heading" className="text-sm font-semibold text-[var(--color-wi-text)]">Activity</h3>
             {activity.length ? (
               <ol className="mt-2 space-y-2">
@@ -276,7 +276,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
 
         {/* Technical details */}
         {!resolutionSuccess ? (
-          <details className="border-t var(--color-wi-line) pt-4">
+          <details className="border-t border-wi-line pt-4">
             <summary className="cursor-pointer text-sm font-medium text-[var(--color-wi-text-light)]">Technical details</summary>
             <dl className="mt-3 space-y-1 text-xs text-[var(--color-wi-text-light)]">
               <div><dt className="inline font-semibold">Issue ID: </dt><dd className="inline break-all">{issue.id}</dd></div>

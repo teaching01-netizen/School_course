@@ -106,7 +106,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
         onClick={(event) => event.stopPropagation()}
         onKeyDown={handleTrapFocus}
       >
-        <header className="sticky top-0 z-10 border-b var(--color-wi-line) bg-white">
+        <header className="sticky top-0 z-10 border-b border-wi-line bg-white">
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
               <h2 id="absence-panel-title" className="text-base font-semibold text-[var(--color-wi-text)]">{title}</h2>
@@ -120,7 +120,7 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
             </button>
           </div>
           {!studentAbsence ? (
-            <div className="flex border-t var(--color-wi-line) px-4">
+            <div className="flex border-t border-wi-line-soft px-4">
               <button
                 type="button"
                 className={`min-h-[44px] border-b px-3 text-sm font-semibold ${activeTab === "sit-ins" ? "border-[var(--color-wi-primary)] text-[var(--color-wi-text)]" : "border-transparent text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"}`}
@@ -164,14 +164,14 @@ export default function SidePanel({ dayKey, sessions, absences, initialTab, onCl
                     <p className="text-sm text-[var(--color-wi-text-light)]">No sessions this day.</p>
                   ) : (
                     sessions.map((session) => (
-                      <article key={session.id} className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3 text-sm">
+                      <article key={session.id} className="rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] p-3 text-sm">
                         <p className="font-medium text-[var(--color-wi-text)]">{getSessionLabel(session)}</p>
                         <p className="text-xs text-[var(--color-wi-text-light)]">
                           {formatTime(session.start_at)} - {formatTime(session.end_at)}
                           {session.room_name ? ` · ${session.room_name}` : ""}
                         </p>
                         {session.sit_in_students?.length ? (
-                          <p className="mt-2 border-t var(--color-wi-line) pt-2 text-xs text-[var(--color-wi-amber)]">
+                          <p className="mt-2 border-t border-wi-line-soft pt-2 text-xs text-[var(--color-wi-amber)]">
                             <span className="font-semibold">Visitors:</span>{" "}
                             {session.sit_in_students.map((student, index) => (
                               <span key={`${student.wcode}-${student.absence_id}`}>

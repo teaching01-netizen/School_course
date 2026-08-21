@@ -120,7 +120,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
               setStatusFilter(e.target.value);
               setOffset(0);
             }}
-            className="px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+            className="px-2 py-1.5 text-sm border border-wi-line rounded-sm"
           >
             {statusOptions.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -142,7 +142,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
                 setOffset(0);
               }}
               placeholder="WCode or name…"
-              className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
             />
             {showMinLengthHint ? (
               <p className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-[var(--color-wi-text-light)] pointer-events-none">
@@ -177,10 +177,10 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
             : "No cross-study assignments yet. Search a student's WCode above to create the first assignment."}
         </div>
       ) : (
-        <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
+        <div className="border border-wi-line rounded-sm overflow-hidden">
           <table className="w-full text-[12px]">
             <thead className="bg-[var(--color-wi-row-alt)]">
-              <tr className="border-b var(--color-wi-line)">
+              <tr className="border-b border-wi-line">
                 <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">WCode</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Name</th>
                 <th scope="col" className="text-left py-2 px-2 font-semibold text-[var(--color-wi-text-light)]">Course A</th>
@@ -192,7 +192,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
               {assignments.map((a) => (
                 <tr
                   key={a.id}
-                  className="border-b var(--color-wi-line) hover:bg-blue-50 cursor-pointer"
+                  className="border-b border-wi-line-soft hover:bg-blue-50 cursor-pointer"
                   onClick={() => onSelectWCode(a.wcode)}
                 >
                   <td className="py-2 px-2 font-mono text-blue-600">{a.wcode}</td>
@@ -208,14 +208,14 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
               ))}
             </tbody>
           </table>
-          <div className="flex items-center justify-between gap-2 border-t var(--color-wi-line) px-2 py-1.5">
+          <div className="flex items-center justify-between gap-2 border-t border-wi-line px-2 py-1.5">
             <span className="text-xs text-[var(--color-wi-text-light)]">
               {total} assignment{total === 1 ? "" : "s"}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm disabled:opacity-40"
+                className="px-2 py-1 text-xs border border-wi-line rounded-sm disabled:opacity-40"
                 disabled={!hasPrevious || loading}
                 onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
               >
@@ -223,7 +223,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
               </button>
               <button
                 type="button"
-                className="px-2 py-1 text-xs border var(--color-wi-line) rounded-sm disabled:opacity-40"
+                className="px-2 py-1 text-xs border border-wi-line rounded-sm disabled:opacity-40"
                 disabled={!hasNext || loading}
                 onClick={() => setOffset((o) => o + PAGE_SIZE)}
               >

@@ -20,12 +20,12 @@ export default function Topbar({ collapsed, mobileOpen, onToggleCollapse, onOpen
   }, [title]);
 
   return (
-    <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-1 border-b var(--color-wi-line) bg-white px-3">
+    <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-1 border-b border-wi-line-soft bg-white/90 px-3 backdrop-blur-sm">
       {/* Mobile menu toggle */}
       <button
         type="button"
         onClick={onOpenMobile}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[var(--color-wi-faint)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] md:hidden"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-[var(--color-wi-faint)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] md:hidden"
         aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
       >
         {mobileOpen ? (
@@ -39,7 +39,7 @@ export default function Topbar({ collapsed, mobileOpen, onToggleCollapse, onOpen
       <button
         type="button"
         onClick={onToggleCollapse}
-        className="hidden h-8 w-8 items-center justify-center rounded-sm text-[var(--color-wi-faint)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] md:inline-flex"
+        className="hidden h-7 w-7 items-center justify-center rounded-sm text-[var(--color-wi-faint)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] md:inline-flex"
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
         <PanelLeft

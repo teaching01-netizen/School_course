@@ -123,10 +123,10 @@ export function SitInRuleInventoryPage() {
       {rules.length === 0 ? (
         <p className="py-8 text-center text-sm text-[var(--color-wi-text-light)]">No rules configured.</p>
       ) : (
-        <div className="rounded-sm border var(--border-strong) bg-white shadow-sm overflow-hidden">
+        <div className="rounded-sm border border-wi-line bg-white shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]/70 text-left text-[var(--color-wi-text-light)]">
+              <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)]/70 text-left text-[var(--color-wi-text-light)]">
                 <th scope="col" className="px-4 py-2.5 font-medium">Name</th>
                 <th scope="col" className="px-4 py-2.5 font-medium">Type</th>
                 <th scope="col" className="px-4 py-2.5 font-medium">Description</th>
@@ -179,7 +179,7 @@ export function SitInRuleInventoryPage() {
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full rounded-sm border var(--color-wi-line) px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
                 placeholder="e.g. Level progression"
               />
             </div>
@@ -189,7 +189,7 @@ export function SitInRuleInventoryPage() {
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as SitInRuleType })}
-                className="w-full rounded-sm border var(--color-wi-line) px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
               >
                 {RULE_TYPE_OPTIONS.map((t) => (
                   <option key={t} value={t}>{RULE_TYPE_LABELS[t]} — {RULE_TYPE_DESCRIPTIONS[t].description}</option>
@@ -216,7 +216,7 @@ export function SitInRuleInventoryPage() {
               <textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="w-full rounded-sm border var(--color-wi-line) px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
+                className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
                 rows={3}
                 placeholder="Describe what this rule does"
               />

@@ -62,7 +62,7 @@ function LegacyStateBadge({ quality }: { quality: "exact" | "reconstructed" | "u
     );
   }
   return (
-    <div className="mt-2 flex items-start gap-2 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-xs text-[var(--color-wi-text-light)]" role="note">
+    <div className="mt-2 flex items-start gap-2 rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-xs text-[var(--color-wi-text-light)]" role="note">
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span>Original assignment details unavailable. This arrangement was created before historical snapshots were recorded.</span>
     </div>
@@ -86,7 +86,7 @@ function OriginalAssignment({ issue }: { issue: ScheduleImpactIssue }) {
   const teacher = (snapshot?.teacher_name as string) ?? (snapshot?.teacher as string) ?? "Not assigned";
 
   return (
-    <section aria-labelledby={sectionId} className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-4">
+    <section aria-labelledby={sectionId} className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-4">
       <SectionHeading id={sectionId}>Originally assigned</SectionHeading>
       {quality === "unavailable" ? (
         <LegacyStateBadge quality="unavailable" />
@@ -109,7 +109,7 @@ function CurrentSession({ issue }: { issue: ScheduleImpactIssue }) {
 
   if (!current) {
     return (
-      <section aria-labelledby={sectionId} className="rounded-sm border var(--color-wi-line) bg-white p-4">
+      <section aria-labelledby={sectionId} className="rounded-sm border border-wi-line bg-white p-4">
         <SectionHeading id={sectionId}>Session now</SectionHeading>
         <div className="mt-2 flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">
           <X className="mt-0.5 h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />
@@ -121,7 +121,7 @@ function CurrentSession({ issue }: { issue: ScheduleImpactIssue }) {
 
   if (current.status === "deleted") {
     return (
-      <section aria-labelledby={sectionId} className="rounded-sm border var(--color-wi-line) bg-white p-4">
+      <section aria-labelledby={sectionId} className="rounded-sm border border-wi-line bg-white p-4">
         <SectionHeading id={sectionId}>Session now</SectionHeading>
         <div className="mt-2 flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">
           <X className="mt-0.5 h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />
@@ -136,7 +136,7 @@ function CurrentSession({ issue }: { issue: ScheduleImpactIssue }) {
   const room = current.room_name ?? "Not assigned";
 
   return (
-    <section aria-labelledby={sectionId} className="rounded-sm border var(--color-wi-line) bg-white p-4">
+    <section aria-labelledby={sectionId} className="rounded-sm border border-wi-line bg-white p-4">
       <SectionHeading id={sectionId}>Session now</SectionHeading>
       <p className="mt-2 text-sm font-medium text-[var(--color-wi-text)]">{date}, {time}</p>
       <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{room}</p>
@@ -212,7 +212,7 @@ function ResolutionActionSelector({
       ) : null}
       <div className="space-y-2" role="radiogroup" aria-label="Resolution actions">
         {actions.filter((a) => a.allowed).map((ap) => (
-          <label key={ap.action} className={`flex items-start gap-3 rounded-sm border p-3 text-sm ${ap.disabled_reason ? "cursor-not-allowed var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" : "cursor-pointer var(--color-wi-line) hover:var(--color-wi-line)"}`}>
+          <label key={ap.action} className={`flex items-start gap-3 rounded-sm border p-3 text-sm ${ap.disabled_reason ? "cursor-not-allowed border-wi-line-soft bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" : "cursor-pointer border-wi-line hover:border-wi-line"}`}>
             <input type="radio" name="resolution-action" className="mt-0.5" disabled={!!ap.disabled_reason || busy} onChange={() => onAction(ap.action as "reassign" | "keep" | "cancel" | "mark_for_review")} />
             <div>
               <span className="font-medium text-[var(--color-wi-text)]">{actionLabels[ap.action] ?? ap.action}</span>
@@ -221,7 +221,7 @@ function ResolutionActionSelector({
           </label>
         ))}
         {actions.filter((a) => !a.allowed && a.disabled_reason).map((ap) => (
-          <div key={ap.action} className="flex items-start gap-3 rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] p-3 text-sm text-[var(--color-wi-text-light)]">
+          <div key={ap.action} className="flex items-start gap-3 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] p-3 text-sm text-[var(--color-wi-text-light)]">
             <input type="radio" name="resolution-action" className="mt-0.5" disabled />
             <div>
               <span className="font-medium">{actionLabels[ap.action] ?? ap.action}</span>
@@ -262,7 +262,7 @@ export default function ResolutionComparison({
       </h2>
 
       {/* Section 1: What changed */}
-      <section className="rounded-sm border var(--color-wi-line) bg-white p-4">
+      <section className="rounded-sm border border-wi-line bg-white p-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">What changed</h3>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <OriginalAssignment issue={issue} />
@@ -272,13 +272,13 @@ export default function ResolutionComparison({
       </section>
 
       {/* Section 2: Why this needs attention */}
-      <section className="rounded-sm border var(--color-wi-line) bg-white p-4">
+      <section className="rounded-sm border border-wi-line bg-white p-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Why this needs attention</h3>
         <ImpactExplanation issue={issue} />
       </section>
 
       {/* Section 3: What should happen */}
-      <section className="rounded-sm border var(--color-wi-line) bg-white p-4">
+      <section className="rounded-sm border border-wi-line bg-white p-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">What should happen?</h3>
         <ResolutionActionSelector
           issue={issue}

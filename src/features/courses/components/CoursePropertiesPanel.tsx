@@ -375,7 +375,7 @@ function TextEditor(props: {
           if (!committingRef.current) void commit();
         }}
         disabled={submitting || saving}
-        className="h-8 w-full rounded-sm border var(--color-wi-line) bg-white px-2.5 text-sm text-[var(--color-wi-text)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:opacity-60"
+        className="h-8 w-full rounded-sm border border-wi-line bg-white px-2.5 text-sm text-[var(--color-wi-text)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:opacity-60"
       />
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="secondary" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={close}>
@@ -459,7 +459,7 @@ function NumberEditor(props: {
           if (!committingRef.current) void commit();
         }}
         disabled={submitting || saving}
-        className="h-8 w-full rounded-sm border var(--color-wi-line) bg-white px-2.5 text-sm text-[var(--color-wi-text)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:opacity-60"
+        className="h-8 w-full rounded-sm border border-wi-line bg-white px-2.5 text-sm text-[var(--color-wi-text)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15 disabled:opacity-60"
       />
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="secondary" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={close}>

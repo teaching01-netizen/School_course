@@ -44,7 +44,7 @@ export default function SmsConfirmModal({ phones, message, onSend, onSkip, sendi
           <h4 className="mb-2 text-sm font-medium text-[var(--color-wi-text-light)]">Recipients</h4>
           <div className="space-y-1.5">
             {phones.map((phone, idx) => (
-              <div key={`${phone}-${idx}`} className="flex items-center gap-2 rounded-lg border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2">
+              <div key={`${phone}-${idx}`} className="flex items-center gap-2 rounded-lg border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
                 <Phone className="h-4 w-4 text-[var(--color-wi-text-light)]" />
                 <span className="text-sm font-mono text-[var(--color-wi-text-light)]">{phone}</span>
               </div>

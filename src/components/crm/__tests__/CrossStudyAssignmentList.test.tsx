@@ -22,7 +22,7 @@ const assignment = (wcode: string, overrides: Partial<AssignmentListResponse["as
 });
 
 const makeResponse = (assignments: ReturnType<typeof assignment>[], total: number): AssignmentListResponse => ({
-  assignments: assignments as unknown as AssignmentListResponse["assignments"],
+  assignments,
   total,
   review_count: 0,
 });
@@ -41,7 +41,7 @@ describe("CrossStudyAssignmentList", () => {
     const user = userEvent.setup();
     mockedApiJson.mockResolvedValue(makeResponse([assignment("w1")], 1));
 
-    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={(() => {}) as unknown as (wcode: string) => void} />);
+    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={() => {}} />);
 
     // initial full-list load
     await waitFor(() => expect(mockedApiJson).toHaveBeenCalledTimes(1));
@@ -65,7 +65,7 @@ describe("CrossStudyAssignmentList", () => {
     const user = userEvent.setup();
     mockedApiJson.mockResolvedValue(makeResponse([assignment("w1")], 1));
 
-    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={(() => {}) as unknown as (wcode: string) => void} />);
+    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={() => {}} />);
     await waitFor(() => expect(mockedApiJson).toHaveBeenCalledTimes(1));
 
     mockedApiJson.mockClear();
@@ -81,7 +81,7 @@ describe("CrossStudyAssignmentList", () => {
   it("renders an error state (not 'no assignments') when the request fails", async () => {
     mockedApiJson.mockRejectedValueOnce(new Error("network down"));
 
-    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={(() => {}) as unknown as (wcode: string) => void} />);
+    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={() => {}} />);
 
     await screen.findByRole("alert");
     expect(screen.getByText(/could not load assignments/i)).toBeTruthy();
@@ -106,11 +106,11 @@ describe("CrossStudyAssignmentList", () => {
         }
         resolveFirst = resolve;
         // keep a reference so the test can resolve it later
-        (firstRequest as unknown as { resolve?: (v: unknown) => void }).resolve = resolve as unknown as (v: unknown) => void;
+        (firstRequest as unknown as { resolve?: () => void }).resolve = resolve;
       }),
     );
 
-    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={(() => {}) as unknown as (wcode: string) => void} />);
+    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={() => {}} />);
 
     // Request 2 (after typing) resolves fast with results for the query.
     mockedApiJson.mockResolvedValueOnce(makeResponse([assignment("w999999", { full_name: "Newest Result" })], 1));
@@ -132,7 +132,7 @@ describe("CrossStudyAssignmentList", () => {
     const user = userEvent.setup();
     mockedApiJson.mockResolvedValue(makeResponse([assignment("w1"), assignment("w2")], 3));
 
-    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={(() => {}) as unknown as (wcode: string) => void} />);
+    render(<CrossStudyAssignmentList refreshKey={0} onSelectWCode={() => {}} />);
 
     await waitFor(() => expect(mockedApiJson).toHaveBeenCalledTimes(1));
     const firstUrl = urlFor(mockedApiJson.mock.calls[0]);

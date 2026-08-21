@@ -51,10 +51,10 @@ export default function CourseAttendeeRow({
   const sorted = [...students].sort((a, b) => a.wcode.localeCompare(b.wcode));
 
   return (
-    <div className="border-t var(--color-wi-line) bg-[var(--color-wi-row-alt)]/50">
+    <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50">
       <table className="w-full text-[13px]">
         <thead>
-          <tr className="border-b var(--color-wi-line)">
+          <tr className="border-b border-wi-line">
             <th className="w-28 py-2 pl-10 pr-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-wi-text-light)]">
               W-code
             </th>
@@ -85,7 +85,7 @@ export default function CourseAttendeeRow({
           {sorted.map((student) => (
             <tr
               key={student.id}
-              className="border-b var(--color-wi-line) last:border-b-0 hover:bg-[var(--color-wi-row-alt)]/50"
+              className="border-b border-wi-line-soft last:border-b-0 hover:bg-[var(--color-wi-row-alt)]/50"
             >
               <td className="py-1.5 pl-10 pr-2 font-mono text-xs text-[var(--color-wi-text-light)]">
                 {student.wcode}

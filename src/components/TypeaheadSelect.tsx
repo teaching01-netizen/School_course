@@ -123,13 +123,13 @@ export default function TypeaheadSelect(props: {
         }}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full rounded-sm border var(--color-wi-line) px-2.5 py-1.5 text-sm transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+        className="w-full rounded-sm border border-wi-line px-2.5 py-1.5 text-sm transition-colors duration-150 placeholder:text-[var(--color-wi-faint)] focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
       />
       {open && !disabled && (
         <div
           id={listboxId}
           role="listbox"
-          className="notion-scrollbar animate-notion-popover-in absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border var(--border-strong) bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]"
+          className="notion-scrollbar animate-notion-popover-in absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-wi-line bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]"
         >
           {hasNoResults ? (
             <div className="px-3 py-2 text-sm text-[var(--color-wi-faint)]">No matches found</div>

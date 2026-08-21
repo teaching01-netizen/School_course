@@ -51,7 +51,7 @@ function WeekdaySelector({
               className={`flex min-h-10 cursor-pointer items-center justify-center rounded-sm border px-2 text-xs font-medium ${
                 checked
                   ? "border-blue-500 bg-blue-50 text-blue-700"
-                  : "var(--color-wi-line) bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+                  : "border-wi-line bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               <input

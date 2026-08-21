@@ -77,7 +77,7 @@ export default function SitInResultCard({
           {onSkip && (
               <button
                 type="button"
-                className="min-h-[44px] rounded-sm border var(--color-wi-line) bg-white px-3 py-2 text-xs font-medium text-[var(--color-wi-text-light)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
+                className="min-h-[44px] rounded-sm border border-wi-line bg-white px-3 py-2 text-xs font-medium text-[var(--color-wi-text-light)] transition-colors hover:bg-[var(--color-wi-row-alt)]"
                 onClick={onSkip}
               >
                 Skip

@@ -76,32 +76,6 @@ export type SyncConflict = {
   created_at: string | null;
 };
 
-export type SyncConflictSummary = {
-  id: string;
-  entity_type: string;
-  external_id: string;
-  conflict_type: string;
-  category: string;
-  message: string | null;
-  status: string;
-  created_at: string | null;
-  resolved_at: string | null;
-};
-
-export type PaginatedConflicts = {
-  items: SyncConflictSummary[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
-export type PaginatedJobs = {
-  items: SyncJob[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
 export function formatPayload(raw: string | null): string {
   if (raw === null) return "";
   try {
@@ -156,7 +130,7 @@ export function statusClass(status: SyncHealth["status"]): string {
 	if (status === "error") return "border-[var(--color-wi-red)] bg-[var(--color-wi-danger-bg)] text-[var(--color-wi-red)]";
 	if (status === "shadow") return "border-blue-200 bg-blue-50 text-[var(--color-wi-primary)]";
 	if (status === "healthy") return "border-emerald-200 bg-emerald-50 text-[var(--color-wi-green)]";
-	return "var(--color-wi-line) bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]";
+	return "border-wi-line bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]";
 }
 
 export function syncPhaseCopy(phase: string): string {

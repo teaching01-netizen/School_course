@@ -845,15 +845,15 @@ export default function Schedule() {
       />
 
       {viewMode === "week" ? (
-        <div className="border var(--color-wi-line) rounded-sm overflow-hidden">
+        <div className="border border-wi-line rounded-sm overflow-hidden">
           <div className="grid" style={{ gridTemplateColumns: `repeat(${Math.max(daysInRange.length, 1)}, minmax(0, 1fr))` }}>
             {daysInRange.map((d) => {
               const key = d.toISOString().slice(0, 10);
               const items = sessionsByDay.get(key) ?? [];
               const dateLabel = formatZoneDateKey(key, zone, "EEE d MMM") ?? key;
               return (
-                <div key={key} className="border-r var(--color-wi-line) last:border-r-0">
-                  <div className="bg-[var(--color-wi-row-alt)] border-b var(--color-wi-line) px-3 py-2">
+                <div key={key} className="border-r border-wi-line last:border-r-0">
+                  <div className="bg-[var(--color-wi-row-alt)] border-b border-wi-line px-3 py-2">
                     <div className="text-sm font-semibold text-[var(--color-wi-text)]">{dateLabel}</div>
                     <div className="text-xs text-[var(--color-wi-text-light)]">{items.length} session(s)</div>
                   </div>
@@ -870,7 +870,7 @@ export default function Schedule() {
                         const startLabel = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
                         const endLabel = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
                         return (
-                          <div key={s.id} className="w-full text-left border var(--color-wi-line) rounded-sm px-2 py-2 hover:bg-[var(--color-wi-row-alt)]">
+                          <div key={s.id} className="w-full text-left border border-wi-line rounded-sm px-2 py-2 hover:bg-[var(--color-wi-row-alt)]">
                             <div className="text-xs font-mono text-[var(--color-wi-text-light)]">{startLabel}–{endLabel}</div>
                             <div className="text-sm text-[var(--color-wi-text)] font-semibold">{inlineLabel}</div>
                             <div className="text-xs text-[var(--color-wi-text-light)]">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? (teacher.full_name || teacher.username) : s.teacher_id}</div>
@@ -933,7 +933,7 @@ export default function Schedule() {
         <div className="overflow-x-auto"><table className="w-full text-[13px]">
           <caption className="sr-only">Schedule</caption>
           <thead>
-            <tr className="border-b var(--color-wi-line)">
+            <tr className="border-b border-wi-line">
               <th scope="col" className="text-left py-2 px-2 font-semibold">Start</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">End</th>
               <th scope="col" className="text-left py-2 px-2 font-semibold">Course</th>
@@ -948,7 +948,7 @@ export default function Schedule() {
               const isInlineEditing = inlineEditSession?.id === s.id;
               return (
                 <Fragment key={s.id}>
-                  <tr key={s.id} className="border-b var(--color-wi-line) hover:bg-[var(--color-wi-row-alt)]">
+                  <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.start_at, zone, "EEE d MMM yy HH:mm") ?? s.start_at}</td>
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.end_at, zone, "EEE d MMM yy HH:mm") ?? s.end_at}</td>
                     <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{label}</td>
@@ -969,7 +969,7 @@ export default function Schedule() {
                     </td>
                   </tr>
                   {isInlineEditing && (
-                    <tr key={`${s.id}-inline`} className="border-b var(--color-wi-line) bg-[var(--color-wi-row-alt)]">
+                    <tr key={`${s.id}-inline`} className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
                       <td colSpan={6} className="px-3 py-3">
                         <form aria-label={`Inline edit session ${label}`} className="space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
                           <SessionOccurrenceForm
@@ -1174,24 +1174,24 @@ export default function Schedule() {
         >
           {editSeriesLoading || !editSeriesForm ? (
             <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
-              <span className="inline-block w-4 h-4 border-2 var(--color-wi-line) border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+              <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
                 <div className="font-medium text-[var(--color-wi-text)]">Scope</div>
                 <div className="text-xs text-[var(--color-wi-text-light)]">Pivot date (Bangkok): <span className="font-mono">{editSeriesPivotDate}</span> (includes the selected occurrence)</div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <FormField name="es-course" label="Course (fixed)">
-                  <div className="px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm bg-[var(--color-wi-row-alt)]">{courseById.get(editSeriesForm.course_id)?.code ?? editSeriesForm.course_id}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{courseById.get(editSeriesForm.course_id)?.code ?? editSeriesForm.course_id}</div>
                 </FormField>
                 <FormField name="es-room" label="Room (fixed)">
-                  <div className="px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm bg-[var(--color-wi-row-alt)]">{editSeriesForm.room_id ? (roomById.get(editSeriesForm.room_id)?.name ?? editSeriesForm.room_id) : "[NOT SET]"}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{editSeriesForm.room_id ? (roomById.get(editSeriesForm.room_id)?.name ?? editSeriesForm.room_id) : "[NOT SET]"}</div>
                 </FormField>
                 <FormField name="es-teacher" label="Teacher (fixed)">
-                  <div className="px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm bg-[var(--color-wi-row-alt)]">{teacherById.get(editSeriesForm.teacher_id)?.full_name || teacherById.get(editSeriesForm.teacher_id)?.username || editSeriesForm.teacher_id}</div>
+                  <div className="px-2 py-1.5 text-sm border border-wi-line rounded-sm bg-[var(--color-wi-row-alt)]">{teacherById.get(editSeriesForm.teacher_id)?.full_name || teacherById.get(editSeriesForm.teacher_id)?.username || editSeriesForm.teacher_id}</div>
                 </FormField>
               </div>
               <SeriesFormFields
@@ -1252,12 +1252,12 @@ export default function Schedule() {
         >
           {editSeriesEntireLoading || !editSeriesEntireForm ? (
             <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
-              <span className="inline-block w-4 h-4 border-2 var(--color-wi-line) border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded-sm border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
+              <div className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2 text-sm">
                 <div className="font-medium text-[var(--color-wi-text)]">Scope</div>
                 <div className="text-xs text-[var(--color-wi-text-light)]">Applies to future occurrences from (Bangkok): <span className="font-mono">{editSeriesEntireFromDate}</span></div>
               </div>
@@ -1357,7 +1357,7 @@ export default function Schedule() {
         >
           {cancelSeriesLoading && !cancelSeriesForm ? (
             <div className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
-              <span className="inline-block w-4 h-4 border-2 var(--color-wi-line) border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+              <span className="inline-block w-4 h-4 border-2 border-wi-line border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
               Loading…
             </div>
           ) : (
@@ -1377,7 +1377,7 @@ export default function Schedule() {
                     value={cancelSeriesPivotDate}
                     onChange={(e) => setCancelSeriesPivotDate(e.target.value)}
                     disabled={cancelSeriesScope !== "this_and_future"}
-                    className="w-full px-2 py-1.5 text-sm border var(--color-wi-line) rounded-sm disabled:bg-[var(--color-wi-row-alt)]"
+                    className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm disabled:bg-[var(--color-wi-row-alt)]"
                   />
                 </div>
               </div>

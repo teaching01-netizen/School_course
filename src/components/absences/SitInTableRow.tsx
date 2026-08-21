@@ -45,7 +45,7 @@ export default function SitInTableRow({ row, zone }: SitInTableRowProps) {
   const status = row.absence?.status ?? "pending";
 
   return (
-    <tr className="border-b var(--color-wi-line) align-top hover:bg-[var(--color-wi-row-alt)]">
+    <tr className="border-b border-wi-line-soft align-top hover:bg-[var(--color-wi-row-alt)]">
       <td className="px-3 py-3 text-xs text-[var(--color-wi-text-light)]">{row.index}</td>
       <td className="px-3 py-3 text-sm">
         <p className="font-semibold text-[var(--color-wi-text)]">{studentName}</p>

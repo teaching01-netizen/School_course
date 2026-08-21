@@ -32,7 +32,7 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
             <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{syncPhaseCopy(progress.phase)}</p>
           </div>
         </div>
-        <p className="text-xs font-medium text-[var(--color-wi-text-light)]">{!isComplete && !isFailed ? "Live — updates every 2 seconds while syncing" : "Snapshot from last run"}</p>
+        <p className="text-xs font-medium text-[var(--color-wi-text-light)]">Updates automatically every 2 seconds</p>
       </div>
 
       {percent !== null ? (
@@ -41,32 +41,32 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
             <span>{count(progress.processed_entities)} / {count(progress.total_entities)} processed</span>
             <span className="tabular-nums">{percent}%</span>
           </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full border var(--color-wi-line) bg-[var(--color-wi-row-alt)]" role="progressbar" aria-label="Legacy import progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+          <div className="mt-2 h-2 overflow-hidden rounded-full border border-wi-line bg-[var(--color-wi-row-alt)]" role="progressbar" aria-label="Legacy import progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
             <div className="h-full bg-[var(--color-wi-primary)] transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
           </div>
         </div>
       ) : null}
 
       <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2">
+        <div className="border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Processed</dt>
           <dd className="mt-1 text-lg font-semibold tabular-nums text-[var(--color-wi-text)]">{count(progress.processed_entities)}{hasTotal ? ` / ${count(progress.total_entities)}` : ""}</dd>
         </div>
-        <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2">
+        <div className="border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Changed / found</dt>
           <dd className="mt-1 text-lg font-semibold tabular-nums text-[var(--color-wi-text)]">{count(progress.changed_entities)}</dd>
         </div>
-        <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2">
+        <div className="border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Applied / queued</dt>
           <dd className="mt-1 text-lg font-semibold tabular-nums text-[var(--color-wi-text)]">{count(progress.applied_entities)}</dd>
         </div>
-        <div className="border var(--color-wi-line) bg-[var(--color-wi-row-alt)] px-3 py-2">
+        <div className="border border-wi-line bg-[var(--color-wi-row-alt)] px-3 py-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Failures / conflicts</dt>
           <dd className={`mt-1 text-lg font-semibold tabular-nums ${progress.failures > 0 ? "text-[var(--color-wi-red)]" : "text-[var(--color-wi-green)]"}`}>{count(progress.failures)}</dd>
         </div>
       </dl>
 
-      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t var(--color-wi-line) pt-3 text-xs text-[var(--color-wi-text-light)]">
+      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
         <span>Current item: <strong className="font-medium text-[var(--color-wi-text)]">{progress.current_entity ?? "Preparing next stage"}</strong></span>
         <span>Last update: {formatTime(progress.updated_at)}</span>
       </div>
