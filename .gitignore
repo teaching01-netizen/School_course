@@ -43,9 +43,9 @@ test-results/
 # design artifacts / screenshots
 artifacts/
 
-# dev scripts
-scripts/
-!scripts/
+# dev scripts (whitelist tracked helpers; scripts/* allows re-inclusion, scripts/ would not)
+scripts/*
+!scripts/dev.sh
 !scripts/validate-migrations.sh
 
 # planning / specs

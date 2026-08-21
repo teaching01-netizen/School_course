@@ -105,7 +105,7 @@ func main() {
 	var runErr error
 	switch cmd {
 	case "up":
-		runErr = goose.UpContext(ctx, db, migrationsDir)
+		runErr = goose.UpContext(ctx, db, migrationsDir, goose.WithAllowMissing())
 	case "down":
 		runErr = goose.DownContext(ctx, db, migrationsDir)
 	case "status":
@@ -120,7 +120,7 @@ func main() {
 		time.Sleep(200 * time.Millisecond)
 		switch cmd {
 		case "up":
-			runErr = goose.UpContext(ctx, db, migrationsDir)
+			runErr = goose.UpContext(ctx, db, migrationsDir, goose.WithAllowMissing())
 		case "down":
 			runErr = goose.DownContext(ctx, db, migrationsDir)
 		case "status":
