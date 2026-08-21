@@ -12,6 +12,7 @@ ALTER TABLE crm_cycles
   ADD COLUMN IF NOT EXISTS start_date date NULL,
   ADD COLUMN IF NOT EXISTS end_date date NULL;
 
+-- +goose StatementBegin
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -24,6 +25,7 @@ BEGIN
       CHECK (start_date IS NULL OR end_date IS NULL OR start_date <= end_date);
   END IF;
 END $$;
+-- +goose StatementEnd
 
 CREATE UNIQUE INDEX IF NOT EXISTS crm_cycles_import_key_uniq
   ON crm_cycles(import_key)
