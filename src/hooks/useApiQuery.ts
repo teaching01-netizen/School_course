@@ -15,18 +15,17 @@ export function useApiQuery<T>(url: string | null, deps?: unknown[], options?: {
   const operational = policy === cachePolicies.operational;
   const query = useQuery<T, ApiRequestError>({
     queryKey: url ? queryKeyForURL(url, deps) : ["api", "disabled"],
-    queryFn: ({ signal }) => apiJson<T>(url!, { signal }),
+    queryFn: () => apiJson<T>(url!),
     enabled: url != null,
     ...policy,
     placeholderData: operational || options?.keepPreviousData ? keepPreviousData : undefined,
-    retry: (failureCount, error) => (error as Error)?.name !== "AbortError" && failureCount < 2,
   }, queryClient);
 
   return {
     data: query.data ?? null,
     loading: url != null && query.isPending,
     refreshing: url != null && query.isFetching && !query.isPending,
-    error: query.error?.name === "AbortError" ? null : (query.error ?? null),
+    error: query.error ?? null,
     refetch: async () => {
       if (url == null) return;
       await query.refetch();

@@ -131,7 +131,7 @@ export function isIdempotencyExempt(method: string, path: string): boolean {
  * For mutation requests (POST/PUT/PATCH/DELETE) that are not exempt, a
  * stable key is generated and sent as an Idempotency-Key header.
  */
-export async function apiJson<T>(path: string, init?: RequestInit & { signal?: AbortSignal | null }): Promise<T> {
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
 
   // Build headers, adding Idempotency-Key for mutating requests that require it.
@@ -148,7 +148,6 @@ export async function apiJson<T>(path: string, init?: RequestInit & { signal?: A
 
   const res = await fetch(path, {
     ...init,
-    signal: init?.signal,
     credentials: "include",
     cache: "no-store",
     headers,
