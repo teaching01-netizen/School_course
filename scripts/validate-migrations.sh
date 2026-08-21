@@ -32,7 +32,7 @@ for arg in "$@"; do
     *) MIGRATIONS_DIR="$arg" ;;
   esac
 done
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 errors=0
 warnings=0
