@@ -59,6 +59,8 @@ func main() {
 	// tables only accumulate rows, so the sweeper is what keeps them bounded.
 	sweeper := newMaintenanceSweeper(log, dbpool)
 	sweeper.Start(context.Background())
+	retentionCleanup := newRetentionCleanup(log, dbpool)
+	retentionCleanup.Start(context.Background())
 
 	realtimeDatabaseURL, err := pg.ResolveRealtimeDatabaseURL(
 		cfg.DatabaseURL,
@@ -185,6 +187,17 @@ func main() {
 	})
 	scheduler.Start(context.Background())
 
+	legacyWorkerCtx, legacyWorkerCancel := context.WithCancel(context.Background())
+	legacyWorker, err := startLegacySyncProcess(legacyWorkerCtx, log)
+	if err != nil {
+		legacyWorkerCancel()
+		log.Error("start embedded legacy sync worker", "err", err)
+		os.Exit(1)
+	}
+	if legacyWorker != nil {
+		go monitorLegacySyncProcess(legacyWorkerCtx, legacyWorker, log)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- srv.ListenAndServe()
@@ -205,12 +218,17 @@ func main() {
 
 	scheduler.Stop()
 	sweeper.Stop()
+	retentionCleanup.Stop()
 	otpDeliveryCancel()
 	realtimeHub.Close()
 	realtimeCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	legacyWorkerCancel()
+	if legacyWorker != nil {
+		_ = legacyWorker.Wait(ctx)
+	}
 	_ = srv.Shutdown(ctx)
 
 	workerCancel()

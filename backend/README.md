@@ -62,7 +62,8 @@ limits.
 This repo includes a root `Dockerfile` that builds:
 
 - SPA assets into `/app/dist`
-- Go binaries (`/app/server`, `/app/migrate`, `/app/cleanup-idempotency`, `/app/cleanup-verification-sessions`)
+- Go binaries (`/app/server`, `/app/legacy-sync`, `/app/migrate`, and the
+  one-shot cleanup utilities)
 
 ### Main service
 
@@ -72,6 +73,11 @@ A `railway.toml` at repo root defines the build/deploy config:
 - **Pre-Deploy Command:** `/app/migrate up`
 - **Healthcheck:** `/api/v1/health` (120s timeout)
 - **Restart:** on failure, max 3 retries
+
+The `/app/server` entrypoint owns the always-on backend. It starts the API and
+the `/app/legacy-sync` companion worker from the same image, and it runs the
+database retention cleanup loops. No additional Railway service is required
+for those jobs.
 
 ### Required env vars
 
@@ -99,6 +105,7 @@ A `railway.toml` at repo root defines the build/deploy config:
 | `OTP_ASYNC_DELIVERY_ENABLED` | `false` | Enables PostgreSQL-backed durable OTP delivery after migration `00065` is applied |
 | `OTP_DELIVERY_ENCRYPTION_KEYS` | — | Required when async delivery is enabled; comma-separated `version:base64` AES-256 keys, newest key last, e.g. `v1:...` |
 | `REALTIME_DATABASE_URL` | `DATABASE_URL` | Direct or session-pooling PostgreSQL endpoint used for realtime `LISTEN/NOTIFY`; required when `DATABASE_URL` uses transaction pooling (commonly port 6543) |
+| `LEGACY_SYNC_BINARY` | sibling `/app/legacy-sync` | Optional absolute path override for the worker launched by `/app/server` |
 
 For a safe rollout, deploy migration `00065`, the backend, and the frontend while
 `OTP_ASYNC_DELIVERY_ENABLED=false`. Configure `OTP_DELIVERY_ENCRYPTION_KEYS`, then
@@ -106,28 +113,26 @@ enable the flag after all server instances run the new version. Disable the flag
 to return new OTP requests to the legacy synchronous path; queued delivery rows
 remain available for operational inspection.
 
-### Cron jobs
-
-Two cleanup binaries are built into the image. Create **separate Cron services** in Railway dashboard (same Docker image, different `startCommand`):
-
-| Service | startCommand | Schedule | Purpose |
-|---|---|---|---|
-| cleanup-idempotency | `/app/cleanup-idempotency` | `0 */6 * * *` (every 6h) | GC stale idempotency keys |
-| cleanup-verification-sessions | `/app/cleanup-verification-sessions` | `0 */6 * * *` | GC expired OTP, lookup-token, and student-session rows |
-
-Both need `DATABASE_URL` — Railway cron services inherit env vars from the service.
-
-### Legacy sync worker
+### Background workers and maintenance
 
 `cmd/legacy-sync` is a **required worker** for the legacy refresh/reconcile jobs:
 the API queues `legacy_refresh_course` and `legacy_full_reconcile` jobs, and only
 this worker picks them up and applies the legacy-site aggregates. It must be
-deployed and running alongside the server at all times:
+running alongside the server at all times:
 
 - **Local dev:** `make -C backend legacy-sync` (or `npm run dev:full` / `scripts/dev.sh`, which start it automatically)
-- **Deploy:** run the `legacy-sync` binary from the Docker image (e.g. as a dedicated service with `startCommand: /app/legacy-sync`, same env vars as the main service)
+- **Deploy:** the main `/app/server` process starts `/app/legacy-sync` from the same image; do not create a separate Railway service
 
 It needs `DATABASE_URL` plus the same `LEGACY_SYNC_*` env vars as the server (`LEGACY_SYNC_URL`, `LEGACY_SYNC_USERNAME`, `LEGACY_SYNC_PASSWORD`).
+
+The server also runs the former six-hour cleanup jobs internally:
+
+- expired idempotency keys
+- expired OTP, lookup-token, and student-session rows
+
+The `/app/cleanup-idempotency` and `/app/cleanup-verification-sessions`
+binaries remain available for manual one-shot recovery, but they are not
+separate deployment services.
 
 Scrape throughput is tunable (all optional; defaults maximize speed while the
 circuit breaker and the per-request timeout still protect the legacy site):

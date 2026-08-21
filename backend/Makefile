@@ -7,9 +7,8 @@ dev:
 	OTP_HMAC_KEY=$${OTP_HMAC_KEY:-dev-otp-hmac-key-change-in-production-32bytes} \
 	go run ./cmd/server
 
-# Legacy site sync worker. Must run alongside the server for queued legacy
-# refresh/reconcile jobs to be processed. LEGACY_SYNC_HTTP_TIMEOUT is high
-# because the legacy site responds very slowly.
+# Standalone legacy site sync worker entrypoint for local development. The
+# production server starts the sibling binary from the same image.
 legacy-sync:
 	export $$(grep -v '^\s*#' ../.env 2>/dev/null | grep -v '^\s*$$' | sed 's/[[:space:]]*#.*//' | xargs) 2>/dev/null; \
 	DATABASE_URL=$${DATABASE_URL:-postgres://rd-cream@localhost:5432/warwick_local_fresh?sslmode=disable} \
@@ -19,6 +18,7 @@ legacy-sync:
 
 build:
 	go build -o bin/server ./cmd/server
+	go build -o bin/legacy-sync ./cmd/legacy-sync
 
 test:
 	go test ./...
