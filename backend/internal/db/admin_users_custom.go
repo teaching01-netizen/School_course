@@ -20,7 +20,7 @@ func (q *Queries) AdminUserList(ctx context.Context, p AdminUserListParams) ([]U
 		rows, err = q.db.Query(ctx, `
 			SELECT id, username, role, password_hash, password_version, deleted_at, created_at, updated_at
 			FROM users
-			WHERE ($2 = '' OR username ILIKE '%' || $2 || '%' OR id::text ILIKE '%' || $2 || '%')
+			WHERE ($1 = '' OR username ILIKE '%' || $1 || '%' OR id::text ILIKE '%' || $1 || '%')
 			ORDER BY username ASC
 		`, p.Search)
 	} else {
@@ -28,7 +28,7 @@ func (q *Queries) AdminUserList(ctx context.Context, p AdminUserListParams) ([]U
 			SELECT id, username, role, password_hash, password_version, deleted_at, created_at, updated_at
 			FROM users
 			WHERE deleted_at IS NULL
-			  AND ($2 = '' OR username ILIKE '%' || $2 || '%' OR id::text ILIKE '%' || $2 || '%')
+			  AND ($1 = '' OR username ILIKE '%' || $1 || '%' OR id::text ILIKE '%' || $1 || '%')
 			ORDER BY username ASC
 		`, p.Search)
 	}
