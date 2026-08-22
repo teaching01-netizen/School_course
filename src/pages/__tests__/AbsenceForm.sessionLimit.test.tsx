@@ -865,7 +865,7 @@ describe("AbsenceForm - 20% session limit", () => {
       // combine day-by-day (same-day sessions share one day card) with a
       // single shared quota, never the summed per-course quota.
       await waitFor(() => {
-        expect(screen.getAllByText(/One merged course — absences share a single quota/)).toHaveLength(1);
+        expect(screen.queryByText(/One merged course — absences share a single quota/)).not.toBeInTheDocument();
         expect(screen.getByText("SAT Verbal Rank 2 C3 (5 class days)")).toBeInTheDocument();
         expect(screen.queryByText("4 days remaining")).not.toBeInTheDocument();
       });

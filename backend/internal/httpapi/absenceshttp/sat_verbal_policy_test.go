@@ -29,6 +29,26 @@ func satEnrolled(id, name string) sqldb.StudentEnrolledCourseV2 {
 	}
 }
 
+func TestSatVerbalPriorityResultIncludesTargetMergeGroup(t *testing.T) {
+	mergeGroupID := "93000000-0000-0000-0000-000000000003"
+	target := satCourse("94000000-0000-0000-0000-000000000004", "SAT Verbal Reading Rank 3 Section 2")
+	target.MergeGroupID = makeUUID(mergeGroupID)
+
+	result := satVerbalPriorityResult(1, "1st Priority", &target, satVerbalSessionOptions{}, 1, map[string]string{
+		mergeGroupID: "SAT Verbal Rank 3 Section 2 C3",
+	})
+
+	if result.SitInCourse == nil {
+		t.Fatal("expected sit-in course metadata")
+	}
+	if result.SitInCourse.MergeGroupID != mergeGroupID {
+		t.Fatalf("merge group ID = %q, want %q", result.SitInCourse.MergeGroupID, mergeGroupID)
+	}
+	if result.SitInCourse.MergeGroupName != "SAT Verbal Rank 3 Section 2 C3" {
+		t.Fatalf("merge group name = %q", result.SitInCourse.MergeGroupName)
+	}
+}
+
 func mustDecodeSatVerbalPolicy(t *testing.T, raw string) []satVerbalCourseRule {
 	t.Helper()
 	rules, err := decodeSatVerbalPolicyRules([]byte(raw))

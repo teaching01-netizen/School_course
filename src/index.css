@@ -348,7 +348,7 @@ html {
 }
 
 .modal-course-levels {
-  width: min(82rem, calc(100vw - 2rem));
+  width: min(72rem, calc(100vw - 2rem));
 }
 
 /* Slide-over */

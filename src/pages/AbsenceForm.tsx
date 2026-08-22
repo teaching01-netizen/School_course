@@ -59,6 +59,7 @@ import {
   getSitInCourseDisplayName,
   getSitInSessionGroupLabel,
   getSitInSessionLabel,
+  groupSitInOptionsByTargetAndDay,
   groupWithSitInForMissedSession,
   hasPriorityLevel,
   hasServerPriorityReveal,
@@ -1170,11 +1171,6 @@ export default function AbsenceForm() {
                                           : `${effectiveRemaining} day${effectiveRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
                                   </div>
-                                  {block.isMerged ? (
-                                    <div className="border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 pb-3 text-xs text-[var(--color-wi-text-light)]">
-                                      One merged course — absences share a single quota across {block.label}
-                                    </div>
-                                  ) : null}
                                   {block.groups.every((g) => g.absence_limit_reached) ? (
                                     <div className="p-4">
                                       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
@@ -1318,12 +1314,10 @@ export default function AbsenceForm() {
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
-                                                            options={currentPriorities.flatMap((priority) =>
-                                                              groupByDay(availableSessionsForMissedSessions(priority, sessionIds)).map((optionGroup) => ({
+                                                            options={groupSitInOptionsByTargetAndDay(currentPriorities, sessionIds).map((optionGroup) => ({
                                                                 value: mergedSessionValue(optionGroup.items),
-                                                                label: getSitInSessionGroupLabel(optionGroup.items, priority.sit_in_course, groupLabel, sessions),
-                                                              })),
-                                                            )}
+                                                                label: getSitInSessionGroupLabel(optionGroup.items, optionGroup.sitInCourse, groupLabel, sessions),
+                                                            }))}
                                                             onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                           />
                                                         )}

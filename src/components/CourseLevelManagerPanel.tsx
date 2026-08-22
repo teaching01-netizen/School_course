@@ -19,15 +19,15 @@ type CourseLevelManagerPanelProps = {
 type LevelStatus = "ready" | "attention" | "empty";
 
 function levelStatus(level: number | null): { label: string; className: string } {
-  if (level === null) return { label: "Not set", className: "border-slate-200 bg-slate-50 text-slate-600" };
-  if (level === 1) return { label: "Zoom", className: "border-blue-200 bg-blue-50 text-blue-700" };
-  return { label: "Eligible", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  if (level === null) return { label: "Not set", className: "border-wi-line bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" };
+  if (level === 1) return { label: "Zoom", className: "border-[var(--color-wi-primary)]/20 bg-[var(--color-wi-callout)] text-[var(--color-wi-primary)]" };
+  return { label: "Eligible", className: "border-[var(--color-wi-green)]/20 bg-[var(--color-wi-callout)] text-[var(--color-wi-green)]" };
 }
 
 function statusDot(status: LevelStatus): string {
-  if (status === "ready") return "bg-emerald-500";
-  if (status === "attention") return "bg-amber-500";
-  return "bg-slate-400";
+  if (status === "ready") return "bg-[var(--color-wi-green)]";
+  if (status === "attention") return "bg-[var(--color-wi-amber)]";
+  return "bg-[var(--color-wi-faint)]";
 }
 
 function groupStatus(courses: CourseLevelItem[]): { status: LevelStatus; label: string; gaps: number } {
@@ -105,12 +105,10 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
     setDraftLevels(Object.fromEntries(courses.map((course) => [course.id, course.level?.toString() ?? ""])));
   }, [courses]);
 
-  useEffect(() => {
-    const suggestedCourse = unassignedCourses[0] ?? selectedCourses[0];
-    setNewLevelCourseId(suggestedCourse?.id ?? "");
-    const highestLevel = selectedCourses.reduce((highest, course) => Math.max(highest, course.level ?? 0), 0);
-    setNewLevel(String(highestLevel + 1));
-  }, [selectedGroupId, selectedCourses, unassignedCourses]);
+  const suggestedCourse = unassignedCourses[0] ?? selectedCourses[0];
+  const highestLevel = selectedCourses.reduce((highest, course) => Math.max(highest, course.level ?? 0), 0);
+  const activeNewLevelCourseId = newLevelCourseId || suggestedCourse?.id || "";
+  const activeNewLevel = newLevel || String(highestLevel + 1);
 
   const summary = useMemo(() => {
     const cycles = new Map<string, CourseLevelItem[]>();
@@ -150,8 +148,12 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
   }
 
   async function addLevel() {
-    const course = selectedCourses.find((item) => item.id === newLevelCourseId);
-    if (course) await saveLevel(course, newLevel);
+    const course = selectedCourses.find((item) => item.id === activeNewLevelCourseId);
+    if (course) {
+      await saveLevel(course, activeNewLevel);
+      setNewLevelCourseId("");
+      setNewLevel("");
+    }
   }
 
   async function createGroup() {
@@ -167,6 +169,8 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
       onGroupsChange((previous) => [...previous, { ...created, course_count: created.course_count ?? 0 }]);
       setNewGroupName("");
       setSelectedGroupId(created.id);
+      setNewLevelCourseId("");
+      setNewLevel("");
       addToast("success", "Course group added");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add course group";
@@ -205,6 +209,8 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
       onGroupsChange((previous) => previous.filter((group) => group.id !== groupId));
       onCoursesChange((previous) => previous.map((course) => course.root_course_group_id === groupId ? { ...course, root_course_group_id: null, root_course_group_name: null } : course));
       setSelectedGroupId(UNGROUPED_ID);
+      setNewLevelCourseId("");
+      setNewLevel("");
       addToast("success", "Course group deleted");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to delete course group";
@@ -256,7 +262,7 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
 
   return (
     <div className="space-y-4">
-      {groupError ? <div className="rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{groupError}</div> : null}
+      {groupError ? <div className="rounded-sm border border-[var(--color-wi-red)]/20 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-sm text-[var(--color-wi-red)]" role="alert">{groupError}</div> : null}
 
       <section className="grid grid-cols-2 gap-2 rounded-md border border-wi-line bg-white p-3 sm:grid-cols-4" aria-label="Course level status summary">
         <SummaryMetric label="Total courses" value={summary.totalCourses} tone="blue" />
@@ -273,10 +279,10 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
               const details = groupStatus(groupCourses(courses, group.id));
               const isSelected = group.id === selectedGroup?.id;
               return (
-                <div key={group.id} className={`border-b border-wi-line-soft ${isSelected ? "bg-blue-50/70" : "hover:bg-[var(--color-wi-row-alt)]"}`}>
+                <div key={group.id} className={`border-b border-wi-line-soft ${isSelected ? "bg-[var(--color-wi-selected)]" : "hover:bg-[var(--color-wi-row-alt)]"}`}>
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(details.status)}`} aria-hidden="true" />
-                    {editingGroupId === group.id ? <Input aria-label={`Rename ${group.name}`} value={editingGroupName} onChange={(event) => setEditingGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameGroup(group.id); if (event.key === "Escape") setEditingGroupId(null); }} size="sm" autoFocus className="min-w-0" /> : <button type="button" onClick={() => setSelectedGroupId(group.id)} aria-pressed={isSelected} className={`min-w-0 flex-1 truncate text-left text-sm ${isSelected ? "font-semibold text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text)]"}`}>{group.name}</button>}
+                    {editingGroupId === group.id ? <Input aria-label={`Rename ${group.name}`} value={editingGroupName} onChange={(event) => setEditingGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameGroup(group.id); if (event.key === "Escape") setEditingGroupId(null); }} size="sm" autoFocus className="min-w-0" /> : <button type="button" onClick={() => { setSelectedGroupId(group.id); setNewLevelCourseId(""); setNewLevel(""); }} aria-pressed={isSelected} className={`min-w-0 flex-1 truncate text-left text-sm ${isSelected ? "font-semibold text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text)]"}`}>{group.name}</button>}
                     <span className="shrink-0 rounded bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs text-[var(--color-wi-text-light)]">{group.courseCount}</span>
                   </div>
                   {!group.virtual ? <div className="flex justify-end gap-2 px-3 pb-2">{editingGroupId === group.id ? <><button type="button" onClick={() => void renameGroup(group.id)} disabled={savingGroup} className="text-xs font-medium text-[var(--color-wi-primary)]">Save</button><button type="button" onClick={() => setEditingGroupId(null)} className="text-xs text-[var(--color-wi-text-light)]">Cancel</button></> : <><button type="button" onClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }} className="text-xs text-[var(--color-wi-primary)]">Rename</button><button type="button" onClick={() => void deleteGroup(group.id)} className="text-xs text-[var(--color-wi-red)]">Delete</button></>}</div> : null}
@@ -291,7 +297,7 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
           {selectedGroup ? <>
             <div className="border-b border-wi-line px-4 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-wi-text-light)]">Selected group</p><h3 id="selected-course-group-heading" className="mt-1 text-lg font-semibold text-[var(--color-wi-text)]">{selectedGroup.name}</h3><p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Edit level assignments and status for every course in this group.</p></div><span className="inline-flex items-center gap-1.5 rounded-full border border-wi-line px-2.5 py-1 text-xs font-medium text-[var(--color-wi-text-light)]"><span className={`h-1.5 w-1.5 rounded-full ${statusDot(groupStatus(selectedCourses).status)}`} aria-hidden="true" />{groupStatus(selectedCourses).label}</span></div>
-              <div className="mt-4 rounded-sm bg-[var(--color-wi-row-alt)] p-3"><div className="flex flex-wrap items-end gap-3"><div className="min-w-[16rem] flex-1"><label htmlFor="add-level-course" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Add level to an unassigned course</label><TypeaheadSelect id="add-level-course" value={newLevelCourseId} onChange={setNewLevelCourseId} options={selectedCourses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, keywords: `${course.code} ${course.name} ${course.subject_name}`, disabled: course.level !== null }))} placeholder={unassignedCourses.length > 0 ? "Choose a course" : "All courses have levels"} disabled={unassignedCourses.length === 0 || savingCourseId !== null} /></div><div className="w-28"><label htmlFor="add-level-number" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Level number</label><Input id="add-level-number" type="number" min={1} step={1} value={newLevel} onChange={(event) => setNewLevel(event.target.value)} disabled={unassignedCourses.length === 0 || savingCourseId !== null} /></div><Button onClick={() => void addLevel()} disabled={!newLevelCourseId || unassignedCourses.length === 0 || savingCourseId !== null} loading={savingCourseId === newLevelCourseId}>Add level</Button></div><p className="mt-2 text-xs text-[var(--color-wi-text-light)]">Assign a level to an unassigned course. Existing rows can be edited below.</p></div>
+              <div className="mt-4 rounded-sm bg-[var(--color-wi-row-alt)] p-3"><div className="flex flex-wrap items-end gap-3"><div className="min-w-[16rem] flex-1"><label htmlFor="add-level-course" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Add level to an unassigned course</label><TypeaheadSelect id="add-level-course" value={activeNewLevelCourseId} onChange={setNewLevelCourseId} options={selectedCourses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, keywords: `${course.code} ${course.name} ${course.subject_name}`, disabled: course.level !== null }))} placeholder={unassignedCourses.length > 0 ? "Choose a course" : "All courses have levels"} disabled={unassignedCourses.length === 0 || savingCourseId !== null} /></div><div className="w-28"><label htmlFor="add-level-number" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Level number</label><Input id="add-level-number" type="number" min={1} step={1} value={activeNewLevel} onChange={(event) => setNewLevel(event.target.value)} disabled={unassignedCourses.length === 0 || savingCourseId !== null} /></div><Button onClick={() => void addLevel()} disabled={!activeNewLevelCourseId || unassignedCourses.length === 0 || savingCourseId !== null} loading={savingCourseId === activeNewLevelCourseId}>Add level</Button></div><p className="mt-2 text-xs text-[var(--color-wi-text-light)]">Assign a level to an unassigned course. Existing rows can be edited below.</p></div>
               {!selectedGroup.virtual ? <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-[var(--color-wi-text-light)]">Add course to {selectedGroup.name}</span><TypeaheadSelect id="add-course-to-group" value="" onChange={(value) => void assignCourse(value)} options={courseOptions} placeholder="Search by course code or subject" disabled={savingCourseId !== null} className="min-w-[min(24rem,100%)] flex-1" /></div> : null}
             </div>
             <div className="overflow-x-auto"><table className="min-w-[44rem] w-full text-sm"><caption className="sr-only">Course levels in {selectedGroup.name}</caption><thead className="bg-[var(--color-wi-row-alt)] text-left text-xs text-[var(--color-wi-text-light)]"><tr><th scope="col" className="px-4 py-2.5 font-medium">Level</th><th scope="col" className="px-4 py-2.5 font-medium">Course</th><th scope="col" className="px-4 py-2.5 font-medium">Cycle</th><th scope="col" className="px-4 py-2.5 font-medium">Subject</th><th scope="col" className="px-4 py-2.5 font-medium">Status</th><th scope="col" className="px-4 py-2.5 text-right font-medium">Actions</th></tr></thead><tbody>
@@ -306,6 +312,6 @@ export default function CourseLevelManagerPanel({ courses, groups, onCoursesChan
 }
 
 function SummaryMetric({ label, value, tone }: { label: string; value: number; tone: "blue" | "green" | "amber" | "red" }) {
-  const toneClass = { blue: "bg-blue-600", green: "bg-emerald-500", amber: "bg-amber-500", red: "bg-red-500" }[tone];
+  const toneClass = { blue: "bg-[var(--color-wi-primary)]", green: "bg-[var(--color-wi-green)]", amber: "bg-[var(--color-wi-amber)]", red: "bg-[var(--color-wi-red)]" }[tone];
   return <div className="flex items-center gap-2 border-r border-wi-line px-2 last:border-r-0"><span className={`h-2 w-2 shrink-0 rounded-full ${toneClass}`} aria-hidden="true" /><div><p className="text-base font-semibold tabular-nums text-[var(--color-wi-text)]">{value}</p><p className="text-xs text-[var(--color-wi-text-light)]">{label}</p></div></div>;
 }

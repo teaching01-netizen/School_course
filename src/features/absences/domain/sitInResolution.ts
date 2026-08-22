@@ -4,9 +4,10 @@ import { dayKey, groupByDay, splitMergedSessionValue } from "./sessionGrouping";
 
 export type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number];
 export type SitInCourse = NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
+type SitInPriority = NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number];
 
 export function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
-  return sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
+  return sitInCourse?.merge_group_name?.trim() || sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
 }
 
 /** Teacher shown after a subject name everywhere in the absence form:
@@ -95,12 +96,53 @@ export function availableSessionsForMissedSession(
 }
 
 export function availableSessionsForMissedSessions(
-  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  priority: SitInPriority,
   missedSessionIds: string[],
 ) {
   const available = priority.available_sessions ?? [];
   if (!available.some((session) => session.missed_session_id)) return available;
   return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
+}
+
+export type SitInOptionGroup = {
+  items: SitInAvailableSession[];
+  sitInCourse?: SitInCourse;
+};
+
+function sitInTargetKey(
+  sitInCourse: SitInCourse | undefined,
+  sessions: SitInAvailableSession[],
+  fallbackKey: string,
+): string {
+  const mergeGroupID = sitInCourse?.merge_group_id?.trim();
+  if (mergeGroupID) return `merge:${mergeGroupID}`;
+  const courseID = sitInCourse?.id?.trim() || sessions.find((session) => session.course_id?.trim())?.course_id?.trim();
+  return courseID ? `course:${courseID}` : fallbackKey;
+}
+
+export function groupSitInOptionsByTargetAndDay(
+  priorities: SitInPriority[],
+  missedSessionIds: string[],
+): SitInOptionGroup[] {
+  const buckets = new Map<string, SitInOptionGroup>();
+  priorities.forEach((priority, index) => {
+    const sessions = availableSessionsForMissedSessions(priority, missedSessionIds);
+    if (sessions.length === 0) return;
+    const key = sitInTargetKey(priority.sit_in_course, sessions, `priority:${index}`);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.items.push(...sessions);
+      return;
+    }
+    buckets.set(key, { items: [...sessions], sitInCourse: priority.sit_in_course });
+  });
+
+  return [...buckets.values()].flatMap((bucket) =>
+    groupByDay(bucket.items).map((dayGroup) => ({
+      items: dayGroup.items,
+      sitInCourse: bucket.sitInCourse,
+    })),
+  );
 }
 
 export function unavailableSessionsForMissedSession(

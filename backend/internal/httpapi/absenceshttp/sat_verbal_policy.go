@@ -50,6 +50,7 @@ type satVerbalResolveInput struct {
 	Rule               *satVerbalCourseRule
 	Policy             []satVerbalCourseRule
 	MappedCourses      []satVerbalMappedCourse
+	MergeGroupNames    map[string]string
 	MissedCourse       sqldb.SubjectCourseV2
 	Enrolled           []sqldb.StudentEnrolledCourseV2
 	AllCourses         []sqldb.SubjectCourseV2
@@ -196,11 +197,11 @@ func satVerbalResolvePriorities(
 			for _, availableSession := range options.Available {
 				offered[availableSession.Session.ID] = struct{}{}
 			}
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, options, len(missedSessions)))
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, &target, options, len(missedSessions), input.MergeGroupNames))
 			priorityHadResult = true
 		}
 		if !priorityHadResult {
-			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, satVerbalSessionOptions{}, len(missedSessions)))
+			priorities = append(priorities, satVerbalPriorityResult(priority.Level, priority.Label, nil, satVerbalSessionOptions{}, len(missedSessions), input.MergeGroupNames))
 		}
 	}
 	return priorities, nil
@@ -260,20 +261,17 @@ func satVerbalPriorityLevelOnlyExpiredSameOccurrence(priorities []SitInPriorityR
 	return sawPriority && sawUnavailable
 }
 
-func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, options satVerbalSessionOptions, missedCount int) SitInPriorityResult {
+func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, options satVerbalSessionOptions, missedCount int, mergeGroupNames map[string]string) SitInPriorityResult {
 	out := SitInPriorityResult{
 		Level: level,
 		Label: label,
 	}
 	if target != nil {
-		targetIDStr, _ := uuidString(target.ID)
-		out.SitInCourse = &SitInCourseInfo{
-			ID:          targetIDStr,
-			Code:        target.Code,
-			Name:        target.Name,
-			SubjectCode: target.SubjectCode,
-			SubjectName: target.SubjectName,
+		mergeGroupName := ""
+		if target.MergeGroupID.Valid {
+			mergeGroupName = mergeGroupNames[uuidStringOrZero(target.MergeGroupID)]
 		}
+		out.SitInCourse = sitInCourseInfo(target, mergeGroupName)
 	}
 	for _, availableSession := range options.Available {
 		out.Available = append(out.Available, toSessionBriefForCourseWithMissedSession(availableSession, target))

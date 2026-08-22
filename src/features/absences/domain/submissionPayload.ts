@@ -241,19 +241,36 @@ function sessionInSitInData(
   targetCourseId: string,
 ): boolean {
   if (!sitIn) return false;
+  const targetMergeGroupIDs = new Set<string>();
+  const collectTargetMergeGroup = (course: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"] | undefined) => {
+    if (course?.id?.trim() !== targetCourseId) return;
+    const mergeGroupID = course.merge_group_id?.trim();
+    if (mergeGroupID) targetMergeGroupIDs.add(mergeGroupID);
+  };
+  const sessionMatchesTarget = (
+    session: { id: string; course_id?: string | null },
+    course: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"] | undefined,
+  ) => {
+    if (session.id !== sessionId || !session.course_id || session.course_id === targetCourseId) return session.id === sessionId;
+    const mergeGroupID = course?.merge_group_id?.trim();
+    return Boolean(mergeGroupID && targetMergeGroupIDs.has(mergeGroupID));
+  };
+  for (const priority of sitIn.priorities ?? []) collectTargetMergeGroup(priority.sit_in_course);
+  for (const entry of Object.values(sitIn.sit_in_by_missed_session ?? {})) {
+    collectTargetMergeGroup(entry.sit_in_course);
+    for (const priority of entry.priorities ?? []) collectTargetMergeGroup(priority.sit_in_course);
+  }
+  collectTargetMergeGroup(sitIn.sit_in_course);
   if (
     (sitIn.available_sessions ?? []).some(
-      (s) =>
-        s.id === sessionId && (!s.course_id || s.course_id === targetCourseId),
+      (s) => sessionMatchesTarget(s, sitIn.sit_in_course),
     )
   )
     return true;
   if (
     (sitIn.priorities ?? []).some((p) =>
       (p.available_sessions ?? []).some(
-        (s) =>
-          s.id === sessionId &&
-          (!s.course_id || s.course_id === targetCourseId),
+        (s) => sessionMatchesTarget(s, p.sit_in_course),
       ),
     )
   )
@@ -262,18 +279,14 @@ function sessionInSitInData(
     for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
       if (
         (entry.available_sessions ?? []).some(
-          (s) =>
-            s.id === sessionId &&
-            (!s.course_id || s.course_id === targetCourseId),
+          (s) => sessionMatchesTarget(s, entry.sit_in_course),
         )
       )
         return true;
       if (
-        (entry.priorities ?? []).some((p) =>
+          (entry.priorities ?? []).some((p) =>
           (p.available_sessions ?? []).some(
-            (s) =>
-              s.id === sessionId &&
-              (!s.course_id || s.course_id === targetCourseId),
+            (s) => sessionMatchesTarget(s, p.sit_in_course),
           ),
         )
       )

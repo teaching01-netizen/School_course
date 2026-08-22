@@ -344,7 +344,15 @@ export type SessionInSubject = {
 export type SitInPriority = {
   level: number;
   label: string;
-  sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
+  sit_in_course?: {
+    id: string;
+    code: string;
+    name: string;
+    subject_code?: string | null;
+    subject_name?: string | null;
+    merge_group_id?: string | null;
+    merge_group_name?: string | null;
+  };
   available_sessions?: Array<{
     id: string;
     start_at: string;
@@ -386,7 +394,15 @@ export type SitInSessionInfo = {
   priorities?: SitInPriority[];
   current_priority_level?: number;
   has_next_priority?: boolean;
-  sit_in_course?: { id: string; code: string; name: string; subject_code?: string | null; subject_name?: string | null };
+  sit_in_course?: {
+    id: string;
+    code: string;
+    name: string;
+    subject_code?: string | null;
+    subject_name?: string | null;
+    merge_group_id?: string | null;
+    merge_group_name?: string | null;
+  };
   available_sessions?: Array<{
     id: string;
     start_at: string;

@@ -82,11 +82,13 @@ type SitInSessionResult struct {
 }
 
 type SitInCourseInfo struct {
-	ID          string `json:"id"`
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	SubjectCode string `json:"subject_code,omitempty"`
-	SubjectName string `json:"subject_name,omitempty"`
+	ID             string `json:"id"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	SubjectCode    string `json:"subject_code,omitempty"`
+	SubjectName    string `json:"subject_name,omitempty"`
+	MergeGroupID   string `json:"merge_group_id,omitempty"`
+	MergeGroupName string `json:"merge_group_name,omitempty"`
 }
 
 type sessionBrief struct {
@@ -142,17 +144,9 @@ func buildPhysicalSitInResult(
 	}
 	preSelected := nonOverlapping[:preSelectCount]
 
-	targetIDStr, _ := uuidString(target.ID)
-
 	result := &SitInResult{
 		SitInMethod: SitInMethodPhysical,
-		SitInCourse: &SitInCourseInfo{
-			ID:          targetIDStr,
-			Code:        target.Code,
-			Name:        target.Name,
-			SubjectCode: target.SubjectCode,
-			SubjectName: target.SubjectName,
-		},
+		SitInCourse: sitInCourseInfo(target, ""),
 		MissedCount: len(missed),
 	}
 
@@ -167,6 +161,24 @@ func buildPhysicalSitInResult(
 	}
 
 	return result
+}
+
+func sitInCourseInfo(target *sqldb.SubjectCourseV2, mergeGroupName string) *SitInCourseInfo {
+	if target == nil {
+		return nil
+	}
+	info := &SitInCourseInfo{
+		ID:          uuidStringOrZero(target.ID),
+		Code:        target.Code,
+		Name:        target.Name,
+		SubjectCode: target.SubjectCode,
+		SubjectName: target.SubjectName,
+	}
+	if target.MergeGroupID.Valid {
+		info.MergeGroupID = uuidStringOrZero(target.MergeGroupID)
+	}
+	info.MergeGroupName = strings.TrimSpace(mergeGroupName)
+	return info
 }
 
 type priorityInput struct {
@@ -529,6 +541,7 @@ func resolveMappedSatVerbalSitIn(
 	}
 	mappedCourses := make([]satVerbalMappedCourse, 0, len(activeMappings))
 	allCourses := make([]sqldb.SubjectCourseV2, 0, len(activeMappings))
+	mergeGroupNames := make(map[string]string)
 	for _, active := range activeMappings {
 		activeRule, err := decodeSatVerbalMappedRule(active.PolicyRule)
 		if err != nil {
@@ -537,6 +550,19 @@ func resolveMappedSatVerbalSitIn(
 		courses, err := satVerbalMappedCourses(ctx, q, active)
 		if err != nil {
 			return nil, fmt.Errorf("SAT Verbal mapped course lookup: %w", err)
+		}
+		if active.MergeGroupID.Valid {
+			mergeGroupID, idErr := uuidString(active.MergeGroupID)
+			if idErr != nil {
+				return nil, fmt.Errorf("SAT Verbal mapped merge group ID: %w", idErr)
+			}
+			if _, seen := mergeGroupNames[mergeGroupID]; !seen {
+				mergeGroup, groupErr := q.CourseMergeGroupGet(ctx, active.MergeGroupID)
+				if groupErr != nil {
+					return nil, fmt.Errorf("SAT Verbal mapped merge group lookup: %w", groupErr)
+				}
+				mergeGroupNames[mergeGroupID] = mergeGroup.Name
+			}
 		}
 		for _, course := range courses {
 			mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
@@ -614,6 +640,7 @@ func resolveMappedSatVerbalSitIn(
 		MissedCourse:       missedCourse,
 		Enrolled:           enrolled,
 		AllCourses:         activeAll,
+		MergeGroupNames:    mergeGroupNames,
 		MissedSessions:     missedSessions,
 		Cutoff:             cutoff,
 		RequestTime:        time.Now(),

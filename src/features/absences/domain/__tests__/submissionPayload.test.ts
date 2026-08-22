@@ -191,6 +191,57 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("accepts all sessions from one merged sit-in target", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [{
+        ...baseGroup,
+        sit_in: {
+          sit_in_method: "physical",
+          priorities: [
+            {
+              level: 1,
+              label: "Priority 1",
+              sit_in_course: {
+                id: "target-reading",
+                code: "R3S2",
+                name: "SAT Verbal Reading Rank 3 Section 2",
+                merge_group_id: "merge-target",
+                merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+              },
+              available_sessions: [{ id: "sit-reading", course_id: "target-reading", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00" }],
+            },
+            {
+              level: 1,
+              label: "Priority 1",
+              sit_in_course: {
+                id: "target-writing",
+                code: "W3S2",
+                name: "SAT Verbal Writing Rank 3 Section 2",
+                merge_group_id: "merge-target",
+                merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+              },
+              available_sessions: [{ id: "sit-writing", course_id: "target-writing", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+            },
+          ],
+        },
+      }],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "sit-reading|sit-writing" },
+      reason: "Travel",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      payloads: [{
+        sit_in_course_id: "target-reading",
+        sit_in_session_ids: ["sit-reading", "sit-writing"],
+      }],
+    });
+  });
+
   it("builds one payload when another enrolled subject has sessions on the same day at a different time", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
