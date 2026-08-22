@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { CoursePropertiesPanel } from "./CoursePropertiesPanel";
 import type { Course } from "../types";
 
@@ -18,65 +19,44 @@ function makeCourse(overrides: Partial<Course> = {}): Course {
 function renderPanel(course: Course) {
   const onSave = vi.fn().mockResolvedValue(true);
   render(
-    <CoursePropertiesPanel
-      course={course}
-      teacherOptions={[]}
-      savingField={null}
-      onSave={onSave}
-    />,
+    <MemoryRouter>
+      <CoursePropertiesPanel
+        course={course}
+        teacherOptions={[]}
+        savingField={null}
+        onSave={onSave}
+      />
+    </MemoryRouter>,
   );
   return onSave;
 }
 
-function switchControl() {
-  return screen.getByRole("switch", { name: "Show MATH-101 in the student absence form" });
-}
-
-describe("CoursePropertiesPanel absence form visibility", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("defaults to shown when the flag is absent (legacy payloads) or true", () => {
+describe("CoursePropertiesPanel absence form visibility (read-only)", () => {
+  it("shows Shown to students by default and when explicitly true", () => {
     renderPanel(makeCourse());
-    expect(switchControl()).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("Shown to students")).toBeInTheDocument();
 
     renderPanel(makeCourse({ absence_form_visible: true }));
     expect(screen.getAllByText("Shown to students").length).toBeGreaterThan(0);
   });
 
-  it("renders the switch off with a Hidden chip when the course is hidden", () => {
+  it("shows the Hidden chip when the course is hidden", () => {
     renderPanel(makeCourse({ absence_form_visible: false }));
-    expect(switchControl()).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Hidden from students")).toBeInTheDocument();
   });
 
-  it("saves false in one click from a visible course", async () => {
-    const onSave = renderPanel(makeCourse());
-    const user = userEvent.setup();
-
-    await user.click(switchControl());
-    expect(onSave).toHaveBeenCalledWith("absence_form_visible", { absence_form_visible: false });
+  it("links to the single management surface in Operations", () => {
+    renderPanel(makeCourse());
+    const link = screen.getByRole("link", { name: "Manage in Operations" });
+    expect(link).toHaveAttribute("href", "/operations?tab=active-courses");
   });
 
-  it("saves true in one click from a hidden course", async () => {
+  it("renders no editor — visibility is not editable here", async () => {
     const onSave = renderPanel(makeCourse({ absence_form_visible: false }));
-    const user = userEvent.setup();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 
-    await user.click(switchControl());
-    expect(onSave).toHaveBeenCalledWith("absence_form_visible", { absence_form_visible: true });
-  });
-
-  it("locks the switch while another field is saving", () => {
-    render(
-      <CoursePropertiesPanel
-        course={makeCourse()}
-        teacherOptions={[]}
-        savingField="name"
-        onSave={vi.fn()}
-      />,
-    );
-    expect(switchControl()).toBeDisabled();
+    // Even clicking the status text must not attempt a save.
+    await userEvent.setup().click(screen.getByText("Hidden from students"));
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

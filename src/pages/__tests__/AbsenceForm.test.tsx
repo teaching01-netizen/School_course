@@ -72,14 +72,17 @@ const MOCK_STUDENT: {
 
 function publicLookupFor(student: typeof MOCK_STUDENT) {
   // Mirrors the server: the hint prefers the nickname and falls back to the
-  // full name, masked to the first character.
+  // full name, masked to the first character; the phone hint shows the last
+  // four digits only.
   const hintSource = student.nickname?.trim() || student.full_name.trim();
+  const phoneDigits = student.parent_phone?.replace(/\D/g, "") ?? "";
   return {
     wcode: student.wcode,
     lookup_token: "lookup-token",
     email_input_required: true,
     parent_verification_available: Boolean(student.parent_phone),
     ...(hintSource ? { nickname_hint: `${Array.from(hintSource)[0]}***` } : {}),
+    ...(phoneDigits.length >= 4 ? { parent_phone_hint: `••••${phoneDigits.slice(-4)}` } : {}),
   };
 }
 
@@ -1575,6 +1578,15 @@ describe("AbsenceForm", () => {
     await lookupStudent(user);
 
     expect(await screen.findByText("Nickname: B***")).toBeInTheDocument();
+  });
+
+  it("shows the masked parent phone on the verification card", async () => {
+    renderAbsenceForm();
+    const user = userEvent.setup();
+    await lookupStudent(user);
+    await goToVerification(user);
+
+    expect(await screen.findByText("Parent phone: ••••5678")).toBeInTheDocument();
   });
 
   it("submits an optional nickname when the profile has none, masked in review", async () => {

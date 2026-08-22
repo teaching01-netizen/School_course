@@ -239,11 +239,11 @@ func TestPublicAbsenceConfigRejectsUnsafeSessionLimits(t *testing.T) {
 
 func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
-	// The masked hint must confirm identity without ever carrying the raw
-	// nickname over the wire.
+	// The masked hints must confirm identity without ever carrying the raw
+	// nickname or phone number over the wire.
 	if _, err := fixture.pool.Exec(context.Background(),
-		`UPDATE students SET nickname = 'Bird' WHERE wcode = $1`, fixture.wcode); err != nil {
-		t.Fatalf("seed student nickname: %v", err)
+		`UPDATE students SET nickname = 'Bird', parent_phone = '+66812345678' WHERE wcode = $1`, fixture.wcode); err != nil {
+		t.Fatalf("seed student identity: %v", err)
 	}
 	body := `{"wcode":"` + strings.ToUpper(fixture.wcode) + `"}`
 	req := httptest.NewRequest(
@@ -270,6 +270,7 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 		"email_input_required":          true,
 		"parent_verification_available": true,
 		"nickname_hint":                 true,
+		"parent_phone_hint":             true,
 	}
 	if len(got) != len(wantKeys) {
 		t.Fatalf("response keys = %v, want exactly %v", got, wantKeys)
@@ -293,6 +294,12 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), "Bird") {
 		t.Fatalf("lookup response leaked the raw nickname: %s", recorder.Body.String())
 	}
+	if phoneHint := strings.Trim(string(got["parent_phone_hint"]), `"`); phoneHint != "••••5678" {
+		t.Fatalf("parent_phone_hint = %q, want masked %q", phoneHint, "••••5678")
+	}
+	if strings.Contains(recorder.Body.String(), "+66812345678") {
+		t.Fatalf("lookup response leaked the raw parent phone: %s", recorder.Body.String())
+	}
 	for _, forbidden := range []string{
 		"student_id", "full_name", "display_name", "nickname", "school",
 		"email", "email_crm", "email_system", "parent_phone", "subjects",
@@ -305,7 +312,8 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 }
 
 // A student without a nickname still gets a confirmation cue: the hint falls
-// back to the first character of the full name.
+// back to the first character of the full name. A student without a parent
+// phone gets no phone hint at all — the key is omitted, not empty.
 func TestPublicStudentLookupNicknameHintFallsBackToFullName(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
 	body := `{"wcode":"` + fixture.wcode + `"}`
@@ -324,7 +332,8 @@ func TestPublicStudentLookupNicknameHintFallsBackToFullName(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
 	}
 	var got struct {
-		NicknameHint string `json:"nickname_hint"`
+		NicknameHint    string `json:"nickname_hint"`
+		ParentPhoneHint string `json:"parent_phone_hint"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode student lookup response: %v", err)
@@ -332,6 +341,9 @@ func TestPublicStudentLookupNicknameHintFallsBackToFullName(t *testing.T) {
 	// Seeded full names start with the fixture prefix ("CTR-…").
 	if got.NicknameHint != "C***" {
 		t.Fatalf("nickname_hint = %q, want full-name fallback %q", got.NicknameHint, "C***")
+	}
+	if got.ParentPhoneHint != "" {
+		t.Fatalf("parent_phone_hint = %q, want omitted when no phone exists", got.ParentPhoneHint)
 	}
 }
 

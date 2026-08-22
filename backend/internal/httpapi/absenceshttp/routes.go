@@ -871,10 +871,14 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 			"email_input_required":          result.EmailInputRequired,
 			"parent_verification_available": result.ParentVerificationAvailable,
 		}
-		// Masked identity cue so the submitter can confirm the W-Code hit the
-		// right student before verification; raw values stay behind the OTP.
+		// Masked identity cues so the submitter can confirm the W-Code hit
+		// the right student before verification; raw values stay behind the
+		// OTP.
 		if hint := maskNicknameForPublic(result.DisplayName); hint != "" {
 			response["nickname_hint"] = hint
+		}
+		if phoneHint := maskPhoneForPublic(result.ParentPhone); phoneHint != "" {
+			response["parent_phone_hint"] = phoneHint
 		}
 		return http.StatusOK, response, nil
 	}) {

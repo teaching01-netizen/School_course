@@ -211,6 +211,8 @@ export type PublicStudentLookupResponse = {
   parent_verification_available: boolean;
   /** Masked server-side (e.g. "B***"); the raw name stays behind the OTP. */
   nickname_hint?: string;
+  /** Masked server-side (e.g. "••••5678"); omitted when no phone exists. */
+  parent_phone_hint?: string;
 };
 
 export type VerifiedStudentSubject = {

@@ -23,15 +23,17 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 	mux.HandleFunc("GET /api/v1/admin/active-courses", s.handleList)
 	mux.HandleFunc("PUT /api/v1/admin/active-courses", s.handleSet)
+	mux.HandleFunc("PUT /api/v1/admin/active-courses/visibility", s.handleSetVisibility)
 }
 
 type courseDTO struct {
-	CourseID   string `json:"course_id"`
-	CourseCode string `json:"course_code"`
-	CourseName string `json:"course_name"`
-	CycleID    string `json:"cycle_id"`
-	CycleLabel string `json:"cycle_label"`
-	IsActive   bool   `json:"is_active"`
+	CourseID           string `json:"course_id"`
+	CourseCode         string `json:"course_code"`
+	CourseName         string `json:"course_name"`
+	CycleID            string `json:"cycle_id"`
+	CycleLabel         string `json:"cycle_label"`
+	IsActive           bool   `json:"is_active"`
+	AbsenceFormVisible bool   `json:"absence_form_visible"`
 }
 
 type subjectDTO struct {
@@ -104,12 +106,13 @@ func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesB
 				cycleID = c.CycleID.String
 			}
 			courseDTOs = append(courseDTOs, courseDTO{
-				CourseID:   cID,
-				CourseCode: c.CourseCode,
-				CourseName: c.CourseName,
-				CycleID:    cycleID,
-				CycleLabel: c.CycleLabel,
-				IsActive:   c.IsActive,
+				CourseID:           cID,
+				CourseCode:         c.CourseCode,
+				CourseName:         c.CourseName,
+				CycleID:            cycleID,
+				CycleLabel:         c.CycleLabel,
+				IsActive:           c.IsActive,
+				AbsenceFormVisible: c.AbsenceFormVisible,
 			})
 		}
 		out = append(out, subjectDTO{
@@ -183,6 +186,50 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
+		}
+		return http.StatusOK, map[string]string{"status": "ok"}, nil
+	})
+}
+
+// handleSetVisibility is the single management surface for a course's
+// absence-form visibility (the operations control center). It deliberately
+// touches only the flag column — no code/name rewrite, no version bump — so a
+// visibility toggle can never clobber a concurrent course edit.
+func (s *server) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		CourseID           string `json:"course_id"`
+		AbsenceFormVisible *bool  `json:"absence_form_visible"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	courseID, err := s.a.ParseUUID(body.CourseID)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
+		return
+	}
+	if body.AbsenceFormVisible == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_absence_form_visible", "absence_form_visible must be true or false")
+		return
+	}
+
+	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-visibility", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		updated, err := qtx.CourseAbsenceFormVisibleUpdate(r.Context(), courseID, body.AbsenceFormVisible)
+		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if !updated {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
+			return 0, nil, fmt.Errorf("course %s not found", courseID.String())
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
 	})

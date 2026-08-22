@@ -12,7 +12,8 @@ export type EditableTeacher = {
 
 /** The per-field change set a single course save persists. Absent keys keep
  *  the current value; a null value clears the property (not offered by every
- *  editor). */
+ *  editor). Absence-form visibility is intentionally absent: it is managed
+ *  only in Operations → Active courses. */
 export type CourseEditChanges = {
   name?: string;
   teachers?: EditableTeacher[];
@@ -23,7 +24,6 @@ export type CourseEditChanges = {
   student_count?: number | null;
   cycle_id?: string | null;
   expiry_days?: number | null;
-  absence_form_visible?: boolean;
 };
 
 export type Course = {

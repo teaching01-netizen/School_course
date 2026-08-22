@@ -52,7 +52,6 @@ export function patchCourse(
     student_count?: number | null;
     cycle_id?: string | null;
     expiry_days?: number | null;
-    absence_form_visible?: boolean;
   },
 ): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, {

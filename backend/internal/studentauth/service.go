@@ -38,6 +38,9 @@ type LookupResult struct {
 	// nickname hint. It is raw data: handlers must mask it before returning
 	// it to an unverified client.
 	DisplayName string
+	// ParentPhone is the stored parent number behind the masked pre-OTP
+	// hint. Raw data: handlers must mask it before returning it.
+	ParentPhone string
 }
 
 type Session struct {
@@ -91,7 +94,7 @@ func (s *Service) LookupTx(ctx context.Context, tx pgx.Tx, wcode string) (Lookup
 
 	var canonicalWcode string
 	var hasEmail bool
-	var hasParentPhone bool
+	var parentPhone string
 	var displayName string
 	// students.email was a transient column (migration 00036 drops it in its
 	// Down); the durable addresses are email_crm and email_system (00064).
@@ -100,11 +103,11 @@ func (s *Service) LookupTx(ctx context.Context, tx pgx.Tx, wcode string) (Lookup
 	err := tx.QueryRow(ctx, `
 		SELECT wcode,
 		       COALESCE(NULLIF(btrim(email_crm), ''), NULLIF(btrim(email_system), '')) IS NOT NULL,
-		       NULLIF(btrim(parent_phone), '') IS NOT NULL,
+		       COALESCE(NULLIF(btrim(parent_phone), ''), ''),
 		       COALESCE(NULLIF(btrim(nickname), ''), NULLIF(btrim(full_name), ''))
 		FROM students
 		WHERE lower(wcode) = $1
-	`, wcode).Scan(&canonicalWcode, &hasEmail, &hasParentPhone, &displayName)
+	`, wcode).Scan(&canonicalWcode, &hasEmail, &parentPhone, &displayName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return LookupResult{}, ErrStudentNotFound
 	}
@@ -127,8 +130,9 @@ func (s *Service) LookupTx(ctx context.Context, tx pgx.Tx, wcode string) (Lookup
 		Wcode:                       canonicalWcode,
 		LookupToken:                 rawToken,
 		EmailInputRequired:          !hasEmail,
-		ParentVerificationAvailable: hasParentPhone,
+		ParentVerificationAvailable: parentPhone != "",
 		DisplayName:                 displayName,
+		ParentPhone:                 parentPhone,
 	}, nil
 }
 

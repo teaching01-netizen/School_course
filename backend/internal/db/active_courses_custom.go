@@ -13,12 +13,13 @@ type ActiveCourseSubjectRow struct {
 }
 
 type ActiveCourseCourseRow struct {
-	CourseID   pgtype.UUID
-	CourseCode string
-	CourseName string
-	CycleID    pgtype.Text
-	CycleLabel string
-	IsActive   bool
+	CourseID           pgtype.UUID
+	CourseCode         string
+	CourseName         string
+	CycleID            pgtype.Text
+	CycleLabel         string
+	IsActive           bool
+	AbsenceFormVisible bool
 }
 
 func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, error) {
@@ -26,7 +27,8 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 		SELECT s.id, s.code, s.name,
 		       c.id, c.code, c.name,
 		       c.cycle_id, COALESCE(cy.label, ''),
-		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END,
+		       COALESCE(c.absence_form_visible, true)
 		FROM subjects s
 		LEFT JOIN courses c ON c.subject_id = s.id
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
@@ -39,15 +41,16 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 	defer rows.Close()
 
 	type flatRow struct {
-		subjectID   pgtype.UUID
-		subjectCode string
-		subjectName string
-		courseID    pgtype.UUID
-		courseCode  pgtype.Text
-		courseName  pgtype.Text
-		cycleID     pgtype.Text
-		cycleLabel  string
-		isActive    bool
+		subjectID          pgtype.UUID
+		subjectCode        string
+		subjectName        string
+		courseID           pgtype.UUID
+		courseCode         pgtype.Text
+		courseName         pgtype.Text
+		cycleID            pgtype.Text
+		cycleLabel         string
+		isActive           bool
+		absenceFormVisible bool
 	}
 
 	var flat []flatRow
@@ -58,6 +61,7 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 			&r.courseID, &r.courseCode, &r.courseName,
 			&r.cycleID, &r.cycleLabel,
 			&r.isActive,
+			&r.absenceFormVisible,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -83,12 +87,13 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 		}
 		idx := len(subjects) - 1
 		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
-			CourseID:   r.courseID,
-			CourseCode: r.courseCode.String,
-			CourseName: r.courseName.String,
-			CycleID:    r.cycleID,
-			CycleLabel: r.cycleLabel,
-			IsActive:   r.isActive,
+			CourseID:           r.courseID,
+			CourseCode:         r.courseCode.String,
+			CourseName:         r.courseName.String,
+			CycleID:            r.cycleID,
+			CycleLabel:         r.cycleLabel,
+			IsActive:           r.isActive,
+			AbsenceFormVisible: r.absenceFormVisible,
 		})
 	}
 
@@ -114,10 +119,11 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset 
 		SELECT ps.id, ps.code, ps.name,
 		       c.id, c.code, c.name,
 		       c.cycle_id, COALESCE(cy.label, ''),
-		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END,
+		       COALESCE(c.absence_form_visible, true)
 		FROM paged_subjects ps
 		LEFT JOIN LATERAL (
-			SELECT c.id, c.code, c.name, c.cycle_id
+			SELECT c.id, c.code, c.name, c.cycle_id, c.absence_form_visible
 			FROM courses c
 			WHERE c.subject_id = ps.id
 			ORDER BY c.code ASC NULLS LAST, c.id ASC
@@ -141,7 +147,8 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset 
 		var cycleID pgtype.Text
 		var cycleLabel string
 		var isActive bool
-		if err := rows.Scan(&subjectID, &subjectCode, &subjectName, &courseID, &courseCode, &courseName, &cycleID, &cycleLabel, &isActive); err != nil {
+		var absenceFormVisible bool
+		if err := rows.Scan(&subjectID, &subjectCode, &subjectName, &courseID, &courseCode, &courseName, &cycleID, &cycleLabel, &isActive, &absenceFormVisible); err != nil {
 			return nil, nil, 0, 0, err
 		}
 
@@ -156,6 +163,7 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset 
 		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
 			CourseID: courseID, CourseCode: courseCode.String, CourseName: courseName.String,
 			CycleID: cycleID, CycleLabel: cycleLabel, IsActive: isActive,
+			AbsenceFormVisible: absenceFormVisible,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -184,7 +192,8 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 		SELECT s.id, s.code, s.name,
 		       c.id, c.code, c.name,
 		       c.cycle_id, COALESCE(cy.label, ''),
-		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END
+		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END,
+		       c.absence_form_visible
 		FROM subjects s
 		JOIN courses c ON c.subject_id = s.id
 		JOIN course_students cs ON cs.course_id = c.id
@@ -199,15 +208,16 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 	defer rows.Close()
 
 	type flatRow struct {
-		subjectID   pgtype.UUID
-		subjectCode string
-		subjectName string
-		courseID    pgtype.UUID
-		courseCode  string
-		courseName  string
-		cycleID     pgtype.Text
-		cycleLabel  string
-		isActive    bool
+		subjectID          pgtype.UUID
+		subjectCode        string
+		subjectName        string
+		courseID           pgtype.UUID
+		courseCode         string
+		courseName         string
+		cycleID            pgtype.Text
+		cycleLabel         string
+		isActive           bool
+		absenceFormVisible bool
 	}
 
 	var flat []flatRow
@@ -218,6 +228,7 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 			&r.courseID, &r.courseCode, &r.courseName,
 			&r.cycleID, &r.cycleLabel,
 			&r.isActive,
+			&r.absenceFormVisible,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -240,12 +251,13 @@ func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgty
 		}
 		idx := len(subjects) - 1
 		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
-			CourseID:   r.courseID,
-			CourseCode: r.courseCode,
-			CourseName: r.courseName,
-			CycleID:    r.cycleID,
-			CycleLabel: r.cycleLabel,
-			IsActive:   r.isActive,
+			CourseID:           r.courseID,
+			CourseCode:         r.courseCode,
+			CourseName:         r.courseName,
+			CycleID:            r.cycleID,
+			CycleLabel:         r.cycleLabel,
+			IsActive:           r.isActive,
+			AbsenceFormVisible: r.absenceFormVisible,
 		})
 	}
 

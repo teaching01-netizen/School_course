@@ -59,6 +59,7 @@ export type ActiveCourseSubject = {
     cycle_id: string;
     cycle_label: string;
     is_active: boolean;
+    absence_form_visible: boolean;
   }>;
 };
 

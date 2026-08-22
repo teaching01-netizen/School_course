@@ -5,6 +5,7 @@ import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
 import SearchInput from "../../components/ui/SearchInput";
+import { Switch } from "../../components/ui/Switch";
 import type { ActiveCoursePayload, ActiveCourseSubject } from "../../types";
 
 type ActiveCoursesResponse = {
@@ -22,6 +23,88 @@ type SubjectDraft = {
   pendingCourseId: string | null;
 };
 
+/** One course row: the active-course choice (radio — it is a single pick per
+ *  subject) and the absence-form visibility switch live together, because
+ *  both only matter in combination: what the student form shows is
+ *  "active course, when visible". This page is the single management surface
+ *  for both. */
+function CourseRow({
+  subject,
+  courseId,
+  isSelected,
+  dirty,
+  disabled,
+  onSelect,
+  onToggleVisibility,
+  visibilitySaving,
+}: {
+  subject: ActiveCourseSubject;
+  courseId: string;
+  isSelected: boolean;
+  dirty: boolean;
+  disabled: boolean;
+  onSelect: (courseId: string) => void;
+  onToggleVisibility: (courseId: string, next: boolean) => void;
+  visibilitySaving: boolean;
+}) {
+  const course = subject.courses.find((c) => c.course_id === courseId);
+  if (!course) return null;
+  const visible = course.absence_form_visible !== false;
+  const isActiveSaved = course.is_active;
+
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm transition-colors hover:bg-[var(--color-wi-row-alt)]/50 ${
+        dirty && isSelected ? "bg-blue-50/50" : ""
+      }`}
+    >
+      <label className="flex cursor-pointer items-center gap-3">
+        <input
+          type="radio"
+          name={`active-course-${subject.subject_id}`}
+          checked={isSelected}
+          onChange={() => onSelect(course.course_id)}
+          disabled={disabled}
+          className="accent-[var(--color-wi-primary)]"
+        />
+        <span className="min-w-0">
+          <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_code}</span>
+          <span className="ml-2 text-[var(--color-wi-text-light)]">{subject.subject_name}</span>
+          <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label || "no cycle"})</span>
+        </span>
+      </label>
+
+      <span className="ml-auto flex min-w-0 items-center gap-2">
+        {!dirty && isActiveSaved && visible ? (
+          <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+            Active
+          </span>
+        ) : null}
+        {!dirty && isActiveSaved && !visible ? (
+          <span
+            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+            title="Students cannot select this class in the absence form while it is hidden"
+          >
+            Active — hidden from form
+          </span>
+        ) : null}
+        {dirty && isSelected ? <span className="text-xs font-medium text-blue-600">Selected</span> : null}
+        <Switch
+          checked={visible}
+          onCheckedChange={(next) => onToggleVisibility(course.course_id, next)}
+          disabled={visibilitySaving}
+          aria-label={`Show ${course.course_code} in the student absence form`}
+        />
+        {visible ? (
+          <span className="text-xs text-[var(--color-wi-text-light)]">In student form</span>
+        ) : (
+          <span className="text-xs font-medium text-amber-700">Hidden from students</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function ActiveCoursesSection() {
   const { addToast } = useToast();
   const [subjects, setSubjects] = useState<ActiveCourseSubject[]>([]);
@@ -30,6 +113,7 @@ export function ActiveCoursesSection() {
   const [drafts, setDrafts] = useState<Record<string, SubjectDraft>>({});
   const [originals, setOriginals] = useState<Record<string, string | null>>({});
   const [savingSubjects, setSavingSubjects] = useState<Set<string>>(new Set());
+  const [savingVisibility, setSavingVisibility] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [totalSubjects, setTotalSubjects] = useState(0);
   const [subjectOffset, setSubjectOffset] = useState(0);
@@ -45,8 +129,25 @@ export function ActiveCoursesSection() {
     );
   }, [subjects, searchQuery]);
 
+  /** A subject only counts as covered when its active course is actually
+   *  bookable: an active course hidden from the form is a trap state students
+   *  experience as "this subject is gone", so it must surface as a warning,
+   *  never as green. */
   const coveredCount = useMemo(
-    () => subjects.filter((s) => s.courses.some((c) => c.is_active)).length,
+    () =>
+      subjects.filter((s) => {
+        const active = s.courses.find((c) => c.is_active);
+        return !!active && active.absence_form_visible !== false;
+      }).length,
+    [subjects],
+  );
+
+  const hiddenActiveCount = useMemo(
+    () =>
+      subjects.filter((s) => {
+        const active = s.courses.find((c) => c.is_active);
+        return !!active && active.absence_form_visible === false;
+      }).length,
     [subjects],
   );
 
@@ -105,9 +206,10 @@ export function ActiveCoursesSection() {
 
   useEffect(() => {
     void loadSubjects();
-  }, [addToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function handleCourseChange(subjectId: string, courseId: string | null) {
+  function handleCourseChange(subjectId: string, courseId: string) {
     setDrafts((prev) => ({
       ...prev,
       [subjectId]: { subjectId, pendingCourseId: courseId },
@@ -118,6 +220,50 @@ export function ActiveCoursesSection() {
     const draft = drafts[subjectId];
     if (!draft) return false;
     return draft.pendingCourseId !== originals[subjectId];
+  }
+
+  /** Visibility is independent of the active-course draft: it saves
+   *  immediately through the dedicated endpoint and updates the loaded
+   *  subject rows in place — no refetch, so the page never jumps. The switch
+   *  locks per course while its save is in flight, so the visible state can
+   *  never drift from the server. */
+  async function toggleVisibility(subjectId: string, courseId: string, next: boolean) {
+    const subject = subjects.find((s) => s.subject_id === subjectId);
+    const course = subject?.courses.find((c) => c.course_id === courseId);
+    if (!course) return;
+    setSavingVisibility((prev) => new Set(prev).add(courseId));
+    try {
+      await apiJson("/api/v1/admin/active-courses/visibility", {
+        method: "PUT",
+        body: JSON.stringify({ course_id: courseId, absence_form_visible: next }),
+      });
+      setSubjects((prev) =>
+        prev.map((s) =>
+          s.subject_id === subjectId
+            ? {
+                ...s,
+                courses: s.courses.map((c) =>
+                  c.course_id === courseId ? { ...c, absence_form_visible: next } : c,
+                ),
+              }
+            : s,
+        ),
+      );
+      addToast(
+        "success",
+        next
+          ? `${course.course_code} is now visible in the student absence form`
+          : `${course.course_code} hidden — students can no longer select it. Sit-ins and staff booking are unaffected.`,
+      );
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to update visibility");
+    } finally {
+      setSavingVisibility((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.delete(courseId);
+        return nextSet;
+      });
+    }
   }
 
   async function saveSubject(subjectId: string, silent = false): Promise<boolean> {
@@ -243,29 +389,48 @@ export function ActiveCoursesSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[var(--color-wi-text-light)]">
-        Select which course is active for each subject. The absence form will auto-assign the active course when a student reports an absence.
-      </p>
+      <section
+        className="rounded-sm border border-wi-line bg-[var(--color-wi-callout)] p-3"
+        aria-label="How the student absence form uses these settings"
+      >
+        <h3 className="mb-1.5 text-sm font-semibold text-[var(--color-wi-text)]">
+          How the student absence form uses these settings
+        </h3>
+        <ul className="space-y-1 text-xs text-[var(--color-wi-text-light)]">
+          <li>
+            <strong className="text-[var(--color-wi-text)]">Active course</strong> — the class the form
+            auto-assigns when a student reports an absence for the subject.
+          </li>
+          <li>
+            <strong className="text-[var(--color-wi-text)]">In student form</strong> — whether students can
+            select the class in the absence form. New classes start visible.
+          </li>
+          <li>
+            Hidden classes can&apos;t be picked by students, but still accept <strong className="text-[var(--color-wi-text)]">sit-in</strong> students —
+            and staff can always book any class.
+          </li>
+        </ul>
+      </section>
 
       <div
-        className={`flex items-center gap-2 rounded-sm border px-4 py-2.5 text-sm ${
-          allCovered
+        className={`flex flex-col gap-1 rounded-sm border px-4 py-2.5 text-sm ${
+          allCovered && hiddenActiveCount === 0
             ? "border-green-200 bg-green-50 text-green-700"
             : "border-amber-200 bg-amber-50 text-amber-700"
         }`}
       >
-        {allCovered ? (
-          <span className="font-medium text-green-600">All subjects configured ✓</span>
-        ) : (
-          <>
-            <svg className="h-4 w-4 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>
-              <strong>{coveredCount}/{subjects.length}</strong> subjects have an active course set
-            </span>
-          </>
-        )}
+        <span className="font-medium">
+          {allCovered
+            ? "All subjects configured ✓"
+            : `${coveredCount}/${subjects.length} subjects have a bookable active course`}
+        </span>
+        {hiddenActiveCount > 0 ? (
+          <span>
+            {hiddenActiveCount} subject{hiddenActiveCount === 1 ? "" : "s"}{" "}
+            {hiddenActiveCount === 1 ? "has" : "have"} an active course that is hidden — students
+            can&apos;t book that class until it is made visible again.
+          </span>
+        ) : null}
       </div>
 
       <SearchInput
@@ -283,10 +448,9 @@ export function ActiveCoursesSection() {
         const draft = drafts[subject.subject_id];
         const dirty = isDirty(subject.subject_id);
         const isSaving = savingSubjects.has(subject.subject_id);
-        const active = subject.courses.find((c) => c.is_active);
         const pendingCourseId = draft?.pendingCourseId ?? null;
-        const hasMultipleCourses = subject.courses.length > 1;
-        const hasSingleCourse = subject.courses.length === 1;
+        const savedActive = subject.courses.find((c) => c.is_active);
+        const savedActiveHidden = !!savedActive && savedActive.absence_form_visible === false;
 
         return (
           <div
@@ -300,12 +464,20 @@ export function ActiveCoursesSection() {
                 <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
                 </span>
-                {!dirty && active ? (
+                {!dirty && savedActive && !savedActiveHidden ? (
                   <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                     Active
                   </span>
                 ) : null}
-                {!dirty && !active ? (
+                {!dirty && savedActiveHidden ? (
+                  <span
+                    className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                    title="Make the active course visible again so students can book this subject"
+                  >
+                    Active course hidden
+                  </span>
+                ) : null}
+                {!dirty && !savedActive ? (
                   <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                     Not set
                   </span>
@@ -323,64 +495,26 @@ export function ActiveCoursesSection() {
               ) : null}
             </div>
 
-            {hasMultipleCourses ? (
+            {subject.courses.length > 0 ? (
               <div className="divide-y divide-gray-50">
-                {subject.courses.map((course) => {
-                  const isSelected = pendingCourseId === course.course_id;
-                  const isDisabled = isSaving;
-                  return (
-                    <label
-                      key={course.course_id}
-                      className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-[var(--color-wi-row-alt)]/50 ${
-                        dirty && isSelected ? "bg-blue-50/50" : ""
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleCourseChange(subject.subject_id, course.course_id)}
-                        disabled={isDisabled}
-                        className="accent-[var(--color-wi-primary)]"
-                      />
-                      <span className="flex-1">
-                        <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_code}</span>
-                        <span className="ml-2 text-[var(--color-wi-text-light)]">{subject.subject_name}</span>
-                        <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label})</span>
-                      </span>
-                      {!dirty && course.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                          Active
-                        </span>
-                      ) : null}
-                      {dirty && isSelected ? (
-                        <span className="text-xs font-medium text-blue-600">Selected</span>
-                      ) : null}
-                    </label>
-                  );
-                })}
+                {subject.courses.map((course) => (
+                  <CourseRow
+                    key={course.course_id}
+                    subject={subject}
+                    courseId={course.course_id}
+                    isSelected={pendingCourseId === course.course_id}
+                    dirty={dirty}
+                    disabled={isSaving}
+                    onSelect={(courseId) => handleCourseChange(subject.subject_id, courseId)}
+                    onToggleVisibility={(courseId, next) => void toggleVisibility(subject.subject_id, courseId, next)}
+                    visibilitySaving={savingVisibility.has(course.course_id)}
+                  />
+                ))}
               </div>
-            ) : hasSingleCourse ? (
-              <label className="flex items-center gap-3 px-4 py-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={pendingCourseId === subject.courses[0].course_id}
-                  onChange={() => handleCourseChange(subject.subject_id, subject.courses[0].course_id)}
-                  disabled={isSaving}
-                  className="accent-[var(--color-wi-primary)]"
-                />
-                <span className="text-sm text-[var(--color-wi-text-light)]">
-                  {pendingCourseId === subject.courses[0].course_id ? "Active" : "Set Active"}
-                </span>
-                <span className="text-sm text-[var(--color-wi-text-light)]">
-                  —{" "}
-                  <span className="font-medium text-[var(--color-wi-text-light)]">{subject.courses[0].course_code}</span>
-                  <span className="ml-1 text-xs text-[var(--color-wi-text-light)]">({subject.courses[0].cycle_label})</span>
-                </span>
-              </label>
             ) : (
               <div className="flex items-center gap-3 px-4 py-2.5">
                 <input
-                  type="checkbox"
+                  type="radio"
                   disabled
                   aria-label="No courses available"
                   className="accent-[var(--color-wi-primary)] opacity-50"

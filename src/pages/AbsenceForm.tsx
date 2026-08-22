@@ -1010,7 +1010,11 @@ export default function AbsenceForm() {
                   studentName={studentDisplayName}
                   wcode={lookup.wcode}
                   hasPhone={lookup.parent_verification_available}
-                  phoneLabel={lookup.parent_verification_available ? "Verification phone available" : "Verification phone unavailable"}
+                  phoneLabel={lookup.parent_verification_available
+                    ? lookup.parent_phone_hint
+                      ? `Parent phone: ${lookup.parent_phone_hint}`
+                      : "Verification phone available"
+                    : "No parent phone yet — you'll add it below"}
                 >
                   <StepCoverVerification
                     lookupToken={lookup.lookup_token}

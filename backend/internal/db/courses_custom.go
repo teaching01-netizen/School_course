@@ -79,14 +79,19 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 // CourseAbsenceFormVisibleUpdate applies the optional absence-form visibility
 // flag: nil leaves the current value untouched (single-property PATCHes omit
 // it), non-nil sets it. Mirrors CourseLifecycleUpdate's set-flag pattern.
-func (q *Queries) CourseAbsenceFormVisibleUpdate(ctx context.Context, courseID pgtype.UUID, visible *bool) error {
-	_, err := q.db.Exec(ctx, `
+// Returns whether a course row was actually updated, so callers can map a
+// missing course to 404.
+func (q *Queries) CourseAbsenceFormVisibleUpdate(ctx context.Context, courseID pgtype.UUID, visible *bool) (bool, error) {
+	tag, err := q.db.Exec(ctx, `
 		UPDATE courses
 		SET absence_form_visible = CASE WHEN $2 THEN $3 ELSE absence_form_visible END,
 		    updated_at = now()
 		WHERE id = $1
 	`, courseID, visible != nil, visible)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 type CourseBatchDeleteResult struct {
