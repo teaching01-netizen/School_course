@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -254,6 +256,93 @@ func (q *Queries) ActiveCourseUpsert(ctx context.Context, p ActiveCourseUpsertPa
 		SET course_id = $2, updated_at = now()
 	`, p.SubjectID, p.CourseID)
 	return err
+}
+
+// CourseSubjectID returns a course's subject; ok=false when the course does
+// not exist (or has no subject, in which case it can never be an active one).
+func (q *Queries) CourseSubjectID(ctx context.Context, courseID pgtype.UUID) (pgtype.UUID, bool, error) {
+	var subjectID pgtype.UUID
+	err := q.db.QueryRow(ctx,
+		`SELECT subject_id FROM courses WHERE id = $1`, courseID).Scan(&subjectID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !subjectID.Valid) {
+		return pgtype.UUID{}, false, nil
+	}
+	if err != nil {
+		return pgtype.UUID{}, false, err
+	}
+	return subjectID, true, nil
+}
+
+// ActiveCourseSetBulkExclusive implements the single-switch operations model:
+// activating a class makes it its subject's active course — exactly one per
+// subject — and hides the subject's other classes. For bulk activation the
+// highest-numbered course of each affected subject wins the active slot.
+// Returns how many courses had their visibility re-derived.
+func (q *Queries) ActiveCourseSetBulkExclusive(ctx context.Context, courseIDs []string) (int64, error) {
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		SELECT DISTINCT ON (c.subject_id) c.subject_id, c.id
+		FROM courses c
+		WHERE c.id = ANY($1::uuid[]) AND c.subject_id IS NOT NULL
+		ORDER BY c.subject_id, c.course_no DESC NULLS LAST, c.id
+		ON CONFLICT (subject_id) DO UPDATE
+		SET course_id = EXCLUDED.course_id, updated_at = now()
+	`, courseIDs); err != nil {
+		return 0, err
+	}
+	return q.subjectCoursesSyncVisibility(ctx, courseIDs)
+}
+
+// ActiveCourseClearBulk deactivates courses: their active-course pointers are
+// removed and the classes are hidden from the student absence form.
+func (q *Queries) ActiveCourseClearBulk(ctx context.Context, courseIDs []string) (int64, error) {
+	if _, err := q.db.Exec(ctx,
+		`DELETE FROM subject_active_courses WHERE course_id = ANY($1::uuid[])`, courseIDs); err != nil {
+		return 0, err
+	}
+	return q.subjectCoursesSyncVisibility(ctx, courseIDs)
+}
+
+// subjectCoursesSyncVisibility re-derives absence_form_visible for every
+// course of the affected subjects: a class is visible exactly when it is its
+// subject's active course. This keeps the stored flag and the active-course
+// table from ever disagreeing after an activate/deactivate.
+func (q *Queries) subjectCoursesSyncVisibility(ctx context.Context, courseIDs []string) (int64, error) {
+	tag, err := q.db.Exec(ctx, `
+		UPDATE courses SET
+			absence_form_visible = EXISTS (
+				SELECT 1 FROM subject_active_courses sac WHERE sac.course_id = courses.id
+			),
+			updated_at = now()
+		WHERE subject_id IN (
+			SELECT subject_id FROM courses WHERE id = ANY($1::uuid[]) AND subject_id IS NOT NULL
+		)
+	`, courseIDs)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CourseIDsVisible returns the subset of ids that are currently visible in
+// the student absence form — the sit-in gate: inactive classes may never be
+// chosen as a sit-in target.
+func (q *Queries) CourseIDsVisible(ctx context.Context, courseIDs []string) (map[string]struct{}, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT id::text FROM courses WHERE id = ANY($1::uuid[]) AND absence_form_visible`, courseIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]struct{}, len(courseIDs))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
 }
 
 func (q *Queries) ActiveCoursesListByStudent(ctx context.Context, studentID pgtype.UUID) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, error) {

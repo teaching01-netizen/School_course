@@ -4,11 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,13 +14,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
 	"warwick-institute/internal/auth"
-	sqldb "warwick-institute/internal/db"
-	"warwick-institute/internal/httpapi/httpdeps"
 )
 
 type adminAuth struct{ user auth.AuthenticatedUser }
@@ -73,86 +66,44 @@ func visMigrateUp(t *testing.T, databaseURL string) {
 	}
 }
 
-// TestVisibilityEndpointAndGetFlag covers the operations control center
-// contract: the GET listing carries each course's absence_form_visible flag,
-// and the dedicated visibility PUT flips it (and only it) for an existing
-// course, 400s on a missing flag, and 404s on an unknown course.
-func TestVisibilityEndpointAndGetFlag(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set TEST_DATABASE_URL to run DB integration tests")
-	}
-	visMigrateUp(t, databaseURL)
-	poolCfg, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	dbpool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(dbpool.Close)
+// TestSetActiveEndpoint covers the single-switch operations contract:
+// activating a class makes it its subject's one active course and hides its
+// siblings; deactivating clears the slot and hides the class; unknown courses
+// 404 and malformed payloads 400.
+func TestSetActiveEndpoint(t *testing.T) {
+	env := newActiveCoursesEnv(t)
+	subj := env.seedSubject(t, "VSA-"+env.suffix)
+	c1 := env.seedCourse(t, subj, "VSA-1-"+env.suffix, true)
+	c2 := env.seedCourse(t, subj, "VSA-2-"+env.suffix, true)
+	env.setActive(t, subj, c1)
+	setActive := "/api/v1/admin/active-courses/set-active"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	suffix := uuid.NewString()[:8]
-	var subjectID uuid.UUID
-	if err := dbpool.QueryRow(ctx, `
-		INSERT INTO subjects (code, name) VALUES ($1, $1) RETURNING id
-	`, "VSBG-"+suffix).Scan(&subjectID); err != nil {
-		t.Fatal(err)
-	}
-	seedCourse := func(code string, visible bool) uuid.UUID {
+	activeCourse := func(t *testing.T, subjectID uuid.UUID) (uuid.UUID, bool) {
 		t.Helper()
 		var id uuid.UUID
-		if err := dbpool.QueryRow(ctx, `
-			INSERT INTO courses (code, name, subject_id, absence_form_visible)
-			VALUES ($1, $1, $2, $3) RETURNING id
-		`, code, subjectID, visible).Scan(&id); err != nil {
+		err := env.dbpool.QueryRow(context.Background(),
+			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID).Scan(&id)
+		if err == pgx.ErrNoRows {
+			return uuid.Nil, false
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
-		return id
+		return id, true
 	}
-	shownID := seedCourse("VSBG-SHOWN-"+suffix, true)
-	hiddenID := seedCourse("VSBG-HIDDEN-"+suffix, false)
 
-	mux := http.NewServeMux()
-	Register(mux, httpdeps.Deps{
-		Q:           sqldb.New(dbpool),
-		DB:          dbpool,
-		Log:         slog.Default(),
-		InstituteTZ: "Asia/Bangkok",
-		Auth:        adminAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Role: "Admin"}},
-	})
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	do := func(method, path string, body any) (int, []byte) {
+	expectState := func(t *testing.T, courseID uuid.UUID, wantActive, wantVisible bool) {
 		t.Helper()
-		var payload []byte
-		if body != nil {
-			payload, _ = json.Marshal(body)
+		if got, ok := activeCourse(t, subj); ok != wantActive || (ok && got != courseID) {
+			t.Fatalf("subject active course = (%s, %v), want active=%v for %s", got, ok, wantActive, courseID)
 		}
-		req, _ := http.NewRequest(method, server.URL+path, strings.NewReader(string(payload)))
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
+		if vis := env.courseVisible(t, courseID); vis != wantVisible {
+			t.Fatalf("course %s visible = %v, want %v", courseID, vis, wantVisible)
 		}
-		req.Header.Set("Idempotency-Key", uuid.NewString())
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		raw, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resp.StatusCode, raw
 	}
 
 	t.Run("get_lists_flags", func(t *testing.T) {
-		status, raw := do(http.MethodGet, "/api/v1/admin/active-courses?limit=200", nil)
+		status, raw := env.do(t, http.MethodGet, "/api/v1/admin/active-courses?limit=200&search="+env.suffix, nil)
 		if status != http.StatusOK {
 			t.Fatalf("GET status = %d body = %s", status, raw)
 		}
@@ -161,6 +112,7 @@ func TestVisibilityEndpointAndGetFlag(t *testing.T) {
 				SubjectCode string `json:"subject_code"`
 				Courses     []struct {
 					CourseID           string `json:"course_id"`
+					IsActive           bool   `json:"is_active"`
 					AbsenceFormVisible bool   `json:"absence_form_visible"`
 				} `json:"courses"`
 			} `json:"subjects"`
@@ -168,57 +120,75 @@ func TestVisibilityEndpointAndGetFlag(t *testing.T) {
 		if err := json.Unmarshal(raw, &list); err != nil {
 			t.Fatal(err)
 		}
-		flags := map[string]bool{}
+		flags := map[string][2]bool{}
 		for _, s := range list.Subjects {
-			if s.SubjectCode != "VSBG-"+suffix {
+			if s.SubjectCode != "VSA-"+env.suffix {
 				continue
 			}
 			for _, c := range s.Courses {
-				flags[c.CourseID] = c.AbsenceFormVisible
+				flags[c.CourseID] = [2]bool{c.IsActive, c.AbsenceFormVisible}
 			}
 		}
-		if !flags[shownID.String()] {
-			t.Fatalf("shown course must report absence_form_visible=true, got %v", flags)
+		if flags[c1.String()] != [2]bool{true, true} {
+			t.Fatalf("c1 must be active+visible, got %v", flags)
 		}
-		if flags[hiddenID.String()] {
-			t.Fatalf("hidden course must report absence_form_visible=false, got %v", flags)
+		if flags[c2.String()] != [2]bool{false, true} {
+			t.Fatalf("c2 must be inactive+visible before toggle, got %v", flags)
 		}
 	})
 
-	t.Run("put_visibility_flips_flag", func(t *testing.T) {
-		status, raw := do(http.MethodPut, "/api/v1/admin/active-courses/visibility", map[string]any{
-			"course_id":            hiddenID.String(),
-			"absence_form_visible": true,
+	t.Run("activate_moves_slot_and_hides_sibling", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, setActive, map[string]any{
+			"course_id": c2.String(),
+			"active":    true,
 		})
 		if status != http.StatusOK {
-			t.Fatalf("PUT status = %d body = %s", status, raw)
+			t.Fatalf("activate status = %d body = %s", status, raw)
 		}
-		var visible bool
-		if err := dbpool.QueryRow(context.Background(),
-			`SELECT absence_form_visible FROM courses WHERE id = $1`, hiddenID).Scan(&visible); err != nil {
-			t.Fatal(err)
-		}
-		if !visible {
-			t.Fatal("flag must be persisted as true")
+		expectState(t, c2, true, true)
+		if env.courseVisible(t, c1) {
+			t.Fatal("previous active course must be hidden after exclusive activation")
 		}
 	})
 
-	t.Run("put_requires_flag", func(t *testing.T) {
-		status, _ := do(http.MethodPut, "/api/v1/admin/active-courses/visibility", map[string]any{
-			"course_id": shownID.String(),
+	t.Run("deactivate_clears_slot_and_hides", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, setActive, map[string]any{
+			"course_id": c2.String(),
+			"active":    false,
 		})
-		if status != http.StatusBadRequest {
-			t.Fatalf("missing flag status = %d, want 400", status)
+		if status != http.StatusOK {
+			t.Fatalf("deactivate status = %d body = %s", status, raw)
+		}
+		if _, ok := activeCourse(t, subj); ok {
+			t.Fatal("deactivating the active course must clear the subject slot")
+		}
+		if env.courseVisible(t, c2) {
+			t.Fatal("deactivated course must be hidden")
 		}
 	})
 
-	t.Run("put_unknown_course_404", func(t *testing.T) {
-		status, _ := do(http.MethodPut, "/api/v1/admin/active-courses/visibility", map[string]any{
-			"course_id":            uuid.NewString(),
-			"absence_form_visible": false,
+	t.Run("unknown_course_404", func(t *testing.T) {
+		status, _ := env.do(t, http.MethodPut, setActive, map[string]any{
+			"course_id": uuid.NewString(),
+			"active":    true,
 		})
 		if status != http.StatusNotFound {
 			t.Fatalf("unknown course status = %d, want 404", status)
+		}
+	})
+
+	t.Run("validation", func(t *testing.T) {
+		cases := []struct {
+			name string
+			body map[string]any
+		}{
+			{"missing_active", map[string]any{"course_id": c1.String()}},
+			{"bad_uuid", map[string]any{"course_id": "not-a-uuid", "active": true}},
+		}
+		for _, tc := range cases {
+			if status, raw := env.do(t, http.MethodPut, setActive, tc.body); status != http.StatusBadRequest {
+				t.Fatalf("%s status = %d body = %s, want 400", tc.name, status, raw)
+			}
 		}
 	})
 }

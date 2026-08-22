@@ -294,6 +294,35 @@ func enrolledLevelsFromCourses(courses []sqldb.StudentEnrolledCourseV2) []int16 
 	return levels
 }
 
+// filterActiveSitInCourses is the sit-in half of the single-switch model: an
+// inactive class is hidden from students and must never be offered as — or
+// resolved into — a sit-in target. Staff-submitted absences are not affected;
+// this filters only the student-facing resolution pools.
+func filterActiveSitInCourses(ctx context.Context, q *sqldb.Queries, pool []sqldb.SubjectCourseV2) ([]sqldb.SubjectCourseV2, error) {
+	if len(pool) == 0 {
+		return pool, nil
+	}
+	ids := make([]string, 0, len(pool))
+	for _, c := range pool {
+		if id, err := uuidString(c.ID); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	visible, err := q.CourseIDsVisible(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("active course lookup: %w", err)
+	}
+	filtered := make([]sqldb.SubjectCourseV2, 0, len(pool))
+	for _, c := range pool {
+		if id, err := uuidString(c.ID); err == nil {
+			if _, ok := visible[id]; ok {
+				filtered = append(filtered, c)
+			}
+		}
+	}
+	return filtered, nil
+}
+
 // resolveSitInForCourse resolves sit-in for a specific student course block.
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
@@ -370,6 +399,10 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		if err != nil {
 			return nil, fmt.Errorf("merged course lookup: %w", err)
 		}
+	}
+	allCourses, err = filterActiveSitInCourses(ctx, q, allCourses)
+	if err != nil {
+		return nil, err
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
@@ -547,12 +580,33 @@ func resolveMappedSatVerbalSitIn(
 		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
 	}
 
+	// Inactive classes may not be sit-in targets; the missed course itself
+	// was resolved above from the unfiltered pool.
+	activeAll, err := filterActiveSitInCourses(ctx, q, allCourses)
+	if err != nil {
+		return nil, err
+	}
+	activeSet := make(map[string]struct{}, len(activeAll))
+	for _, c := range activeAll {
+		if id, idErr := uuidString(c.ID); idErr == nil {
+			activeSet[id] = struct{}{}
+		}
+	}
+	activeMapped := make([]satVerbalMappedCourse, 0, len(mappedCourses))
+	for _, mc := range mappedCourses {
+		if id, idErr := uuidString(mc.Course.ID); idErr == nil {
+			if _, ok := activeSet[id]; ok {
+				activeMapped = append(activeMapped, mc)
+			}
+		}
+	}
+
 	return resolveSatVerbalPolicy(ctx, satVerbalResolveInput{
 		Rule:               &rule,
-		MappedCourses:      mappedCourses,
+		MappedCourses:      activeMapped,
 		MissedCourse:       missedCourse,
 		Enrolled:           enrolled,
-		AllCourses:         allCourses,
+		AllCourses:         activeAll,
 		MissedSessions:     missedSessions,
 		Cutoff:             cutoff,
 		RequestTime:        time.Now(),

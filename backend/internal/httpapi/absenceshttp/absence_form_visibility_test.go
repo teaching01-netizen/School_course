@@ -133,6 +133,38 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		}
 	})
 
+	t.Run("batch_sit_in_to_inactive_course_rejected", func(t *testing.T) {
+		// An inactive class may not be a sit-in target even when the absence
+		// itself is for a live class of the same subject.
+		setAbsenceFormVisible(t, dbpool, seed.courses["sibling"], false)
+		t.Cleanup(func() { setAbsenceFormVisible(t, dbpool, seed.courses["sibling"], true) })
+
+		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["old"], 15)
+		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["old"], "Asia/Bangkok")
+		recorder := postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+			"items": []map[string]any{{
+				"subject_id":       seed.subjID.String(),
+				"course_id":        seed.courses["old"].String(),
+				"date_from":        localDate,
+				"date_to":          localDate,
+				"missed_session_ids": []string{sessionID},
+				"sit_in_course_id": seed.courses["sibling"].String(),
+			}},
+		})
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("inactive sit-in submit status = %d, want 400, body = %s", recorder.Code, recorder.Body.String())
+		}
+		var errBody struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &errBody); err != nil {
+			t.Fatal(err)
+		}
+		if errBody.Code != "sit_in_course_inactive" {
+			t.Fatalf("inactive sit-in error code = %q, want sit_in_course_inactive", errBody.Code)
+		}
+	})
+
 	t.Run("visible_sibling_still_submittable", func(t *testing.T) {
 		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["sibling"])
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["sibling"], "Asia/Bangkok")

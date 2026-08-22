@@ -479,10 +479,15 @@ func (s *server) createAbsenceRecordTx(
 			return createdAbsenceRecord{}, false
 		}
 		// A student may only sit in to courses of the subject they are
-		// submitting for; anything else is outside the resolved selection.
+		// submitting for, and only while that class is active — an inactive
+		// class is hidden from students and does not accept sit-ins.
 		sitInCourse, err := qtx.CourseGetFull(r.Context(), parsed)
 		if err != nil || !sitInCourse.SubjectID.Valid || sitInCourse.SubjectID != subjectID {
 			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_outside_selection", "Sit-in course must belong to the selected subject")
+			return createdAbsenceRecord{}, false
+		}
+		if !sitInCourse.AbsenceFormVisible {
+			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_inactive", "That class is not active for students and cannot be sat in")
 			return createdAbsenceRecord{}, false
 		}
 		sitInCourseID = parsed

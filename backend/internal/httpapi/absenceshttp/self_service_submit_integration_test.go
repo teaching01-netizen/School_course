@@ -50,8 +50,14 @@ func pickCourseSessionDate(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 // ensureCourseAbsenceHeadroom gives a course enough distinct session dates
 // that the absence-day limit (total days / 5, rounded down) allows a single
 // absence day to be booked.
-func ensureCourseAbsenceHeadroom(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUID) {
+// The optional hour offset lets parallel subtests for different courses of
+// the same student avoid the student_busy_ranges overlap exclusion.
+func ensureCourseAbsenceHeadroom(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUID, hours ...int) {
 	t.Helper()
+	hour := 9
+	if len(hours) > 0 {
+		hour = hours[0]
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -68,7 +74,7 @@ func ensureCourseAbsenceHeadroom(t *testing.T, dbpool *pgxpool.Pool, courseID uu
 		t.Fatal(err)
 	}
 	for day := 1; day <= 15; day++ {
-		start := time.Date(2027, 1, day, 9, 0, 0, 0, loc)
+		start := time.Date(2027, 1, day, hour, 0, 0, 0, loc)
 		if _, err := dbpool.Exec(ctx, `
 			INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
 			VALUES ($1, $2, $3, $4)

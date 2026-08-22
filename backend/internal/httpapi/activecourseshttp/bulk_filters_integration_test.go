@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/auth"
@@ -201,24 +202,24 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	}
 
 	// Stats are institute-wide and differential assertions are noise-proof on
-	// a shared database: hiding the configured subject's active course must
-	// move exactly one subject from configured to hidden_active.
+	// a shared database: deactivating the configured subject's active course
+	// must move exactly one subject from configured to missing.
 	base := env.listSubjects(t, "?limit=1").Stats
-	if status, raw := env.do(t, http.MethodPut, "/api/v1/admin/active-courses/visibility", map[string]any{
-		"course_id":            cfgCourse.String(),
-		"absence_form_visible": false,
+	if status, raw := env.do(t, http.MethodPut, "/api/v1/admin/active-courses/set-active", map[string]any{
+		"course_id": cfgCourse.String(),
+		"active":    false,
 	}); status != http.StatusOK {
-		t.Fatalf("hide active course status = %d body = %s", status, raw)
+		t.Fatalf("deactivate active course status = %d body = %s", status, raw)
 	}
-	afterHide := env.listSubjects(t, "?limit=1").Stats
-	if afterHide.HiddenActive != base.HiddenActive+1 {
-		t.Fatalf("hidden_active after hide = %d, want %d", afterHide.HiddenActive, base.HiddenActive+1)
+	afterOff := env.listSubjects(t, "?limit=1").Stats
+	if afterOff.MissingActive != base.MissingActive+1 {
+		t.Fatalf("missing_active after deactivate = %d, want %d", afterOff.MissingActive, base.MissingActive+1)
 	}
-	if afterHide.MissingActive != base.MissingActive {
-		t.Fatalf("missing_active changed by hide: %d -> %d", base.MissingActive, afterHide.MissingActive)
+	if afterOff.HiddenActive != base.HiddenActive {
+		t.Fatalf("hidden_active changed by deactivate: %d -> %d", base.HiddenActive, afterOff.HiddenActive)
 	}
-	if afterHide.TotalSubjects != base.TotalSubjects {
-		t.Fatalf("total subjects changed by hide: %d -> %d", base.TotalSubjects, afterHide.TotalSubjects)
+	if afterOff.TotalSubjects != base.TotalSubjects {
+		t.Fatalf("total subjects changed by deactivate: %d -> %d", base.TotalSubjects, afterOff.TotalSubjects)
 	}
 
 	// Bad status value is rejected rather than silently ignored.
@@ -227,89 +228,106 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	}
 }
 
-// TestBulkVisibility covers the bulk operations action: one atomic statement
-// flips many courses, the response reports real change counts, and malformed
+// TestBulkSetActive covers the bulk single-switch action: activating a
+// selection leaves exactly one active, visible class per subject;
+// deactivating turns classes off and empties their subject slots; malformed
 // payloads are rejected before touching the database.
-func TestBulkVisibility(t *testing.T) {
+func TestBulkSetActive(t *testing.T) {
 	env := newActiveCoursesEnv(t)
-	subj := env.seedSubject(t, "ACB-"+env.suffix)
-	c1 := env.seedCourse(t, subj, "ACB-1-"+env.suffix, true)
-	c2 := env.seedCourse(t, subj, "ACB-2-"+env.suffix, true)
-	c3 := env.seedCourse(t, subj, "ACB-3-"+env.suffix, true)
-	bulk := "/api/v1/admin/active-courses/visibility/bulk"
+	subjA := env.seedSubject(t, "ACB-A-"+env.suffix)
+	a1 := env.seedCourse(t, subjA, "ACB-1-"+env.suffix, false)
+	a2 := env.seedCourse(t, subjA, "ACB-2-"+env.suffix, false)
+	subjB := env.seedSubject(t, "ACB-B-"+env.suffix)
+	b1 := env.seedCourse(t, subjB, "ACB-3-"+env.suffix, false)
+	bulk := "/api/v1/admin/active-courses/set-active/bulk"
 
-	t.Run("hides_many_atomically", func(t *testing.T) {
-		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids":           []string{c1.String(), c2.String(), c3.String()},
-			"absence_form_visible": false,
-		})
-		if status != http.StatusOK {
-			t.Fatalf("bulk hide status = %d body = %s", status, raw)
+	activeCourse := func(t *testing.T, subjectID uuid.UUID) (uuid.UUID, bool) {
+		t.Helper()
+		var id uuid.UUID
+		err := env.dbpool.QueryRow(context.Background(),
+			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID).Scan(&id)
+		if err == pgx.ErrNoRows {
+			return uuid.Nil, false
 		}
-		var res struct {
-			Updated int64 `json:"updated"`
-		}
-		if err := json.Unmarshal(raw, &res); err != nil {
+		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Updated != 3 {
-			t.Fatalf("updated = %d, want 3", res.Updated)
+		return id, true
+	}
+
+	t.Run("activate_one_per_subject", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
+			"course_ids": []string{a1.String(), a2.String(), b1.String()},
+			"active":     true,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("bulk activate status = %d body = %s", status, raw)
 		}
-		for _, id := range []uuid.UUID{c1, c2, c3} {
-			if env.courseVisible(t, id) {
-				t.Fatalf("course %s must be hidden after bulk hide", id)
+
+		activeA, okA := activeCourse(t, subjA)
+		if !okA {
+			t.Fatal("subject A must have an active course after bulk activation")
+		}
+		if activeA != a1 && activeA != a2 {
+			t.Fatalf("subject A active course %s is outside the selection", activeA)
+		}
+		for _, id := range []uuid.UUID{a1, a2} {
+			if vis := env.courseVisible(t, id); vis != (id == activeA) {
+				t.Fatalf("course %s visible = %v, want %v (visible iff active)", id, vis, id == activeA)
 			}
 		}
-	})
 
-	t.Run("reports_partial_match", func(t *testing.T) {
-		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids":           []string{c1.String(), uuid.NewString()},
-			"absence_form_visible": true,
-		})
-		if status != http.StatusOK {
-			t.Fatalf("partial bulk status = %d body = %s", status, raw)
+		activeB, okB := activeCourse(t, subjB)
+		if !okB || activeB != b1 {
+			t.Fatalf("subject B active = (%s, %v), want %s", activeB, okB, b1)
 		}
-		var res struct {
-			Updated int64 `json:"updated"`
-		}
-		if err := json.Unmarshal(raw, &res); err != nil {
-			t.Fatal(err)
-		}
-		if res.Updated != 1 {
-			t.Fatalf("updated = %d, want 1 (unknown ids must not count)", res.Updated)
-		}
-		if !env.courseVisible(t, c1) || env.courseVisible(t, c3) {
-			t.Fatal("partial bulk must only touch the matched course")
+		if !env.courseVisible(t, b1) {
+			t.Fatal("subject B's activated course must be visible")
 		}
 	})
 
-	t.Run("dedupes_ids", func(t *testing.T) {
+	t.Run("deactivate_clears_slots", func(t *testing.T) {
+		activeA, _ := activeCourse(t, subjA)
 		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids":           []string{c3.String(), c3.String()},
-			"absence_form_visible": true,
+			"course_ids": []string{activeA.String(), b1.String()},
+			"active":     false,
 		})
 		if status != http.StatusOK {
-			t.Fatalf("dedup bulk status = %d body = %s", status, raw)
+			t.Fatalf("bulk deactivate status = %d body = %s", status, raw)
 		}
-		var res struct {
-			Updated int64 `json:"updated"`
+		if _, ok := activeCourse(t, subjA); ok {
+			t.Fatal("subject A slot must be empty after deactivating its active course")
 		}
-		if err := json.Unmarshal(raw, &res); err != nil {
-			t.Fatal(err)
+		if _, ok := activeCourse(t, subjB); ok {
+			t.Fatal("subject B slot must be empty after deactivation")
 		}
-		if res.Updated != 1 || !env.courseVisible(t, c3) {
-			t.Fatalf("dedup: updated = %d, want 1 and c3 visible", res.Updated)
+		for _, id := range []uuid.UUID{a1, a2, b1} {
+			if env.courseVisible(t, id) {
+				t.Fatalf("course %s must be hidden after deactivation", id)
+			}
 		}
 	})
 
 	t.Run("all_unknown_404", func(t *testing.T) {
 		status, _ := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids":           []string{uuid.NewString(), uuid.NewString()},
-			"absence_form_visible": true,
+			"course_ids": []string{uuid.NewString(), uuid.NewString()},
+			"active":     true,
 		})
 		if status != http.StatusNotFound {
 			t.Fatalf("all unknown status = %d, want 404", status)
+		}
+	})
+
+	t.Run("dedupes_ids", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
+			"course_ids": []string{b1.String(), b1.String()},
+			"active":     true,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("dedup bulk status = %d body = %s", status, raw)
+		}
+		if active, ok := activeCourse(t, subjB); !ok || active != b1 || !env.courseVisible(t, b1) {
+			t.Fatalf("dedup activate: subject B active = (%s, %v), want %s visible", active, ok, b1)
 		}
 	})
 
@@ -318,21 +336,21 @@ func TestBulkVisibility(t *testing.T) {
 			name string
 			body map[string]any
 		}{
-			{"empty_ids", map[string]any{"course_ids": []string{}, "absence_form_visible": true}},
-			{"missing_flag", map[string]any{"course_ids": []string{c1.String()}}},
-			{"bad_uuid", map[string]any{"course_ids": []string{"not-a-uuid"}, "absence_form_visible": true}},
+			{"empty_ids", map[string]any{"course_ids": []string{}, "active": true}},
+			{"missing_active", map[string]any{"course_ids": []string{a1.String()}}},
+			{"bad_uuid", map[string]any{"course_ids": []string{"not-a-uuid"}, "active": true}},
 		}
 		for _, tc := range cases {
 			if status, raw := env.do(t, http.MethodPut, bulk, tc.body); status != http.StatusBadRequest {
 				t.Fatalf("%s status = %d body = %s, want 400", tc.name, status, raw)
 			}
 		}
-		ids := make([]string, 0, bulkVisibilityMaxCourses+1)
-		for i := 0; i <= bulkVisibilityMaxCourses; i++ {
+		ids := make([]string, 0, bulkActiveMaxCourses+1)
+		for i := 0; i <= bulkActiveMaxCourses; i++ {
 			ids = append(ids, uuid.NewString())
 		}
 		if status, _ := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids": ids, "absence_form_visible": true,
+			"course_ids": ids, "active": true,
 		}); status != http.StatusBadRequest {
 			t.Fatalf("oversized bulk status = %d, want 400", status)
 		}

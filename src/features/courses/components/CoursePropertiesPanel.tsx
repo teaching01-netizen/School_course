@@ -165,24 +165,24 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
 // Absence form visibility — read-only status
 // ---------------------------------------------------------------------------
 
-/** Absence-form visibility is managed in ONE place: Operations → Active
- *  courses, next to the active-course selection it interacts with. Here it is
- *  shown read-only so this page can never disagree with the management
- *  surface — same column, no second editor. */
+/** Active status is managed in ONE place: Operations → Active courses, where
+ *  the single Active switch lives. Here it is shown read-only so this page
+ *  can never disagree with the management surface — same column, no second
+ *  editor. */
 function AbsenceFormRow({ course }: { course: Course }) {
-  const visible = course.absence_form_visible !== false;
+  const active = course.is_active_course === true;
   return (
     <div className="group grid grid-cols-[minmax(0,6rem)_minmax(0,1fr)] items-center gap-x-2 rounded-[4px] px-1.5 py-1 transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] motion-reduce:transition-none">
       <span className="flex items-center gap-1 text-[13px] text-[var(--color-wi-text-light)]">
-        <span className="truncate">Absence form</span>
-        <Tooltip content="Whether students can select this class in the absence form. Hidden classes still accept sit-in students; staff can always book." />
+        <span className="truncate">Student booking</span>
+        <Tooltip content="Active means students can pick this class in the absence form and sit in. Off means hidden from students and closed to sit-ins; staff can always book." />
       </span>
       <span className="flex min-w-0 flex-wrap items-center gap-2">
-        {visible ? (
-          <span className="min-w-0 truncate text-[13px] text-[var(--color-wi-text)]">Shown to students</span>
+        {active ? (
+          <span className="min-w-0 truncate text-[13px] font-medium text-green-700">Active</span>
         ) : (
           <span className="min-w-0 truncate rounded-sm bg-amber-100 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-amber-800">
-            Hidden from students
+            Off
           </span>
         )}
         <Link

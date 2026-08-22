@@ -24,8 +24,8 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 	mux.HandleFunc("GET /api/v1/admin/active-courses", s.handleList)
 	mux.HandleFunc("PUT /api/v1/admin/active-courses", s.handleSet)
-	mux.HandleFunc("PUT /api/v1/admin/active-courses/visibility", s.handleSetVisibility)
-	mux.HandleFunc("PUT /api/v1/admin/active-courses/visibility/bulk", s.handleSetVisibilityBulk)
+	mux.HandleFunc("PUT /api/v1/admin/active-courses/set-active", s.handleSetActive)
+	mux.HandleFunc("PUT /api/v1/admin/active-courses/set-active/bulk", s.handleSetActiveBulk)
 }
 
 type courseDTO struct {
@@ -231,19 +231,21 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSetVisibility is the single management surface for a course's
-// absence-form visibility (the operations control center). It deliberately
-// touches only the flag column — no code/name rewrite, no version bump — so a
-// visibility toggle can never clobber a concurrent course edit.
-func (s *server) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
+const bulkActiveMaxCourses = 200
+
+// handleSetActive is the operations console's single switch: active means the
+// class is its subject's active course — visible in the student absence form
+// and eligible for sit-ins — and the subject's other classes turn off.
+// Inactive means hidden and no sit-ins. Staff booking is never affected.
+func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
 		return
 	}
 
 	var body struct {
-		CourseID           string `json:"course_id"`
-		AbsenceFormVisible *bool  `json:"absence_form_visible"`
+		CourseID string `json:"course_id"`
+		Active   *bool  `json:"active"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -254,59 +256,65 @@ func (s *server) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
 		return
 	}
-	if body.AbsenceFormVisible == nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_absence_form_visible", "absence_form_visible must be true or false")
+	if body.Active == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_active", "active must be true or false")
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-visibility", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-set-active", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		updated, err := qtx.CourseAbsenceFormVisibleUpdate(r.Context(), courseID, body.AbsenceFormVisible)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+		if _, found, err := qtx.CourseSubjectID(r.Context(), courseID); err != nil {
+			s.err(w, err)
 			return 0, nil, err
-		}
-		if !updated {
+		} else if !found {
 			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
-			return 0, nil, fmt.Errorf("course %s not found", courseID.String())
+			return 0, nil, fmt.Errorf("set-active: course %s not found", courseID.String())
+		}
+		ids := []string{courseID.String()}
+		var err error
+		if *body.Active {
+			_, err = qtx.ActiveCourseSetBulkExclusive(r.Context(), ids)
+		} else {
+			_, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
+		}
+		if err != nil {
+			s.err(w, err)
+			return 0, nil, err
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
 	})
 }
 
-const bulkVisibilityMaxCourses = 200
-
-// handleSetVisibilityBulk is the operations bulk action: apply one visibility
-// value to many courses atomically. Ids are validated, deduped, and capped so
-// the payload stays bounded; the response reports how many courses actually
-// changed, so the UI can say "12 hidden, 3 were already hidden" without a
-// second round trip.
-func (s *server) handleSetVisibilityBulk(w http.ResponseWriter, r *http.Request) {
+// handleSetActiveBulk applies the same single-switch semantics to many
+// courses at once. Activating a mixed selection activates one class per
+// affected subject (highest course number wins); deactivating turns every
+// selected class off. The response reports how many courses had their state
+// re-derived, siblings included.
+func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
 		return
 	}
 
 	var body struct {
-		CourseIDs           []string `json:"course_ids"`
-		AbsenceFormVisible *bool    `json:"absence_form_visible"`
+		CourseIDs []string `json:"course_ids"`
+		Active    *bool    `json:"active"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
-	if body.AbsenceFormVisible == nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_absence_form_visible", "absence_form_visible must be true or false")
+	if body.Active == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_active", "active must be true or false")
 		return
 	}
 	if len(body.CourseIDs) == 0 {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids", "course_ids must contain at least one course")
 		return
 	}
-	if len(body.CourseIDs) > bulkVisibilityMaxCourses {
+	if len(body.CourseIDs) > bulkActiveMaxCourses {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids",
-			fmt.Sprintf("course_ids is limited to %d courses per bulk action", bulkVisibilityMaxCourses))
+			fmt.Sprintf("course_ids is limited to %d courses per bulk action", bulkActiveMaxCourses))
 		return
 	}
 	seen := make(map[string]struct{}, len(body.CourseIDs))
@@ -323,16 +331,22 @@ func (s *server) handleSetVisibilityBulk(w http.ResponseWriter, r *http.Request)
 		ids = append(ids, raw)
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-visibility-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-set-active-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		updated, err := qtx.CourseAbsenceFormVisibleBulkUpdate(r.Context(), ids, *body.AbsenceFormVisible)
+		var updated int64
+		var err error
+		if *body.Active {
+			updated, err = qtx.ActiveCourseSetBulkExclusive(r.Context(), ids)
+		} else {
+			updated, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
+		}
 		if err != nil {
 			s.err(w, err)
 			return 0, nil, err
 		}
 		if updated == 0 {
 			s.a.WriteErr(w, http.StatusNotFound, "not_found", "No matching courses")
-			return 0, nil, fmt.Errorf("bulk visibility: no courses matched %d ids", len(ids))
+			return 0, nil, fmt.Errorf("set-active bulk: no courses matched %d ids", len(ids))
 		}
 		return http.StatusOK, map[string]int64{"updated": updated}, nil
 	})

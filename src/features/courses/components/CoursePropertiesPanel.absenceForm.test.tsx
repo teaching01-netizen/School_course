@@ -31,18 +31,15 @@ function renderPanel(course: Course) {
   return onSave;
 }
 
-describe("CoursePropertiesPanel absence form visibility (read-only)", () => {
-  it("shows Shown to students by default and when explicitly true", () => {
-    renderPanel(makeCourse());
-    expect(screen.getByText("Shown to students")).toBeInTheDocument();
-
-    renderPanel(makeCourse({ absence_form_visible: true }));
-    expect(screen.getAllByText("Shown to students").length).toBeGreaterThan(0);
+describe("CoursePropertiesPanel active status (read-only)", () => {
+  it("shows Active when the course is its subject's active class, Off otherwise", () => {
+    renderPanel(makeCourse({ is_active_course: true }));
+    expect(screen.getByText("Active")).toBeInTheDocument();
   });
 
-  it("shows the Hidden chip when the course is hidden", () => {
-    renderPanel(makeCourse({ absence_form_visible: false }));
-    expect(screen.getByText("Hidden from students")).toBeInTheDocument();
+  it("shows Off by default", () => {
+    renderPanel(makeCourse());
+    expect(screen.getByText("Off")).toBeInTheDocument();
   });
 
   it("links to the single management surface in Operations", () => {
@@ -51,12 +48,12 @@ describe("CoursePropertiesPanel absence form visibility (read-only)", () => {
     expect(link).toHaveAttribute("href", "/operations?tab=active-courses");
   });
 
-  it("renders no editor — visibility is not editable here", async () => {
-    const onSave = renderPanel(makeCourse({ absence_form_visible: false }));
+  it("renders no editor — active status is not editable here", async () => {
+    const onSave = renderPanel(makeCourse());
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 
-    // Even clicking the status text must not attempt a save.
-    await userEvent.setup().click(screen.getByText("Hidden from students"));
+    // Even clicking the status chip must not attempt a save.
+    await userEvent.setup().click(screen.getByText("Off"));
     expect(onSave).not.toHaveBeenCalled();
   });
 });
