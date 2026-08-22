@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import SearchableSelect from "@/components/ui/SearchableSelect";
 import { ChevronRight, ChevronLeft, Info } from "lucide-react";
 import { apiJson } from "../../api/client";
 import {
@@ -9,6 +8,8 @@ import {
 import { useToast } from "../../hooks/useToast";
 import { formatDate, formatTime } from "../../utils/date";
 import {
+  combineSubjectGroups,
+  combineSubjectPickerEntries,
   groupByDay,
   isDayGroupSelected,
   mergedSessionValue,
@@ -26,9 +27,16 @@ import {
   previousPriorityLevel,
   prioritiesForLevel,
   rootAvailableSessionsForMissedSessions,
+  appendTeacher,
+  findSitInSessionConflicts,
+  formatSitInSessionConflictDescription,
+  groupSitInOptionsByTargetAndDay,
   getSitInSessionGroupLabel,
   getReviewSitInLabel,
 } from "../../features/absences/domain/sitInResolution";
+import MakeUpPicker, {
+  type MakeUpOption,
+} from "./public-form/MakeUpPicker";
 import { selectedSitInCourseIDForGroup } from "../../features/absences/domain/submissionPayload";
 import type {
   SubjectSessions,
@@ -133,6 +141,36 @@ function findSpecialSitInSessionOption(
       (option) => option.value === sessionValue,
     ) ?? null
   );
+}
+
+function makeUpPickerOptions(
+  optionGroups: Array<{
+    items: NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number][];
+    sitInCourse?: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
+  }>,
+  sessions: SubjectSessions[],
+  selectedSubjectIds: string[],
+  groupLabel: string,
+  defaultSitInCourse?: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"],
+): MakeUpOption[] {
+  return optionGroups.map((optionGroup) => {
+    const conflicts = findSitInSessionConflicts(
+      optionGroup.items,
+      sessions,
+      selectedSubjectIds,
+    );
+    return {
+      value: mergedSessionValue(optionGroup.items),
+      label: getSitInSessionGroupLabel(
+        optionGroup.items,
+        optionGroup.sitInCourse ?? defaultSitInCourse,
+        groupLabel,
+        sessions,
+      ),
+      disabled: conflicts.length > 0,
+      description: formatSitInSessionConflictDescription(conflicts),
+    };
+  });
 }
 
 function StepIndicator({ step }: { step: ModalStep }) {
@@ -284,16 +322,48 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     [selectedSubjectIds, subjectOptions],
   );
 
-  const selectedSessionCount = useMemo(() => {
-    let count = 0;
-    for (const group of sessions) {
-      if (!selectedSubjectIds.includes(group.subject_id)) continue;
-      for (const dayGroup of groupByDay(group.sessions)) {
-        if (isDayGroupSelected(dayGroup, selectedSessionIds)) count++;
-      }
+  const subjectPickerEntries = useMemo(
+    () => combineSubjectPickerEntries(student?.subjects ?? []),
+    [student],
+  );
+
+  const selectedSubjectEntryCount = useMemo(
+    () =>
+      subjectPickerEntries.filter((entry) =>
+        entry.subjectIds.every((id) => selectedSubjectIds.includes(id)),
+      ).length + specialSubjectIds.length,
+    [selectedSubjectIds, specialSubjectIds, subjectPickerEntries],
+  );
+
+  const selectedSubjectGroups = useMemo(
+    () =>
+      sessions.filter((group) => selectedSubjectIds.includes(group.subject_id)),
+    [sessions, selectedSubjectIds],
+  );
+
+  const selectedSubjectBlocks = useMemo(
+    () => combineSubjectGroups(selectedSubjectGroups),
+    [selectedSubjectGroups],
+  );
+
+  const ownerGroupBySessionId = useMemo(() => {
+    const owners = new Map<string, SubjectSessions>();
+    for (const group of selectedSubjectGroups) {
+      for (const session of group.sessions) owners.set(session.id, group);
     }
-    return count;
-  }, [sessions, selectedSubjectIds, selectedSessionIds]);
+    return owners;
+  }, [selectedSubjectGroups]);
+
+  const selectedSessionCount = useMemo(() => {
+    return selectedSubjectBlocks.reduce(
+      (count, block) =>
+        count +
+        groupByDay(block.sessions.filter((session) => !session.already_absent))
+          .filter((dayGroup) => isDayGroupSelected(dayGroup, selectedSessionIds))
+          .length,
+      0,
+    );
+  }, [selectedSubjectBlocks, selectedSessionIds]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -422,12 +492,16 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
   }
 
-  function toggleSubject(subjectId: string) {
+  function toggleSubjects(subjectIds: string[]) {
     setSelectedSubjectIds((current) =>
-      current.includes(subjectId)
-        ? current.filter((id) => id !== subjectId)
-        : [...current, subjectId],
+      subjectIds.every((subjectId) => current.includes(subjectId))
+        ? current.filter((id) => !subjectIds.includes(id))
+        : [...current, ...subjectIds.filter((id) => !current.includes(id))],
     );
+  }
+
+  function toggleSubject(subjectId: string) {
+    toggleSubjects([subjectId]);
   }
 
   function addSpecialSubject(subjectId: string) {
@@ -1417,20 +1491,22 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                     Select one or more subjects
                   </p>
                   <div className="divide-y divide-wi-line rounded-lg border border-wi-line overflow-hidden">
-                    {student.subjects.map((subject) => (
+                    {subjectPickerEntries.map((entry) => (
                       <SubjectCard
-                        key={subject.id}
-                        id={subject.id}
-                        name={subject.name}
-                        selected={selectedSubjectIds.includes(subject.id)}
-                        onToggle={() => toggleSubject(subject.id)}
+                        key={entry.key}
+                        id={entry.key}
+                        name={appendTeacher(entry.label, entry.teacherName)}
+                        selected={entry.subjectIds.every((id) =>
+                          selectedSubjectIds.includes(id),
+                        )}
+                        onToggle={() => toggleSubjects(entry.subjectIds)}
                       />
                     ))}
                   </div>
                   {selectedSubjectIds.length > 0 ? (
                     <p className="mt-2 text-xs text-[var(--color-wi-text-light)]">
-                      {selectedSubjectIds.length} subject
-                      {selectedSubjectIds.length !== 1 ? "s" : ""} selected
+                      {selectedSubjectEntryCount} subject
+                      {selectedSubjectEntryCount !== 1 ? "s" : ""} selected
                     </p>
                   ) : null}
                 </div>
@@ -1518,28 +1594,24 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                 <p role="alert" className="text-sm text-red-600">
                   {sessionsError}
                 </p>
-              ) : sessions.filter((s) =>
-                  selectedSubjectIds.includes(s.subject_id),
-                ).length === 0 ? (
+              ) : selectedSubjectBlocks.length === 0 ? (
                 <p className="text-sm text-[var(--color-wi-text-light)]">
                   No classes found for the selected subjects.
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {sessions
-                    .filter((s) => selectedSubjectIds.includes(s.subject_id))
-                    .map((group) => {
+                  {selectedSubjectBlocks.map((block) => {
                       const sessionGroups = groupByDay(
-                        group.sessions.filter((s) => !s.already_absent),
+                        block.sessions.filter((s) => !s.already_absent),
                       );
-                      const groupLabel =
-                        group.subject_name?.trim() ||
-                        group.course_name?.trim() ||
-                        group.course_code;
+                      const groupLabel = appendTeacher(
+                        block.label,
+                        block.teacherName,
+                      );
                       if (sessionGroups.length === 0) return null;
                       return (
                         <div
-                          key={group.course_id}
+                          key={block.key}
                           className="rounded-lg border border-wi-line bg-white overflow-hidden shadow-sm"
                         >
                           <div className="flex items-center justify-between gap-2 border-b border-wi-line bg-[var(--color-wi-row-alt)]/50 px-4 py-3">
@@ -1566,9 +1638,12 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                 selectedSessionIds,
                               );
                               const firstSessionId = sessionIds[0];
+                              const ownerGroup =
+                                ownerGroupBySessionId.get(firstSessionId) ??
+                                block.groups[0];
                               const sessionGroup =
                                 groupWithSitInForMissedSession(
-                                  group,
+                                  ownerGroup,
                                   firstSessionId,
                                 );
                               const sitIn = sessionGroup.sit_in;
@@ -1744,52 +1819,27 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 </div>
                                               )}
                                               {available.length > 0 ? (
-                                                <div>
-                                                  <label
-                                                    className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]"
-                                                    htmlFor={`staff-sit-in-${firstSessionId}`}
-                                                  >
-                                                    Make-up class
-                                                  </label>
-                                                  <SearchableSelect
-                                                    id={`staff-sit-in-${firstSessionId}`}
-                                                    value={currentSitIn}
-                                                    onChange={(e) =>
-                                                      handleSitInSelectForSessions(
-                                                        sessionIds,
-                                                        e.target.value,
-                                                      )
-                                                    }
-                                                    className="w-full rounded-md border border-wi-line bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                                                  >
-                                                    <option value="">
-                                                      Not yet selected
-                                                    </option>
-                                                    {currentPriorities.flatMap(
-                                                      (p) =>
-                                                        groupByDay(
-                                                          availableSessionsForMissedSessions(
-                                                            p,
-                                                            sessionIds,
-                                                          ),
-                                                        ).map((optGroup) => (
-                                                          <option
-                                                            key={`${p.sit_in_course?.id ?? "course"}:${optGroup.id}`}
-                                                            value={mergedSessionValue(
-                                                              optGroup.items,
-                                                            )}
-                                                          >
-                                                            {getSitInSessionGroupLabel(
-                                                              optGroup.items,
-                                                              p.sit_in_course,
-                                                              groupLabel,
-                                                              sessions,
-                                                            )}
-                                                          </option>
-                                                        )),
-                                                    )}
-                                                  </SearchableSelect>
-                                                </div>
+                                                <MakeUpPicker
+                                                  id={`staff-sit-in-${firstSessionId}`}
+                                                  label="Make-up class"
+                                                  value={currentSitIn}
+                                                  options={makeUpPickerOptions(
+                                                    groupSitInOptionsByTargetAndDay(
+                                                      currentPriorities,
+                                                      sessionIds,
+                                                    ),
+                                                    sessions,
+                                                    selectedSubjectIds,
+                                                    groupLabel,
+                                                    sitIn?.sit_in_course,
+                                                  )}
+                                                  onChange={(value) =>
+                                                    handleSitInSelectForSessions(
+                                                      sessionIds,
+                                                      value,
+                                                    )
+                                                  }
+                                                />
                                               ) : unavailable.length > 0 ? (
                                                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                                                   <p className="font-semibold">
@@ -1845,40 +1895,29 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                               sitIn.sit_in_course?.name ||
                                               "To arrange"}
                                           </p>
-                                          <SearchableSelect
+                                          <MakeUpPicker
+                                            id={`staff-sit-in-${firstSessionId}`}
+                                            label="Make-up class"
                                             value={currentSitIn}
-                                            onChange={(e) =>
+                                            options={makeUpPickerOptions(
+                                              groupByDay(
+                                                rootAvailableSessionsForMissedSessions(
+                                                  sitIn,
+                                                  sessionIds,
+                                                ),
+                                              ),
+                                              sessions,
+                                              selectedSubjectIds,
+                                              groupLabel,
+                                              sitIn.sit_in_course,
+                                            )}
+                                            onChange={(value) =>
                                               handleSitInSelectForSessions(
                                                 sessionIds,
-                                                e.target.value,
+                                                value,
                                               )
                                             }
-                                            className="w-full rounded-md border border-wi-line bg-white px-3 py-2 text-sm text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                                          >
-                                            <option value="">
-                                              — Not yet —
-                                            </option>
-                                            {groupByDay(
-                                              rootAvailableSessionsForMissedSessions(
-                                                sitIn,
-                                                sessionIds,
-                                              ),
-                                            ).map((optGroup) => (
-                                              <option
-                                                key={optGroup.id}
-                                                value={mergedSessionValue(
-                                                  optGroup.items,
-                                                )}
-                                              >
-                                                {getSitInSessionGroupLabel(
-                                                  optGroup.items,
-                                                  sitIn.sit_in_course,
-                                                  groupLabel,
-                                                  sessions,
-                                                )}
-                                              </option>
-                                            ))}
-                                          </SearchableSelect>
+                                          />
                                         </div>
                                       ) : sitIn.sit_in_method === "zoom" ? (
                                         <div className="flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">
@@ -1937,25 +1976,26 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                 </p>
               </div>
               <span className="text-xs text-[var(--color-wi-text-light)]">
-                {selectedSubjectIds.length} subject
-                {selectedSubjectIds.length !== 1 ? "s" : ""}
+                {selectedSubjectEntryCount} subject
+                {selectedSubjectEntryCount !== 1 ? "s" : ""}
               </span>
             </div>
 
-            {sessions
-              .filter((s) => selectedSubjectIds.includes(s.subject_id))
-              .map((group) => {
-                const selectedSessions = getSelectedSessionsForGroup(
-                  group,
-                  selectedSessionIds,
-                );
+            {selectedSubjectBlocks.map((block) => {
+                const selectedSessions = block.sessions
+                  .filter(
+                    (session) =>
+                      selectedSessionIds.has(session.id) &&
+                      !session.already_absent,
+                  )
+                  .sort((a, b) => a.start_at.localeCompare(b.start_at));
                 if (selectedSessions.length === 0) return null;
-                const groupLabel =
-                  group.subject_name?.trim() ||
-                  group.course_name?.trim() ||
-                  group.course_code;
+                const groupLabel = appendTeacher(
+                  block.label,
+                  block.teacherName,
+                );
                 return (
-                  <div key={group.course_id}>
+                  <div key={block.key}>
                     <p className="text-sm font-semibold text-[var(--color-wi-text)]">
                       {groupLabel}
                     </p>
@@ -1970,7 +2010,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                             {getSpecialSitInReviewLabel(dayGroup.items[0].id) ??
                               getReviewSitInLabel(
                                 dayGroup.items[0],
-                                group,
+                                ownerGroupBySessionId.get(
+                                  dayGroup.items[0].id,
+                                ) ?? block.groups[0],
                                 sitInSelections,
                                 sitInPriorityLevels,
                                 sitInPriorityHistory,

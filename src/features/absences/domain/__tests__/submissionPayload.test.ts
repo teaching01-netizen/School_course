@@ -242,6 +242,42 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("accepts a selected session whose course differs from the selected sit-in course", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [{
+        ...baseGroup,
+        sit_in: {
+          sit_in_method: "physical",
+          sit_in_course: {
+            id: "selected-target-course",
+            code: "TARGET",
+            name: "Merged target course",
+          },
+          available_sessions: [{
+            id: "component-session",
+            course_id: "target-component-course",
+            start_at: "2026-06-03T09:00:00+07:00",
+            end_at: "2026-06-03T10:00:00+07:00",
+          }],
+        },
+      }],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1"]),
+      sitInSelections: { "missed-1": "component-session" },
+      reason: "Travel",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      payloads: [{
+        sit_in_course_id: "selected-target-course",
+        sit_in_session_ids: ["component-session"],
+      }],
+    });
+  });
+
   it("builds one payload when another enrolled subject has sessions on the same day at a different time", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",

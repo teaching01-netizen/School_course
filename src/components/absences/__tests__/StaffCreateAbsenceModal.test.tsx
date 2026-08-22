@@ -195,6 +195,59 @@ describe("StaffCreateAbsenceModal", () => {
     });
   });
 
+  it("shows merged enrolled subjects as one selectable course", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce({
+        ...MOCK_STUDENT,
+        subjects: [
+          {
+            id: "sub-writing",
+            code: "WRITING",
+            name: "SAT Verbal Writing : Rank 3 (Section 1) C3",
+            teacher_name: "AJ. RYU",
+            merge_group_id: "merge-r3s1",
+            merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+          },
+          {
+            id: "sub-reading",
+            code: "READING",
+            name: "SAT Verbal Reading : Rank 3 (Section 1) C3",
+            teacher_name: "AJ. NICE",
+            merge_group_id: "merge-r3s1",
+            merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+          },
+        ],
+      })
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS);
+    renderModal();
+    await advanceToSubjectsStep(user);
+
+    await user.type(screen.getByLabelText(/w-code/i), "W000012");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", {
+          name: /SAT Verbal Rank 3 Section 1 C3/,
+        }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(/SAT Verbal Writing : Rank 3 \(Section 1\) C3/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/SAT Verbal Reading : Rank 3 \(Section 1\) C3/),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /SAT Verbal Rank 3 Section 1 C3/,
+      }),
+    );
+    expect(screen.getByText("1 subject selected")).toBeInTheDocument();
+  });
+
   it("shows student nickname as main name and school as secondary", async () => {
     const user = userEvent.setup();
     mockApiJson
@@ -252,6 +305,59 @@ describe("StaffCreateAbsenceModal", () => {
         screen.getByText(/select at least one subject/i),
       ).toBeInTheDocument();
     });
+  });
+
+  it("disables a staff sit-in option that overlaps another enrolled class", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce({
+        ...MOCK_STUDENT,
+        subjects: [
+          ...MOCK_STUDENT.subjects,
+          { id: "sub2", code: "SCI", name: "Science" },
+        ],
+      })
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce({
+        subjects: [
+          ...MOCK_SESSIONS.subjects,
+          {
+            subject_id: "sub2",
+            subject_code: "SCI",
+            subject_name: "Science",
+            course_id: "c2",
+            course_code: "SCI-1",
+            course_name: "Science 101",
+            sessions: [
+              {
+                id: "science-session",
+                start_at: "2026-06-24T14:30:00Z",
+                end_at: "2026-06-24T15:30:00Z",
+                date: "2026-06-24",
+                already_absent: false,
+              },
+            ],
+          },
+        ],
+      });
+    renderModal();
+    await advanceToSubjectsStep(user);
+
+    await user.type(screen.getByLabelText(/w-code/i), "W000012");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    await user.click(await screen.findByRole("checkbox"));
+
+    const sitInOption = await screen.findByRole("option", { name: /Science/ });
+    expect(sitInOption).toBeDisabled();
+    expect(sitInOption).toHaveValue("sit1");
   });
 
   it("advances through all steps to confirm", async () => {

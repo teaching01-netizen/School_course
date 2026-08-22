@@ -936,14 +936,20 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
 				return 0, nil, fmt.Errorf("sit-in course required")
 			}
-			count, err := qtx.ValidSitInSessionCount(r.Context(), id, selectedCourse, sessionIDs, s.deps.InstituteTZ)
+			excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, current.CourseID)
+			if err != nil {
+				status, code, message := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, message)
+				return 0, nil, err
+			}
+			count, err := qtx.ValidSitInSessionOverlap(r.Context(), id, sessionIDs, s.deps.InstituteTZ, excludeFinal)
 			if err != nil {
 				status, code, message := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, message)
 				return 0, nil, err
 			}
 			if count != len(sessionIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 		}

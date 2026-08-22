@@ -645,7 +645,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if count != len(sessionUUIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be in the selected course and must not overlap the missed class")
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 			if err := s.validateSitInCandidates(r.Context(), qtx, item.ID, sessionUUIDs); err != nil {
@@ -981,6 +981,14 @@ func (s *server) handleStaffStudentLookup(w http.ResponseWriter, r *http.Request
 		}
 		if row.ActiveTeacherName != "" {
 			subject["teacher_name"] = row.ActiveTeacherName
+		}
+		if row.MergeGroupID.Valid {
+			if mergeGroupID, mergeErr := s.a.UUIDString(row.MergeGroupID); mergeErr == nil {
+				subject["merge_group_id"] = mergeGroupID
+				if row.MergeGroupName.Valid && strings.TrimSpace(row.MergeGroupName.String) != "" {
+					subject["merge_group_name"] = row.MergeGroupName.String
+				}
+			}
 		}
 		subjects = append(subjects, subject)
 	}

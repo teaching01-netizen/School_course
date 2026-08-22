@@ -1,6 +1,7 @@
 import type { SubjectSessions } from "../types";
 import { daysBetween } from "./dateRange";
 import {
+  absenceScopeKey,
   getSelectedSessionsForGroup,
   instituteDateKey,
   splitMergedSessionValue,
@@ -77,6 +78,17 @@ function findSitInSessionTime(
         if (inP) return { start_at: inP.start_at, end_at: inP.end_at };
       }
     }
+  }
+  return null;
+}
+
+function findSitInSessionTimeInGroups(
+  groups: SubjectSessions[],
+  sitInSessionId: string,
+): SessionTime | null {
+  for (const group of groups) {
+    const time = findSitInSessionTime(group, sitInSessionId);
+    if (time) return time;
   }
   return null;
 }
@@ -187,8 +199,8 @@ export function selectedSitInCourseIDForGroup(
     const priorities = sitIn.priorities ?? [];
     if (priorities.length === 0) {
       const courseID =
-        findSelectedSitInSessionCourseID(sitIn, sitInSessionIDs) ||
         sitIn.sit_in_course?.id?.trim() ||
+        findSelectedSitInSessionCourseID(sitIn, sitInSessionIDs) ||
         findSitInCourseFromSessions(effectiveGroup) ||
         effectiveGroup.course_id.trim();
       if (courseID) courseIDs.add(courseID);
@@ -235,67 +247,6 @@ function collectAttendingSessions(
   return byDate;
 }
 
-function sessionInSitInData(
-  sitIn: SubjectSessions["sit_in"] | undefined | null,
-  sessionId: string,
-  targetCourseId: string,
-): boolean {
-  if (!sitIn) return false;
-  const targetMergeGroupIDs = new Set<string>();
-  const collectTargetMergeGroup = (course: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"] | undefined) => {
-    if (course?.id?.trim() !== targetCourseId) return;
-    const mergeGroupID = course.merge_group_id?.trim();
-    if (mergeGroupID) targetMergeGroupIDs.add(mergeGroupID);
-  };
-  const sessionMatchesTarget = (
-    session: { id: string; course_id?: string | null },
-    course: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"] | undefined,
-  ) => {
-    if (session.id !== sessionId || !session.course_id || session.course_id === targetCourseId) return session.id === sessionId;
-    const mergeGroupID = course?.merge_group_id?.trim();
-    return Boolean(mergeGroupID && targetMergeGroupIDs.has(mergeGroupID));
-  };
-  for (const priority of sitIn.priorities ?? []) collectTargetMergeGroup(priority.sit_in_course);
-  for (const entry of Object.values(sitIn.sit_in_by_missed_session ?? {})) {
-    collectTargetMergeGroup(entry.sit_in_course);
-    for (const priority of entry.priorities ?? []) collectTargetMergeGroup(priority.sit_in_course);
-  }
-  collectTargetMergeGroup(sitIn.sit_in_course);
-  if (
-    (sitIn.available_sessions ?? []).some(
-      (s) => sessionMatchesTarget(s, sitIn.sit_in_course),
-    )
-  )
-    return true;
-  if (
-    (sitIn.priorities ?? []).some((p) =>
-      (p.available_sessions ?? []).some(
-        (s) => sessionMatchesTarget(s, p.sit_in_course),
-      ),
-    )
-  )
-    return true;
-  if (sitIn.sit_in_by_missed_session) {
-    for (const entry of Object.values(sitIn.sit_in_by_missed_session)) {
-      if (
-        (entry.available_sessions ?? []).some(
-          (s) => sessionMatchesTarget(s, entry.sit_in_course),
-        )
-      )
-        return true;
-      if (
-          (entry.priorities ?? []).some((p) =>
-          (p.available_sessions ?? []).some(
-            (s) => sessionMatchesTarget(s, p.sit_in_course),
-          ),
-        )
-      )
-        return true;
-    }
-  }
-  return false;
-}
-
 export function buildSubmissionPayloads(
   input: BuildSubmissionPayloadsInput,
 ): BuildSubmissionPayloadsResult {
@@ -325,13 +276,16 @@ export function buildSubmissionPayloads(
       };
     }
     const selectedSessIds = selectedGroupSessions.map((session) => session.id);
+    const scopeGroups = input.sessions.filter(
+      (candidate) => absenceScopeKey(candidate) === absenceScopeKey(group),
+    );
     const sitInSessionIds = uniqueValues(
       selectedSessIds.flatMap((id) =>
         splitMergedSessionValue(input.sitInSelections[id]),
       ),
     );
     const conflictingSitInIds = sitInSessionIds.filter((sid) => {
-      const time = findSitInSessionTime(group, sid);
+      const time = findSitInSessionTimeInGroups(scopeGroups, sid);
       if (!time) return false;
       const date = instituteDateKey(time.start_at);
       const enrolledRanges = attendingByDate.get(date) ?? [];
@@ -363,30 +317,6 @@ export function buildSubmissionPayloads(
       input.sitInPriorityHistory,
     );
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
-    if (
-      sitInMethod === "physical" &&
-      sitInCourseID &&
-      sitInSessionIds.length > 0
-    ) {
-      const mismatched = sitInSessionIds.filter((sid) => {
-        if (sessionInSitInData(group.sit_in, sid, sitInCourseID)) return false;
-        if (input.sitInPriorityHistory) {
-          for (const historyMap of Object.values(input.sitInPriorityHistory)) {
-            for (const historyGroup of Object.values(historyMap)) {
-              if (sessionInSitInData(historyGroup.sit_in, sid, sitInCourseID))
-                return false;
-            }
-          }
-        }
-        return true;
-      });
-      if (mismatched.length > 0) {
-        return {
-          ok: false,
-          error: `${group.subject_name || group.course_name} has sit-in sessions that don't match the selected course. Please re-select make-up classes.`,
-        };
-      }
-    }
     payloads.push(payload);
   }
   return { ok: true, payloads };

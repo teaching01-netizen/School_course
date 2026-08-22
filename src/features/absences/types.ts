@@ -187,6 +187,9 @@ export type StudentLookupSubject = {
   code: string;
   name: string;
   active_course_id?: string | null;
+  teacher_name?: string | null;
+  merge_group_id?: string | null;
+  merge_group_name?: string | null;
 };
 
 /** Legacy staff lookup shape. Public student lookup uses PublicStudentLookupResponse. */
