@@ -83,9 +83,10 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subject struct {
-		ID   string `json:"id"`
-		Code string `json:"code"`
-		Name string `json:"name"`
+		ID          string `json:"id"`
+		Code        string `json:"code"`
+		Name        string `json:"name"`
+		TeacherName string `json:"teacher_name,omitempty"`
 	}
 	subjects := make([]subject, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
@@ -106,7 +107,7 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[id] = struct{}{}
-		subjects = append(subjects, subject{ID: id, Code: row.SubjectCode, Name: row.SubjectName})
+		subjects = append(subjects, subject{ID: id, Code: row.SubjectCode, Name: row.SubjectName, TeacherName: row.ActiveTeacherName})
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"wcode":         session.Wcode,

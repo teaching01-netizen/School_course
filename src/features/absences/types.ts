@@ -219,6 +219,8 @@ export type VerifiedStudentSubject = {
   id: string;
   code: string;
   name: string;
+  /** Teacher of the subject's active class, shown as "Subject (Teacher)". */
+  teacher_name?: string | null;
 };
 
 export type VerifiedStudentProfile = {
@@ -349,6 +351,7 @@ export type SitInPriority = {
     subject_code?: string | null;
     course_name?: string | null;
     course_code?: string | null;
+    teacher_name?: string | null;
   }>;
   pre_selected?: Array<{ id: string; start_at: string; end_at: string; course_id?: string | null }>;
   unavailable_sessions?: Array<{
@@ -362,6 +365,7 @@ export type SitInPriority = {
       subject_code?: string | null;
       course_name?: string | null;
       course_code?: string | null;
+      teacher_name?: string | null;
     } | null;
     reason: string;
     reason_code: string;
@@ -389,6 +393,7 @@ export type SitInSessionInfo = {
     subject_code?: string | null;
     course_name?: string | null;
     course_code?: string | null;
+    teacher_name?: string | null;
   }>;
   missed_sessions?: Array<{ id: string; start_at: string; end_at: string }>;
   missed_occurrence_number?: number;
@@ -402,6 +407,8 @@ export type SubjectSessions = {
   subject_id: string;
   subject_code: string;
   subject_name: string;
+  /** Teacher of this class, shown as "Subject (Teacher)" in the form. */
+  teacher_name?: string | null;
   course_id: string;
   course_code: string;
   course_name: string;

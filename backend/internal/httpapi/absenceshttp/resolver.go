@@ -100,6 +100,7 @@ type sessionBrief struct {
 	CourseCode      string `json:"course_code,omitempty"`
 	SubjectCode     string `json:"subject_code,omitempty"`
 	SubjectName     string `json:"subject_name,omitempty"`
+	TeacherName     string `json:"teacher_name,omitempty"`
 }
 
 type ResolverInput struct {

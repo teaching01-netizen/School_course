@@ -73,8 +73,8 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		for rows.Next() {
 			var id, courseID, subjectID uuid.UUID
 			var startAt, endAt time.Time
-			var courseCode, courseName, subjectCode, subjectName string
-			if err := rows.Scan(&id, &startAt, &endAt, &courseID, &courseCode, &courseName, &subjectID, &subjectCode, &subjectName); err != nil {
+			var courseCode, courseName, subjectCode, subjectName, teacherName string
+			if err := rows.Scan(&id, &startAt, &endAt, &courseID, &courseCode, &courseName, &subjectID, &subjectCode, &subjectName, &teacherName); err != nil {
 				t.Fatal(err)
 			}
 			staffCodes[courseCode] = true

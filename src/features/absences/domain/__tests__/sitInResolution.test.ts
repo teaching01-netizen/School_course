@@ -19,6 +19,7 @@ import {
   getReviewSitInLabel,
   getSitInSessionLabel,
   getSitInSessionGroupLabel,
+  appendTeacher,
 } from "../sitInResolution";
 
 const baseGroup = {
@@ -457,5 +458,42 @@ describe("getSitInSessionGroupLabel", () => {
     const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "" }, "Generic", []);
     expect(result).toMatch(/Generic —/);
     expect(result).not.toContain("MATH301");
+  });
+});
+
+describe("appendTeacher", () => {
+  it("appends the teacher as 'Subject (Teacher)' and skips empty teachers", () => {
+    expect(appendTeacher("Math", "Ajarn Somchai")).toBe("Math (Ajarn Somchai)");
+    expect(appendTeacher("Math", "  ")).toBe("Math");
+    expect(appendTeacher("Math", null)).toBe("Math");
+    expect(appendTeacher("Math", undefined)).toBe("Math");
+  });
+});
+
+describe("teacher names in sit-in labels", () => {
+  const allSubjects = [
+    {
+      subject_id: "sub1", subject_code: "MATH", subject_name: "Mathematics", teacher_name: "Ajarn Somchai",
+      course_id: "c1", course_code: "MATH301", course_name: "Calc III", sessions: [],
+    },
+  ];
+
+  it("appends the sit-in course's teacher from the loaded subjects", () => {
+    const sessions = [{ id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03" }];
+    const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", allSubjects as never);
+    expect(result).toMatch(/Mathematics \(Ajarn Somchai\) —/);
+  });
+
+  it("falls back to the session's own teacher_name", () => {
+    const session = { id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", teacher_name: "Ajarn Wipada" };
+    const result = getSitInSessionLabel(session, undefined, "Generic", []);
+    expect(result).toMatch(/Generic \(Ajarn Wipada\) —/);
+  });
+
+  it("leaves labels unchanged when no teacher exists", () => {
+    const sessions = [{ id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03" }];
+    const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", []);
+    expect(result).toMatch(/Calc III —/);
+    expect(result).not.toContain("(");
   });
 });

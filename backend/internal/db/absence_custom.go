@@ -25,6 +25,9 @@ type StudentSubjectRow struct {
 	SubjectCode    string      `json:"subject_code"`
 	SubjectName    string      `json:"subject_name"`
 	ActiveCourseID pgtype.UUID `json:"active_course_id"`
+	// ActiveTeacherName is the teacher of the subject's active course, shown
+	// next to the subject name in the absence form ("Subject (Teacher)").
+	ActiveTeacherName string `json:"active_teacher_name"`
 }
 
 // active_course_id is the admin-configured course from subject_active_courses.
@@ -36,12 +39,15 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		       COALESCE(s.email_crm, s.email_system) AS email,
 		       s.email_crm, s.email_system, s.nickname, s.school,
 		       sub.id, sub.code, sub.name,
-		       MAX(sac.course_id::text)::uuid AS active_course_id
+		       MAX(sac.course_id::text)::uuid AS active_course_id,
+		       COALESCE(NULLIF(MAX(tu.full_name), ''), MAX(tu.username), '') AS active_teacher_name
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
+		LEFT JOIN courses ac ON ac.id = sac.course_id
+		LEFT JOIN users tu ON tu.id = ac.teacher_id
 		WHERE s.wcode = $1
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
@@ -54,7 +60,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.School, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.School, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID, &r.ActiveTeacherName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

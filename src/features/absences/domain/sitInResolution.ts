@@ -9,17 +9,29 @@ export function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: S
   return sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
 }
 
+/** Teacher shown after a subject name everywhere in the absence form:
+ *  "Subject (Teacher)". No teacher on file → the label is unchanged. */
+export function appendTeacher(label: string, teacher?: string | null): string {
+  const trimmed = teacher?.trim();
+  return trimmed ? `${label} (${trimmed})` : label;
+}
+
+function resolveSitInCourseTeacher(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
+  return allSubjects.find(s => s.course_id === sitInCourse?.id)?.teacher_name?.trim() || undefined;
+}
+
 export function getSitInCourseDisplayName(
   sitInCourse: SitInCourse,
   fallbackSubjectName: string,
   allSubjects: SubjectSessions[],
 ) {
-  return (
+  const base = (
     resolveSitInSubjectName(sitInCourse, allSubjects) ||
     sitInCourse?.name?.trim() ||
     fallbackSubjectName ||
     ""
   );
+  return appendTeacher(base, resolveSitInCourseTeacher(sitInCourse, allSubjects));
 }
 
 export function getPriorityTargetDisplayName(
@@ -30,12 +42,13 @@ export function getPriorityTargetDisplayName(
   const courseName = getSitInCourseDisplayName(priority.sit_in_course, "", allSubjects);
   if (courseName) return courseName;
   const firstSession = priority.available_sessions?.[0];
-  return (
+  const fallback = (
     firstSession?.class_name?.trim() ||
     firstSession?.subject_name?.trim() ||
     firstSession?.course_name?.trim() ||
     fallbackSubjectName
   );
+  return appendTeacher(fallback, firstSession?.teacher_name);
 }
 
 export function getCurrentSitInDisplayName(
@@ -167,7 +180,7 @@ export function getReviewSitInLabel(
   const sitInSessionIds = splitMergedSessionValue(sitInSelections[missedSession.id]);
   if (sitInSessionIds.length === 0) return "Not yet selected";
   const priorities = sitIn.priorities ?? [];
-  const groupLabel = group.subject_name?.trim() || group.course_name?.trim();
+  const groupLabel = appendTeacher(group.subject_name?.trim() || group.course_name?.trim(), group.teacher_name);
   const rootMatches = rootAvailableSessionsForMissedSession(sitIn, missedSession.id).filter((s) => sitInSessionIds.includes(s.id));
   if (rootMatches.length > 0) {
     return getSitInSessionGroupLabel(rootMatches, sitIn.sit_in_course, groupLabel, allSubjects);
@@ -195,7 +208,8 @@ export function getSitInSessionLabel(
     session.subject_name?.trim() ||
     session.course_name?.trim() ||
     fallbackSubjectName;
-  return `${className} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+  const teacher = resolveSitInCourseTeacher(sitInCourse, allSubjects) ?? session.teacher_name;
+  return `${appendTeacher(className, teacher)} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
 
 export function getSitInSessionGroupLabel(
@@ -213,6 +227,7 @@ export function getSitInSessionGroupLabel(
     first.subject_name?.trim() ||
     first.course_name?.trim() ||
     fallbackSubjectName;
+  const teacher = resolveSitInCourseTeacher(sitInCourse, allSubjects) ?? first.teacher_name;
   const range = groupByDay(sessions)[0];
-  return `${className} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
+  return `${appendTeacher(className, teacher)} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }

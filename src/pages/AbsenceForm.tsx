@@ -53,6 +53,7 @@ import {
   firstPriorityLevel,
   getCurrentSitInDisplayName,
   getReviewSitInLabel,
+  appendTeacher,
   getSitInCourseDisplayName,
   getSitInSessionGroupLabel,
   getSitInSessionLabel,
@@ -1052,7 +1053,7 @@ export default function AbsenceForm() {
                           <SubjectRow
                             key={subject.id}
                             id={subject.id}
-                            name={subject.name}
+                            name={appendTeacher(subject.name, subject.teacher_name)}
                             selected={selectedSubjectIds.includes(subject.id)}
                             onToggle={() => toggleSubject(subject.id)}
                           />
@@ -1105,7 +1106,7 @@ export default function AbsenceForm() {
                                 onClick={() => setExpandedSubjectId(expanded ? null : subjectId)}
                                 className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-left text-sm font-semibold text-[var(--color-wi-text)]"
                               >
-                                <span>{subject?.name ?? subjectId}</span>
+                                <span>{appendTeacher(subject?.name ?? subjectId, subject?.teacher_name)}</span>
                                 <span className="text-xs font-medium text-[var(--color-wi-text-light)]">
                                   {selectedForSubject > 0 ? `${selectedForSubject} class day${selectedForSubject === 1 ? "" : "s"} selected` : expanded ? "Open" : "Choose classes"}
                                 </span>
@@ -1132,7 +1133,7 @@ export default function AbsenceForm() {
                           <div className="space-y-4">
                             {selectedGroups.map((group) => {
                               const sessionGroups = groupDayIndex.get(group.course_id) ?? [];
-                              const sourceLabel = group.subject_name?.trim() || group.course_name?.trim();
+                              const sourceLabel = appendTeacher(group.subject_name?.trim() || group.course_name?.trim(), group.teacher_name);
                               const groupLabel = group.merge_group_name?.trim()
                                 ? `${group.merge_group_name.trim()} · ${sourceLabel}`
                                 : sourceLabel;
@@ -1431,7 +1432,7 @@ export default function AbsenceForm() {
                         {selectedGroups.map((group) => {
                           const selectedSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
                           if (selectedSessions.length === 0) return null;
-                          const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;
+                          const groupLabel = appendTeacher(group.subject_name?.trim() || group.course_name?.trim() || group.course_code, group.teacher_name);
                           return (
                             <div key={group.course_id}>
                               <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>

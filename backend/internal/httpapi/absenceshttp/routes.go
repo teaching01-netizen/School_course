@@ -39,6 +39,7 @@ type sessionRow struct {
 	SubjectID   string
 	SubjectCode string
 	SubjectName string
+	TeacherName string
 }
 
 // sessionsInRangeSelectSQL lists the student's bookable sessions. When a
@@ -53,10 +54,12 @@ func sessionsInRangeSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
 		       c.id, c.code, c.name,
-		       sub.id, sub.code, sub.name
+		       sub.id, sub.code, sub.name,
+		       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name
 		FROM sessions sess
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN users u ON u.id = c.teacher_id
 		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
@@ -90,10 +93,12 @@ func sessionsInRangeStaffSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
 		       c.id, c.code, c.name,
-		       sub.id, sub.code, sub.name
+		       sub.id, sub.code, sub.name,
+		       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name
 		FROM sessions sess
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN users u ON u.id = c.teacher_id
 		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1
@@ -108,10 +113,12 @@ func sessionsInRangeAllSubjectsSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
 		       c.id, c.code, c.name,
-		       sub.id, sub.code, sub.name
+		       sub.id, sub.code, sub.name,
+		       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name
 		FROM sessions sess
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN users u ON u.id = c.teacher_id
 		WHERE sub.id::text = ANY(string_to_array($1, ','))
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
@@ -968,6 +975,9 @@ func (s *server) handleStaffStudentLookup(w http.ResponseWriter, r *http.Request
 		if courseErr == nil {
 			subject["active_course_id"] = activeCourseID
 		}
+		if row.ActiveTeacherName != "" {
+			subject["teacher_name"] = row.ActiveTeacherName
+		}
 		subjects = append(subjects, subject)
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1166,6 +1176,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		SubjectID   pgtype.UUID
 		SubjectCode string
 		SubjectName string
+		TeacherName string
 	}
 
 	var rows pgx.Rows
@@ -1189,7 +1200,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		var dbRow sessionDBRow
 		if err := rows.Scan(&dbRow.ID, &dbRow.StartAt, &dbRow.EndAt,
 			&dbRow.CourseID, &dbRow.CourseCode, &dbRow.CourseName,
-			&dbRow.SubjectID, &dbRow.SubjectCode, &dbRow.SubjectName); err != nil {
+			&dbRow.SubjectID, &dbRow.SubjectCode, &dbRow.SubjectName, &dbRow.TeacherName); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 			return
 		}
@@ -1225,6 +1236,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			SubjectID:   subjectID,
 			SubjectCode: dbRow.SubjectCode,
 			SubjectName: dbRow.SubjectName,
+			TeacherName: dbRow.TeacherName,
 		}
 		if len(allowedCourseIDs) > 0 && !allowedCourseIDs[row.CourseID] {
 			continue
@@ -1292,6 +1304,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		SubjectID   string
 		SubjectCode string
 		SubjectName string
+		TeacherName string
 		Sessions    []sessionRow
 	}
 
@@ -1307,6 +1320,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 				SubjectID:   sess.SubjectID,
 				SubjectCode: sess.SubjectCode,
 				SubjectName: sess.SubjectName,
+				TeacherName: sess.TeacherName,
 			}
 			courseOrder = append(courseOrder, key)
 		}
@@ -1337,6 +1351,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		SubjectID            string               `json:"subject_id"`
 		SubjectCode          string               `json:"subject_code"`
 		SubjectName          string               `json:"subject_name"`
+		TeacherName          string               `json:"teacher_name,omitempty"`
 		CourseID             string               `json:"course_id"`
 		CourseCode           string               `json:"course_code"`
 		CourseName           string               `json:"course_name"`
@@ -1364,6 +1379,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 				CourseCode:  sess.CourseCode,
 				SubjectCode: sess.SubjectCode,
 				SubjectName: sess.SubjectName,
+				TeacherName: sess.TeacherName,
 			})
 		}
 	}
@@ -1466,6 +1482,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			SubjectID:            g.SubjectID,
 			SubjectCode:          g.SubjectCode,
 			SubjectName:          g.SubjectName,
+			TeacherName:          g.TeacherName,
 			CourseID:             g.CourseID,
 			CourseCode:           g.CourseCode,
 			CourseName:           g.CourseName,
