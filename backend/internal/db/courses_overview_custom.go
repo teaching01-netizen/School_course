@@ -100,22 +100,24 @@ func (q *Queries) CourseCreateV2(ctx context.Context, p CourseCreateV2Params) (C
 // the live/archived bucket (legacy_archived); CourseType is "" (all), "private"
 // (Private), or "general" (General from the legacy site plus native Group);
 // TeacherID is "" (all), "none" (no primary teacher), or a user uuid; Q is a
-// substring search over code, name, subject, teacher, and roster membership.
-// Limit 0 means no limit (the bare-array response path); Offset is only
-// meaningful with a limit.
+// substring search over code, name, subject, teacher, and roster membership;
+// AbsenceForm is "" (all) or "hidden" (courses hidden from the student
+// absence form). Limit 0 means no limit (the bare-array response path); Offset
+// is only meaningful with a limit.
 type CourseOverviewParams struct {
-	Archived   bool
-	CourseType string
-	TeacherID  string
-	Q          string
-	Limit      int32
-	Offset     int32
+	Archived    bool
+	CourseType  string
+	TeacherID   string
+	Q           string
+	AbsenceForm string
+	Limit       int32
+	Offset      int32
 }
 
 // courseOverviewWhere is the shared filter for the list and count queries.
-// Placeholders $1-$4 are archived, course type, teacher, and search text; the
-// sentinel-style conditions keep every branch constant so a single query shape
-// serves all filter combinations.
+// Placeholders $1-$5 are archived, course type, teacher, search text, and the
+// absence-form filter; the sentinel-style conditions keep every branch constant
+// so a single query shape serves all filter combinations.
 const courseOverviewWhere = `
 		WHERE c.legacy_archived = $1
 		  AND ($2 = ''
@@ -124,6 +126,8 @@ const courseOverviewWhere = `
 		  AND ($3 = ''
 		       OR ($3 = 'none' AND c.teacher_id IS NULL)
 		       OR c.teacher_id::text = $3)
+		  AND ($5 = ''
+		       OR ($5 = 'hidden' AND NOT c.absence_form_visible))
 		  AND ($4 = ''
 		       OR c.course_no::text ILIKE '%' || $4 || '%'
 		       OR c.id::text ILIKE '%' || $4 || '%'
@@ -141,7 +145,7 @@ const courseOverviewWhere = `
 		       ))`
 
 func courseOverviewFilterArgs(p CourseOverviewParams) []any {
-	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q}
+	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q, p.AbsenceForm}
 }
 
 func (q *Queries) StudentCoursesList(ctx context.Context, studentID pgtype.UUID) ([]CourseOverviewRow, error) {
@@ -188,14 +192,14 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			       c.hour, c.course_type,
 			       c.created_at, c.updated_at, c.legacy_course_id, c.legacy_last_synced_at,
 			       c.cycle_id, COALESCE(cy.display_name, cy.label, '') AS cycle_label,
-			       c.expiry_days, c.legacy_code_conflict
+			       c.expiry_days, c.legacy_code_conflict, c.absence_form_visible
 			FROM courses c
 			LEFT JOIN users u ON u.id = c.teacher_id
 			LEFT JOIN subjects s ON s.id = c.subject_id
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 			`+courseOverviewWhere+`
 			ORDER BY c.course_no DESC
-			LIMIT NULLIF($5, 0) OFFSET $6
+			LIMIT NULLIF($6, 0) OFFSET $7
 		)
 		SELECT page.id, page.course_no, page.code, page.name, page.year, page.teacher_id,
 		       page.teacher_name, page.subject_id, page.subject_code, page.subject_name,
@@ -231,7 +235,8 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 		         WHERE ls.course_id = page.id
 		           AND EXISTS (SELECT 1 FROM legacy_sync_conflicts lc
 		             WHERE lc.status = 'open'
-		               AND lc.source_payload->>'legacy_schedule_id' = ls.legacy_schedule_id)))
+		               AND lc.source_payload->>'legacy_schedule_id' = ls.legacy_schedule_id))),
+		       page.absence_form_visible
 		FROM page
 		ORDER BY page.course_no DESC
 	`, append(courseOverviewFilterArgs(p), p.Limit, p.Offset)...)
@@ -250,6 +255,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.LegacyCourseID, &r.LegacyLastSyncedAt,
 			&r.CycleID, &r.CycleLabel, &r.ExpiryDays, &r.LastSessionAt, &r.HasOverlap, &r.HasConflict,
+			&r.AbsenceFormVisible,
 		); err != nil {
 			return nil, err
 		}

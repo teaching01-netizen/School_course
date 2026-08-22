@@ -86,9 +86,10 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := sqldb.CourseOverviewParams{
-		Archived:   strings.TrimSpace(r.URL.Query().Get("status")) == "archived",
-		CourseType: courseTypeFilter(r.URL.Query().Get("type")),
-		Q:          s.a.SearchQuery(r.URL.Query().Get("q")),
+		Archived:    strings.TrimSpace(r.URL.Query().Get("status")) == "archived",
+		CourseType:  courseTypeFilter(r.URL.Query().Get("type")),
+		Q:           s.a.SearchQuery(r.URL.Query().Get("q")),
+		AbsenceForm: absenceFormFilter(r.URL.Query().Get("absence_form")),
 	}
 	switch teacherParam := strings.TrimSpace(r.URL.Query().Get("teacher_id")); teacherParam {
 	case "":
@@ -204,6 +205,7 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		ExpiryStatus       string           `json:"expiry_status"`
 		HasOverlap         bool             `json:"has_overlap"`
 		HasConflict        bool             `json:"has_conflict"`
+		AbsenceFormVisible bool             `json:"absence_form_visible"`
 		Teachers           []map[string]any `json:"teachers"`
 	}
 	out := make([]courseDTO, 0, len(items))
@@ -283,6 +285,7 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			ExpiryStatus:       expiryStatus,
 			HasOverlap:         c.HasOverlap,
 			HasConflict:        c.HasConflict,
+			AbsenceFormVisible: c.AbsenceFormVisible,
 			Teachers:           teachersByCourse[cid],
 		})
 	}
@@ -307,6 +310,16 @@ func courseTypeFilter(raw string) string {
 	default:
 		return ""
 	}
+}
+
+// absenceFormFilter normalizes the absence_form query param: "hidden" selects
+// courses hidden from the student absence form (the audit view); anything else
+// means no filter.
+func absenceFormFilter(raw string) string {
+	if strings.TrimSpace(raw) == "hidden" {
+		return "hidden"
+	}
+	return ""
 }
 
 func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request) {

@@ -55,6 +55,7 @@ type CourseRow = {
   legacy_course_id?: string | null;
   has_overlap?: boolean;
   has_conflict?: boolean;
+  absence_form_visible?: boolean;
   teachers?: { id: string; username: string; full_name?: string | null }[];
 };
 
@@ -75,6 +76,7 @@ export default function Courses() {
   const bucket: CourseBucket = searchParams.get("status") === "archived" ? "archived" : "live";
   const typeFilter = searchParams.get("type") ?? "";
   const teacherFilter = searchParams.get("teacher_id") ?? "";
+  const absenceFormFilter = searchParams.get("absence_form") ?? "";
   const urlQuery = searchParams.get("q") ?? "";
   const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -106,9 +108,10 @@ export default function Courses() {
     if (bucket === "archived") params.set("status", "archived");
     if (typeFilter) params.set("type", typeFilter);
     if (teacherFilter) params.set("teacher_id", teacherFilter);
+    if (absenceFormFilter) params.set("absence_form", absenceFormFilter);
     if (urlQuery) params.set("q", urlQuery);
     return params.toString();
-  }, [bucket, typeFilter, teacherFilter, urlQuery, offset]);
+  }, [bucket, typeFilter, teacherFilter, absenceFormFilter, urlQuery, offset]);
 
   const requestUrl = `/api/v1/courses?${requestQuery}`;
   const { data: page, loading, refreshing, error, refetch } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
@@ -286,6 +289,15 @@ export default function Courses() {
               </option>
             ))}
           </SearchableSelect>
+          <SearchableSelect
+            aria-label="Absence form filter"
+            value={absenceFormFilter}
+            onChange={(event) => updateFilter("absence_form", event.target.value)}
+            className="w-full max-w-[200px] rounded-sm border border-wi-line px-2 py-1 text-sm"
+          >
+            <option value="">All in absence form</option>
+            <option value="hidden">Hidden from absence form</option>
+          </SearchableSelect>
           <Link
             to="/courses/create"
             className="px-4 py-2 text-sm rounded-md bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white inline-block"
@@ -419,7 +431,19 @@ export default function Courses() {
                         </button>
                       </td>
                       <td className="py-3 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_no}</td>
-                      <td className="py-3 px-2 break-words font-mono text-xs text-[var(--color-wi-text-light)]">{course.code}</td>
+                      <td className="py-3 px-2 break-words font-mono text-xs text-[var(--color-wi-text-light)]">
+                        <span className="flex flex-wrap items-center gap-1">
+                          <span>{course.code}</span>
+                          {course.absence_form_visible === false && (
+                            <span
+                              className="rounded-full bg-amber-100 px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wide text-amber-800"
+                              title="Hidden from the student absence form — students cannot see or book this class"
+                            >
+                              Hidden
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="py-3 px-2">{course.year ?? "—"}</td>
                       <td className="py-3 px-2 break-words">
                         {(course.teachers ?? []).length > 0

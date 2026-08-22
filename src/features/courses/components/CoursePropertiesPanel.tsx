@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import Button from "@/components/ui/Button";
+import { Switch } from "@/components/ui/Switch";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { TypeaheadOption } from "@/components/TypeaheadSelect";
 import { CourseTeacherEditor } from "./CourseTeacherEditor";
 import { SubjectPicker } from "./SubjectPicker";
@@ -153,34 +155,44 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
           editor={(close) => <ExpiryEditor value={course.expiry_days} saving={busy} onSave={onSave} close={close} />}
         />
 
-        <PropertyRow
-          label="Absence form"
-          saving={busy}
-          contentClassName="w-max min-w-56 max-w-[min(28rem,calc(100vw-2rem))]"
-          value={
-            <span className="min-w-0 truncate">
-              {course.absence_form_visible === false ? "Hidden from students" : "Visible to students"}
-            </span>
-          }
-          placeholder="Visible to students"
-          editor={(close) => (
-            <ChoiceEditor
-              ariaLabel="Absence form visibility"
-              options={[
-                { id: "true", label: "Visible to students" },
-                { id: "false", label: "Hidden from students" },
-              ]}
-              selectedId={course.absence_form_visible === false ? "false" : "true"}
-              disabled={busy}
-              onPick={(id) =>
-                void onSave("absence_form_visible", { absence_form_visible: id === "true" }).then((ok) => {
-                  if (ok) close();
-                })
-              }
-            />
-          )}
-        />
+        <AbsenceFormRow course={course} busy={busy} onSave={onSave} />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Absence form visibility — inline toggle
+// ---------------------------------------------------------------------------
+
+/** The only student-facing property in the panel: whether students can select
+ *  this class in the absence form. A boolean gets a switch, not a picker — one
+ *  click, state + consequence always visible, no popover round-trip. The
+ *  switch is fully derived from the course (server truth): while a save is in
+ *  flight the row locks, so the toggle can never drift from what was saved. */
+function AbsenceFormRow({ course, busy, onSave }: { course: Course; busy: boolean; onSave: (field: string, changes: CourseEditChanges) => Promise<boolean> }) {
+  const visible = course.absence_form_visible !== false;
+  return (
+    <div className="group grid grid-cols-[minmax(0,6rem)_minmax(0,1fr)] items-center gap-x-2 rounded-[4px] px-1.5 py-1 transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] motion-reduce:transition-none">
+      <span className="flex items-center gap-1 text-[13px] text-[var(--color-wi-text-light)]">
+        <span className="truncate">Absence form</span>
+        <Tooltip content="Controls the student absence form only. Students cannot see or book hidden classes; staff always can." />
+      </span>
+      <span className="flex min-w-0 items-center gap-2">
+        <Switch
+          checked={visible}
+          onCheckedChange={(next) => void onSave("absence_form_visible", { absence_form_visible: next })}
+          disabled={busy}
+          aria-label={`Show ${course.code} in the student absence form`}
+        />
+        {visible ? (
+          <span className="min-w-0 truncate text-[13px] text-[var(--color-wi-text-light)]">Shown to students</span>
+        ) : (
+          <span className="min-w-0 truncate rounded-sm bg-amber-100 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+            Hidden from students
+          </span>
+        )}
+      </span>
     </div>
   );
 }

@@ -28,31 +28,55 @@ function renderPanel(course: Course) {
   return onSave;
 }
 
+function switchControl() {
+  return screen.getByRole("switch", { name: "Show MATH-101 in the student absence form" });
+}
+
 describe("CoursePropertiesPanel absence form visibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("shows Visible to students by default and when explicitly true", () => {
+  it("defaults to shown when the flag is absent (legacy payloads) or true", () => {
     renderPanel(makeCourse());
-    expect(screen.getByText("Visible to students")).toBeInTheDocument();
+    expect(switchControl()).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Shown to students")).toBeInTheDocument();
 
     renderPanel(makeCourse({ absence_form_visible: true }));
-    expect(screen.getAllByText("Visible to students").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Shown to students").length).toBeGreaterThan(0);
   });
 
-  it("shows Hidden from students when the course is hidden", () => {
+  it("renders the switch off with a Hidden chip when the course is hidden", () => {
     renderPanel(makeCourse({ absence_form_visible: false }));
+    expect(switchControl()).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Hidden from students")).toBeInTheDocument();
   });
 
-  it("saves the picked visibility as a boolean change set", async () => {
+  it("saves false in one click from a visible course", async () => {
     const onSave = renderPanel(makeCourse());
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: "Visible to students" }));
-    await user.click(await screen.findByRole("option", { name: "Hidden from students" }));
-
+    await user.click(switchControl());
     expect(onSave).toHaveBeenCalledWith("absence_form_visible", { absence_form_visible: false });
+  });
+
+  it("saves true in one click from a hidden course", async () => {
+    const onSave = renderPanel(makeCourse({ absence_form_visible: false }));
+    const user = userEvent.setup();
+
+    await user.click(switchControl());
+    expect(onSave).toHaveBeenCalledWith("absence_form_visible", { absence_form_visible: true });
+  });
+
+  it("locks the switch while another field is saving", () => {
+    render(
+      <CoursePropertiesPanel
+        course={makeCourse()}
+        teacherOptions={[]}
+        savingField="name"
+        onSave={vi.fn()}
+      />,
+    );
+    expect(switchControl()).toBeDisabled();
   });
 });

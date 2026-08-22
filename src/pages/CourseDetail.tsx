@@ -533,7 +533,16 @@ export default function CourseDetail() {
         ...(changes.absence_form_visible !== undefined ? { absence_form_visible: changes.absence_form_visible } : {}),
       });
       setCourse(updated);
-      addToast("success", "Course updated");
+      // The visibility toggle changes what students can do right now, so its
+      // confirmation states the consequence instead of a generic "updated".
+      addToast(
+        "success",
+        field === "absence_form_visible"
+          ? changes.absence_form_visible
+            ? `${course.code} is now visible in the student absence form`
+            : `Students can no longer select ${course.code} in the absence form`
+          : "Course updated",
+      );
       return true;
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === "stale_edit") {

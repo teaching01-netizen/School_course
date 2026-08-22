@@ -285,3 +285,63 @@ func courseIDInItems(page map[string]any, id string) bool {
 	}
 	return false
 }
+
+// TestCoursesList_AbsenceFormHiddenFilter verifies the audit view: the
+// absence_form=hidden filter returns only hidden courses, and every row
+// carries absence_form_visible so the UI can badge hidden ones.
+func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
+	fx := setupTestServer(t)
+	token := "LHID" + uuid.NewString()[:8]
+	visibleID := courseSeed(t, fx, courseCode(token+"A"), "Private", false)
+	hiddenID := courseSeed(t, fx, courseCode(token+"B"), "Private", false)
+	ctx := context.Background()
+	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET absence_form_visible = false WHERE id = $1`, hiddenID); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?limit=100&absence_form=hidden", nil)
+	assertResponseCode(t, resp, http.StatusOK)
+	var envelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, resp, &envelope)
+
+	var foundVisible, foundHidden bool
+	for _, item := range envelope.Items {
+		switch item["id"].(string) {
+		case visibleID:
+			foundVisible = true
+		case hiddenID:
+			foundHidden = true
+			if got, ok := item["absence_form_visible"].(bool); !ok || got {
+				t.Fatalf("hidden course must report absence_form_visible=false, got %#v", item["absence_form_visible"])
+			}
+		}
+	}
+	if foundVisible {
+		t.Fatalf("visible course must not appear in the hidden filter")
+	}
+	if !foundHidden {
+		t.Fatalf("hidden course missing from the hidden filter")
+	}
+
+	// Without the filter both appear with their true flags.
+	allResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?limit=100", nil)
+	assertResponseCode(t, allResp, http.StatusOK)
+	var allEnvelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, allResp, &allEnvelope)
+	for _, item := range allEnvelope.Items {
+		switch item["id"].(string) {
+		case visibleID:
+			if got, ok := item["absence_form_visible"].(bool); !ok || !got {
+				t.Fatalf("visible course must report absence_form_visible=true, got %#v", item["absence_form_visible"])
+			}
+		case hiddenID:
+			if got, ok := item["absence_form_visible"].(bool); !ok || got {
+				t.Fatalf("hidden course must report absence_form_visible=false, got %#v", item["absence_form_visible"])
+			}
+		}
+	}
+}
