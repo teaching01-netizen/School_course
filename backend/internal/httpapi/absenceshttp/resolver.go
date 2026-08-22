@@ -441,10 +441,14 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 
 	// Fall back to single-rule logic
 	rule, err := sitInRuleForScope(ctx, q, missedCourse.SitInRuleID, missedCourse.RootCourseGroupID)
+	rule, err = sitInRuleWithLevelledRootFallback(
+		rule,
+		err,
+		missedCourse.SitInRuleID,
+		missedCourse.RootCourseGroupID,
+		allCourses,
+	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("sit-in rule lookup: %w", err)
 	}
 	if rule == nil {
@@ -879,6 +883,35 @@ func sitInRuleForScope(ctx context.Context, q *sqldb.Queries, sitInRuleID, rootC
 		return q.SitInRuleGetByRootCourseGroup(ctx, rootCourseGroupID)
 	}
 	return nil, pgx.ErrNoRows
+}
+
+const defaultLevelLadderPredicate = `{"level_1_action":"zoom","non_max_direction":"sit_higher","max_direction":"sit_lower","min_level_for_sit_lower":2}`
+
+func defaultLevelLadderRule() *sqldb.SitInRule {
+	return &sqldb.SitInRule{
+		Name:      "Level Ladder",
+		Type:      RuleTypeLevelLadder,
+		Predicate: []byte(defaultLevelLadderPredicate),
+	}
+}
+
+func sitInRuleWithLevelledRootFallback(
+	rule *sqldb.SitInRule,
+	lookupErr error,
+	explicitRuleID pgtype.UUID,
+	rootCourseGroupID pgtype.UUID,
+	allCourses []sqldb.SubjectCourseV2,
+) (*sqldb.SitInRule, error) {
+	if lookupErr == nil {
+		return rule, nil
+	}
+	if !errors.Is(lookupErr, pgx.ErrNoRows) {
+		return nil, lookupErr
+	}
+	if explicitRuleID.Valid || !rootCourseGroupID.Valid || len(allCourses) == 0 {
+		return nil, nil
+	}
+	return defaultLevelLadderRule(), nil
 }
 
 func mergeGroupWindowWeeks(policies []byte, mergeGroupID string) (int, bool) {

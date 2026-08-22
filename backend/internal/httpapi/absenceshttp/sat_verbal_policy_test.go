@@ -107,6 +107,7 @@ func TestResolveSatVerbalPolicy_MappedCourseUsesRuleIDInsteadOfProductionCourseN
 
 	missedCourse := satCourse(section1ID, "Custom Production Verbal A")
 	targetCourse := satCourse(section2ID, "Custom Production Verbal B")
+	targetCourse.SubjectName = "SAT Verbal Writing"
 	missedSessions := []sqldb.SessionInRange{
 		session("91000000-0000-0000-0000-000000000102", section1ID, "2026-02-08T09:00:00Z", "2026-02-08T10:00:00Z"),
 	}
@@ -148,6 +149,88 @@ func TestResolveSatVerbalPolicy_MappedCourseUsesRuleIDInsteadOfProductionCourseN
 	}
 	if got := result.Priorities[0].Available; len(got) != 1 || got[0].ID != "92000000-0000-0000-0000-000000000102" {
 		t.Fatalf("available = %#v, want same lesson from mapped target course", got)
+	}
+}
+
+func TestResolveSatVerbalPolicy_MappedMergeTargetUsesConfiguredSubject(t *testing.T) {
+	section1ReadingID := "a1000000-0000-0000-0000-000000000001"
+	section2ReadingID := "a2000000-0000-0000-0000-000000000002"
+	section2WritingID := "a3000000-0000-0000-0000-000000000003"
+	section1MergeGroupID := "a4000000-0000-0000-0000-000000000004"
+	section2MergeGroupID := "a5000000-0000-0000-0000-000000000005"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "rank3-sec1",
+			"courseName": "SAT Verbal Rank 3-Section 1",
+			"lastClassExcluded": false,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Another Rank 3 section (same lesson #)",
+					"makeupTargets": [{ "section": "Section 2", "subject": "Writing" }]
+				}
+			]
+		},
+		{
+			"id": "rank3-sec2",
+			"courseName": "SAT Verbal Rank 3-Section 2",
+			"lastClassExcluded": false,
+			"subject": "Writing"
+		}
+	]`)
+
+	missedCourse := satCourse(section1ReadingID, "SAT Verbal Reading : Rank 3 (Section 1) C3")
+	missedCourse.SubjectName = "SAT Verbal Reading"
+	missedCourse.MergeGroupID = makeUUID(section1MergeGroupID)
+	targetReading := satCourse(section2ReadingID, "SAT Verbal Reading : Rank 3 (Section 2) C3")
+	targetReading.SubjectName = "SAT Verbal Reading"
+	targetReading.MergeGroupID = makeUUID(section2MergeGroupID)
+	targetWriting := satCourse(section2WritingID, "SAT Verbal Writing : Rank 3 (Section 2) C3")
+	targetWriting.SubjectName = "SAT Verbal Writing"
+	targetWriting.MergeGroupID = makeUUID(section2MergeGroupID)
+
+	missedSessions := []sqldb.SessionInRange{
+		session("a1100000-0000-0000-0000-000000000001", section1ReadingID, "2026-08-20T09:00:00Z", "2026-08-20T10:00:00Z"),
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(section1ReadingID): missedSessions,
+		makeUUID(section2ReadingID): {
+			session("a2100000-0000-0000-0000-000000000002", section2ReadingID, "2026-08-23T06:00:00Z", "2026-08-23T08:00:00Z"),
+		},
+		makeUUID(section2WritingID): {
+			session("a3100000-0000-0000-0000-000000000003", section2WritingID, "2026-08-29T06:00:00Z", "2026-08-29T08:00:00Z"),
+		},
+	}
+
+	result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+		Rule:         &rules[0],
+		MissedCourse: missedCourse,
+		MappedCourses: []satVerbalMappedCourse{
+			{Rule: rules[0], Course: missedCourse},
+			{Rule: rules[1], Course: targetReading},
+			{Rule: rules[1], Course: targetWriting},
+		},
+		MissedSessions: missedSessions,
+		RequestTime:    time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC),
+		Cutoff:         time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+			return sessionsByCourse[courseID], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("expected one merged target priority, got %#v", result)
+	}
+	priority := result.Priorities[0]
+	if priority.SitInCourse == nil || priority.SitInCourse.ID != section2WritingID {
+		t.Fatalf("priority target = %#v, want configured Section 2 Writing member", priority.SitInCourse)
+	}
+	if len(priority.Available) != 1 || priority.Available[0].ID != "a3100000-0000-0000-0000-000000000003" {
+		t.Fatalf("available = %#v, want one Section 2 Writing occurrence", priority.Available)
 	}
 }
 

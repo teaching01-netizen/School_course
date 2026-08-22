@@ -354,6 +354,9 @@ func satVerbalMappedCrossSectionTargets(
 					continue
 				}
 				if satverbalpolicy.FamilyName(mapped.Rule.CourseName) == family {
+					if !satVerbalMappedCourseMatchesTarget(mapped.Course, target) {
+						continue
+					}
 					out = append(out, mapped.Course)
 				}
 			}
@@ -368,11 +371,28 @@ func satVerbalMappedCrossSectionTargets(
 				continue
 			}
 			if satverbalpolicy.ExtractSection(mapped.Rule.CourseName) == targetSection {
+				if !satVerbalMappedCourseMatchesTarget(mapped.Course, target) {
+					continue
+				}
 				out = append(out, mapped.Course)
 			}
 		}
 	}
 	return uniqueCourses(out)
+}
+
+func satVerbalMappedCourseMatchesTarget(course sqldb.SubjectCourseV2, target satverbalpolicy.Target) bool {
+	targetSubject := satverbalpolicy.NormalizeName(target.Subject)
+	if targetSubject == "" {
+		return true
+	}
+	for _, candidate := range []string{course.SubjectName, course.Name} {
+		normalizedCandidate := satverbalpolicy.NormalizeName(candidate)
+		if normalizedCandidate == targetSubject || strings.Contains(" "+normalizedCandidate+" ", " "+targetSubject+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 func satVerbalCrossSectionTargets(

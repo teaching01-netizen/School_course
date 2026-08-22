@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
@@ -136,6 +137,49 @@ func course(id string, level int16) sqldb.SubjectCourseV2 {
 		Code:  "C-" + id[:8],
 		Name:  "Course " + id[:8],
 		Level: pgtype.Int2{Int16: level, Valid: true},
+	}
+}
+
+func TestSitInRuleWithLevelledRootFallback_DefaultsMissingRule(t *testing.T) {
+	allCourses := []sqldb.SubjectCourseV2{
+		course("10000000-0000-0000-0000-000000000001", 1),
+		course("20000000-0000-0000-0000-000000000002", 2),
+		course("30000000-0000-0000-0000-000000000003", 3),
+		course("40000000-0000-0000-0000-000000000004", 4),
+		course("50000000-0000-0000-0000-000000000005", 5),
+	}
+
+	rule, err := sitInRuleWithLevelledRootFallback(
+		nil,
+		pgx.ErrNoRows,
+		pgtype.UUID{},
+		makeUUID("60000000-0000-0000-0000-000000000006"),
+		allCourses,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rule == nil {
+		t.Fatal("expected the default level ladder rule")
+	}
+
+	predicate, err := parsePredicate(rule.Predicate)
+	if err != nil {
+		t.Fatalf("unexpected predicate error: %v", err)
+	}
+	output, err := EvaluateRule(EvaluateRuleInput{
+		RuleType:       rule.Type,
+		Predicate:      predicate,
+		StudentLevel:   5,
+		EnrolledLevels: []int16{5},
+		AllCourses:     allCourses,
+		MissedCount:    1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected rule evaluation error: %v", err)
+	}
+	if output.Method != SitInMethodPhysical || output.TargetCourseID == nil || *output.TargetCourseID != allCourses[3].ID {
+		t.Fatalf("default level ladder output = %#v, want physical level 4 target", output)
 	}
 }
 
