@@ -60,6 +60,8 @@ export type ActiveCourseSubject = {
     cycle_label: string;
     is_active: boolean;
     absence_form_visible: boolean;
+    /** Name of the merged view this course is a source of, when merged. */
+    merge_group_name?: string | null;
   }>;
 };
 

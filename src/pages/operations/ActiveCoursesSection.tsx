@@ -106,6 +106,14 @@ function CourseRow({
         <span className="font-mono text-xs text-[var(--color-wi-text-light)]">{course.course_code}</span>
         <span className="ml-2 text-[var(--color-wi-text-light)]">{subject.subject_name}</span>
         <span className="ml-2 text-xs text-[var(--color-wi-text-light)]">({course.cycle_label || "no cycle"})</span>
+        {course.merge_group_name ? (
+          <span
+            className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
+            title={`One of the two source courses of the merged course "${course.merge_group_name}"`}
+          >
+            Merged · {course.merge_group_name}
+          </span>
+        ) : null}
       </span>
 
       <span className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
@@ -475,7 +483,7 @@ export function ActiveCoursesSection() {
         <SearchInput
           value={searchInput}
           onChange={setSearchInput}
-          placeholder="Search subjects across all pages..."
+          placeholder="Search subjects, classes, or merged courses..."
         />
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter subjects by active-class state">
           {STATUS_FILTERS.map((f) => {

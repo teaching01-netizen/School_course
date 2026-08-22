@@ -22,6 +22,10 @@ type ActiveCourseCourseRow struct {
 	CycleLabel         string
 	IsActive           bool
 	AbsenceFormVisible bool
+	// MergeGroupName is set when this course is one of the two source courses
+	// of a merged view (course_merge_groups); admins know merged classes by
+	// that name, so the operations console surfaces it.
+	MergeGroupName pgtype.Text
 }
 
 func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, error) {
@@ -30,11 +34,14 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 		       c.id, c.code, c.name,
 		       c.cycle_id, COALESCE(cy.label, ''),
 		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END,
-		       COALESCE(c.absence_form_visible, true)
+		       COALESCE(c.absence_form_visible, true),
+		       mg.name
 		FROM subjects s
 		LEFT JOIN courses c ON c.subject_id = s.id
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = s.id
+		LEFT JOIN course_merge_group_members mm ON mm.course_id = c.id
+		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 		ORDER BY s.code ASC, c.code ASC
 	`)
 	if err != nil {
@@ -53,6 +60,7 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 		cycleLabel         string
 		isActive           bool
 		absenceFormVisible bool
+		mergeGroupName     pgtype.Text
 	}
 
 	var flat []flatRow
@@ -64,6 +72,7 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 			&r.cycleID, &r.cycleLabel,
 			&r.isActive,
 			&r.absenceFormVisible,
+			&r.mergeGroupName,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -96,6 +105,7 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 			CycleLabel:         r.cycleLabel,
 			IsActive:           r.isActive,
 			AbsenceFormVisible: r.absenceFormVisible,
+			MergeGroupName:     r.mergeGroupName,
 		})
 	}
 
@@ -115,7 +125,9 @@ const (
 type ActiveCoursesListParams struct {
 	Limit  int
 	Offset int
-	// Search matches subject code or name (case-insensitive substring).
+	// Search matches subject code/name, any member course's code/name, or the
+	// name of a merged view containing one of the subject's courses
+	// (case-insensitive substring).
 	Search string
 	// Status filters subjects by active-course state; see the constants above.
 	Status string
@@ -136,9 +148,26 @@ const activeCourseStateJoin = `
 
 // Placeholders are anchored at $1/$2 so the same fragment serves both the
 // count query (args: search, status) and the page query, where LIMIT/OFFSET
-// take $3/$4.
+// take $3/$4. Search reaches beyond subjects: admins also look a class up by
+// its course code/name or by the merged-view name it belongs to.
 const activeCourseFilterWhere = `
-	WHERE ($1 = '' OR s.code ILIKE '%' || $1 || '%' OR s.name ILIKE '%' || $1 || '%')
+	WHERE (
+	    $1 = ''
+	    OR s.code ILIKE '%' || $1 || '%'
+	    OR s.name ILIKE '%' || $1 || '%'
+	    OR EXISTS (
+	        SELECT 1
+	        FROM courses mc
+	        LEFT JOIN course_merge_group_members mm ON mm.course_id = mc.id
+	        LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
+	        WHERE mc.subject_id = s.id
+	          AND (
+	            mc.code ILIKE '%' || $1 || '%'
+	            OR mc.name ILIKE '%' || $1 || '%'
+	            OR mg.name ILIKE '%' || $1 || '%'
+	          )
+	    )
+	  )
 	  AND (
 	    $2 = '' OR $2 = 'all'
 	    OR ($2 = 'configured' AND act.active_count > 0 AND act.all_active_visible)
@@ -193,11 +222,14 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 		       c.id, c.code, c.name,
 		       c.cycle_id, COALESCE(cy.label, ''),
 		       CASE WHEN sac.course_id IS NOT NULL THEN true ELSE false END,
-		       COALESCE(c.absence_form_visible, true)
+		       COALESCE(c.absence_form_visible, true),
+		       c.merge_group_name
 		FROM paged_subjects ps
 		LEFT JOIN LATERAL (
-			SELECT c.id, c.code, c.name, c.cycle_id, c.absence_form_visible
+			SELECT c.id, c.code, c.name, c.cycle_id, c.absence_form_visible, mg.name AS merge_group_name
 			FROM courses c
+			LEFT JOIN course_merge_group_members mm ON mm.course_id = c.id
+			LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 			WHERE c.subject_id = ps.id
 			ORDER BY c.code ASC NULLS LAST, c.id ASC
 		) c ON true
@@ -221,7 +253,8 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 		var cycleLabel string
 		var isActive bool
 		var absenceFormVisible bool
-		if err := rows.Scan(&subjectID, &subjectCode, &subjectName, &courseID, &courseCode, &courseName, &cycleID, &cycleLabel, &isActive, &absenceFormVisible); err != nil {
+		var mergeGroupName pgtype.Text
+		if err := rows.Scan(&subjectID, &subjectCode, &subjectName, &courseID, &courseCode, &courseName, &cycleID, &cycleLabel, &isActive, &absenceFormVisible, &mergeGroupName); err != nil {
 			return nil, nil, 0, 0, err
 		}
 
@@ -236,7 +269,7 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 		coursesBySubject[idx] = append(coursesBySubject[idx], ActiveCourseCourseRow{
 			CourseID: courseID, CourseCode: courseCode.String, CourseName: courseName.String,
 			CycleID: cycleID, CycleLabel: cycleLabel, IsActive: isActive,
-			AbsenceFormVisible: absenceFormVisible,
+			AbsenceFormVisible: absenceFormVisible, MergeGroupName: mergeGroupName,
 		})
 	}
 	if err := rows.Err(); err != nil {

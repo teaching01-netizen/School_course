@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -233,6 +234,72 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	// Bad status value is rejected rather than silently ignored.
 	if status, _ := env.do(t, http.MethodGet, "/api/v1/admin/active-courses?limit=10&status=nonsense", nil); status != http.StatusBadRequest {
 		t.Fatalf("bad status filter = %d, want 400", status)
+	}
+}
+
+// TestActiveCoursesSearchMatchesCoursesAndMergedViews covers the findability
+// fix for merged courses: search matches a subject not only by its own
+// code/name but also by any member course's code/name and by the name of a
+// merged view built from one of its courses, and the list marks merged rows.
+func TestActiveCoursesSearchMatchesCoursesAndMergedViews(t *testing.T) {
+	env := newActiveCoursesEnv(t)
+	subj := env.seedSubject(t, "ACM-S-"+env.suffix)
+	c1 := env.seedCourse(t, subj, "ACM-C1-"+env.suffix, true)
+	c2 := env.seedCourse(t, subj, "ACM-C2-"+env.suffix, true)
+	mergeName := "Merged ACM " + env.suffix
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var groupID uuid.UUID
+	if err := env.dbpool.QueryRow(ctx, `
+		WITH g AS (INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT g.id, c.id, c.row_num FROM g,
+		       (VALUES ($2::uuid, 1), ($3::uuid, 2)) AS c(id, row_num)
+		RETURNING group_id
+	`, mergeName, c1, c2).Scan(&groupID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Searching by a member course's code finds its subject.
+	if res := env.listSubjects(t, "?limit=200&search="+"ACM-C1-"+env.suffix); res.TotalSubjects != 1 ||
+		!subjectCodes(res)["ACM-S-"+env.suffix] {
+		t.Fatalf("course-code search = %+v (total %d), want only ACM-S", res.Subjects, res.TotalSubjects)
+	}
+	// Searching by the merged-view name finds the subject of its source courses.
+	if res := env.listSubjects(t, "?limit=200&search="+url.QueryEscape(mergeName)); res.TotalSubjects != 1 ||
+		!subjectCodes(res)["ACM-S-"+env.suffix] {
+		t.Fatalf("merged-name search = %+v (total %d), want only ACM-S", res.Subjects, res.TotalSubjects)
+	}
+
+	// The list surfaces which rows are merged so admins can recognize their
+	// merged classes while browsing.
+	status, raw := env.do(t, http.MethodGet, "/api/v1/admin/active-courses?limit=200&search="+"ACM-S-"+env.suffix, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET status = %d body = %s", status, raw)
+	}
+	var list struct {
+		Subjects []struct {
+			Courses []struct {
+				CourseCode     string  `json:"course_code"`
+				MergeGroupName *string `json:"merge_group_name"`
+			} `json:"courses"`
+		} `json:"subjects"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	merged := map[string]*string{}
+	for _, s := range list.Subjects {
+		for _, c := range s.Courses {
+			merged[c.CourseCode] = c.MergeGroupName
+		}
+	}
+	for _, code := range []string{"ACM-C1-" + env.suffix, "ACM-C2-" + env.suffix} {
+		name := merged[code]
+		if name == nil || *name != mergeName {
+			t.Fatalf("course %s merge_group_name = %v, want %q", code, name, mergeName)
+		}
 	}
 }
 

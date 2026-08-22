@@ -29,13 +29,14 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 }
 
 type courseDTO struct {
-	CourseID           string `json:"course_id"`
-	CourseCode         string `json:"course_code"`
-	CourseName         string `json:"course_name"`
-	CycleID            string `json:"cycle_id"`
-	CycleLabel         string `json:"cycle_label"`
-	IsActive           bool   `json:"is_active"`
-	AbsenceFormVisible bool   `json:"absence_form_visible"`
+	CourseID           string  `json:"course_id"`
+	CourseCode         string  `json:"course_code"`
+	CourseName         string  `json:"course_name"`
+	CycleID            string  `json:"cycle_id"`
+	CycleLabel         string  `json:"cycle_label"`
+	IsActive           bool    `json:"is_active"`
+	AbsenceFormVisible bool    `json:"absence_form_visible"`
+	MergeGroupName     *string `json:"merge_group_name,omitempty"`
 }
 
 type subjectDTO struct {
@@ -123,6 +124,11 @@ func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesB
 			if c.CycleID.Valid {
 				cycleID = c.CycleID.String
 			}
+			var mergeGroupName *string
+			if c.MergeGroupName.Valid {
+				name := c.MergeGroupName.String
+				mergeGroupName = &name
+			}
 			courseDTOs = append(courseDTOs, courseDTO{
 				CourseID:           cID,
 				CourseCode:         c.CourseCode,
@@ -131,6 +137,7 @@ func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesB
 				CycleLabel:         c.CycleLabel,
 				IsActive:           c.IsActive,
 				AbsenceFormVisible: c.AbsenceFormVisible,
+				MergeGroupName:     mergeGroupName,
 			})
 		}
 		out = append(out, subjectDTO{

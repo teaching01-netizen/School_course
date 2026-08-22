@@ -187,7 +187,7 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     await screen.findByText("MATH — Mathematics");
 
     await userEvent.setup().type(
-      screen.getByPlaceholderText("Search subjects across all pages..."),
+      screen.getByPlaceholderText("Search subjects, classes, or merged courses..."),
       "math",
     );
     await waitFor(() => {
@@ -245,6 +245,23 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     await waitFor(() => {
       expect(screen.queryByText("1 classes selected")).not.toBeInTheDocument();
     });
+  });
+
+  it("flags merged courses so admins can recognize them while browsing", async () => {
+    mockApiJson.mockImplementation(() =>
+      Promise.resolve({
+        subjects: [
+          subject({
+            courses: [
+              { course_id: "c-merged", course_code: "MATH-101", course_name: "Math", cycle_id: "cy1", cycle_label: "Cycle 1", is_active: true, absence_form_visible: true, merge_group_name: "Merged SAT Intensive" },
+            ],
+          }),
+        ],
+        total_subjects: 1,
+      }),
+    );
+    renderSection();
+    expect(await screen.findByText("Merged · Merged SAT Intensive")).toBeInTheDocument();
   });
 
   it("shows a create link for subjects with no courses", async () => {
