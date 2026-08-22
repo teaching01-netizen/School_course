@@ -64,6 +64,7 @@ describe("LeavePolicyRules production mapping", () => {
         matched_courses: [],
         unmatched_policy_rows: [],
       })
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({
         active: true,
         mappings: [
@@ -103,5 +104,74 @@ describe("LeavePolicyRules production mapping", () => {
     expect(body.mappings).toEqual([{ rule_id: "rank3-sec3", course_id: "course-r3s3" }]);
     expect(body.subject_id).toBeUndefined();
     expect(screen.getByText(/No course selected for SAT Verbal Believe/)).toBeInTheDocument();
+  });
+
+  it("shows merged courses as selectable Leave Policy targets", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        { id: "course-reading", code: "READ", name: "Reading", subject_code: "SATV" },
+      ])
+      .mockResolvedValueOnce({ active: false, mappings: [], warnings: [], matched_courses: [], unmatched_policy_rows: [] })
+      .mockResolvedValueOnce([
+        {
+          id: "merge-1",
+          name: "SAT Verbal Combined",
+          level: 2,
+          cycle_id: "cycle-1",
+          cycle_label: "Cycle 1",
+          sit_in_rule_id: null,
+          course_codes: ["READ", "WRITE"],
+          course_names: ["Reading", "Writing"],
+        },
+      ]);
+
+    renderWithProviders(<LeavePolicyRules />);
+
+    const options = await screen.findAllByRole("option", { name: /SAT Verbal Combined - READ \+ WRITE \(merged course\)/i });
+    expect(options).toHaveLength(LEAVE_POLICY_COURSE_RULES.length);
+    expect(options.every((option) => option.getAttribute("value") === "merge:merge-1")).toBe(true);
+  });
+
+  it("submits a merged course target as a merge group mapping", async () => {
+    mockApiJson
+      .mockResolvedValueOnce([
+        { id: "course-reading", code: "READ", name: "Reading", subject_code: "SATV" },
+      ])
+      .mockResolvedValueOnce({ active: false, mappings: [], warnings: [], matched_courses: [], unmatched_policy_rows: [] })
+      .mockResolvedValueOnce([
+        {
+          id: "merge-1",
+          name: "SAT Verbal Combined",
+          level: 2,
+          cycle_id: "cycle-1",
+          cycle_label: "Cycle 1",
+          sit_in_rule_id: null,
+          course_codes: ["READ", "WRITE"],
+          course_names: ["Reading", "Writing"],
+        },
+      ])
+      .mockResolvedValueOnce({
+        active: true,
+        mappings: [{ active: true, rule_id: LEAVE_POLICY_COURSE_RULES[0].id, course_id: null, merge_group_id: "merge-1" }],
+        warnings: [],
+        matched_courses: [],
+        unmatched_policy_rows: [],
+      });
+
+    renderWithProviders(<LeavePolicyRules />);
+
+    const user = userEvent.setup();
+    const ruleSelect = await screen.findByRole("combobox", { name: `${LEAVE_POLICY_COURSE_RULES[0].courseName} production course` });
+    await user.selectOptions(ruleSelect, "merge:merge-1");
+    await user.click(screen.getByRole("button", { name: /save sat verbal course rules/i }));
+
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/sat-verbal-policy/apply",
+      expect.objectContaining({ method: "POST", body: expect.any(String) }),
+    ));
+    const applyCall = mockApiJson.mock.calls.find(([path]) => path === "/api/v1/admin/sat-verbal-policy/apply");
+    expect(JSON.parse(applyCall?.[1]?.body as string).mappings).toEqual([
+      { rule_id: LEAVE_POLICY_COURSE_RULES[0].id, merge_group_id: "merge-1" },
+    ]);
   });
 });

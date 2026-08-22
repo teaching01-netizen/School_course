@@ -128,7 +128,7 @@ function SessionEditorPanel(props: Omit<SessionEditorPopoverProps, "open" | "tri
         <p className="mt-0.5 text-sm font-medium text-[var(--color-wi-text)]">
           {summary || "Set a date and time"}
         </p>
-        <p className="truncate text-xs text-[var(--color-wi-text-light)]">
+        <p className="truncate text-xs text-[var(--color-wi-text-light)]" title={[course ? `${course.code} — ${course.name}` : "", classroomLabel, teacherLabel].filter(Boolean).join(" · ")}>
           {course ? `${course.code} — ${course.name}` : ""} · {classroomLabel} · {teacherLabel}
         </p>
       </div>

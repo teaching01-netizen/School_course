@@ -25,8 +25,9 @@ type server struct {
 }
 
 type courseRuleMappingRequest struct {
-	RuleID   string `json:"rule_id"`
-	CourseID string `json:"course_id"`
+	RuleID       string `json:"rule_id"`
+	CourseID     string `json:"course_id"`
+	MergeGroupID string `json:"merge_group_id"`
 }
 
 type mappingReport struct {
@@ -122,13 +123,18 @@ func (s *server) buildReplaceParams(
 	var report mappingReport
 	seenRules := make(map[string]struct{}, len(requested))
 	seenCourses := make(map[pgtype.UUID]struct{}, len(requested))
+	seenMergeGroups := make(map[pgtype.UUID]struct{}, len(requested))
 	params := make([]sqldb.SatVerbalPolicyMappingReplaceParam, 0, len(requested))
 
 	for _, item := range requested {
 		ruleID := strings.TrimSpace(item.RuleID)
 		courseIDRaw := strings.TrimSpace(item.CourseID)
-		if ruleID == "" || courseIDRaw == "" {
+		mergeGroupIDRaw := strings.TrimSpace(item.MergeGroupID)
+		if ruleID == "" || (courseIDRaw == "" && mergeGroupIDRaw == "") {
 			continue
+		}
+		if courseIDRaw != "" && mergeGroupIDRaw != "" {
+			return nil, report, fmt.Errorf("SAT Verbal policy rule %q cannot target both a course and a merged course", ruleID)
 		}
 		rule, ok := rulesByID[ruleID]
 		if !ok {
@@ -137,40 +143,82 @@ func (s *server) buildReplaceParams(
 		if _, ok := seenRules[ruleID]; ok {
 			return nil, report, fmt.Errorf("duplicate SAT Verbal policy rule mapping %q", ruleID)
 		}
-		courseID, err := s.a.ParseUUID(courseIDRaw)
-		if err != nil {
-			return nil, report, fmt.Errorf("invalid course_id for SAT Verbal policy rule %q", ruleID)
-		}
-		if _, ok := seenCourses[courseID]; ok {
-			return nil, report, fmt.Errorf("same course is mapped to more than one SAT Verbal policy rule")
-		}
-		course, err := q.CourseSubjectByID(ctx, courseID)
-		if err != nil {
-			return nil, report, err
-		}
-		if err := ensureRootGroup(ctx, q, rule, course); err != nil {
-			return nil, report, err
-		}
 		ruleRaw, err := json.Marshal(rule)
 		if err != nil {
 			return nil, report, err
 		}
 		seenRules[ruleID] = struct{}{}
-		seenCourses[courseID] = struct{}{}
+		if courseIDRaw != "" {
+			courseID, err := s.a.ParseUUID(courseIDRaw)
+			if err != nil {
+				return nil, report, fmt.Errorf("invalid course_id for SAT Verbal policy rule %q", ruleID)
+			}
+			if _, ok := seenCourses[courseID]; ok {
+				return nil, report, fmt.Errorf("same course is mapped to more than one SAT Verbal policy rule")
+			}
+			course, err := q.CourseSubjectByID(ctx, courseID)
+			if err != nil {
+				return nil, report, err
+			}
+			if err := ensureRootGroup(ctx, q, rule, course); err != nil {
+				return nil, report, err
+			}
+			seenCourses[courseID] = struct{}{}
+			params = append(params, sqldb.SatVerbalPolicyMappingReplaceParam{
+				RuleID:     ruleID,
+				CourseID:   courseID,
+				PolicyRule: ruleRaw,
+				PolicyHash: hashRule(ruleRaw),
+			})
+			courseIDStr, _ := s.a.UUIDString(course.ID)
+			report.MatchedCourses = append(report.MatchedCourses, map[string]string{
+				"policy_rule_id":     rule.ID,
+				"policy_course_name": rule.CourseName,
+				"course_id":          courseIDStr,
+				"course_code":        course.Code,
+				"course_name":        course.Name,
+				"root_group_name":    satverbalpolicy.RootGroupName(course.SubjectCode, satverbalpolicy.RootGroupKey(rule.CourseName)),
+			})
+			continue
+		}
+
+		mergeGroupID, err := s.a.ParseUUID(mergeGroupIDRaw)
+		if err != nil {
+			return nil, report, fmt.Errorf("invalid merge_group_id for SAT Verbal policy rule %q", ruleID)
+		}
+		if _, ok := seenMergeGroups[mergeGroupID]; ok {
+			return nil, report, fmt.Errorf("same merged course is mapped to more than one SAT Verbal policy rule")
+		}
+		members, err := q.CourseMergeGroupCourseIDs(ctx, mergeGroupID)
+		if err != nil {
+			return nil, report, err
+		}
+		if len(members) != 2 {
+			return nil, report, fmt.Errorf("merged course target must contain exactly two source courses")
+		}
+		group, err := q.CourseMergeGroupGet(ctx, mergeGroupID)
+		if err != nil {
+			return nil, report, err
+		}
+		for _, memberID := range members {
+			if _, ok := seenCourses[memberID]; ok {
+				return nil, report, fmt.Errorf("a merged course source is already mapped to another SAT Verbal policy rule")
+			}
+			seenCourses[memberID] = struct{}{}
+		}
+		seenMergeGroups[mergeGroupID] = struct{}{}
 		params = append(params, sqldb.SatVerbalPolicyMappingReplaceParam{
-			RuleID:     ruleID,
-			CourseID:   courseID,
-			PolicyRule: ruleRaw,
-			PolicyHash: hashRule(ruleRaw),
+			RuleID:       ruleID,
+			MergeGroupID: mergeGroupID,
+			PolicyRule:   ruleRaw,
+			PolicyHash:   hashRule(ruleRaw),
 		})
-		courseIDStr, _ := s.a.UUIDString(course.ID)
+		mergeGroupIDStr, _ := s.a.UUIDString(mergeGroupID)
 		report.MatchedCourses = append(report.MatchedCourses, map[string]string{
 			"policy_rule_id":     rule.ID,
 			"policy_course_name": rule.CourseName,
-			"course_id":          courseIDStr,
-			"course_code":        course.Code,
-			"course_name":        course.Name,
-			"root_group_name":    satverbalpolicy.RootGroupName(course.SubjectCode, satverbalpolicy.RootGroupKey(rule.CourseName)),
+			"merge_group_id":     mergeGroupIDStr,
+			"course_name":        group.Name,
 		})
 	}
 
@@ -226,21 +274,29 @@ func (s *server) handleDelete(w http.ResponseWriter, r *http.Request) {
 func mappingListResponse(a httpadapter.Adapter, mappings []sqldb.SatVerbalPolicyCourseMapping) map[string]any {
 	out := make([]map[string]any, 0, len(mappings))
 	for _, mapping := range mappings {
-		courseID, _ := a.UUIDString(mapping.CourseID)
+		var courseID any
+		if id, err := a.UUIDString(mapping.CourseID); err == nil {
+			courseID = id
+		}
+		var mergeGroupID any
+		if id, err := a.UUIDString(mapping.MergeGroupID); err == nil {
+			mergeGroupID = id
+		}
 		subjectID, _ := a.UUIDString(mapping.SubjectID)
 		out = append(out, map[string]any{
-			"active":       mapping.Active,
-			"rule_id":      mapping.RuleID,
-			"course_id":    courseID,
-			"course_code":  mapping.CourseCode,
-			"course_name":  mapping.CourseName,
-			"subject_id":   subjectID,
-			"subject_code": mapping.SubjectCode,
-			"subject_name": mapping.SubjectName,
-			"policy_hash":  mapping.PolicyHash,
-			"policy_rule":  json.RawMessage(mapping.PolicyRule),
-			"created_at":   mapping.CreatedAt,
-			"updated_at":   mapping.UpdatedAt,
+			"active":         mapping.Active,
+			"rule_id":        mapping.RuleID,
+			"course_id":      courseID,
+			"merge_group_id": mergeGroupID,
+			"course_code":    mapping.CourseCode,
+			"course_name":    mapping.CourseName,
+			"subject_id":     subjectID,
+			"subject_code":   mapping.SubjectCode,
+			"subject_name":   mapping.SubjectName,
+			"policy_hash":    mapping.PolicyHash,
+			"policy_rule":    json.RawMessage(mapping.PolicyRule),
+			"created_at":     mapping.CreatedAt,
+			"updated_at":     mapping.UpdatedAt,
 		})
 	}
 	return map[string]any{

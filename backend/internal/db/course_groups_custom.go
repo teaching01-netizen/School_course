@@ -166,6 +166,29 @@ func (q *Queries) CourseMergeGroupGet(ctx context.Context, id pgtype.UUID) (Cour
 	return item, err
 }
 
+func (q *Queries) CourseMergeGroupCourseIDs(ctx context.Context, mergeGroupID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT course_id
+		FROM course_merge_group_members
+		WHERE group_id = $1
+		ORDER BY position ASC
+	`, mergeGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]pgtype.UUID, 0, 2)
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (q *Queries) CourseMergeGroupGetForUpdate(ctx context.Context, id pgtype.UUID) (CourseMergeGroupRow, error) {
 	var item CourseMergeGroupRow
 	err := q.db.QueryRow(ctx, `

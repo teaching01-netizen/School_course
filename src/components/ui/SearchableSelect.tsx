@@ -343,7 +343,7 @@ const SearchableSelect = forwardRef<HTMLSelectElement, SearchableSelectProps>(fu
       closeParentOnEscape={isInputTrigger}
       role="dialog"
       ariaLabel={searchPlaceholder}
-      contentClassName="w-[min(22rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] p-2"
+      contentClassName="w-max min-w-[min(22rem,calc(100vw-1rem))] max-w-[min(28rem,calc(100vw-1rem))] p-2"
     >
       <div className="flex min-w-0 flex-col gap-2">
         {!isInputTrigger && (
@@ -394,8 +394,8 @@ const SearchableSelect = forwardRef<HTMLSelectElement, SearchableSelectProps>(fu
                       {selectedOption ? <Check className="h-3.5 w-3.5 text-[var(--color-wi-primary)]" strokeWidth={2.5} aria-hidden="true" /> : null}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate">{option.label}</span>
-                      {option.description ? <span className="mt-0.5 block truncate text-xs text-[var(--color-wi-text-light)]">{option.description}</span> : null}
+                      <span className="block break-words">{option.label}</span>
+                      {option.description ? <span className="mt-0.5 block break-words text-xs text-[var(--color-wi-text-light)]">{option.description}</span> : null}
                     </span>
                   </button>
                 </div>

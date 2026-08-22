@@ -11,6 +11,7 @@ type SatVerbalPolicyCourseMapping struct {
 	ID                pgtype.UUID        `json:"id"`
 	RuleID            string             `json:"rule_id"`
 	CourseID          pgtype.UUID        `json:"course_id"`
+	MergeGroupID      pgtype.UUID        `json:"merge_group_id"`
 	CourseCode        string             `json:"course_code"`
 	CourseName        string             `json:"course_name"`
 	SubjectID         pgtype.UUID        `json:"subject_id"`
@@ -28,20 +29,22 @@ type SatVerbalPolicyCourseMapping struct {
 }
 
 type SatVerbalPolicyMappingReplaceParam struct {
-	RuleID     string
-	CourseID   pgtype.UUID
-	PolicyRule []byte
-	PolicyHash string
+	RuleID       string
+	CourseID     pgtype.UUID
+	MergeGroupID pgtype.UUID
+	PolicyRule   []byte
+	PolicyHash   string
 }
 
 func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalPolicyCourseMapping, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT m.id, m.rule_id, m.course_id, c.code, c.name, c.subject_id,
+		SELECT m.id, m.rule_id, m.course_id, m.merge_group_id,
+		       COALESCE(c.code, ''), COALESCE(c.name, ''), c.subject_id,
 		       COALESCE(sub.code, ''), COALESCE(sub.name, ''), c.cycle_id, c.level,
 		       c.root_course_group_id, rcg.sit_in_rule_id, m.policy_rule, m.policy_hash,
 		       m.active, m.created_at, m.updated_at
 		FROM sat_verbal_policy_mappings m
-		JOIN courses c ON c.id = m.course_id
+		LEFT JOIN courses c ON c.id = m.course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
 		WHERE m.active = true
@@ -56,7 +59,7 @@ func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalP
 	for rows.Next() {
 		var r SatVerbalPolicyCourseMapping
 		if err := rows.Scan(
-			&r.ID, &r.RuleID, &r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID,
+			&r.ID, &r.RuleID, &r.CourseID, &r.MergeGroupID, &r.CourseCode, &r.CourseName, &r.SubjectID,
 			&r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID,
 			&r.SitInRuleID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
 		); err != nil {
@@ -73,18 +76,26 @@ func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalP
 func (q *Queries) SatVerbalPolicyMappingGetActiveByCourse(ctx context.Context, courseID pgtype.UUID) (*SatVerbalPolicyCourseMapping, error) {
 	var r SatVerbalPolicyCourseMapping
 	err := q.db.QueryRow(ctx, `
-		SELECT m.id, m.rule_id, m.course_id, c.code, c.name, c.subject_id,
+		SELECT m.id, m.rule_id, m.course_id, m.merge_group_id,
+		       COALESCE(c.code, ''), COALESCE(c.name, ''), c.subject_id,
 		       COALESCE(sub.code, ''), COALESCE(sub.name, ''), c.cycle_id, c.level,
 		       c.root_course_group_id, rcg.sit_in_rule_id, m.policy_rule, m.policy_hash,
 		       m.active, m.created_at, m.updated_at
 		FROM sat_verbal_policy_mappings m
-		JOIN courses c ON c.id = m.course_id
+		LEFT JOIN courses c ON c.id = m.course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE m.course_id = $1
+		WHERE (m.course_id = $1 OR EXISTS (
+			SELECT 1
+			FROM course_merge_group_members member
+			WHERE member.group_id = m.merge_group_id
+			  AND member.course_id = $1
+		))
 		  AND m.active = true
+		ORDER BY CASE WHEN m.course_id = $1 THEN 0 ELSE 1 END
+		LIMIT 1
 	`, courseID).Scan(
-		&r.ID, &r.RuleID, &r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID,
+		&r.ID, &r.RuleID, &r.CourseID, &r.MergeGroupID, &r.CourseCode, &r.CourseName, &r.SubjectID,
 		&r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID,
 		&r.SitInRuleID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
 	)
@@ -102,11 +113,11 @@ func (q *Queries) SatVerbalPolicyMappingsReplace(ctx context.Context, params []S
 	for _, p := range params {
 		var r SatVerbalPolicyMapping
 		err := q.db.QueryRow(ctx, `
-			INSERT INTO sat_verbal_policy_mappings (rule_id, course_id, policy_rule, policy_hash, active)
-			VALUES ($1, $2, $3::jsonb, $4, true)
-			RETURNING id, rule_id, course_id, policy_rule, policy_hash, active, created_at, updated_at
-		`, p.RuleID, p.CourseID, string(p.PolicyRule), p.PolicyHash).Scan(
-			&r.ID, &r.RuleID, &r.CourseID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
+			INSERT INTO sat_verbal_policy_mappings (rule_id, course_id, merge_group_id, policy_rule, policy_hash, active)
+			VALUES ($1, $2, $3, $4::jsonb, $5, true)
+			RETURNING id, rule_id, course_id, merge_group_id, policy_rule, policy_hash, active, created_at, updated_at
+		`, p.RuleID, p.CourseID, p.MergeGroupID, string(p.PolicyRule), p.PolicyHash).Scan(
+			&r.ID, &r.RuleID, &r.CourseID, &r.MergeGroupID, &r.PolicyRule, &r.PolicyHash, &r.Active, &r.CreatedAt, &r.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -139,12 +150,15 @@ func (q *Queries) CourseSubjectByID(ctx context.Context, courseID pgtype.UUID) (
 	var r SubjectCourseV2
 	err := q.db.QueryRow(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 		WHERE c.id = $1
-	`, courseID).Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID)
+	`, courseID).Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID)
 	if err != nil {
 		return SubjectCourseV2{}, err
 	}

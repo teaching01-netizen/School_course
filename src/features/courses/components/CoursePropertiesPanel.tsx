@@ -86,7 +86,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
         <PropertyRow
           label="Type"
           saving={busy}
-          contentClassName="w-56"
+          contentClassName="w-max min-w-56 max-w-[min(28rem,calc(100vw-2rem))]"
           value={course.course_type ? <span className="min-w-0 truncate">{course.course_type}</span> : null}
           placeholder="No type"
           editor={(close) => (
@@ -130,7 +130,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
         <PropertyRow
           label="Cycle"
           saving={busy}
-          contentClassName="w-72"
+          contentClassName="w-max min-w-72 max-w-[min(28rem,calc(100vw-2rem))]"
           value={course.cycle_label ? <span className="min-w-0 truncate">{course.cycle_label}</span> : null}
           placeholder="No cycle"
           editor={(close) => (
@@ -156,7 +156,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
         <PropertyRow
           label="Absence form"
           saving={busy}
-          contentClassName="w-56"
+          contentClassName="w-max min-w-56 max-w-[min(28rem,calc(100vw-2rem))]"
           value={
             <span className="min-w-0 truncate">
               {course.absence_form_visible === false ? "Hidden from students" : "Visible to students"}
@@ -374,7 +374,7 @@ function ChoiceEditor(props: {
               selected ? "bg-[var(--color-wi-row-alt)] font-medium text-[var(--color-wi-text)]" : "text-[var(--color-wi-text)] hover:bg-[var(--color-wi-row-alt)]"
             }`}
           >
-            <span className="truncate">{option.label}</span>
+            <span className="min-w-0 flex-1 break-words">{option.label}</span>
             {selected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[var(--color-wi-primary)]" aria-hidden="true" />}
           </button>
         );

@@ -497,28 +497,46 @@ func resolveMappedSatVerbalSitIn(
 		if err != nil {
 			return nil, fmt.Errorf("SAT Verbal mapped policy rule parse: %w", err)
 		}
-		course := satVerbalCourseFromMapping(active)
-		mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
-		allCourses = append(allCourses, course)
+		courses, err := satVerbalMappedCourses(ctx, q, active)
+		if err != nil {
+			return nil, fmt.Errorf("SAT Verbal mapped course lookup: %w", err)
+		}
+		for _, course := range courses {
+			mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
+			allCourses = append(allCourses, course)
+		}
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
 	if err != nil {
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
-	missedCourse := satVerbalCourseFromMapping(*mapping)
+	var missedCourse sqldb.SubjectCourseV2
+	missedCourseFound := false
+	for _, course := range allCourses {
+		if course.ID == courseID {
+			missedCourse = course
+			missedCourseFound = true
+			break
+		}
+	}
+	if !missedCourseFound {
+		return nil, fmt.Errorf("SAT Verbal mapped course not found for absence course")
+	}
 
 	settings, err := q.AppSettingsGetWithPolicies(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("policy lookup: %w", err)
 	}
-	subjectIDStr, _ := uuidString(mapping.SubjectID)
+	subjectIDStr, _ := uuidString(missedCourse.SubjectID)
 	rootIDStr := ""
 	if missedCourse.RootCourseGroupID.Valid {
 		rootIDStr, _ = uuidString(missedCourse.RootCourseGroupID)
 	}
 	mergeIDStr := ""
-	if scope, ok, scopeErr := mergeGroupScopeForCourse(ctx, q, courseID); scopeErr != nil {
+	if mapping.MergeGroupID.Valid {
+		mergeIDStr, _ = uuidString(mapping.MergeGroupID)
+	} else if scope, ok, scopeErr := mergeGroupScopeForCourse(ctx, q, courseID); scopeErr != nil {
 		return nil, fmt.Errorf("merged course lookup: %w", scopeErr)
 	} else if ok {
 		mergeIDStr, _ = uuidString(scope.ID)
@@ -546,6 +564,28 @@ func resolveMappedSatVerbalSitIn(
 	})
 }
 
+func satVerbalMappedCourses(ctx context.Context, q *sqldb.Queries, mapping sqldb.SatVerbalPolicyCourseMapping) ([]sqldb.SubjectCourseV2, error) {
+	if !mapping.MergeGroupID.Valid {
+		return []sqldb.SubjectCourseV2{satVerbalCourseFromMapping(mapping)}, nil
+	}
+	memberIDs, err := q.CourseMergeGroupCourseIDs(ctx, mapping.MergeGroupID)
+	if err != nil {
+		return nil, err
+	}
+	if len(memberIDs) != 2 {
+		return nil, fmt.Errorf("merged course target must contain exactly two source courses")
+	}
+	courses := make([]sqldb.SubjectCourseV2, 0, len(memberIDs))
+	for _, memberID := range memberIDs {
+		course, err := q.CourseSubjectByID(ctx, memberID)
+		if err != nil {
+			return nil, err
+		}
+		courses = append(courses, course)
+	}
+	return courses, nil
+}
+
 func decodeSatVerbalMappedRule(raw []byte) (satVerbalCourseRule, error) {
 	var rule satVerbalCourseRule
 	if err := json.Unmarshal(raw, &rule); err != nil {
@@ -569,6 +609,7 @@ func satVerbalCourseFromMapping(mapping sqldb.SatVerbalPolicyCourseMapping) sqld
 		Level:             mapping.Level,
 		RootCourseGroupID: mapping.RootCourseGroupID,
 		SitInRuleID:       mapping.SitInRuleID,
+		MergeGroupID:      mapping.MergeGroupID,
 	}
 }
 

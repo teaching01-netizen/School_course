@@ -6,6 +6,7 @@ import LoadingSkeleton from "../ui/LoadingSkeleton";
 import EmptyState from "../ui/EmptyState";
 import Button from "../ui/Button";
 import { LEAVE_POLICY_COURSE_RULES, getRuleTypeBadgeColor, getRuleTypeLabel } from "./leavePolicyData";
+import type { CourseMergeGroupConfig } from "../../utils/levels";
 
 type Course = {
   id: string;
@@ -18,7 +19,8 @@ type Course = {
 type SatVerbalRuleMapping = {
   active: boolean;
   rule_id: string;
-  course_id: string;
+  course_id?: string | null;
+  merge_group_id?: string | null;
   course_code?: string;
   course_name?: string;
   subject_code?: string;
@@ -42,6 +44,7 @@ function courseLabel(course: Course) {
 export default function LeavePolicyRules() {
   const { addToast } = useToast();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [mergeGroups, setMergeGroups] = useState<CourseMergeGroupConfig[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Record<string, string>>({});
   const [mapping, setMapping] = useState<SatVerbalPolicyMapping | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,16 +55,18 @@ export default function LeavePolicyRules() {
     let cancelled = false;
     (async () => {
       try {
-        const [courseData, mappingData] = await Promise.all([
+        const [courseData, mappingData, mergeGroupData] = await Promise.all([
           apiJson<Course[]>("/api/v1/courses", { method: "GET" }),
           apiJson<SatVerbalPolicyMapping>("/api/v1/admin/sat-verbal-policy/mapping", { method: "GET" }),
+          apiJson<CourseMergeGroupConfig[]>("/api/v1/admin/course-merge-groups", { method: "GET" }),
         ]);
         if (cancelled) return;
         setCourses(courseData ?? []);
+        setMergeGroups(mergeGroupData ?? []);
         setMapping(mappingData);
         const byRule: Record<string, string> = {};
         for (const item of mappingData.mappings ?? []) {
-          byRule[item.rule_id] = item.course_id;
+          byRule[item.rule_id] = item.merge_group_id ? `merge:${item.merge_group_id}` : item.course_id ?? "";
         }
         setSelectedCourseIds(byRule);
       } catch (err) {
@@ -82,8 +87,14 @@ export default function LeavePolicyRules() {
 
   async function applyPolicy() {
     const mappings = LEAVE_POLICY_COURSE_RULES
-      .map((rule) => ({ rule_id: rule.id, course_id: selectedCourseIds[rule.id] || "" }))
-      .filter((item) => item.course_id);
+      .map((rule) => {
+        const target = selectedCourseIds[rule.id] ?? "";
+        if (target.startsWith("merge:")) {
+          return { rule_id: rule.id, merge_group_id: target.slice("merge:".length) };
+        }
+        return { rule_id: rule.id, course_id: target };
+      })
+      .filter((item) => item.course_id || item.merge_group_id);
 
     setSaving(true);
     try {
@@ -97,7 +108,7 @@ export default function LeavePolicyRules() {
       setMapping(updated);
       const byRule: Record<string, string> = {};
       for (const item of updated.mappings ?? []) {
-        byRule[item.rule_id] = item.course_id;
+        byRule[item.rule_id] = item.merge_group_id ? `merge:${item.merge_group_id}` : item.course_id ?? "";
       }
       setSelectedCourseIds(byRule);
       const warningCount = updated.warnings?.length ?? 0;
@@ -130,6 +141,11 @@ export default function LeavePolicyRules() {
             Map each hard-coded SAT Verbal course rule to the exact production course. The absence resolver activates
             from this course mapping, so subject names and production course names do not need to match the policy text.
           </p>
+          {mergeGroups.length > 0 && (
+            <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+              Merged course targets appear under “Merged courses” in each dropdown and apply to both source courses.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[var(--color-wi-text-light)]">
@@ -210,8 +226,8 @@ export default function LeavePolicyRules() {
                           aria-label={`${rule.courseName} production course`}
                           value={selectedCourseIds[rule.id] ?? ""}
                           onChange={(event) => {
-                            const courseId = event.target.value;
-                            setSelectedCourseIds((current) => ({ ...current, [rule.id]: courseId }));
+                            const target = event.target.value;
+                            setSelectedCourseIds((current) => ({ ...current, [rule.id]: target }));
                           }}
                           className="w-full rounded-sm border border-wi-line bg-white px-2 py-1.5 text-sm"
                         >
@@ -221,6 +237,15 @@ export default function LeavePolicyRules() {
                               {courseLabel(course)}
                             </option>
                           ))}
+                          {mergeGroups.length > 0 && (
+                            <optgroup label="Merged courses">
+                              {mergeGroups.map((group) => (
+                                <option key={group.id} value={`merge:${group.id}`}>
+                                  {group.name} - {group.course_codes.join(" + ")} (merged course)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                         </SearchableSelect>
                       </td>
                       <td className="px-2 py-2 text-[var(--color-wi-text-light)]">
