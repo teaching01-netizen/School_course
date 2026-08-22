@@ -106,6 +106,8 @@ type managedAbsenceDTO struct {
 	SubjectID                  *string              `json:"subject_id"`
 	SubjectCode                *string              `json:"subject_code"`
 	SubjectName                *string              `json:"subject_name"`
+	MergeGroupID               *string              `json:"merge_group_id,omitempty"`
+	MergeGroupName             *string              `json:"merge_group_name,omitempty"`
 	DateFrom                   string               `json:"date_from"`
 	DateTo                     string               `json:"date_to"`
 	ReasonCategory             *string              `json:"reason_category"`
@@ -115,6 +117,7 @@ type managedAbsenceDTO struct {
 	SitInCourseCode            *string              `json:"sit_in_course_code"`
 	SitInCourseName            *string              `json:"sit_in_course_name"`
 	SitInSubjectName           *string              `json:"sit_in_subject_name"`
+	SitInMergeGroupName        *string              `json:"sit_in_merge_group_name,omitempty"`
 	Status                     string               `json:"status"`
 	AdminNotes                 *string              `json:"admin_notes"`
 	ReviewedBy                 *string              `json:"reviewed_by"`
@@ -160,6 +163,7 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 		CourseID:                   courseID,
 		CourseCode:                 row.CourseCode,
 		CourseName:                 row.CourseName,
+		MergeGroupName:             stringPtrIfValid(row.MergeGroupName),
 		DateFrom:                   row.DateFrom.Time.Format("2006-01-02"),
 		DateTo:                     row.DateTo.Time.Format("2006-01-02"),
 		ReasonCategory:             stringPtrIfValid(row.ReasonCategory),
@@ -168,6 +172,7 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 		SitInCourseCode:            stringPtrIfValid(row.SitInCourseCode),
 		SitInCourseName:            stringPtrIfValid(row.SitInCourseName),
 		SitInSubjectName:           stringPtrIfValid(row.SitInSubjectName),
+		SitInMergeGroupName:        stringPtrIfValid(row.SitInMergeGroupName),
 		Status:                     row.Status,
 		AdminNotes:                 stringPtrIfValid(row.AdminNotes),
 		SitInOverridden:            row.SitInOverridden,
@@ -185,6 +190,10 @@ func (s *server) managedAbsenceDTO(row sqldb.ManagedAbsenceRow) managedAbsenceDT
 	if row.SubjectID.Valid {
 		value, _ := s.a.UUIDString(row.SubjectID)
 		out.SubjectID = &value
+	}
+	if row.MergeGroupID.Valid {
+		value, _ := s.a.UUIDString(row.MergeGroupID)
+		out.MergeGroupID = &value
 	}
 	out.SubjectCode = stringPtrIfValid(row.SubjectCode)
 	out.SubjectName = stringPtrIfValid(row.SubjectName)

@@ -41,6 +41,8 @@ type ManagedAbsenceRow struct {
 	SubjectID              pgtype.UUID
 	SubjectCode            pgtype.Text
 	SubjectName            pgtype.Text
+	MergeGroupID           pgtype.UUID
+	MergeGroupName         pgtype.Text
 	DateFrom               pgtype.Date
 	DateTo                 pgtype.Date
 	ReasonCategory         pgtype.Text
@@ -50,6 +52,7 @@ type ManagedAbsenceRow struct {
 	SitInCourseCode        pgtype.Text
 	SitInCourseName        pgtype.Text
 	SitInSubjectName       pgtype.Text
+	SitInMergeGroupName    pgtype.Text
 	Status                 string
 	AdminNotes             pgtype.Text
 	ReviewedBy             pgtype.UUID
@@ -90,9 +93,9 @@ const managedAbsenceListQueryTemplate = `
 		       COALESCE(sa.student_email, COALESCE(st.email_crm, st.email_system)), __STUDENT_NICKNAME_EXPR__,
 		       sa.student_phone,
 		       st.parent_phone,
-		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
+		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name, sa.merge_group_id, absence_mg.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sit_in_mg.name, sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at,
 		       COALESCE(impact.open_issue_count, 0),
@@ -102,9 +105,18 @@ const managedAbsenceListQueryTemplate = `
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
-		LEFT JOIN subjects sub ON sub.id = sa.subject_id
-		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
+			LEFT JOIN subjects sub ON sub.id = sa.subject_id
+			LEFT JOIN course_merge_groups absence_mg ON absence_mg.id = sa.merge_group_id
+			LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+			LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
+			LEFT JOIN LATERAL (
+			  SELECT mgg.name
+			  FROM course_merge_group_members mgm
+			  JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+			  WHERE mgm.course_id = sa.sit_in_course_id
+			  ORDER BY mgm.group_id
+			  LIMIT 1
+			) sit_in_mg ON true
 		LEFT JOIN (
 		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
 		  FROM absence_sit_ins asi
@@ -140,17 +152,26 @@ const managedAbsenceGetQueryTemplate = `
 		       COALESCE(sa.student_email, COALESCE(st.email_crm, st.email_system)), __STUDENT_NICKNAME_EXPR__,
 		       sa.student_phone,
 		       st.parent_phone,
-		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name,
+		       sa.course_id, c.code, c.name, sa.subject_id, sub.code, sub.name, sa.merge_group_id, absence_mg.name,
 		       sa.date_from, sa.date_to, sa.reason_category, sa.reason, sa.sit_in_method,
-		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sa.status, sa.admin_notes,
+		       sa.sit_in_course_id, sc.code, sc.name, COALESCE(sit_sub.name, sit_sc_sub.name), sit_in_mg.name, sa.status, sa.admin_notes,
 		       sa.reviewed_by, sa.reviewed_at, sa.sit_in_overridden, sa.sit_in_overridden_by,
 		       sa.sit_in_override_reason, sa.version, sa.created_at, sa.updated_at
 		FROM student_absences sa
 		JOIN courses c ON c.id = sa.course_id
 		LEFT JOIN students st ON LOWER(st.wcode) = LOWER(sa.wcode)
-		LEFT JOIN subjects sub ON sub.id = sa.subject_id
-		LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
-		LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
+			LEFT JOIN subjects sub ON sub.id = sa.subject_id
+			LEFT JOIN course_merge_groups absence_mg ON absence_mg.id = sa.merge_group_id
+			LEFT JOIN courses sc ON sc.id = sa.sit_in_course_id
+			LEFT JOIN subjects sit_sc_sub ON sit_sc_sub.id = sc.subject_id
+			LEFT JOIN LATERAL (
+			  SELECT mgg.name
+			  FROM course_merge_group_members mgm
+			  JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+			  WHERE mgm.course_id = sa.sit_in_course_id
+			  ORDER BY mgm.group_id
+			  LIMIT 1
+			) sit_in_mg ON true
 		LEFT JOIN (
 		  SELECT asi.absence_id, string_agg(DISTINCT sit_sub_inner.name, ', ' ORDER BY sit_sub_inner.name) AS name
 		  FROM absence_sit_ins asi
@@ -209,8 +230,9 @@ func (q *Queries) ManagedAbsenceList(ctx context.Context, p AbsenceFilter) ([]Ma
 			&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentNickname, &item.StudentPhone,
 			&item.ParentPhone,
 			&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
+			&item.MergeGroupID, &item.MergeGroupName,
 			&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
-			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
+			&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.SitInMergeGroupName, &item.Status, &item.AdminNotes,
 			&item.ReviewedBy, &item.ReviewedAt, &item.SitInOverridden, &item.SitInOverriddenBy,
 			&item.SitInOverrideReason, &item.Version, &item.CreatedAt, &item.UpdatedAt,
 			&item.OpenScheduleIssues, &item.CriticalScheduleIssues, &item.LatestSessionChangeID,
@@ -248,8 +270,9 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 		&item.ID, &item.Wcode, &item.StudentName, &item.StudentEmail, &item.StudentNickname, &item.StudentPhone,
 		&item.ParentPhone,
 		&item.CourseID, &item.CourseCode, &item.CourseName, &item.SubjectID, &item.SubjectCode, &item.SubjectName,
+		&item.MergeGroupID, &item.MergeGroupName,
 		&item.DateFrom, &item.DateTo, &item.ReasonCategory, &item.Reason, &item.SitInMethod,
-		&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.Status, &item.AdminNotes,
+		&item.SitInCourseID, &item.SitInCourseCode, &item.SitInCourseName, &item.SitInSubjectName, &item.SitInMergeGroupName, &item.Status, &item.AdminNotes,
 		&item.ReviewedBy, &item.ReviewedAt, &item.SitInOverridden, &item.SitInOverriddenBy,
 		&item.SitInOverrideReason, &item.Version, &item.CreatedAt, &item.UpdatedAt,
 	)

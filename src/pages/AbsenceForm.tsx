@@ -75,8 +75,9 @@ import {
   unavailableSessionsForMissedSession,
 } from "@/features/absences/domain/sitInResolution";
 import {
-  formatBatchAbsenceSummary,
-  formatBatchSitInSummary,
+  formatSubmittedAbsenceSummary,
+  formatSubmittedSitInSummary,
+  groupSubmittedAbsences,
 } from "@/features/absences/domain/resultSummaries";
 import {
   clearLegacyAbsenceDraft,
@@ -807,7 +808,8 @@ export default function AbsenceForm() {
   ) : null;
 
   if (finalResults) {
-    const submittedCount = finalResults.length;
+    const submittedGroups = groupSubmittedAbsences(finalResults, sessions);
+    const submittedCount = submittedGroups.length;
     const successMessage = submittedCount === 1
       ? "Your absence request has been sent and is waiting for review."
       : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
@@ -836,18 +838,17 @@ export default function AbsenceForm() {
           <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-6 shadow-sm">
             <h3 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Submitted classes</h3>
             <div className="mt-4 space-y-3">
-              {finalResults.map((absence) => {
-                const label = absence.subject_name?.trim() || absence.course_name?.trim() || "Submitted class";
+              {submittedGroups.map((group) => {
                 return (
-                  <article key={absence.id} className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-4">
+                  <article key={group.key} className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</p>
+                        <p className="text-sm font-semibold text-[var(--color-wi-text)]">{group.label}</p>
                       </div>
                     </div>
                     <div className="mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
-                      <p><span className="font-medium text-[var(--color-wi-text)]">Absence:</span> {formatBatchAbsenceSummary(absence)}</p>
-                      <p><span className="font-medium text-[var(--color-wi-text)]">Make-up:</span> {formatBatchSitInSummary(absence)}</p>
+                      <p><span className="font-medium text-[var(--color-wi-text)]">Absence:</span> {formatSubmittedAbsenceSummary(group)}</p>
+                      <p><span className="font-medium text-[var(--color-wi-text)]">Make-up:</span> {formatSubmittedSitInSummary(group)}</p>
                     </div>
                   </article>
                 );

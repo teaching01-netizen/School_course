@@ -58,7 +58,13 @@ const MOCK_STUDENT: {
   full_name: string;
   nickname?: string | null;
   parent_phone: string | null;
-  subjects: Array<{ id: string; code: string; name: string }>;
+  subjects: Array<{
+    id: string;
+    code: string;
+    name: string;
+    merge_group_id?: string;
+    merge_group_name?: string;
+  }>;
 } = {
   student_id: "s1",
   wcode: "W250389",
@@ -869,6 +875,118 @@ describe("AbsenceForm", () => {
     expect(parsedBody.items).toHaveLength(2);
     expect(parsedBody.items[0]).toMatchObject({ course_id: "c-math201", date_from: "2026-06-01", date_to: "2026-06-01" });
     expect(parsedBody.items[1]).toMatchObject({ course_id: "c-phys301", date_from: "2026-06-02", date_to: "2026-06-02" });
+  });
+
+  it("accepts a public sit-in session whose component course differs from the selected sit-in course", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+          course_id: "c-enrolled",
+          course_code: "MATH-ENROLLED",
+          course_name: "Mathematics",
+          sessions: [
+            { id: "missed-session", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "c-selected-target", code: "TARGET", name: "Merged target" },
+            available_sessions: [
+              { id: "component-session", course_id: "c-target-component", start_at: "2026-06-04T09:00:00Z", end_at: "2026-06-04T10:30:00Z", course_name: "Target component" },
+            ],
+          },
+        },
+      ]),
+      submission: { items: [{ ...SUBMISSION_RESPONSE, course_id: "c-enrolled", sit_in_course_id: "c-selected-target" }] },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+    await user.selectOptions(await screen.findByRole("combobox"), "component-session");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
+    expect(screen.queryByText(/don't match the selected course/i)).not.toBeInTheDocument();
+    const batchCall = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+    const parsedBody = JSON.parse(String(batchCall?.[1]?.body)) as { items: Array<Record<string, unknown>> };
+    expect(parsedBody.items[0]).toMatchObject({
+      sit_in_course_id: "c-selected-target",
+      sit_in_session_ids: ["component-session"],
+    });
+  });
+
+  it("shows one submitted class card for the source records of a merged course", async () => {
+    const user = userEvent.setup();
+    const mergeGroupName = "SAT Verbal Rank 3 Section 1 C3";
+    renderAbsenceForm({
+      student: {
+        ...MOCK_STUDENT,
+        subjects: [
+          { id: "subj-writing", code: "WRITING", name: "SAT Verbal Writing", merge_group_id: "merge-r3s1", merge_group_name: mergeGroupName },
+          { id: "subj-reading", code: "READING", name: "SAT Verbal Reading", merge_group_id: "merge-r3s1", merge_group_name: mergeGroupName },
+        ],
+      },
+      sessions: createMockSessionsInRange([
+        {
+          subject_id: "subj-writing",
+          subject_code: "WRITING",
+          subject_name: "SAT Verbal Writing",
+          course_id: "c-writing",
+          course_code: "WRITING-C3",
+          course_name: "SAT Verbal Writing",
+          merge_group_id: "merge-r3s1",
+          merge_group_name: mergeGroupName,
+          sessions: [{ id: "missed-writing", start_at: "2026-06-02T09:00:00Z", end_at: "2026-06-02T10:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "zoom" },
+        },
+        {
+          subject_id: "subj-reading",
+          subject_code: "READING",
+          subject_name: "SAT Verbal Reading",
+          course_id: "c-reading",
+          course_code: "READING-C3",
+          course_name: "SAT Verbal Reading",
+          merge_group_id: "merge-r3s1",
+          merge_group_name: mergeGroupName,
+          sessions: [{ id: "missed-reading", start_at: "2026-06-02T11:00:00Z", end_at: "2026-06-02T12:30:00Z", date: "2026-06-02", already_absent: false }],
+          sit_in: { sit_in_method: "zoom" },
+        },
+      ]),
+      submission: {
+        items: [
+          { ...SUBMISSION_RESPONSE, id: "submitted-writing", course_id: "c-writing", subject_id: "subj-writing", subject_name: "SAT Verbal Writing", course_name: "SAT Verbal Writing", sit_in_method: "zoom" },
+          { ...SECOND_SUBMISSION_RESPONSE, id: "submitted-reading", course_id: "c-reading", subject_id: "subj-reading", subject_name: "SAT Verbal Reading", course_name: "SAT Verbal Reading", sit_in_method: "zoom" },
+        ],
+      },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter((cb) => cb.getAttribute("id")?.startsWith("session-"));
+    await user.click(sessionCheckboxes[0]);
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText("Absence submitted")).toBeInTheDocument();
+    const submittedClasses = screen.getByText("Submitted classes").parentElement;
+    expect(submittedClasses).not.toBeNull();
+    expect(within(submittedClasses!).getAllByRole("article")).toHaveLength(1);
+    expect(within(submittedClasses!).getByText(mergeGroupName, { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("2 absences submitted")).not.toBeInTheDocument();
+    expect(screen.queryByText("SAT Verbal Writing : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
+    expect(screen.queryByText("SAT Verbal Reading : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
   });
 
   it("merges same-day absence sessions into one selectable row and submits all missed session IDs", async () => {

@@ -160,6 +160,47 @@ const PAGE_WITH_SESSION_IMPACT = {
   ],
 };
 
+const PAGE_WITH_MERGED_COURSE = {
+  ...PAGE,
+  total_count: 2,
+  items: [
+    {
+      ...PAGE.items[0],
+      id: "abs-writing",
+      subject_name: "SAT Verbal Writing : Rank 3 (Section 1) C3",
+      merge_group_id: "merge-r3s1",
+      merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+      sit_in_merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+      sit_ins: [{
+        id: "sit-shared",
+        session_id: "sit-session-shared",
+        course_id: "sit-course-writing",
+        course_code: "WRITING-R3S2",
+        course_name: "SAT Verbal Writing : Rank 3 (Section 2) C3",
+        start_at: "2026-08-29T13:00:00+07:00",
+        end_at: "2026-08-29T14:40:00+07:00",
+      }],
+    },
+    {
+      ...PAGE.items[0],
+      id: "abs-reading",
+      subject_name: "SAT Verbal Reading : Rank 3 (Section 1) C3",
+      merge_group_id: "merge-r3s1",
+      merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+      sit_in_merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+      sit_ins: [{
+        id: "sit-shared",
+        session_id: "sit-session-shared",
+        course_id: "sit-course-reading",
+        course_code: "READING-R3S2",
+        course_name: "SAT Verbal Reading : Rank 3 (Section 2) C3",
+        start_at: "2026-08-29T13:00:00+07:00",
+        end_at: "2026-08-29T14:40:00+07:00",
+      }],
+    },
+  ],
+};
+
 function renderPage(path = "/absences?status=pending") {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -199,6 +240,17 @@ describe("Absence inbox", () => {
       expect.stringContaining("bucket=active"),
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("renders merged-course source absences as one inbox row", async () => {
+    mockApiJson.mockResolvedValueOnce(PAGE_WITH_MERGED_COURSE);
+    renderPage();
+
+    expect(await screen.findByText("SAT Verbal Rank 3 Section 1 C3")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByText("SAT Verbal Rank 3 Section 2 C3")).toBeInTheDocument();
+    expect(screen.queryByText("SAT Verbal Writing : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
+    expect(screen.queryByText("SAT Verbal Reading : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
   });
 
   it("makes unresolved session-change impact clear and filters to affected students", async () => {

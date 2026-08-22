@@ -19,6 +19,12 @@ type successSMSItem struct {
 	missed   []sqldb.ManagedAbsenceSession
 }
 
+type successSMSGroup struct {
+	row      sqldb.ManagedAbsenceRow
+	sessions []sqldb.ManagedAbsenceSession
+	missed   []sqldb.ManagedAbsenceSession
+}
+
 func renderSuccessSMSTemplate(template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
 	return renderSuccessSMSTemplateFromItems(template, []successSMSItem{{
 		row:      row,
@@ -51,10 +57,35 @@ func successSitInClass(row sqldb.ManagedAbsenceRow) string {
 	if row.SitInMethod.Valid && row.SitInMethod.String == "zoom" {
 		return "Zoom"
 	}
+	if row.SitInMergeGroupName.Valid && strings.TrimSpace(row.SitInMergeGroupName.String) != "" {
+		return row.SitInMergeGroupName.String
+	}
 	if row.SitInSubjectName.Valid && strings.TrimSpace(row.SitInSubjectName.String) != "" {
 		return row.SitInSubjectName.String
 	}
 	return textOr(row.SitInCourseName, textOr(row.SitInCourseCode, "Not assigned"))
+}
+
+func groupSuccessSMSItems(items []successSMSItem) []successSMSGroup {
+	groups := make([]successSMSGroup, 0, len(items))
+	groupIndexes := make(map[string]int, len(items))
+	for index, item := range items {
+		key := fmt.Sprintf("absence:%d", index)
+		if item.row.MergeGroupID.Valid {
+			if mergeGroupID, err := sUUIDString(item.row.MergeGroupID); err == nil {
+				key = "merge:" + strings.ToLower(item.row.Wcode) + ":" + mergeGroupID
+			}
+		}
+		groupIndex, exists := groupIndexes[key]
+		if !exists {
+			groupIndexes[key] = len(groups)
+			groups = append(groups, successSMSGroup{row: item.row})
+			groupIndex = len(groups) - 1
+		}
+		groups[groupIndex].sessions = append(groups[groupIndex].sessions, item.sessions...)
+		groups[groupIndex].missed = append(groups[groupIndex].missed, item.missed...)
+	}
+	return groups
 }
 
 func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map[string]string {
@@ -73,25 +104,26 @@ func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map
 		}
 	}
 
-	classNames := make([]string, 0, len(items))
-	absenceDates := make([]string, 0, len(items))
-	sitInClasses := make([]string, 0, len(items))
-	sitInDateTimes := make([]string, 0, len(items))
-	absenceSummaries := make([]string, 0, len(items))
-	sitInSummaries := make([]string, 0, len(items))
+	groups := groupSuccessSMSItems(items)
+	classNames := make([]string, 0, len(groups))
+	absenceDates := make([]string, 0, len(groups))
+	sitInClasses := make([]string, 0, len(groups))
+	sitInDateTimes := make([]string, 0, len(groups))
+	absenceSummaries := make([]string, 0, len(groups))
+	sitInSummaries := make([]string, 0, len(groups))
 
-	for _, item := range items {
-		className := textOr(item.row.SubjectName, item.row.CourseName)
-		absenceDate := successAbsenceDate(item.row, item.missed, loc)
-		sitInClass := successSitInClass(item.row)
-		sitInDateTime := successSitInDateTime(item.sessions, loc)
+	for _, group := range groups {
+		className := textOr(group.row.MergeGroupName, textOr(group.row.SubjectName, group.row.CourseName))
+		absenceDate := successAbsenceDate(group.row, group.missed, loc)
+		sitInClass := successSitInClass(group.row)
+		sitInDateTime := successSitInDateTime(group.sessions, loc)
 
 		classNames = append(classNames, className)
 		absenceDates = append(absenceDates, absenceDate)
 		sitInClasses = append(sitInClasses, sitInClass)
 		sitInDateTimes = append(sitInDateTimes, sitInDateTime)
 		absenceSummaries = append(absenceSummaries, successAbsenceSummary(className, absenceDate))
-		sitInSummaries = append(sitInSummaries, successSitInSummary(item.row, sitInClass, sitInDateTime))
+		sitInSummaries = append(sitInSummaries, successSitInSummary(group.row, sitInClass, sitInDateTime))
 	}
 
 	return map[string]string{
@@ -179,6 +211,7 @@ func uniqueSessionDateLabels(sessions []sqldb.ManagedAbsenceSession, loc *time.L
 }
 
 func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
+	seen := map[string]bool{}
 	labels := make([]string, 0, len(sessions))
 	for _, session := range sessions {
 		if !session.StartAt.Valid {
@@ -188,6 +221,10 @@ func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Loca
 		if session.EndAt.Valid {
 			label += " - " + session.EndAt.Time.In(loc).Format("15:04")
 		}
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
 		labels = append(labels, label)
 	}
 	return strings.Join(labels, ", ")

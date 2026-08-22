@@ -35,10 +35,13 @@ export type StudentAbsence = {
   sit_in_course_code?: string | null;
   sit_in_course_name?: string | null;
   sit_in_subject_name?: string | null;
+  sit_in_merge_group_name?: string | null;
   created_at: string;
   subject_id?: string | null;
   subject_code?: string | null;
   subject_name?: string | null;
+  merge_group_id?: string | null;
+  merge_group_name?: string | null;
   sit_in_method?: string | null;
   sit_ins?: Array<{ id: string; session_id: string }>;
   student_name?: string | null;

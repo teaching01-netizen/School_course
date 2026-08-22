@@ -343,6 +343,57 @@ func TestSendBatchSuccessSMS_FormatsAggregatedSummariesInInstituteTimezone(t *te
 	}
 }
 
+func TestRenderBatchSuccessSMSTemplate_GroupsMergedCourseItems(t *testing.T) {
+	mergeGroupID := makeUUID("3a296bd4-fd61-4877-b4b2-698475030911")
+	sharedSitIn := sqldb.ManagedAbsenceSession{
+		StartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 6, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:   pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 7, 40, 0, 0, time.UTC), Valid: true},
+	}
+	items := []successSMSItem{
+		{
+			row: sqldb.ManagedAbsenceRow{
+				Wcode:               "W000012",
+				SubjectName:         pgtype.Text{String: "SAT Verbal Writing : Rank 3 (Section 1) C3", Valid: true},
+				MergeGroupID:        mergeGroupID,
+				MergeGroupName:      pgtype.Text{String: "SAT Verbal Rank 3 Section 1 C3", Valid: true},
+				SitInMethod:         pgtype.Text{String: "physical", Valid: true},
+				SitInSubjectName:    pgtype.Text{String: "SAT Verbal Reading : Rank 3 (Section 2) C3", Valid: true},
+				SitInMergeGroupName: pgtype.Text{String: "SAT Verbal Rank 3 Section 2 C3", Valid: true},
+			},
+			sessions: []sqldb.ManagedAbsenceSession{sharedSitIn},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 26, 9, 0, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+		{
+			row: sqldb.ManagedAbsenceRow{
+				Wcode:               "w000012",
+				SubjectName:         pgtype.Text{String: "SAT Verbal Reading : Rank 3 (Section 1) C3", Valid: true},
+				MergeGroupID:        mergeGroupID,
+				MergeGroupName:      pgtype.Text{String: "SAT Verbal Rank 3 Section 1 C3", Valid: true},
+				SitInMethod:         pgtype.Text{String: "physical", Valid: true},
+				SitInSubjectName:    pgtype.Text{String: "SAT Verbal Writing : Rank 3 (Section 2) C3", Valid: true},
+				SitInMergeGroupName: pgtype.Text{String: "SAT Verbal Rank 3 Section 2 C3", Valid: true},
+			},
+			sessions: []sqldb.ManagedAbsenceSession{sharedSitIn},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 26, 9, 0, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+	}
+
+	message := renderBatchSuccessSMSTemplate(
+		"{{class_name}}|{{absence_date}}|{{sit_in_class}}|{{sit_in_date_time}}|{{absence_summary}}|{{sit_in_summary}}",
+		items,
+		time.UTC,
+	)
+
+	want := "SAT Verbal Rank 3 Section 1 C3|26 Aug 2026|SAT Verbal Rank 3 Section 2 C3|29 Aug, 06:00 - 07:40|SAT Verbal Rank 3 Section 1 C3 (26 Aug 2026)|SAT Verbal Rank 3 Section 2 C3 (29 Aug, 06:00 - 07:40)"
+	if message != want {
+		t.Fatalf("message = %q, want %q", message, want)
+	}
+}
+
 func TestSuccessSMSPhones_ExcludesNullPhones(t *testing.T) {
 	t.Run("both populated returns both", func(t *testing.T) {
 		phones := successSMSPhones(

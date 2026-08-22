@@ -151,6 +151,49 @@ function formatSitInWindow(startAt: string, endAt: string): string {
   return `${startLabel}-${endLabel}`;
 }
 
+type InboxAbsenceGroup = {
+  key: string;
+  item: ManagedAbsence;
+  items: ManagedAbsence[];
+};
+
+function groupInboxAbsences(items: ManagedAbsence[]): InboxAbsenceGroup[] {
+  const groups = new Map<string, ManagedAbsence[]>();
+  for (const item of items) {
+    const mergeKey = item.merge_group_id?.trim() || item.merge_group_name?.trim();
+    const key = mergeKey ? `merge:${item.wcode.toLowerCase()}:${mergeKey}` : `absence:${item.id}`;
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+
+  return [...groups.entries()].map(([key, groupItems]) => {
+    const first = groupItems[0];
+    if (groupItems.length === 1) return { key, item: first, items: groupItems };
+
+    const mergeName = groupItems.find((item) => item.merge_group_name?.trim())?.merge_group_name?.trim();
+    const missedSessions = new Map<string, NonNullable<ManagedAbsence["missed_sessions"]>[number]>();
+    const sitInSessions = new Map<string, NonNullable<ManagedAbsence["sit_ins"]>[number]>();
+    for (const item of groupItems) {
+      for (const session of item.missed_sessions ?? []) missedSessions.set(session.id, session);
+      for (const session of item.sit_ins ?? []) sitInSessions.set(session.id, session);
+    }
+
+    return {
+      key,
+      item: {
+        ...first,
+        status: groupItems.some((item) => item.status === "pending") ? "pending" : first.status,
+        subject_name: mergeName || first.subject_name,
+        merge_group_name: mergeName || first.merge_group_name,
+        missed_sessions: [...missedSessions.values()],
+        sit_ins: [...sitInSessions.values()],
+      },
+      items: groupItems,
+    };
+  });
+}
+
 function SubjectSummary({ absence }: { absence: ManagedAbsence }) {
   const missedSessions = (absence.missed_sessions ?? [])
     .slice()
@@ -179,7 +222,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
     return <span className="text-sm text-[var(--color-wi-text-light)]">Zoom</span>;
   }
 
-  const fallbackLabel = absence.sit_in_subject_name ?? absence.sit_in_course_name ?? absence.sit_in_course_code;
+  const fallbackLabel = absence.sit_in_merge_group_name ?? absence.sit_in_subject_name ?? absence.sit_in_course_name ?? absence.sit_in_course_code;
   const sessions = (absence.sit_ins ?? [])
     .slice()
     .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
@@ -200,8 +243,8 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
     <div className="space-y-1 text-sm leading-snug text-[var(--color-wi-text-light)]">
       {sessions.map((session) => (
         <div key={session.id}>
-          <div className="max-w-[180px] truncate font-medium text-[var(--color-wi-text)]" title={session.subject_name ?? session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
-            {session.subject_name ?? session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}
+          <div className="max-w-[180px] truncate font-medium text-[var(--color-wi-text)]" title={absence.sit_in_merge_group_name ?? session.subject_name ?? session.course_name ?? session.course_code ?? absence.sit_in_subject_name ?? "Sit-in"}>
+            {absence.sit_in_merge_group_name ?? session.subject_name ?? session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}
           </div>
           <div className="text-xs text-[var(--color-wi-text-light)]">{formatSitInWindow(session.start_at, session.end_at)}</div>
         </div>
@@ -564,8 +607,9 @@ export default function Absences() {
     }
   }
 
-  async function markSelectedReviewed() {
-    const records = (page?.items ?? []).filter((item) => selected.has(item.id) && item.status === "pending");
+  async function markSelectedReviewed(recordsOverride?: ManagedAbsence[]) {
+    const records = (recordsOverride ?? (page?.items ?? []).filter((item) => selected.has(item.id)))
+      .filter((item) => item.status === "pending");
     if (records.length === 0) return;
     setBatchProcessing(true);
     setBatchFailed([]);
@@ -603,10 +647,8 @@ export default function Absences() {
 
   async function retryFailed() {
     if (batchFailed.length === 0) return;
-    const previousSelected = new Set(selected);
-    setSelected(new Set(batchFailed.map((f) => f.id)));
-    await markSelectedReviewed();
-    setSelected(previousSelected);
+    const failedIDs = new Set(batchFailed.map((failure) => failure.id));
+    await markSelectedReviewed((page?.items ?? []).filter((item) => failedIDs.has(item.id)));
   }
 
   const subjects = useMemo(() => {
@@ -683,7 +725,9 @@ export default function Absences() {
   }
 
   const items = page?.items ?? [];
-  const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  const inboxGroups = groupInboxAbsences(items);
+  const selectedGroupCount = inboxGroups.filter((group) => group.items.some((item) => selected.has(item.id))).length;
+  const allSelected = inboxGroups.length > 0 && inboxGroups.every((group) => group.items.every((item) => selected.has(item.id)));
   const hasPrevious = filters.offset > 0;
   const hasNext = filters.offset + PAGE_SIZE < (page?.total_count ?? 0);
   const totalPages = Math.ceil((page?.total_count ?? 0) / PAGE_SIZE);
@@ -819,7 +863,7 @@ export default function Absences() {
       <div className={`overflow-hidden transition-all duration-300 ease-in-out ${selected.size > 0 ? 'max-h-16 mb-3' : 'max-h-0'}`}>
         {selected.size > 0 ? (
           <div className="flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
-            <span className="font-medium text-blue-800">{selected.size} selected</span>
+            <span className="font-medium text-blue-800">{selectedGroupCount} selected</span>
             <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
               {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}…` : "Mark Reviewed"}
             </Button>
@@ -866,22 +910,25 @@ export default function Absences() {
             </tr>
           </thead>
           <tbody>
-            {items.map((absence) => {
+            {inboxGroups.map((group) => {
+              const absence = group.item;
               const impacted = (absence.open_schedule_issue_count ?? 0) > 0;
               const critical = (absence.critical_schedule_issue_count ?? 0) > 0;
               return (
               <tr
-                key={absence.id}
+                key={group.key}
                 className={`group cursor-pointer align-middle ${
                   critical ? "bg-red-50/70 hover:bg-red-50" : impacted ? "bg-amber-50/70 hover:bg-amber-50" : "hover:bg-blue-50/40"
                 }`}
                 onClick={() => navigate(`/absences/${absence.id}`)}
               >
                 <td className={`px-3 py-3 ${impacted ? critical ? "border-l-4 border-red-600" : "border-l-4 border-amber-500" : ""}`} data-label="Select" onClick={(event) => event.stopPropagation()}>
-                  <input aria-label={`Select ${absence.wcode}`} type="checkbox" checked={selected.has(absence.id)} onChange={(event) => setSelected((current) => {
+                  <input aria-label={`Select ${absence.wcode}`} type="checkbox" checked={group.items.every((item) => selected.has(item.id))} onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
-                    if (event.target.checked) next.add(absence.id);
-                    else next.delete(absence.id);
+                    for (const item of group.items) {
+                      if (event.target.checked) next.add(item.id);
+                      else next.delete(item.id);
+                    }
                     return next;
                   })} />
                 </td>
@@ -921,12 +968,12 @@ export default function Absences() {
                       </Link>
                     ) : null}
                     <Link to={`/absences/${absence.id}`} aria-label={`Open details for ${absence.wcode}`} className="inline-flex min-h-[28px] items-center rounded-sm px-2 text-xs text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"><Eye className="mr-1 h-3.5 w-3.5" /> View</Link>
-                    {absence.status === "pending" ? <Button size="sm" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "reviewed")}>Mark Reviewed</Button> : null}
+                    {absence.status === "pending" ? <Button size="sm" loading={batchProcessing || reviewing === absence.id} onClick={() => void markSelectedReviewed(group.items)}>Mark Reviewed</Button> : null}
                     {absence.status === "reviewed" ? <Button size="sm" variant="secondary" loading={reviewing === absence.id} onClick={() => void setStatus(absence, "actioned")}>Mark Actioned</Button> : null}
                     <DropdownMenu items={[
                       ...(absence.status !== "cancelled" && absence.status !== "special_approved" ? [{ label: "Special Approve", onClick: () => setSpecialApprovedTarget(absence) }] : []),
                       { label: "Override", onClick: () => setOverrideTarget(absence) },
-                      ...(absence.status !== "cancelled" ? [{ label: "Cancel", onClick: () => { setCancelTargets([absence]); setCancelReasonCategory(""); setCancelReasonDetail(""); } }] : []),
+                      ...(absence.status !== "cancelled" ? [{ label: "Cancel", onClick: () => { setCancelTargets(group.items.filter((item) => item.status !== "cancelled")); setCancelReasonCategory(""); setCancelReasonDetail(""); } }] : []),
                       { label: "Delete", onClick: () => setDeleteTarget(absence), danger: true },
                     ]} />
                   </div>

@@ -1,6 +1,61 @@
 import { formatDate, formatTime } from "@/utils/date";
-import type { ManagedAbsence } from "../types";
-import { dayKey, groupByDay } from "./sessionGrouping";
+import type { ManagedAbsence, SubjectSessions } from "../types";
+import { absenceScopeKey, combineSubjectGroups, dayKey, groupByDay } from "./sessionGrouping";
+
+export type SubmittedAbsenceGroup = {
+  key: string;
+  label: string;
+  absences: ManagedAbsence[];
+};
+
+export function groupSubmittedAbsences(
+  absences: ManagedAbsence[],
+  sessionGroups: SubjectSessions[],
+): SubmittedAbsenceGroup[] {
+  const sourceByCourseID = new Map(sessionGroups.map((group) => [group.course_id, group]));
+  const blockByKey = new Map(
+    combineSubjectGroups(sessionGroups).map((block) => [block.key, block]),
+  );
+  const groups = new Map<string, SubmittedAbsenceGroup>();
+
+  for (const absence of absences) {
+    const source = sourceByCourseID.get(absence.course_id);
+    const mergeGroupID = source?.merge_group_id?.trim() || absence.merge_group_id?.trim();
+    const key = mergeGroupID
+      ? `merge:${mergeGroupID}`
+      : source
+        ? absenceScopeKey(source)
+        : `absence:${absence.id}`;
+    const block = blockByKey.get(key);
+    const label =
+      block?.label ||
+      absence.merge_group_name?.trim() ||
+      absence.subject_name?.trim() ||
+      absence.course_name?.trim() ||
+      "Submitted class";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.absences.push(absence);
+    } else {
+      groups.set(key, { key, label, absences: [absence] });
+    }
+  }
+
+  return [...groups.values()];
+}
+
+export function formatSubmittedAbsenceSummary(group: SubmittedAbsenceGroup): string {
+  const dates = [...new Set(group.absences.flatMap((absence) => {
+    const summary = getAbsenceSessionDateLabels(absence);
+    return summary ? [summary] : [];
+  }))];
+  return dates.length > 0 ? `${group.label} (${dates.join(", ")})` : group.label;
+}
+
+export function formatSubmittedSitInSummary(group: SubmittedAbsenceGroup): string {
+  const summaries = [...new Set(group.absences.map(formatBatchSitInSummary))];
+  return summaries.join("; ");
+}
 
 export function formatBatchAbsenceSummary(absence: ManagedAbsence) {
   const className = absence.subject_name?.trim() || absence.course_name?.trim() || "";

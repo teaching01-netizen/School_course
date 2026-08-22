@@ -274,6 +274,14 @@ func managedAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
 	if row.SubjectName.Valid {
 		response["subject_name"] = row.SubjectName.String
 	}
+	if row.MergeGroupID.Valid {
+		if id, err := sUUIDString(row.MergeGroupID); err == nil {
+			response["merge_group_id"] = id
+		}
+	}
+	if row.MergeGroupName.Valid {
+		response["merge_group_name"] = row.MergeGroupName.String
+	}
 	if row.ReasonCategory.Valid {
 		response["reason_category"] = row.ReasonCategory.String
 	}
@@ -296,6 +304,9 @@ func managedAbsenceResponse(row sqldb.ManagedAbsenceRow) map[string]any {
 	}
 	if row.SitInSubjectName.Valid {
 		response["sit_in_subject_name"] = row.SitInSubjectName.String
+	}
+	if row.SitInMergeGroupName.Valid {
+		response["sit_in_merge_group_name"] = row.SitInMergeGroupName.String
 	}
 	if row.AdminNotes.Valid {
 		response["admin_notes"] = row.AdminNotes.String
