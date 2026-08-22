@@ -93,10 +93,10 @@ export function formatBatchSitInSummary(absence: ManagedAbsence) {
     return sessionLabels.length > 0 ? `To arrange (${sessionLabels.join(", ")})` : "To arrange";
   }
   if (sessionLabels.length > 0) {
-    const className = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || "Make-up class";
+    const className = absence.sit_in_merge_group_name?.trim() || absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim() || "Make-up class";
     return `${className} (${sessionLabels.join(", ")})`;
   }
-  const label = absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim();
+  const label = absence.sit_in_merge_group_name?.trim() || absence.sit_in_subject_name?.trim() || absence.sit_in_course_name?.trim();
   if (label) return label;
   return "To arrange";
 }

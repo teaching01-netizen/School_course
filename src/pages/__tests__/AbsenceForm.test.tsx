@@ -963,8 +963,8 @@ describe("AbsenceForm", () => {
       ]),
       submission: {
         items: [
-          { ...SUBMISSION_RESPONSE, id: "submitted-writing", course_id: "c-writing", subject_id: "subj-writing", subject_name: "SAT Verbal Writing", course_name: "SAT Verbal Writing", sit_in_method: "zoom" },
-          { ...SECOND_SUBMISSION_RESPONSE, id: "submitted-reading", course_id: "c-reading", subject_id: "subj-reading", subject_name: "SAT Verbal Reading", course_name: "SAT Verbal Reading", sit_in_method: "zoom" },
+          { ...SUBMISSION_RESPONSE, id: "submitted-writing", course_id: "c-writing", subject_id: "subj-writing", subject_name: "SAT Verbal Writing", course_name: "SAT Verbal Writing", sit_in_method: "physical", sit_in_merge_group_name: "SAT Verbal Rank 3 Section 2 C3" },
+          { ...SECOND_SUBMISSION_RESPONSE, id: "submitted-reading", course_id: "c-reading", subject_id: "subj-reading", subject_name: "SAT Verbal Reading", course_name: "SAT Verbal Reading", sit_in_method: "physical", sit_in_merge_group_name: "SAT Verbal Rank 3 Section 2 C3" },
         ],
       },
     });
@@ -984,6 +984,7 @@ describe("AbsenceForm", () => {
     expect(submittedClasses).not.toBeNull();
     expect(within(submittedClasses!).getAllByRole("article")).toHaveLength(1);
     expect(within(submittedClasses!).getByText(mergeGroupName, { exact: true })).toBeInTheDocument();
+    expect(within(submittedClasses!).getByText("SAT Verbal Rank 3 Section 2 C3", { exact: true })).toBeInTheDocument();
     expect(screen.queryByText("2 absences submitted")).not.toBeInTheDocument();
     expect(screen.queryByText("SAT Verbal Writing : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
     expect(screen.queryByText("SAT Verbal Reading : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
