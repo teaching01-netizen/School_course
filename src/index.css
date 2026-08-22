@@ -244,6 +244,14 @@ html {
   animation: blink 1s step-end infinite;
 }
 
+/* Reduced motion: keep the caret visible (it marks the active cell) but stop
+   the blinking. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-blink {
+    animation: none;
+  }
+}
+
 /* Notion-style motion vocabulary */
 @keyframes notion-backdrop-in {
   from { opacity: 0; }

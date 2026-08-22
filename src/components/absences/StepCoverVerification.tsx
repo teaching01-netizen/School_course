@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { LoaderCircle } from "lucide-react";
 import { apiJson, ApiRequestError } from "@/api/client";
 import { loadStudentProfile } from "@/features/absences/api/absenceFormApi";
 import {
@@ -66,6 +67,7 @@ export default function StepCoverVerification({
   const [validationAttempt, setValidationAttempt] = useState(0);
   const [enrollPhone, setEnrollPhone] = useState("");
   const autoVerifyCodeRef = useRef<string | null>(null);
+  const reduceMotion = useReducedMotion();
 
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
   const deliveryStatus = session?.delivery_status;
@@ -260,7 +262,7 @@ export default function StepCoverVerification({
   if (verified) {
     return (
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-green-600 font-medium">✓ Verified</p>
+        <p className="text-xs text-[var(--color-wi-green)] font-medium">✓ Verified</p>
         {smsParentEnabled && !parentMissing ? (
           <button
             type="button"
@@ -283,17 +285,17 @@ export default function StepCoverVerification({
         </p>
       ) : null}
       {!smsParentEnabled ? (
-        <p role="alert" className="text-xs text-amber-600">
+        <p role="alert" className="text-xs text-[var(--color-wi-amber)]">
           Parent verification codes are currently unavailable.
           Contact admin before continuing.
         </p>
       ) : null}
 
       {sendError ? (
-        <p role="alert" className="text-xs text-red-600">{sendError}</p>
+        <p role="alert" className="text-xs text-[var(--color-wi-red)]">{sendError}</p>
       ) : null}
       {restoreError ? (
-        <div role="alert" className="space-y-1 text-xs text-red-600">
+        <div role="alert" className="space-y-1 text-xs text-[var(--color-wi-red)]">
           <p>{restoreError}</p>
           <button
             type="button"
@@ -305,7 +307,7 @@ export default function StepCoverVerification({
         </div>
       ) : null}
       {verifyError ? (
-        <div className="space-y-1 text-xs text-red-600">
+        <div id="verify-error" className="space-y-1 text-xs text-[var(--color-wi-red)]">
           <p role="alert">{verifyError}</p>
           {verifyRetryable && verification.code.length === 6 ? (
             <button
@@ -360,32 +362,33 @@ export default function StepCoverVerification({
       ) : null}
 
       {deliveryPending ? (
-        <p className="text-xs font-medium text-blue-600">Sending code…</p>
+        <p className="text-xs font-medium text-[var(--color-wi-primary)]">Sending code…</p>
       ) : null}
 
       {deliveryStatus === "uncertain" ? (
-        <p role="status" className="text-xs font-medium text-amber-700">
+        <p role="status" className="text-xs font-medium text-[var(--color-wi-amber)]">
           The SMS may have been sent. Enter the code if it arrives, or resend after the cooldown.
         </p>
       ) : null}
 
       {deliveryStatus === "failed" ? (
-        <p role="alert" className="text-xs font-medium text-red-600">
+        <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
           We couldn't send the code. Please try again.
         </p>
       ) : null}
 
       {deliveryStatus === "expired" ? (
-        <p role="alert" className="text-xs font-medium text-red-600">
+        <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
           The verification code expired. Request a new code.
         </p>
       ) : null}
 
       {deliveryAccepted && lastSentAt && !isSending && (
         <motion.p
-          initial={{ opacity: 0, y: -4 }}
+          initial={reduceMotion ? false : { opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium"
+          transition={reduceMotion ? { duration: 0 } : undefined}
+          className="flex items-center gap-1.5 text-xs text-[var(--color-wi-green)] font-medium"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -397,9 +400,9 @@ export default function StepCoverVerification({
 
       {(session?.token || verification.token) ? (
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.25, ease: "easeOut" }}
           className="space-y-3"
         >
           <OtpInput
@@ -409,8 +412,15 @@ export default function StepCoverVerification({
             error={!!verifyError}
             autoFocus={sendCount > 0}
             label="Verification code"
+            describedBy={verifyError ? "verify-error" : undefined}
           />
           <p className="text-xs text-[var(--color-wi-text-light)]">Enter the 6-digit code sent to your parent's phone.</p>
+          {isVerifying ? (
+            <p role="status" aria-live="polite" className="flex items-center gap-2 text-xs font-medium text-[var(--color-wi-primary)]">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              Checking your code…
+            </p>
+          ) : null}
         </motion.div>
       ) : null}
 

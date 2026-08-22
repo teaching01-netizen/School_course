@@ -36,7 +36,6 @@ export function useOtp(storageKey: string) {
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
-  const [tick, forceTick] = useState(0);
 
   useEffect(() => {
     const stored = readStoredOtp(storageKey);
@@ -46,18 +45,8 @@ export function useOtp(storageKey: string) {
     }
   }, [storageKey]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      forceTick((value) => value + 1);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const secondsLeft = useMemo(() => {
-    if (!expiresAt) return 0;
-    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-  }, [expiresAt, tick]);
-
+  // No clock polling here: the consumer enforces expiry with a one-shot
+  // timeout, so re-rendering the page every second would be pure waste.
   const persistToken = useCallback((nextToken: string, nextExpiresAt?: number | null) => {
     setToken(nextToken);
     const next = nextExpiresAt ?? expiresAt;
@@ -85,8 +74,7 @@ export function useOtp(storageKey: string) {
     setToken,
     expiresAt,
     setExpiresAt: setAndPersistExpiresAt,
-    secondsLeft,
     persistToken,
     clearStoredToken,
-  }), [code, setCode, token, setToken, expiresAt, setAndPersistExpiresAt, secondsLeft, persistToken, clearStoredToken]);
+  }), [code, setCode, token, setToken, expiresAt, setAndPersistExpiresAt, persistToken, clearStoredToken]);
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, LoaderCircle } from "lucide-react";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
@@ -124,6 +124,7 @@ export default function AbsenceForm() {
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionsReloadToken, setSessionsReloadToken] = useState(0);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [sitInSelections, setSitInSelections] = useState<Record<string, string>>({});
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
@@ -297,7 +298,7 @@ export default function AbsenceForm() {
       })
       .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup, online, handleStudentSessionExpired]);
+  }, [step, lookup, online, sessionsReloadToken, handleStudentSessionExpired]);
 
   useEffect(() => {
     let active = true;
@@ -485,8 +486,7 @@ export default function AbsenceForm() {
   };
 
   const handleSessionGroupToggle = (group: SubjectSessions, sessionIds: string[]) => {
-    const selected = sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
-    if (selected) {
+    if (sessionIds.every((sessionId) => selectedSessionIds.has(sessionId))) {
       setSelectedSessionIds((current) => {
         const next = new Set(current);
         for (const sessionId of sessionIds) next.delete(sessionId);
@@ -499,16 +499,19 @@ export default function AbsenceForm() {
       });
       return;
     }
-    setSelectedSessionIds((current) => {
-      const next = new Set(current);
-      for (const sessionId of sessionIds) next.add(sessionId);
-      const scopeKey = absenceScopeKey(group);
-      const scopedGroups = sessions.filter((candidate) => absenceScopeKey(candidate) === scopeKey);
-      const projectedDays = countSelectedAbsenceDaysForScope(scopedGroups, next, scopeKey);
-      const remaining = Math.max(...scopedGroups.map(remainingForGroup), 0);
-      if (projectedDays > remaining || projectedDays > maxSessions) return current;
-      return next;
-    });
+    const next = new Set(selectedSessionIds);
+    for (const sessionId of sessionIds) next.add(sessionId);
+    const scopeKey = absenceScopeKey(group);
+    const scopedGroups = scopeIndex.get(scopeKey) ?? [];
+    const projectedDays = countSelectedAbsenceDaysForScope(scopedGroups, next, scopeKey);
+    const remaining = Math.max(0, ...scopedGroups.map(remainingForGroup));
+    if (projectedDays > remaining || projectedDays > maxSessions) {
+      const label = group.merge_group_name?.trim() || group.course_name?.trim() || "this course";
+      setPageError(`You can report ${remaining > 0 ? `only ${Math.min(remaining, maxSessions)} more absence day${Math.min(remaining, maxSessions) !== 1 ? "s" : ""} for ${label}` : `no more absences for ${label}`}. Remove a selected day first if you need to change your selection.`);
+      return;
+    }
+    setPageError(null);
+    setSelectedSessionIds(next);
   };
 
   const handleSitInSelectForSessions = (sessionIds: string[], sitInSessionId: string) => {
@@ -582,6 +585,29 @@ export default function AbsenceForm() {
     if (!pageError && !submissionError) return;
     pageAlertRef.current?.focus();
   }, [pageError, submissionError]);
+
+  // A step change swaps the whole working area; without this, focus can fall
+  // back to <body> when the triggering control unmounts (e.g. "Edit classes").
+  // Focus already placed inside the new step (an alert, a restored control)
+  // keeps priority.
+  const hasFocusedInitiallyRef = useRef(false);
+  useEffect(() => {
+    if (!hasFocusedInitiallyRef.current) {
+      hasFocusedInitiallyRef.current = true;
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const main = document.getElementById("absence-form-content");
+      if (!main) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== document.body && main.contains(active)) return;
+      main.focus();
+    });
+  }, [step]);
+
+  useEffect(() => {
+    if (finalResults) resultHeadingRef.current?.focus();
+  }, [finalResults]);
 
   function focusFirstInvalid(selector: string) {
     window.requestAnimationFrame(() => {
@@ -779,7 +805,6 @@ export default function AbsenceForm() {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[var(--color-wi-text)]">{label}</p>
-                        <p className="text-xs text-[var(--color-wi-text-light)]">{formatBatchAbsenceSummary(absence)}</p>
                       </div>
                     </div>
                     <div className="mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
@@ -876,7 +901,17 @@ export default function AbsenceForm() {
           </div>
         ) : null}
 
-        <div className="space-y-6">
+        <p aria-live="polite" className="sr-only">
+          Step {step + 1} of {STEP_LABELS.length}: {STEP_LABELS[step].label} — {STEP_LABELS[step].description}
+        </p>
+
+        <motion.div
+          key={step}
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
+          className="space-y-6"
+        >
             {step === 0 && (
               <StudentStep>
                 <div className="space-y-4">
@@ -899,9 +934,15 @@ export default function AbsenceForm() {
                         type="button"
                         onClick={() => void handleLookup()}
                         disabled={lookupLoading}
-                        className="min-h-[48px] rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] disabled:opacity-50"
+                        aria-busy={lookupLoading}
+                        className="inline-flex min-h-[48px] min-w-[6.75rem] items-center justify-center rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-50"
                       >
-                        {lookupLoading ? "..." : "Search"}
+                        {lookupLoading ? (
+                          <span className="inline-flex items-center gap-2">
+                            <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                            <span>Searching…</span>
+                          </span>
+                        ) : "Search"}
                       </button>
                     </div>
                     {lookupError ? (
@@ -941,9 +982,11 @@ export default function AbsenceForm() {
                               placeholder="e.g. student@example.com"
                               value={collectedEmail}
                               onChange={(e) => setCollectedEmail(e.target.value)}
+                              aria-invalid={collectedEmail.trim() && !manualEmailValid ? true : undefined}
+                              aria-describedby={collectedEmail.trim() && !manualEmailValid ? "student-email-error" : undefined}
                             />
-                            {!manualEmailValid && (
-                              <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid email to continue.</p>
+                            {collectedEmail.trim() && !manualEmailValid && (
+                              <p id="student-email-error" className="text-xs text-[var(--color-wi-amber)]">Enter a valid email to continue.</p>
                             )}
                           </div>
                         ) : (
@@ -1035,7 +1078,7 @@ export default function AbsenceForm() {
                       <section>
                         <div className="flex items-center justify-between mb-3">
                           <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
-                          <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">
+                          <span aria-live="polite" className="text-xs font-semibold text-[var(--color-wi-text-light)]">
                             {selectedAbsenceDayCount} selected
                             {selectedSubjectRemainingDays > 0
                               ? ` (${selectedSubjectRemainingDays} remaining)`
@@ -1069,7 +1112,16 @@ export default function AbsenceForm() {
                         {sessionsLoading ? (
                           <LoadingSkeleton type="table" lines={3} />
                         ) : sessionsError ? (
-                          <p role="alert" className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
+                          <div role="alert" className="space-y-2">
+                            <p className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
+                            <button
+                              type="button"
+                              onClick={() => setSessionsReloadToken((token) => token + 1)}
+                              className="min-h-11 rounded-lg border border-[var(--color-wi-red)]/40 px-3 text-sm font-semibold text-[var(--color-wi-red)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-danger-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-red)]/40"
+                            >
+                              Retry loading classes
+                            </button>
+                          </div>
                         ) : selectedGroups.length === 0 ? (
                           <p className="text-sm text-[var(--color-wi-text-light)]">No classes found for the selected courses.</p>
                         ) : (
@@ -1412,7 +1464,7 @@ export default function AbsenceForm() {
                 ) : null}
               </ReviewStep>
             )}
-        </div>
+        </motion.div>
       </div>
       {submissionOverlay}
     </AbsenceAppShell>

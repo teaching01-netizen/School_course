@@ -92,7 +92,7 @@ describe("AbsenceForm Student step", () => {
 
     await searchForStudent(user, student.wcode);
 
-    expect(await screen.findByText("Email on file")).toBeInTheDocument();
+    expect(await screen.findByText(/your email is already saved/i)).toBeInTheDocument();
     expect(screen.queryByText(email)).not.toBeInTheDocument();
     expect(screen.queryByText(_source)).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /your email address/i })).not.toBeInTheDocument();
@@ -203,7 +203,7 @@ describe("AbsenceForm Student step", () => {
     const input = await screen.findByRole("textbox", { name: /student id/i });
     await user.type(input, MANUAL_EMAIL_STUDENT.wcode);
     await user.keyboard("{Enter}");
-    expect(screen.getByRole("button", { name: "..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /searching/i })).toBeDisabled();
 
     await user.clear(input);
     await user.keyboard("{Enter}");

@@ -41,7 +41,7 @@ function ProgressRing({ progress }: { progress: number }) {
         strokeLinecap="round"
         strokeDasharray={circumference}
         strokeDashoffset={offset}
-        className="transition-[stroke-dashoffset] duration-500 ease-linear"
+        className="transition-[stroke-dashoffset] duration-500 ease-linear motion-reduce:transition-none"
       />
     </svg>
   );
@@ -50,7 +50,7 @@ function ProgressRing({ progress }: { progress: number }) {
 function Spinner() {
   return (
     <svg
-      className="h-5 w-5 animate-spin"
+      className="h-5 w-5 animate-spin motion-reduce:animate-none"
       viewBox="0 0 24 24"
       fill="none"
       aria-hidden="true"
@@ -124,9 +124,9 @@ export default function SmsSendButton({
       onClick={onClick}
       disabled={!isInteractive}
       className={clsx(
-        "relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all",
+        "relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
         isInteractive
-          ? "bg-blue-600 text-white hover:bg-blue-700"
+          ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
           : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
       )}
     >
@@ -162,10 +162,7 @@ export default function SmsSendButton({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
             transition={{ duration: 0.15 }}
-            className={clsx(
-              "inline-flex items-center gap-2",
-              sendCount > 0 && "animate-pulse",
-            )}
+            className="inline-flex items-center gap-2"
           >
             {sendCount > 0 ? "Resend code" : "Send code"}
           </motion.span>

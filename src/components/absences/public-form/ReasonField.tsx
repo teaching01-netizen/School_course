@@ -18,10 +18,12 @@ export default function ReasonField({ value, onChange, error, required = true }:
         <label htmlFor="absence-reason" className="text-sm font-semibold text-[var(--color-wi-text)]">
           Reason for absence{required ? <span aria-hidden="true"> *</span> : null}
         </label>
+        {/* Visual-only: announcing "N/500" on every keystroke would flood
+            screen readers; the textarea's own output is already announced. */}
         <span className={clsx(
           "text-xs tabular-nums",
           count >= 500 ? "font-semibold text-[var(--color-wi-red)]" : count > 450 ? "font-semibold text-[var(--color-wi-amber)]" : "text-[var(--color-wi-text-light)]",
-        )} aria-live="polite">
+        )}>
           {count}/500 characters
         </span>
       </div>

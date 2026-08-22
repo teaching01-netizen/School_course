@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent } from "react";
 import clsx from "clsx";
+import { motion, useReducedMotion } from "framer-motion";
 
 type OtpInputProps = {
   value: string;
@@ -28,6 +29,7 @@ export default function OtpInput({
 }: OtpInputProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const reduceMotion = useReducedMotion();
   const digits = useMemo(() => normalizeOtp(value).padEnd(6, " "), [value]);
   const currentLength = normalizeOtp(value).length;
 
@@ -62,9 +64,11 @@ export default function OtpInput({
     <div className="space-y-4">
       <label className="block text-sm font-medium text-[var(--color-wi-text)]">
         <span className="mb-3 block text-base font-semibold text-[var(--color-wi-text)]">{label}</span>
-        <div
-          className="absence-otp-grid relative cursor-pointer"
-          onClick={() => inputRef.current?.focus()}
+        <motion.div
+          animate={error && !reduceMotion ? { x: [0, -6, 6, -3, 3, 0] } : { x: 0 }}
+          transition={{ duration: 0.3 }}
+          className={clsx("absence-otp-grid relative", disabled ? "cursor-default" : "cursor-pointer")}
+          onClick={() => { if (!disabled) inputRef.current?.focus(); }}
         >
           {Array.from({ length: 6 }, (_, index) => {
             const isCurrentEmpty = index === currentLength && currentLength < 6;
@@ -73,6 +77,7 @@ export default function OtpInput({
                 key={index}
                 className={clsx(
                   "absence-otp-cell flex items-center justify-center rounded-md border bg-white font-mono text-3xl tabular-nums text-[var(--color-wi-text)] shadow-sm transition-all duration-150 motion-reduce:transition-none",
+                  disabled && "opacity-60",
                   error
                     ? "border-[var(--color-wi-red)]"
                     : clsx(
@@ -109,9 +114,10 @@ export default function OtpInput({
             onInvalid={(event) => event.preventDefault()}
             aria-label={label}
             aria-describedby={describedBy}
+            aria-invalid={error || undefined}
             className="absolute left-0 top-0 h-px w-px opacity-0"
           />
-        </div>
+        </motion.div>
       </label>
     </div>
   );

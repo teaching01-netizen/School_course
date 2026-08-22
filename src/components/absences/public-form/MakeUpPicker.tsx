@@ -20,7 +20,8 @@ type MakeUpPickerProps = {
 
 export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false }: MakeUpPickerProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [pendingValue, setPendingValue] = useState(value);
+  // null = nothing chosen yet; "" = an explicit "Not yet selected" (clear).
+  const [pendingValue, setPendingValue] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedOption = options.find((option) => option.value === value);
@@ -50,7 +51,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         aria-haspopup="dialog"
         aria-expanded={sheetOpen}
         onClick={() => {
-          setPendingValue(value);
+          setPendingValue(value || null);
           setQuery("");
           setSheetOpen(true);
         }}
@@ -75,25 +76,51 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         />
         <fieldset className="space-y-2">
           <legend className="sr-only">{label}</legend>
-          {options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase())).map((option) => (
-            <label key={option.value} className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
-              <input
-                type="radio"
-                name={`${id}-mobile`}
-                value={option.value}
-                checked={pendingValue === option.value}
-                disabled={option.disabled}
-                onChange={(event) => setPendingValue(event.target.value)}
-                className="h-5 w-5 border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
-              />
-              <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">{option.label}</span>
-            </label>
-          ))}
+          {(() => {
+            const needle = query.trim().toLowerCase();
+            const filteredOptions = options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(needle));
+            if (filteredOptions.length === 0) {
+              return (
+                <p className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
+                  No classes match{needle ? ` “${query.trim()}”` : ""}.
+                </p>
+              );
+            }
+            return (
+              <>
+                <label className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
+                  <input
+                    type="radio"
+                    name={`${id}-mobile`}
+                    value=""
+                    checked={pendingValue === ""}
+                    onChange={() => setPendingValue("")}
+                    className="h-5 w-5 border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
+                  />
+                  <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text-light)]">Not yet selected</span>
+                </label>
+                {filteredOptions.map((option) => (
+                  <label key={option.value} className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
+                    <input
+                      type="radio"
+                      name={`${id}-mobile`}
+                      value={option.value}
+                      checked={pendingValue === option.value}
+                      disabled={option.disabled}
+                      onChange={(event) => setPendingValue(event.target.value)}
+                      className="h-5 w-5 border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
+                    />
+                    <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">{option.label}</span>
+                  </label>
+                ))}
+              </>
+            );
+          })()}
           <button
             type="button"
-            disabled={!pendingValue}
+            disabled={pendingValue == null}
             onClick={() => {
-              onChange(pendingValue);
+              onChange(pendingValue ?? "");
               setSheetOpen(false);
             }}
             className="mt-3 min-h-12 w-full rounded-xl bg-[var(--color-wi-primary)] px-4 text-base font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[var(--color-wi-row-alt)] disabled:text-[var(--color-wi-text-light)]"
