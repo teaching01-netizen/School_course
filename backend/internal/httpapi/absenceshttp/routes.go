@@ -551,11 +551,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 			if !adminRequest {
-				sitInCourse, courseErr := qtx.CourseGetFull(r.Context(), sitInCourseID)
-				if courseErr != nil || !sitInCourse.SubjectID.Valid || sitInCourse.SubjectID != subjectID {
-					s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_outside_selection", "Sit-in course must belong to the selected subject")
-					return 0, nil, fmt.Errorf("sit-in course is outside the selected subject")
-				}
 				availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, sitInCourseID)
 				if availabilityErr != nil {
 					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in course availability")

@@ -258,7 +258,7 @@ func TestPublicBatchRejectsEmptyMissedSessionIDs(t *testing.T) {
 	assertRejectedBatchContract(t, fixture, recorder)
 }
 
-func TestPublicBatchRejectsSitInCourseOutsideResolvedSelection(t *testing.T) {
+func TestPublicBatchAllowsSitInCourseOutsideSelectedSubject(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
 	item := fixture.validItem(0)
 	item.SitInMethod = contractStringPtr(SitInMethodPhysical)
@@ -267,7 +267,19 @@ func TestPublicBatchRejectsSitInCourseOutsideResolvedSelection(t *testing.T) {
 
 	recorder := fixture.submitBatch(fixture.requestBody(t, item), uuid.NewString())
 
-	assertRejectedBatchContract(t, fixture, recorder)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body = %s", recorder.Code, recorder.Body.String())
+	}
+	got := decodeContractBatchResponse(t, recorder)
+	if len(got.Items) != 1 {
+		t.Fatalf("response items = %d, want 1; body = %s", len(got.Items), recorder.Body.String())
+	}
+	if got.Items[0].ID == "" {
+		t.Fatalf("created item has no ID: %s", recorder.Body.String())
+	}
+	if count := fixture.absenceCount(t); count != 1 {
+		t.Fatalf("persisted absences = %d, want 1", count)
+	}
 }
 
 func TestPublicBatchRollsBackEveryItemWhenLaterItemFails(t *testing.T) {

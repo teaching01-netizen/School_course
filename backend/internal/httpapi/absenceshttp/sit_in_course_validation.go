@@ -1,14 +1,5 @@
 package absenceshttp
 
-import (
-	"context"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
-
-	sqldb "warwick-institute/internal/db"
-)
-
 func resolvedSitInSelectionAllowsCourse(
 	result *SitInResult,
 	targetCourseID string,
@@ -82,47 +73,4 @@ func resolvedSitInSelectionAllowsCourse(
 		}
 	}
 	return true
-}
-
-func (s *server) validateCrossSubjectSitInCourse(
-	ctx context.Context,
-	q *sqldb.Queries,
-	wcode string,
-	subjectID, courseID, targetCourseID pgtype.UUID,
-	dateFrom, dateTo time.Time,
-	selectedSessionIDs []string,
-) (bool, error) {
-	targetID, err := uuidString(targetCourseID)
-	if err != nil {
-		return false, nil
-	}
-	for afterPriority := 0; afterPriority < 10; {
-		result, resolveErr := resolveSitInForCourse(
-			ctx,
-			q,
-			wcode,
-			courseID,
-			subjectID,
-			dateFrom,
-			dateTo,
-			s.deps.InstituteTZ,
-			afterPriority,
-			true,
-		)
-		if resolveErr != nil {
-			return false, resolveErr
-		}
-		if resolvedSitInSelectionAllowsCourse(result, targetID, selectedSessionIDs) {
-			return true, nil
-		}
-		if result == nil || !result.HasNextPriority {
-			return false, nil
-		}
-		nextPriority := result.CurrentPriorityLevel
-		if nextPriority <= afterPriority {
-			nextPriority = afterPriority + 1
-		}
-		afterPriority = nextPriority
-	}
-	return false, nil
 }

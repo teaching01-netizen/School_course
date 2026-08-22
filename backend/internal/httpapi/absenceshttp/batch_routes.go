@@ -483,27 +483,6 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
 			return createdAbsenceRecord{}, false
 		}
-		sitInCourse, err := qtx.CourseGetFull(r.Context(), parsed)
-		if err != nil || !sitInCourse.SubjectID.Valid || sitInCourse.SubjectID != subjectID {
-			allowed, validationErr := s.validateCrossSubjectSitInCourse(
-				r.Context(),
-				qtx,
-				wcode,
-				subjectID,
-				course.CourseID,
-				parsed,
-				dateFrom.Time,
-				dateTo.Time,
-				item.SitInSessionIDs,
-			)
-			if validationErr != nil && s.deps.Log != nil {
-				s.deps.Log.Error("cross-subject sit-in validation failed", "course_id", course.CourseID, "sit_in_course_id", parsed, "error", validationErr)
-			}
-			if !allowed {
-				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_outside_selection", "Sit-in course must belong to the selected subject")
-				return createdAbsenceRecord{}, false
-			}
-		}
 		availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, parsed)
 		if availabilityErr != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in course availability")
