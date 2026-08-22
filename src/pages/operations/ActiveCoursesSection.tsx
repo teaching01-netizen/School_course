@@ -7,6 +7,7 @@ import EmptyState from "../../components/ui/EmptyState";
 import SearchInput from "../../components/ui/SearchInput";
 import { Switch } from "../../components/ui/Switch";
 import type { ActiveCourseSubject } from "../../types";
+import { queryClient, queryKeys } from "../../query/cache";
 
 type ActiveCoursesStats = {
   total_subjects: number;
@@ -315,6 +316,7 @@ export function ActiveCoursesSection() {
       setSubjects((prev) =>
         prev.map((s) => (s.subject_id === subjectId ? { ...s, courses: toggled } : s)),
       );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
       const missingDelta = (before.hasActive ? 0 : 1) - (after.hasActive ? 0 : 1);
       const hiddenDelta = (before.hasActive && !before.allVisible ? 1 : 0) - (after.hasActive && !after.allVisible ? 1 : 0);
       if (missingDelta !== 0 || hiddenDelta !== 0) {
@@ -357,6 +359,7 @@ export function ActiveCoursesSection() {
         method: "PUT",
         body: JSON.stringify({ course_ids: ids, active: target }),
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
       setSelection(new Set());
       await loadSubjects(subjectOffset, debouncedSearch, status);
       addToast(

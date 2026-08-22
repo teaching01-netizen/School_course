@@ -12,11 +12,27 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/realtime"
 )
 
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
+}
+
+func (s *server) publishCourseUpdated(id string) {
+	s.publishCourseUpdates([]string{id})
+}
+
+func (s *server) publishCourseUpdates(ids []string) {
+	if s.deps.Realtime == nil {
+		return
+	}
+	for _, id := range ids {
+		if id != "" {
+			s.deps.Realtime.Publish("courses:all", realtime.Event{Type: "course.updated", ID: id})
+		}
+	}
 }
 
 func Register(mux *http.ServeMux, deps httpdeps.Deps) {
@@ -228,7 +244,7 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "active-courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		courseSubjectID, found, err := qtx.CourseSubjectID(r.Context(), courseID)
 		if err != nil {
@@ -253,6 +269,8 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
+	}, func(http.ResponseWriter) {
+		s.publishCourseUpdated(courseID.String())
 	})
 }
 
@@ -286,7 +304,7 @@ func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-set-active", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses-set-active", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if _, found, err := qtx.CourseSubjectID(r.Context(), courseID); err != nil {
 			s.err(w, err)
@@ -307,6 +325,8 @@ func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
+	}, func(http.ResponseWriter) {
+		s.publishCourseUpdated(courseID.String())
 	})
 }
 
@@ -355,7 +375,7 @@ func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, raw)
 	}
 
-	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-set-active-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses-set-active-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		var updated int64
 		var err error
@@ -373,5 +393,7 @@ func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, fmt.Errorf("set-active bulk: no courses matched %d ids", len(ids))
 		}
 		return http.StatusOK, map[string]int64{"updated": updated}, nil
+	}, func(http.ResponseWriter) {
+		s.publishCourseUpdates(ids)
 	})
 }

@@ -88,14 +88,14 @@ function setupDefault(activeCourses = activeCoursesResponse()) {
 }
 
 async function openActiveView() {
-  await screen.findAllByText("SAT Math");
-  fireEvent.click(screen.getByRole("button", { name: "Active Courses" }));
+  await screen.findAllByText("MATH-101");
   await screen.findByRole("region", { name: "Active courses" });
 }
 
 describe("CourseLevels - Active Courses view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiJson.mockReset();
   });
 
   it("lists every subject with its current active course", async () => {
@@ -103,6 +103,7 @@ describe("CourseLevels - Active Courses view", () => {
     renderWithProviders(<CourseLevels />);
     await openActiveView();
 
+    expect(screen.getByRole("button", { name: "Active courses" })).toHaveAttribute("aria-pressed", "true");
     const mathRow = screen.getAllByText("MATH-101")[0].closest("tr")!;
     expect(within(mathRow).getByText("MATH")).toBeInTheDocument();
     expect(within(mathRow).getByText("Cycle 2025-01")).toBeInTheDocument();
@@ -115,6 +116,7 @@ describe("CourseLevels - Active Courses view", () => {
     await openActiveView();
 
     expect(screen.getByText("1 not set")).toBeInTheDocument();
+    expect(screen.queryByText("PHYS-101")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Select subjects without an active course" }));
 
     const physCheck = screen.getByRole("checkbox", { name: "Select PHYS" }) as HTMLInputElement;
@@ -149,6 +151,7 @@ describe("CourseLevels - Active Courses view", () => {
     renderWithProviders(<CourseLevels />);
     await openActiveView();
 
+    fireEvent.click(screen.getByRole("button", { name: "Bulk change" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select MATH" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select PHYS" }));
     fireEvent.click(screen.getByRole("button", { name: "Change active courses…" }));
@@ -183,6 +186,7 @@ describe("CourseLevels - Active Courses view", () => {
     renderWithProviders(<CourseLevels />);
     await openActiveView();
 
+    fireEvent.click(screen.getByRole("button", { name: "Bulk change" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select MATH" }));
     fireEvent.click(screen.getByRole("button", { name: "Change active course…" }));
 
@@ -197,6 +201,7 @@ describe("CourseLevels - Active Courses view", () => {
   it("classic view shows a read-only active course chip linking to the view", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
     await screen.findAllByText("SAT Math");
 
     expect(screen.getAllByText("Active:").length).toBeGreaterThan(0);

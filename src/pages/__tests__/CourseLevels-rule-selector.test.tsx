@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import CourseLevels from "../CourseLevels";
@@ -87,6 +87,10 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(<MemoryRouter><ToastProvider>{ui}</ToastProvider></MemoryRouter>);
 }
 
+async function openAllLevelsView() {
+  fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
+}
+
 describe("CourseLevels - RuleSelector", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -104,6 +108,7 @@ describe("CourseLevels - RuleSelector", () => {
   it("renders RuleSelector in action bar with assigned rule", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText("MATH-101").length).toBeGreaterThanOrEqual(1);
@@ -127,6 +132,7 @@ describe("CourseLevels - RuleSelector", () => {
       .mockResolvedValueOnce(BASE_ACTIVE_COURSES);
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText("MATH-101").length).toBeGreaterThanOrEqual(1);
@@ -141,6 +147,7 @@ describe("CourseLevels - RuleSelector", () => {
   it("shows confirmation dialog when changing rule", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText("MATH-101").length).toBeGreaterThanOrEqual(1);
@@ -172,6 +179,7 @@ describe("CourseLevels - RuleSelector", () => {
     mockApiJson.mockResolvedValueOnce({ ok: true });
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText("MATH-101").length).toBeGreaterThanOrEqual(1);

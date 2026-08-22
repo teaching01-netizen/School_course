@@ -9,6 +9,7 @@ import ActiveCoursesPanel from "../components/ActiveCoursesPanel";
 import type { ActiveCourseSubject } from "../components/ActiveCoursesPanel";
 import RootGroupManagerPanel from "../components/RootGroupManagerPanel";
 import { apiJson } from "../api/client";
+import { queryClient, queryKeys } from "../query/cache";
 import { useToast } from "../hooks/useToast";
 import { useRootCourseGroups } from "../hooks/useRootCourseGroups";
 import { useAutoSitInPolicy } from "../hooks/useAutoSitInPolicy";
@@ -87,7 +88,7 @@ export default function CourseLevels() {
   const [savingActiveCourse, setSavingActiveCourse] = useState<Record<string, boolean>>({});
 
   // View mode
-  const [viewMode, setViewMode] = useState<ViewMode>("classic");
+  const [viewMode, setViewMode] = useState<ViewMode>("active");
 
   // Root group selection (Phase 1d rail)
   const [selectedRootGroupId, setSelectedRootGroupId] = useState<string | null>(null);
@@ -393,6 +394,7 @@ export default function CourseLevels() {
         method: "PUT",
         body: JSON.stringify({ subject_id: subjectId, course_id: courseId }),
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
       setActiveCoursesMap((prev) => ({ ...prev, [subjectId]: courseId }));
       addToast("success", "Active course updated");
     } catch (err) {
@@ -681,55 +683,65 @@ export default function CourseLevels() {
   return (
     <div className="w-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <PageHeading>Course Levels</PageHeading>
           <p className="text-sm text-[var(--color-wi-text-light)]">
-            Set level for each course in each cycle. Levels must be consecutive within a cycle.
+            {viewMode === "active"
+              ? "Review and change the course currently used for each subject."
+              : "Set level for each course in each cycle. Levels must be consecutive within a cycle."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Link
             to="/operations?tab=rule-inventory"
             className="text-xs font-medium text-[var(--color-wi-primary)] hover:underline"
           >
             Manage Rules
           </Link>
-          <CourseLevelSearch value={searchTerm} onChange={setSearchTerm} />
+          {viewMode !== "active" && (
+            <CourseLevelSearch value={searchTerm} onChange={setSearchTerm} />
+          )}
           {/* View mode toggle */}
-          <div className="flex border border-wi-line rounded-sm overflow-hidden">
+          <div className="flex border border-wi-line rounded-sm overflow-hidden" aria-label="Course level view">
             <button
+              type="button"
               onClick={() => setViewMode("classic")}
+              aria-pressed={viewMode === "classic"}
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                 viewMode === "classic"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[var(--color-wi-primary)] text-white"
                   : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
-              Classic
+              All levels
             </button>
             <button
+              type="button"
               onClick={() => setViewMode("ladder")}
+              aria-pressed={viewMode === "ladder"}
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                 viewMode === "ladder"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[var(--color-wi-primary)] text-white"
                   : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
               Ladder
             </button>
             <button
+              type="button"
               onClick={() => setViewMode("active")}
+              aria-pressed={viewMode === "active"}
               className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                 viewMode === "active"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[var(--color-wi-primary)] text-white"
                   : "bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
               }`}
             >
-              Active Courses
+              Active courses
             </button>
           </div>
-          {levelHistory.canUndo && (
+          {viewMode !== "active" && levelHistory.canUndo && (
             <Button
               variant="secondary"
               size="sm"
@@ -766,35 +778,40 @@ export default function CourseLevels() {
               Undo
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={verifyConfiguration}>
-            Verify All
-          </Button>
-          {lastVerified && (
-            <span className="text-xs text-[var(--color-wi-text-light)]">
-              Last verified: {lastVerified.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-            </span>
+          {viewMode !== "active" && (
+            <>
+              <Button variant="secondary" size="sm" onClick={verifyConfiguration}>
+                Verify all
+              </Button>
+              {lastVerified && (
+                <span className="text-xs text-[var(--color-wi-text-light)]">
+                  Last verified: {lastVerified.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => openSlideOver("groups")}
+              >
+                Manage groups
+              </Button>
+            </>
           )}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => openSlideOver("groups")}
-          >
-            Manage Groups
-          </Button>
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="mb-5 border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800 rounded-sm">
-        <p className="font-medium mb-1">How sit-in rules work</p>
-        <p>
-          Each root course group needs a sit-in rule to determine how students make up missed classes.
-          Level 1 students attend via Zoom. Higher-level students sit in at adjacent levels.
-          For SAT and other subjects, assign specific rules via <strong>Manage Rules</strong>.
-        </p>
-      </div>
+      {viewMode !== "active" && (
+        <div className="mb-5 border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800 rounded-sm">
+          <p className="font-medium mb-1">How sit-in rules work</p>
+          <p>
+            Each root course group needs a sit-in rule to determine how students make up missed classes.
+            Level 1 students attend via Zoom. Higher-level students sit in at adjacent levels.
+            For SAT and other subjects, assign specific rules via <strong>Manage Rules</strong>.
+          </p>
+        </div>
+      )}
 
-      {mergeGroups.length > 0 && (
+      {viewMode !== "active" && mergeGroups.length > 0 && (
         <section className="mb-6" aria-labelledby="merged-course-levels-heading">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
@@ -826,7 +843,7 @@ export default function CourseLevels() {
       )}
 
       {/* Status overview bar */}
-      {overviewStats.totalGroups > 0 && (
+      {viewMode !== "active" && overviewStats.totalGroups > 0 && (
         <div className="mb-4 flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
@@ -847,7 +864,7 @@ export default function CourseLevels() {
         </div>
       )}
 
-      {courseTotal > COURSE_PAGE_SIZE ? (
+      {viewMode !== "active" && courseTotal > COURSE_PAGE_SIZE ? (
         <div className="mt-5 flex items-center justify-between border-t border-wi-line pt-3 text-xs text-[var(--color-wi-text-light)]">
           <span>Showing {courseOffset + 1}–{Math.min(courseOffset + courses.length, courseTotal)} of {courseTotal} courses</span>
           <div className="flex items-center gap-2">
@@ -868,7 +885,7 @@ export default function CourseLevels() {
       ) : null}
 
       {/* Verification report */}
-      {verificationReport && (
+      {viewMode !== "active" && verificationReport && (
         <div className="mb-5 border border-wi-line bg-white px-4 py-3 rounded-sm text-sm text-[var(--color-wi-text-light)]" role="status">
           <p className="font-medium mb-1">Verification results</p>
           {verificationReport.map((message) => <p key={message}>{message}</p>)}

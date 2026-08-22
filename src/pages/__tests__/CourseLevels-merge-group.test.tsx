@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import CourseLevels from "../CourseLevels";
 import { ToastProvider } from "../../hooks/useToast";
@@ -33,6 +33,7 @@ describe("CourseLevels merged course scope", () => {
       ]);
 
     render(<MemoryRouter><ToastProvider><CourseLevels /></ToastProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
 
     await waitFor(() => {
       expect(screen.getByText("SAT Verbal Reading + Writing")).toBeInTheDocument();

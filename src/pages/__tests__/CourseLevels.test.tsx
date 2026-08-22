@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import CourseLevels from "../CourseLevels";
@@ -135,6 +135,10 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(<MemoryRouter><ToastProvider>{ui}</ToastProvider></MemoryRouter>);
 }
 
+async function openAllLevelsView() {
+  fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
+}
+
 /** The course-table cell for a code. The classic-view "Active" bar also
  *  renders course codes, so disambiguate by requiring a table row. */
 function courseRowByText(text: string): HTMLElement {
@@ -160,6 +164,7 @@ describe("CourseLevels", () => {
   it("renders root groups with subject and cycle sub-headers", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText("MATH \u2014 Mathematics").length).toBeGreaterThanOrEqual(2);
@@ -172,6 +177,7 @@ describe("CourseLevels", () => {
   it("shows level input per course row", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     // The classic-view "Active" bar also shows the course code; the course
     // table cell is the one inside a row.
@@ -186,6 +192,7 @@ describe("CourseLevels", () => {
   it("shows auto-computed status badge (Zoom for L1, Eligible for L2+)", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getAllByText(/Zoom/, { selector: "span" }).length).toBe(2);
@@ -217,6 +224,7 @@ describe("CourseLevels", () => {
       .mockResolvedValueOnce(BASE_ACTIVE_COURSES);
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       const gapRow = screen.getByText("MATH-301").closest("tr")!;
@@ -228,6 +236,7 @@ describe("CourseLevels", () => {
     setupDefault();
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(courseRowByText("MATH-101")).toBeInTheDocument();
@@ -257,6 +266,7 @@ describe("CourseLevels", () => {
   it("renders root course group headers", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(
@@ -268,6 +278,7 @@ describe("CourseLevels", () => {
   it("renders (none) group for ungrouped courses", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(
@@ -279,6 +290,7 @@ describe("CourseLevels", () => {
   it("group typeahead column changes root course group", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(courseRowByText("MATH-101")).toBeInTheDocument();
@@ -308,6 +320,7 @@ describe("CourseLevels", () => {
   it("auto-sit-in toggle per root course group saves with root_course_groups key", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(
@@ -342,6 +355,7 @@ describe("CourseLevels", () => {
   it("bulk edits levels in a root course group", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /bulk edit levels for sat math/i }));
@@ -370,6 +384,7 @@ describe("CourseLevels", () => {
   it("verify all identifies missing level configuration", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /verify all/i }));

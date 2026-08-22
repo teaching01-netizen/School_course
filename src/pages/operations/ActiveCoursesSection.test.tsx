@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../../hooks/useToast";
 import { ActiveCoursesSection } from "./ActiveCoursesSection";
 import type { ActiveCourseSubject } from "../../types";
+import { queryClient, queryKeys } from "../../query/cache";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -126,6 +127,22 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     });
     // Multi-active: the previously active class keeps its state.
     expect(screen.getByRole("switch", { name: "MATH-101 active" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("invalidates the course list after changing active status", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+    renderSection();
+    await screen.findByText("MATH — Mathematics");
+
+    await userEvent.setup().click(screen.getByRole("switch", { name: "MATH-102 active" }));
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: queryKeys.courses.all,
+        refetchType: "active",
+      });
+    });
+    invalidateSpy.mockRestore();
   });
 
   it("shows the active count on the subject header when several classes are active", async () => {

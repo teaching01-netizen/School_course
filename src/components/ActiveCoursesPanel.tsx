@@ -59,6 +59,8 @@ export default function ActiveCoursesPanel({
 }: ActiveCoursesPanelProps) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [showUnassigned, setShowUnassigned] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkChoices, setBulkChoices] = useState<BulkChoice>({});
   const [bulkState, setBulkState] = useState<"idle" | "running" | "done">("idle");
@@ -67,16 +69,22 @@ export default function ActiveCoursesPanel({
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstSelectRef = useRef<HTMLSelectElement>(null);
 
+  const hasActiveCourse = (subject: ActiveCourseSubject) => {
+    const active = activeCourseId[subject.subject_id];
+    return Boolean(active && subject.courses.some((course) => course.course_id === active));
+  };
+
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return subjects;
-    return subjects.filter(
+    const searchable = subjects.filter(
       (subject) =>
         subject.subject_code.toLowerCase().includes(needle) ||
         subject.subject_name.toLowerCase().includes(needle) ||
         subject.courses.some((c) => c.course_code.toLowerCase().includes(needle)),
     );
-  }, [subjects, search]);
+    if (showUnassigned) return searchable;
+    return searchable.filter(hasActiveCourse);
+  }, [activeCourseId, search, showUnassigned, subjects]);
 
   const stats = useMemo(() => {
     const unset = subjects.filter((s) => {
@@ -115,7 +123,14 @@ export default function ActiveCoursesPanel({
       const active = activeCourseId[s.subject_id];
       return !active || !s.courses.some((c) => c.course_id === active);
     });
+    setShowUnassigned(true);
+    setSelectionMode(true);
     setSelected(new Set(unset.map((s) => s.subject_id)));
+  };
+
+  const toggleUnassigned = () => {
+    if (showUnassigned) setSelected(new Set());
+    setShowUnassigned((previous) => !previous);
   };
 
   const openBulk = () => {
@@ -171,28 +186,48 @@ export default function ActiveCoursesPanel({
 
   return (
     <section aria-label="Active courses">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-base font-semibold text-[var(--color-wi-text)]">Active courses</h2>
-          <p className="text-sm text-[var(--color-wi-text-light)]">
-            The active course is the one students can book absences for. Courses from other
-            cycles stay hidden in the absence form.
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-faint)]">Current setup</p>
+          <h2 className="text-lg font-semibold text-[var(--color-wi-text)]">Active courses</h2>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--color-wi-text-light)]">
+            Only the course selected for each subject is shown. This is the course students use
+            when they book an absence.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search subject or course code"
+            placeholder="Search active courses"
             aria-label="Search subjects"
-            className="w-56 rounded-sm border border-wi-line px-2.5 py-1.5 text-sm bg-white hover:border-wi-line focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+            className="w-52 rounded-sm border border-wi-line px-2.5 py-1.5 text-sm bg-white hover:border-wi-line focus-visible:outline-none focus:border-[var(--color-wi-primary)] focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
           />
+          {stats.unset > 0 && (
+            <button
+              type="button"
+              aria-pressed={showUnassigned}
+              onClick={toggleUnassigned}
+              className="rounded-sm px-2.5 py-1.5 text-xs font-medium text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/40"
+            >
+              {showUnassigned ? "Hide unassigned" : `Show unassigned (${stats.unset})`}
+            </button>
+          )}
+          {subjects.some((subject) => subject.courses.length > 0) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectionMode((previous) => !previous)}
+            >
+              {selectionMode ? "Done" : "Bulk change"}
+            </Button>
+          )}
         </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--color-wi-text-light)]">
-        <span>
+        <span className="font-medium text-[var(--color-wi-text)]">
           {stats.set} of {stats.total} subjects have an active course
         </span>
         {stats.unset > 0 && (
@@ -212,7 +247,7 @@ export default function ActiveCoursesPanel({
         )}
       </div>
 
-      {selected.size > 0 && (
+      {selectionMode && selected.size > 0 && (
         <div className="mb-3 flex items-center justify-between rounded-sm border border-[var(--color-wi-border)] bg-white px-3 py-2">
           <span className="text-sm font-medium text-[var(--color-wi-text)]">
             {selected.size} subject{selected.size === 1 ? "" : "s"} selected
@@ -233,18 +268,20 @@ export default function ActiveCoursesPanel({
           <caption className="sr-only">Active course per subject</caption>
           <thead>
             <tr className="border-b border-[var(--color-wi-border)] text-left text-xs uppercase tracking-wide text-[var(--color-wi-text-light)]">
-              <th scope="col" className="w-8 px-3 py-2">
-                <input
-                  type="checkbox"
-                  aria-label="Select all visible subjects"
-                  checked={allVisibleSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = !allVisibleSelected && visible.some((s) => selected.has(s.subject_id));
-                  }}
-                  onChange={toggleAllVisible}
-                  className="rounded-sm"
-                />
-              </th>
+              {selectionMode && (
+                <th scope="col" className="w-8 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible subjects"
+                    checked={allVisibleSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allVisibleSelected && visible.some((s) => selected.has(s.subject_id));
+                    }}
+                    onChange={toggleAllVisible}
+                    className="rounded-sm"
+                  />
+                </th>
+              )}
               <th scope="col" className="px-3 py-2 font-medium">Subject</th>
               <th scope="col" className="px-3 py-2 font-medium">Active course</th>
               <th scope="col" className="px-3 py-2 font-medium w-72">Change to</th>
@@ -259,15 +296,17 @@ export default function ActiveCoursesPanel({
               const groups = groupedByCycle(subject.courses);
               return (
                 <tr key={subject.subject_id} className="hover:bg-[var(--color-wi-row-alt)]/60">
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${subject.subject_code}`}
-                      checked={selected.has(subject.subject_id)}
-                      onChange={() => toggleSubject(subject.subject_id)}
-                      className="rounded-sm"
-                    />
-                  </td>
+                  {selectionMode && (
+                    <td className="px-3 py-2 align-middle">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${subject.subject_code}`}
+                        checked={selected.has(subject.subject_id)}
+                        onChange={() => toggleSubject(subject.subject_id)}
+                        className="rounded-sm"
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     <div className="font-medium text-[var(--color-wi-text)]">
                       {subject.subject_code}
@@ -328,10 +367,12 @@ export default function ActiveCoursesPanel({
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-sm text-[var(--color-wi-text-light)]">
+                <td colSpan={selectionMode ? 4 : 3} className="px-3 py-10 text-center text-sm text-[var(--color-wi-text-light)]">
                   {subjects.length === 0
                     ? "No subjects yet. Subjects appear once courses are assigned to them."
-                    : "No subjects match this search."}
+                    : !showUnassigned && stats.set === 0
+                      ? "No active courses are set yet. Show unassigned subjects to choose the first one."
+                      : "No active courses match this search."}
                 </td>
               </tr>
             )}

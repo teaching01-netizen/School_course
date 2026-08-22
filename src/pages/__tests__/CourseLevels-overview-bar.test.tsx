@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import CourseLevels from "../CourseLevels";
 import { ToastProvider } from "../../hooks/useToast";
@@ -69,6 +69,10 @@ function setupDefault() {
     .mockResolvedValueOnce(BASE_ACTIVE_COURSES);
 }
 
+async function openAllLevelsView() {
+  fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
+}
+
 describe("CourseLevels - Status Overview Bar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,6 +81,7 @@ describe("CourseLevels - Status Overview Bar", () => {
   it("renders overview bar with configured and missing rule counts", async () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getByText("1 configured")).toBeInTheDocument();
@@ -94,6 +99,7 @@ describe("CourseLevels - Status Overview Bar", () => {
       .mockResolvedValueOnce(BASE_ACTIVE_COURSES);
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getByText("2 configured")).toBeInTheDocument();
@@ -114,6 +120,7 @@ describe("CourseLevels - Status Overview Bar", () => {
       .mockResolvedValueOnce({ subjects: [{ subject_id: "subj-1", subject_code: "MATH", subject_name: "Mathematics", courses: [{ course_id: "c1", course_code: "MATH-101", course_name: "Algebra I", cycle_id: "cy2025a", cycle_label: "Cycle 2025-01", is_active: true }] }] });
 
     renderWithProviders(<CourseLevels />);
+    await openAllLevelsView();
 
     await waitFor(() => {
       expect(screen.getByText("1 configured")).toBeInTheDocument();
