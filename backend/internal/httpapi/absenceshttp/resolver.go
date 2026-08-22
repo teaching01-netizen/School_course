@@ -327,7 +327,7 @@ func filterActiveSitInCourses(ctx context.Context, q *sqldb.Queries, pool []sqld
 // resolveSitInForCourse resolves sit-in for a specific student course block.
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
-func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, satVerbalAfterPriority int) (*SitInResult, error) {
+func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, satVerbalAfterPriority int, studentFacing bool) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
@@ -354,7 +354,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 
-	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		return mapped, nil
@@ -401,9 +401,11 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			return nil, fmt.Errorf("merged course lookup: %w", err)
 		}
 	}
-	allCourses, err = filterActiveSitInCourses(ctx, q, allCourses)
-	if err != nil {
-		return nil, err
+	if studentFacing {
+		allCourses, err = filterActiveSitInCourses(ctx, q, allCourses)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
@@ -506,6 +508,7 @@ func resolveMappedSatVerbalSitIn(
 	dateTo time.Time,
 	instituteTZ string,
 	afterPriorityLevel int,
+	studentFacing bool,
 ) (*SitInResult, error) {
 	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
 	if err != nil {
@@ -583,9 +586,12 @@ func resolveMappedSatVerbalSitIn(
 
 	// Inactive classes may not be sit-in targets; the missed course itself
 	// was resolved above from the unfiltered pool.
-	activeAll, err := filterActiveSitInCourses(ctx, q, allCourses)
-	if err != nil {
-		return nil, err
+	activeAll := allCourses
+	if studentFacing {
+		activeAll, err = filterActiveSitInCourses(ctx, q, allCourses)
+		if err != nil {
+			return nil, err
+		}
 	}
 	activeSet := make(map[string]struct{}, len(activeAll))
 	for _, c := range activeAll {

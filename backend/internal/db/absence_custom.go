@@ -67,7 +67,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		LEFT JOIN users tu ON tu.id = ac.teacher_id
 		LEFT JOIN course_merge_group_members mm ON mm.course_id = sac.course_id
 		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
-		WHERE s.wcode = $1
+		WHERE lower(s.wcode) = lower($1)
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
 	`, wcode)

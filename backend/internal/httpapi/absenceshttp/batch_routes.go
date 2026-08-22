@@ -442,7 +442,12 @@ func (s *server) createAbsenceRecordTx(
 	}
 	// Same hard gate as the single-create path: batch submission is a
 	// student endpoint, so hidden courses are rejected here too.
-	if !course.AbsenceFormVisible {
+	availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, course.CourseID)
+	if availabilityErr != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course availability")
+		return createdAbsenceRecord{}, false
+	}
+	if !availableToStudents {
 		s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
 		return createdAbsenceRecord{}, false
 	}
@@ -486,7 +491,12 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_outside_selection", "Sit-in course must belong to the selected subject")
 			return createdAbsenceRecord{}, false
 		}
-		if !sitInCourse.AbsenceFormVisible {
+		availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, parsed)
+		if availabilityErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in course availability")
+			return createdAbsenceRecord{}, false
+		}
+		if !availableToStudents {
 			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_inactive", "That class is not active for students and cannot be sat in")
 			return createdAbsenceRecord{}, false
 		}

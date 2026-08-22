@@ -373,7 +373,14 @@ func (q *Queries) subjectCoursesSyncVisibility(ctx context.Context, courseIDs []
 // chosen as a sit-in target.
 func (q *Queries) CourseIDsVisible(ctx context.Context, courseIDs []string) (map[string]struct{}, error) {
 	rows, err := q.db.Query(ctx,
-		`SELECT id::text FROM courses WHERE id = ANY($1::uuid[]) AND absence_form_visible`, courseIDs)
+		`SELECT c.id::text
+		 FROM courses c
+		 WHERE c.id = ANY($1::uuid[])
+		   AND c.absence_form_visible
+		   AND EXISTS (
+			 SELECT 1 FROM subject_active_courses sac
+			 WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
+		   )`, courseIDs)
 	if err != nil {
 		return nil, err
 	}

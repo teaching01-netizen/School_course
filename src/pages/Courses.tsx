@@ -68,6 +68,11 @@ type CourseListPage = {
 };
 
 type CourseBucket = "live" | "archived";
+type AbsenceFormFilter = "all" | "active" | "hidden";
+
+function absenceFormFilterValue(raw: string | null): AbsenceFormFilter {
+  return raw === "active" || raw === "hidden" ? raw : "all";
+}
 
 export default function Courses() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -77,7 +82,7 @@ export default function Courses() {
   const bucket: CourseBucket = searchParams.get("status") === "archived" ? "archived" : "live";
   const typeFilter = searchParams.get("type") ?? "";
   const teacherFilter = searchParams.get("teacher_id") ?? "";
-  const absenceFormFilter = searchParams.get("absence_form") ?? "";
+  const absenceFormFilter = absenceFormFilterValue(searchParams.get("absence_form"));
   const urlQuery = searchParams.get("q") ?? "";
   const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -109,7 +114,7 @@ export default function Courses() {
     if (bucket === "archived") params.set("status", "archived");
     if (typeFilter) params.set("type", typeFilter);
     if (teacherFilter) params.set("teacher_id", teacherFilter);
-    if (absenceFormFilter) params.set("absence_form", absenceFormFilter);
+    if (absenceFormFilter !== "all") params.set("absence_form", absenceFormFilter);
     if (urlQuery) params.set("q", urlQuery);
     return params.toString();
   }, [bucket, typeFilter, teacherFilter, absenceFormFilter, urlQuery, offset]);
@@ -161,7 +166,8 @@ export default function Courses() {
 
   function updateFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
-    if (value) params.set(key, value);
+    if (key === "absence_form" && value === "all") params.delete(key);
+    else if (value) params.set(key, value);
     else params.delete(key);
     if (key !== "offset") params.delete("offset");
     setSearchParams(params);
@@ -296,7 +302,8 @@ export default function Courses() {
             onChange={(event) => updateFilter("absence_form", event.target.value)}
             className="w-full max-w-[200px] rounded-sm border border-wi-line px-2 py-1 text-sm"
           >
-            <option value="">All in absence form</option>
+            <option value="all">All courses</option>
+            <option value="active">Active in absence form</option>
             <option value="hidden">Hidden from absence form</option>
           </SearchableSelect>
           <Link

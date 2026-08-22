@@ -48,6 +48,8 @@ type Course = {
   legacy_course_id: string | null;
   has_overlap?: boolean;
   has_conflict?: boolean;
+  absence_form_visible?: boolean;
+  is_active_course?: boolean;
 };
 
 // 120 live courses: even indexes Private, odd General; every third course has
@@ -69,6 +71,8 @@ const LIVE_COURSES: Course[] = Array.from({ length: 120 }, (_, i) => ({
   legacy_course_id: null,
   has_overlap: i === 1,
   has_conflict: i === 0,
+  absence_form_visible: i !== 1,
+  is_active_course: i !== 2,
 }));
 
 const ARCHIVED_COURSES: Course[] = Array.from({ length: 10 }, (_, i) => ({
@@ -86,6 +90,8 @@ const ARCHIVED_COURSES: Course[] = Array.from({ length: 10 }, (_, i) => ({
   student_count: null,
   course_type: "General",
   legacy_course_id: `LEG-${i}`,
+  absence_form_visible: true,
+  is_active_course: true,
 }));
 
 const courseRequests: string[] = [];
@@ -105,6 +111,9 @@ async function listMock(url: string): Promise<unknown> {
   const teacherId = params.get("teacher_id");
   if (teacherId === "none") items = items.filter((c) => !c.teacher_id);
   else if (teacherId) items = items.filter((c) => c.teacher_id === teacherId);
+  const absenceForm = params.get("absence_form");
+  if (absenceForm === "active") items = items.filter((c) => c.is_active_course !== false && c.absence_form_visible !== false);
+  else if (absenceForm === "hidden") items = items.filter((c) => c.is_active_course === false || c.absence_form_visible === false);
   const q = params.get("q");
   if (q) {
     const needle = q.toLowerCase();
@@ -146,6 +155,35 @@ describe("Courses filters and pagination", () => {
     expect(fetches).toHaveLength(1);
     expect(fetches[0]).toBe("/api/v1/courses?limit=50&offset=0");
     expect(fetches[0]).not.toContain("status=");
+  });
+
+  it("defaults the absence-form filter to All and supports active, hidden, and All", async () => {
+    renderCourses();
+    await waitForFirstPage();
+    const select = screen.getByLabelText("Absence form filter") as HTMLSelectElement;
+
+    expect(select.value).toBe("all");
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(["all", "active", "hidden"]);
+
+    await userEvent.selectOptions(select, "active");
+    await waitFor(() => expect(courseRequests.at(-1)).toContain("absence_form=active"));
+    expect(screen.getByText("CODE-000")).toBeTruthy();
+    expect(screen.queryByText("CODE-001")).toBeNull();
+    expect(screen.queryByText("CODE-002")).toBeNull();
+
+    await userEvent.selectOptions(select, "hidden");
+    await waitFor(() => expect(courseRequests.at(-1)).toContain("absence_form=hidden"));
+    expect(screen.getByText("CODE-001")).toBeTruthy();
+    expect(screen.getByText("CODE-002")).toBeTruthy();
+    expect(screen.queryByText("CODE-000")).toBeNull();
+
+    await userEvent.selectOptions(select, "all");
+    await waitFor(() => {
+      expect(screen.getByText("CODE-000")).toBeTruthy();
+      expect(screen.getByText("CODE-001")).toBeTruthy();
+    });
+    expect(select.value).toBe("all");
+    expect(courseRequests.some((url) => url.includes("absence_form=all"))).toBe(false);
   });
 
   it("shows red conflict statuses and green clear statuses in the course table", async () => {

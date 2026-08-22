@@ -314,14 +314,13 @@ func courseTypeFilter(raw string) string {
 	}
 }
 
-// absenceFormFilter normalizes the absence_form query param: "hidden" selects
-// courses hidden from the student absence form (the audit view); anything else
-// means no filter.
 func absenceFormFilter(raw string) string {
-	if strings.TrimSpace(raw) == "hidden" {
-		return "hidden"
+	switch strings.TrimSpace(raw) {
+	case "active", "hidden":
+		return strings.TrimSpace(raw)
+	default:
+		return ""
 	}
-	return ""
 }
 
 func (s *server) handleCourseSessionsList(w http.ResponseWriter, r *http.Request) {

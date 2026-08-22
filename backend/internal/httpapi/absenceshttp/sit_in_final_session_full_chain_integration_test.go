@@ -106,6 +106,12 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	`, subject.ID, cycleID, rootID, int16(3), targetCourse.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		VALUES ($1, $2), ($1, $3)
+	`, subject.ID, missedCourse.ID, targetCourse.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	studentWCode := "wqafs" + suffix
 	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{

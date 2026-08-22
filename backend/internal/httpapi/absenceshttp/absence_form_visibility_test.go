@@ -36,10 +36,6 @@ func setAbsenceFormVisible(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 	}
 }
 
-// Full-chain gate: a course hidden from the absence form disappears from the
-// student's session listing and both student submission endpoints reject it
-// with 403, while the staff listing keeps showing it and a sibling visible
-// course stays bookable.
 func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	databaseURL := requireTestDBPending(t)
 	migrateUpOncePending(t, databaseURL)
@@ -49,6 +45,8 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	mux := selfServiceMux(t, dbpool)
 	seed := seedActiveCourseFixture(t, dbpool)
 	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+	setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
+	t.Cleanup(func() { clearActiveCourseRow(t, dbpool, seed.subjID) })
 
 	t.Run("hidden_course_leaves_student_listing_but_not_staff", func(t *testing.T) {
 		setAbsenceFormVisible(t, dbpool, seed.courses["current"], false)
@@ -57,8 +55,8 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		if codes[seed.code("current")] {
 			t.Fatalf("hidden course must not appear in the student listing, got %v", codes)
 		}
-		if !codes[seed.code("old")] || !codes[seed.code("sibling")] {
-			t.Fatalf("visible courses must keep appearing in the student listing, got %v", codes)
+		if len(codes) != 0 {
+			t.Fatalf("inactive courses must not appear in the student listing, got %v", codes)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -134,21 +132,17 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	})
 
 	t.Run("batch_sit_in_to_inactive_course_rejected", func(t *testing.T) {
-		// An inactive class may not be a sit-in target even when the absence
-		// itself is for a live class of the same subject.
-		setAbsenceFormVisible(t, dbpool, seed.courses["sibling"], false)
-		t.Cleanup(func() { setAbsenceFormVisible(t, dbpool, seed.courses["sibling"], true) })
-
-		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["old"], 15)
-		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["old"], "Asia/Bangkok")
+		setAbsenceFormVisible(t, dbpool, seed.courses["current"], true)
+		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"], 15)
+		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
 			"items": []map[string]any{{
-				"subject_id":       seed.subjID.String(),
-				"course_id":        seed.courses["old"].String(),
-				"date_from":        localDate,
-				"date_to":          localDate,
+				"subject_id":         seed.subjID.String(),
+				"course_id":          seed.courses["current"].String(),
+				"date_from":          localDate,
+				"date_to":            localDate,
 				"missed_session_ids": []string{sessionID},
-				"sit_in_course_id": seed.courses["sibling"].String(),
+				"sit_in_course_id":   seed.courses["sibling"].String(),
 			}},
 		})
 		if recorder.Code != http.StatusBadRequest {
@@ -165,12 +159,13 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		}
 	})
 
-	t.Run("visible_sibling_still_submittable", func(t *testing.T) {
-		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["sibling"])
-		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["sibling"], "Asia/Bangkok")
+	t.Run("active_course_still_submittable", func(t *testing.T) {
+		setAbsenceFormVisible(t, dbpool, seed.courses["current"], true)
+		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"])
+		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
 			"subject_id":         seed.subjID.String(),
-			"course_id":          seed.courses["sibling"].String(),
+			"course_id":          seed.courses["current"].String(),
 			"date_from":          localDate,
 			"date_to":            localDate,
 			"missed_session_ids": []string{sessionID},
@@ -179,4 +174,68 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 			t.Fatalf("visible-course submit status = %d, want 201, body = %s", recorder.Code, recorder.Body.String())
 		}
 	})
+}
+
+func TestInactiveCourseCannotPassStudentGatesWhenVisibilityIsStale(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	mux := selfServiceMux(t, dbpool)
+	seed := seedActiveCourseFixture(t, dbpool)
+	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+	setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["old"])
+	t.Cleanup(func() { clearActiveCourseRow(t, dbpool, seed.subjID) })
+	setAbsenceFormVisible(t, dbpool, seed.courses["current"], true)
+
+	codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
+	if codes[seed.code("current")] {
+		t.Fatalf("inactive course with stale visibility must not appear in student sessions, got %v", codes)
+	}
+
+	_, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
+	recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
+		"subject_id": seed.subjID.String(),
+		"course_id":  seed.courses["current"].String(),
+		"date_from":  localDate,
+		"date_to":    localDate,
+	})
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("inactive course submit status = %d, want 403, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var submitError struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &submitError); err != nil {
+		t.Fatal(err)
+	}
+	if submitError.Code != "course_not_available" {
+		t.Fatalf("inactive course submit error code = %q, want course_not_available", submitError.Code)
+	}
+
+	ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["old"], 15)
+	sessionID, oldDate := pickCourseSessionDate(t, dbpool, seed.courses["old"], "Asia/Bangkok")
+	recorder = postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+		"items": []map[string]any{{
+			"subject_id":         seed.subjID.String(),
+			"course_id":          seed.courses["old"].String(),
+			"date_from":          oldDate,
+			"date_to":            oldDate,
+			"missed_session_ids": []string{sessionID},
+			"sit_in_course_id":   seed.courses["current"].String(),
+		}},
+	})
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("inactive sit-in target status = %d, want 400, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var sitInError struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &sitInError); err != nil {
+		t.Fatal(err)
+	}
+	if sitInError.Code != "sit_in_course_inactive" {
+		t.Fatalf("inactive sit-in error code = %q, want sit_in_course_inactive", sitInError.Code)
+	}
 }

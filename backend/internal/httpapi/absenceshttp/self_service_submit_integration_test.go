@@ -185,6 +185,7 @@ func TestSelfServiceSubmitConsumesOtpAndRevokesSession(t *testing.T) {
 	t.Run("batch submission", func(t *testing.T) {
 		seed := seedActiveCourseFixture(t, dbpool)
 		rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+		setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["sibling"])
 		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["sibling"])
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["sibling"], "Asia/Bangkok")
 
@@ -229,6 +230,7 @@ func TestSelfServiceSubmitConsumesOtpAndRevokesSession(t *testing.T) {
 	t.Run("single-create student path", func(t *testing.T) {
 		seed := seedActiveCourseFixture(t, dbpool)
 		rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+		setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
 		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"])
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 

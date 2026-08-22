@@ -22,15 +22,12 @@ import (
 func TestSessionsInRangeQueryRestrictsToActiveCourse(t *testing.T) {
 	sql := sessionsInRangeSelectSQL()
 
-	// The active set must be probed with EXISTS predicates, never joined:
-	// a subject with several active courses would otherwise fan sessions out.
-	for _, fragment := range []string{
-		"NOT EXISTS (\n\t\t\t\tSELECT 1 FROM subject_active_courses sac WHERE sac.subject_id = sub.id",
-		"WHERE sac.subject_id = sub.id AND sac.course_id = c.id",
-		"ac.cycle_id IS NOT NULL",
-	} {
-		if !strings.Contains(sql, fragment) {
-			t.Fatalf("sessions-in-range query should contain %q, SQL: %s", fragment, sql)
+	if !strings.Contains(sql, "EXISTS (\n\t\t\tSELECT 1 FROM subject_active_courses sac\n\t\t\tWHERE sac.subject_id = sub.id AND sac.course_id = c.id") {
+		t.Fatalf("sessions-in-range query must require direct active-course membership, SQL: %s", sql)
+	}
+	for _, fragment := range []string{"NOT EXISTS (", "ac.cycle_id IS NOT NULL", "cs2.student_id = st.id"} {
+		if strings.Contains(sql, fragment) {
+			t.Fatalf("sessions-in-range query must not use inactive-course fallback %q, SQL: %s", fragment, sql)
 		}
 	}
 	if strings.Contains(sql, "LEFT JOIN subject_active_courses") {
@@ -188,22 +185,22 @@ func TestSessionsInRangeActiveCourseFiltering(t *testing.T) {
 
 	seed := seedActiveCourseFixture(t, dbpool)
 
-	t.Run("no_active_course_configured_shows_all_enrolled", func(t *testing.T) {
+	t.Run("no_active_course_configured_hides_all_enrolled", func(t *testing.T) {
 		clearActiveCourseRow(t, dbpool, seed.subjID)
 		codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
-		if len(codes) != 3 {
-			t.Fatalf("expected sessions from all 3 enrolled courses, got %v", codes)
+		if len(codes) != 0 {
+			t.Fatalf("courses without an active-course assignment must not appear, got %v", codes)
 		}
 	})
 
-	t.Run("active_course_hides_other_cycles_keeps_same_cycle_siblings", func(t *testing.T) {
+	t.Run("active_course_hides_every_non_active_course", func(t *testing.T) {
 		setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
 		codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
-		if codes[seed.code("old")] {
-			t.Fatalf("old-cycle course should be hidden by active course, got %v", codes)
+		if !codes[seed.code("current")] {
+			t.Fatalf("active course should remain bookable, got %v", codes)
 		}
-		if !codes[seed.code("current")] || !codes[seed.code("sibling")] {
-			t.Fatalf("active course and same-cycle sibling should remain, got %v", codes)
+		if codes[seed.code("old")] || codes[seed.code("sibling")] {
+			t.Fatalf("inactive courses must stay hidden even when they share a cycle, got %v", codes)
 		}
 	})
 
@@ -214,11 +211,11 @@ func TestSessionsInRangeActiveCourseFiltering(t *testing.T) {
 		setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
 		addActiveCourseRow(t, dbpool, seed.subjID, seed.courses["sibling"])
 		codes, rowCount := querySessionCourseCodes(t, dbpool, seed.wcode)
-		if codes[seed.code("old")] {
-			t.Fatalf("old-cycle course should stay hidden with same-cycle actives, got %v", codes)
-		}
 		if !codes[seed.code("current")] || !codes[seed.code("sibling")] {
 			t.Fatalf("both active courses should be bookable, got %v", codes)
+		}
+		if codes[seed.code("old")] {
+			t.Fatalf("inactive course should stay hidden with multiple active courses, got %v", codes)
 		}
 		if rowCount != 2 {
 			t.Fatalf("expected exactly 2 session rows (no fan-out duplicates), got %d", rowCount)
@@ -229,15 +226,16 @@ func TestSessionsInRangeActiveCourseFiltering(t *testing.T) {
 		setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["old"])
 		addActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
 		codes, rowCount := querySessionCourseCodes(t, dbpool, seed.wcode)
-		// "old" is itself active; "current" is active; "sibling" shares
-		// current's cycle.
-		for _, label := range []string{"old", "current", "sibling"} {
+		for _, label := range []string{"old", "current"} {
 			if !codes[seed.code(label)] {
 				t.Fatalf("course %s should be bookable, got %v", label, codes)
 			}
 		}
-		if rowCount != 3 {
-			t.Fatalf("expected exactly 3 session rows (no fan-out duplicates), got %d", rowCount)
+		if codes[seed.code("sibling")] {
+			t.Fatalf("same-cycle inactive sibling must stay hidden, got %v", codes)
+		}
+		if rowCount != 2 {
+			t.Fatalf("expected exactly 2 session rows (no fan-out duplicates), got %d", rowCount)
 		}
 	})
 
@@ -258,8 +256,8 @@ func TestSessionsInRangeActiveCourseFiltering(t *testing.T) {
 		}
 		setActiveCourseRow(t, dbpool, seed.subjID, outsider)
 		codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
-		if len(codes) != 3 {
-			t.Fatalf("student outside the active course should keep all enrolled courses, got %v", codes)
+		if len(codes) != 0 {
+			t.Fatalf("an active course that the student is not enrolled in must not re-expose inactive courses, got %v", codes)
 		}
 	})
 }

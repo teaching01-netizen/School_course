@@ -274,13 +274,18 @@ func TestCoursesList_EnvelopeReportsTotalForFilters(t *testing.T) {
 }
 
 func courseIDInItems(page map[string]any, id string) bool {
-	items, ok := page["items"].([]any)
-	if !ok {
-		return false
-	}
-	for _, raw := range items {
-		if raw.(map[string]any)["id"].(string) == id {
-			return true
+	switch items := page["items"].(type) {
+	case []any:
+		for _, raw := range items {
+			if raw.(map[string]any)["id"].(string) == id {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, item := range items {
+			if item["id"].(string) == id {
+				return true
+			}
 		}
 	}
 	return false
@@ -295,11 +300,29 @@ func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
 	visibleID := courseSeed(t, fx, courseCode(token+"A"), "Private", false)
 	hiddenID := courseSeed(t, fx, courseCode(token+"B"), "Private", false)
 	ctx := context.Background()
+	subjectCode := "SUBJ-" + token
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subjects (code, name) VALUES ($1, $1)
+	`, subjectCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		UPDATE courses SET subject_id = (SELECT id FROM subjects WHERE code = $1)
+		WHERE id IN ($2, $3)
+	`, subjectCode, mustParseUUID(t, visibleID), mustParseUUID(t, hiddenID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+	`, subjectCode, mustParseUUID(t, visibleID)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET absence_form_visible = false WHERE id = $1`, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 
-	resp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?limit=100&absence_form=hidden", nil)
+	resp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?q="+token+"&limit=100&absence_form=hidden", nil)
 	assertResponseCode(t, resp, http.StatusOK)
 	var envelope struct {
 		Items []map[string]any `json:"items"`
@@ -326,7 +349,7 @@ func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
 	}
 
 	// Without the filter both appear with their true flags.
-	allResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?limit=100", nil)
+	allResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?q="+token+"&limit=100", nil)
 	assertResponseCode(t, allResp, http.StatusOK)
 	var allEnvelope struct {
 		Items []map[string]any `json:"items"`
@@ -343,6 +366,57 @@ func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
 				t.Fatalf("hidden course must report absence_form_visible=false, got %#v", item["absence_form_visible"])
 			}
 		}
+	}
+}
+
+func TestCoursesList_AbsenceFormActiveAndAllFilters(t *testing.T) {
+	fx := setupTestServer(t)
+	token := "LHIA" + uuid.NewString()[:8]
+	visibleID := courseSeed(t, fx, courseCode(token+"A"), "Private", false)
+	hiddenID := courseSeed(t, fx, courseCode(token+"B"), "Private", false)
+	ctx := context.Background()
+	subjectCode := "SUBJ-" + token
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subjects (code, name) VALUES ($1, $1)
+	`, subjectCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		UPDATE courses SET subject_id = (SELECT id FROM subjects WHERE code = $1)
+		WHERE id IN ($2, $3)
+	`, subjectCode, mustParseUUID(t, visibleID), mustParseUUID(t, hiddenID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+	`, subjectCode, mustParseUUID(t, visibleID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET absence_form_visible = false WHERE id = $1`, hiddenID); err != nil {
+		t.Fatal(err)
+	}
+
+	activeResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?q="+token+"&limit=100&absence_form=active", nil)
+	assertResponseCode(t, activeResp, http.StatusOK)
+	var activeEnvelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, activeResp, &activeEnvelope)
+	activePage := map[string]any{"items": activeEnvelope.Items}
+	if !courseIDInItems(activePage, visibleID) || courseIDInItems(activePage, hiddenID) {
+		t.Fatalf("active filter returned unexpected courses: %#v", activeEnvelope.Items)
+	}
+
+	allResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?q="+token+"&limit=100&absence_form=all", nil)
+	assertResponseCode(t, allResp, http.StatusOK)
+	var allEnvelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, allResp, &allEnvelope)
+	allPage := map[string]any{"items": allEnvelope.Items}
+	if !courseIDInItems(allPage, visibleID) || !courseIDInItems(allPage, hiddenID) {
+		t.Fatalf("all filter omitted a course: %#v", allEnvelope.Items)
 	}
 }
 
@@ -398,5 +472,42 @@ func TestCoursesList_ActiveCourseFlag(t *testing.T) {
 	}
 	if !found["active"] || !found["other"] {
 		t.Fatalf("seeded courses missing from list response (found %v)", found)
+	}
+}
+
+func TestCoursesList_ActiveAbsenceFilterExcludesInactiveMembership(t *testing.T) {
+	fx := setupTestServer(t)
+	token := "LACT" + uuid.NewString()[:8]
+	activeID := courseSeed(t, fx, courseCode(token+"A"), "Private", false)
+	inactiveID := courseSeed(t, fx, courseCode(token+"B"), "Private", false)
+	subjectCode := "SUBJ-" + token
+	ctx := context.Background()
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subjects (code, name) VALUES ($1, $1)
+	`, subjectCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		UPDATE courses SET subject_id = (SELECT id FROM subjects WHERE code = $1)
+		WHERE id IN ($2, $3)
+	`, subjectCode, mustParseUUID(t, activeID), mustParseUUID(t, inactiveID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+	`, subjectCode, mustParseUUID(t, activeID)); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?q="+token+"&limit=100&absence_form=active", nil)
+	assertResponseCode(t, resp, http.StatusOK)
+	var envelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, resp, &envelope)
+	page := map[string]any{"items": envelope.Items}
+	if !courseIDInItems(page, activeID) || courseIDInItems(page, inactiveID) {
+		t.Fatalf("active absence filter returned an inactive course: %#v", envelope.Items)
 	}
 }

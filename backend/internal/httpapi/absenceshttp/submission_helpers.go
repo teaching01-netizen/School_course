@@ -68,6 +68,19 @@ func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
 	return parsed, nil
 }
 
+func courseAvailableToStudents(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) (bool, error) {
+	id, err := sUUIDString(courseID)
+	if err != nil {
+		return false, err
+	}
+	visible, err := q.CourseIDsVisible(ctx, []string{id})
+	if err != nil {
+		return false, err
+	}
+	_, ok := visible[id]
+	return ok, nil
+}
+
 func projectedAbsenceDayStats(
 	ctx context.Context,
 	q *sqldb.Queries,

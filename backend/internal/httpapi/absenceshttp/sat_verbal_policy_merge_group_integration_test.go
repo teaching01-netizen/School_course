@@ -64,6 +64,21 @@ func TestResolveMappedSatVerbalSitIn_MergedMissedCourseOffersNonMergedTarget(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	subject, err := qtx.SubjectCreate(ctx, sqldb.SubjectCreateParams{Code: "SAT-SUBJECT-" + suffix, Name: "SAT Subject " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE courses SET subject_id = $1 WHERE id IN ($2, $3, $4)
+	`, subject.ID, mergedA.ID, mergedB.ID, standalone.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		VALUES ($1, $2), ($1, $3), ($1, $4)
+	`, subject.ID, mergedA.ID, mergedB.ID, standalone.ID); err != nil {
+		t.Fatal(err)
+	}
 	mergeGroup, err := qtx.CourseMergeGroupCreate(ctx, "SAT merged sit-in test "+suffix, teacherID)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +148,7 @@ func TestResolveMappedSatVerbalSitIn_MergedMissedCourseOffersNonMergedTarget(t *
 		if uuidErr != nil {
 			t.Fatal(uuidErr)
 		}
-		result, resolveErr := resolveMappedSatVerbalSitIn(ctx, qtx, pgtype.UUID{}, missedCourseID, nil, date, date, "Asia/Bangkok", 0)
+		result, resolveErr := resolveMappedSatVerbalSitIn(ctx, qtx, pgtype.UUID{}, missedCourseID, nil, date, date, "Asia/Bangkok", 0, true)
 		if resolveErr != nil {
 			t.Fatal(resolveErr)
 		}

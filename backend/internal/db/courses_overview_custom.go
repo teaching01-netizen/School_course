@@ -97,14 +97,6 @@ func (q *Queries) CourseCreateV2(ctx context.Context, p CourseCreateV2Params) (C
 	return row, nil
 }
 
-// CourseOverviewParams filters and paginates the courses list. Archived toggles
-// the live/archived bucket (legacy_archived); CourseType is "" (all), "private"
-// (Private), or "general" (General from the legacy site plus native Group);
-// TeacherID is "" (all), "none" (no primary teacher), or a user uuid; Q is a
-// substring search over code, name, subject, teacher, and roster membership;
-// AbsenceForm is "" (all) or "hidden" (courses hidden from the student
-// absence form). Limit 0 means no limit (the bare-array response path); Offset
-// is only meaningful with a limit.
 type CourseOverviewParams struct {
 	Archived    bool
 	CourseType  string
@@ -128,7 +120,14 @@ const courseOverviewWhere = `
 		       OR ($3 = 'none' AND c.teacher_id IS NULL)
 		       OR c.teacher_id::text = $3)
 		  AND ($5 = ''
-		       OR ($5 = 'hidden' AND NOT c.absence_form_visible))
+		       OR ($5 = 'active' AND c.absence_form_visible AND EXISTS (
+			       SELECT 1 FROM subject_active_courses sac
+			       WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
+		       ))
+		       OR ($5 = 'hidden' AND (NOT c.absence_form_visible OR NOT EXISTS (
+			       SELECT 1 FROM subject_active_courses sac
+			       WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
+		       ))))
 		  AND ($4 = ''
 		       OR c.course_no::text ILIKE '%' || $4 || '%'
 		       OR c.id::text ILIKE '%' || $4 || '%'

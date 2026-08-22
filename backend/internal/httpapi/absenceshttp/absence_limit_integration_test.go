@@ -85,6 +85,11 @@ func seedAbsenceLimitTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Po
 	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+	`, subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	studentWcode = "w" + strings.ToLower(prefix) + "-" + suffix
 	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{
@@ -562,6 +567,11 @@ func seedBatchNotifTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Pool
 	}
 	courseIDStr, _ = uuidString(course.ID)
 	if _, err := dbpool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", subj.ID, course.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+	`, subj.ID, course.ID); err != nil {
 		t.Fatal(err)
 	}
 

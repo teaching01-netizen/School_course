@@ -108,7 +108,7 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	studentWCode := "w" + suffix
+	studentWCode := strings.ToLower("w" + suffix)
 
 	// Student (lowercase wcode, with parent phone for verification).
 	_, err := dbpool.Exec(ctx,
@@ -133,6 +133,11 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 		"COURSE-"+suffix, "Course "+suffix, subject.ID,
 	).Scan(&courseID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+	`, subject.ID, courseID); err != nil {
 		t.Fatal(err)
 	}
 
