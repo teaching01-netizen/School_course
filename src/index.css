@@ -199,6 +199,11 @@ html {
   to   { opacity: 1; }
 }
 
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 .animate-dropdown-enter {
   animation: dropdown-enter 150ms ease-out;
 }
@@ -213,6 +218,11 @@ html {
 
 .animate-fade-in {
   animation: fade-in 200ms ease-out;
+}
+
+/* Indeterminate pending bar; reduced motion keeps the static bar as the cue. */
+.animate-wi-progress {
+  animation: progress-indeterminate 1.1s ease-in-out infinite;
 }
 
 .animate-today-pulse {

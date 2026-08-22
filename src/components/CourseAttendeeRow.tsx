@@ -4,6 +4,7 @@ type Props = {
   students: Student[];
   loading: boolean;
   error: string | null;
+  onRetry?: () => void;
 };
 
 function StatusBadge({ status }: { status?: string }) {
@@ -19,30 +20,48 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+const ATTENDEE_SKELETON_KEYS = ["a", "b", "c"] as const;
+
 export default function CourseAttendeeRow({
   students,
   loading,
   error,
+  onRetry,
 }: Props) {
   if (loading) {
     return (
-      <div className="px-3 py-4 text-sm text-[var(--color-wi-text-light)]">
-        Loading attendees…
+      <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 animate-fade-in motion-reduce:animate-none" aria-label="Loading attendees">
+        {ATTENDEE_SKELETON_KEYS.map((key) => (
+          <div key={key} className="flex items-center gap-3 px-10 py-2">
+            <div className="h-3 w-20 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+            <div className="h-3 w-36 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+            <div className="h-3 w-16 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+          </div>
+        ))}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="px-3 py-4 text-sm text-red-500">
-        Failed to load: {error}
+      <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 px-10 py-4 text-sm animate-fade-in motion-reduce:animate-none" role="alert">
+        <p className="text-red-600">Couldn&apos;t load attendees: {error}</p>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 cursor-pointer rounded-sm border border-wi-line bg-white px-2.5 py-1 text-xs font-medium text-[var(--color-wi-text)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
+          >
+            Retry
+          </button>
+        ) : null}
       </div>
     );
   }
 
   if (students.length === 0) {
     return (
-      <div className="px-3 py-4 text-sm text-[var(--color-wi-text-light)]">
+      <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 px-10 py-4 text-sm text-[var(--color-wi-text-light)] animate-fade-in motion-reduce:animate-none">
         No students enrolled
       </div>
     );
@@ -51,7 +70,7 @@ export default function CourseAttendeeRow({
   const sorted = [...students].sort((a, b) => a.wcode.localeCompare(b.wcode));
 
   return (
-    <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50">
+    <div className="border-t border-wi-line-soft bg-[var(--color-wi-row-alt)]/50 animate-fade-in motion-reduce:animate-none">
       <table className="w-full text-[13px]">
         <thead>
           <tr className="border-b border-wi-line">

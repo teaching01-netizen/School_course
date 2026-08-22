@@ -548,7 +548,7 @@ export default function SitInTestPage() {
                 <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">System</span>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">No email on file</p>
+              <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">No email saved</p>
             )}
           </div>
         )}

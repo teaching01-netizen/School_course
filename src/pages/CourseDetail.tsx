@@ -109,6 +109,7 @@ export default function CourseDetail() {
   };
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [roster, setRoster] = useState<Student[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -172,6 +173,8 @@ export default function CourseDetail() {
   const teachersByIdMap = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers]);
   const roomById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
   const usedMinutes = useMemo(() => sumSessionMinutes(sessions), [sessions]);
+  // Single shared map instead of a fresh allocation per rendered row.
+  const coursesById = useMemo(() => (course ? new Map([[course.id, course]]) : new Map<string, Course>()), [course]);
 
   /** Sessions grouped by institute-local calendar day (yyyy-MM-dd), sorted by start. */
   const sessionsByDay = useMemo(() => {
@@ -269,21 +272,25 @@ export default function CourseDetail() {
     }
   };
 
+  const loadCourse = async () => {
+    if (!id) return;
+    try {
+      setLoading(true);
+      setLoadError(null);
+      const c = await getCourse(id);
+      setCourse(c);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load course");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      if (!id) return;
-      try {
-        setLoading(true);
-        const c = await getCourse(id);
-        setCourse(c);
-      } catch (err) {
-        addToast("error", err instanceof Error ? err.message : "Failed to load course");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    void loadCourse();
     void loadCrmFilter();
-  }, [addToast, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   // Fetch legacy sync conflicts when the course loads and has a legacy_course_id.
   useEffect(() => {
@@ -402,7 +409,7 @@ export default function CourseDetail() {
       rooms={rooms}
       teacherOptions={teacherOptions}
       course={course}
-      coursesById={course ? new Map([[course.id, course]]) : new Map()}
+      coursesById={coursesById}
       teachersById={teachersByIdMap}
       roomsById={roomById}
       onSave={() => void edit.submit()}
@@ -424,7 +431,7 @@ export default function CourseDetail() {
       rooms={rooms}
       teacherOptions={teacherOptions}
       course={course}
-      coursesById={course ? new Map([[course.id, course]]) : new Map()}
+      coursesById={coursesById}
       teachersById={teachersByIdMap}
       roomsById={roomById}
       onCreate={() => void submitSession()}
@@ -436,7 +443,7 @@ export default function CourseDetail() {
   /** All sessions of one day in a single cell — time is shown per session, not
    *  by row position — so Day/Week present days the same way month cells do. */
   const renderDaySessions = (daySessions: Session[], showEmptyLabel: boolean) => {
-    if (sessionsLoading) {
+    if (sessionsLoading && sessions.length === 0) {
       return (
         <div className="animate-pulse space-y-1.5 p-1">
           <div className="h-12 bg-[var(--color-wi-row-alt)] rounded-sm" />
@@ -576,10 +583,10 @@ export default function CourseDetail() {
       addToast("success", "Course deleted");
       navigate("/courses");
     } catch (err) {
+      // Keep the confirm modal open so the failure is recoverable in place.
       addToast("error", err instanceof Error ? err.message : "Delete failed");
     } finally {
       setDeleting(false);
-      setConfirmDelete(false);
     }
   };
 
@@ -849,11 +856,13 @@ export default function CourseDetail() {
         return;
       }
 
-      await createSessionsFromPreflights(preflights);
+      const created = await createSessionsFromPreflights(preflights);
 
-      addToast("success", `Created ${parsedPaste.rows.length} sessions`);
-      setCreateOpen(false);
-      setPasteText("");
+      if (created > 0) {
+        addToast("success", `Created ${created} sessions`);
+        setCreateOpen(false);
+        setPasteText("");
+      }
       await loadSessions();
     } catch (err) {
       if (err instanceof ApiRequestError && err.details) {
@@ -866,32 +875,52 @@ export default function CourseDetail() {
     }
   };
 
-  const createSessionsFromPreflights = async (preflights: PasteRowPreflight[]) => {
-    for (const pf of preflights) {
-      if (pf.status === "blocked") continue;
-      await apiJson("/api/v1/sessions", {
-        method: "POST",
-        body: JSON.stringify({
-          course_id: id,
-          room_id: pf.roomID,
-          teacher_id: pasteTeacherId,
-          start_at: pf.startISO,
-          end_at: pf.endISO,
+  /** Creates every non-blocked row in parallel and reports partial failures.
+   *  Returns how many sessions were created so callers can decide whether the
+   *  flow completed cleanly. */
+  const createSessionsFromPreflights = async (preflights: PasteRowPreflight[]): Promise<number> => {
+    const creatable = preflights.filter((p) => p.status !== "blocked");
+    const results = await Promise.allSettled(
+      creatable.map((pf) =>
+        apiJson("/api/v1/sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            course_id: id,
+            room_id: pf.roomID,
+            teacher_id: pasteTeacherId,
+            start_at: pf.startISO,
+            end_at: pf.endISO,
+          }),
         }),
-      });
+      ),
+    );
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failures.length > 0) {
+      const reason = failures[0].reason;
+      const message = reason instanceof ApiRequestError
+        ? `${reason.code ?? "error"}: ${reason.message}`
+        : reason instanceof Error ? reason.message : "Create failed";
+      addToast(
+        "error",
+        `Created ${creatable.length - failures.length} of ${creatable.length} sessions. ${failures.length} failed — first error: ${message}`,
+      );
     }
+    return creatable.length - failures.length;
   };
 
   const createNonConflictingSessions = async () => {
     if (!pastePreflights) return;
     try {
       setCreatingPaste(true);
-      const available = pastePreflights.filter((p) => p.status !== "blocked");
-      await createSessionsFromPreflights(available);
-      addToast("success", `Created ${available.length} session${available.length !== 1 ? "s" : ""}`);
-      setPastePreflights(null);
-      setPasteText("");
-      setCreateOpen(false);
+      const created = await createSessionsFromPreflights(pastePreflights);
+      if (created > 0) {
+        addToast("success", `Created ${created} session${created !== 1 ? "s" : ""}`);
+        // Close on any progress so a retry can never re-create succeeded rows;
+        // failed rows can be re-pasted after trimming the text.
+        setPastePreflights(null);
+        setPasteText("");
+        setCreateOpen(false);
+      }
       await loadSessions();
     } catch (err) {
       if (err instanceof ApiRequestError && err.details) {
@@ -980,7 +1009,29 @@ export default function CourseDetail() {
   };
 
   if (loading) return <LoadingSkeleton type="card" lines={3} />;
-  if (!course) return <EmptyState message="Course not found" />;
+  if (!course) {
+    if (loadError) {
+      return (
+        <div>
+          <Link
+            to={coursesReturnPath}
+            className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-wi-text-light)] transition-colors duration-150 hover:text-[var(--color-wi-text)] motion-reduce:transition-none"
+          >
+            <ArrowLeft size={14} aria-hidden="true" />
+            Courses
+          </Link>
+          <div className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+            <p className="font-medium">Couldn&apos;t load this course</p>
+            <p className="mt-1 text-red-600">{loadError}</p>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={() => void loadCourse()}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    return <EmptyState message="Course not found" />;
+  }
 
   return (
     <div>
@@ -1073,7 +1124,7 @@ export default function CourseDetail() {
                   TZ: {zone}
                   {serverNow ? ` • Server now: ${serverNow}` : ""}
                 </div>
-                <Button variant="secondary" size="md" onClick={loadSessions} aria-label="Refresh schedule">Refresh</Button>
+                <Button variant="secondary" size="md" onClick={loadSessions} loading={sessionsLoading} aria-label="Refresh schedule">Refresh</Button>
               </>
             )}
             {viewMode === 'calendar' && (
@@ -1109,7 +1160,12 @@ export default function CourseDetail() {
         </div>
 
         {viewMode === 'calendar' ? (
-          <div className="border border-wi-line p-4 bg-white">
+          <div
+            className={`border border-wi-line p-4 bg-white transition-opacity duration-150 motion-reduce:transition-none ${
+              sessionsLoading && sessions.length > 0 ? "opacity-60 pointer-events-none" : ""
+            }`}
+            aria-busy={sessionsLoading}
+          >
             <div className="hidden md:block">
               {calendarMode === 'month' ? (
                 <div className="overflow-hidden rounded-sm border border-wi-line">
@@ -1133,7 +1189,7 @@ export default function CourseDetail() {
                             type="button"
                             onClick={() => { setCalendarMode('day'); setAnchorDate(day); }}
                             aria-label={`Show ${format(day, 'EEEE, d MMMM yyyy')}`}
-                            className={`mb-1 flex h-5 w-full items-center text-[11px] leading-none ${isToday ? 'justify-center' : 'justify-end font-medium text-[var(--color-wi-text-light)]'}`}
+                            className={`mb-1 flex h-5 w-full cursor-pointer items-center rounded-sm text-[11px] leading-none transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none ${isToday ? 'justify-center' : 'justify-end font-medium text-[var(--color-wi-text-light)]'}`}
                           >
                             {isToday ? (
                               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-primary)] font-bold text-white">{day.getDate()}</span>
@@ -1169,7 +1225,7 @@ export default function CourseDetail() {
                                 type="button"
                                 onClick={() => { setCalendarMode('day'); setAnchorDate(day); }}
                                 aria-label={`Show all sessions on ${format(day, 'EEEE, d MMMM yyyy')}`}
-                                className="w-full px-1 text-start text-[10px] text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]"
+                                className="w-full cursor-pointer rounded-sm px-1 text-start text-[10px] text-[var(--color-wi-text-light)] transition-colors duration-150 hover:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
                               >
                                 +{daySessions.length - 3} more
                               </button>
@@ -1216,7 +1272,12 @@ export default function CourseDetail() {
             </div>
           </div>
         ) : (
-          <div className="border border-wi-line rounded-sm overflow-hidden">
+          <div
+            className={`border border-wi-line rounded-sm overflow-hidden transition-opacity duration-150 motion-reduce:transition-none ${
+              sessionsLoading && sessions.length > 0 ? "opacity-60 pointer-events-none" : ""
+            }`}
+            aria-busy={sessionsLoading}
+          >
           <div className="overflow-x-auto"><table className="w-full text-[13px]">
             <caption className="sr-only">Course schedule</caption>
             <thead className="bg-[var(--color-wi-row-alt)]">
@@ -1241,7 +1302,7 @@ export default function CourseDetail() {
               </tr>
             </thead>
             <tbody>
-              {sessionsLoading ? (
+              {sessionsLoading && sessions.length === 0 ? (
                 <tr>
                   <td colSpan={9}>
                     <LoadingSkeleton type="table" lines={3} />
@@ -1260,6 +1321,9 @@ export default function CourseDetail() {
                   const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
                   const end = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
                   const isEditing = edit.open && edit.session?.id === s.id;
+                  // Actions stay revealed for selected/edited rows and on
+                  // pointer-coarse viewports where hover cannot reveal them.
+                  const rowActionsVisible = selectedIds.has(s.id) || isEditing;
                   return (
                     <tr
                       key={s.id}
@@ -1329,7 +1393,7 @@ export default function CourseDetail() {
                         <SessionConflictPopover conflicts={s.conflicts ?? []} currentCourseId={s.course_id} zone={zone} />
                       </td>
                       <td className="py-2 px-2">
-                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+                        <div className={`flex items-center justify-end gap-1 max-md:opacity-100 transition-opacity duration-150 motion-reduce:transition-none ${rowActionsVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
                           <Button variant="ghost" size="sm" onClick={() => openEditSession(s, "date")} aria-label="Edit session">
                             <Pencil size={14} aria-hidden="true" />
                           </Button>
@@ -1352,8 +1416,8 @@ export default function CourseDetail() {
         )}
 
 {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 mt-3 mb-2">
-            <span className="text-sm text-[var(--color-wi-text-light)] font-medium">{selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""} selected</span>
+          <div className="flex items-center gap-3 mt-3 mb-2 animate-fade-in motion-reduce:animate-none">
+            <span className="text-sm text-[var(--color-wi-text-light)] font-medium" aria-live="polite">{selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""} selected</span>
             <Button variant="primary" size="sm" onClick={() => setBulkEditOpen(true)} disabled={selectedIds.size > 100}>
               Edit Selected
             </Button>
@@ -1565,8 +1629,8 @@ export default function CourseDetail() {
                 />
                 <PreflightIndicator
                   preflight={seriesPreflight}
-                  coursesById={course ? new Map([[course.id, course]]) : new Map()}
-                  teachersById={new Map(teachers.map((t) => [t.id, t]))}
+                  coursesById={coursesById}
+                  teachersById={teachersByIdMap}
                   roomsById={roomById}
                   requiredFields={[
                     { label: "Course", value: id ?? "" },
@@ -1857,16 +1921,20 @@ function BulkEditModal({
         </>
       }
     >
-      <div className="flex gap-1 mb-3">
+      <div className="inline-flex overflow-hidden rounded-sm border border-wi-line mb-3" role="group" aria-label="Bulk edit mode">
         <button
+          type="button"
           onClick={() => switchMode('per-row')}
-          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'per-row' ? 'bg-blue-600 text-white' : 'bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
+          aria-pressed={editMode === 'per-row'}
+          className={`px-3 py-1 text-xs font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${editMode === 'per-row' ? 'bg-[var(--color-wi-nav)] text-white' : 'bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
         >
           Row Edit
         </button>
         <button
+          type="button"
           onClick={() => switchMode('fill-all')}
-          className={`px-3 py-1 text-xs rounded-sm font-medium ${editMode === 'fill-all' ? 'bg-blue-600 text-white' : 'bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
+          aria-pressed={editMode === 'fill-all'}
+          className={`px-3 py-1 text-xs font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] ${editMode === 'fill-all' ? 'bg-[var(--color-wi-nav)] text-white' : 'bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]'}`}
         >
           Apply to All
         </button>
@@ -1878,19 +1946,19 @@ function BulkEditModal({
           <div className="flex flex-wrap gap-3 items-end">
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Date</label>
-              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+              <input type="date" value={fillValues.date ?? ''} onChange={(e) => handleFillChange('date', e.target.value || undefined)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Begin</label>
-              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+              <input type="time" value={fillValues.begin ?? ''} onChange={(e) => handleFillChange('begin', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">End</label>
-              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+              <input type="time" value={fillValues.end ?? ''} onChange={(e) => handleFillChange('end', e.target.value || undefined)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Classroom</label>
-              <SearchableSelect value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-wi-line rounded-sm">
+              <SearchableSelect value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15">
                 <option value="__keep__">[KEEP ORIGINAL]</option>
                           <option value="">Not set</option>
                 {rooms.map((room) => (
@@ -1927,33 +1995,33 @@ function BulkEditModal({
                 <td colSpan={8} className="py-4 text-center text-[var(--color-wi-text-light)]">No sessions selected</td>
               </tr>
             ) : (
-              rows.map((r) => {
+              rows.map((r, rowIndex) => {
                 const eff = editMode === 'fill-all' ? mergeRow(r) : r;
                 const durStr = rowDuration(eff);
                 const hasError = hasDurationError(eff);
                 const isFillMode = editMode === 'fill-all';
                 return (
                   <tr key={r.sessionId} className={`border-b border-b-wi-line hover:bg-[var(--color-wi-row-alt)] ${r.status === 'conflict' || r.status === 'error' || r.status === 'stale_edit' ? 'bg-red-50' : ''}`}>
-                    <td className="py-1.5 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{rows.indexOf(r) + 1}</td>
+                    <td className="py-1.5 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{rowIndex + 1}</td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.date !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.date}</span>
                       ) : (
-                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+                        <input type="date" value={r.date} onChange={(e) => updateField(r.sessionId, 'date', e.target.value)} className="w-32 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.begin !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.begin}</span>
                       ) : (
-                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+                        <input type="time" value={r.begin} onChange={(e) => updateField(r.sessionId, 'begin', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
                       )}
                     </td>
                     <td className="py-1.5 px-2">
                       {isFillMode ? (
                         <span className={`text-xs ${fillValues.end !== undefined ? 'bg-blue-50 px-1 -mx-1 rounded' : ''}`}>{eff.end}</span>
                       ) : (
-                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm" />
+                        <input type="time" value={r.end} onChange={(e) => updateField(r.sessionId, 'end', e.target.value)} className="w-20 px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15" />
                       )}
                     </td>
                     <td className={`py-1.5 px-2 font-mono text-xs ${hasError ? 'text-red-500' : 'text-[var(--color-wi-text-light)]'}`}>
@@ -1965,7 +2033,7 @@ function BulkEditModal({
                           {rooms.find((rm) => rm.id === eff.room_id)?.name ?? 'Not set'}
                         </span>
                       ) : (
-                        <SearchableSelect value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-wi-line rounded-sm">
+                        <SearchableSelect value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15">
                 <option value="">Not set</option>
                           {rooms.map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>

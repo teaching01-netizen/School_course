@@ -213,7 +213,7 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 		// an empty record, and the resolved value rides along as the
 		// student_nickname snapshot for staff views.
 		if resolvedNickname, shouldPersist, nicknameErr := absences.ResolveClientNickname(body.Nickname, studentNickname); nicknameErr != nil {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_nickname", "A nickname is already on file for this student")
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_nickname", "A nickname is already saved for this student")
 			return 0, nil, nicknameErr
 		} else if shouldPersist {
 			studentNickname = resolvedNickname

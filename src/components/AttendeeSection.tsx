@@ -63,6 +63,7 @@ export function AttendeeSection({
   const [draftAdding, setDraftAdding] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [sageModalOpen, setSageModalOpen] = useState(false);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
   const { addToast } = useToast();
 
   const openSageModal = () => setSageModalOpen(true);
@@ -123,7 +124,9 @@ export function AttendeeSection({
   };
 
   const convertDraftStudent = async (studentId: string) => {
+    if (convertingId) return;
     try {
+      setConvertingId(studentId);
       await apiJson(`/api/v1/courses/${courseId}/students/${studentId}/convert`, {
         method: "POST",
       });
@@ -135,6 +138,8 @@ export function AttendeeSection({
       } else {
         addToast("error", err instanceof Error ? err.message : "Conversion failed");
       }
+    } finally {
+      setConvertingId(null);
     }
   };
 
@@ -232,11 +237,20 @@ export function AttendeeSection({
           </thead>
           <tbody>
             {rosterLoading ? (
-              <tr>
-                <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={11}>
-                  Loading…
-                </td>
-              </tr>
+              <>
+                {["r1", "r2", "r3"].map((key) => (
+                  <tr key={key} aria-hidden="true">
+                    <td className="py-2.5 px-3" colSpan={11}>
+                      <div className="flex items-center gap-4">
+                        <div className="h-3 w-16 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+                        <div className="h-3 w-40 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+                        <div className="h-3 w-12 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+                        <div className="ml-auto h-3 w-20 animate-pulse rounded-sm bg-[var(--color-wi-row-alt)]" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
             ) : roster.length === 0 ? (
               <tr>
                 <td className="py-6 px-3 text-sm text-[var(--color-wi-text-light)]" colSpan={11}>
@@ -279,10 +293,13 @@ export function AttendeeSection({
                       <div className="flex justify-end gap-2">
                         {isDraft && !crmEnabled && (
                           <button
+                            type="button"
                             onClick={() => void convertDraftStudent(st.id)}
-                            className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded-sm hover:bg-green-50"
+                            disabled={convertingId !== null}
+                            aria-busy={convertingId === st.id}
+                            className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded-sm hover:bg-green-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none cursor-pointer"
                           >
-                            Enroll
+                            {convertingId === st.id ? "Enrolling…" : "Enroll"}
                           </button>
                         )}
                         <Link
@@ -293,8 +310,9 @@ export function AttendeeSection({
                         </Link>
                         {!crmEnabled && (
                           <button
+                            type="button"
                             onClick={() => void onRemoveStudent(st.id)}
-                            className="px-2 py-1 text-xs bg-[var(--color-wi-red)] hover:bg-[var(--color-wi-red-dark)] text-white rounded-sm"
+                            className="px-2 py-1 text-xs bg-[var(--color-wi-red)] hover:bg-[var(--color-wi-red-dark)] text-white rounded-sm cursor-pointer transition-[background-color] duration-150 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
                           >
                             remove
                           </button>
@@ -317,18 +335,21 @@ export function AttendeeSection({
           footer={
             <>
               <button
+                type="button"
                 onClick={closeManualModal}
-                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)] cursor-pointer focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)]"
               >
                 Cancel
               </button>
               {manualError && (
-                <span className="text-xs text-red-600 mr-2">{manualError}</span>
+                <span className="text-xs text-red-600 mr-2" role="alert">{manualError}</span>
               )}
               <button
+                type="button"
                 onClick={() => void handleManualAdd()}
                 disabled={adding || !addingWcode.trim()}
-                className="px-3 py-1 text-sm bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white rounded-sm disabled:opacity-60"
+                aria-busy={adding}
+                className="px-3 py-1 text-sm bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white rounded-sm disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-[background-color] duration-150 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
               >
                 {adding ? "Adding…" : "Add"}
               </button>
@@ -345,7 +366,7 @@ export function AttendeeSection({
               }}
               placeholder="e.g. W250389"
               autoFocus
-              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+              className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15"
             />
           </div>
         </Modal>
@@ -359,18 +380,21 @@ export function AttendeeSection({
           footer={
             <>
               <button
+                type="button"
                 onClick={closeDraftModal}
-                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)]"
+                className="px-3 py-1 text-sm border border-wi-line rounded-sm hover:bg-[var(--color-wi-row-alt)] cursor-pointer focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)]"
               >
                 Cancel
               </button>
               {draftError && (
-                <span className="text-xs text-red-600 mr-2">{draftError}</span>
+                <span className="text-xs text-red-600 mr-2" role="alert">{draftError}</span>
               )}
               <button
+                type="button"
                 onClick={() => void addDraftStudent()}
                 disabled={draftAdding || !draftWcode.trim()}
-                className="px-3 py-1 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-sm disabled:opacity-60"
+                aria-busy={draftAdding}
+                className="px-3 py-1 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-sm disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-[background-color] duration-150 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none"
               >
                 {draftAdding ? "Adding…" : "Add Draft"}
               </button>
@@ -389,7 +413,7 @@ export function AttendeeSection({
                 onChange={(e) => setDraftWcode(e.target.value)}
                 placeholder="e.g. W250389"
                 autoFocus
-                className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+                className="w-full px-2 py-1.5 text-sm border border-wi-line rounded-sm focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15"
               />
             </div>
           </div>

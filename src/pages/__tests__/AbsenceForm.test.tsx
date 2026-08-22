@@ -1563,8 +1563,8 @@ describe("AbsenceForm", () => {
     await lookupStudent(user);
     await goToVerification(user);
 
-    expect(await screen.findByText(/no parent phone is on file/i)).toBeInTheDocument();
-    expect(screen.getByText(/one-time code to this number/i)).toBeInTheDocument();
+    expect(await screen.findByText(/we don't have your parent's phone number yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/one-time code to check it works/i)).toBeInTheDocument();
   });
 
   it("shows the masked nickname hint after lookup", async () => {
@@ -1613,7 +1613,7 @@ describe("AbsenceForm", () => {
       submission: () => {
         batchAttempts += 1;
         if (batchAttempts === 1) {
-          throw new ApiRequestError("A nickname is already on file for this student", { code: "bad_nickname", status: 400 });
+          throw new ApiRequestError("A nickname is already saved for this student", { code: "bad_nickname", status: 400 });
         }
         return { items: [SUBMISSION_RESPONSE] };
       },

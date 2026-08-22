@@ -86,6 +86,9 @@ export default function Courses() {
   selectedRef.current = selected;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  /** Draft of the page-number input; committed on Enter/blur so each
+   *  keystroke doesn't trigger a navigation + request. */
+  const [pageDraft, setPageDraft] = useState<string | null>(null);
   const { cache, loading: studentsLoading, errors: studentsErrors, fetchStudents } = useCourseStudents();
   const { data: mergedGroups } = useApiQuery<CourseGroupSummary[]>("/api/v1/course-groups", []);
   // Shared reference cache: warmed by the Teachers page / nav prefetch, so the
@@ -108,7 +111,7 @@ export default function Courses() {
   }, [bucket, typeFilter, teacherFilter, urlQuery, offset]);
 
   const requestUrl = `/api/v1/courses?${requestQuery}`;
-  const { data: page, loading, error } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
+  const { data: page, loading, refreshing, error, refetch } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
 
   const batchDeleteMutation = useSmartMutation<{ ids: string[] }, { succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>({
     mutationFn: ({ ids }) =>
@@ -176,6 +179,13 @@ export default function Courses() {
   const totalPages = Math.ceil((page?.total_count ?? 0) / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
+  function commitPageDraft() {
+    if (pageDraft === null) return;
+    const next = Math.max(1, Math.min(Math.max(totalPages, 1), Number(pageDraft) || 1));
+    setPageDraft(null);
+    if (next !== currentPage) updateFilter("offset", String((next - 1) * PAGE_SIZE));
+  }
+
   function handleSelectAll(checked: boolean) {
     setSelected(checked ? new Set(items.map((c) => c.id)) : new Set());
   }
@@ -190,21 +200,14 @@ export default function Courses() {
   }
 
   function handleToggleExpand(courseId: string) {
+    const willExpand = !expandedIds.has(courseId);
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(courseId)) {
-        next.delete(courseId);
-      } else {
-        next.add(courseId);
-        void fetchStudents(courseId);
-      }
+      if (next.has(courseId)) next.delete(courseId);
+      else next.add(courseId);
       return next;
     });
-  }
-
-  function jumpToPage(event: React.ChangeEvent<HTMLInputElement>) {
-    const next = Math.max(1, Math.min(totalPages, Number(event.target.value) || 1));
-    updateFilter("offset", String((next - 1) * PAGE_SIZE));
+    if (willExpand) void fetchStudents(courseId);
   }
 
   async function handleBatchDelete() {
@@ -320,8 +323,8 @@ export default function Courses() {
       </div>
 
       {selectedCount > 0 ? (
-        <div className="mb-3 flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
-          <span className="font-medium text-blue-800">{selectedCount} selected</span>
+        <div className="mb-3 flex items-center gap-3 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm animate-fade-in motion-reduce:animate-none">
+          <span className="font-medium text-blue-800" aria-live="polite">{selectedCount} selected</span>
           <Button
             variant="danger"
             size="sm"
@@ -335,9 +338,22 @@ export default function Courses() {
 
       {loading && page === null ? (
         <LoadingSkeleton type="table" lines={5} />
+      ) : error && page === null ? (
+        <div className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+          <p className="font-medium">Couldn&apos;t load courses</p>
+          <p className="mt-1 text-red-600">{error.message}</p>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
       ) : (
         <>
-          <div className="overflow-x-auto data-table-wrapper">
+          <div className="relative overflow-x-auto data-table-wrapper" aria-busy={refreshing}>
+            {refreshing ? (
+              <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden" aria-hidden="true">
+                <div className="h-full w-1/4 animate-wi-progress bg-[var(--color-wi-primary)] motion-reduce:animate-none" />
+              </div>
+            ) : null}
             <table className="w-full min-w-[66rem] table-fixed text-[13px]">
               <caption className="sr-only">List of courses</caption>
               <colgroup>
@@ -453,6 +469,7 @@ export default function Courses() {
                             students={cache[course.id] ?? []}
                             loading={!!studentsLoading[course.id]}
                             error={studentsErrors[course.id] ?? null}
+                            onRetry={() => void fetchStudents(course.id)}
                           />
                         </td>
                       </tr>
@@ -472,8 +489,24 @@ export default function Courses() {
             <div className="flex items-center gap-2">
               <Button variant="secondary" size="sm" disabled={!hasPrevious} onClick={() => updateFilter("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</Button>
               <div className="flex items-center gap-1">
-                <input aria-label="Go to page" type="number" min={1} max={totalPages} value={currentPage} onChange={jumpToPage} className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center" />
-                <span>of {totalPages}</span>
+                <input
+                  aria-label="Go to page"
+                  type="number"
+                  min={1}
+                  max={Math.max(totalPages, 1)}
+                  value={pageDraft ?? String(currentPage)}
+                  onChange={(event) => setPageDraft(event.target.value)}
+                  onFocus={(event) => event.target.select()}
+                  onBlur={commitPageDraft}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                      event.preventDefault();
+                    }
+                  }}
+                  className="w-14 rounded-sm border border-wi-line px-2 py-1 text-sm text-center focus-visible:outline-none focus-visible:border-[var(--color-wi-primary)] focus-visible:ring-3 focus-visible:ring-[var(--color-wi-primary)]/15"
+                />
+                <span>of {Math.max(totalPages, 1)}</span>
               </div>
               <Button variant="secondary" size="sm" disabled={!hasNext} onClick={() => updateFilter("offset", String(offset + PAGE_SIZE))}>Next</Button>
             </div>

@@ -342,7 +342,7 @@ export default function StepCoverVerification({
             onChange={(e) => setEnrollPhone(e.target.value)}
           />
           <p className="text-xs text-[var(--color-wi-text-light)]">
-            No parent phone is on file. We'll text a one-time code to this number to verify it, then save it for future absence confirmations.
+            We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, then save it for future absence confirmations.
           </p>
           {!enrollPhoneValid && enrollPhone.trim() ? (
             <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>

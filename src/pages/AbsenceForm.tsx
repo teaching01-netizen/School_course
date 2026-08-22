@@ -947,7 +947,12 @@ export default function AbsenceForm() {
                             )}
                           </div>
                         ) : (
-                          <p className="mt-4 text-xs font-medium text-[var(--color-wi-text)]">Email on file</p>
+                          <p className="mt-4 flex items-center gap-1.5 text-xs font-medium text-[var(--color-wi-text)]">
+                            <svg className="h-3.5 w-3.5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Your email is already saved — no need to enter it
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1349,7 +1354,7 @@ export default function AbsenceForm() {
                         <p className="text-xs text-[var(--color-wi-text-light)]" data-testid="nickname-echo">
                           {nickname.trim()
                             ? <>Helps our staff recognise you — it will be saved as {maskNickname(nickname)}.</>
-                            : <>No nickname on file. Adding one helps our staff recognise you.</>}
+                            : <>No nickname saved yet. Adding one helps our staff recognise you.</>}
                         </p>
                       </div>
                     ) : null}
