@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SubjectSessions, VerifiedStudentSubject } from "../../types";
 import {
   groupByDay,
   splitMergedSessionValue,
@@ -11,6 +12,8 @@ import {
   uniqueValues,
   dayKey,
   instituteDateKey,
+  combineSubjectGroups,
+  combineSubjectPickerEntries,
 } from "../sessionGrouping";
 
 describe("absence session grouping", () => {
@@ -254,5 +257,93 @@ describe("dayKey", () => {
   it("computes from start_at when no date provided", () => {
     const key = dayKey({ id: "s1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00" });
     expect(key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+function subjectGroup(overrides: Partial<SubjectSessions> & Pick<SubjectSessions, "course_id" | "subject_id">): SubjectSessions {
+  return {
+    subject_code: "TEST",
+    subject_name: "Test Subject",
+    course_code: "C1",
+    course_name: "Course 1",
+    sessions: [],
+    ...overrides,
+  } as SubjectSessions;
+}
+
+describe("combineSubjectGroups — one block per absence scope", () => {
+  it("collapses a merged course's source groups into one block", () => {
+    const writing = subjectGroup({
+      subject_id: "subj-w", subject_name: "Writing", teacher_name: "Ajarn A",
+      course_id: "c-w", merge_group_id: "mg1", merge_group_name: "Merged WR",
+      sessions: [
+        { id: "s2", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:00:00+07:00", date: "2026-06-02", already_absent: false },
+        { id: "s4", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03", already_absent: false },
+      ],
+    });
+    const reading = subjectGroup({
+      subject_id: "subj-r", subject_name: "Reading", teacher_name: "Ajarn B",
+      course_id: "c-r", merge_group_id: "mg1", merge_group_name: "Merged WR",
+      sessions: [
+        { id: "s1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },
+        { id: "s3", start_at: "2026-06-02T13:00:00+07:00", end_at: "2026-06-02T14:00:00+07:00", date: "2026-06-02", already_absent: false },
+      ],
+    });
+
+    const blocks = combineSubjectGroups([writing, reading]);
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    expect(block.key).toBe("merge:mg1");
+    expect(block.isMerged).toBe(true);
+    expect(block.label).toBe("Merged WR");
+    expect(block.teacherName).toBe("Ajarn A, Ajarn B");
+    expect(block.subjectIds).toEqual(["subj-w", "subj-r"]);
+    expect(block.groups).toEqual([writing, reading]);
+    // Combined sessions sorted by start across both source courses.
+    expect(block.sessions.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4"]);
+  });
+
+  it("keeps unmerged courses as their own blocks", () => {
+    const math = subjectGroup({ subject_id: "subj-m", course_id: "c-m" });
+    const english = subjectGroup({ subject_id: "subj-e", course_id: "c-e" });
+    const blocks = combineSubjectGroups([math, english]);
+    expect(blocks.map((b) => b.key)).toEqual(["course:c-m", "course:c-e"]);
+    expect(blocks.every((b) => !b.isMerged)).toBe(true);
+  });
+
+  it("labels a lone merge member with the merged course name", () => {
+    const solo = subjectGroup({
+      subject_id: "subj-w", course_id: "c-w",
+      merge_group_id: "mg1", merge_group_name: "Merged WR",
+    });
+    const blocks = combineSubjectGroups([solo]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].label).toBe("Merged WR");
+  });
+});
+
+describe("combineSubjectPickerEntries — one picker entry per scope", () => {
+  it("collapses merged subjects into one entry carrying both subject ids", () => {
+    const writing: VerifiedStudentSubject = { id: "subj-w", code: "W", name: "Writing", teacher_name: "Ajarn A", merge_group_id: "mg1", merge_group_name: "Merged WR" };
+    const reading: VerifiedStudentSubject = { id: "subj-r", code: "R", name: "Reading", teacher_name: "Ajarn A", merge_group_id: "mg1", merge_group_name: "Merged WR" };
+    const math: VerifiedStudentSubject = { id: "subj-m", code: "M", name: "Mathematics" };
+
+    const entries = combineSubjectPickerEntries([writing, reading, math]);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      key: "merge:mg1",
+      isMerged: true,
+      label: "Merged WR",
+      teacherName: "Ajarn A",
+      subjectIds: ["subj-w", "subj-r"],
+    });
+    expect(entries[1]).toMatchObject({ key: "subject:subj-m", label: "Mathematics", subjectIds: ["subj-m"] });
+  });
+
+  it("joins distinct teachers across merged subjects", () => {
+    const writing: VerifiedStudentSubject = { id: "subj-w", code: "W", name: "Writing", teacher_name: "Ajarn A", merge_group_id: "mg1", merge_group_name: "Merged WR" };
+    const reading: VerifiedStudentSubject = { id: "subj-r", code: "R", name: "Reading", teacher_name: "Ajarn B", merge_group_id: "mg1", merge_group_name: "Merged WR" };
+    const entries = combineSubjectPickerEntries([writing, reading]);
+    expect(entries[0].teacherName).toBe("Ajarn A, Ajarn B");
   });
 });

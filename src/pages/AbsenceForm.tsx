@@ -40,12 +40,14 @@ import {
 } from "@/features/absences/api/absenceFormApi";
 import {
   absenceScopeKey,
+  combineSubjectGroups,
+  combineSubjectPickerEntries,
   countSelectedAbsenceDays,
   countSelectedAbsenceDaysForScope,
   countSelectedAbsenceDaysForGroup,
-  getSelectedSessionsForGroup,
   groupByDay,
   mergedSessionValue,
+  type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/features/absences/domain/submissionPayload";
 import {
@@ -165,15 +167,21 @@ export default function AbsenceForm() {
     }
     return selectedDays;
   }, [scopeIndex, selectedSessionIds]);
-  const groupDayIndex = useMemo(() => {
-    const byCourse = new Map<string, ReturnType<typeof groupByDay<SubjectSessions["sessions"][number]>>>();
-    for (const group of sessions) byCourse.set(group.course_id, groupByDay(group.sessions));
-    return byCourse;
-  }, [sessions]);
   const selectedGroups = useMemo(
     () => sessions.filter((group) => selectedSubjectIdSet.has(group.subject_id)),
     [sessions, selectedSubjectIdSet],
   );
+  // One renderable block per absence scope: a merged course collapses its
+  // source courses into a single block, keeping the source groups for
+  // per-session sit-in resolution (sessions belong to real courses).
+  const selectedBlocks = useMemo(() => combineSubjectGroups(selectedGroups), [selectedGroups]);
+  const ownerGroupBySessionId = useMemo(() => {
+    const owners = new Map<string, SubjectSessions>();
+    for (const group of selectedGroups) {
+      for (const session of group.sessions) owners.set(session.id, group);
+    }
+    return owners;
+  }, [selectedGroups]);
   const maxSessions = config.sit_in.max_sessions_per_absence;
 
   const remainingForGroup = useCallback(
@@ -201,6 +209,9 @@ export default function AbsenceForm() {
   // stands in for the name; after verification the real display name shows.
   const studentDisplayName = studentProfile?.display_name || lookup?.nickname_hint || "Student";
   const verifiedSubjects = studentProfile?.subjects ?? [];
+  // One picker entry per absence scope: a merged course appears as one entry
+  // even though it spans two subjects, and selecting it selects both.
+  const pickerEntries = useMemo(() => combineSubjectPickerEntries(verifiedSubjects), [verifiedSubjects]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -472,18 +483,20 @@ export default function AbsenceForm() {
     }
   };
 
-  const toggleSubject = (subjectId: string) => {
-    const wasSelected = selectedSubjectIds.includes(subjectId);
-    if (wasSelected) {
-      setSelectedSubjectIds((current) => current.filter((id) => id !== subjectId));
-      setExpandedSubjectId((expanded) => {
-        if (expanded !== subjectId) return expanded;
-        return selectedSubjectIds.filter((id) => id !== subjectId)[0] ?? null;
-      });
+  const togglePickerEntry = (entry: SubjectPickerEntry) => {
+    const removing = new Set(entry.subjectIds);
+    const allSelected = entry.subjectIds.every((id) => selectedSubjectIds.includes(id));
+    if (allSelected) {
+      setSelectedSubjectIds((current) => current.filter((id) => !removing.has(id)));
+      setExpandedSubjectId((expanded) =>
+        expanded !== null && removing.has(expanded)
+          ? selectedSubjectIds.filter((id) => !removing.has(id))[0] ?? null
+          : expanded,
+      );
       return;
     }
-    setSelectedSubjectIds((current) => [...current, subjectId]);
-    setExpandedSubjectId(subjectId);
+    setSelectedSubjectIds((current) => [...current, ...entry.subjectIds.filter((id) => !current.includes(id))]);
+    setExpandedSubjectId(entry.subjectIds[0]);
   };
 
   const handleSessionGroupToggle = (group: SubjectSessions, sessionIds: string[]) => {
@@ -1047,16 +1060,16 @@ export default function AbsenceForm() {
                     <div className="absence-classes-layout__subjects">
                       <section>
                       <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">Which classes?</h2>
-                      {studentProfile && verifiedSubjects.length > 0 ? (
+                      {studentProfile && pickerEntries.length > 0 ? (
                         <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
-                          {verifiedSubjects.map((subject) => (
-                          <SubjectRow
-                            key={subject.id}
-                            id={subject.id}
-                            name={appendTeacher(subject.name, subject.teacher_name)}
-                            selected={selectedSubjectIds.includes(subject.id)}
-                            onToggle={() => toggleSubject(subject.id)}
-                          />
+                          {pickerEntries.map((entry) => (
+                            <SubjectRow
+                              key={entry.key}
+                              id={entry.key}
+                              name={appendTeacher(entry.label, entry.teacherName)}
+                              selected={entry.subjectIds.every((id) => selectedSubjectIdSet.has(id))}
+                              onToggle={() => togglePickerEntry(entry)}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -1090,25 +1103,23 @@ export default function AbsenceForm() {
                               : ""}
                           </span>
                         </div>
-                        <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected subjects">
-                          {selectedSubjectIds.map((subjectId) => {
-                            const subject = verifiedSubjects.find((item) => item.id === subjectId);
-                            const selectedForSubject = sessions
-                              .filter((group) => group.subject_id === subjectId)
+                        <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected classes">
+                          {selectedBlocks.map((block) => {
+                            const selectedForBlock = block.groups
                               .reduce((count, group) => count + countSelectedAbsenceDaysForGroup(group, selectedSessionIds), 0);
-                            const expanded = expandedSubjectId === subjectId;
+                            const expanded = expandedSubjectId !== null && block.subjectIds.includes(expandedSubjectId);
                             return (
                               <button
-                                key={subjectId}
+                                key={block.key}
                                 type="button"
                                 aria-expanded={expanded}
-                                aria-controls={sessions.filter((group) => group.subject_id === subjectId).map((group) => `subject-sessions-${subjectId}-${group.course_id}`).join(" ") || undefined}
-                                onClick={() => setExpandedSubjectId(expanded ? null : subjectId)}
+                                aria-controls={`class-block-${block.key}`}
+                                onClick={() => setExpandedSubjectId(expanded ? null : block.subjectIds[0])}
                                 className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-left text-sm font-semibold text-[var(--color-wi-text)]"
                               >
-                                <span>{appendTeacher(subject?.name ?? subjectId, subject?.teacher_name)}</span>
+                                <span>{appendTeacher(block.label, block.teacherName)}</span>
                                 <span className="text-xs font-medium text-[var(--color-wi-text-light)]">
-                                  {selectedForSubject > 0 ? `${selectedForSubject} class day${selectedForSubject === 1 ? "" : "s"} selected` : expanded ? "Open" : "Choose classes"}
+                                  {selectedForBlock > 0 ? `${selectedForBlock} class day${selectedForBlock === 1 ? "" : "s"} selected` : expanded ? "Open" : "Choose classes"}
                                 </span>
                               </button>
                             );
@@ -1127,71 +1138,70 @@ export default function AbsenceForm() {
                               Retry loading classes
                             </button>
                           </div>
-                        ) : selectedGroups.length === 0 ? (
+                        ) : selectedBlocks.length === 0 ? (
                           <p className="text-sm text-[var(--color-wi-text-light)]">No classes found for the selected courses.</p>
                         ) : (
                           <div className="space-y-4">
-                            {selectedGroups.map((group) => {
-                              const sessionGroups = groupDayIndex.get(group.course_id) ?? [];
-                              const sourceLabel = appendTeacher(group.subject_name?.trim() || group.course_name?.trim(), group.teacher_name);
-                              const groupLabel = group.merge_group_name?.trim()
-                                ? `${group.merge_group_name.trim()} · ${sourceLabel}`
-                                : sourceLabel;
-                              const scopeKey = absenceScopeKey(group);
+                            {selectedBlocks.map((block) => {
+                              const sessionGroups = groupByDay(block.sessions);
+                              const groupLabel = appendTeacher(block.label, block.teacherName);
+                              const scopeKey = block.key;
                               const scopedGroups = scopeIndex.get(scopeKey) ?? [];
                               const groupRemaining = Math.max(...scopedGroups.map(remainingForGroup), 0);
                               const selectedDaysInGroup = selectedDaysByScope.get(scopeKey) ?? 0;
                               const effectiveRemaining = Math.max(0, groupRemaining - selectedDaysInGroup);
+                              const quotaGroup = block.groups[0];
                               return (
                                 <div
-                                  key={group.course_id}
-                                  id={`subject-sessions-${group.subject_id}-${group.course_id}`}
+                                  key={block.key}
+                                  id={`class-block-${block.key}`}
                                   className={clsx(
                                     "rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm",
-                                    expandedSubjectId !== group.subject_id && "hidden sm:block",
+                                    !block.subjectIds.includes(expandedSubjectId ?? "") && "hidden sm:block",
                                   )}
                                 >
                                   <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
-                                      {group.absence_limit_reached
+                                      {block.groups.every((g) => g.absence_limit_reached)
                                         ? "Limit reached"
                                         : effectiveRemaining === 0
                                           ? "Limit reached"
                                           : `${effectiveRemaining} day${effectiveRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
                                   </div>
-                                  {group.merge_group_name ? (
+                                  {block.isMerged ? (
                                     <div className="border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 pb-3 text-xs text-[var(--color-wi-text-light)]">
-                                      Shared absence quota across this merged course
+                                      One merged course — absences share a single quota across {block.label}
                                     </div>
                                   ) : null}
-                                  {group.absence_limit_reached ? (
+                                  {block.groups.every((g) => g.absence_limit_reached) ? (
                                     <div className="p-4">
                                       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                                         <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                                         </svg>
                                         <span>
-                                          You have reached the maximum absences allowed for {group.merge_group_name ? "this merged course" : "this course"}.
-                                          {group.used_absence_days != null && (group.maximum_absence_days != null || group.total_course_days != null)
-                                            ? ` (${group.used_absence_days} absence day${group.used_absence_days !== 1 ? "s" : ""} used, max ${group.maximum_absence_days ?? Math.round((group.total_course_days ?? 0) / 5)})`
+                                          You have reached the maximum absences allowed for {block.isMerged ? "this merged course" : "this course"}.
+                                          {quotaGroup.used_absence_days != null && (quotaGroup.maximum_absence_days != null || quotaGroup.total_course_days != null)
+                                            ? ` (${quotaGroup.used_absence_days} absence day${quotaGroup.used_absence_days !== 1 ? "s" : ""} used, max ${quotaGroup.maximum_absence_days ?? Math.round((quotaGroup.total_course_days ?? 0) / 5)})`
                                             : ""}
                                         </span>
                                       </div>
                                     </div>
                                   ) : (
-                                  <div className="space-y-2 p-4">
-                                    {sessionGroups.map((dayGroup) => {
-                                      const session = dayGroup.items[0];
-                                      const sessionIds = dayGroup.items
-                                        .filter((item) => !item.already_absent)
-                                        .map((item) => item.id);
-                                      const alreadyAbsent = sessionIds.length === 0;
-                                      const selected = !alreadyAbsent
-                                        && sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
-                                      const currentSitIn = sitInSelections[session.id] || "";
-                                      const sessionGroup = groupWithSitInForMissedSession(group, session.id);
+                                    <div className="space-y-2 p-4">
+                                      {sessionGroups.map((dayGroup) => {
+                                        const session = dayGroup.items[0];
+                                        const ownerGroup = ownerGroupBySessionId.get(session.id) ?? quotaGroup;
+                                        const sessionIds = dayGroup.items
+                                          .filter((item) => !item.already_absent)
+                                          .map((item) => item.id);
+                                        const alreadyAbsent = sessionIds.length === 0;
+                                        const selected = !alreadyAbsent
+                                          && sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
+                                        const currentSitIn = sitInSelections[session.id] || "";
+                                        const sessionGroup = groupWithSitInForMissedSession(ownerGroup, session.id);
                                       const baseSitIn = sessionGroup.sit_in;
                                       const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(sessionGroup);
                                       const requestedLevel = baseSitIn
@@ -1214,7 +1224,7 @@ export default function AbsenceForm() {
                                           selected={selected}
                                           alreadyAbsent={alreadyAbsent}
                                           disabled={!selected && (effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions)}
-                                          onToggle={() => handleSessionGroupToggle(group, sessionIds)}
+                                          onToggle={() => handleSessionGroupToggle(ownerGroup, sessionIds)}
                                           reduceMotion={reduceMotion}
                                         >
                                               {sitIn && sitIn.sit_in_method === "physical" ? (
@@ -1429,18 +1439,20 @@ export default function AbsenceForm() {
                         </button>
                       </div>
                       <div className="px-5 py-4 space-y-3">
-                        {selectedGroups.map((group) => {
-                          const selectedSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
+                        {selectedBlocks.map((block) => {
+                          const selectedSessions = block.sessions
+                            .filter((session) => selectedSessionIds.has(session.id) && !session.already_absent)
+                            .sort((a, b) => a.start_at.localeCompare(b.start_at));
                           if (selectedSessions.length === 0) return null;
-                          const groupLabel = appendTeacher(group.subject_name?.trim() || group.course_name?.trim() || group.course_code, group.teacher_name);
+                          const groupLabel = appendTeacher(block.label, block.teacherName);
                           return (
-                            <div key={group.course_id}>
+                            <div key={block.key}>
                               <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>
                               {groupByDay(selectedSessions).map((dayGroup) => (
                                 <p key={dayGroup.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
                                   {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}–{formatTime(dayGroup.end_at)}
                                   <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
-                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(dayGroup.items[0], group, sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
+                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(dayGroup.items[0], ownerGroupBySessionId.get(dayGroup.items[0].id) ?? block.groups[0], sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
                                 </p>
                               ))}
                             </div>

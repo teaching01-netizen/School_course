@@ -861,13 +861,16 @@ describe("AbsenceForm - 20% session limit", () => {
       const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
       await user.click(courseCheckbox);
 
+      // The merged course renders as ONE block: both source courses' sessions
+      // combine day-by-day (same-day sessions share one day card) with a
+      // single shared quota, never the summed per-course quota.
       await waitFor(() => {
-        expect(screen.getAllByText("Shared absence quota across this merged course")).toHaveLength(2);
+        expect(screen.getAllByText(/One merged course — absences share a single quota/)).toHaveLength(1);
+        expect(screen.getByText("SAT Verbal Rank 2 C3 (5 class days)")).toBeInTheDocument();
         expect(screen.queryByText("4 days remaining")).not.toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 16:00-17:30/ }));
-      await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 18:00-19:30/ }));
+      await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 16:00-19:30/ }));
 
       await waitFor(() => expect(screen.getByText(/^1 selected/)).toBeInTheDocument());
     });

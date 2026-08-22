@@ -1,4 +1,4 @@
-import type { SubjectSessions } from "../types";
+import type { SubjectSessions, VerifiedStudentSubject } from "../types";
 
 export const INSTITUTE_TIME_ZONE = "Asia/Bangkok";
 export const MERGED_SESSION_ID_SEPARATOR = "|";
@@ -115,6 +115,107 @@ export function countSelectedAbsenceDaysForGroup(group: SubjectSessions, selecte
 
 export function absenceScopeKey(group: SubjectSessions): string {
   return group.merge_group_id ? `merge:${group.merge_group_id}` : `course:${group.course_id}`;
+}
+
+function joinTeachers(names: Array<string | null | undefined>): string | undefined {
+  const distinct: string[] = [];
+  for (const name of names) {
+    const trimmed = name?.trim();
+    if (trimmed && !distinct.includes(trimmed)) distinct.push(trimmed);
+  }
+  return distinct.length > 0 ? distinct.join(", ") : undefined;
+}
+
+/** One renderable class block. A merged course combines its source courses'
+ *  groups into a single block keyed by the shared absence scope, so students
+ *  see and book one merged class with one quota; `groups` keeps the source
+ *  courses for per-session sit-in resolution and submission truth. */
+export type SubjectBlock = {
+  key: string;
+  subjectIds: string[];
+  isMerged: boolean;
+  label: string;
+  teacherName?: string;
+  groups: SubjectSessions[];
+  sessions: SubjectSessions["sessions"];
+};
+
+/** Combine session groups into one block per absence scope (merged courses
+ *  collapse to a single block). Single pass; block order follows first
+ *  appearance. */
+export function combineSubjectGroups(groups: SubjectSessions[]): SubjectBlock[] {
+  const byKey = new Map<string, SubjectBlock>();
+  const order: SubjectBlock[] = [];
+  for (const group of groups) {
+    const key = absenceScopeKey(group);
+    let block = byKey.get(key);
+    if (!block) {
+      block = {
+        key,
+        subjectIds: [],
+        isMerged: Boolean(group.merge_group_id),
+        label: "",
+        groups: [],
+        sessions: [],
+      };
+      byKey.set(key, block);
+      order.push(block);
+    }
+    block.groups.push(group);
+    block.subjectIds.push(group.subject_id);
+    block.sessions.push(...group.sessions);
+  }
+  for (const block of order) {
+    block.sessions.sort((a, b) => a.start_at.localeCompare(b.start_at));
+    const primary = block.groups[0];
+    block.label =
+      (block.isMerged ? block.groups.find((g) => g.merge_group_name?.trim())?.merge_group_name?.trim() : "") ||
+      primary.subject_name?.trim() ||
+      primary.course_name?.trim() ||
+      primary.course_code;
+    block.teacherName = joinTeachers(block.groups.map((g) => g.teacher_name));
+  }
+  return order;
+}
+
+/** One picker entry: merged subjects collapse into a single entry keyed by
+ *  their merge group, carrying every source subject id so selecting the
+ *  entry selects all of them. */
+export type SubjectPickerEntry = {
+  key: string;
+  subjectIds: string[];
+  isMerged: boolean;
+  label: string;
+  teacherName?: string;
+};
+
+export function combineSubjectPickerEntries(subjects: VerifiedStudentSubject[]): SubjectPickerEntry[] {
+  const byKey = new Map<string, { entry: SubjectPickerEntry; teacherNames: Array<string | null | undefined> }>();
+  const order: SubjectPickerEntry[] = [];
+  for (const subject of subjects) {
+    const mergeID = subject.merge_group_id?.trim();
+    const key = mergeID ? `merge:${mergeID}` : `subject:${subject.id}`;
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = {
+        entry: {
+          key,
+          subjectIds: [],
+          isMerged: Boolean(mergeID),
+          label: (mergeID ? subject.merge_group_name?.trim() : "") || subject.name,
+        },
+        teacherNames: [],
+      };
+      byKey.set(key, bucket);
+      order.push(bucket.entry);
+    }
+    bucket.entry.subjectIds.push(subject.id);
+    bucket.teacherNames.push(subject.teacher_name);
+  }
+  for (const bucket of byKey.values()) {
+    bucket.entry.teacherName = joinTeachers(bucket.teacherNames);
+  }
+  return order;
 }
 
 export function countSelectedAbsenceDaysForScope(

@@ -31,6 +31,12 @@ type StudentSubjectRow struct {
 	// otherwise each class shows its own teacher at session level and the
 	// subject row omits it rather than picking arbitrarily.
 	ActiveTeacherName string `json:"active_teacher_name"`
+	// MergeGroupID/Name link the subject to its merged course: they are set
+	// only when every active class of the subject is a member of the same
+	// merge group, so the student form can offer the merged course as one
+	// entry spanning its source subjects.
+	MergeGroupID   pgtype.UUID `json:"merge_group_id"`
+	MergeGroupName pgtype.Text `json:"merge_group_name"`
 }
 
 // active_course_id is the admin-configured course from subject_active_courses.
@@ -45,7 +51,13 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		       MIN(sac.course_id::text)::uuid AS active_course_id,
 		       CASE WHEN cardinality(array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), '')) = 1
 		            THEN (array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), ''))[1]
-		            ELSE '' END AS active_teacher_name
+		            ELSE '' END AS active_teacher_name,
+		       CASE WHEN cardinality(array_agg(DISTINCT mg.id)) = 1
+		              AND (array_agg(DISTINCT mg.id))[1] IS NOT NULL
+		            THEN (array_agg(DISTINCT mg.id))[1] ELSE NULL END AS merge_group_id,
+		       CASE WHEN cardinality(array_agg(DISTINCT mg.id)) = 1
+		              AND (array_agg(DISTINCT mg.id))[1] IS NOT NULL
+		            THEN MAX(mg.name) ELSE NULL END AS merge_group_name
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id
@@ -53,6 +65,8 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
 		LEFT JOIN courses ac ON ac.id = sac.course_id
 		LEFT JOIN users tu ON tu.id = ac.teacher_id
+		LEFT JOIN course_merge_group_members mm ON mm.course_id = sac.course_id
+		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 		WHERE s.wcode = $1
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
@@ -65,7 +79,7 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 	var out []StudentSubjectRow
 	for rows.Next() {
 		var r StudentSubjectRow
-		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.School, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID, &r.ActiveTeacherName); err != nil {
+		if err := rows.Scan(&r.StudentID, &r.Wcode, &r.FullName, &r.StudentPhone, &r.ParentPhone, &r.Email, &r.EmailCRM, &r.EmailSystem, &r.Nickname, &r.School, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.ActiveCourseID, &r.ActiveTeacherName, &r.MergeGroupID, &r.MergeGroupName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

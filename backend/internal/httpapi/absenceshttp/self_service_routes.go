@@ -83,10 +83,12 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subject struct {
-		ID          string `json:"id"`
-		Code        string `json:"code"`
-		Name        string `json:"name"`
-		TeacherName string `json:"teacher_name,omitempty"`
+		ID             string `json:"id"`
+		Code           string `json:"code"`
+		Name           string `json:"name"`
+		TeacherName    string `json:"teacher_name,omitempty"`
+		MergeGroupID   string `json:"merge_group_id,omitempty"`
+		MergeGroupName string `json:"merge_group_name,omitempty"`
 	}
 	subjects := make([]subject, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
@@ -107,7 +109,14 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[id] = struct{}{}
-		subjects = append(subjects, subject{ID: id, Code: row.SubjectCode, Name: row.SubjectName, TeacherName: row.ActiveTeacherName})
+		item := subject{ID: id, Code: row.SubjectCode, Name: row.SubjectName, TeacherName: row.ActiveTeacherName}
+		if row.MergeGroupID.Valid {
+			if mergeID, mergeErr := s.a.UUIDString(row.MergeGroupID); mergeErr == nil {
+				item.MergeGroupID = mergeID
+				item.MergeGroupName = row.MergeGroupName.String
+			}
+		}
+		subjects = append(subjects, item)
 	}
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"wcode":         session.Wcode,

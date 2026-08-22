@@ -221,6 +221,11 @@ export type VerifiedStudentSubject = {
   name: string;
   /** Teacher of the subject's active class, shown as "Subject (Teacher)". */
   teacher_name?: string | null;
+  /** Merged-course link: set when the subject's active classes all belong to
+   *  the same merged course, so the form can offer that merged course as one
+   *  entry spanning its source subjects. */
+  merge_group_id?: string | null;
+  merge_group_name?: string | null;
 };
 
 export type VerifiedStudentProfile = {
