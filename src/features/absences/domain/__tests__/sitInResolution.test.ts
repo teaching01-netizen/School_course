@@ -19,6 +19,7 @@ import {
   getReviewSitInLabel,
   getSitInSessionLabel,
   getSitInSessionGroupLabel,
+  findSitInSessionConflicts,
   groupSitInOptionsByTargetAndDay,
   appendTeacher,
 } from "../sitInResolution";
@@ -496,6 +497,47 @@ describe("getSitInSessionGroupLabel", () => {
     expect(options).toHaveLength(1);
     expect(options[0].items.map((session) => session.id)).toEqual(["reading-session", "writing-session"]);
     expect(getSitInSessionGroupLabel(options[0].items, options[0].sitInCourse, "Fallback", [])).toContain("SAT Verbal Rank 3 Section 2 C3");
+  });
+});
+
+describe("findSitInSessionConflicts", () => {
+  it("keeps an overlapping session visible as a conflict from another enrolled subject", () => {
+    const conflicts = findSitInSessionConflicts(
+      [{ start_at: "2026-08-29T06:00:00Z", end_at: "2026-08-29T07:40:00Z" }],
+      [
+        {
+          ...baseGroup,
+          subject_id: "subj-math",
+          subject_name: "SAT Math : Beginner C3",
+          course_id: "math-course",
+          sessions: [{
+            id: "math-session",
+            start_at: "2026-08-29T06:00:00Z",
+            end_at: "2026-08-29T09:20:00Z",
+            date: "2026-08-29",
+            already_absent: false,
+          }],
+        },
+        { ...baseGroup, subject_id: "selected-subject" },
+      ],
+      ["selected-subject"],
+    );
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      group: { subject_name: "SAT Math : Beginner C3" },
+      session: { id: "math-session" },
+    });
+  });
+
+  it("does not treat a selected merged source member as another class", () => {
+    const conflicts = findSitInSessionConflicts(
+      [{ start_at: "2026-08-29T06:00:00Z", end_at: "2026-08-29T07:40:00Z" }],
+      [{ ...baseGroup, subject_id: "selected-reading" }, { ...baseGroup, subject_id: "selected-writing" }],
+      ["selected-reading", "selected-writing"],
+    );
+
+    expect(conflicts).toEqual([]);
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CourseLevels from "../CourseLevels";
-import { renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
+import { GROUPS_WITH_RULE, renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -15,7 +15,7 @@ describe("CourseLevels add level", () => {
   beforeEach(() => mockApiJson.mockReset());
 
   it("adds a level to the selected unassigned course", async () => {
-    setupCourseLevelsApi(mockApiJson);
+    setupCourseLevelsApi(mockApiJson, undefined, GROUPS_WITH_RULE);
     render(renderWithProviders(<CourseLevels />));
     const dialog = await screen.findByRole("dialog", { name: "Manage Course Levels" });
     const user = userEvent.setup();

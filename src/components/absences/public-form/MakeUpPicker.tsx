@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { ChevronRight } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
@@ -7,6 +7,7 @@ export type MakeUpOption = {
   value: string;
   label: string;
   disabled?: boolean;
+  description?: string;
 };
 
 type MakeUpPickerProps = {
@@ -25,6 +26,11 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedOption = options.find((option) => option.value === value);
+  const selectOptions = [{ value: "", label: "Not yet selected" }, ...options];
+
+  useEffect(() => {
+    if (value && selectedOption?.disabled) onChange("");
+  }, [onChange, selectedOption?.disabled, value]);
 
   return (
     <div className="space-y-2">
@@ -33,15 +39,11 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         id={id}
         name={id}
         value={value}
+        options={selectOptions}
         disabled={disabled || options.length === 0}
         onChange={(event) => onChange(event.target.value)}
         className="hidden min-h-12 w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-base text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20 sm:block"
-      >
-        <option value="">Not yet selected</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
-        ))}
-      </SearchableSelect>
+      />
 
       <button
         data-make-up-trigger="true"
@@ -110,7 +112,10 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
                       onChange={(event) => setPendingValue(event.target.value)}
                       className="h-5 w-5 border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
                     />
-                    <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">{option.label}</span>
+                    <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">
+                      <span className="block">{option.label}</span>
+                      {option.description ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.description}</span> : null}
+                    </span>
                   </label>
                 ))}
               </>

@@ -14,7 +14,7 @@ vi.mock("@/api/client", async () => {
 describe("CourseLevels group assignment", () => {
   beforeEach(() => mockApiJson.mockReset());
 
-  it("moves a course to another group from its row actions", async () => {
+  it("blocks moving a levelled course into a group without a sit-in rule", async () => {
     setupCourseLevelsApi(mockApiJson);
     render(renderWithProviders(<CourseLevels />));
     const dialog = await screen.findByRole("dialog", { name: "Manage Course Levels" });
@@ -26,9 +26,10 @@ describe("CourseLevels group assignment", () => {
     mockApiJson.mockResolvedValueOnce({ ok: true });
     await user.click(await within(dialog).findByRole("option", { name: "SAT Verbal" }));
 
-    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledTimes(3));
+    expect(mockApiJson).not.toHaveBeenCalledWith(
       "/api/v1/admin/courses/c1/root-course-group",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ root_course_group_id: "g2" }) }),
-    ));
+    );
   });
 });

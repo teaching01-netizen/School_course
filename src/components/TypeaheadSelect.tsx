@@ -4,6 +4,7 @@ import SearchableSelect from "./ui/SearchableSelect";
 
 export default function TypeaheadSelect(props: {
   id?: string;
+  "aria-label"?: string;
   "aria-invalid"?: boolean;
   "aria-describedby"?: string;
   value: string;
@@ -16,6 +17,7 @@ export default function TypeaheadSelect(props: {
   return (
     <SearchableSelect
       id={props.id}
+      aria-label={props["aria-label"]}
       value={props.value}
       onValueChange={props.onChange}
       options={props.options}

@@ -25,7 +25,11 @@ describe("CourseLevels group operations", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add" }));
     expect(await within(dialog).findByRole("button", { name: "SAT Physics" })).toBeInTheDocument();
 
-    const addCourse = within(dialog).getAllByRole("combobox")[1];
+    const newGroupRule = within(dialog).getByRole("combobox", { name: "Sit-in rule for SAT Physics" });
+    mockApiJson.mockResolvedValueOnce({ ok: true });
+    await user.selectOptions(newGroupRule, "rule-level-ladder");
+
+    const addCourse = within(dialog).getByRole("combobox", { name: "Add course to SAT Physics" });
     await user.click(addCourse);
     await user.type(addCourse, "MATH-101");
     mockApiJson.mockResolvedValueOnce({ ok: true });

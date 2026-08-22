@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import CourseLevels from "../CourseLevels";
-import { COURSES, GROUPS, renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
+import { COURSES, GROUPS_WITH_RULE, renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -20,7 +20,7 @@ describe("CourseLevels status summary", () => {
       { ...COURSES[2], level: null },
       COURSES[3],
     ];
-    setupCourseLevelsApi(mockApiJson, gapCourses, GROUPS);
+    setupCourseLevelsApi(mockApiJson, gapCourses, GROUPS_WITH_RULE);
     render(renderWithProviders(<CourseLevels />));
 
     const summary = await screen.findByRole("region", { name: "Course level status summary" });

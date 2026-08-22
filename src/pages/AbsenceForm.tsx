@@ -15,7 +15,7 @@ import AbsenceActionBar from "@/components/absences/public-form/AbsenceActionBar
 import SubjectRow from "@/components/absences/public-form/SubjectRow";
 import ReasonField from "@/components/absences/public-form/ReasonField";
 import SessionDayCard from "@/components/absences/public-form/SessionDayCard";
-import MakeUpPicker from "@/components/absences/public-form/MakeUpPicker";
+import MakeUpPicker, { type MakeUpOption } from "@/components/absences/public-form/MakeUpPicker";
 import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
 import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
@@ -59,6 +59,7 @@ import {
   getSitInCourseDisplayName,
   getSitInSessionGroupLabel,
   getSitInSessionLabel,
+  findSitInSessionConflicts,
   groupSitInOptionsByTargetAndDay,
   groupWithSitInForMissedSession,
   hasPriorityLevel,
@@ -68,6 +69,8 @@ import {
   prioritiesForLevel,
   rootAvailableSessionsForMissedSessions,
   sitInForMissedSession,
+  type SitInCourse,
+  type SitInOptionGroup,
   unavailableSessionsForMissedSession,
 } from "@/features/absences/domain/sitInResolution";
 import {
@@ -89,6 +92,33 @@ function isStudentSessionUnauthorized(error: unknown): boolean {
   return error instanceof ApiRequestError
     && error.status === 401
     && error.code === "unauthorized";
+}
+
+function makeUpPickerOptions(
+  optionGroups: SitInOptionGroup[],
+  sessions: SubjectSessions[],
+  selectedSubjectIds: string[],
+  groupLabel: string,
+  defaultSitInCourse?: SitInCourse,
+): MakeUpOption[] {
+  return optionGroups.map((optionGroup) => {
+    const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
+    const conflictDescription = conflicts.length > 0
+      ? `Overlaps with ${conflicts.map(({ group, session }) => {
+        const subjectName = appendTeacher(
+          group.subject_name?.trim() || group.course_name?.trim() || group.course_code,
+          group.teacher_name,
+        );
+        return `${subjectName} — ${formatDate(session.date)} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+      }).join("; ")}`
+      : undefined;
+    return {
+      value: mergedSessionValue(optionGroup.items),
+      label: getSitInSessionGroupLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
+      disabled: conflicts.length > 0,
+      description: conflictDescription,
+    };
+  });
 }
 
 export default function AbsenceForm() {
@@ -1314,10 +1344,7 @@ export default function AbsenceForm() {
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
-                                                            options={groupSitInOptionsByTargetAndDay(currentPriorities, sessionIds).map((optionGroup) => ({
-                                                                value: mergedSessionValue(optionGroup.items),
-                                                                label: getSitInSessionGroupLabel(optionGroup.items, optionGroup.sitInCourse, groupLabel, sessions),
-                                                            }))}
+                                                            options={makeUpPickerOptions(groupSitInOptionsByTargetAndDay(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
                                                             onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                           />
                                                         )}
@@ -1334,10 +1361,7 @@ export default function AbsenceForm() {
                                                         id={`sit-in-${session.id}`}
                                                         label="Make-up class"
                                                         value={currentSitIn}
-                                                        options={groupByDay(sitInAvailable).map((optionGroup) => ({
-                                                          value: mergedSessionValue(optionGroup.items),
-                                                          label: getSitInSessionGroupLabel(optionGroup.items, sitIn?.sit_in_course, groupLabel, sessions),
-                                                        }))}
+                                                        options={makeUpPickerOptions(groupByDay(sitInAvailable), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
                                                         onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                       />
                                                     </div>

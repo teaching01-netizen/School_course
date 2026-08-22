@@ -56,4 +56,29 @@ describe("MakeUpPicker", () => {
     expect(screen.getByText(/no classes match/i)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /saturday 22 aug/i })).not.toBeInTheDocument();
   });
+
+  it("shows the overlap reason and disables the conflicting session", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MakeUpPicker
+        id="sit-in-session-1"
+        label="Make-up class"
+        value=""
+        options={[{
+          value: "sit-in-conflict",
+          label: "Saturday 29 Aug · 13:00-14:40",
+          disabled: true,
+          description: "Overlaps with SAT Math : Beginner C3 — Sat, 29 Aug 2026 13:00-16:20",
+        }]}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: /saturday 29 aug/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
+    expect(screen.getByText(/overlaps with sat math : beginner c3/i)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /sat math : beginner c3/i })).toBeDisabled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import CourseLevels from "../CourseLevels";
-import { renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
+import { GROUPS, GROUPS_WITH_RULE, RULES, renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -30,7 +30,7 @@ describe("CourseLevels", () => {
   });
 
   it("saves a row-level edit through the existing course level endpoint", async () => {
-    setupCourseLevelsApi(mockApiJson);
+    setupCourseLevelsApi(mockApiJson, undefined, GROUPS_WITH_RULE);
     render(renderWithProviders(<CourseLevels />));
     const dialog = await screen.findByRole("dialog", { name: "Manage Course Levels" });
     const row = within(dialog).getByText("MATH-101").closest("tr");
@@ -44,6 +44,24 @@ describe("CourseLevels", () => {
     await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/admin/courses/c1/level",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ level: 3, cycle_id: "cy1" }) }),
+    ));
+  });
+
+  it("surfaces a missing rule and assigns one from the selected course group", async () => {
+    setupCourseLevelsApi(mockApiJson, undefined, GROUPS, RULES);
+    render(renderWithProviders(<CourseLevels />));
+
+    const dialog = await screen.findByRole("dialog", { name: "Manage Course Levels" });
+    expect(within(dialog).getByText("Rule needed")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add level" })).toBeDisabled();
+
+    const ruleSelect = within(dialog).getByRole("combobox", { name: "Sit-in rule for SAT Math" });
+    expect(ruleSelect).toHaveValue("");
+    fireEvent.change(ruleSelect, { target: { value: "rule-level-ladder" } });
+
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/root-course-groups/g1",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ sit_in_rule_id: "rule-level-ladder" }) }),
     ));
   });
 });

@@ -6,6 +6,7 @@ import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
+import type { SitInRule } from "../types";
 import type { CourseLevelItem, RootCourseGroupInfo } from "../utils/levels";
 
 type CourseLevelsPage = {
@@ -43,6 +44,7 @@ export default function CourseLevels() {
   const { addToast } = useToast();
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
   const [groups, setGroups] = useState<RootCourseGroupInfo[]>([]);
+  const [rules, setRules] = useState<SitInRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [managerOpen, setManagerOpen] = useState(true);
 
@@ -50,13 +52,15 @@ export default function CourseLevels() {
     let cancelled = false;
     (async () => {
       try {
-        const [coursesData, groupsData] = await Promise.all([
+        const [coursesData, groupsData, rulesData] = await Promise.all([
           loadAllCourseLevels(),
           apiJson<RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" }),
+          apiJson<SitInRule[]>("/api/v1/admin/sit-in-rules", { method: "GET" }),
         ]);
         if (cancelled) return;
         setCourses(coursesData);
         setGroups(groupsData);
+        setRules(rulesData ?? []);
       } catch (error) {
         if (!cancelled) addToast("error", error instanceof Error ? error.message : "Failed to load course levels");
       } finally {
@@ -90,6 +94,7 @@ export default function CourseLevels() {
           <CourseLevelManagerPanel
             courses={courses}
             groups={groups}
+            rules={rules}
             onCoursesChange={(update) => setCourses(update)}
             onGroupsChange={(update) => setGroups(update)}
           />

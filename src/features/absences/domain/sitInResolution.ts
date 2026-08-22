@@ -109,6 +109,37 @@ export type SitInOptionGroup = {
   sitInCourse?: SitInCourse;
 };
 
+export type SitInSessionConflict = {
+  group: SubjectSessions;
+  session: SubjectSessions["sessions"][number];
+};
+
+export function findSitInSessionConflicts(
+  sitInSessions: Array<{ start_at: string; end_at: string }>,
+  enrolledGroups: SubjectSessions[],
+  selectedSubjectIds: string[],
+): SitInSessionConflict[] {
+  const selectedSubjects = new Set(selectedSubjectIds);
+  const conflicts: SitInSessionConflict[] = [];
+  const seen = new Set<string>();
+  for (const group of enrolledGroups) {
+    if (selectedSubjects.has(group.subject_id)) continue;
+    for (const session of group.sessions) {
+      if (session.already_absent) continue;
+      const overlaps = sitInSessions.some((sitInSession) =>
+        new Date(sitInSession.start_at) < new Date(session.end_at) &&
+        new Date(sitInSession.end_at) > new Date(session.start_at),
+      );
+      if (!overlaps) continue;
+      const key = `${group.course_id}:${session.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      conflicts.push({ group, session });
+    }
+  }
+  return conflicts;
+}
+
 function sitInTargetKey(
   sitInCourse: SitInCourse | undefined,
   sessions: SitInAvailableSession[],
