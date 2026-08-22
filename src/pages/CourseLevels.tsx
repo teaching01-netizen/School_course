@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import SlideOver from "../components/SlideOver";
+import Modal from "../components/Modal";
 import RootCourseGroupRail from "../components/RootCourseGroupRail";
 import LevelLadderCanvas from "../components/LevelLadderCanvas";
 import CourseAssignmentSheet from "../components/CourseAssignmentSheet";
@@ -386,6 +387,26 @@ export default function CourseLevels() {
       addToast("error", err instanceof Error ? err.message : "Save failed");
     }
   }
+
+  const handleManagedCourseGroupChanged = useCallback((change: {
+    courseId: string;
+    previousGroupId: string | null;
+    nextGroupId: string;
+  }) => {
+    const nextGroup = rootCourseGroups.find((group) => group.id === change.nextGroupId);
+    setCourses((previous) => previous.map((course) => course.id === change.courseId
+      ? {
+        ...course,
+        root_course_group_id: change.nextGroupId,
+        root_course_group_name: nextGroup?.name ?? null,
+      }
+      : course));
+    setRootCourseGroups((previous) => previous.map((group) => {
+      if (group.id === change.nextGroupId) return { ...group, course_count: group.course_count + 1 };
+      if (group.id === change.previousGroupId) return { ...group, course_count: Math.max(0, group.course_count - 1) };
+      return group;
+    }));
+  }, [rootCourseGroups, setRootCourseGroups]);
 
   async function saveActiveCourse(subjectId: string, courseId: string) {
     setSavingActiveCourse((prev) => ({ ...prev, [subjectId]: true }));
@@ -1286,14 +1307,18 @@ export default function CourseLevels() {
         </SlideOver>
       )}
 
-      {/* Slide-over: Manage Groups (Phase 4) */}
       {slideOverOpen && slideOverContent === "groups" && (
-        <SlideOver
+        <Modal
           title="Manage Groups"
+          size="full"
+          maxWidth="modal-course-groups"
           onClose={() => setSlideOverOpen(false)}
         >
-          <RootGroupManagerPanel groupState={groupState} />
-        </SlideOver>
+          <RootGroupManagerPanel
+            groupState={groupState}
+            onCourseGroupChanged={handleManagedCourseGroupChanged}
+          />
+        </Modal>
       )}
 
       {/* Returns Desk */}

@@ -343,6 +343,10 @@ html {
   opacity: 1;
 }
 
+.modal-course-groups {
+  width: min(56rem, calc(100vw - 2rem));
+}
+
 /* Slide-over */
 .slideover-base {
   padding: 0;

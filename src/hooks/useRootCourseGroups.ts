@@ -6,7 +6,6 @@ export function useRootCourseGroups() {
   const [rootCourseGroups, setRootCourseGroups] = useState<RootCourseGroupInfo[]>([]);
   const [manageGroups, setManageGroups] = useState<GroupWithCount[]>([]);
   const [manageLoading, setManageLoading] = useState(false);
-  const [managePage, setManagePage] = useState(0);
   const [newGroupName, setNewGroupName] = useState("");
   const [savingNewGroup, setSavingNewGroup] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -24,7 +23,6 @@ export function useRootCourseGroups() {
     try {
       const data = await apiJson<GroupWithCount[]>("/api/v1/admin/root-course-groups", { method: "GET" });
       setManageGroups(data);
-      setManagePage(0);
     } finally {
       setManageLoading(false);
     }
@@ -55,8 +53,6 @@ export function useRootCourseGroups() {
     manageGroups,
     setManageGroups,
     manageLoading,
-    managePage,
-    setManagePage,
     newGroupName,
     setNewGroupName,
     savingNewGroup,

@@ -1,20 +1,29 @@
-import Button from "./ui/Button";
+import { useEffect, useMemo, useState } from "react";
 import type { useRootCourseGroups } from "../hooks/useRootCourseGroups";
-import type { GroupWithCount, RootCourseGroupInfo } from "../utils/levels";
+import type { CourseLevelItem, RootCourseGroupInfo } from "../utils/levels";
 import { apiJson } from "../api/client";
+import Button from "./ui/Button";
+import Input from "./ui/Input";
+import GroupCourseAssignmentPanel from "./GroupCourseAssignmentPanel";
+import RootGroupList from "./RootGroupList";
 
-const PAGE_SIZE = 10;
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 interface RootGroupManagerPanelProps {
   groupState: ReturnType<typeof useRootCourseGroups>;
+  onCourseGroupChanged?: (change: {
+    courseId: string;
+    previousGroupId: string | null;
+    nextGroupId: string;
+  }) => void;
 }
 
-export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPanelProps) {
+export default function RootGroupManagerPanel({ groupState, onCourseGroupChanged }: RootGroupManagerPanelProps) {
   const {
     manageGroups,
     manageLoading,
-    managePage,
-    setManagePage,
     newGroupName,
     setNewGroupName,
     savingNewGroup,
@@ -30,18 +39,51 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
     deleteGroup,
     fetchManageGroups,
     setRootCourseGroups,
+    setManageGroups,
   } = groupState;
+
+  const [courses, setCourses] = useState<CourseLevelItem[]>([]);
+  const [courseLoading, setCourseLoading] = useState(true);
+  const [courseError, setCourseError] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [savingCourseId, setSavingCourseId] = useState<string | null>(null);
+  const [managerError, setManagerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCourseLoading(true);
+    apiJson<CourseLevelItem[]>("/api/v1/admin/course-levels", { method: "GET" })
+      .then((data) => {
+        if (!cancelled) setCourses(data);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setCourseError(errorMessage(error, "Failed to load courses"));
+      })
+      .finally(() => {
+        if (!cancelled) setCourseLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedGroup = useMemo(
+    () => manageGroups.find((group) => group.id === selectedGroupId) ?? null,
+    [manageGroups, selectedGroupId],
+  );
 
   async function handleCreate() {
     const name = newGroupName.trim();
     if (!name) return;
     setSavingNewGroup(true);
+    setManagerError(null);
     try {
       await createGroup(name);
       setNewGroupName("");
       await fetchManageGroups();
-    } catch {
-      // error handled upstream via toast
+    } catch (error: unknown) {
+      setManagerError(errorMessage(error, "Failed to create group"));
     } finally {
       setSavingNewGroup(false);
     }
@@ -51,12 +93,13 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
     const name = editingGroupName.trim();
     if (!name) return;
     setSavingEditGroup(true);
+    setManagerError(null);
     try {
       await renameGroup(id, name);
       setEditingGroupId(null);
       await fetchManageGroups();
-    } catch {
-      // error handled upstream
+    } catch (error: unknown) {
+      setManagerError(errorMessage(error, "Failed to rename group"));
     } finally {
       setSavingEditGroup(false);
     }
@@ -64,31 +107,73 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this group? Courses in this group will become ungrouped.")) return;
+    setManagerError(null);
     try {
       await deleteGroup(id);
       // Refresh main groups list
       const allGroups = await apiJson<RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" });
       setRootCourseGroups(allGroups);
+      setCourses((previous) => previous.map((course) => course.root_course_group_id === id
+        ? { ...course, root_course_group_id: null, root_course_group_name: null }
+        : course));
+      setSelectedGroupId((current) => current === id ? null : current);
       await fetchManageGroups();
-    } catch {
-      // error handled upstream
+    } catch (error: unknown) {
+      setManagerError(errorMessage(error, "Failed to delete group"));
     }
   }
 
-  const pageCount = Math.ceil(manageGroups.length / PAGE_SIZE);
-  const paged = manageGroups.slice(managePage * PAGE_SIZE, (managePage + 1) * PAGE_SIZE);
+  async function handleAssignCourse(courseId: string) {
+    if (!selectedGroupId || savingCourseId !== null) return;
+    const course = courses.find((item) => item.id === courseId);
+    if (!course || course.root_course_group_id === selectedGroupId) return;
+
+    setSavingCourseId(courseId);
+    setManagerError(null);
+    try {
+      await apiJson(`/api/v1/admin/courses/${courseId}/root-course-group`, {
+        method: "PUT",
+        body: JSON.stringify({ root_course_group_id: selectedGroupId }),
+      });
+
+      setCourses((previous) => previous.map((item) => item.id === courseId
+        ? { ...item, root_course_group_id: selectedGroupId, root_course_group_name: selectedGroup?.name ?? null }
+        : item));
+      setManageGroups((previous) => previous.map((group) => {
+        if (group.id === selectedGroupId) return { ...group, course_count: group.course_count + 1 };
+        if (group.id === course.root_course_group_id) return { ...group, course_count: Math.max(0, group.course_count - 1) };
+        return group;
+      }));
+      onCourseGroupChanged?.({
+        courseId,
+        previousGroupId: course.root_course_group_id,
+        nextGroupId: selectedGroupId,
+      });
+    } catch (error: unknown) {
+      setManagerError(errorMessage(error, "Failed to assign course"));
+    } finally {
+      setSavingCourseId(null);
+    }
+  }
 
   return (
     <div className="space-y-4">
+      {managerError && (
+        <div className="rounded-sm border border-[var(--color-wi-red)]/20 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-sm text-[var(--color-wi-red)]" role="alert">
+          {managerError}
+        </div>
+      )}
+
       {/* Add new group */}
       <div className="flex items-center gap-2">
-        <input
+        <Input
           type="text"
+          aria-label="Group name"
           placeholder="Group name"
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-          className="flex-1 px-2 py-1.5 text-sm border border-wi-line rounded-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") void handleCreate(); }}
+          className="flex-1"
         />
         <Button
           variant="primary"
@@ -101,106 +186,43 @@ export default function RootGroupManagerPanel({ groupState }: RootGroupManagerPa
         </Button>
       </div>
 
-      {/* Group list */}
-      {manageLoading ? (
-        <div className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">Loading…</div>
-      ) : manageGroups.length === 0 ? (
-        <div className="text-sm text-[var(--color-wi-text-light)] py-4 text-center">No groups yet</div>
-      ) : (
-        <>
-          <div className="border border-wi-line rounded-sm">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-wi-line bg-[var(--color-wi-row-alt)] text-left text-[var(--color-wi-text-light)]">
-                  <th className="py-2 px-3 font-medium">Name</th>
-                  <th className="py-2 px-3 font-medium w-24">Courses</th>
-                  <th className="py-2 px-3 font-medium w-32" />
-                </tr>
-              </thead>
-              <tbody>
-                {paged.map((g: GroupWithCount) => (
-                  <tr key={g.id} className="border-b border-wi-line-soft hover:bg-[var(--color-wi-row-alt)]">
-                    <td className="py-2 px-3">
-                      {editingGroupId === g.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={editingGroupName}
-                            onChange={(e) => setEditingGroupName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleRename(g.id);
-                              if (e.key === "Escape") setEditingGroupId(null);
-                            }}
-                            className="flex-1 px-2 py-1 text-sm border border-wi-line rounded-sm"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => handleRename(g.id)}
-                            disabled={!editingGroupName.trim() || savingEditGroup}
-                            className="text-xs text-blue-600 hover:text-blue-800 px-1"
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={() => setEditingGroupId(null)}
-                            className="text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text-light)] px-1"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-[var(--color-wi-text)]">{g.name}</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-[var(--color-wi-text-light)] text-xs">{g.course_count}</td>
-                    <td className="py-2 px-3 text-right">
-                      <button
-                        onClick={() => {
-                          setEditingGroupId(g.id);
-                          setEditingGroupName(g.name);
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-800 mr-3"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        onClick={() => handleDelete(g.id)}
-                        className="text-xs text-red-600 hover:text-red-800"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <RootGroupList
+        groups={manageGroups}
+        manageLoading={manageLoading}
+        selectedGroupId={selectedGroupId}
+        editingGroupId={editingGroupId}
+        editingGroupName={editingGroupName}
+        savingEditGroup={savingEditGroup}
+        onSelectGroup={setSelectedGroupId}
+        onStartRename={(group) => {
+          setEditingGroupId(group.id);
+          setEditingGroupName(group.name);
+        }}
+        onChangeEditingName={setEditingGroupName}
+        onSaveRename={(id) => void handleRename(id)}
+        onCancelRename={() => setEditingGroupId(null)}
+        onDelete={(id) => void handleDelete(id)}
+      />
 
-          {/* Pagination */}
-          {manageGroups.length > PAGE_SIZE && (
-            <div className="flex items-center justify-center gap-2 mt-3">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={managePage === 0}
-                onClick={() => setManagePage((p) => Math.max(0, p - 1))}
-              >
-                Previous
-              </Button>
-              <span className="text-xs text-[var(--color-wi-text-light)]">
-                Page {managePage + 1} of {pageCount}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={managePage >= pageCount - 1}
-                onClick={() => setManagePage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
+      {selectedGroup && (
+        courseLoading ? (
+          <p className="border-t border-wi-line pt-4 text-sm text-[var(--color-wi-text-light)]" role="status">Loading courses…</p>
+        ) : courseError ? (
+          <p className="border-t border-wi-line pt-4 text-sm text-[var(--color-wi-red)]" role="alert">{courseError}</p>
+        ) : (
+          <GroupCourseAssignmentPanel
+            group={selectedGroup}
+            courses={courses}
+            savingCourseId={savingCourseId}
+            onAssignCourse={(courseId) => void handleAssignCourse(courseId)}
+          />
+        )
+      )}
+
+      {!selectedGroup && manageGroups.length > 0 && (
+        <p className="border-t border-wi-line pt-4 text-center text-sm text-[var(--color-wi-text-light)]">
+          Select a group to manage its courses.
+        </p>
       )}
     </div>
   );
