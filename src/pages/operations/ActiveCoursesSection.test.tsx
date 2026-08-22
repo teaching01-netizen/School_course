@@ -69,10 +69,10 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the explainer with the single-switch model", async () => {
+  it("renders the explainer with the multi-active model", async () => {
     renderSection();
     expect(await screen.findByText("How the student absence form uses these settings")).toBeInTheDocument();
-    expect(screen.getByText(/Turning a class on automatically turns the other classes/i)).toBeInTheDocument();
+    expect(screen.getByText(/A subject can run several active classes at once/i)).toBeInTheDocument();
     expect(screen.getAllByText(/sit-ins?/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Hidden classes can.t be picked by students/i)).toBeInTheDocument();
   });
@@ -105,7 +105,7 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     expect(screen.getByText(/active course that is hidden/i)).toBeInTheDocument();
   });
 
-  it("activates a class exclusively with one click and updates in place", async () => {
+  it("activates a class with one click and leaves siblings untouched", async () => {
     renderSection();
     await screen.findByText("MATH — Mathematics");
 
@@ -124,8 +124,29 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     await waitFor(() => {
       expect(screen.getByRole("switch", { name: "MATH-102 active" })).toHaveAttribute("aria-checked", "true");
     });
-    // Exclusivity: the previous active class turns off immediately.
-    expect(screen.getByRole("switch", { name: "MATH-101 active" })).toHaveAttribute("aria-checked", "false");
+    // Multi-active: the previously active class keeps its state.
+    expect(screen.getByRole("switch", { name: "MATH-101 active" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("shows the active count on the subject header when several classes are active", async () => {
+    mockApiJson.mockImplementation(() =>
+      Promise.resolve({
+        subjects: [
+          subject({
+            courses: [
+              { course_id: "c-active", course_code: "MATH-101", course_name: "Math", cycle_id: "cy1", cycle_label: "Cycle 1", is_active: true, absence_form_visible: true },
+              { course_id: "c-active2", course_code: "MATH-102", course_name: "Math", cycle_id: "cy1", cycle_label: "Cycle 1", is_active: true, absence_form_visible: true },
+            ],
+          }),
+        ],
+        total_subjects: 1,
+      }),
+    );
+    renderSection();
+    expect(await screen.findByText("Active (2)")).toBeInTheDocument();
+    // Both switches render on independently.
+    expect(screen.getByRole("switch", { name: "MATH-101 active" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "MATH-102 active" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("leaves the switch unchanged and toasts when activation fails", async () => {

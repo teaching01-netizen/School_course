@@ -45,8 +45,9 @@ export type Course = {
   cycle_label?: string | null;
   expiry_days?: number | null;
   absence_form_visible?: boolean;
-  /** True when this course is the active course of its subject (the one the
-   *  student absence form auto-assigns). Managed only in Operations. */
+  /** True when this course is one of its subject's active classes (open in
+   *  the student absence form and eligible for sit-ins). Managed only in
+   *  Operations; a subject may have several active classes at once. */
   is_active_course?: boolean;
   last_session_at?: string | null;
   expires_at?: string | null;

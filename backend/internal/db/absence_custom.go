@@ -25,22 +25,27 @@ type StudentSubjectRow struct {
 	SubjectCode    string      `json:"subject_code"`
 	SubjectName    string      `json:"subject_name"`
 	ActiveCourseID pgtype.UUID `json:"active_course_id"`
-	// ActiveTeacherName is the teacher of the subject's active course, shown
-	// next to the subject name in the absence form ("Subject (Teacher)").
+	// ActiveTeacherName is the subject's teacher label for the absence form
+	// ("Subject (Teacher)"). A subject may run several active classes at once;
+	// the label is only filled in when every active class shares one teacher —
+	// otherwise each class shows its own teacher at session level and the
+	// subject row omits it rather than picking arbitrarily.
 	ActiveTeacherName string `json:"active_teacher_name"`
 }
 
 // active_course_id is the admin-configured course from subject_active_courses.
-// It is NULL when no active course has been set for the subject; it is never
-// derived from enrollment (MIN(uuid) would return an arbitrary course).
+// With multiple active courses per subject it is the lowest id for shape
+// stability; consumers display per-course data from session groups instead.
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
 		       COALESCE(s.email_crm, s.email_system) AS email,
 		       s.email_crm, s.email_system, s.nickname, s.school,
 		       sub.id, sub.code, sub.name,
-		       MAX(sac.course_id::text)::uuid AS active_course_id,
-		       COALESCE(NULLIF(MAX(tu.full_name), ''), MAX(tu.username), '') AS active_teacher_name
+		       MIN(sac.course_id::text)::uuid AS active_course_id,
+		       CASE WHEN cardinality(array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), '')) = 1
+		            THEN (array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), ''))[1]
+		            ELSE '' END AS active_teacher_name
 		FROM students s
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id

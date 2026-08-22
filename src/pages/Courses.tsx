@@ -438,7 +438,7 @@ export default function Courses() {
                           {course.is_active_course && (
                             <span
                               className="rounded-full bg-green-100 px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wide text-green-700"
-                              title="Active course — the student absence form auto-assigns this class for its subject"
+                              title="Active — students can book this class from the absence form and sit in"
                             >
                               Active
                             </span>

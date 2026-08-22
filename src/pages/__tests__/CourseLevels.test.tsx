@@ -135,6 +135,14 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(<MemoryRouter><ToastProvider>{ui}</ToastProvider></MemoryRouter>);
 }
 
+/** The course-table cell for a code. The classic-view "Active" bar also
+ *  renders course codes, so disambiguate by requiring a table row. */
+function courseRowByText(text: string): HTMLElement {
+  const cell = screen.getAllByText(text).find((el) => el.closest("tr"));
+  if (!cell) throw new Error(`no table-row element with text: ${text}`);
+  return cell as HTMLElement;
+}
+
 describe("CourseLevels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -165,8 +173,10 @@ describe("CourseLevels", () => {
     setupDefault();
     renderWithProviders(<CourseLevels />);
 
+    // The classic-view "Active" bar also shows the course code; the course
+    // table cell is the one inside a row.
     await waitFor(() => {
-      expect(screen.getByText("MATH-101")).toBeInTheDocument();
+      expect(courseRowByText("MATH-101")).toBeInTheDocument();
     });
     // LevelStepper shows the level value as text, not input
     const stepperValues = screen.getAllByText("1");
@@ -220,10 +230,10 @@ describe("CourseLevels", () => {
     renderWithProviders(<CourseLevels />);
 
     await waitFor(() => {
-      expect(screen.getByText("MATH-101")).toBeInTheDocument();
+      expect(courseRowByText("MATH-101")).toBeInTheDocument();
     });
 
-    const math101Row = screen.getByText("MATH-101").closest("tr")!;
+    const math101Row = courseRowByText("MATH-101").closest("tr")!;
     const user = userEvent.setup();
 
     // Click the increase button on the LevelStepper to change level from 1 to 2
@@ -271,10 +281,10 @@ describe("CourseLevels", () => {
     renderWithProviders(<CourseLevels />);
 
     await waitFor(() => {
-      expect(screen.getByText("MATH-101")).toBeInTheDocument();
+      expect(courseRowByText("MATH-101")).toBeInTheDocument();
     });
 
-    const math101Row = screen.getByText("MATH-101").closest("tr")!;
+    const math101Row = courseRowByText("MATH-101").closest("tr")!;
     const typeaheadInput = within(math101Row).getByRole("combobox");
     const user = userEvent.setup();
 

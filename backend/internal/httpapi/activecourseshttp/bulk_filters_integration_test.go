@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/auth"
@@ -165,7 +164,9 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	env := newActiveCoursesEnv(t)
 
 	// Three audit states: configured (active + visible), hidden_active
-	// (active + hidden), missing_active (no active course at all).
+	// (active + hidden), missing_active (no active course at all). The mixed
+	// subject has two actives with one hidden — a multi-active subject counts
+	// as hidden_active unless every active class is visible.
 	cfgSubj := env.seedSubject(t, "ACF-CFG-"+env.suffix)
 	cfgCourse := env.seedCourse(t, cfgSubj, "ACF-CFG-C-"+env.suffix, true)
 	env.setActive(t, cfgSubj, cfgCourse)
@@ -174,6 +175,12 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	hidCourse := env.seedCourse(t, hidSubj, "ACF-HID-C-"+env.suffix, false)
 	env.setActive(t, hidSubj, hidCourse)
 
+	mixSubj := env.seedSubject(t, "ACF-MIX-"+env.suffix)
+	mixVisible := env.seedCourse(t, mixSubj, "ACF-MIX-V-"+env.suffix, true)
+	mixHidden := env.seedCourse(t, mixSubj, "ACF-MIX-H-"+env.suffix, false)
+	env.setActive(t, mixSubj, mixVisible)
+	env.setActive(t, mixSubj, mixHidden)
+
 	missSubj := env.seedSubject(t, "ACF-MISS-"+env.suffix)
 	env.seedCourse(t, missSubj, "ACF-MISS-C-"+env.suffix, true)
 
@@ -181,24 +188,25 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	// seeded code ends with this run's unique suffix.
 	filtered := "?limit=200&search=" + env.suffix
 
-	if res := env.listSubjects(t, filtered); res.TotalSubjects != 3 {
-		t.Fatalf("scoped search total = %d, want 3 (body %+v)", res.TotalSubjects, res.Subjects)
+	if res := env.listSubjects(t, filtered); res.TotalSubjects != 4 {
+		t.Fatalf("scoped search total = %d, want 4 (body %+v)", res.TotalSubjects, res.Subjects)
 	}
 	if res := env.listSubjects(t, filtered+"&status=missing_active"); res.TotalSubjects != 1 || !subjectCodes(res)["ACF-MISS-"+env.suffix] {
 		t.Fatalf("missing_active filter = %+v (total %d), want only ACF-MISS", res.Subjects, res.TotalSubjects)
 	}
-	if res := env.listSubjects(t, filtered+"&status=hidden_active"); res.TotalSubjects != 1 || !subjectCodes(res)["ACF-HID-"+env.suffix] {
-		t.Fatalf("hidden_active filter = %+v (total %d), want only ACF-HID", res.Subjects, res.TotalSubjects)
+	if res := env.listSubjects(t, filtered+"&status=hidden_active"); res.TotalSubjects != 2 ||
+		!subjectCodes(res)["ACF-HID-"+env.suffix] || !subjectCodes(res)["ACF-MIX-"+env.suffix] {
+		t.Fatalf("hidden_active filter = %+v (total %d), want ACF-HID and ACF-MIX", res.Subjects, res.TotalSubjects)
 	}
 	if res := env.listSubjects(t, filtered+"&status=configured"); res.TotalSubjects != 1 || !subjectCodes(res)["ACF-CFG-"+env.suffix] {
 		t.Fatalf("configured filter = %+v (total %d), want only ACF-CFG", res.Subjects, res.TotalSubjects)
 	}
-	if res := env.listSubjects(t, filtered+"&status=all"); res.TotalSubjects != 3 {
-		t.Fatalf("status=all total = %d, want 3", res.TotalSubjects)
+	if res := env.listSubjects(t, filtered+"&status=all"); res.TotalSubjects != 4 {
+		t.Fatalf("status=all total = %d, want 4", res.TotalSubjects)
 	}
 	// Name search must also match (subjects are seeded with code as name).
-	if res := env.listSubjects(t, "?limit=200&search="+env.suffix+"&status=hidden_active"); res.TotalSubjects != 1 {
-		t.Fatalf("search+status combined total = %d, want 1", res.TotalSubjects)
+	if res := env.listSubjects(t, "?limit=200&search="+env.suffix+"&status=hidden_active"); res.TotalSubjects != 2 {
+		t.Fatalf("search+status combined total = %d, want 2", res.TotalSubjects)
 	}
 
 	// Stats are institute-wide and differential assertions are noise-proof on
@@ -228,10 +236,10 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	}
 }
 
-// TestBulkSetActive covers the bulk single-switch action: activating a
-// selection leaves exactly one active, visible class per subject;
-// deactivating turns classes off and empties their subject slots; malformed
-// payloads are rejected before touching the database.
+// TestBulkSetActive covers the bulk operations action: activating a selection
+// turns every selected class on (a subject keeps as many actives as selected);
+// deactivating turns classes off and removes them from their subject's active
+// set; malformed payloads are rejected before touching the database.
 func TestBulkSetActive(t *testing.T) {
 	env := newActiveCoursesEnv(t)
 	subjA := env.seedSubject(t, "ACB-A-"+env.suffix)
@@ -241,21 +249,29 @@ func TestBulkSetActive(t *testing.T) {
 	b1 := env.seedCourse(t, subjB, "ACB-3-"+env.suffix, false)
 	bulk := "/api/v1/admin/active-courses/set-active/bulk"
 
-	activeCourse := func(t *testing.T, subjectID uuid.UUID) (uuid.UUID, bool) {
+	activeCourses := func(t *testing.T, subjectID uuid.UUID) map[uuid.UUID]bool {
 		t.Helper()
-		var id uuid.UUID
-		err := env.dbpool.QueryRow(context.Background(),
-			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID).Scan(&id)
-		if err == pgx.ErrNoRows {
-			return uuid.Nil, false
-		}
+		rows, err := env.dbpool.Query(context.Background(),
+			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return id, true
+		defer rows.Close()
+		out := map[uuid.UUID]bool{}
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			out[id] = true
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
 	}
 
-	t.Run("activate_one_per_subject", func(t *testing.T) {
+	t.Run("activate_all_selected", func(t *testing.T) {
 		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
 			"course_ids": []string{a1.String(), a2.String(), b1.String()},
 			"active":     true,
@@ -264,42 +280,56 @@ func TestBulkSetActive(t *testing.T) {
 			t.Fatalf("bulk activate status = %d body = %s", status, raw)
 		}
 
-		activeA, okA := activeCourse(t, subjA)
-		if !okA {
-			t.Fatal("subject A must have an active course after bulk activation")
+		activesA := activeCourses(t, subjA)
+		if len(activesA) != 2 || !activesA[a1] || !activesA[a2] {
+			t.Fatalf("subject A actives = %v, want both %s and %s", activesA, a1, a2)
 		}
-		if activeA != a1 && activeA != a2 {
-			t.Fatalf("subject A active course %s is outside the selection", activeA)
-		}
-		for _, id := range []uuid.UUID{a1, a2} {
-			if vis := env.courseVisible(t, id); vis != (id == activeA) {
-				t.Fatalf("course %s visible = %v, want %v (visible iff active)", id, vis, id == activeA)
+		for _, id := range []uuid.UUID{a1, a2, b1} {
+			if !env.courseVisible(t, id) {
+				t.Fatalf("activated course %s must be visible", id)
 			}
 		}
-
-		activeB, okB := activeCourse(t, subjB)
-		if !okB || activeB != b1 {
-			t.Fatalf("subject B active = (%s, %v), want %s", activeB, okB, b1)
-		}
-		if !env.courseVisible(t, b1) {
-			t.Fatal("subject B's activated course must be visible")
+		if activesB := activeCourses(t, subjB); len(activesB) != 1 || !activesB[b1] {
+			t.Fatalf("subject B actives = %v, want only %s", activesB, b1)
 		}
 	})
 
-	t.Run("deactivate_clears_slots", func(t *testing.T) {
-		activeA, _ := activeCourse(t, subjA)
+	t.Run("deactivate_keeps_other_actives", func(t *testing.T) {
 		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
-			"course_ids": []string{activeA.String(), b1.String()},
+			"course_ids": []string{a1.String()},
 			"active":     false,
 		})
 		if status != http.StatusOK {
 			t.Fatalf("bulk deactivate status = %d body = %s", status, raw)
 		}
-		if _, ok := activeCourse(t, subjA); ok {
-			t.Fatal("subject A slot must be empty after deactivating its active course")
+		actives := activeCourses(t, subjA)
+		if actives[a1] {
+			t.Fatal("deactivated course must leave the active set")
 		}
-		if _, ok := activeCourse(t, subjB); ok {
-			t.Fatal("subject B slot must be empty after deactivation")
+		if !actives[a2] {
+			t.Fatal("sibling must stay active after partial deactivation")
+		}
+		if env.courseVisible(t, a1) {
+			t.Fatal("deactivated course must be hidden")
+		}
+		if !env.courseVisible(t, a2) {
+			t.Fatal("still-active sibling must stay visible")
+		}
+	})
+
+	t.Run("deactivate_clears_remaining", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, bulk, map[string]any{
+			"course_ids": []string{a2.String(), b1.String()},
+			"active":     false,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("bulk deactivate status = %d body = %s", status, raw)
+		}
+		if actives := activeCourses(t, subjA); len(actives) != 0 {
+			t.Fatalf("subject A active set must be empty, got %v", actives)
+		}
+		if actives := activeCourses(t, subjB); len(actives) != 0 {
+			t.Fatalf("subject B active set must be empty, got %v", actives)
 		}
 		for _, id := range []uuid.UUID{a1, a2, b1} {
 			if env.courseVisible(t, id) {
@@ -326,8 +356,8 @@ func TestBulkSetActive(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("dedup bulk status = %d body = %s", status, raw)
 		}
-		if active, ok := activeCourse(t, subjB); !ok || active != b1 || !env.courseVisible(t, b1) {
-			t.Fatalf("dedup activate: subject B active = (%s, %v), want %s visible", active, ok, b1)
+		if actives := activeCourses(t, subjB); len(actives) != 1 || !actives[b1] || !env.courseVisible(t, b1) {
+			t.Fatalf("dedup activate: subject B actives = %v, want only %s visible", actives, b1)
 		}
 	})
 

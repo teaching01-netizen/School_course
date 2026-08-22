@@ -191,6 +191,10 @@ func parseListFilters(query url.Values) (string, string, error) {
 	}
 }
 
+// handleSet is the CourseLevels single-picker endpoint: the chosen course
+// becomes the subject's only active class, replacing any previously active
+// ones. For additive multi-active control the operations console uses
+// PUT /set-active and /set-active/bulk instead.
 func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
@@ -219,12 +223,26 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 
 	s.a.WithIdempotentTx(w, r, user.ID, "active-courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := qtx.ActiveCourseUpsert(r.Context(), sqldb.ActiveCourseUpsertParams{
-			SubjectID: subjectID,
-			CourseID:  courseID,
-		}); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+		courseSubjectID, found, err := qtx.CourseSubjectID(r.Context(), courseID)
+		if err != nil {
+			s.err(w, err)
+			return 0, nil, err
+		} else if !found {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
+			return 0, nil, fmt.Errorf("set active course: course %s not found", courseID.String())
+		} else if courseSubjectID.Bytes != subjectID.Bytes {
+			s.a.WriteErr(w, http.StatusBadRequest, "course_subject_mismatch",
+				"Course does not belong to this subject")
+			return 0, nil, fmt.Errorf("set active course: course %s belongs to a different subject", courseID.String())
+		}
+		// Single-picker semantics for the CourseLevels panel: the chosen course
+		// becomes the subject's only active class, replacing any others.
+		if err := qtx.ActiveCourseClearBySubject(r.Context(), subjectID); err != nil {
+			s.err(w, err)
+			return 0, nil, err
+		}
+		if _, err := qtx.ActiveCourseSetBulk(r.Context(), []string{courseID.String()}); err != nil {
+			s.err(w, err)
 			return 0, nil, err
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
@@ -233,10 +251,10 @@ func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 
 const bulkActiveMaxCourses = 200
 
-// handleSetActive is the operations console's single switch: active means the
-// class is its subject's active course — visible in the student absence form
-// and eligible for sit-ins — and the subject's other classes turn off.
-// Inactive means hidden and no sit-ins. Staff booking is never affected.
+// handleSetActive is the operations console's switch: active means the class is
+// visible in the student absence form and eligible for sit-ins; inactive means
+// hidden and no sit-ins. A subject may run several active classes at once —
+// toggling one class never changes its siblings. Staff booking is not affected.
 func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
@@ -273,7 +291,7 @@ func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 		ids := []string{courseID.String()}
 		var err error
 		if *body.Active {
-			_, err = qtx.ActiveCourseSetBulkExclusive(r.Context(), ids)
+			_, err = qtx.ActiveCourseSetBulk(r.Context(), ids)
 		} else {
 			_, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
 		}
@@ -285,11 +303,10 @@ func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSetActiveBulk applies the same single-switch semantics to many
-// courses at once. Activating a mixed selection activates one class per
-// affected subject (highest course number wins); deactivating turns every
-// selected class off. The response reports how many courses had their state
-// re-derived, siblings included.
+// handleSetActiveBulk applies the same switch to many courses at once:
+// activating turns every selected class on (subjects keep as many actives as
+// selected), deactivating turns every selected class off. The response reports
+// how many courses had their state re-derived, siblings included.
 func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
@@ -336,7 +353,7 @@ func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
 		var updated int64
 		var err error
 		if *body.Active {
-			updated, err = qtx.ActiveCourseSetBulkExclusive(r.Context(), ids)
+			updated, err = qtx.ActiveCourseSetBulk(r.Context(), ids)
 		} else {
 			updated, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
 		}

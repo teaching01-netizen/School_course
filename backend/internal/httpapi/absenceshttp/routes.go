@@ -42,14 +42,17 @@ type sessionRow struct {
 	TeacherName string
 }
 
-// sessionsInRangeSelectSQL lists the student's bookable sessions. When a
-// subject has an active course configured (subject_active_courses) and the
-// student is enrolled in it, only the active course and its same-cycle
-// sibling courses are bookable — stale enrollments from earlier cycles are
-// hidden. Students not enrolled in the active course keep seeing all their
-// enrolled courses so the form never goes empty. Courses flagged
-// absence_form_visible = false are hidden from the form entirely. Courses are
-// hard-deleted (migration 00032), so no course soft-delete filter is needed.
+// sessionsInRangeSelectSQL lists the student's bookable sessions. A subject may
+// run several active classes at once (subject_active_courses holds a set); a
+// course is bookable when it is itself active, or when the student is not
+// enrolled in any of the subject's active classes (so the form never goes
+// empty), or when it shares a cycle with one of them (same-cycle siblings of an
+// active class stay bookable while stale enrollments from earlier cycles are
+// hidden). Courses flagged absence_form_visible = false are hidden from the
+// form entirely, and students only ever see courses they are enrolled in.
+// Courses are hard-deleted (migration 00032), so no soft-delete filter is
+// needed. The predicates use EXISTS rather than joining the active set to keep
+// one session row per session regardless of how many actives a subject has.
 func sessionsInRangeSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
@@ -62,22 +65,30 @@ func sessionsInRangeSelectSQL() string {
 		LEFT JOIN users u ON u.id = c.teacher_id
 		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
-		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
-		LEFT JOIN courses ac ON ac.id = sac.course_id
 		WHERE st.wcode = $1
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
 		  AND c.absence_form_visible
 		  AND (
-			sac.course_id IS NULL
-			OR c.id = sac.course_id
-			OR (ac.cycle_id IS NOT NULL AND c.cycle_id = ac.cycle_id)
+			NOT EXISTS (
+				SELECT 1 FROM subject_active_courses sac WHERE sac.subject_id = sub.id
+			)
+			OR EXISTS (
+				SELECT 1 FROM subject_active_courses sac
+				WHERE sac.subject_id = sub.id AND sac.course_id = c.id
+			)
+			OR EXISTS (
+				SELECT 1 FROM subject_active_courses sac
+				JOIN courses ac ON ac.id = sac.course_id
+				WHERE sac.subject_id = sub.id
+				  AND ac.cycle_id IS NOT NULL
+				  AND c.cycle_id = ac.cycle_id
+			)
 			OR NOT EXISTS (
-				SELECT 1 FROM course_students cs2
-				WHERE cs2.course_id = sac.course_id
-				  AND cs2.status = 'enrolled'
-				  AND cs2.student_id = st.id
+				SELECT 1 FROM subject_active_courses sac
+				JOIN course_students cs2 ON cs2.course_id = sac.course_id AND cs2.status = 'enrolled'
+				WHERE sac.subject_id = sub.id AND cs2.student_id = st.id
 			)
 		  )
 		ORDER BY sub.code, sess.start_at

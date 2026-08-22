@@ -996,27 +996,19 @@ export default function CourseLevels() {
                         <div className="flex items-center gap-4 mb-2 mt-2 border-b border-wi-line-soft pb-2">
                           {(() => {
                             const barSubjectId = rootGroup.subjects[0]?.subjectId ?? "";
-                            const barCourses = rootGroup.subjects.flatMap((s) =>
-                              Object.values(s.cycles).flatMap((cycle) =>
-                                cycle.courses.map((c) => ({
-                                  id: c.id,
-                                  code: c.code,
-                                  cycleLabel: c.cycle_label,
-                                }))
-                              )
-                            );
-                            const barActive = barCourses.find(
-                              (c) => c.id === activeCoursesMap[barSubjectId]
-                            );
+                            const barActive = (activeSubjects.find((s) => s.subject_id === barSubjectId)?.courses ?? [])
+                              .filter((c) => c.is_active);
                             return (
                               <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-[var(--color-wi-text-light)]">Active course:</span>
-                                {barActive ? (
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" aria-hidden="true" />
-                                    <span className="font-medium text-[var(--color-wi-text-light)]">{barActive.code}</span>
-                                    <span className="text-[var(--color-wi-text-light)]">{barActive.cycleLabel}</span>
-                                  </span>
+                                <span className="text-[var(--color-wi-text-light)]">Active:</span>
+                                {barActive.length > 0 ? (
+                                  barActive.map((c) => (
+                                    <span key={c.course_id} className="flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" aria-hidden="true" />
+                                      <span className="font-medium text-[var(--color-wi-text-light)]">{c.course_code}</span>
+                                      <span className="text-[var(--color-wi-text-light)]">{c.cycle_label}</span>
+                                    </span>
+                                  ))
                                 ) : (
                                   <span className="font-medium text-amber-600">No active course</span>
                                 )}

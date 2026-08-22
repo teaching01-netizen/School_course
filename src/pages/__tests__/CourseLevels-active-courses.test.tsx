@@ -199,7 +199,7 @@ describe("CourseLevels - Active Courses view", () => {
     renderWithProviders(<CourseLevels />);
     await screen.findAllByText("SAT Math");
 
-    expect(screen.getAllByText("Active course:").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Active:").length).toBeGreaterThan(0);
     expect(screen.getAllByText("MATH-101").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Active course selector/i })).not.toBeInTheDocument();
 

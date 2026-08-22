@@ -29,7 +29,7 @@ type StatusFilter = "all" | "configured" | "missing_active";
 
 const STATUS_FILTERS: Array<{ value: StatusFilter; label: string; title: string }> = [
   { value: "all", label: "All", title: "Every subject" },
-  { value: "configured", label: "Active", title: "Subject has an active class — students can book and sit in" },
+  { value: "configured", label: "Active", title: "Subject has at least one active class — students can book and sit in" },
   { value: "missing_active", label: "No active", title: "No active class — students cannot book this subject" },
 ];
 
@@ -67,9 +67,10 @@ function TriStateCheckbox({
 }
 
 /** One course row, one control: the Active switch. Active means the class is
- *  THE class of its subject for students — visible in the absence form and
- *  open to sit-ins. Turning a class on turns its subject's other classes
- *  off. Everything applies immediately; there is no draft/save step. */
+ *  open to students — visible in the absence form and eligible for sit-ins.
+ *  Switches are independent: a subject may run several active classes at once,
+ *  and students only ever see classes they are enrolled in. Everything applies
+ *  immediately; there is no draft/save step. */
 function CourseRow({
   subject,
   courseId,
@@ -272,13 +273,21 @@ export function ActiveCoursesSection() {
 
   // ----- Immediate actions -----
 
+  /** A subject's audit state: whether any class is active and whether every
+   *  active class is actually visible. Mirrors the backend's per-subject
+   *  classification used by the stats and filter chips. */
+  function subjectAuditState(courses: ActiveCourseSubject["courses"]) {
+    const actives = courses.filter((c) => c.is_active);
+    return {
+      hasActive: actives.length > 0,
+      allVisible: actives.every((c) => c.absence_form_visible !== false),
+    };
+  }
+
   async function toggleActive(subjectId: string, courseId: string, next: boolean) {
     const subject = subjects.find((s) => s.subject_id === subjectId);
     const course = subject?.courses.find((c) => c.course_id === courseId);
     if (!subject || !course) return;
-    const wasTrap = course.is_active && course.absence_form_visible === false;
-    const subjectHadOtherActive = subject.courses.some((c) => c.is_active && c.course_id !== courseId);
-    const replaced = subject.courses.find((c) => c.is_active && c.course_id !== courseId);
 
     setSavingActive((prev) => new Set(prev).add(courseId));
     try {
@@ -286,31 +295,27 @@ export function ActiveCoursesSection() {
         method: "PUT",
         body: JSON.stringify({ course_id: courseId, active: next }),
       });
+      // The server re-derives visibility for the whole subject (visible ⇔
+      // active), so mirror that locally instead of flipping one flag.
+      const before = subjectAuditState(subject.courses);
+      const toggled = subject.courses.map((c) => ({
+        ...c,
+        is_active: c.course_id === courseId ? next : c.is_active,
+        absence_form_visible: c.course_id === courseId ? next : c.is_active,
+      }));
+      const after = subjectAuditState(toggled);
       setSubjects((prev) =>
-        prev.map((s) =>
-          s.subject_id === subjectId
-            ? {
-                ...s,
-                courses: s.courses.map((c) =>
-                  c.course_id === courseId
-                    ? { ...c, is_active: next, absence_form_visible: next }
-                    : next
-                      ? { ...c, is_active: false, absence_form_visible: false }
-                      : c,
-                ),
-              }
-            : s,
-        ),
+        prev.map((s) => (s.subject_id === subjectId ? { ...s, courses: toggled } : s)),
       );
-      if (next && !course.is_active && !subjectHadOtherActive) bumpStats({ missing_active: -1 });
-      if (next && wasTrap) bumpStats({ hidden_active: -1 });
-      if (!next && course.is_active) {
-        bumpStats({ missing_active: 1, hidden_active: wasTrap ? -1 : 0 });
+      const missingDelta = (before.hasActive ? 0 : 1) - (after.hasActive ? 0 : 1);
+      const hiddenDelta = (before.hasActive && !before.allVisible ? 1 : 0) - (after.hasActive && !after.allVisible ? 1 : 0);
+      if (missingDelta !== 0 || hiddenDelta !== 0) {
+        bumpStats({ missing_active: missingDelta, hidden_active: hiddenDelta });
       }
       addToast(
         "success",
         next
-          ? `${course.course_code} is active — students can see it and sit in.${replaced ? ` It replaces ${replaced.course_code}.` : ""}`
+          ? `${course.course_code} is active — students can see it and sit in.`
           : `${course.course_code} turned off — hidden from students and closed to sit-ins.`,
       );
     } catch (err) {
@@ -332,8 +337,8 @@ export function ActiveCoursesSection() {
     if (!target && activeFlips > 0) {
       const confirmed = window.confirm(
         `Turn off ${ids.length} classes?\n\n` +
-          `${activeFlips} of them are active — those subjects will not be bookable by ` +
-          `students (and closed to sit-ins) until a class is activated again.`,
+          `${activeFlips} of them are active — those classes will be hidden from students ` +
+          `and closed to sit-ins until activated again.`,
       );
       if (!confirmed) return;
     }
@@ -349,7 +354,7 @@ export function ActiveCoursesSection() {
       addToast(
         "success",
         target
-          ? "Activated — one class per subject is now live for students (visible and sit-in-able)."
+          ? "Activated — the selected classes are now live for students (visible and sit-in-able)."
           : "Turned off — the selected classes are hidden from students and closed to sit-ins.",
       );
     } catch (err) {
@@ -369,8 +374,8 @@ export function ActiveCoursesSection() {
   const hiddenActiveCount = useMemo(() => {
     if (stats) return stats.hidden_active;
     return subjects.filter((s) => {
-      const active = s.courses.find((c) => c.is_active);
-      return !!active && active.absence_form_visible === false;
+      const { hasActive, allVisible } = subjectAuditState(s.courses);
+      return hasActive && !allVisible;
     }).length;
   }, [stats, subjects]);
 
@@ -431,9 +436,9 @@ export function ActiveCoursesSection() {
         </h3>
         <ul className="space-y-1 text-xs text-[var(--color-wi-text-light)]">
           <li>
-            <strong className="text-[var(--color-wi-text)]">Active</strong> — the one class per subject that students
-            can pick in the absence form and sit in. Turning a class on automatically turns the other classes of its
-            subject off.
+            <strong className="text-[var(--color-wi-text)]">Active</strong> — the class is open: students can pick it
+            in the absence form and sit in. A subject can run several active classes at once — students only ever see
+            the classes they are enrolled in.
           </li>
           <li>
             <strong className="text-[var(--color-wi-text)]">Off</strong> — hidden from students and closed to sit-ins.
@@ -523,8 +528,8 @@ export function ActiveCoursesSection() {
       ) : null}
 
       {subjects.map((subject) => {
-        const activeCourse = subject.courses.find((c) => c.is_active);
-        const activeHiddenLegacy = !!activeCourse && activeCourse.absence_form_visible === false;
+        const activeCourses = subject.courses.filter((c) => c.is_active);
+        const activeHiddenLegacy = activeCourses.some((c) => c.absence_form_visible === false);
 
         const subjectIds = subject.courses.map((c) => c.course_id);
         const subjectAll = subjectIds.length > 0 && subjectIds.every((id) => selection.has(id));
@@ -548,20 +553,23 @@ export function ActiveCoursesSection() {
                 <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
                 </span>
-                {activeCourse && !activeHiddenLegacy ? (
-                  <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    Active
+                {activeCourses.length > 0 && !activeHiddenLegacy ? (
+                  <span
+                    className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
+                    title={activeCourses.length > 1 ? "Parallel active classes — students only see the ones they're enrolled in" : undefined}
+                  >
+                    {activeCourses.length > 1 ? `Active (${activeCourses.length})` : "Active"}
                   </span>
                 ) : null}
                 {activeHiddenLegacy ? (
                   <span
                     className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                    title="Toggle the active class off and on to fix"
+                    title="Toggle the hidden active class off and on to fix"
                   >
                     Active course hidden
                   </span>
                 ) : null}
-                {!activeCourse ? (
+                {activeCourses.length === 0 ? (
                   <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                     Not set
                   </span>
@@ -636,7 +644,8 @@ export function ActiveCoursesSection() {
           {activeInSelection.length > 0 ? (
             <p className="text-xs text-amber-700">
               {activeInSelection.length} active class{activeInSelection.length === 1 ? "" : "es"} in this
-              selection — turning off makes those subjects unbookable until a class is activated again.
+              selection — turning off hides {activeInSelection.length === 1 ? "it" : "them"} from students and closes{" "}
+              {activeInSelection.length === 1 ? "it" : "them"} to sit-ins.
             </p>
           ) : null}
         </div>

@@ -53,7 +53,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	t.Run("hidden_course_leaves_student_listing_but_not_staff", func(t *testing.T) {
 		setAbsenceFormVisible(t, dbpool, seed.courses["current"], false)
 
-		codes := querySessionCourseCodes(t, dbpool, seed.wcode)
+		codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
 		if codes[seed.code("current")] {
 			t.Fatalf("hidden course must not appear in the student listing, got %v", codes)
 		}

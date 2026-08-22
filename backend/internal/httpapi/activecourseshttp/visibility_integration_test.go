@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
@@ -66,10 +65,10 @@ func visMigrateUp(t *testing.T, databaseURL string) {
 	}
 }
 
-// TestSetActiveEndpoint covers the single-switch operations contract:
-// activating a class makes it its subject's one active course and hides its
-// siblings; deactivating clears the slot and hides the class; unknown courses
-// 404 and malformed payloads 400.
+// TestSetActiveEndpoint covers the operations switch contract: activating a
+// class adds it to its subject's active set (siblings keep their state),
+// deactivating removes and hides it, unknown courses 404 and malformed
+// payloads 400.
 func TestSetActiveEndpoint(t *testing.T) {
 	env := newActiveCoursesEnv(t)
 	subj := env.seedSubject(t, "VSA-"+env.suffix)
@@ -78,28 +77,26 @@ func TestSetActiveEndpoint(t *testing.T) {
 	env.setActive(t, subj, c1)
 	setActive := "/api/v1/admin/active-courses/set-active"
 
-	activeCourse := func(t *testing.T, subjectID uuid.UUID) (uuid.UUID, bool) {
+	activeCourses := func(t *testing.T, subjectID uuid.UUID) map[uuid.UUID]bool {
 		t.Helper()
-		var id uuid.UUID
-		err := env.dbpool.QueryRow(context.Background(),
-			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID).Scan(&id)
-		if err == pgx.ErrNoRows {
-			return uuid.Nil, false
-		}
+		rows, err := env.dbpool.Query(context.Background(),
+			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return id, true
-	}
-
-	expectState := func(t *testing.T, courseID uuid.UUID, wantActive, wantVisible bool) {
-		t.Helper()
-		if got, ok := activeCourse(t, subj); ok != wantActive || (ok && got != courseID) {
-			t.Fatalf("subject active course = (%s, %v), want active=%v for %s", got, ok, wantActive, courseID)
+		defer rows.Close()
+		out := map[uuid.UUID]bool{}
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			out[id] = true
 		}
-		if vis := env.courseVisible(t, courseID); vis != wantVisible {
-			t.Fatalf("course %s visible = %v, want %v", courseID, vis, wantVisible)
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
 		}
+		return out
 	}
 
 	t.Run("get_lists_flags", func(t *testing.T) {
@@ -137,7 +134,7 @@ func TestSetActiveEndpoint(t *testing.T) {
 		}
 	})
 
-	t.Run("activate_moves_slot_and_hides_sibling", func(t *testing.T) {
+	t.Run("activate_keeps_sibling_active", func(t *testing.T) {
 		status, raw := env.do(t, http.MethodPut, setActive, map[string]any{
 			"course_id": c2.String(),
 			"active":    true,
@@ -145,13 +142,16 @@ func TestSetActiveEndpoint(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("activate status = %d body = %s", status, raw)
 		}
-		expectState(t, c2, true, true)
-		if env.courseVisible(t, c1) {
-			t.Fatal("previous active course must be hidden after exclusive activation")
+		actives := activeCourses(t, subj)
+		if !actives[c1] || !actives[c2] {
+			t.Fatalf("both classes must stay active, got %v", actives)
+		}
+		if !env.courseVisible(t, c1) || !env.courseVisible(t, c2) {
+			t.Fatal("both active classes must be visible")
 		}
 	})
 
-	t.Run("deactivate_clears_slot_and_hides", func(t *testing.T) {
+	t.Run("deactivate_removes_only_that_course", func(t *testing.T) {
 		status, raw := env.do(t, http.MethodPut, setActive, map[string]any{
 			"course_id": c2.String(),
 			"active":    false,
@@ -159,10 +159,33 @@ func TestSetActiveEndpoint(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("deactivate status = %d body = %s", status, raw)
 		}
-		if _, ok := activeCourse(t, subj); ok {
-			t.Fatal("deactivating the active course must clear the subject slot")
+		actives := activeCourses(t, subj)
+		if actives[c2] {
+			t.Fatal("deactivated course must leave the active set")
+		}
+		if !actives[c1] {
+			t.Fatal("sibling must stay active")
 		}
 		if env.courseVisible(t, c2) {
+			t.Fatal("deactivated course must be hidden")
+		}
+		if !env.courseVisible(t, c1) {
+			t.Fatal("still-active sibling must stay visible")
+		}
+	})
+
+	t.Run("deactivate_last_clears_subject", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, setActive, map[string]any{
+			"course_id": c1.String(),
+			"active":    false,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("deactivate status = %d body = %s", status, raw)
+		}
+		if actives := activeCourses(t, subj); len(actives) != 0 {
+			t.Fatalf("subject active set must be empty, got %v", actives)
+		}
+		if env.courseVisible(t, c1) {
 			t.Fatal("deactivated course must be hidden")
 		}
 	})
@@ -189,6 +212,76 @@ func TestSetActiveEndpoint(t *testing.T) {
 			if status, raw := env.do(t, http.MethodPut, setActive, tc.body); status != http.StatusBadRequest {
 				t.Fatalf("%s status = %d body = %s, want 400", tc.name, status, raw)
 			}
+		}
+	})
+}
+
+// TestSetEndpointReplacesSubjectActives covers the CourseLevels single-picker
+// endpoint: PUT /active-courses makes the chosen course the subject's only
+// active class and rejects courses from another subject.
+func TestSetEndpointReplacesSubjectActives(t *testing.T) {
+	env := newActiveCoursesEnv(t)
+	subj := env.seedSubject(t, "VSR-"+env.suffix)
+	other := env.seedSubject(t, "VSR-O-"+env.suffix)
+	c1 := env.seedCourse(t, subj, "VSR-1-"+env.suffix, false)
+	c2 := env.seedCourse(t, subj, "VSR-2-"+env.suffix, false)
+	otherCourse := env.seedCourse(t, other, "VSR-O1-"+env.suffix, false)
+
+	activeCourses := func(t *testing.T, subjectID uuid.UUID) []uuid.UUID {
+		t.Helper()
+		rows, err := env.dbpool.Query(context.Background(),
+			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []uuid.UUID
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, id)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	// Start with two actives (as the operations console would leave them).
+	for _, id := range []uuid.UUID{c1, c2} {
+		if status, raw := env.do(t, http.MethodPut, "/api/v1/admin/active-courses/set-active", map[string]any{
+			"course_id": id.String(), "active": true,
+		}); status != http.StatusOK {
+			t.Fatalf("seed activate %s status = %d body = %s", id, status, raw)
+		}
+	}
+
+	t.Run("set_replaces_other_actives", func(t *testing.T) {
+		status, raw := env.do(t, http.MethodPut, "/api/v1/admin/active-courses", map[string]any{
+			"subject_id": subj.String(),
+			"course_id":  c1.String(),
+		})
+		if status != http.StatusOK {
+			t.Fatalf("set status = %d body = %s", status, raw)
+		}
+		actives := activeCourses(t, subj)
+		if len(actives) != 1 || actives[0] != c1 {
+			t.Fatalf("after set, subject actives = %v, want only %s", actives, c1)
+		}
+		if !env.courseVisible(t, c1) || env.courseVisible(t, c2) {
+			t.Fatal("after set: chosen course visible, replaced sibling hidden")
+		}
+	})
+
+	t.Run("course_subject_mismatch_400", func(t *testing.T) {
+		status, _ := env.do(t, http.MethodPut, "/api/v1/admin/active-courses", map[string]any{
+			"subject_id": subj.String(),
+			"course_id":  otherCourse.String(),
+		})
+		if status != http.StatusBadRequest {
+			t.Fatalf("mismatch status = %d, want 400", status)
 		}
 	})
 }

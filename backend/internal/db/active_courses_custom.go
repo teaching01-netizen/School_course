@@ -122,14 +122,16 @@ type ActiveCoursesListParams struct {
 }
 
 // The per-subject active-course state is computed the same way for the count
-// and the page queries, so the join and predicate live here once.
+// and the page queries, so the join and predicate live here once. A subject
+// may have several active courses; the aggregate keeps the join at one row per
+// subject regardless.
 const activeCourseStateJoin = `
 	LEFT JOIN LATERAL (
-		SELECT c.absence_form_visible AS active_visible
+		SELECT count(*) AS active_count,
+		       COALESCE(bool_and(c.absence_form_visible), false) AS all_active_visible
 		FROM subject_active_courses sac
 		JOIN courses c ON c.id = sac.course_id
 		WHERE sac.subject_id = s.id
-		LIMIT 1
 	) act ON true`
 
 // Placeholders are anchored at $1/$2 so the same fragment serves both the
@@ -139,9 +141,9 @@ const activeCourseFilterWhere = `
 	WHERE ($1 = '' OR s.code ILIKE '%' || $1 || '%' OR s.name ILIKE '%' || $1 || '%')
 	  AND (
 	    $2 = '' OR $2 = 'all'
-	    OR ($2 = 'configured' AND act.active_visible = true)
-	    OR ($2 = 'hidden_active' AND act.active_visible = false)
-	    OR ($2 = 'missing_active' AND act.active_visible IS NULL)
+	    OR ($2 = 'configured' AND act.active_count > 0 AND act.all_active_visible)
+	    OR ($2 = 'hidden_active' AND act.active_count > 0 AND NOT act.all_active_visible)
+	    OR ($2 = 'missing_active' AND act.active_count = 0)
 	  )`
 
 type ActiveCoursesStatsRow struct {
@@ -152,14 +154,14 @@ type ActiveCoursesStatsRow struct {
 
 // ActiveCoursesStats returns the institute-wide audit numbers behind the
 // operations filter chips: how many subjects exist, how many have no active
-// course, and how many have an active course that students cannot book
-// because it is hidden from the absence form.
+// course, and how many have at least one active course that students cannot
+// book because it is hidden from the absence form.
 func (q *Queries) ActiveCoursesStats(ctx context.Context) (ActiveCoursesStatsRow, error) {
 	var row ActiveCoursesStatsRow
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*),
-		       count(*) FILTER (WHERE act.active_visible IS NULL),
-		       count(*) FILTER (WHERE act.active_visible = false)
+		       count(*) FILTER (WHERE act.active_count = 0),
+		       count(*) FILTER (WHERE act.active_count > 0 AND NOT act.all_active_visible)
 		FROM subjects s`+activeCourseStateJoin).Scan(
 		&row.Total, &row.MissingActive, &row.HiddenActive)
 	return row, err
@@ -248,13 +250,23 @@ type ActiveCourseUpsertParams struct {
 	CourseID  pgtype.UUID
 }
 
+// ActiveCourseUpsert adds a course to its subject's active set. Callers that
+// need single-active semantics (the CourseLevels picker) clear the subject's
+// other actives first via ActiveCourseClearBySubject.
 func (q *Queries) ActiveCourseUpsert(ctx context.Context, p ActiveCourseUpsertParams) error {
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO subject_active_courses (subject_id, course_id)
 		VALUES ($1, $2)
-		ON CONFLICT (subject_id) DO UPDATE
-		SET course_id = $2, updated_at = now()
+		ON CONFLICT (subject_id, course_id) DO UPDATE
+		SET updated_at = now()
 	`, p.SubjectID, p.CourseID)
+	return err
+}
+
+// ActiveCourseClearBySubject removes every active-course row of a subject.
+func (q *Queries) ActiveCourseClearBySubject(ctx context.Context, subjectID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx,
+		`DELETE FROM subject_active_courses WHERE subject_id = $1`, subjectID)
 	return err
 }
 
@@ -273,20 +285,19 @@ func (q *Queries) CourseSubjectID(ctx context.Context, courseID pgtype.UUID) (pg
 	return subjectID, true, nil
 }
 
-// ActiveCourseSetBulkExclusive implements the single-switch operations model:
-// activating a class makes it its subject's active course — exactly one per
-// subject — and hides the subject's other classes. For bulk activation the
-// highest-numbered course of each affected subject wins the active slot.
+// ActiveCourseSetBulk implements the operations switch: activating a class
+// makes it visible in the student absence form and sit-in eligible. A subject
+// may have any number of active classes at once (parallel sections), so every
+// requested course joins its subject's active set — siblings keep their state.
 // Returns how many courses had their visibility re-derived.
-func (q *Queries) ActiveCourseSetBulkExclusive(ctx context.Context, courseIDs []string) (int64, error) {
+func (q *Queries) ActiveCourseSetBulk(ctx context.Context, courseIDs []string) (int64, error) {
 	if _, err := q.db.Exec(ctx, `
 		INSERT INTO subject_active_courses (subject_id, course_id)
-		SELECT DISTINCT ON (c.subject_id) c.subject_id, c.id
+		SELECT c.subject_id, c.id
 		FROM courses c
 		WHERE c.id = ANY($1::uuid[]) AND c.subject_id IS NOT NULL
-		ORDER BY c.subject_id, c.course_no DESC NULLS LAST, c.id
-		ON CONFLICT (subject_id) DO UPDATE
-		SET course_id = EXCLUDED.course_id, updated_at = now()
+		ON CONFLICT (subject_id, course_id) DO UPDATE
+		SET updated_at = now()
 	`, courseIDs); err != nil {
 		return 0, err
 	}
