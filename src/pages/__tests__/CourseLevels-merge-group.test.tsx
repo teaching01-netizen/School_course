@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import CourseLevels from "../CourseLevels";
-import { ToastProvider } from "../../hooks/useToast";
+import { renderWithProviders, setupCourseLevelsApi } from "./courseLevelsHarness";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -11,34 +11,22 @@ vi.mock("@/api/client", async () => {
   return { ...actual, apiJson: mockApiJson };
 });
 
-describe("CourseLevels merged course scope", () => {
-  it("shows a merged course as one configurable level scope", async () => {
-    mockApiJson
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ absence_policies: { root_course_groups: {} } })
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ subjects: [] })
-      .mockResolvedValueOnce([
-        {
-          id: "merge-1",
-          name: "SAT Verbal Reading + Writing",
-          level: 2,
-          cycle_id: "cy2025a",
-          cycle_label: "Cycle 2025-01",
-          sit_in_rule_id: null,
-          course_codes: ["READ-R2", "WRITE-R2"],
-          course_names: ["Reading Rank 2", "Writing Rank 2"],
-        },
-      ]);
+describe("CourseLevels add level", () => {
+  beforeEach(() => mockApiJson.mockReset());
 
-    render(<MemoryRouter><ToastProvider><CourseLevels /></ToastProvider></MemoryRouter>);
-    fireEvent.click(await screen.findByRole("button", { name: "All levels" }));
+  it("adds a level to the selected unassigned course", async () => {
+    setupCourseLevelsApi(mockApiJson);
+    render(renderWithProviders(<CourseLevels />));
+    const dialog = await screen.findByRole("dialog", { name: "Manage Course Levels" });
+    const user = userEvent.setup();
 
-    await waitFor(() => {
-      expect(screen.getByText("SAT Verbal Reading + Writing")).toBeInTheDocument();
-    });
-    expect(screen.getByText("READ-R2 + WRITE-R2")).toBeInTheDocument();
-    expect(screen.getByText("Merged course level")).toBeInTheDocument();
+    mockApiJson.mockResolvedValueOnce({ ok: true });
+    await user.click(screen.getByRole("button", { name: "Add level" }));
+
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/courses/c3/level",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ level: 3, cycle_id: "cy1" }) }),
+    ));
+    expect(dialog).toHaveTextContent("MATH-301");
   });
 });

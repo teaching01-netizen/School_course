@@ -1338,6 +1338,7 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 		}
 		settings.StudentSelfService = merged
 	}
+	settings.StudentSelfService.CanViewOwn = true
 	return settings
 }
 

@@ -359,13 +359,13 @@ func TestParseAbsenceSettings_SelfServiceGatesDefaultOn(t *testing.T) {
 	}
 }
 
-func TestParseAbsenceSettings_PartialSelfServicePreservesDefaults(t *testing.T) {
+func TestParseAbsenceSettings_SelfServiceCanViewOwnAlwaysOn(t *testing.T) {
 	// A document written before the gates existed only carries one field;
 	// the other gate must keep its default instead of collapsing to false.
 	raw := []byte(`{"student_self_service":{"can_view_own":false}}`)
 	settings := parseAbsenceSettings(raw)
-	if settings.StudentSelfService.CanViewOwn {
-		t.Error("explicit can_view_own=false must be honored")
+	if !settings.StudentSelfService.CanViewOwn {
+		t.Error("can_view_own must remain enabled even when stored as false")
 	}
 	if !settings.StudentSelfService.CanCancelOwn {
 		t.Error("omitted can_cancel_own must keep its default true, got false")
