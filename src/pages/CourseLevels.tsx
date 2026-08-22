@@ -24,7 +24,7 @@ import {
   detectGaps,
   UNGROUPED_KEY,
 } from "../utils/levels";
-import type { CourseLevelItem, BulkEditTarget } from "../utils/levels";
+import type { CourseLevelItem, BulkEditTarget, CourseMergeGroupConfig } from "../utils/levels";
 import type { LadderCellData } from "../components/LevelLadderCell";
 import useReturnsDesk from "../hooks/useReturnsDesk";
 import ReturnsDeskPanel from "../components/ReturnsDeskPanel";
@@ -73,12 +73,15 @@ const COURSE_PAGE_SIZE = 100;
 export default function CourseLevels() {
   const { addToast } = useToast();
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
+  const [mergeGroups, setMergeGroups] = useState<CourseMergeGroupConfig[]>([]);
   const [courseTotal, setCourseTotal] = useState(0);
   const [courseOffset, setCourseOffset] = useState(0);
   const [coursePageLoading, setCoursePageLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editLevels, setEditLevels] = useState<Record<string, string>>({});
   const [savingCourse, setSavingCourse] = useState<Record<string, boolean>>({});
+  const [mergeEditLevels, setMergeEditLevels] = useState<Record<string, number | null>>({});
+  const [savingMergeGroup, setSavingMergeGroup] = useState<Record<string, boolean>>({});
   const [activeCoursesMap, setActiveCoursesMap] = useState<Record<string, string>>({});
   const [activeSubjects, setActiveSubjects] = useState<ActiveCourseSubject[]>([]);
   const [savingActiveCourse, setSavingActiveCourse] = useState<Record<string, boolean>>({});
@@ -164,17 +167,21 @@ export default function CourseLevels() {
   useEffect(() => {
     (async () => {
       try {
-        const [coursesResponse, policiesResp, groupsData, activeCoursesData] = await Promise.all([
+        const [coursesResponse, policiesResp, groupsData, activeCoursesData, mergeGroupsData] = await Promise.all([
           apiJson<CourseLevelItem[] | CourseLevelsPage>(`/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=0`, { method: "GET" }),
           apiJson<import("../utils/levels").PolicyResponse>("/api/v1/admin/absence-policies", { method: "GET" }),
           apiJson<import("../utils/levels").RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" }),
           apiJson<ActiveCoursesResponse>("/api/v1/admin/active-courses?limit=50&offset=0", { method: "GET" }),
+          apiJson<CourseMergeGroupConfig[]>("/api/v1/admin/course-merge-groups", { method: "GET" }),
         ]);
         const coursesPage = parseCourseLevelsPage(coursesResponse);
         setCourses(coursesPage.items);
         setCourseTotal(coursesPage.total);
         setCourseOffset(coursesPage.offset);
         setRootCourseGroups(groupsData);
+        const configuredMergeGroups = mergeGroupsData ?? [];
+        setMergeGroups(configuredMergeGroups);
+        setMergeEditLevels(Object.fromEntries(configuredMergeGroups.map((group) => [group.id, group.level])));
 
         // Initialize rule assignments from data
         const ruleMap: Record<string, string | null> = {};
@@ -327,6 +334,23 @@ export default function CourseLevels() {
       });
     } finally {
       setSavingCourse((p) => ({ ...p, [course.id]: false }));
+    }
+  }
+
+  async function saveMergeGroupLevel(group: CourseMergeGroupConfig) {
+    const level = mergeEditLevels[group.id] ?? null;
+    setSavingMergeGroup((previous) => ({ ...previous, [group.id]: true }));
+    try {
+      await apiJson(`/api/v1/admin/course-merge-groups/${group.id}/level`, {
+        method: "PUT",
+        body: JSON.stringify({ level }),
+      });
+      setMergeGroups((previous) => previous.map((item) => item.id === group.id ? { ...item, level } : item));
+      addToast("success", "Merged course level saved");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to save merged course level");
+    } finally {
+      setSavingMergeGroup((previous) => ({ ...previous, [group.id]: false }));
     }
   }
 
@@ -769,6 +793,37 @@ export default function CourseLevels() {
           For SAT and other subjects, assign specific rules via <strong>Manage Rules</strong>.
         </p>
       </div>
+
+      {mergeGroups.length > 0 && (
+        <section className="mb-6" aria-labelledby="merged-course-levels-heading">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 id="merged-course-levels-heading" className="text-sm font-semibold text-[var(--color-wi-text)]">Merged courses</h2>
+              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Configure one level for the merged absence and sit-in scope. Source course levels remain unchanged.</p>
+            </div>
+            <span className="text-xs text-[var(--color-wi-text-light)]">{mergeGroups.length} scope{mergeGroups.length === 1 ? "" : "s"}</span>
+          </div>
+          <div className="space-y-2">
+            {mergeGroups.map((group) => {
+              const level = mergeEditLevels[group.id] ?? null;
+              const dirty = level !== group.level;
+              return (
+                <div key={group.id} className="flex flex-wrap items-center gap-4 rounded-sm border border-[var(--color-wi-line)] bg-white px-4 py-3">
+                  <div className="min-w-[240px] flex-1">
+                    <p className="font-medium text-[var(--color-wi-text)]">{group.name}</p>
+                    <p className="mt-1 font-mono text-xs text-[var(--color-wi-text-light)]">{group.course_codes.join(" + ")}</p>
+                    <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{group.cycle_label ?? "Cycle follows source courses"}</p>
+                  </div>
+                  <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-wi-text-light)]">Merged course level</span>
+                  <LevelStepper value={level} onChange={(value) => setMergeEditLevels((previous) => ({ ...previous, [group.id]: value }))} />
+                  <LevelBadge level={level} />
+                  <Button variant="primary" size="sm" disabled={!dirty} loading={savingMergeGroup[group.id]} onClick={() => saveMergeGroupLevel(group)}>Save</Button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Status overview bar */}
       {overviewStats.totalGroups > 0 && (

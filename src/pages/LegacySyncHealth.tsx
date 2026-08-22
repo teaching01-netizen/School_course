@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, AlertTriangle, CheckCircle2, ClipboardCheck, Pause, Play, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -235,9 +236,9 @@ export default function LegacySyncHealth() {
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-medium text-[var(--color-wi-text)]">
                   Entity
-                  <select value={entityType} onChange={(event) => setEntityType(event.target.value)} className="mt-1 block min-h-10 w-full rounded-sm border border-wi-line bg-white px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                  <SearchableSelect value={entityType} onChange={(event) => setEntityType(event.target.value)} className="mt-1 block min-h-10 w-full rounded-sm border border-wi-line bg-white px-3 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-blue-100">
                     {entityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
+                  </SearchableSelect>
                 </label>
                 <label className="text-sm font-medium text-[var(--color-wi-text)]">
                   Legacy ID {requiresExternalID ? <span className="text-[var(--color-wi-red)]">*</span> : <span className="font-normal text-[var(--color-wi-text-light)]">(not needed)</span>}

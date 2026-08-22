@@ -247,3 +247,48 @@ func TestPutCourseMetadataOnly_AppliesCuratedProperties(t *testing.T) {
 		t.Fatalf("metadata-only PUT must leave the teacher set untouched, got %#v", body["teachers"])
 	}
 }
+
+// TestPatchCourseAbsenceFormVisible verifies the absence-form visibility
+// toggle: the field defaults to true, an explicit PATCH persists false, an
+// absent field on a later PATCH leaves it unchanged, and GET agrees.
+func TestPatchCourseAbsenceFormVisible(t *testing.T) {
+	fx := setupTestServer(t)
+
+	getResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses/"+fx.courseIDStr, nil)
+	assertResponseCode(t, getResp, http.StatusOK)
+	var initial map[string]any
+	parseResponse(t, getResp, &initial)
+	if got, ok := initial["absence_form_visible"].(bool); !ok || !got {
+		t.Fatalf("absence_form_visible must default to true, got %#v", initial["absence_form_visible"])
+	}
+
+	hidden := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, patchCourseBody(fx, map[string]any{
+		"absence_form_visible": false,
+	}))
+	assertResponseCode(t, hidden, http.StatusOK)
+	var hiddenBody map[string]any
+	parseResponse(t, hidden, &hiddenBody)
+	if got, ok := hiddenBody["absence_form_visible"].(bool); !ok || got {
+		t.Fatalf("expected absence_form_visible false after PATCH, got %#v", hiddenBody["absence_form_visible"])
+	}
+
+	// A later PATCH that omits the field must not reset it to the default.
+	// The first PATCH bumped the version to 2.
+	secondBody := patchCourseBody(fx, nil)
+	secondBody["expected_version"] = 2
+	untouched := doRequest(t, fx.server.URL, "PATCH", "/api/v1/courses/"+fx.courseIDStr, secondBody)
+	assertResponseCode(t, untouched, http.StatusOK)
+	var untouchedBody map[string]any
+	parseResponse(t, untouched, &untouchedBody)
+	if got, ok := untouchedBody["absence_form_visible"].(bool); !ok || got {
+		t.Fatalf("absent absence_form_visible must leave the stored false, got %#v", untouchedBody["absence_form_visible"])
+	}
+
+	finalResp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses/"+fx.courseIDStr, nil)
+	assertResponseCode(t, finalResp, http.StatusOK)
+	var final map[string]any
+	parseResponse(t, finalResp, &final)
+	if got, ok := final["absence_form_visible"].(bool); !ok || got {
+		t.Fatalf("GET must reflect the persisted false, got %#v", final["absence_form_visible"])
+	}
+}

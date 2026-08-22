@@ -1,6 +1,7 @@
 package absenceshttp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -238,6 +239,12 @@ func TestPublicAbsenceConfigRejectsUnsafeSessionLimits(t *testing.T) {
 
 func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
+	// The masked hint must confirm identity without ever carrying the raw
+	// nickname over the wire.
+	if _, err := fixture.pool.Exec(context.Background(),
+		`UPDATE students SET nickname = 'Bird' WHERE wcode = $1`, fixture.wcode); err != nil {
+		t.Fatalf("seed student nickname: %v", err)
+	}
 	body := `{"wcode":"` + strings.ToUpper(fixture.wcode) + `"}`
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -262,6 +269,7 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 		"lookup_token":                  true,
 		"email_input_required":          true,
 		"parent_verification_available": true,
+		"nickname_hint":                 true,
 	}
 	if len(got) != len(wantKeys) {
 		t.Fatalf("response keys = %v, want exactly %v", got, wantKeys)
@@ -279,6 +287,12 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 	} else if strings.Contains(strings.ToLower(token), strings.ToLower(fixture.wcode)) {
 		t.Fatalf("lookup_token contains the student W-Code %q", fixture.wcode)
 	}
+	if hint := strings.Trim(string(got["nickname_hint"]), `"`); hint != "B***" {
+		t.Fatalf("nickname_hint = %q, want masked %q", hint, "B***")
+	}
+	if strings.Contains(recorder.Body.String(), "Bird") {
+		t.Fatalf("lookup response leaked the raw nickname: %s", recorder.Body.String())
+	}
 	for _, forbidden := range []string{
 		"student_id", "full_name", "display_name", "nickname", "school",
 		"email", "email_crm", "email_system", "parent_phone", "subjects",
@@ -287,6 +301,60 @@ func TestPublicStudentLookupReturnsMinimalAllowlist(t *testing.T) {
 		if _, ok := got[forbidden]; ok {
 			t.Fatalf("lookup response leaked %q", forbidden)
 		}
+	}
+}
+
+// A student without a nickname still gets a confirmation cue: the hint falls
+// back to the first character of the full name.
+func TestPublicStudentLookupNicknameHintFallsBackToFullName(t *testing.T) {
+	fixture := newPublicAbsenceContractFixture(t)
+	body := `{"wcode":"` + fixture.wcode + `"}`
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/absence-self-service/lookup",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.NewString())
+	recorder := httptest.NewRecorder()
+
+	fixture.server.handleStudentLookup(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
+	}
+	var got struct {
+		NicknameHint string `json:"nickname_hint"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode student lookup response: %v", err)
+	}
+	// Seeded full names start with the fixture prefix ("CTR-…").
+	if got.NicknameHint != "C***" {
+		t.Fatalf("nickname_hint = %q, want full-name fallback %q", got.NicknameHint, "C***")
+	}
+}
+
+func TestMaskNicknameForPublic(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty", value: "", want: ""},
+		{name: "whitespace", value: "   ", want: ""},
+		{name: "nickname", value: "Bird", want: "B***"},
+		{name: "full name", value: "Alice Smith", want: "A***"},
+		{name: "thai rune", value: "กัน", want: "ก***"},
+		{name: "single character reveals nothing", value: "B", want: "***"},
+		{name: "leading space is trimmed", value: " Bird", want: "B***"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := maskNicknameForPublic(tt.value); got != tt.want {
+				t.Fatalf("maskNicknameForPublic(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -152,6 +152,34 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
           placeholder="No expiration"
           editor={(close) => <ExpiryEditor value={course.expiry_days} saving={busy} onSave={onSave} close={close} />}
         />
+
+        <PropertyRow
+          label="Absence form"
+          saving={busy}
+          contentClassName="w-56"
+          value={
+            <span className="min-w-0 truncate">
+              {course.absence_form_visible === false ? "Hidden from students" : "Visible to students"}
+            </span>
+          }
+          placeholder="Visible to students"
+          editor={(close) => (
+            <ChoiceEditor
+              ariaLabel="Absence form visibility"
+              options={[
+                { id: "true", label: "Visible to students" },
+                { id: "false", label: "Hidden from students" },
+              ]}
+              selectedId={course.absence_form_visible === false ? "false" : "true"}
+              disabled={busy}
+              onPick={(id) =>
+                void onSave("absence_form_visible", { absence_form_visible: id === "true" }).then((ok) => {
+                  if (ok) close();
+                })
+              }
+            />
+          )}
+        />
       </div>
     </div>
   );
@@ -299,6 +327,12 @@ function ChoiceEditor(props: {
   onPick: (id: string) => void;
 }) {
   const { ariaLabel, options, loading = false, selectedId, disabled, onPick } = props;
+  const [query, setQuery] = useState("");
+  const filteredOptions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(needle));
+  }, [options, query]);
 
   if (loading) {
     return (
@@ -315,8 +349,18 @@ function ChoiceEditor(props: {
     );
   }
   return (
-    <div role="listbox" aria-label={ariaLabel} className="max-h-60 w-full overflow-y-auto p-1.5">
-      {options.map((option) => {
+    <div role="listbox" aria-label={ariaLabel} className="w-full p-1.5">
+      <input
+        role="combobox"
+        aria-label={`Search ${ariaLabel}`}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search options…"
+        className="mb-1.5 h-8 w-full rounded-sm border border-wi-line px-2.5 text-xs placeholder:text-[var(--color-wi-faint)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+      />
+      <div className="notion-scrollbar max-h-52 overflow-y-auto">
+      {filteredOptions.length === 0 ? <div className="px-2.5 py-3 text-center text-xs text-[var(--color-wi-text-light)]">No matches found</div> : null}
+      {filteredOptions.map((option) => {
         const selected = option.id === selectedId;
         return (
           <button
@@ -335,6 +379,7 @@ function ChoiceEditor(props: {
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

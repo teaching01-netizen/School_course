@@ -808,6 +808,69 @@ describe("AbsenceForm - 20% session limit", () => {
         .filter((cb) => (cb as HTMLInputElement).checked);
       expect(mathChecked.length).toBe(1);
     });
+
+    it("shares the remaining quota and same-day count across merged source courses", async () => {
+      const sessions: SubjectSessions[] = [
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Reading",
+          course_id: "c-reading",
+          course_code: "READ1",
+          course_name: "Reading",
+          merge_group_id: "merge-1",
+          merge_group_name: "SAT Verbal Rank 2 C3",
+          absence_limit_reached: false,
+          used_absence_days: 0,
+          total_course_days: 10,
+          maximum_absence_days: 2,
+          remaining_absence_days: 2,
+          sessions: Array.from({ length: 5 }, (_, i) => ({
+            id: `r${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: false,
+          })),
+        },
+        {
+          subject_id: "subj-1",
+          subject_code: "MATH",
+          subject_name: "Writing",
+          course_id: "c-writing",
+          course_code: "WRITE1",
+          course_name: "Writing",
+          merge_group_id: "merge-1",
+          merge_group_name: "SAT Verbal Rank 2 C3",
+          absence_limit_reached: false,
+          used_absence_days: 0,
+          total_course_days: 10,
+          maximum_absence_days: 2,
+          remaining_absence_days: 2,
+          sessions: Array.from({ length: 5 }, (_, i) => ({
+            id: `w${i + 1}`,
+            start_at: `2026-06-${String(i + 1).padStart(2, "0")}T11:00:00Z`,
+            end_at: `2026-06-${String(i + 1).padStart(2, "0")}T12:30:00Z`,
+            date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+            already_absent: false,
+          })),
+        },
+      ];
+
+      const user = await setupForm(sessions);
+      const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
+      await user.click(courseCheckbox);
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Shared absence quota across this merged course")).toHaveLength(2);
+        expect(screen.queryByText("4 days remaining")).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 16:00-17:30/ }));
+      await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 18:00-19:30/ }));
+
+      await waitFor(() => expect(screen.getByText(/^1 selected/)).toBeInTheDocument());
+    });
   });
 
   describe("fallback behavior", () => {

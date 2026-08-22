@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
@@ -106,7 +107,7 @@ export function StaffAbsenceRulesSection() {
 
             <div className="flex gap-2 text-sm items-center">
               <span className="text-[var(--color-wi-text-light)]">Default cover slot duration</span>
-              <select
+              <SearchableSelect
                 value={policies.default_cover_duration_minutes}
                 onChange={(e) => setPolicies({ ...policies, default_cover_duration_minutes: parseInt(e.target.value) })}
                 className="rounded-sm border border-wi-line p-1.5 text-sm"
@@ -114,7 +115,7 @@ export function StaffAbsenceRulesSection() {
                 {DURATION_OPTIONS.map((d) => (
                   <option key={d} value={d}>{d} minutes</option>
                 ))}
-              </select>
+              </SearchableSelect>
             </div>
           </div>
         </div>

@@ -23,6 +23,7 @@ export type CourseEditChanges = {
   student_count?: number | null;
   cycle_id?: string | null;
   expiry_days?: number | null;
+  absence_form_visible?: boolean;
 };
 
 export type Course = {
@@ -43,6 +44,7 @@ export type Course = {
   cycle_id?: string | null;
   cycle_label?: string | null;
   expiry_days?: number | null;
+  absence_form_visible?: boolean;
   last_session_at?: string | null;
   expires_at?: string | null;
   expiry_status?: "active" | "expired" | "not_configured";

@@ -351,13 +351,25 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		return nil, fmt.Errorf("no enrolled course has a level")
 	}
 
-	if !missedCourse.RootCourseGroupID.Valid {
+	mergeScope, hasMergeScope, err := mergeGroupScopeForCourse(ctx, q, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("merged course lookup: %w", err)
+	}
+	if !missedCourse.RootCourseGroupID.Valid && !hasMergeScope {
 		return nil, nil
 	}
 
-	allCourses, err := q.CoursesByRootCourseGroup(ctx, missedCourse.RootCourseGroupID)
-	if err != nil {
-		return nil, fmt.Errorf("root course group lookup: %w", err)
+	var allCourses []sqldb.SubjectCourseV2
+	if missedCourse.RootCourseGroupID.Valid {
+		allCourses, err = q.CoursesByRootCourseGroup(ctx, missedCourse.RootCourseGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("root course group lookup: %w", err)
+		}
+	} else {
+		allCourses, err = q.CoursesByMergeGroup(ctx, mergeScope.ID)
+		if err != nil {
+			return nil, fmt.Errorf("merged course lookup: %w", err)
+		}
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
@@ -365,20 +377,22 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
 
-	win := loadRootGroupWindowWeeks(ctx, q, missedCourse.RootCourseGroupID)
+	win := loadScopeWindowWeeks(ctx, q, mergeScope.ID, hasMergeScope, missedCourse.RootCourseGroupID)
 	cutoff := time.Time{}
 	if win > 0 {
 		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
 	}
 
 	// Try priority-based resolution first
-	priorities, pErr := q.SitInPrioritiesByRootCourseGroupWithRule(ctx, missedCourse.RootCourseGroupID)
-	if pErr == nil && len(priorities) > 0 {
-		return resolveSitInWithPriorities(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff)
+	if missedCourse.RootCourseGroupID.Valid && (!hasMergeScope || !mergeScope.SitInRuleID.Valid) {
+		priorities, pErr := q.SitInPrioritiesByRootCourseGroupWithRule(ctx, missedCourse.RootCourseGroupID)
+		if pErr == nil && len(priorities) > 0 {
+			return resolveSitInWithPriorities(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff)
+		}
 	}
 
 	// Fall back to single-rule logic
-	rule, err := q.SitInRuleGetByRootCourseGroup(ctx, missedCourse.RootCourseGroupID)
+	rule, err := sitInRuleForScope(ctx, q, missedCourse.SitInRuleID, missedCourse.RootCourseGroupID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -503,7 +517,13 @@ func resolveMappedSatVerbalSitIn(
 	if missedCourse.RootCourseGroupID.Valid {
 		rootIDStr, _ = uuidString(missedCourse.RootCourseGroupID)
 	}
-	win := subjectWindowWeeks(settings.AbsencePolicies, subjectIDStr, rootIDStr)
+	mergeIDStr := ""
+	if scope, ok, scopeErr := mergeGroupScopeForCourse(ctx, q, courseID); scopeErr != nil {
+		return nil, fmt.Errorf("merged course lookup: %w", scopeErr)
+	} else if ok {
+		mergeIDStr, _ = uuidString(scope.ID)
+	}
+	win := subjectWindowWeeksWithMerge(settings.AbsencePolicies, subjectIDStr, rootIDStr, mergeIDStr)
 	cutoff := time.Time{}
 	if win > 0 {
 		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
@@ -624,6 +644,11 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		if err != nil {
 			return nil, fmt.Errorf("root course group lookup: %w", err)
 		}
+	} else if main.MergeGroupID.Valid {
+		allCourses, err = q.CoursesByMergeGroup(ctx, main.MergeGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("merged course lookup: %w", err)
+		}
 	} else {
 		allCourses = []sqldb.SubjectCourseV2{
 			{ID: main.CourseID, Code: main.CourseCode, Name: main.CourseName, SubjectID: main.SubjectID, CycleID: main.CycleID, Level: main.Level, RootCourseGroupID: pgtype.UUID{}},
@@ -631,10 +656,10 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	}
 
 	// 5. Load sit-in rule for this root course group
-	if !main.RootCourseGroupID.Valid {
+	if !main.RootCourseGroupID.Valid && !main.MergeGroupID.Valid {
 		return nil, nil
 	}
-	rule, err := q.SitInRuleGetByRootCourseGroup(ctx, main.RootCourseGroupID)
+	rule, err := sitInRuleForScope(ctx, q, main.SitInRuleID, main.RootCourseGroupID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -702,7 +727,7 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 			return nil, fmt.Errorf("target course not found in course group")
 		}
 
-		win := loadRootGroupWindowWeeks(ctx, q, main.RootCourseGroupID)
+		win := loadScopeWindowWeeks(ctx, q, main.MergeGroupID, main.MergeGroupID.Valid, main.RootCourseGroupID)
 		cutoff := time.Time{}
 		if win > 0 {
 			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
@@ -715,6 +740,54 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
 	return result, nil
+}
+
+func sitInRuleForScope(ctx context.Context, q *sqldb.Queries, sitInRuleID, rootCourseGroupID pgtype.UUID) (*sqldb.SitInRule, error) {
+	if sitInRuleID.Valid {
+		return q.SitInRuleGetByID(ctx, sitInRuleID)
+	}
+	if rootCourseGroupID.Valid {
+		return q.SitInRuleGetByRootCourseGroup(ctx, rootCourseGroupID)
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func mergeGroupWindowWeeks(policies []byte, mergeGroupID string) (int, bool) {
+	var p sqldb.AbsencePolicies
+	if err := json.Unmarshal(policies, &p); err != nil || p.MergeGroups == nil {
+		return 0, false
+	}
+	policy, ok := p.MergeGroups[mergeGroupID]
+	if !ok {
+		return 0, false
+	}
+	return policy.SitInWindowWeeks, true
+}
+
+func loadScopeWindowWeeks(ctx context.Context, q *sqldb.Queries, mergeGroupID pgtype.UUID, hasMergeScope bool, rootCourseGroupID pgtype.UUID) int {
+	settings, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		return 0
+	}
+	if hasMergeScope {
+		if id, idErr := uuidString(mergeGroupID); idErr == nil {
+			if weeks, ok := mergeGroupWindowWeeks(settings.AbsencePolicies, id); ok {
+				return weeks
+			}
+		}
+	}
+	return loadRootGroupWindowWeeksFromPolicies(settings.AbsencePolicies, rootCourseGroupID)
+}
+
+func loadRootGroupWindowWeeksFromPolicies(policies []byte, rootCourseGroupID pgtype.UUID) int {
+	if !rootCourseGroupID.Valid {
+		return 0
+	}
+	id, err := uuidString(rootCourseGroupID)
+	if err != nil {
+		return 0
+	}
+	return rootGroupWindowWeeks(policies, id)
 }
 
 func rootGroupWindowWeeks(policies []byte, rootCourseGroupID string) int {

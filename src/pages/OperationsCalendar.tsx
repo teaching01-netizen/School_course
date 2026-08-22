@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { DateTime } from "luxon";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -373,7 +374,7 @@ export default function OperationsCalendar() {
           </span>
           <label className="flex items-center gap-2 text-sm text-[var(--color-wi-text-light)]">
             Show:
-            <select
+            <SearchableSelect
               aria-label="Show"
               value={showMode}
               onChange={(e) => setShowMode(e.target.value as CalendarShowMode)}
@@ -383,22 +384,22 @@ export default function OperationsCalendar() {
               <option value="sessions">Sessions only</option>
               <option value="absences">Absences only</option>
               <option value="sit-ins">Sit-ins only</option>
-            </select>
+            </SearchableSelect>
           </label>
           {showSubjectFilter ? (
-            <select aria-label="Subject" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="text-sm">
+            <SearchableSelect aria-label="Subject" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="text-sm">
               <option value="">All subjects</option>
               {subjects.map(([courseId, label]) => <option key={courseId} value={courseId}>{label}</option>)}
-            </select>
+            </SearchableSelect>
           ) : null}
           {showStatusFilter ? (
-            <select aria-label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm">
+            <SearchableSelect aria-label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm">
               <option value="">All statuses</option>
               <option value="pending">Pending</option>
               <option value="reviewed">Reviewed</option>
               <option value="actioned">Actioned</option>
               <option value="cancelled">Cancelled</option>
-            </select>
+            </SearchableSelect>
           ) : null}
         </div>
       </section>

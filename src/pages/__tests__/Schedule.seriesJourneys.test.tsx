@@ -158,6 +158,9 @@ describe("Schedule recurring-series journeys", () => {
     const dialog = await openCreateSeries(user);
 
     await user.click(within(dialog).getByLabelText("Mon"));
+    // Preflight is debounced per settled input window; let the weekday-only
+    // check (first mock response) land before changing the schedule shape.
+    await vi.advanceTimersByTimeAsync(350);
     await user.click(within(dialog).getByLabelText("End by count (advanced)"));
     await waitFor(() => expect(within(dialog).getByText("First blocked occurrence")).toBeInTheDocument());
     expect(within(dialog).getByRole("button", { name: /Blocked/i })).toBeDisabled();

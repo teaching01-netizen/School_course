@@ -699,6 +699,15 @@ func subjectWindowWeeks(policies []byte, subjectID, fallbackRootCourseGroupID st
 	return 0
 }
 
+func subjectWindowWeeksWithMerge(policies []byte, subjectID, fallbackRootCourseGroupID, mergeGroupID string) int {
+	if mergeGroupID != "" {
+		if weeks, ok := mergeGroupWindowWeeks(policies, mergeGroupID); ok {
+			return weeks
+		}
+	}
+	return subjectWindowWeeks(policies, subjectID, fallbackRootCourseGroupID)
+}
+
 func uniqueCourses(courses []sqldb.SubjectCourseV2) []sqldb.SubjectCourseV2 {
 	seen := make(map[pgtype.UUID]struct{}, len(courses))
 	out := make([]sqldb.SubjectCourseV2, 0, len(courses))

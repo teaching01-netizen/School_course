@@ -34,6 +34,10 @@ type LookupResult struct {
 	LookupToken                 string
 	EmailInputRequired          bool
 	ParentVerificationAvailable bool
+	// DisplayName is the nickname-or-full-name value behind the public
+	// nickname hint. It is raw data: handlers must mask it before returning
+	// it to an unverified client.
+	DisplayName string
 }
 
 type Session struct {
@@ -88,15 +92,19 @@ func (s *Service) LookupTx(ctx context.Context, tx pgx.Tx, wcode string) (Lookup
 	var canonicalWcode string
 	var hasEmail bool
 	var hasParentPhone bool
+	var displayName string
 	// students.email was a transient column (migration 00036 drops it in its
 	// Down); the durable addresses are email_crm and email_system (00064).
+	// DisplayName prefers the nickname and falls back to the full name so the
+	// masked hint covers every student with one consistent rule.
 	err := tx.QueryRow(ctx, `
 		SELECT wcode,
 		       COALESCE(NULLIF(btrim(email_crm), ''), NULLIF(btrim(email_system), '')) IS NOT NULL,
-		       NULLIF(btrim(parent_phone), '') IS NOT NULL
+		       NULLIF(btrim(parent_phone), '') IS NOT NULL,
+		       COALESCE(NULLIF(btrim(nickname), ''), NULLIF(btrim(full_name), ''))
 		FROM students
 		WHERE lower(wcode) = $1
-	`, wcode).Scan(&canonicalWcode, &hasEmail, &hasParentPhone)
+	`, wcode).Scan(&canonicalWcode, &hasEmail, &hasParentPhone, &displayName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return LookupResult{}, ErrStudentNotFound
 	}
@@ -120,6 +128,7 @@ func (s *Service) LookupTx(ctx context.Context, tx pgx.Tx, wcode string) (Lookup
 		LookupToken:                 rawToken,
 		EmailInputRequired:          !hasEmail,
 		ParentVerificationAvailable: hasParentPhone,
+		DisplayName:                 displayName,
 	}, nil
 }
 

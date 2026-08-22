@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEventHandler, type ReactElement, type Ref } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MoreVertical, Pencil, SlidersHorizontal } from "lucide-react";
 import Modal from "../components/Modal";
@@ -522,6 +523,7 @@ export default function CourseDetail() {
         ...(changes.student_count !== undefined ? { student_count: changes.student_count } : {}),
         ...(changes.cycle_id !== undefined ? { cycle_id: changes.cycle_id } : {}),
         ...(changes.expiry_days !== undefined ? { expiry_days: changes.expiry_days } : {}),
+        ...(changes.absence_form_visible !== undefined ? { absence_form_visible: changes.absence_form_visible } : {}),
       });
       setCourse(updated);
       addToast("success", "Course updated");
@@ -1888,13 +1890,13 @@ function BulkEditModal({
             </div>
             <div>
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Classroom</label>
-              <select value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-wi-line rounded-sm">
+              <SearchableSelect value={fillValues.room_id ?? '__keep__'} onChange={(e) => handleFillChange('room_id', e.target.value === '__keep__' ? undefined : e.target.value)} className="px-1.5 py-1 text-xs border border-wi-line rounded-sm">
                 <option value="__keep__">[KEEP ORIGINAL]</option>
                           <option value="">Not set</option>
                 {rooms.map((room) => (
                   <option key={room.id} value={room.id}>{room.name}</option>
                 ))}
-              </select>
+              </SearchableSelect>
             </div>
             <div className="min-w-[160px]">
               <label className="text-[10px] text-[var(--color-wi-text-light)] block mb-0.5">Teacher</label>
@@ -1963,12 +1965,12 @@ function BulkEditModal({
                           {rooms.find((rm) => rm.id === eff.room_id)?.name ?? 'Not set'}
                         </span>
                       ) : (
-                        <select value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-wi-line rounded-sm">
+                        <SearchableSelect value={r.room_id} onChange={(e) => updateField(r.sessionId, 'room_id', e.target.value)} className="w-full px-1.5 py-1 text-xs border border-wi-line rounded-sm">
                 <option value="">Not set</option>
                           {rooms.map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>
                           ))}
-                        </select>
+                        </SearchableSelect>
                       )}
                     </td>
                     <td className="py-1.5 px-2 min-w-[160px]">

@@ -26,6 +26,9 @@ type parentVerificationSendRequest struct {
 	Wcode       string  `json:"wcode"`
 	LookupToken *string `json:"lookup_token"`
 	Token       *string `json:"token"`
+	// ParentPhone lets a family enroll a parent phone when none is on file;
+	// an existing staff-managed phone always takes precedence.
+	ParentPhone *string `json:"parent_phone,omitempty"`
 }
 
 type parentVerificationVerifyRequest struct {
@@ -116,6 +119,22 @@ func maskPhoneForPublic(phone string) string {
 		return "••••"
 	}
 	return "••••" + string(digits[len(digits)-4:])
+}
+
+// maskNicknameForPublic reveals only the first character of a display name so
+// a found W-Code can be confirmed by its holder without turning the lookup
+// endpoint into a student directory. Single-character values reveal nothing
+// because leaking the one character would leak the whole name.
+func maskNicknameForPublic(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) < 2 {
+		return "***"
+	}
+	return string(runes[:1]) + "***"
 }
 
 func (s *server) allowPublicRateLimit(ctx context.Context, key string, limit int, window time.Duration) (time.Duration, error) {
@@ -542,9 +561,25 @@ func (s *server) handleParentVerificationSend(w http.ResponseWriter, r *http.Req
 			s.a.WriteErr(w, http.StatusNotFound, "no_subjects", "No enrolled subjects found for this student")
 			return 0, nil, fmt.Errorf("no subjects")
 		}
+		// A student with no phone on file can enroll one from the form; the
+		// OTP proves the number is reachable before it is persisted. Writing
+		// the normalized value back into the row keeps every downstream use
+		// (session, SMS, delivery enqueue) unchanged.
 		if !rows[0].ParentPhone.Valid || strings.TrimSpace(rows[0].ParentPhone.String) == "" {
-			s.a.WriteErr(w, http.StatusConflict, "parent_phone_missing", "No parent phone is on file for this student")
-			return 0, nil, fmt.Errorf("parent phone missing")
+			clientPhone := ""
+			if body.ParentPhone != nil {
+				clientPhone = strings.TrimSpace(*body.ParentPhone)
+			}
+			if clientPhone == "" {
+				s.a.WriteErr(w, http.StatusConflict, "parent_phone_missing", "No parent phone is on file for this student")
+				return 0, nil, fmt.Errorf("parent phone missing")
+			}
+			normalizedPhone, phoneErr := otp.NormalizePhoneE164(clientPhone)
+			if phoneErr != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_parent_phone", "Enter a valid parent phone number")
+				return 0, nil, phoneErr
+			}
+			rows[0].ParentPhone = pgtype.Text{String: normalizedPhone, Valid: true}
 		}
 
 		if s.deps.OTPAsyncDelivery {
@@ -654,6 +689,15 @@ func (s *server) handleParentVerificationVerify(w http.ResponseWriter, r *http.R
 				status, code, msg := s.a.ClassifyDBErr(infoErr)
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, infoErr
+			}
+			// The code proved this phone is reachable; fill it in when the
+			// student has none so future verifications and success SMS work.
+			// The emptiness guard keeps the write idempotent and makes
+			// overwriting staff-managed numbers impossible.
+			if strings.TrimSpace(session.ParentPhone) != "" {
+				if err := s.deps.Q.WithTx(tx).StudentSetParentPhoneIfEmpty(r.Context(), session.Wcode, session.ParentPhone); err != nil && s.deps.Log != nil {
+					s.deps.Log.Error("failed to persist enrolled parent phone", "wcode", session.Wcode, "error", err)
+				}
 			}
 			resp := verificationResponseFromState(session, token, info.ExpiresAt)
 			return http.StatusOK, resp, nil

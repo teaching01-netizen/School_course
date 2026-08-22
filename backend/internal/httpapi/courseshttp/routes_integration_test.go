@@ -602,3 +602,177 @@ func TestStudentAddEndpoints_BlockedByPreflight_WhenBusyRangeExists(t *testing.T
 		t.Fatalf("attendance include: expected kind 'student_overlap', got %q", includeDetails["kind"])
 	}
 }
+
+func TestCourseGroupDeleteUnmergesWithoutDeletingSourceCourses(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+	secondCourse, err := fx.q.CourseCreate(ctx, sqldb.CourseCreateParams{
+		Code: "C-ITEST-MERGE-" + uuid.New().String()[:8],
+		Name: "Merge Source Course",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCourseID, err := uuidString(secondCourse.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createResp := doRequest(t, fx.server.URL, "POST", "/api/v1/course-groups", map[string]any{
+		"name":       "Unmerge test " + uuid.New().String()[:8],
+		"course_ids": []string{fx.courseIDStr, secondCourseID},
+	})
+	if createResp.StatusCode != http.StatusCreated {
+		var body map[string]any
+		parseResponse(t, createResp, &body)
+		t.Fatalf("expected merged course creation to return 201, got %d: %#v", createResp.StatusCode, body)
+	}
+	var created map[string]any
+	parseResponse(t, createResp, &created)
+	groupID, ok := created["id"].(string)
+	if !ok || groupID == "" {
+		t.Fatalf("expected merged course id, got %#v", created["id"])
+	}
+
+	deleteResp := doRequest(t, fx.server.URL, "DELETE", "/api/v1/course-groups/"+groupID, nil)
+	if deleteResp.StatusCode != http.StatusOK {
+		var body map[string]any
+		parseResponse(t, deleteResp, &body)
+		t.Fatalf("expected unmerge to return 200, got %d: %#v", deleteResp.StatusCode, body)
+	}
+	var deleted map[string]any
+	parseResponse(t, deleteResp, &deleted)
+	if deleted["ok"] != true {
+		t.Fatalf("expected ok response, got %#v", deleted)
+	}
+
+	var groupCount, memberCount, courseCount int
+	if err := fx.dbpool.QueryRow(ctx, `SELECT count(*) FROM course_merge_groups WHERE id = $1`, groupID).Scan(&groupCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.dbpool.QueryRow(ctx, `SELECT count(*) FROM course_merge_group_members WHERE group_id = $1`, groupID).Scan(&memberCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.dbpool.QueryRow(ctx, `SELECT count(*) FROM courses WHERE id IN ($1, $2)`, fx.courseIDStr, secondCourseID).Scan(&courseCount); err != nil {
+		t.Fatal(err)
+	}
+	if groupCount != 0 || memberCount != 0 || courseCount != 2 {
+		t.Fatalf("unmerge state = group %d, members %d, source courses %d; want 0, 0, 2", groupCount, memberCount, courseCount)
+	}
+
+	var auditAction string
+	if err := fx.dbpool.QueryRow(ctx, `
+		SELECT action
+		FROM audit_log
+		WHERE actor_user_id = $1
+		  AND action = 'course_group.unmerged'
+		  AND payload->>'group_id' = $2
+		ORDER BY id DESC
+		LIMIT 1
+	`, fx.adminID, groupID).Scan(&auditAction); err != nil {
+		t.Fatalf("expected unmerge audit row: %v", err)
+	}
+	if auditAction != "course_group.unmerged" {
+		t.Fatalf("expected unmerge audit action, got %q", auditAction)
+	}
+}
+
+func TestCourseGroupRenamePersistsWithoutChangingMembers(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := context.Background()
+	secondCourse, err := fx.q.CourseCreate(ctx, sqldb.CourseCreateParams{
+		Code: "C-ITEST-RENAME-" + uuid.New().String()[:8],
+		Name: "Rename Source Course",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCourseID, err := uuidString(secondCourse.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalName := "Rename test " + uuid.New().String()[:8]
+	createResp := doRequest(t, fx.server.URL, "POST", "/api/v1/course-groups", map[string]any{
+		"name":       originalName,
+		"course_ids": []string{fx.courseIDStr, secondCourseID},
+	})
+	if createResp.StatusCode != http.StatusCreated {
+		var body map[string]any
+		parseResponse(t, createResp, &body)
+		t.Fatalf("expected merged course creation to return 201, got %d: %#v", createResp.StatusCode, body)
+	}
+	var created map[string]any
+	parseResponse(t, createResp, &created)
+	groupID, ok := created["id"].(string)
+	if !ok || groupID == "" {
+		t.Fatalf("expected merged course id, got %#v", created["id"])
+	}
+
+	updatedName := "Renamed merged course " + uuid.New().String()[:8]
+	updateResp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/course-groups/"+groupID, map[string]any{
+		"name": "  " + updatedName + "  ",
+	})
+	if updateResp.StatusCode != http.StatusOK {
+		var body map[string]any
+		parseResponse(t, updateResp, &body)
+		t.Fatalf("expected rename to return 200, got %d: %#v", updateResp.StatusCode, body)
+	}
+	var updated map[string]any
+	parseResponse(t, updateResp, &updated)
+	if updated["name"] != updatedName {
+		t.Fatalf("rename response name = %#v, want %q", updated["name"], updatedName)
+	}
+
+	var persistedName string
+	if err := fx.dbpool.QueryRow(ctx, `SELECT name FROM course_merge_groups WHERE id = $1`, groupID).Scan(&persistedName); err != nil {
+		t.Fatal(err)
+	}
+	var memberCount, sourceCourseCount int
+	if err := fx.dbpool.QueryRow(ctx, `SELECT count(*) FROM course_merge_group_members WHERE group_id = $1`, groupID).Scan(&memberCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.dbpool.QueryRow(ctx, `SELECT count(*) FROM courses WHERE id IN ($1, $2)`, fx.courseIDStr, secondCourseID).Scan(&sourceCourseCount); err != nil {
+		t.Fatal(err)
+	}
+	if persistedName != updatedName || memberCount != 2 || sourceCourseCount != 2 {
+		t.Fatalf("rename state = name %q, members %d, source courses %d; want %q, 2, 2", persistedName, memberCount, sourceCourseCount, updatedName)
+	}
+
+	var auditOldName, auditNewName string
+	if err := fx.dbpool.QueryRow(ctx, `
+		SELECT payload->>'old_name', payload->>'new_name'
+		FROM audit_log
+		WHERE actor_user_id = $1
+		  AND action = 'course_group.renamed'
+		  AND payload->>'group_id' = $2
+		ORDER BY id DESC
+		LIMIT 1
+	`, fx.adminID, groupID).Scan(&auditOldName, &auditNewName); err != nil {
+		t.Fatalf("expected rename audit row: %v", err)
+	}
+	if auditOldName != originalName || auditNewName != updatedName {
+		t.Fatalf("rename audit = old %q, new %q; want old %q, new %q", auditOldName, auditNewName, originalName, updatedName)
+	}
+
+	blankResp := doRequest(t, fx.server.URL, "PATCH", "/api/v1/course-groups/"+groupID, map[string]any{"name": "   "})
+	if blankResp.StatusCode != http.StatusBadRequest {
+		var body map[string]any
+		parseResponse(t, blankResp, &body)
+		t.Fatalf("expected blank rename to return 400, got %d: %#v", blankResp.StatusCode, body)
+	}
+	var unchangedName string
+	if err := fx.dbpool.QueryRow(ctx, `SELECT name FROM course_merge_groups WHERE id = $1`, groupID).Scan(&unchangedName); err != nil {
+		t.Fatal(err)
+	}
+	if unchangedName != updatedName {
+		t.Fatalf("blank rename changed persisted name to %q", unchangedName)
+	}
+
+	deleteResp := doRequest(t, fx.server.URL, "DELETE", "/api/v1/course-groups/"+groupID, nil)
+	if deleteResp.StatusCode != http.StatusOK {
+		var body map[string]any
+		parseResponse(t, deleteResp, &body)
+		t.Fatalf("expected test cleanup unmerge to return 200, got %d: %#v", deleteResp.StatusCode, body)
+	}
+}

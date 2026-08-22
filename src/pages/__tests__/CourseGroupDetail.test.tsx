@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import CourseGroupDetail from "../CourseGroupDetail";
 import { ToastProvider } from "../../hooks/useToast";
@@ -26,7 +27,12 @@ function renderGroupDetail() {
 describe("CourseGroupDetail", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
-    mockApiJson.mockImplementation((path: string) => {
+    mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/course-groups/group-1" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body ?? "{}")) as { name?: string };
+        return Promise.resolve({ id: "group-1", name: body.name ?? "" });
+      }
+      if (path === "/api/v1/course-groups/group-1" && init?.method === "DELETE") return Promise.resolve();
       if (path === "/api/v1/course-groups/group-1") {
         return Promise.resolve({
           id: "group-1",
@@ -65,5 +71,55 @@ describe("CourseGroupDetail", () => {
     expect(screen.getByText("Room 101")).toBeInTheDocument();
     expect(screen.getByText("Not set")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Open source course" })[0]).toHaveAttribute("href", "/courses/course-reading");
+  });
+
+  it("confirms and submits an unmerge without touching source links", async () => {
+    const user = userEvent.setup();
+    renderGroupDetail();
+
+    expect(await screen.findByRole("heading", { name: "SAT Verbal Reading + Writing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unmerge course" }));
+
+    expect(screen.getByRole("dialog", { name: "Unmerge course?" })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog", { name: "Unmerge course?" })).getByRole("button", { name: "Unmerge course" }));
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/course-groups/group-1", { method: "DELETE" });
+  });
+
+  it("edits the merged view name without changing source courses", async () => {
+    const user = userEvent.setup();
+    renderGroupDetail();
+
+    expect(await screen.findByRole("heading", { name: "SAT Verbal Reading + Writing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit name" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Edit merged course" });
+    const input = within(dialog).getByRole("textbox", { name: "Merged course name" });
+    await user.clear(input);
+    await user.type(input, "SAT Verbal Core");
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/course-groups/group-1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "SAT Verbal Core" }),
+    });
+    expect(await screen.findByRole("heading", { name: "SAT Verbal Core" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Open source course" })[0]).toHaveAttribute("href", "/courses/course-reading");
+    expect(screen.getAllByText("SAT-R").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("SAT-W").length).toBeGreaterThan(1);
+  });
+
+  it("keeps the edit dialog open when the name is blank", async () => {
+    const user = userEvent.setup();
+    renderGroupDetail();
+
+    await screen.findByRole("heading", { name: "SAT Verbal Reading + Writing" });
+    await user.click(screen.getByRole("button", { name: "Edit name" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit merged course" });
+    await user.clear(within(dialog).getByRole("textbox", { name: "Merged course name" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+
+    expect(screen.getByRole("dialog", { name: "Edit merged course" })).toBeInTheDocument();
+    expect(mockApiJson).not.toHaveBeenCalledWith("/api/v1/course-groups/group-1", expect.objectContaining({ method: "PATCH" }));
   });
 });

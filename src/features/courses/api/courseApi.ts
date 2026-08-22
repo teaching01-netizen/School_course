@@ -52,6 +52,7 @@ export function patchCourse(
     student_count?: number | null;
     cycle_id?: string | null;
     expiry_days?: number | null;
+    absence_form_visible?: boolean;
   },
 ): Promise<Course> {
   return apiJson<Course>(`/api/v1/courses/${courseId}`, {
@@ -143,6 +144,17 @@ export function createCourseGroup(body: { name: string; course_ids: string[] }):
 
 export function getCourseGroup(groupId: string): Promise<CourseGroup> {
   return apiJson<CourseGroup>(`/api/v1/course-groups/${groupId}`, { method: "GET" });
+}
+
+export function updateCourseGroup(groupId: string, body: { name: string }): Promise<{ id: string; name: string }> {
+  return apiJson<{ id: string; name: string }>(`/api/v1/course-groups/${groupId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteCourseGroup(groupId: string): Promise<void> {
+  return apiJson(`/api/v1/course-groups/${groupId}`, { method: "DELETE" });
 }
 
 export function getCourseGroupSessions(groupId: string): Promise<CourseGroupSessions[]> {

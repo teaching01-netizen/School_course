@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useToast } from '../hooks/useToast';
 import type { TeacherDashboardResponse } from '../types';
@@ -43,7 +45,8 @@ function friendlyDashboardError(error: unknown): string {
 
 export default function AbsenceDashboard() {
   const { addToast } = useToast();
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(searchParams.get('teacher_id'));
   const { serverNow, instituteTZ, loaded: instituteMetaLoaded } = useInstituteMeta();
   const zone = instituteTZ ?? 'Asia/Bangkok';
   const fallbackNowIso = useMemo(() => new Date().toISOString(), []);
@@ -105,7 +108,7 @@ export default function AbsenceDashboard() {
           <label htmlFor="teacher-select" className="text-sm font-medium text-[var(--color-wi-text-light)] whitespace-nowrap">
             Teacher:
           </label>
-          <select
+          <SearchableSelect
             id="teacher-select"
             value={selectedTeacherId ?? ''}
             onChange={(e) => {
@@ -119,7 +122,7 @@ export default function AbsenceDashboard() {
                 {t.full_name || t.username}
               </option>
             ))}
-          </select>
+          </SearchableSelect>
         </div>
       </div>
 

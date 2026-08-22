@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { apiJson } from "@/api/client";
+import { useMemo } from "react";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import type { Course } from "@/features/courses/types";
 import type { User } from "@/types/shared";
 import type { Room } from "../types";
@@ -17,29 +17,23 @@ interface Lookups {
   reload: () => void;
 }
 
+// Reference data flows through the shared query cache, so a Schedule visit
+// reuses whatever the Teachers page / nav prefetch already warmed instead of
+// refetching all three lists on every mount.
+// Stable empties so the derived Maps keep referential identity while loading.
+const NO_COURSES: Course[] = [];
+const NO_ROOMS: Room[] = [];
+const NO_TEACHERS: User[] = [];
+
 export default function useLookups(): Lookups {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [teachers, setTeachers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const coursesQuery = useApiQuery<Course[]>("/api/v1/courses");
+  const roomsQuery = useApiQuery<Room[]>("/api/v1/rooms");
+  const teachersQuery = useApiQuery<User[]>("/api/v1/users?role=Teacher");
 
-  const load = () => {
-    setLoading(true);
-    Promise.all([
-      apiJson<Course[]>("/api/v1/courses", { method: "GET" }),
-      apiJson<Room[]>("/api/v1/rooms", { method: "GET" }),
-      apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" }),
-    ])
-      .then(([c, r, t]) => {
-        setCourses(c);
-        setRooms(r);
-        setTeachers(t);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
+  const courses = coursesQuery.data ?? NO_COURSES;
+  const rooms = roomsQuery.data ?? NO_ROOMS;
+  const teachers = teachersQuery.data ?? NO_TEACHERS;
+  const loading = coursesQuery.loading || roomsQuery.loading || teachersQuery.loading;
 
   const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
   const roomById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
@@ -53,5 +47,20 @@ export default function useLookups(): Lookups {
     [teachers]
   );
 
-  return { courses, rooms, teachers, courseById, roomById, teacherById, courseOptions, teacherOptions, loading, reload: load };
+  return {
+    courses,
+    rooms,
+    teachers,
+    courseById,
+    roomById,
+    teacherById,
+    courseOptions,
+    teacherOptions,
+    loading,
+    reload: () => {
+      void coursesQuery.refetch();
+      void roomsQuery.refetch();
+      void teachersQuery.refetch();
+    },
+  };
 }

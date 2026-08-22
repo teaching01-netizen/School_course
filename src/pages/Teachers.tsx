@@ -9,17 +9,21 @@ import Button from "../components/ui/Button";
 import ConfirmModal from "../components/ConfirmModal";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
+import MergeTeachersModal from "../components/teachers/MergeTeachersModal";
 
 type Teacher = { id: string; username: string; full_name: string | null; role: 'Admin' | 'Teacher' };
+
+const isLegacyDuplicate = (t: Teacher) => t.username.startsWith('legacy:');
 
 export default function Teachers() {
   const [search, setSearch] = useState('');
   const [deletingID, setDeletingID] = useState<string | null>(null);
   const [confirmTeacher, setConfirmTeacher] = useState<Teacher | null>(null);
+  const [mergeTeacher, setMergeTeacher] = useState<Teacher | null>(null);
   const { addToast } = useToast();
 
   const { data: teachers, loading, error, refetch } = useApiQuery<Teacher[]>('/api/v1/users?role=Teacher');
-  const { mutate: deleteUser, loading: deleting } = useApiMutation<unknown, unknown>('DELETE');
+  const { mutate: deleteUser, loading: deleting } = useApiMutation<unknown, unknown>('DELETE', { invalidate: [['reference', '/api/v1/users?role=Teacher']] });
 
   useEffect(() => {
     if (!error) return;
@@ -45,7 +49,6 @@ export default function Teachers() {
     try {
       await deleteUser({}, `/api/v1/admin/users/${teacher.id}`);
       addToast('success', 'Teacher deleted');
-      refetch();
     } catch (err) {
       addToast('error', err instanceof Error ? err.message : 'Delete failed');
     } finally {
@@ -83,12 +86,24 @@ export default function Teachers() {
               <tr key={t.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
                 <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.id}</td>
                 <td className="py-2 px-2 text-xs text-[var(--color-wi-text)]">{t.full_name || '—'}</td>
-                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{t.username}</td>
+                <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">
+                  {t.username}
+                  {isLegacyDuplicate(t) && (
+                    <span className="ml-2 inline-block rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-1.5 py-0.5 font-sans text-[10px] font-medium text-[var(--color-wi-text-light)]">
+                      Legacy duplicate
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 px-2">
                   <div className="flex items-center gap-2">
                     <Link to={`/teachers/${t.id}`} className="px-2 py-0.5 text-xs bg-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary-dark)] text-white rounded-sm inline-block">
                       detail
                     </Link>
+                    {isLegacyDuplicate(t) && (
+                      <Button variant="secondary" size="sm" onClick={() => setMergeTeacher(t)}>
+                        merge
+                      </Button>
+                    )}
                     <Button
                       variant="danger"
                       size="sm"
@@ -114,6 +129,14 @@ export default function Teachers() {
         loading={deleting}
         onConfirm={() => confirmTeacher && onDelete(confirmTeacher)}
         onCancel={() => setConfirmTeacher(null)}
+      />
+
+      <MergeTeachersModal
+        open={!!mergeTeacher}
+        duplicate={mergeTeacher}
+        teachers={teachers ?? []}
+        onClose={() => setMergeTeacher(null)}
+        onMerged={() => void refetch()}
       />
     </div>
   );

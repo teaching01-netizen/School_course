@@ -2,9 +2,11 @@ package absenceshttp
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/absences"
@@ -21,6 +23,37 @@ func normalizeSubmissionSitInMethod(raw *string) (pgtype.Text, error) {
 
 func absenceDayLimitLockKey(wcode, courseID string) string {
 	return "absence-limit:" + normalizeWCode(wcode) + ":" + courseID
+}
+
+func absenceDayLimitLockKeyForMergeGroup(wcode, mergeGroupID string) string {
+	return "absence-limit:" + normalizeWCode(wcode) + ":merge:" + mergeGroupID
+}
+
+func mergeGroupScopeForCourse(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) (sqldb.CourseMergeGroupScopeForCourseRow, bool, error) {
+	scope, err := q.CourseMergeGroupScopeForCourse(ctx, courseID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sqldb.CourseMergeGroupScopeForCourseRow{}, false, nil
+	}
+	if err != nil {
+		return sqldb.CourseMergeGroupScopeForCourseRow{}, false, err
+	}
+	return scope, true, nil
+}
+
+func lockCourseForMergeScope(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) error {
+	_, err := q.CourseMergeGroupLockCourses(ctx, []pgtype.UUID{courseID})
+	return err
+}
+
+func setAbsenceMergeGroupForCourse(ctx context.Context, q *sqldb.Queries, absenceID, courseID pgtype.UUID) error {
+	if err := lockCourseForMergeScope(ctx, q, courseID); err != nil {
+		return err
+	}
+	scope, found, err := mergeGroupScopeForCourse(ctx, q, courseID)
+	if err != nil || !found {
+		return err
+	}
+	return q.AbsenceSetMergeGroupID(ctx, absenceID, scope.ID)
 }
 
 func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
@@ -49,17 +82,44 @@ func projectedAbsenceDayStats(
 	if err != nil {
 		return absences.AbsenceDayLimitStats{}, 0, err
 	}
-	if err := q.AdvisoryLockForText(ctx, absenceDayLimitLockKey(wcode, courseIDString)); err != nil {
+	if err := lockCourseForMergeScope(ctx, q, courseID); err != nil {
 		return absences.AbsenceDayLimitStats{}, 0, err
 	}
-	counts, err := q.AbsenceDayCountsForCourse(ctx, sqldb.AbsenceDayCountsForCourseParams{
-		Wcode:               wcode,
-		CourseID:            courseID,
-		CandidateSessionIDs: missedSessionIDs,
-		DateFrom:            dateFrom,
-		DateTo:              dateTo,
-		InstituteTZ:         instituteTZ,
-	})
+	scope, found, err := mergeGroupScopeForCourse(ctx, q, courseID)
+	if err != nil {
+		return absences.AbsenceDayLimitStats{}, 0, err
+	}
+	lockKey := absenceDayLimitLockKey(wcode, courseIDString)
+	if found {
+		mergeGroupID, err := sUUIDString(scope.ID)
+		if err != nil {
+			return absences.AbsenceDayLimitStats{}, 0, err
+		}
+		lockKey = absenceDayLimitLockKeyForMergeGroup(wcode, mergeGroupID)
+	}
+	if err := q.AdvisoryLockForText(ctx, lockKey); err != nil {
+		return absences.AbsenceDayLimitStats{}, 0, err
+	}
+	var counts sqldb.AbsenceDayCounts
+	if found {
+		counts, err = q.AbsenceDayCountsForMergeGroup(ctx, sqldb.AbsenceDayCountsForMergeGroupParams{
+			Wcode:               wcode,
+			MergeGroupID:        scope.ID,
+			CandidateSessionIDs: missedSessionIDs,
+			DateFrom:            dateFrom,
+			DateTo:              dateTo,
+			InstituteTZ:         instituteTZ,
+		})
+	} else {
+		counts, err = q.AbsenceDayCountsForCourse(ctx, sqldb.AbsenceDayCountsForCourseParams{
+			Wcode:               wcode,
+			CourseID:            courseID,
+			CandidateSessionIDs: missedSessionIDs,
+			DateFrom:            dateFrom,
+			DateTo:              dateTo,
+			InstituteTZ:         instituteTZ,
+		})
+	}
 	if err != nil {
 		return absences.AbsenceDayLimitStats{}, 0, err
 	}

@@ -101,6 +101,31 @@ func ClientStudentEmailProvided(raw *string) bool {
 	return raw != nil && strings.TrimSpace(*raw) != ""
 }
 
+const maxClientNicknameRunes = 50
+
+// ResolveClientNickname validates an optional form-provided nickname and
+// allows it only when the student has none on file, mirroring the email
+// fill-if-empty policy for public form contact data.
+func ResolveClientNickname(raw *string, nickname pgtype.Text) (pgtype.Text, bool, error) {
+	if raw == nil {
+		return pgtype.Text{}, false, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return pgtype.Text{}, false, nil
+	}
+	if pgTextHasValue(nickname) {
+		return pgtype.Text{}, false, fmt.Errorf("student already has a nickname on file")
+	}
+	if len([]rune(trimmed)) > maxClientNicknameRunes {
+		return pgtype.Text{}, false, fmt.Errorf("nickname is too long")
+	}
+	if strings.ContainsAny(trimmed, "\n\r\t") {
+		return pgtype.Text{}, false, fmt.Errorf("nickname contains invalid characters")
+	}
+	return pgtype.Text{String: trimmed, Valid: true}, true, nil
+}
+
 func ValidateSessionTiming(settings TimingSettings, now time.Time, sessions []SessionTimingInfo) *SessionTimingError {
 	for _, session := range sessions {
 		if timingErr := sessionTimingPolicyError(settings, now, session); timingErr != nil {

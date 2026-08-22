@@ -1,4 +1,5 @@
 import { useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import Button from "../ui/Button";
 import { LEAVE_POLICY_COURSE_RULES, evaluateLeavePolicy, getRuleTypeBadgeColor, getRuleTypeLabel } from "./leavePolicyData";
 import type { LeavePolicyTestInput, LeavePolicyTestResult } from "../../types";
@@ -79,7 +80,7 @@ export default function LeavePolicyTestPanel() {
             {/* Course Rule */}
             <div>
               <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Course Rule</label>
-              <select
+              <SearchableSelect
                 value={selectedRuleId}
                 onChange={(e) => {
                   setSelectedRuleId(e.target.value);
@@ -94,7 +95,7 @@ export default function LeavePolicyTestPanel() {
                     {rule.courseName}
                   </option>
                 ))}
-              </select>
+              </SearchableSelect>
             </div>
 
             {/* Show rule info when selected */}
@@ -149,7 +150,7 @@ export default function LeavePolicyTestPanel() {
             {/* Missed Section */}
             <div>
               <label className="block text-xs font-medium text-[var(--color-wi-text-light)] mb-1">Missed Section</label>
-              <select
+              <SearchableSelect
                 value={missedSection}
                 onChange={(e) => setMissedSection(e.target.value)}
                 className="w-full text-sm border border-wi-line rounded-sm px-3 py-2 bg-white"
@@ -157,7 +158,7 @@ export default function LeavePolicyTestPanel() {
                 <option value="Section 1">Section 1</option>
                 <option value="Section 2">Section 2</option>
                 <option value="Section 3">Section 3</option>
-              </select>
+              </SearchableSelect>
             </div>
 
             {/* Occurrence Number */}

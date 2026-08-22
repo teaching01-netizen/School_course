@@ -5,6 +5,7 @@ import {
   isDayGroupSelected,
   countSelectedAbsenceDays,
   countSelectedAbsenceDaysForGroup,
+  countSelectedAbsenceDaysForScope,
   getSelectedSessionsForGroup,
   mergedSessionValue,
   uniqueValues,
@@ -131,6 +132,45 @@ describe("countSelectedAbsenceDays", () => {
     ];
 
     expect(countSelectedAbsenceDays(groups, new Set(["reported"]))).toBe(0);
+  });
+
+  it("counts a shared merge-group day once across both source courses", () => {
+    const groups = [
+      {
+        subject_id: "subj-reading",
+        subject_code: "READ",
+        subject_name: "Reading",
+        course_id: "course-reading",
+        course_code: "READ-1",
+        course_name: "Reading",
+        merge_group_id: "merge-1",
+        merge_group_name: "SAT Verbal Rank 2 C3",
+        absence_limit_reached: false,
+        sessions: [
+          { id: "reading-day-1", start_at: "2026-06-01T09:00:00+07:00", end_at: "2026-06-01T10:00:00+07:00", date: "2026-06-01", already_absent: false },
+          { id: "reading-day-2", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:00:00+07:00", date: "2026-06-02", already_absent: false },
+        ],
+      },
+      {
+        subject_id: "subj-writing",
+        subject_code: "WRITE",
+        subject_name: "Writing",
+        course_id: "course-writing",
+        course_code: "WRITE-1",
+        course_name: "Writing",
+        merge_group_id: "merge-1",
+        merge_group_name: "SAT Verbal Rank 2 C3",
+        absence_limit_reached: false,
+        sessions: [
+          { id: "writing-day-1", start_at: "2026-06-01T10:00:00+07:00", end_at: "2026-06-01T11:00:00+07:00", date: "2026-06-01", already_absent: false },
+          { id: "writing-day-3", start_at: "2026-06-03T10:00:00+07:00", end_at: "2026-06-03T11:00:00+07:00", date: "2026-06-03", already_absent: false },
+        ],
+      },
+    ];
+
+    const selected = new Set(["reading-day-1", "writing-day-1", "reading-day-2", "writing-day-3"]);
+    expect(countSelectedAbsenceDaysForScope(groups, selected, "merge:merge-1")).toBe(3);
+    expect(countSelectedAbsenceDays(groups, selected)).toBe(3);
   });
 });
 

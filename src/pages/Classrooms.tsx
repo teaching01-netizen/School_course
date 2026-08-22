@@ -35,8 +35,8 @@ export default function Classrooms() {
   const [editForm, setEditForm] = useState({ name: "", capacity: "" });
 
   const { data: rooms, loading, error, refetch } = useApiQuery<Room[]>("/api/v1/rooms");
-  const { mutate: createRoom, loading: creating } = useApiMutation<{ name: string; capacity: number | null }, unknown>("POST");
-  const { mutate: updateRoom, loading: updating } = useApiMutation<{ name: string; capacity: number | null }, unknown>("PUT");
+  const { mutate: createRoom, loading: creating } = useApiMutation<{ name: string; capacity: number | null }, unknown>("POST", { invalidate: [["reference", "/api/v1/rooms"]] });
+  const { mutate: updateRoom, loading: updating } = useApiMutation<{ name: string; capacity: number | null }, unknown>("PUT", { invalidate: [["reference", "/api/v1/rooms"]] });
 
   const createFormValues = { createName: createForm.name, createCapacity: createForm.capacity };
   const createValidation = useFormValidation(createSchema, createFormValues);
@@ -68,7 +68,6 @@ export default function Classrooms() {
       addToast("success", "Room created");
       setCreateModal(false);
       setCreateForm({ name: "", capacity: "" });
-      refetch();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Create failed");
     }
@@ -92,7 +91,6 @@ export default function Classrooms() {
       await updateRoom({ name: editForm.name, capacity: cap }, `/api/v1/rooms/${editModal.id}`);
       addToast("success", "Room updated");
       setEditModal(null);
-      refetch();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Update failed");
     }

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/studentauth"
 )
@@ -30,8 +31,10 @@ type batchAbsenceCreateItem struct {
 }
 
 type batchAbsenceCreateRequest struct {
-	Wcode             string                   `json:"wcode"`
-	Email             *string                  `json:"email"`
+	Wcode string  `json:"wcode"`
+	Email *string `json:"email"`
+	// Nickname is optional and only fills a student record that has none.
+	Nickname          *string                  `json:"nickname,omitempty"`
 	ReasonCategory    *string                  `json:"reason_category"`
 	Reason            *string                  `json:"reason"`
 	VerificationToken *string                  `json:"verification_token"`
@@ -204,6 +207,18 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			studentEmail = resolvedEmail
 			if err := qtx.StudentSetSystemEmail(r.Context(), body.Wcode, resolvedEmail.String); err != nil && s.deps.Log != nil {
 				s.deps.Log.Error("failed to persist system email", "wcode", body.Wcode, "error", err)
+			}
+		}
+		// Same policy for the nickname: a form-provided value may only fill
+		// an empty record, and the resolved value rides along as the
+		// student_nickname snapshot for staff views.
+		if resolvedNickname, shouldPersist, nicknameErr := absences.ResolveClientNickname(body.Nickname, studentNickname); nicknameErr != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_nickname", "A nickname is already on file for this student")
+			return 0, nil, nicknameErr
+		} else if shouldPersist {
+			studentNickname = resolvedNickname
+			if err := qtx.StudentSetNicknameIfEmpty(r.Context(), body.Wcode, resolvedNickname.String); err != nil && s.deps.Log != nil {
+				s.deps.Log.Error("failed to persist student nickname", "wcode", body.Wcode, "error", err)
 			}
 		}
 
@@ -425,6 +440,12 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false
 	}
+	// Same hard gate as the single-create path: batch submission is a
+	// student endpoint, so hidden courses are rejected here too.
+	if !course.AbsenceFormVisible {
+		s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
+		return createdAbsenceRecord{}, false
+	}
 	if len(item.MissedSessionIDs) == 0 {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "At least one missed session must be selected")
 		return createdAbsenceRecord{}, false
@@ -478,6 +499,11 @@ func (s *server) createAbsenceRecordTx(
 		SitInCourseID: sitInCourseID,
 	})
 	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return createdAbsenceRecord{}, false
+	}
+	if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, row.ID, course.CourseID); err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false

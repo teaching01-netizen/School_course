@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useSearchParams } from "react-router-dom";
 import { LayoutList, RefreshCw, Rows3, Search } from "lucide-react";
 import PageHeading from "../components/ui/PageHeading";
@@ -179,8 +180,8 @@ export default function SessionChanges() {
         {queue.data && !queue.data.summary.notifications_configured ? <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><span>SMS and email templates are not configured. Decisions can be recorded, but students will not be notified automatically.</span><Link to="/admin/absence-settings" className="font-medium text-[var(--color-wi-primary)] hover:underline">Open notification settings</Link></section> : null}
         <section className="mb-4 flex flex-wrap items-center gap-2 rounded-sm border border-wi-line bg-white p-3">
           <label className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-3 top-2 h-4 w-4 text-[var(--color-wi-text-light)]" aria-hidden="true" /><input ref={searchRef} value={queryText} onChange={(event) => updateParams({ q: event.target.value })} placeholder="Search student, course, session" className="w-full pl-9" aria-label="Search student, course, or session" /></label>
-          <select value={severity} onChange={(event) => updateParams({ severity: event.target.value })} aria-label="Filter severity"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warnings</option></select>
-          <select value={status} onChange={(event) => updateParams({ status: event.target.value })} aria-label="Filter issue status"><option value="all">All unresolved</option><option value="open">Open issues</option><option value="needs_review">Needs review</option></select>
+          <SearchableSelect value={severity} onChange={(event) => updateParams({ severity: event.target.value })} aria-label="Filter severity"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warnings</option></SearchableSelect>
+          <SearchableSelect value={status} onChange={(event) => updateParams({ status: event.target.value })} aria-label="Filter issue status"><option value="all">All unresolved</option><option value="open">Open issues</option><option value="needs_review">Needs review</option></SearchableSelect>
           <Button variant="ghost" size="sm" onClick={() => setDensity((current) => current === "comfortable" ? "compact" : "comfortable")} aria-label={`Switch to ${density === "comfortable" ? "compact" : "comfortable"} queue`}><>{density === "comfortable" ? <Rows3 className="h-4 w-4" aria-hidden="true" /> : <LayoutList className="h-4 w-4" aria-hidden="true" />}</></Button>
         </section>
         {queue.loading ? <LoadingSkeleton type="table" lines={6} /> : queue.error ? <p className="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-800">Could not load Schedule Impact: {queue.error.message}</p> : <ImpactWorkQueue items={groupedItems} density={density} selectedID={focusedID} onOpen={(issue) => { setFocusedID(issue.id); setShortcutAction(null); setSelected(issue); }} />}

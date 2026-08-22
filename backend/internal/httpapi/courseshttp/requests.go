@@ -30,18 +30,19 @@ type teacherAssignmentRequest struct {
 // are optional on both verbs: absent/null leaves the current value untouched,
 // so the detail page can patch a single property per request.
 type updateCourseRequest struct {
-	ExpectedVersion int32                       `json:"expected_version"`
-	Code            string                      `json:"code"`
-	Name            string                      `json:"name"`
-	LegacyCourseID  *string                     `json:"legacy_course_id"`
-	Teachers        *[]teacherAssignmentRequest `json:"teachers"`
-	Year            *int16                      `json:"year"`
-	SubjectID       *string                     `json:"subject_id"`
-	Hour            *int32                      `json:"hour"`
-	StudentCount    *int32                      `json:"student_count"`
-	CourseType      *string                     `json:"course_type"`
-	CycleID         json.RawMessage             `json:"cycle_id"`
-	ExpiryDays      json.RawMessage             `json:"expiry_days"`
+	ExpectedVersion    int32                       `json:"expected_version"`
+	Code               string                      `json:"code"`
+	Name               string                      `json:"name"`
+	LegacyCourseID     *string                     `json:"legacy_course_id"`
+	Teachers           *[]teacherAssignmentRequest `json:"teachers"`
+	Year               *int16                      `json:"year"`
+	SubjectID          *string                     `json:"subject_id"`
+	Hour               *int32                      `json:"hour"`
+	StudentCount       *int32                      `json:"student_count"`
+	CourseType         *string                     `json:"course_type"`
+	CycleID            json.RawMessage             `json:"cycle_id"`
+	ExpiryDays         json.RawMessage             `json:"expiry_days"`
+	AbsenceFormVisible *bool                       `json:"absence_form_visible"`
 }
 
 type lifecycleRequest struct {
@@ -112,6 +113,7 @@ func applyOptionalCourseMetadata(a httpadapter.Adapter, body updateCourseRequest
 	command.Hour = body.Hour
 	command.StudentCount = body.StudentCount
 	command.CourseType = body.CourseType
+	command.AbsenceFormVisible = body.AbsenceFormVisible
 	if body.SubjectID != nil {
 		sid, err := a.ParseUUID(*body.SubjectID)
 		if err != nil {

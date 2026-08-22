@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import ConfirmModal from "../components/ConfirmModal";
+import Modal from "../components/Modal";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
+import Input from "../components/ui/Input";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import PageHeading from "../components/ui/PageHeading";
 import { useToast } from "../hooks/useToast";
 import {
-  getCourseGroup,
-  getCourseGroupSessions,
-  getInstituteTimeMeta,
-  getRooms,
-  type CourseGroupSessions,
+	deleteCourseGroup,
+	getCourseGroup,
+	getCourseGroupSessions,
+	getInstituteTimeMeta,
+	getRooms,
+	updateCourseGroup,
+	type CourseGroupSessions,
 } from "../features/courses/api/courseApi";
 import type { CourseGroup } from "../features/courses/types";
 import { fmtDuration, minutesBetween } from "../features/scheduling/domain/time";
@@ -33,14 +38,62 @@ function displayTime(value: string, zone: string): string {
 
 export default function CourseGroupDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { addToast } = useToast();
   const [group, setGroup] = useState<CourseGroup | null>(null);
   const [sessions, setSessions] = useState<CourseGroupSessions[]>([]);
   const [rooms, setRooms] = useState<{ id: string; name: string }[]>([]);
   const [zone, setZone] = useState(DEFAULT_TIME_ZONE);
   const [loading, setLoading] = useState(true);
+  const [editNameOpen, setEditNameOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [unmergeOpen, setUnmergeOpen] = useState(false);
+  const [unmerging, setUnmerging] = useState(false);
 
   const roomByID = useMemo(() => new Map(rooms.map((room) => [room.id, room.name])), [rooms]);
+
+  function openEditName() {
+    if (!group) return;
+    setEditName(group.name);
+    setEditNameOpen(true);
+  }
+
+  async function handleNameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!id || !group || savingName) return;
+    const name = editName.trim();
+    if (!name) {
+      addToast("error", "A merged course name is required.");
+      return;
+    }
+    setSavingName(true);
+    try {
+      const updated = await updateCourseGroup(id, { name });
+      setGroup((current) => current ? { ...current, name: updated.name } : current);
+      setEditNameOpen(false);
+      addToast("success", "Merged course name updated");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Unable to update merged course name");
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function handleUnmerge() {
+    if (!id || !group || unmerging) return;
+    setUnmerging(true);
+    try {
+      await deleteCourseGroup(id);
+      addToast("success", `"${group.name}" was unmerged`);
+      navigate("/courses");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Unable to unmerge course");
+    } finally {
+      setUnmerging(false);
+      setUnmergeOpen(false);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -94,7 +147,11 @@ export default function CourseGroupDetail() {
           <PageHeading className="mb-0">{group.name}</PageHeading>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-wi-text-light)]">One schedule view for both source courses. Attendance, absence rules, legacy sync, students, and source-course edits remain attached to their original course.</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>Refresh</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={openEditName}>Edit name</Button>
+          <Button variant="danger" size="sm" onClick={() => setUnmergeOpen(true)}>Unmerge course</Button>
+          <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>Refresh</Button>
+        </div>
       </div>
 
       <section aria-labelledby="source-courses-heading">
@@ -177,6 +234,44 @@ export default function CourseGroupDetail() {
           {sessions.length === 0 ? <EmptyState message="No sessions have been scheduled on either source course." /> : null}
         </div>
       </section>
+
+      {editNameOpen ? (
+        <Modal
+          title="Edit merged course"
+          onClose={() => setEditNameOpen(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setEditNameOpen(false)} disabled={savingName}>Cancel</Button>
+              <Button variant="primary" type="submit" form="edit-merged-course-form" loading={savingName}>Save changes</Button>
+            </>
+          }
+        >
+          <form id="edit-merged-course-form" className="space-y-4" onSubmit={(event) => void handleNameSubmit(event)}>
+            <div>
+              <label htmlFor="merged-course-name" className="mb-1 block text-sm font-medium text-[var(--color-wi-text)]">Merged course name</label>
+              <Input
+                id="merged-course-name"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                autoFocus
+                required
+              />
+              <p className="mt-2 text-xs leading-5 text-[var(--color-wi-text-light)]">This changes the merged view name only. Source course names, sessions, teachers, students, and absence rules stay attached to their original courses.</p>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      <ConfirmModal
+        open={unmergeOpen}
+        title="Unmerge course?"
+        message={`Remove "${group.name}" as a merged view? The source courses, sessions, teachers, students, and existing absence records will remain unchanged. New absence requests will use each source course's separate absence quota again.`}
+        confirmLabel="Unmerge course"
+        variant="danger"
+        loading={unmerging}
+        onConfirm={() => void handleUnmerge()}
+        onCancel={() => setUnmergeOpen(false)}
+      />
     </div>
   );
 }

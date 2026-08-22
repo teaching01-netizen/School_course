@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import type { AssignmentSummary, AssignmentListResponse } from "../../types/crossStudy";
 import { apiJson } from "../../api/client";
 
@@ -113,7 +114,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
           <label htmlFor="cross-study-status-filter" className="block text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider mb-1">
             Filter
           </label>
-          <select
+          <SearchableSelect
             id="cross-study-status-filter"
             value={statusFilter}
             onChange={(e) => {
@@ -125,7 +126,7 @@ export default function CrossStudyAssignmentList({ refreshKey, onSelectWCode, on
             {statusOptions.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </select>
+          </SearchableSelect>
         </div>
         <div className="flex-1">
           <label htmlFor="cross-study-search" className="block text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wider mb-1">

@@ -286,7 +286,7 @@ describe("Absence inbox", () => {
     });
   });
 
-  it("keeps a row pending until the review request resolves", async () => {
+  it("flips a row to reviewed optimistically while the review request is in flight", async () => {
     const review = deferred<{ status: string; version: number }>();
     const initialPage = freshPage();
     const updatedPage = freshPage();
@@ -310,8 +310,9 @@ describe("Absence inbox", () => {
 
     await user.click(screen.getByRole("button", { name: /mark reviewed/i }));
 
-    expect(statusCell).toHaveTextContent("Pending");
-    expect(statusCell).not.toHaveTextContent("Reviewed");
+    await waitFor(() => {
+      expect(statusCell).toHaveTextContent("Reviewed");
+    });
 
     await act(async () => {
       review.resolve({ status: "reviewed", version: 2 });
@@ -322,7 +323,7 @@ describe("Absence inbox", () => {
     });
   });
 
-  it("keeps selected rows pending until the bulk review request resolves", async () => {
+  it("flips selected rows to reviewed optimistically while the bulk request is in flight", async () => {
     const review = deferred<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>();
     const initialPage = freshPage();
     const updatedPage = freshPage();
@@ -348,8 +349,9 @@ describe("Absence inbox", () => {
     const batchBar = screen.getByText("1 selected").parentElement!;
     await user.click(within(batchBar).getByRole("button", { name: /mark reviewed/i }));
 
-    expect(statusCell).toHaveTextContent("Pending");
-    expect(statusCell).not.toHaveTextContent("Reviewed");
+    await waitFor(() => {
+      expect(statusCell).toHaveTextContent("Reviewed");
+    });
 
     await act(async () => {
       review.resolve({ succeeded: ["abs-1"], failed: [], total_processed: 1 });
@@ -889,6 +891,7 @@ describe("Absence inbox", () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce(updatedPage)
       .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Special SMS preview" } });
     renderPage();
     const user = userEvent.setup();
@@ -932,6 +935,7 @@ describe("Absence inbox", () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
+      .mockResolvedValueOnce(updatedPage)
       .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
       .mockResolvedValueOnce({ sent: true, sms_sent: true, email_sent: true, recipient_count: 1 });
     renderPage();
@@ -970,8 +974,8 @@ describe("Absence inbox", () => {
     mockApiJson
       .mockResolvedValueOnce(PAGE)
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
-      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
-      .mockResolvedValueOnce(updatedPage);
+      .mockResolvedValueOnce(updatedPage)
+      .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } });
     renderPage();
     const user = userEvent.setup();
 

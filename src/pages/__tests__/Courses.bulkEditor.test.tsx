@@ -89,11 +89,9 @@ describe("Courses bulk editor", () => {
 
   it("shows teacher filter dropdown populated from API", async () => {
     renderCourses();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Teacher filter")).toBeTruthy();
-    });
-    const select = screen.getByLabelText("Teacher filter") as HTMLSelectElement;
-    expect(select.options.length).toBe(5); // All + No teacher + 3 teachers
+    const select = await screen.findByLabelText("Teacher filter") as HTMLSelectElement;
+    // Teacher options arrive via an async reference query; wait for them.
+    await waitFor(() => expect(select.options.length).toBe(5));
     expect(select.options[0].text).toBe("All teachers");
     expect(select.options[1].text).toBe("No teacher");
     expect(select.options[2].text).toBe("Alice");
@@ -103,10 +101,10 @@ describe("Courses bulk editor", () => {
 
   it("filters courses by selected teacher", async () => {
     renderCourses();
+    const select = await screen.findByLabelText("Teacher filter") as HTMLSelectElement;
     await waitFor(() => {
-      expect(screen.getByLabelText("Teacher filter")).toBeTruthy();
+      expect(Array.from(select.options).some((option) => option.value === "t1")).toBeTruthy();
     });
-    const select = screen.getByLabelText("Teacher filter");
     await userEvent.selectOptions(select, "t1");
     await waitFor(() => {
       expect(screen.getByText("MATH-101")).toBeTruthy();

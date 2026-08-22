@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { AlertCircle, Bell, CheckCircle2, RefreshCw } from "lucide-react";
 import SlideOver from "../SlideOver";
 import Button from "../ui/Button";
@@ -216,7 +217,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
             {requiresReason ? (
               <div className="mt-3">
                 <label htmlFor="reason-select" className="block text-sm font-medium text-blue-950">Reason</label>
-                <select
+                <SearchableSelect
                   id="reason-select"
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
@@ -230,7 +231,7 @@ export default function IssueResolutionPanel({ issue, initialAction = null, onCl
                   <option value="Schedule data is incorrect">Schedule data is incorrect</option>
                   <option value="No action required">No action required</option>
                   <option value="Needs owner review">Needs owner review</option>
-                </select>
+                </SearchableSelect>
                 {requiresReason && !reason.trim() ? (
                   <p id="reason-error" className="mt-1 text-xs text-red-700" role="alert">A reason is required for this action.</p>
                 ) : null}

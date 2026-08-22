@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import {
@@ -84,9 +85,15 @@ function MultiSelect<T extends string>({
   onChange: (v: T[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const safeSelected = selected ?? [];
   const safeOptions = options ?? [];
+  const filteredOptions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return safeOptions;
+    return safeOptions.filter((option) => option.toLowerCase().includes(needle));
+  }, [query, safeOptions]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -109,17 +116,29 @@ function MultiSelect<T extends string>({
       <label className="block text-[11px] text-[var(--color-wi-text-light)] mb-0.5">{label}</label>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setQuery("");
+          setOpen(!open);
+        }}
         className="w-full text-left px-2 py-1 text-xs border border-wi-line rounded-sm bg-white hover:bg-[var(--color-wi-row-alt)]"
       >
         {safeSelected.length === 0 ? "Any" : `${safeSelected.length} selected`}
       </button>
       {open && (
-        <div className="absolute z-10 mt-1 w-56 max-h-48 overflow-y-auto border border-wi-line rounded-sm bg-white shadow">
+        <div className="animate-notion-popover-in absolute z-10 mt-1 w-64 rounded-md border border-wi-line bg-white p-2 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]">
+          <input
+            role="combobox"
+            aria-label={`Search ${label}`}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${label.toLowerCase()}…`}
+            className="mb-1.5 h-8 w-full rounded-sm border border-wi-line px-2.5 text-xs placeholder:text-[var(--color-wi-faint)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+          />
           {safeOptions.length === 0 && (
             <div className="px-2 py-1 text-xs text-[var(--color-wi-text-light)] italic">No options (upload CRM data first)</div>
           )}
-          {safeOptions.map((opt) => (
+          {safeOptions.length > 0 && filteredOptions.length === 0 ? <div className="px-2 py-3 text-center text-xs text-[var(--color-wi-text-light)]">No matches found</div> : null}
+          {filteredOptions.map((opt) => (
             <label
               key={opt}
               className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-[var(--color-wi-row-alt)] cursor-pointer"
@@ -151,7 +170,7 @@ function BlankModeSelect({
   return (
     <div>
       <label className="block text-[11px] text-[var(--color-wi-text-light)] mb-0.5">{label} blank</label>
-      <select
+      <SearchableSelect
         value={value}
         onChange={(e) => onChange(e.target.value as "any" | "only_blank" | "only_value")}
         className="w-full px-2 py-1 text-xs border border-wi-line rounded-sm bg-white"
@@ -159,7 +178,7 @@ function BlankModeSelect({
         <option value="any">Any</option>
         <option value="only_blank">Blank only</option>
         <option value="only_value">Non-blank only</option>
-      </select>
+      </SearchableSelect>
     </div>
   );
 }

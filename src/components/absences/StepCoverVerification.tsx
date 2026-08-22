@@ -64,6 +64,7 @@ export default function StepCoverVerification({
   const [lastSentAt, setLastSentAt] = useState<number | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [validationAttempt, setValidationAttempt] = useState(0);
+  const [enrollPhone, setEnrollPhone] = useState("");
   const autoVerifyCodeRef = useRef<string | null>(null);
 
   const verified = completed || session?.status === "verified" || session?.status === "consumed";
@@ -73,6 +74,10 @@ export default function StepCoverVerification({
     || deliveryStatus === "submitting"
     || deliveryStatus === "retryable";
   const deliveryAccepted = deliveryStatus === "accepted" || (!deliveryStatus && lastSentAt !== null);
+  // The number lives in React state only: it is sent once to start the OTP
+  // and never written to local storage.
+  const enrollPhoneDigits = enrollPhone.replace(/\D/g, "");
+  const enrollPhoneValid = enrollPhoneDigits.length >= 9 && enrollPhoneDigits.length <= 12;
 
   useEffect(() => {
     if (!verification.token || !wcode) {
@@ -179,7 +184,10 @@ export default function StepCoverVerification({
   }, [verification.code, verification.token, verified, isSending, isVerifying, online]);
 
   async function handleSend(startNewSession = false) {
-    if (!online || !smsParentEnabled || !lookupToken || !verificationAvailable) return;
+    // With no phone on file, sending is only possible through enrollment.
+    const enrolling = !verificationAvailable;
+    if (!online || !smsParentEnabled || !lookupToken) return;
+    if (enrolling && !enrollPhoneValid) return;
     if (startNewSession) {
       clearStudentSessionHint();
       onRestart();
@@ -190,13 +198,14 @@ export default function StepCoverVerification({
     setVerifyError(null);
     setVerifyRetryable(false);
     try {
+      const startingNewSession = startNewSession || !verification.token;
+      // A family with no phone on file enrolls theirs here; the OTP proves
+      // the number is reachable before the server persists it.
+      const newSessionBody: Record<string, string> = { lookup_token: lookupToken };
+      if (enrolling && enrollPhone.trim()) newSessionBody.parent_phone = enrollPhone.trim();
       const response = await apiJson<ParentVerificationResponse>("/api/v1/absences/parent-verification/send", {
         method: "POST",
-        body: JSON.stringify(
-          startNewSession || !verification.token
-            ? { lookup_token: lookupToken }
-            : { token: verification.token },
-        ),
+        body: JSON.stringify(startingNewSession ? newSessionBody : { token: verification.token }),
       });
       setSession(response);
       verification.persistToken(response.token, response.expires_at ? Date.parse(response.expires_at) : null);
@@ -241,7 +250,12 @@ export default function StepCoverVerification({
     }
   }
   const parentMissing = !verificationAvailable;
-  const canSend = online && smsParentEnabled && !isSending && !isVerifying && !parentMissing && !verified;
+  const canSend = online
+    && smsParentEnabled
+    && !isSending
+    && !isVerifying
+    && !verified
+    && (!parentMissing || enrollPhoneValid);
 
   if (verified) {
     return (
@@ -271,11 +285,6 @@ export default function StepCoverVerification({
       {!smsParentEnabled ? (
         <p role="alert" className="text-xs text-amber-600">
           Parent verification codes are currently unavailable.
-          Contact admin before continuing.
-        </p>
-      ) : parentMissing ? (
-        <p role="alert" className="text-xs text-amber-600">
-          Your parent's phone number is not in our records.
           Contact admin before continuing.
         </p>
       ) : null}
@@ -317,13 +326,36 @@ export default function StepCoverVerification({
         </p>
       ) : null}
 
+      {smsParentEnabled && parentMissing && !verified ? (
+        <div className="space-y-1.5">
+          <label htmlFor="parent-phone-input" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
+            Parent's phone number <span className="text-[var(--color-wi-red)]">*</span>
+          </label>
+          <input
+            id="parent-phone-input"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+            placeholder="e.g. 0812345678"
+            value={enrollPhone}
+            onChange={(e) => setEnrollPhone(e.target.value)}
+          />
+          <p className="text-xs text-[var(--color-wi-text-light)]">
+            No parent phone is on file. We'll text a one-time code to this number to verify it, then save it for future absence confirmations.
+          </p>
+          {!enrollPhoneValid && enrollPhone.trim() ? (
+            <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {smsParentEnabled ? (
         <SmsSendButton
           isSending={isSending || deliveryPending}
           sendCount={sendCount}
           disabled={!canSend}
           onClick={() => void handleSend()}
-          parentPhoneMissing={parentMissing}
         />
       ) : null}
 
@@ -358,7 +390,8 @@ export default function StepCoverVerification({
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          Code sent to {parentPhone ? `${parentPhone.replace(/\D/g, "").slice(0, 3)} *** ${parentPhone.replace(/\D/g, "").slice(-3)}` : "parent"}
+          {/* parent_phone arrives pre-masked from the server (e.g. ••••5678) */}
+          Code sent to {session?.parent_phone || "parent"}
         </motion.p>
       )}
 

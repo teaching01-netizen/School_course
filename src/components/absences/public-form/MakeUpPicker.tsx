@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { ChevronRight } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
 
@@ -20,13 +21,14 @@ type MakeUpPickerProps = {
 export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false }: MakeUpPickerProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [pendingValue, setPendingValue] = useState(value);
+  const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedOption = options.find((option) => option.value === value);
 
   return (
     <div className="space-y-2">
       <label htmlFor={id} className="block text-xs font-semibold text-[var(--color-wi-text-light)]">{label}</label>
-      <select
+      <SearchableSelect
         id={id}
         name={id}
         value={value}
@@ -38,7 +40,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         {options.map((option) => (
           <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
         ))}
-      </select>
+      </SearchableSelect>
 
       <button
         data-make-up-trigger="true"
@@ -49,6 +51,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         aria-expanded={sheetOpen}
         onClick={() => {
           setPendingValue(value);
+          setQuery("");
           setSheetOpen(true);
         }}
         className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
@@ -63,9 +66,16 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         onClose={() => setSheetOpen(false)}
         restoreFocusRef={triggerRef}
       >
+        <input
+          aria-label={`Search ${label.toLowerCase()}`}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search classes…"
+          className="mb-3 h-11 w-full rounded-xl border border-[var(--color-wi-border)] px-4 text-base placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+        />
         <fieldset className="space-y-2">
           <legend className="sr-only">{label}</legend>
-          {options.map((option) => (
+          {options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase())).map((option) => (
             <label key={option.value} className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
               <input
                 type="radio"

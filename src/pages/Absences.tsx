@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, TriangleAlert, UserPlus } from "lucide-react";
 import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
@@ -17,8 +18,24 @@ import StaffCreateAbsenceModal from "../components/absences/StaffCreateAbsenceMo
 import SmsConfirmModal from "../components/absences/SmsConfirmModal";
 import { queryKeys } from "../query/cache";
 import { useOperationalQuery } from "../query/useOperationalQuery";
+import { mapPageItems, useSmartMutation } from "../query/useSmartMutation";
 
 const PAGE_SIZE = 25;
+
+type BatchStatusResult = { succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number };
+
+/** Flip an absence's status in every cached list variant; bumping version
+ *  keeps rapid successive actions compatible with the server's
+ *  optimistic-concurrency check (rollback restores the true version). */
+function patchAbsenceStatus(data: unknown, id: string, status: AbsenceStatus): unknown {
+  return mapPageItems<AbsencePage, ManagedAbsence>(data, (item) =>
+    item.id === id ? { ...item, status, version: item.version + 1 } : item,
+  );
+}
+
+function removeAbsence(data: unknown, id: string): unknown {
+  return mapPageItems<AbsencePage, ManagedAbsence>(data, (item) => (item.id === id ? null : item));
+}
 const inboxDateTimeFormatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const inboxTimeFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 type AbsenceBucket = "active" | "archived";
@@ -272,6 +289,55 @@ export default function Absences() {
     setSelected(new Set());
   }, [refetchAbsences]);
 
+  const statusMutation = useSmartMutation<
+    { id: string; status: AbsenceStatus; expectedVersion: number; reason?: string },
+    unknown
+  >({
+    mutationFn: ({ id, status, expectedVersion, reason }) =>
+      apiJson(`/api/v1/absences/${id}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status, expected_version: expectedVersion, ...(reason ? { reason } : {}) }),
+      }),
+    optimistic: (vars) => [
+      { keyPrefix: queryKeys.absences.all, patch: (data) => patchAbsenceStatus(data, vars.id, vars.status) },
+    ],
+    invalidates: [queryKeys.absences.all, queryKeys.absenceStats],
+  });
+
+  const batchStatusMutation = useSmartMutation<
+    { ids: string[]; status: AbsenceStatus; expectedVersions: Record<string, number>; reason?: string },
+    BatchStatusResult
+  >({
+    mutationFn: ({ ids, status, expectedVersions, reason }) =>
+      apiJson<BatchStatusResult>("/api/v1/absences/batch-status", {
+        method: "POST",
+        body: JSON.stringify({
+          ids,
+          status,
+          ...(reason ? { reason } : {}),
+          expected_versions: expectedVersions,
+        }),
+      }),
+    optimistic: (vars) => [
+      {
+        keyPrefix: queryKeys.absences.all,
+        patch: (data) =>
+          vars.ids.reduce(
+            (acc, id) => patchAbsenceStatus(acc, id, vars.status),
+            data,
+          ),
+      },
+    ],
+    invalidates: [queryKeys.absences.all, queryKeys.absenceStats],
+  });
+
+  const deleteMutation = useSmartMutation<{ id: string; expectedVersion: number }, unknown>({
+    mutationFn: ({ id, expectedVersion }) =>
+      apiJson(`/api/v1/absences/${id}`, { method: "DELETE", body: JSON.stringify({ expected_version: expectedVersion }) }),
+    optimistic: (vars) => [{ keyPrefix: queryKeys.absences.all, patch: (data) => removeAbsence(data, vars.id) }],
+    invalidates: [queryKeys.absences.all, queryKeys.absenceStats],
+  });
+
   useEffect(() => {
     setSelected(new Set());
   }, [requestQuery]);
@@ -311,15 +377,16 @@ export default function Absences() {
     setSearchParams(params);
   }
 
-  async function setStatus(absence: ManagedAbsence, status: AbsenceStatus, reason?: string, reload = true) {
+  async function setStatus(absence: ManagedAbsence, status: AbsenceStatus, reason?: string) {
     setReviewing(absence.id);
     try {
-      await apiJson(`/api/v1/absences/${absence.id}/status`, {
-        method: "PUT",
-        body: JSON.stringify({ status, expected_version: absence.version, ...(reason ? { reason } : {}) }),
-      });
+      await statusMutation.mutateAsync({ id: absence.id, status, expectedVersion: absence.version, reason });
       addToast("success", status === "reviewed" ? "Absence marked reviewed" : "Absence updated");
-      if (reload) await load();
+      setSelected((current) => {
+        const next = new Set(current);
+        next.delete(absence.id);
+        return next;
+      });
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Update failed");
     } finally {
@@ -331,23 +398,17 @@ export default function Absences() {
     if (cancelTargets.length === 0) return;
     setCancelling(true);
     setBatchFailed([]);
+    const expectedVersions: Record<string, number> = {};
+    for (const target of cancelTargets) {
+      expectedVersions[target.id] = target.version;
+    }
     try {
-      const expectedVersions: Record<string, number> = {};
-      for (const target of cancelTargets) {
-        expectedVersions[target.id] = target.version;
-      }
-      const result = await apiJson<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>(
-        "/api/v1/absences/batch-status",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ids: cancelTargets.map((t) => t.id),
-            status: "cancelled",
-            reason: JSON.stringify({ category: cancelReasonCategory, detail: cancelReasonDetail }),
-            expected_versions: expectedVersions,
-          }),
-        }
-      );
+      const result = await batchStatusMutation.mutateAsync({
+        ids: cancelTargets.map((t) => t.id),
+        status: "cancelled",
+        reason: JSON.stringify({ category: cancelReasonCategory, detail: cancelReasonDetail }),
+        expectedVersions,
+      });
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} cancelled, ${result.failed.length} failed`);
         setBatchFailed(result.failed);
@@ -355,7 +416,11 @@ export default function Absences() {
         addToast("success", `${result.succeeded.length} absences cancelled`);
         setBatchFailed([]);
       }
-      await load();
+      setSelected((current) => {
+        const next = new Set(current);
+        for (const target of cancelTargets) next.delete(target.id);
+        return next;
+      });
       setCancelTargets([]);
       setCancelReasonCategory("");
       setCancelReasonDetail("");
@@ -364,7 +429,6 @@ export default function Absences() {
         ? "One or more absences were changed by another user. Reload and try again."
         : err instanceof Error ? err.message : "Batch cancel failed";
       addToast("error", msg);
-      await load();
     } finally {
       setCancelling(false);
     }
@@ -374,10 +438,14 @@ export default function Absences() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiJson(`/api/v1/absences/${deleteTarget.id}`, { method: "DELETE", body: JSON.stringify({ expected_version: deleteTarget.version }) });
+      await deleteMutation.mutateAsync({ id: deleteTarget.id, expectedVersion: deleteTarget.version });
       addToast("success", "Absence permanently deleted");
+      setSelected((current) => {
+        const next = new Set(current);
+        next.delete(deleteTarget.id);
+        return next;
+      });
       setDeleteTarget(null);
-      await load();
     } catch (err) {
       const msg = err instanceof ApiRequestError && err.code === "stale_edit"
         ? "Absence was changed by another user. Reload and try again."
@@ -392,9 +460,10 @@ export default function Absences() {
     if (!specialApprovedTarget) return;
     setSpecialApproving(true);
     try {
-      await apiJson(`/api/v1/absences/${specialApprovedTarget.id}/status`, {
-        method: "PUT",
-        body: JSON.stringify({ status: "special_approved", expected_version: specialApprovedTarget.version }),
+      await statusMutation.mutateAsync({
+        id: specialApprovedTarget.id,
+        status: "special_approved",
+        expectedVersion: specialApprovedTarget.version,
       });
       addToast("success", "Absence marked as special approved");
       setSpecialApprovedCreatedIds([specialApprovedTarget.id]);
@@ -429,7 +498,6 @@ export default function Absences() {
       }
 
       setSpecialApprovedTarget(null);
-      await load();
     } catch (err) {
       const msg = err instanceof ApiRequestError && err.code === "stale_edit"
         ? "Absence was changed by another user. Reload and try again."
@@ -459,7 +527,6 @@ export default function Absences() {
       }
       setSpecialApprovedSmsPreview(null);
       setSpecialApprovedCreatedIds([]);
-      await load();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Notification send failed");
     } finally {
@@ -472,7 +539,6 @@ export default function Absences() {
     addToast("success", "Absence marked as special approved");
     setSpecialApprovedSmsPreview(null);
     setSpecialApprovedCreatedIds([]);
-    void load();
   }
 
   async function exportCsv() {
@@ -504,22 +570,16 @@ export default function Absences() {
     setBatchProcessing(true);
     setBatchFailed([]);
     setBatchProgress({ done: 0, total: records.length });
+    const expectedVersions: Record<string, number> = {};
+    for (const item of records) {
+      expectedVersions[item.id] = item.version;
+    }
     try {
-      const expectedVersions: Record<string, number> = {};
-      for (const item of records) {
-        expectedVersions[item.id] = item.version;
-      }
-      const result = await apiJson<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>(
-        "/api/v1/absences/batch-status",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ids: records.map((r) => r.id),
-            status: "reviewed",
-            expected_versions: expectedVersions,
-          }),
-        }
-      );
+      const result = await batchStatusMutation.mutateAsync({
+        ids: records.map((r) => r.id),
+        status: "reviewed",
+        expectedVersions,
+      });
       setBatchProgress({ done: result.succeeded.length, total: result.total_processed });
       if (result.failed.length > 0) {
         addToast("error", `${result.succeeded.length} succeeded, ${result.failed.length} failed`);
@@ -528,10 +588,13 @@ export default function Absences() {
         addToast("success", `${result.succeeded.length} absences marked reviewed`);
         setBatchFailed([]);
       }
-      await load();
+      setSelected((current) => {
+        const next = new Set(current);
+        for (const record of records) next.delete(record.id);
+        return next;
+      });
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Batch update failed");
-      await load();
     } finally {
       setBatchProcessing(false);
       setBatchProgress({ done: 0, total: 0 });
@@ -594,10 +657,10 @@ export default function Absences() {
               <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
             </FilterField>
             <FilterField label="Subject">
-              <select className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
+              <SearchableSelect className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
                 <option value="">All subjects</option>
                 {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-              </select>
+              </SearchableSelect>
             </FilterField>
             <FilterField label="From">
               <input className="w-full" aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
@@ -675,7 +738,7 @@ export default function Absences() {
         affectedCount={openImpactCount}
         criticalCount={criticalImpactCount}
         impactOnly={filters.impactOnly}
-        onToggle={() => setScheduleImpactFilter(!filters.impactOnly)}
+        onToggle={() => updateFilter("schedule_impact", filters.impactOnly ? "" : "open")}
       />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-wi-line">
@@ -733,16 +796,16 @@ export default function Absences() {
             <SearchInput value={filters.query} onChange={(value) => updateFilter("query", value)} placeholder="Search W-Code, name or nickname…" />
           </FilterField>
           <FilterField label="Subject">
-            <select className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
+            <SearchableSelect className="w-full" aria-label="Subject" value={filters.subject} onChange={(event) => updateFilter("subject_id", event.target.value)}>
               <option value="">All subjects</option>
               {subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
+            </SearchableSelect>
           </FilterField>
           <FilterField label="Status">
-            <select className="w-full" aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+            <SearchableSelect className="w-full" aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
               <option value="">All statuses</option>
               {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </SearchableSelect>
           </FilterField>
           <FilterField label="From">
             <input className="w-full" aria-label="From date" type="date" value={filters.dateFrom} onChange={(event) => updateFilter("date_from", event.target.value)} />
@@ -915,10 +978,10 @@ export default function Absences() {
         >
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Assigned sit-in sessions will be released. This action is retained in the audit timeline.</p>
           <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-category">Cancellation reason</label>
-          <select id="inbox-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
+          <SearchableSelect id="inbox-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(event) => setCancelReasonCategory(event.target.value)}>
             <option value="">Select a reason...</option>
             {CANCEL_REASON_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
+          </SearchableSelect>
           <label className="mt-3 block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="inbox-cancel-detail">Additional details (optional)</label>
           <textarea id="inbox-cancel-detail" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(event) => setCancelReasonDetail(event.target.value)} />
         </Modal>

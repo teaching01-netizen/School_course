@@ -73,7 +73,8 @@ function pendingVerification(deliveryStatus?: string) {
     token: "verification-token",
     status: "pending",
     wcode: "W250389",
-    parent_phone: "+66812345678",
+    // The server always masks this value before it crosses the wire.
+    parent_phone: "••••5678",
     delivery_id: "delivery-1",
     ...(deliveryStatus ? { delivery_status: deliveryStatus } : {}),
   };
@@ -143,7 +144,7 @@ it("confirms an accepted OTP delivery", async () => {
 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
-  expect(await screen.findByText(/^code sent to 081 \*\*\* 678/i)).toBeInTheDocument();
+  expect(await screen.findByText(/^code sent to ••••5678/i)).toBeInTheDocument();
   expect(screen.queryByText("Sending code…")).not.toBeInTheDocument();
 });
 
@@ -278,73 +279,48 @@ it("does not offer a way to continue without verifying", () => {
 
 it.each([
   {
-    label: "SMS on, phone present, bypass off",
+    label: "SMS on, phone present",
     smsParentEnabled: true,
     parentPhone: "0812345678",
     sendVisible: true,
+    enrollVisible: false,
     bypassVisible: false,
     alertText: null,
   },
   {
-    label: "SMS on, phone present, bypass on",
+    // No phone on file is no longer a dead end: the enrollment input is
+    // offered and the send button appears (disabled until a valid number).
+    label: "SMS on, phone missing offers enrollment",
     smsParentEnabled: true,
-    parentPhone: "0812345678",
+    parentPhone: null,
     sendVisible: true,
+    enrollVisible: true,
     bypassVisible: false,
     alertText: null,
   },
   {
-    label: "SMS on, phone missing, bypass off",
-    smsParentEnabled: true,
-    parentPhone: null,
-    sendVisible: false,
-    bypassVisible: false,
-    alertText: /phone number is not in our records.*contact admin/i,
-  },
-  {
-    label: "SMS on, phone missing, bypass on",
-    smsParentEnabled: true,
-    parentPhone: null,
-    sendVisible: false,
-    bypassVisible: false,
-    alertText: /phone number is not in our records/i,
-  },
-  {
-    label: "SMS off, phone present, bypass off",
+    label: "SMS off, phone present",
     smsParentEnabled: false,
     parentPhone: "0812345678",
     sendVisible: false,
+    enrollVisible: false,
     bypassVisible: false,
     alertText: /verification codes are currently unavailable.*contact admin/i,
   },
   {
-    label: "SMS off, phone present, bypass on",
-    smsParentEnabled: false,
-    parentPhone: "0812345678",
-    sendVisible: false,
-    bypassVisible: false,
-    alertText: /verification codes are currently unavailable/i,
-  },
-  {
-    label: "SMS off, phone missing, bypass off",
+    label: "SMS off, phone missing",
     smsParentEnabled: false,
     parentPhone: null,
     sendVisible: false,
+    enrollVisible: false,
     bypassVisible: false,
     alertText: /verification codes are currently unavailable.*contact admin/i,
-  },
-  {
-    label: "SMS off, phone missing, bypass on",
-    smsParentEnabled: false,
-    parentPhone: null,
-    sendVisible: false,
-    bypassVisible: false,
-    alertText: /verification codes are currently unavailable/i,
   },
 ])("enforces the OTP policy matrix: $label", ({
   smsParentEnabled,
   parentPhone,
   sendVisible,
+  enrollVisible,
   bypassVisible,
   alertText,
 }) => {
@@ -352,8 +328,10 @@ it.each([
 
   const sendButton = screen.queryByRole("button", { name: /^send code$/i });
   const bypassButton = screen.queryByRole("button", { name: /continue without verifying/i });
+  const enrollInput = screen.queryByLabelText(/parent's phone number/i);
   expect(Boolean(sendButton)).toBe(sendVisible);
   expect(Boolean(bypassButton)).toBe(bypassVisible);
+  expect(Boolean(enrollInput)).toBe(enrollVisible);
 
   const alert = screen.queryByRole("alert");
   if (alertText) {
@@ -361,4 +339,38 @@ it.each([
   } else {
     expect(alert).not.toBeInTheDocument();
   }
+});
+
+it("enrolls a client-provided parent phone when none is on file", async () => {
+  mockedApiJson.mockResolvedValueOnce({
+    token: "verification-token",
+    status: "pending",
+    wcode: "W250389",
+    parent_phone: "••••8888",
+    delivery_status: "accepted",
+  });
+  const user = userEvent.setup();
+  renderVerification({ parentPhone: null });
+
+  const input = screen.getByLabelText(/parent's phone number/i);
+  const sendButton = screen.getByRole("button", { name: /^send code$/i });
+  expect(sendButton).toBeDisabled();
+
+  await user.type(input, "08");
+  expect(sendButton).toBeDisabled();
+  await user.type(input, "99998888");
+
+  expect(sendButton).toBeEnabled();
+  await user.click(sendButton);
+
+  await waitFor(() =>
+    expect(mockedApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/parent-verification/send",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ lookup_token: "lookup-token", parent_phone: "0899998888" }),
+      }),
+    ),
+  );
+  expect(await screen.findByText(/^code sent to ••••8888/i)).toBeInTheDocument();
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { useToast } from "../hooks/useToast";
 import type { EmailTemplate, EmailWorkflow } from "../types";
 import * as templateApi from "../api/emailTemplates";
@@ -570,7 +571,7 @@ export default function EmailReminders() {
 
             <div>
               <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Template</label>
-              <select
+              <SearchableSelect
                 value={wfTemplateId}
                 onChange={(e) => setWfTemplateId(e.target.value)}
                 className="w-full rounded-sm border border-wi-line p-2 text-sm"
@@ -579,7 +580,7 @@ export default function EmailReminders() {
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
-              </select>
+              </SearchableSelect>
             </div>
 
             <div>

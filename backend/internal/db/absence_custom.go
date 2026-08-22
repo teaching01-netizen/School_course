@@ -460,24 +460,29 @@ func (q *Queries) CourseLevelUpdateV2(ctx context.Context, courseID pgtype.UUID,
 }
 
 type StudentEnrolledCourseV2 struct {
-	CourseID          pgtype.UUID `json:"course_id"`
-	CourseCode        string      `json:"course_code"`
-	CourseName        string      `json:"course_name"`
-	SubjectID         pgtype.UUID `json:"subject_id"`
-	CycleID           pgtype.Text `json:"cycle_id"`
-	Level             pgtype.Int2 `json:"level"`
-	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
-	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
+	CourseID           pgtype.UUID `json:"course_id"`
+	CourseCode         string      `json:"course_code"`
+	CourseName         string      `json:"course_name"`
+	SubjectID          pgtype.UUID `json:"subject_id"`
+	CycleID            pgtype.Text `json:"cycle_id"`
+	Level              pgtype.Int2 `json:"level"`
+	RootCourseGroupID  pgtype.UUID `json:"root_course_group_id"`
+	SitInRuleID        pgtype.UUID `json:"sit_in_rule_id"`
+	MergeGroupID       pgtype.UUID `json:"merge_group_id"`
+	AbsenceFormVisible bool        `json:"absence_form_visible"`
 }
 
 func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, studentID pgtype.UUID, subjectID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id, c.absence_form_visible
 		FROM course_students cs
 		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 		WHERE cs.student_id = $1 AND c.subject_id = $2 AND cs.status = 'enrolled'
-		ORDER BY c.level ASC NULLS LAST
+		ORDER BY COALESCE(mgg.level, c.level) ASC NULLS LAST
 	`, studentID, subjectID)
 	if err != nil {
 		return nil, err
@@ -487,7 +492,7 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 	var out []StudentEnrolledCourseV2
 	for rows.Next() {
 		var r StudentEnrolledCourseV2
-		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID, &r.AbsenceFormVisible); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -500,14 +505,17 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 
 func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, studentID pgtype.UUID, rootCourseGroupID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id, c.absence_form_visible
 		FROM course_students cs
 		JOIN courses c ON c.id = cs.course_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 		WHERE cs.student_id = $1
 		  AND c.root_course_group_id = $2
 		  AND cs.status = 'enrolled'
-		ORDER BY c.level ASC NULLS LAST
+		ORDER BY COALESCE(mgg.level, c.level) ASC NULLS LAST
 	`, studentID, rootCourseGroupID)
 	if err != nil {
 		return nil, err
@@ -517,7 +525,7 @@ func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, s
 	var out []StudentEnrolledCourseV2
 	for rows.Next() {
 		var r StudentEnrolledCourseV2
-		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.CourseID, &r.CourseCode, &r.CourseName, &r.SubjectID, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID, &r.AbsenceFormVisible); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -539,17 +547,21 @@ type SubjectCourseV2 struct {
 	Level             pgtype.Int2 `json:"level"`
 	RootCourseGroupID pgtype.UUID `json:"root_course_group_id"`
 	SitInRuleID       pgtype.UUID `json:"sit_in_rule_id"`
+	MergeGroupID      pgtype.UUID `json:"merge_group_id"`
 }
 
 func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND c.level IS NOT NULL
-		ORDER BY c.level ASC
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND COALESCE(mgg.level, c.level) IS NOT NULL
+		ORDER BY COALESCE(mgg.level, c.level) ASC
 	`, subjectID, cycleID)
 	if err != nil {
 		return nil, err
@@ -559,7 +571,7 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -573,13 +585,16 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupID pgtype.UUID) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 		WHERE c.root_course_group_id = $1
-		  AND c.level IS NOT NULL
-		ORDER BY c.level ASC
+		  AND COALESCE(mgg.level, c.level) IS NOT NULL
+		ORDER BY COALESCE(mgg.level, c.level) ASC
 	`, rootCourseGroupID)
 	if err != nil {
 		return nil, err
@@ -589,7 +604,7 @@ func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupI
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -606,25 +621,31 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 	if cycleID.Valid {
 		rows, err = q.db.Query(ctx, `
 			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-			       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+			       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 			FROM courses c
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+			LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+			LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 			WHERE c.root_course_group_id = $1
-			  AND c.level IS NOT NULL
+			  AND COALESCE(mgg.level, c.level) IS NOT NULL
 			  AND c.cycle_id = $2
-			ORDER BY c.level ASC
+			ORDER BY COALESCE(mgg.level, c.level) ASC
 		`, rootCourseGroupID, cycleID.String)
 	} else {
 		rows, err = q.db.Query(ctx, `
 			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-			       c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+			       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+			       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 			FROM courses c
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
 			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+			LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+			LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 			WHERE c.root_course_group_id = $1
-			  AND c.level IS NOT NULL
-			ORDER BY c.level ASC
+			  AND COALESCE(mgg.level, c.level) IS NOT NULL
+			ORDER BY COALESCE(mgg.level, c.level) ASC
 		`, rootCourseGroupID)
 	}
 	if err != nil {
@@ -635,7 +656,7 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 	var out []SubjectCourseV2
 	for rows.Next() {
 		var r SubjectCourseV2
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.SubjectID, &r.SubjectCode, &r.SubjectName, &r.CycleID, &r.Level, &r.RootCourseGroupID, &r.SitInRuleID, &r.MergeGroupID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -850,11 +871,139 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 	return counts, err
 }
 
+type AbsenceDayCountsForMergeGroupParams struct {
+	Wcode               string
+	MergeGroupID        pgtype.UUID
+	CandidateSessionIDs []pgtype.UUID
+	DateFrom            pgtype.Date
+	DateTo              pgtype.Date
+	InstituteTZ         string
+}
+
+func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg AbsenceDayCountsForMergeGroupParams) (AbsenceDayCounts, error) {
+	timezone := strings.TrimSpace(arg.InstituteTZ)
+	if timezone == "" {
+		timezone = "Asia/Bangkok"
+	}
+	candidateSessionIDs := arg.CandidateSessionIDs
+	if candidateSessionIDs == nil {
+		candidateSessionIDs = []pgtype.UUID{}
+	}
+
+	var counts AbsenceDayCounts
+	err := q.db.QueryRow(ctx, `
+		WITH merge_courses AS (
+			SELECT course_id
+			FROM course_merge_group_members
+			WHERE group_id = $2
+		), course_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM sessions s
+			JOIN merge_courses mc ON mc.course_id = s.course_id
+			WHERE s.deleted_at IS NULL
+		), scoped_absences AS (
+			SELECT sa.*
+			FROM student_absences sa
+			WHERE lower(sa.wcode) = lower($1)
+			  AND sa.status NOT IN ('cancelled', 'special_approved')
+			  AND (
+					sa.merge_group_id = $2
+					OR (
+						sa.merge_group_id IS NULL
+						AND EXISTS (
+							SELECT 1
+							FROM merge_courses mc
+							WHERE mc.course_id = sa.course_id
+						)
+					)
+			  )
+		), explicit_absence_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM scoped_absences sa
+			JOIN absence_missed_sessions ams ON ams.absence_id = sa.id
+			JOIN sessions s ON s.id = ams.session_id
+			JOIN merge_courses mc ON mc.course_id = s.course_id
+			WHERE s.deleted_at IS NULL
+		), legacy_absence_days AS (
+			SELECT DISTINCT cd.day
+			FROM scoped_absences sa
+			JOIN course_days cd ON cd.day BETWEEN sa.date_from AND sa.date_to
+			WHERE NOT EXISTS (
+				SELECT 1 FROM absence_missed_sessions ams WHERE ams.absence_id = sa.id
+			)
+		), used_days AS (
+			SELECT day FROM explicit_absence_days
+			UNION
+			SELECT day FROM legacy_absence_days
+		), candidate_days AS (
+			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
+			FROM sessions s
+			JOIN merge_courses mc ON mc.course_id = s.course_id
+			WHERE s.deleted_at IS NULL
+			  AND (
+				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
+				OR
+				(cardinality($3::uuid[]) = 0 AND (s.start_at AT TIME ZONE $6)::date BETWEEN $4 AND $5)
+			  )
+		), projected_days AS (
+			SELECT day FROM used_days
+			UNION
+			SELECT day FROM candidate_days
+		)
+		SELECT
+			(SELECT count(*) FROM course_days)::int4,
+			(SELECT count(*) FROM used_days)::int4,
+			(SELECT count(*) FROM candidate_days)::int4,
+			(SELECT count(*) FROM projected_days)::int4
+	`, arg.Wcode, arg.MergeGroupID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone).Scan(
+		&counts.TotalCourseDays,
+		&counts.UsedAbsenceDays,
+		&counts.CandidateAbsenceDays,
+		&counts.ProjectedAbsenceDays,
+	)
+	return counts, err
+}
+
+func (q *Queries) AbsenceSetMergeGroupID(ctx context.Context, absenceID, mergeGroupID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE student_absences
+		SET merge_group_id = $2
+		WHERE id = $1
+	`, absenceID, mergeGroupID)
+	return err
+}
+
 func (q *Queries) StudentSetSystemEmail(ctx context.Context, wcode string, email string) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE students
 		SET email_system = $2, updated_at = now()
 		WHERE wcode = $1
 	`, wcode, email)
+	return err
+}
+
+// StudentSetParentPhoneIfEmpty fills a student's parent phone only when no
+// phone exists, so a client-enrolled number (proven reachable via OTP) can
+// never overwrite staff-managed data. The guard also makes the write
+// idempotent under replayed verifications.
+func (q *Queries) StudentSetParentPhoneIfEmpty(ctx context.Context, wcode string, phone string) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE students
+		SET parent_phone = $2, updated_at = now()
+		WHERE lower(wcode) = lower($1)
+		  AND NULLIF(btrim(parent_phone), '') IS NULL
+	`, wcode, phone)
+	return err
+}
+
+// StudentSetNicknameIfEmpty fills a student's nickname only when none exists,
+// mirroring the fill-only-empty policy of the public form's email handling.
+func (q *Queries) StudentSetNicknameIfEmpty(ctx context.Context, wcode string, nickname string) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE students
+		SET nickname = $2, updated_at = now()
+		WHERE lower(wcode) = lower($1)
+		  AND NULLIF(btrim(nickname), '') IS NULL
+	`, wcode, nickname)
 	return err
 }

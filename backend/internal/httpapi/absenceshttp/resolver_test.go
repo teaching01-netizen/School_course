@@ -61,6 +61,31 @@ func TestRootGroupWindowWeeks_ReturnsZeroOnBadJSON(t *testing.T) {
 	}
 }
 
+func TestMergeGroupWindowWeeks_OverridesRootScope(t *testing.T) {
+	raw := mustMarshalJSON(map[string]any{
+		"root_course_groups": map[string]any{
+			"g0000000-0000-0000-0000-000000000001": map[string]any{"sit_in_window_weeks": 5},
+		},
+		"merge_groups": map[string]any{
+			"m0000000-0000-0000-0000-000000000001": map[string]any{"sit_in_window_weeks": 2},
+		},
+	})
+	if got := subjectWindowWeeksWithMerge(raw, "subject", "g0000000-0000-0000-0000-000000000001", "m0000000-0000-0000-0000-000000000001"); got != 2 {
+		t.Fatalf("expected merged scope window 2, got %d", got)
+	}
+}
+
+func TestMergeGroupWindowWeeks_FallsBackToRootScope(t *testing.T) {
+	raw := mustMarshalJSON(map[string]any{
+		"root_course_groups": map[string]any{
+			"g0000000-0000-0000-0000-000000000001": map[string]any{"sit_in_window_weeks": 5},
+		},
+	})
+	if got := subjectWindowWeeksWithMerge(raw, "subject", "g0000000-0000-0000-0000-000000000001", "m0000000-0000-0000-0000-000000000001"); got != 5 {
+		t.Fatalf("expected root scope fallback 5, got %d", got)
+	}
+}
+
 func mustMarshalJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

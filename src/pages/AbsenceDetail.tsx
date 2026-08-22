@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle, Clock, RotateCcw, XCircle, PenLine } from "lucide-react";
 import { apiJson } from "../api/client";
@@ -392,14 +393,14 @@ export default function AbsenceDetail() {
           footer={<><Button variant="secondary" onClick={() => setCancelOpen(false)}>Back</Button><Button variant="danger" disabled={!cancelReasonCategory} loading={saving} onClick={() => void updateStatus("cancelled", JSON.stringify({ category: cancelReasonCategory, detail: cancelReasonDetail })).then(() => setCancelOpen(false))}>Cancel Absence</Button></>}>
           <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">This action is retained in the audit timeline.</p>
           <label className="block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="detail-cancel-category">Cancellation reason</label>
-          <select id="detail-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(e) => setCancelReasonCategory(e.target.value)}>
+          <SearchableSelect id="detail-cancel-category" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" value={cancelReasonCategory} onChange={(e) => setCancelReasonCategory(e.target.value)}>
             <option value="">Select a reason...</option>
             <option value="duplicate">Duplicate submission</option>
             <option value="student_requested">Student requested cancellation</option>
             <option value="admin_error">Admin error</option>
             <option value="incorrect_dates">Incorrect dates</option>
             <option value="other">Other</option>
-          </select>
+          </SearchableSelect>
           <label className="mt-3 block text-sm font-medium text-[var(--color-wi-text-light)]" htmlFor="detail-cancel-detail">Additional details (optional)</label>
           <textarea id="detail-cancel-detail" className="mt-1 w-full rounded-sm border border-wi-line p-2 text-sm" rows={3} value={cancelReasonDetail} onChange={(e) => setCancelReasonDetail(e.target.value)} />
         </Modal>

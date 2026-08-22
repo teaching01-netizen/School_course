@@ -197,7 +197,7 @@ export default function RoomAssignDropdown({
       {open && (
         <div
           ref={panelRef}
-          className={`absolute right-0 z-20 w-max min-w-64 max-w-[28rem] rounded-sm border border-wi-line bg-white shadow-lg ${
+          className={`animate-notion-popover-in absolute right-0 z-20 w-max min-w-64 max-w-[28rem] rounded-md border border-wi-line bg-white shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)] motion-reduce:animate-none ${
             placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5"
           }`}
         >

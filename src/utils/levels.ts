@@ -14,6 +14,17 @@ export type CourseLevelItem = {
   root_course_group_name: string | null;
 };
 
+export type CourseMergeGroupConfig = {
+  id: string;
+  name: string;
+  level: number | null;
+  cycle_id: string | null;
+  cycle_label: string | null;
+  sit_in_rule_id: string | null;
+  course_codes: string[];
+  course_names: string[];
+};
+
 export type SubjectPolicy = {
   auto_sit_in_enabled: boolean;
   sit_in_window_weeks?: number;
@@ -22,6 +33,7 @@ export type SubjectPolicy = {
 export type PolicyResponse = {
   absence_policies: {
     root_course_groups: Record<string, SubjectPolicy>;
+    merge_groups?: Record<string, SubjectPolicy>;
   };
 };
 

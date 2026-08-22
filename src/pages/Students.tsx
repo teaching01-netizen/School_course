@@ -54,7 +54,7 @@ export default function Students() {
   }, [offset, searchQuery]);
 
   const { data: page, loading, error, refetch } = useApiQuery<StudentPage>(apiUrl);
-  const { mutate: createStudent, loading: creating, error: createError } = useApiMutation<StudentInput, unknown>("POST");
+  const { mutate: createStudent, loading: creating, error: createError } = useApiMutation<StudentInput, unknown>("POST", { invalidate: [["students"]] });
 
   useEffect(() => {
     if (error) addToast("error", error.message);
@@ -91,7 +91,6 @@ export default function Students() {
       setCreateModal(false);
       setForm({ wcode: "", full_name: "", notes: "", nickname: "", school: "", level: "", year: "", student_phone: "" });
       setOffset(0);
-      refetch();
     } catch {
       // error toast handled by useEffect on createError
     }

@@ -69,10 +69,14 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return
 		}
+		// The profile reports whether a nickname exists, never the value, so
+		// the public form can offer to fill a missing one without a leak.
+		nicknameSet := student.Nickname.Valid && strings.TrimSpace(student.Nickname.String) != ""
 		s.a.WriteJSON(w, http.StatusOK, map[string]any{
 			"wcode":         student.Wcode,
 			"display_name":  student.FullName,
 			"email_on_file": false,
+			"nickname_set":  nicknameSet,
 			"subjects":      []any{},
 		})
 		return
@@ -108,6 +112,7 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 		"wcode":         session.Wcode,
 		"display_name":  displayName,
 		"email_on_file": emailOnFile,
+		"nickname_set":  rows[0].Nickname.Valid && strings.TrimSpace(rows[0].Nickname.String) != "",
 		"subjects":      subjects,
 	})
 }

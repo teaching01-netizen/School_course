@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ApiRequestError, apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { clampDateRange } from "../utils/time";
-import { formatUTCToZone, formatZoneDateKey, utcISOToZoneDate, utcISOToZoneLocalInput, zoneLocalInputToUTCISO } from "../utils/timezone";
+import { formatZoneDateKey, utcISOToZoneDate, utcISOToZoneLocalInput, zoneLocalInputToUTCISO } from "../utils/timezone";
 import PageHeading from "../components/ui/PageHeading";
 import Button from "../components/ui/Button";
 import Select from "../components/ui/Select";
@@ -14,18 +14,19 @@ import EmptyState from "../components/ui/EmptyState";
 import Modal from "../components/Modal";
 import ConfirmModal from "../components/ConfirmModal";
 import ScheduleFilters from "../components/ScheduleFilters";
-import SessionActions from "../components/SessionActions";
 import { PreflightIndicator, getSaveButtonLabel } from "../components/PreflightIndicator";
 import SessionOccurrenceForm from "../components/SessionOccurrenceForm";
 import SeriesFormFields from "../components/SeriesFormFields";
 import AttendancePanel from "../components/AttendancePanel";
+import { SessionWeekCard, SessionTableRow, type SessionInlineEdit } from "../components/schedule/SessionCards";
 import ImpactAcknowledgementModal, { type ImpactSummary } from "../components/scheduleImpact/ImpactAcknowledgementModal";
 import useInstituteMeta from "../hooks/useInstituteMeta";
 import useLookups from "@/features/scheduling/hooks/useLookups";
 import { useCreateSession } from "@/features/scheduling/hooks/useCreateSession";
 import { useEditSession } from "@/features/scheduling/hooks/useEditSession";
 import { useAttendanceModal } from "@/features/scheduling/hooks/useAttendanceModal";
-import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
+import { usePreflight, type PreflightParams } from "@/features/scheduling/hooks/usePreflight";
+import { useDebouncedPreflight } from "@/features/scheduling/hooks/useDebouncedPreflight";
 import usePreflightGate from "@/features/scheduling/hooks/usePreflightGate";
 import { validateSeriesPreflight, type SeriesPreflightForm } from "../utils/preflight";
 import { useFormValidation } from "../hooks/useFormValidation";
@@ -36,7 +37,8 @@ import {
   type Session,
   type StaleEditDetails,
 } from "@/types";
-import { queryKeys } from "../query/cache";
+import { queryClient, queryKeys } from "../query/cache";
+import { mapListItems, useSmartMutation } from "../query/useSmartMutation";
 import { useOperationalQuery } from "../query/useOperationalQuery";
 
 export default function Schedule() {
@@ -67,24 +69,80 @@ export default function Schedule() {
     sessionRequest.url,
   );
   const sessions = sessionRequest.url ? sessionsQuery.data ?? [] : [];
-  const [impactedSessionIDs, setImpactedSessionIDs] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    let active = true;
-    if (sessions.length === 0) {
-      setImpactedSessionIDs((previous) => previous.size === 0 ? previous : new Set());
-      return () => { active = false; };
-    }
-    void apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
-      method: "POST",
-      body: JSON.stringify({ session_ids: sessions.map((session) => session.id) }),
-    }).then((result) => {
-      if (!active) return;
-      setImpactedSessionIDs(new Set(Object.entries(result.sessions).filter(([, summary]) => summary.open_count > 0).map(([sessionID]) => sessionID)));
-    }).catch(() => {
-      if (active) setImpactedSessionIDs(new Set());
-    });
-    return () => { active = false; };
-  }, [sessions]);
+  // Impact summary is fetched as a query keyed by the session id+version
+  // signature: content changes refetch it, identical polls are free, and
+  // switching back to a previously viewed range reuses the cached summary.
+  const sessionSignature = useMemo(
+    () => sessions.map((session) => `${session.id}:${session.version}`).join(","),
+    [sessions],
+  );
+  const scheduleIssuesQuery = useQuery<{ sessions: Record<string, { open_count: number }> }>({
+    queryKey: ["schedule-issues-summary", sessionSignature],
+    queryFn: ({ signal }) =>
+      apiJson<{ sessions: Record<string, { open_count: number }> }>("/api/v1/operations/schedule-issues/summary", {
+        method: "POST",
+        body: JSON.stringify({ session_ids: sessions.map((session) => session.id) }),
+        signal,
+      }),
+    enabled: sessions.length > 0,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  }, queryClient);
+  const impactedSessionIDs = useMemo(() => {
+    const data = scheduleIssuesQuery.data?.sessions;
+    if (data == null || typeof data !== "object" || Array.isArray(data)) return new Set<string>();
+    return new Set(
+      Object.entries(data)
+        .filter(([, summary]) => (summary?.open_count ?? 0) > 0)
+        .map(([sessionID]) => sessionID),
+    );
+  }, [scheduleIssuesQuery.data]);
+  // Optimistic session mutations: the cached list is patched instantly and the
+  // post-settle invalidation reconciles with server truth (see useSmartMutation).
+  const cancelSessionMutation = useSmartMutation<Session, unknown>({
+    mutationFn: (session) =>
+      apiJson(`/api/v1/sessions/${session.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ expected_version: session.version }),
+      }),
+    optimistic: (session) => [
+      {
+        keyPrefix: queryKeys.sessions.all,
+        patch: (data) => mapListItems<Session>(data, (item) => (item.id === session.id ? null : item)),
+      },
+    ],
+    invalidates: [queryKeys.sessions.all],
+  });
+  const inlineEditMutation = useSmartMutation<
+    { sessionId: string; expectedVersion: number; course_id: string; room_id: string | null; teacher_id: string; start_at: string; end_at: string; acknowledgeImpact: boolean },
+    { change_id?: string }
+  >({
+    mutationFn: (vars) =>
+      apiJson<{ change_id?: string }>(`/api/v1/sessions/${vars.sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_version: vars.expectedVersion,
+          course_id: vars.course_id,
+          room_id: vars.room_id,
+          teacher_id: vars.teacher_id,
+          start_at: vars.start_at,
+          end_at: vars.end_at,
+          ...(vars.acknowledgeImpact ? { acknowledge_impact: true } : {}),
+        }),
+      }),
+    optimistic: (vars) => [
+      {
+        keyPrefix: queryKeys.sessions.all,
+        patch: (data) =>
+          mapListItems<Session>(data, (item) =>
+            item.id === vars.sessionId
+              ? { ...item, course_id: vars.course_id, room_id: vars.room_id, teacher_id: vars.teacher_id, start_at: vars.start_at, end_at: vars.end_at }
+              : item,
+          ),
+      },
+    ],
+    invalidates: [queryKeys.sessions.all],
+  });
   const loading = sessionRequest.url != null && sessionsQuery.isPending;
   const refetchSessions = sessionsQuery.refetch;
   const load = useCallback(async () => {
@@ -304,11 +362,11 @@ export default function Schedule() {
   }, [sessions, zone]);
 
   // --- Cancel occurrence ---
-  const cancelOccurrence = (sess: Session) => {
+  const cancelOccurrence = useCallback((sess: Session) => {
     setConfirmCancelOccurrence({ session: sess });
-  };
+  }, []);
 
-  const openInlineEdit = (sess: Session) => {
+  const openInlineEdit = useCallback((sess: Session) => {
     setInlineEditSession(sess);
     setInlineEditForm({
       course_id: sess.course_id,
@@ -318,39 +376,32 @@ export default function Schedule() {
       end_local: utcISOToZoneLocalInput(sess.end_at, zone) ?? "",
     });
     inlinePreflight.reset();
-  };
+  }, [inlinePreflight, zone]);
 
-  const closeInlineEdit = () => {
+  const closeInlineEdit = useCallback(() => {
     setInlineEditSession(null);
     setInlineEditForm({ course_id: "", room_id: "", teacher_id: "", start_local: "", end_local: "" });
     inlinePreflight.reset();
-  };
+  }, [inlinePreflight]);
 
-  useEffect(() => {
-    if (!inlineEditSession) {
-      inlinePreflight.reset();
-      return;
-    }
-    if (!inlineEditForm.course_id || !inlineEditForm.teacher_id || !inlineEditForm.start_local || !inlineEditForm.end_local) {
-      inlinePreflight.reset();
-      return;
-    }
+  // Debounced preflight: one network check per settled input window instead of
+  // one per keystroke.
+  const inlinePreflightParams = useMemo<PreflightParams | null>(() => {
+    if (!inlineEditSession) return null;
+    if (!inlineEditForm.course_id || !inlineEditForm.teacher_id || !inlineEditForm.start_local || !inlineEditForm.end_local) return null;
     const startISO = localDateTimeToUTCISO(inlineEditForm.start_local, zone);
     const endISO = localDateTimeToUTCISO(inlineEditForm.end_local, zone);
-    if (!startISO || !endISO || endISO <= startISO) {
-      inlinePreflight.reset();
-      return;
-    }
-    void inlinePreflight.check({
+    if (!startISO || !endISO || endISO <= startISO) return null;
+    return {
       session_id: inlineEditSession.id,
       course_id: inlineEditForm.course_id,
       room_id: inlineEditForm.room_id || null,
       teacher_id: inlineEditForm.teacher_id,
       start_at: startISO,
       end_at: endISO,
-    });
+    };
   }, [
-    inlineEditSession?.id,
+    inlineEditSession,
     inlineEditForm.course_id,
     inlineEditForm.room_id,
     inlineEditForm.teacher_id,
@@ -358,11 +409,14 @@ export default function Schedule() {
     inlineEditForm.end_local,
     zone,
   ]);
+  useDebouncedPreflight(inlinePreflight, inlinePreflightParams, { enabled: inlineEditSession != null });
 
-  const submitInlineEdit = async (acknowledgeImpact = false) => {
+  const { canSave: inlineCanSave, isChecking: inlineIsChecking } = inlineGate;
+
+  const submitInlineEdit = useCallback(async (acknowledgeImpact = false) => {
     if (!inlineEditSession) return;
-    if (!inlineGate.canSave) {
-      addToast("error", inlineGate.isChecking ? "Checking availability…" : "Preflight must pass before saving");
+    if (!inlineCanSave) {
+      addToast("error", inlineIsChecking ? "Checking availability…" : "Preflight must pass before saving");
       return;
     }
     const startISO = localDateTimeToUTCISO(inlineEditForm.start_local, zone);
@@ -373,28 +427,31 @@ export default function Schedule() {
     }
     setInlineSaving(true);
     try {
-      const updateBody: Record<string, unknown> = {
-        expected_version: inlineEditSession.version,
-        course_id: inlineEditForm.course_id,
-        room_id: inlineEditForm.room_id || null,
-        teacher_id: inlineEditForm.teacher_id,
-        start_at: startISO,
-        end_at: endISO,
-      };
+      const roomId = inlineEditForm.room_id || null;
       const preview = await apiJson<{ requires_acknowledgement?: boolean; impact_summary?: ImpactSummary }>(`/api/v1/sessions/${inlineEditSession.id}/change-preview`, {
         method: "POST",
-        body: JSON.stringify(updateBody),
+        body: JSON.stringify({
+          expected_version: inlineEditSession.version,
+          course_id: inlineEditForm.course_id,
+          room_id: roomId,
+          teacher_id: inlineEditForm.teacher_id,
+          start_at: startISO,
+          end_at: endISO,
+        }),
       });
       if (preview.requires_acknowledgement && !acknowledgeImpact) {
         setInlineImpact(preview.impact_summary ?? {});
         return;
       }
-      if (preview.requires_acknowledgement) {
-        updateBody.acknowledge_impact = true;
-      }
-      const result = await apiJson<{ change_id?: string }>(`/api/v1/sessions/${inlineEditSession.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(updateBody),
+      const result = await inlineEditMutation.mutateAsync({
+        sessionId: inlineEditSession.id,
+        expectedVersion: inlineEditSession.version,
+        course_id: inlineEditForm.course_id,
+        room_id: roomId,
+        teacher_id: inlineEditForm.teacher_id,
+        start_at: startISO,
+        end_at: endISO,
+        acknowledgeImpact: Boolean(preview.requires_acknowledgement),
       });
       addToast("success", result.change_id ? "Updated session. Impact review queued." : "Updated session");
       closeInlineEdit();
@@ -425,7 +482,7 @@ export default function Schedule() {
     } finally {
       setInlineSaving(false);
     }
-  };
+  }, [inlineEditSession, inlineCanSave, inlineIsChecking, inlineEditForm, zone, addToast, closeInlineEdit, load, inlineEditMutation]);
 
   const handleConfirmCancelOccurrence = async () => {
     const sess = confirmCancelOccurrence.session;
@@ -433,10 +490,7 @@ export default function Schedule() {
     setConfirmCancelOccurrence({ session: null });
     setCancelingId(sess.id);
     try {
-      await apiJson<{ ok: boolean }>(`/api/v1/sessions/${sess.id}`, {
-        method: "DELETE",
-        body: JSON.stringify({ expected_version: sess.version }),
-      });
+      await cancelSessionMutation.mutateAsync(sess);
       addToast("success", "Canceled session");
       await load();
     } catch (err) {
@@ -473,7 +527,7 @@ export default function Schedule() {
   };
 
   // --- Open Edit Series (This & Future) ---
-  const openEditSeriesThisAndFuture = async (sess: Session) => {
+  const openEditSeriesThisAndFuture = useCallback(async (sess: Session) => {
     if (!sess.series_id) {
       addToast("error", "This session is not part of a series");
       return;
@@ -509,10 +563,10 @@ export default function Schedule() {
     } finally {
       setEditSeriesLoading(false);
     }
-  };
+  }, [addToast, zone]);
 
   // --- Open Edit Series (Entire) ---
-  const openEditSeriesEntire = async (sess: Session) => {
+  const openEditSeriesEntire = useCallback(async (sess: Session) => {
     if (!sess.series_id) {
       addToast("error", "This session is not part of a series");
       return;
@@ -544,10 +598,10 @@ export default function Schedule() {
     } finally {
       setEditSeriesEntireLoading(false);
     }
-  };
+  }, [addToast, serverNow, zone, startDate]);
 
   // --- Cancel Series ---
-  const openCancelSeries = async (sess: Session) => {
+  const openCancelSeries = useCallback(async (sess: Session) => {
     if (!sess.series_id) { addToast("error", "This session is not part of a series"); return; }
     const pivot = utcISOToZoneDate(sess.start_at, zone);
     if (!pivot) { addToast("error", "Invalid session start time"); return; }
@@ -565,7 +619,7 @@ export default function Schedule() {
     } finally {
       setCancelSeriesLoading(false);
     }
-  };
+  }, [addToast, zone]);
 
   const submitCancelSeries = async () => {
     if (!cancelSeriesForm) return;
@@ -606,11 +660,29 @@ export default function Schedule() {
     }
   };
 
-  // --- Series preflight ---
-  const runSeriesPreflight = async () => {
-    if (!seriesOpen) return;
-    if (!seriesValidatedForm) { seriesPreflight.reset(); return; }
-    await seriesPreflight.check({
+  // Stable handlers + a per-session inline-edit bundle keep memoized cards
+  // from re-rendering while one card's inline form is being typed into.
+  const handleAttendance = useCallback((sess: Session) => { void attendance.openAttendance(sess); }, [attendance.openAttendance]);
+  const handleEditSeriesTandF = useCallback((sess: Session) => { void openEditSeriesThisAndFuture(sess); }, [openEditSeriesThisAndFuture]);
+  const handleEditSeriesEntire = useCallback((sess: Session) => { void openEditSeriesEntire(sess); }, [openEditSeriesEntire]);
+  const handleCancelSeries = useCallback((sess: Session) => { void openCancelSeries(sess); }, [openCancelSeries]);
+  const activeInlineEdit: SessionInlineEdit | null = inlineEditSession
+    ? {
+        form: inlineEditForm,
+        setForm: setInlineEditForm,
+        preflight: inlinePreflight,
+        canSave: inlineCanSave,
+        isChecking: inlineIsChecking,
+        saving: inlineSaving,
+        submit: () => { void submitInlineEdit(); },
+        close: closeInlineEdit,
+      }
+    : null;
+
+  // --- Series preflights (debounced: one check per settled input window) ---
+  const seriesPreflightParams = useMemo<PreflightParams | null>(() => {
+    if (!seriesOpen || !seriesValidatedForm) return null;
+    return {
       course_id: seriesForm.course_id,
       teacher_id: seriesForm.teacher_id,
       room_id: seriesValidatedForm.room_id,
@@ -622,20 +694,14 @@ export default function Schedule() {
       count: seriesValidatedForm.count,
       start_at: "",
       end_at: "",
-    });
-  };
-
-  useEffect(() => { void runSeriesPreflight(); }, [
-    seriesOpen, seriesUseCount, seriesForm.course_id, seriesForm.room_id, seriesForm.teacher_id,
-    seriesForm.start_local_time, seriesForm.duration_minutes, seriesForm.start_date, seriesForm.end_date,
-    seriesForm.count, ...seriesForm.weekdays,
-  ]);
+    };
+  }, [seriesOpen, seriesValidatedForm, seriesForm.course_id, seriesForm.teacher_id, seriesForm.start_local_time, seriesForm.duration_minutes, seriesForm.start_date]);
+  useDebouncedPreflight(seriesPreflight, seriesPreflightParams, { enabled: seriesOpen });
 
   // --- Edit Series (This & Future) preflight ---
-  const runEditSeriesPreflight = async () => {
-    if (!editSeriesOpen || !editSeriesForm || editSeriesLoading) { editSeriesPreflight.reset(); return; }
-    if (!editSeriesValidatedForm) { editSeriesPreflight.reset(); return; }
-    await editSeriesPreflight.check({
+  const editSeriesPreflightParams = useMemo<PreflightParams | null>(() => {
+    if (!editSeriesOpen || !editSeriesForm || editSeriesLoading || !editSeriesValidatedForm) return null;
+    return {
       series_id: editSeriesForm.series_id,
       course_id: editSeriesForm.course_id,
       teacher_id: editSeriesForm.teacher_id,
@@ -648,21 +714,14 @@ export default function Schedule() {
       count: editSeriesValidatedForm.count,
       start_at: "",
       end_at: "",
-    });
-  };
-
-  useEffect(() => { void runEditSeriesPreflight(); }, [
-    editSeriesOpen, editSeriesLoading, editSeriesUseCount, editSeriesPivotDate,
-    editSeriesForm?.course_id, editSeriesForm?.room_id, editSeriesForm?.teacher_id,
-    editSeriesForm?.start_local_time, editSeriesForm?.duration_minutes, editSeriesForm?.end_date,
-    editSeriesForm?.count, ...(editSeriesForm?.weekdays ?? [false, false, false, false, false, false, false]),
-  ]);
+    };
+  }, [editSeriesOpen, editSeriesForm, editSeriesLoading, editSeriesValidatedForm, editSeriesPivotDate]);
+  useDebouncedPreflight(editSeriesPreflight, editSeriesPreflightParams, { enabled: editSeriesOpen });
 
   // --- Edit Series (Entire) preflight ---
-  const runEditSeriesEntirePreflight = async () => {
-    if (!editSeriesEntireOpen || !editSeriesEntireForm || editSeriesEntireLoading) { editSeriesEntirePreflight.reset(); return; }
-    if (!editSeriesEntireValidatedForm) { editSeriesEntirePreflight.reset(); return; }
-    await editSeriesEntirePreflight.check({
+  const editSeriesEntirePreflightParams = useMemo<PreflightParams | null>(() => {
+    if (!editSeriesEntireOpen || !editSeriesEntireForm || editSeriesEntireLoading || !editSeriesEntireValidatedForm) return null;
+    return {
       series_id: editSeriesEntireForm.series_id,
       course_id: editSeriesEntireForm.course_id,
       teacher_id: editSeriesEntireForm.teacher_id,
@@ -675,15 +734,9 @@ export default function Schedule() {
       count: editSeriesEntireValidatedForm.count,
       start_at: "",
       end_at: "",
-    });
-  };
-
-  useEffect(() => { void runEditSeriesEntirePreflight(); }, [
-    editSeriesEntireOpen, editSeriesEntireLoading, editSeriesEntireUseCount, editSeriesEntireFromDate,
-    editSeriesEntireForm?.course_id, editSeriesEntireForm?.room_id, editSeriesEntireForm?.teacher_id,
-    editSeriesEntireForm?.start_local_time, editSeriesEntireForm?.duration_minutes, editSeriesEntireForm?.end_date,
-    editSeriesEntireForm?.count, ...(editSeriesEntireForm?.weekdays ?? [false, false, false, false, false, false, false]),
-  ]);
+    };
+  }, [editSeriesEntireOpen, editSeriesEntireForm, editSeriesEntireLoading, editSeriesEntireValidatedForm, editSeriesEntireFromDate]);
+  useDebouncedPreflight(editSeriesEntirePreflight, editSeriesEntirePreflightParams, { enabled: editSeriesEntireOpen });
 
   // --- Create Series submit ---
   const submitSeries = async () => {
@@ -861,67 +914,29 @@ export default function Schedule() {
                     {items.length === 0 ? (
                       <div className="text-xs text-[var(--color-wi-text-light)] px-1 py-3">No sessions</div>
                     ) : (
-                      items.map((s) => {
-                        const course = courseById.get(s.course_id);
-                        const room = s.room_id ? roomById.get(s.room_id) : null;
-                        const teacher = teacherById.get(s.teacher_id);
-                        const isInlineEditing = inlineEditSession?.id === s.id;
-                        const inlineLabel = course ? `${course.code} — ${course.name}` : s.course_id;
-                        const startLabel = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);
-                        const endLabel = formatUTCToZone(s.end_at, zone, "HH:mm") ?? s.end_at.slice(11, 16);
-                        return (
-                          <div key={s.id} className="w-full text-left border border-wi-line rounded-sm px-2 py-2 hover:bg-[var(--color-wi-row-alt)]">
-                            <div className="text-xs font-mono text-[var(--color-wi-text-light)]">{startLabel}–{endLabel}</div>
-                            <div className="text-sm text-[var(--color-wi-text)] font-semibold">{inlineLabel}</div>
-                            <div className="text-xs text-[var(--color-wi-text-light)]">{(room ? room.name : s.room_id ? s.room_id : "[NOT SET]")} • {teacher ? (teacher.full_name || teacher.username) : s.teacher_id}</div>
-                            {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mt-1 inline-block text-xs font-medium text-amber-700 hover:underline">Impact review open</Link> : null}
-                            <SessionActions
-                              session={s} cancelingId={cancelingId}
-                              onAttendance={(sess) => void attendance.openAttendance(sess)}
-                              onEdit={(sess) => edit.openModal(sess)}
-                              onCancel={cancelOccurrence}
-                              onEditSeriesTandF={(sess) => void openEditSeriesThisAndFuture(sess)}
-                              onEditSeriesEntire={(sess) => void openEditSeriesEntire(sess)}
-                              onCancelSeries={(sess) => void openCancelSeries(sess)}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="mt-1"
-                              aria-label={`Inline edit session ${inlineLabel}`}
-                              onClick={() => openInlineEdit(s)}
-                            >
-                              Inline Edit
-                            </Button>
-                            {isInlineEditing && (
-                              <form aria-label={`Inline edit session ${inlineLabel}`} className="mt-3 space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
-                                <SessionOccurrenceForm
-                                  form={inlineEditForm}
-                                  setForm={setInlineEditForm}
-                                  courseOptions={courseOptions}
-                                  teacherOptions={teacherOptions}
-                                  rooms={rooms}
-                                  prefix={`inline-${s.id}-`}
-                                />
-                                <PreflightIndicator preflight={inlinePreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
-                                  requiredFields={[
-                                    { label: "Course", value: inlineEditForm.course_id },
-                                    { label: "Teacher", value: inlineEditForm.teacher_id },
-                                    { label: "Start", value: inlineEditForm.start_local },
-                                    { label: "End", value: inlineEditForm.end_local },
-                                  ]}
-                                />
-                                <div className="flex justify-end gap-2">
-                                  <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
-                                  <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || !inlineGate.canSave} loading={inlinePreflight.loading || inlineSaving}>
-                                    {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
-                                  </Button>
-                                </div>
-                              </form>
-                            )}
-                          </div>
-                        );
-                      })
+                      items.map((s) => (
+                        <SessionWeekCard
+                          key={s.id}
+                          session={s}
+                          courseById={courseById}
+                          roomById={roomById}
+                          teacherById={teacherById}
+                          courseOptions={courseOptions}
+                          teacherOptions={teacherOptions}
+                          rooms={rooms}
+                          zone={zone}
+                          impacted={impactedSessionIDs.has(s.id)}
+                          cancelingId={cancelingId}
+                          inlineEdit={inlineEditSession?.id === s.id ? activeInlineEdit : null}
+                          onAttendance={handleAttendance}
+                          onEdit={edit.openModal}
+                          onCancel={cancelOccurrence}
+                          onEditSeriesTandF={handleEditSeriesTandF}
+                          onEditSeriesEntire={handleEditSeriesEntire}
+                          onCancelSeries={handleCancelSeries}
+                          onOpenInlineEdit={openInlineEdit}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
@@ -943,64 +958,29 @@ export default function Schedule() {
             </tr>
           </thead>
           <tbody>
-            {sessions.map((s) => {
-              const label = courseById.get(s.course_id)?.code ?? s.course_id;
-              const isInlineEditing = inlineEditSession?.id === s.id;
-              return (
-                <Fragment key={s.id}>
-                  <tr key={s.id} className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.start_at, zone, "EEE d MMM yy HH:mm") ?? s.start_at}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{formatUTCToZone(s.end_at, zone, "EEE d MMM yy HH:mm") ?? s.end_at}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{label}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{s.room_id ? (roomById.get(s.room_id)?.name ?? s.room_id) : "[NOT SET]"}</td>
-                    <td className="py-2 px-2 font-mono text-xs text-[var(--color-wi-text-light)]">{teacherById.get(s.teacher_id)?.full_name || teacherById.get(s.teacher_id)?.username || s.teacher_id}</td>
-                    <td className="py-2 px-2 text-right">
-                      {impactedSessionIDs.has(s.id) ? <Link to="/operations/schedule-impact" className="mr-2 text-xs font-medium text-amber-700 hover:underline">Impact open</Link> : null}
-                      <SessionActions
-                        session={s} cancelingId={cancelingId}
-                        onAttendance={(sess) => void attendance.openAttendance(sess)}
-                        onEdit={(sess) => edit.openModal(sess)}
-                        onCancel={cancelOccurrence}
-                        onEditSeriesTandF={(sess) => void openEditSeriesThisAndFuture(sess)}
-                        onEditSeriesEntire={(sess) => void openEditSeriesEntire(sess)}
-                        onCancelSeries={(sess) => void openCancelSeries(sess)}
-                      />
-                      <Button variant="ghost" size="sm" aria-label={`Inline edit session ${label}`} onClick={() => openInlineEdit(s)}>Inline Edit</Button>
-                    </td>
-                  </tr>
-                  {isInlineEditing && (
-                    <tr key={`${s.id}-inline`} className="border-b border-wi-line bg-[var(--color-wi-row-alt)]">
-                      <td colSpan={6} className="px-3 py-3">
-                        <form aria-label={`Inline edit session ${label}`} className="space-y-3" onSubmit={(event) => { event.preventDefault(); void submitInlineEdit(); }}>
-                          <SessionOccurrenceForm
-                            form={inlineEditForm}
-                            setForm={setInlineEditForm}
-                            courseOptions={courseOptions}
-                            teacherOptions={teacherOptions}
-                            rooms={rooms}
-                            prefix={`inline-${s.id}-table-`}
-                          />
-                          <PreflightIndicator preflight={inlinePreflight} coursesById={courseById} teachersById={teacherById} roomsById={roomById}
-                            requiredFields={[
-                              { label: "Course", value: inlineEditForm.course_id },
-                              { label: "Teacher", value: inlineEditForm.teacher_id },
-                              { label: "Start", value: inlineEditForm.start_local },
-                              { label: "End", value: inlineEditForm.end_local },
-                            ]}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button type="button" variant="secondary" size="sm" onClick={closeInlineEdit}>Cancel</Button>
-                            <Button type="submit" variant="primary" size="sm" disabled={inlineSaving || !inlineGate.canSave} loading={inlinePreflight.loading || inlineSaving}>
-                              {inlineSaving ? "Saving…" : getSaveButtonLabel({ status: inlinePreflight.status, loading: inlinePreflight.loading }, "Save", inlinePreflight.details)}
-                            </Button>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
+            {sessions.map((s) => (
+              <SessionTableRow
+                key={s.id}
+                session={s}
+                courseById={courseById}
+                roomById={roomById}
+                teacherById={teacherById}
+                courseOptions={courseOptions}
+                teacherOptions={teacherOptions}
+                rooms={rooms}
+                zone={zone}
+                impacted={impactedSessionIDs.has(s.id)}
+                cancelingId={cancelingId}
+                inlineEdit={inlineEditSession?.id === s.id ? activeInlineEdit : null}
+                onAttendance={handleAttendance}
+                onEdit={edit.openModal}
+                onCancel={cancelOccurrence}
+                onEditSeriesTandF={handleEditSeriesTandF}
+                onEditSeriesEntire={handleEditSeriesEntire}
+                onCancelSeries={handleCancelSeries}
+                onOpenInlineEdit={openInlineEdit}
+              />
+            ))}
           </tbody>
         </table></div>
       )}

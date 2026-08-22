@@ -1398,6 +1398,7 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		"expiry_status":         expiryStatus,
 		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
+		"absence_form_visible":  item.AbsenceFormVisible,
 		"version":               item.Version.Int32,
 		"teachers":              teachers,
 	}, nil

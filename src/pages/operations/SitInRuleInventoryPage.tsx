@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
 import Modal from "../../components/Modal";
@@ -195,7 +196,7 @@ export function SitInRuleInventoryPage() {
 
             <div>
               <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Type</label>
-              <select
+              <SearchableSelect
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as SitInRuleType })}
                 className="w-full rounded-sm border border-wi-line px-3 py-2 text-sm focus:border-[var(--color-wi-primary)] focus:outline-none"
@@ -203,7 +204,7 @@ export function SitInRuleInventoryPage() {
                 {RULE_TYPE_OPTIONS.map((t) => (
                   <option key={t} value={t}>{RULE_TYPE_LABELS[t]} — {RULE_TYPE_DESCRIPTIONS[t].description}</option>
                 ))}
-              </select>
+              </SearchableSelect>
               <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                 {RULE_TYPE_DESCRIPTIONS[form.type].example}
               </p>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import type { AbsenceSettings as AbsenceSettingsModel } from "../types";
@@ -15,12 +16,12 @@ function PreviewContent({ settings }: { settings: AbsenceSettingsModel }) {
       </div>
       <div>
         <label className="block text-sm font-medium text-[var(--color-wi-text-light)] mb-1">Reason for absence</label>
-        <select className="w-full rounded-sm border border-wi-line p-2 text-sm" disabled>
+        <SearchableSelect className="w-full rounded-sm border border-wi-line p-2 text-sm" disabled>
           <option value="">Select a reason...</option>
           {settings.form.reason_categories.map((cat) => (
             <option key={cat.value} value={cat.value}>{cat.label || cat.value}</option>
           ))}
-        </select>
+        </SearchableSelect>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>

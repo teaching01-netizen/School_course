@@ -57,7 +57,8 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		       c.created_at, c.updated_at,
 		       c.legacy_course_id, c.legacy_last_synced_at,
 		       c.version, c.cycle_id, COALESCE(cy.display_name, cy.label, ''), c.expiry_days,
-		       (SELECT MAX(sess.end_at) FROM sessions sess WHERE sess.course_id = c.id AND sess.deleted_at IS NULL)
+		       (SELECT MAX(sess.end_at) FROM sessions sess WHERE sess.course_id = c.id AND sess.deleted_at IS NULL),
+		       c.absence_form_visible
 		FROM courses c
 		LEFT JOIN users u ON u.id = c.teacher_id
 		LEFT JOIN subjects s ON s.id = c.subject_id
@@ -70,8 +71,22 @@ func (q *Queries) CourseGetFull(ctx context.Context, courseID pgtype.UUID) (Cour
 		&row.CreatedAt, &row.UpdatedAt,
 		&row.LegacyCourseID, &row.LegacyLastSyncedAt,
 		&row.Version, &row.CycleID, &row.CycleLabel, &row.ExpiryDays, &row.LastSessionAt,
+		&row.AbsenceFormVisible,
 	)
 	return row, err
+}
+
+// CourseAbsenceFormVisibleUpdate applies the optional absence-form visibility
+// flag: nil leaves the current value untouched (single-property PATCHes omit
+// it), non-nil sets it. Mirrors CourseLifecycleUpdate's set-flag pattern.
+func (q *Queries) CourseAbsenceFormVisibleUpdate(ctx context.Context, courseID pgtype.UUID, visible *bool) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE courses
+		SET absence_form_visible = CASE WHEN $2 THEN $3 ELSE absence_form_visible END,
+		    updated_at = now()
+		WHERE id = $1
+	`, courseID, visible != nil, visible)
+	return err
 }
 
 type CourseBatchDeleteResult struct {

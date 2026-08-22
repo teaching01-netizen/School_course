@@ -1,11 +1,13 @@
 package courselevelshttp
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
@@ -23,6 +25,9 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 
 	mux.HandleFunc("GET /api/v1/admin/course-levels", s.handleList)
 	mux.HandleFunc("PUT /api/v1/admin/courses/{id}/level", s.handleUpdateLevel)
+	mux.HandleFunc("GET /api/v1/admin/course-merge-groups", s.handleListCourseMergeGroups)
+	mux.HandleFunc("PUT /api/v1/admin/course-merge-groups/{id}/level", s.handleUpdateCourseMergeGroupLevel)
+	mux.HandleFunc("PUT /api/v1/admin/course-merge-groups/{id}", s.handleUpdateCourseMergeGroupRule)
 	mux.HandleFunc("PUT /api/v1/admin/courses/{id}/root-course-group", s.handleUpdateRootCourseGroup)
 	mux.HandleFunc("GET /api/v1/admin/root-course-groups", s.handleListRootCourseGroups)
 	mux.HandleFunc("POST /api/v1/admin/root-course-groups", s.handleCreateRootCourseGroup)
@@ -49,6 +54,17 @@ type courseLevelDTO struct {
 	Level               *int16  `json:"level"`
 	RootCourseGroupID   *string `json:"root_course_group_id"`
 	RootCourseGroupName *string `json:"root_course_group_name"`
+}
+
+type courseMergeGroupDTO struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Level       *int16   `json:"level"`
+	CycleID     *string  `json:"cycle_id"`
+	CycleLabel  *string  `json:"cycle_label"`
+	SitInRuleID *string  `json:"sit_in_rule_id"`
+	CourseCodes []string `json:"course_codes"`
+	CourseNames []string `json:"course_names"`
 }
 
 func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +97,157 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 
 	out := courseLevelDTOs(s, rows)
 	s.a.WriteJSON(w, http.StatusOK, out)
+}
+
+func (s *server) handleListCourseMergeGroups(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	rows, err := s.deps.Q.CourseMergeGroupConfigsList(r.Context())
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	out := make([]courseMergeGroupDTO, 0, len(rows))
+	for _, row := range rows {
+		dto, err := s.courseMergeGroupDTO(row)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+			return
+		}
+		out = append(out, dto)
+	}
+	s.a.WriteJSON(w, http.StatusOK, out)
+}
+
+func (s *server) courseMergeGroupDTO(row sqldb.CourseMergeGroupConfigRow) (courseMergeGroupDTO, error) {
+	id, err := s.a.UUIDString(row.ID)
+	if err != nil {
+		return courseMergeGroupDTO{}, err
+	}
+	dto := courseMergeGroupDTO{
+		ID:          id,
+		Name:        row.Name,
+		CourseCodes: row.CourseCodes,
+		CourseNames: row.CourseNames,
+	}
+	if row.Level.Valid {
+		value := row.Level.Int16
+		dto.Level = &value
+	}
+	if row.CycleID.Valid {
+		value := row.CycleID.String
+		dto.CycleID = &value
+	}
+	if row.CycleLabel.Valid {
+		value := row.CycleLabel.String
+		dto.CycleLabel = &value
+	}
+	if row.SitInRuleID.Valid {
+		value, err := s.a.UUIDString(row.SitInRuleID)
+		if err != nil {
+			return courseMergeGroupDTO{}, err
+		}
+		dto.SitInRuleID = &value
+	}
+	return dto, nil
+}
+
+func (s *server) courseMergeGroupExists(w http.ResponseWriter, r *http.Request, id pgtype.UUID) bool {
+	if _, err := s.deps.Q.CourseMergeGroupGet(r.Context(), id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Merged course not found")
+		} else {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+		}
+		return false
+	}
+	return true
+}
+
+func (s *server) handleUpdateCourseMergeGroupLevel(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid merged course ID")
+		return
+	}
+	if !s.courseMergeGroupExists(w, r, id) {
+		return
+	}
+	var body struct {
+		Level *int16 `json:"level"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.Level != nil && *body.Level < 1 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_level", "level must be >= 1")
+		return
+	}
+	level := pgtype.Int2{}
+	if body.Level != nil {
+		level = pgtype.Int2{Int16: *body.Level, Valid: true}
+	}
+	if err := s.deps.Q.CourseMergeGroupLevelUpdate(r.Context(), id, level); err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	s.a.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) handleUpdateCourseMergeGroupRule(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.a.MustAdmin(w, r); !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid merged course ID")
+		return
+	}
+	if !s.courseMergeGroupExists(w, r, id) {
+		return
+	}
+	var body struct {
+		SitInRuleID *string `json:"sit_in_rule_id"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.SitInRuleID == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "missing_fields", "sit_in_rule_id is required")
+		return
+	}
+	sitInRuleID := pgtype.UUID{}
+	if *body.SitInRuleID != "" {
+		sitInRuleID, err = s.a.ParseUUID(*body.SitInRuleID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_rule_id", "Invalid sit-in rule ID")
+			return
+		}
+		if _, err := s.deps.Q.SitInRuleGetByID(r.Context(), sitInRuleID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.a.WriteErr(w, http.StatusBadRequest, "not_found", "Sit-in rule not found")
+			} else {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+			}
+			return
+		}
+	}
+	if err := s.deps.Q.CourseMergeGroupSitInRuleUpdate(r.Context(), id, sitInRuleID); err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	s.a.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func courseLevelDTOs(s *server, rows []sqldb.CourseLevelRowV2) []courseLevelDTO {

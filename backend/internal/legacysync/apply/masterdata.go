@@ -161,7 +161,21 @@ func (s *MasterDataService) applyTeacher(ctx context.Context, tx pgx.Tx, teacher
 	username := "legacy:" + teacher.LegacyID
 	active := teacher.IsActive
 	if found {
-		if _, err := tx.Exec(ctx, `UPDATE users SET username=$1, email=NULLIF($2,''), full_name=COALESCE(NULLIF($5,''), full_name), deleted_at=CASE WHEN $3 THEN NULL ELSE COALESCE(deleted_at, now()) END, updated_at=now() WHERE id=$4`, username, teacher.Email, active, internalID, teacher.Name); err != nil {
+		// Legacy sync owns identity fields only for shells it created, i.e.
+		// accounts whose username carries the legacy: prefix (set solely by
+		// the INSERT below). A mapping merged onto a native account
+		// (teachermerge) must never have its username, password-relevant
+		// login, or activation state overwritten by source data — otherwise
+		// the next sync would rename the real teacher to legacy:<id> and
+		// break their login. All SET expressions see the pre-update row.
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET
+				username = CASE WHEN users.username LIKE 'legacy:%' THEN $1 ELSE users.username END,
+				email = CASE WHEN users.username LIKE 'legacy:%' THEN NULLIF($2,'') ELSE COALESCE(NULLIF(email,''), NULLIF($2,'')) END,
+				full_name = COALESCE(NULLIF($5,''), full_name),
+				deleted_at = CASE WHEN users.username LIKE 'legacy:%' THEN (CASE WHEN $3 THEN NULL ELSE COALESCE(deleted_at, now()) END) ELSE deleted_at END,
+				updated_at = now()
+			WHERE id = $4`, username, teacher.Email, active, internalID, teacher.Name); err != nil {
 			return pgtype.UUID{}, fmt.Errorf("update legacy teacher %s: %w", teacher.LegacyID, err)
 		}
 		return internalID, nil

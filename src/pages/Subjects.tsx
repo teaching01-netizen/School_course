@@ -19,7 +19,7 @@ export default function Subjects() {
   const [confirmSubject, setConfirmSubject] = useState<Subject | null>(null);
 
   const { data: subjects, loading, error, refetch } = useApiQuery<Subject[]>("/api/v1/subjects");
-  const { mutate: deleteSubject, loading: deleting } = useApiMutation<unknown, unknown>("DELETE");
+  const { mutate: deleteSubject, loading: deleting } = useApiMutation<unknown, unknown>("DELETE", { invalidate: [["reference", "/api/v1/subjects"]] });
 
   useEffect(() => {
     if (!error) return;
@@ -42,7 +42,6 @@ export default function Subjects() {
     try {
       await deleteSubject({}, `/api/v1/subjects/${subject.id}`);
       addToast("success", "Subject deleted");
-      refetch();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Delete failed");
     } finally {

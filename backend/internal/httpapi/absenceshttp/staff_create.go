@@ -194,6 +194,11 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
+		if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, row.ID, course.CourseID); err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
 
 		if err := qtx.AbsenceSetSubmissionMetadata(r.Context(), row.ID, subjectID, sitInMethod, student.FullName, pgtype.Text{}, pgtype.Text{}, pgtype.Text{}, reasonCategory, sitInCourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -399,9 +404,12 @@ func (s *server) resolveStaffAbsenceSelection(ctx context.Context, q *sqldb.Quer
 
 	var course sqldb.StudentEnrolledCourseV2
 	if err := db.QueryRow(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, c.level, c.root_course_group_id, rcg.sit_in_rule_id
+		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
+		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
 		FROM courses c
 		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
+		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
 		WHERE c.id = $1
 	`, selectedCourseID).Scan(
 		&course.CourseID,
@@ -412,6 +420,7 @@ func (s *server) resolveStaffAbsenceSelection(ctx context.Context, q *sqldb.Quer
 		&course.Level,
 		&course.RootCourseGroupID,
 		&course.SitInRuleID,
+		&course.MergeGroupID,
 	); err != nil {
 		return sqldb.Student{}, pgtype.UUID{}, sqldb.StudentEnrolledCourseV2{}, err
 	}

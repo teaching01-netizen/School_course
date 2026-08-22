@@ -56,6 +56,7 @@ const MOCK_STUDENT: {
   student_id: string;
   wcode: string;
   full_name: string;
+  nickname?: string | null;
   parent_phone: string | null;
   subjects: Array<{ id: string; code: string; name: string }>;
 } = {
@@ -70,11 +71,15 @@ const MOCK_STUDENT: {
 };
 
 function publicLookupFor(student: typeof MOCK_STUDENT) {
+  // Mirrors the server: the hint prefers the nickname and falls back to the
+  // full name, masked to the first character.
+  const hintSource = student.nickname?.trim() || student.full_name.trim();
   return {
     wcode: student.wcode,
     lookup_token: "lookup-token",
     email_input_required: true,
     parent_verification_available: Boolean(student.parent_phone),
+    ...(hintSource ? { nickname_hint: `${Array.from(hintSource)[0]}***` } : {}),
   };
 }
 
@@ -83,6 +88,7 @@ function verifiedProfileFor(student: typeof MOCK_STUDENT) {
     wcode: student.wcode,
     display_name: student.full_name,
     email_on_file: false,
+    nickname_set: Boolean(student.nickname?.trim()),
     subjects: student.subjects,
   };
 }
@@ -1531,25 +1537,106 @@ describe("AbsenceForm", () => {
     expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
   }, 30000);
 
-  it("disables verify parent button when student has no parent phone", async () => {
+  it("offers parent phone enrollment instead of a dead end when no phone is on file", async () => {
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, parent_phone: null },
     });
     const user = userEvent.setup();
     await lookupStudent(user);
     await goToVerification(user);
-    expect(screen.queryByRole("button", { name: /send code/i })).not.toBeInTheDocument();
+
+    const phoneInput = await screen.findByLabelText(/parent's phone number/i);
+    expect(screen.queryByText(/contact admin/i)).not.toBeInTheDocument();
+
+    const sendButton = screen.getByRole("button", { name: /^send code$/i });
+    expect(sendButton).toBeDisabled();
+
+    await user.type(phoneInput, "0899998888");
+    await waitFor(() => expect(sendButton).toBeEnabled());
   });
 
-  it("shows contact admin message when student has no parent phone", async () => {
+  it("explains the enrollment flow when no parent phone is on file", async () => {
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, parent_phone: null },
     });
     const user = userEvent.setup();
     await lookupStudent(user);
     await goToVerification(user);
-    expect(await screen.findByText(/not in our records/i)).toBeInTheDocument();
+
+    expect(await screen.findByText(/no parent phone is on file/i)).toBeInTheDocument();
+    expect(screen.getByText(/one-time code to this number/i)).toBeInTheDocument();
   });
+
+  it("shows the masked nickname hint after lookup", async () => {
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, nickname: "Bird" },
+    });
+    const user = userEvent.setup();
+    await lookupStudent(user);
+
+    expect(await screen.findByText("Nickname: B***")).toBeInTheDocument();
+  });
+
+  it("submits an optional nickname when the profile has none, masked in review", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, nickname: null },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+
+    const nicknameInput = await screen.findByLabelText(/nickname/i);
+    await user.type(nicknameInput, "Bird");
+    expect(await screen.findByText(/saved as B\*\*\*/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
+    const batchCall = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+    expect(batchCall).toBeDefined();
+    expect(JSON.parse(String(batchCall?.[1]?.body))).toMatchObject({ nickname: "Bird" });
+  }, 30000);
+
+  it("still submits the absence when a nickname lands on file mid-flight", async () => {
+    const user = userEvent.setup();
+    let batchAttempts = 0;
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, nickname: null },
+      submission: () => {
+        batchAttempts += 1;
+        if (batchAttempts === 1) {
+          throw new ApiRequestError("A nickname is already on file for this student", { code: "bad_nickname", status: 400 });
+        }
+        return { items: [SUBMISSION_RESPONSE] };
+      },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await user.type(await screen.findByLabelText(/nickname/i), "Bird");
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText("Your absence request has been sent and is waiting for review.")).toBeInTheDocument();
+    expect(batchAttempts).toBe(2);
+    const batchCalls = mockApiJson.mock.calls.filter(([url]) => url === "/api/v1/absences/batch");
+    expect(JSON.parse(String(batchCalls[0]?.[1]?.body)).nickname).toBe("Bird");
+    expect(JSON.parse(String(batchCalls[1]?.[1]?.body)).nickname).toBeUndefined();
+  }, 30000);
 
   it("shows a no-sessions status message when no sessions exist in range", async () => {
     const user = userEvent.setup();

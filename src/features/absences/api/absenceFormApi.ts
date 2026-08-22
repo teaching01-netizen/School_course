@@ -179,6 +179,7 @@ export function loadSessionsInRange(
 export async function submitAbsenceBatch(input: {
   idempotencyKey: string;
   email?: string;
+  nickname?: string;
   reason: string;
   items: AbsenceBatchCreateItem[];
 }): Promise<AbsenceBatchCreateResponse> {
@@ -187,6 +188,7 @@ export async function submitAbsenceBatch(input: {
     headers: { "Idempotency-Key": input.idempotencyKey },
     body: JSON.stringify({
       email: input.email,
+      nickname: input.nickname,
       reason: input.reason,
       items: input.items,
     }),

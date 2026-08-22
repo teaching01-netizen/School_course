@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutDashboard, LogOut, PanelLeftClose } from "lucide-react";
 import { apiJson } from "../../api/client";
 import { cachePolicies, queryKeys } from "../../query/cache";
+import { prefetchRoute } from "../../query/prefetch";
 import type { AbsenceStats } from "../../types";
 import { isNavActive, navSections, type NavItem } from "./navConfig";
 import WorkspaceTile from "./WorkspaceTile";
@@ -242,6 +243,8 @@ function SidebarRow({ item, pathname, badge }: SidebarRowProps) {
         <Link
           to={item.path}
           aria-current={active ? "page" : undefined}
+          onMouseEnter={() => prefetchRoute(item.path)}
+          onFocus={() => prefetchRoute(item.path)}
           className={`flex min-w-0 flex-1 items-center gap-2 py-1 text-[13px] transition-colors duration-150 ${
             active
               ? "font-medium text-[var(--color-wi-text)]"

@@ -22,6 +22,7 @@ import { cn } from "@/utils/cn";
  *  attributes can merge with the consumer's own values. */
 type TriggerElement = ReactElement<{
   ref?: Ref<HTMLElement>;
+  id?: string;
   onClick?: React.MouseEventHandler;
 }>;
 
@@ -37,6 +38,7 @@ interface PopoverProps {
   ariaLabel?: string;
   /** Move focus to the first focusable control on open (default true). */
   autoFocus?: boolean;
+  closeParentOnEscape?: boolean;
   contentClassName?: string;
   children: ReactNode;
 }
@@ -61,6 +63,7 @@ interface PopoverNode {
 }
 
 const PopoverTreeContext = createContext<number | null>(null);
+const PopoverCloseContext = createContext<((restoreFocus: boolean) => void) | null>(null);
 const popoverNodes = new Map<number, PopoverNode>();
 let nextPopoverId = 1;
 
@@ -88,13 +91,16 @@ export function Popover({
   role = "dialog",
   ariaLabel,
   autoFocus = true,
+  closeParentOnEscape = false,
   contentClassName = "",
   children,
 }: PopoverProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
+  const openRef = useRef(open);
   const setOpen = useCallback(
     (next: boolean) => {
+      openRef.current = next;
       if (controlledOpen === undefined) setInternalOpen(next);
       onOpenChange?.(next);
     },
@@ -103,14 +109,15 @@ export function Popover({
 
   const triggerRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const parentClose = useContext(PopoverCloseContext);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const triggerId = useId();
   const panelId = useId();
 
   const popoverIdRef = useRef(0);
   if (popoverIdRef.current === 0) popoverIdRef.current = nextPopoverId++;
   const parentNodeId = useContext(PopoverTreeContext);
-  const openRef = useRef(open);
   openRef.current = open;
 
   // The trigger element is a per-render value; keep the injected ref stable by
@@ -134,15 +141,19 @@ export function Popover({
   const close = useCallback(
     (restoreFocus: boolean) => {
       setOpen(false);
-      if (restoreFocus) triggerRef.current?.focus();
+      if (restoreFocus) {
+        triggerRef.current?.focus();
+        if (closeParentOnEscape) parentClose?.(false);
+      }
     },
-    [setOpen],
+    [closeParentOnEscape, parentClose, setOpen],
   );
 
   // Sync the anchor position on open and whenever geometry may have changed.
   useLayoutEffect(() => {
     if (!open) {
       setPosition(null);
+      setPortalTarget(null);
       return;
     }
     const measure = () => {
@@ -182,6 +193,12 @@ export function Popover({
       observer?.disconnect();
     };
   }, [open, align]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const nextTarget = triggerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? document.body;
+    setPortalTarget((current) => current === nextTarget ? current : nextTarget);
+  }, [open]);
 
   // Light dismiss: outside mousedown closes, Escape closes and returns focus.
   useEffect(() => {
@@ -262,7 +279,7 @@ export function Popover({
 
   const triggerProps: Record<string, unknown> = {
     ref: setTriggerRef,
-    id: triggerId,
+    id: triggerChild.props?.id ?? triggerId,
     onClick: (event: React.MouseEvent) => {
       triggerChild.props?.onClick?.(event);
       if (!event.defaultPrevented) toggle();
@@ -274,6 +291,7 @@ export function Popover({
   if (triggerChild.type === "button") triggerProps.type = "button";
 
   const triggerEl = cloneElement(triggerChild, triggerProps);
+  const portalRoot = portalTarget ?? document.body;
 
   return (
     <>
@@ -298,10 +316,10 @@ export function Popover({
             }}
           >
             <PopoverTreeContext.Provider value={popoverIdRef.current}>
-              {children}
+              <PopoverCloseContext.Provider value={close}>{children}</PopoverCloseContext.Provider>
             </PopoverTreeContext.Provider>
           </div>,
-          document.body,
+          portalRoot,
         )}
     </>
   );

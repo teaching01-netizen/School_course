@@ -39,7 +39,9 @@ import {
   submitAbsenceBatch,
 } from "@/features/absences/api/absenceFormApi";
 import {
+  absenceScopeKey,
   countSelectedAbsenceDays,
+  countSelectedAbsenceDaysForScope,
   countSelectedAbsenceDaysForGroup,
   getSelectedSessionsForGroup,
   groupByDay,
@@ -75,7 +77,7 @@ import {
   readStudentResume,
   writeStudentResume,
 } from "@/features/absences/storage/studentResumeStorage";
-import { isWCode, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
+import { isWCode, maskNickname, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
 
 type StepIndex = 0 | 1 | 2 | 3;
 
@@ -115,6 +117,9 @@ export default function AbsenceForm() {
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  // Nickname lives in memory only — it is never written to the saved draft,
+  // mirroring the privacy rule for the enrolled parent phone.
+  const [nickname, setNickname] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -133,9 +138,39 @@ export default function AbsenceForm() {
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const pageAlertRef = useRef<HTMLDivElement | null>(null);
 
+  const selectedSubjectIdSet = useMemo(() => new Set(selectedSubjectIds), [selectedSubjectIds]);
   const selectedAbsenceDayCount = useMemo(
     () => countSelectedAbsenceDays(sessions, selectedSessionIds),
     [sessions, selectedSessionIds],
+  );
+  // Derived indexes: one pass over `sessions` per change instead of per render.
+  // groupByDay results are additionally memoized inside sessionGrouping, so
+  // these memos mostly cost Map lookups after the first computation.
+  const scopeIndex = useMemo(() => {
+    const byScope = new Map<string, SubjectSessions[]>();
+    for (const group of sessions) {
+      const key = absenceScopeKey(group);
+      const bucket = byScope.get(key);
+      if (bucket) bucket.push(group);
+      else byScope.set(key, [group]);
+    }
+    return byScope;
+  }, [sessions]);
+  const selectedDaysByScope = useMemo(() => {
+    const selectedDays = new Map<string, number>();
+    for (const scopeKey of scopeIndex.keys()) {
+      selectedDays.set(scopeKey, countSelectedAbsenceDaysForScope(scopeIndex.get(scopeKey)!, selectedSessionIds, scopeKey));
+    }
+    return selectedDays;
+  }, [scopeIndex, selectedSessionIds]);
+  const groupDayIndex = useMemo(() => {
+    const byCourse = new Map<string, ReturnType<typeof groupByDay<SubjectSessions["sessions"][number]>>>();
+    for (const group of sessions) byCourse.set(group.course_id, groupByDay(group.sessions));
+    return byCourse;
+  }, [sessions]);
+  const selectedGroups = useMemo(
+    () => sessions.filter((group) => selectedSubjectIdSet.has(group.subject_id)),
+    [sessions, selectedSubjectIdSet],
   );
   const maxSessions = config.sit_in.max_sessions_per_absence;
 
@@ -146,16 +181,28 @@ export default function AbsenceForm() {
     },
     [maxSessions],
   );
+  const selectedSubjectRemainingDays = useMemo(() => {
+    const remainingByScope = new Map<string, number>();
+    for (const group of sessions) {
+      if (!selectedSubjectIdSet.has(group.subject_id)) continue;
+      const scopeKey = absenceScopeKey(group);
+      const current = remainingByScope.get(scopeKey) ?? 0;
+      remainingByScope.set(scopeKey, Math.max(current, remainingForGroup(group)));
+    }
+    return [...remainingByScope.values()].reduce((total, remaining) => total + remaining, 0);
+  }, [remainingForGroup, selectedSubjectIdSet, sessions]);
   const manualEmail = collectedEmail.trim();
   const manualEmailValid = /^[^\s@]+@[^\s@]+$/.test(manualEmail);
   const emailSatisfied = !!lookup && (!lookup.email_input_required || manualEmailValid);
   const canProceedFromStudent = !!lookup && emailSatisfied;
-  const studentDisplayName = studentProfile?.display_name || "Student";
+  // Pre-verification the profile is not loaded, so the masked lookup hint
+  // stands in for the name; after verification the real display name shows.
+  const studentDisplayName = studentProfile?.display_name || lookup?.nickname_hint || "Student";
   const verifiedSubjects = studentProfile?.subjects ?? [];
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
-      if (!selectedSubjectIds.includes(group.subject_id)) continue;
+      if (!selectedSubjectIdSet.has(group.subject_id)) continue;
       for (const session of group.sessions) {
         if (!selectedSessionIds.has(session.id)) continue;
         const sitIn = sitInForMissedSession(group, session.id);
@@ -163,7 +210,7 @@ export default function AbsenceForm() {
       }
     }
     return false;
-  }, [sessions, selectedSubjectIds, selectedSessionIds, sitInSelections]);
+  }, [sessions, selectedSubjectIdSet, selectedSessionIds, sitInSelections]);
 
   useEffect(() => {
     let active = true;
@@ -341,8 +388,9 @@ export default function AbsenceForm() {
       }
     };
     enforceExpiry();
-    const timer = window.setInterval(enforceExpiry, 100);
-    return () => window.clearInterval(timer);
+    // One timeout at the expiry instant instead of polling a clock check.
+    const timer = window.setTimeout(enforceExpiry, Math.max(0, verification.expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
   }, [verification.expiresAt, verification.token]);
 
   const handleVerificationSatisfied = useCallback(() => {
@@ -398,6 +446,7 @@ export default function AbsenceForm() {
       setExpandedSubjectId(null);
       setCollectedEmail(shouldRestoreDraft ? draftForStudent?.collectedEmail ?? "" : "");
       setReason(shouldRestoreDraft ? draftForStudent?.reason ?? "" : "");
+      setNickname("");
       setReasonError(null);
       setSessions([]);
       setSessionsError(null);
@@ -422,36 +471,42 @@ export default function AbsenceForm() {
   };
 
   const toggleSubject = (subjectId: string) => {
-    setSelectedSubjectIds((current) => {
-      if (current.includes(subjectId)) {
-        const next = current.filter((id) => id !== subjectId);
-        setExpandedSubjectId((expanded) => expanded === subjectId ? next[0] ?? null : expanded);
-        return next;
-      }
-      setExpandedSubjectId(subjectId);
-      return [...current, subjectId];
-    });
+    const wasSelected = selectedSubjectIds.includes(subjectId);
+    if (wasSelected) {
+      setSelectedSubjectIds((current) => current.filter((id) => id !== subjectId));
+      setExpandedSubjectId((expanded) => {
+        if (expanded !== subjectId) return expanded;
+        return selectedSubjectIds.filter((id) => id !== subjectId)[0] ?? null;
+      });
+      return;
+    }
+    setSelectedSubjectIds((current) => [...current, subjectId]);
+    setExpandedSubjectId(subjectId);
   };
 
   const handleSessionGroupToggle = (group: SubjectSessions, sessionIds: string[]) => {
-    setSelectedSessionIds((current) => {
-      const selected = sessionIds.every((sessionId) => current.has(sessionId));
-      if (selected) {
+    const selected = sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
+    if (selected) {
+      setSelectedSessionIds((current) => {
         const next = new Set(current);
         for (const sessionId of sessionIds) next.delete(sessionId);
-        setSitInSelections((cs) => {
-          const n = { ...cs };
-          for (const sessionId of sessionIds) delete n[sessionId];
-          return n;
-        });
         return next;
-      }
-      const remaining = remainingForGroup(group);
-      const currentlySelectedDays = countSelectedAbsenceDaysForGroup(group, current);
-      if (currentlySelectedDays + 1 > remaining) return current;
-      if (currentlySelectedDays + 1 > maxSessions) return current;
+      });
+      setSitInSelections((current) => {
+        const next = { ...current };
+        for (const sessionId of sessionIds) delete next[sessionId];
+        return next;
+      });
+      return;
+    }
+    setSelectedSessionIds((current) => {
       const next = new Set(current);
       for (const sessionId of sessionIds) next.add(sessionId);
+      const scopeKey = absenceScopeKey(group);
+      const scopedGroups = sessions.filter((candidate) => absenceScopeKey(candidate) === scopeKey);
+      const projectedDays = countSelectedAbsenceDaysForScope(scopedGroups, next, scopeKey);
+      const remaining = Math.max(...scopedGroups.map(remainingForGroup), 0);
+      if (projectedDays > remaining || projectedDays > maxSessions) return current;
       return next;
     });
   };
@@ -605,12 +660,34 @@ export default function AbsenceForm() {
     if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
     try {
       setIsSubmitting(true);
-      const response = await submitAbsenceBatch({
-        idempotencyKey: submissionIdempotencyKey.current,
-        email: collectedEmail.trim() || undefined,
-        reason: reason.trim(),
-        items: payloads,
-      });
+      const nicknameForSubmission = studentProfile?.nickname_set === false && nickname.trim()
+        ? nickname.trim()
+        : undefined;
+      let response: Awaited<ReturnType<typeof submitAbsenceBatch>>;
+      try {
+        response = await submitAbsenceBatch({
+          idempotencyKey: submissionIdempotencyKey.current,
+          email: collectedEmail.trim() || undefined,
+          nickname: nicknameForSubmission,
+          reason: reason.trim(),
+          items: payloads,
+        });
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.code === "bad_nickname") {
+          // Optional enrichment must never block the absence itself: a
+          // nickname landed on file after the profile was loaded, so drop
+          // it and submit once more under a fresh idempotency key.
+          submissionIdempotencyKey.current = newIdempotencyKey();
+          response = await submitAbsenceBatch({
+            idempotencyKey: submissionIdempotencyKey.current,
+            email: collectedEmail.trim() || undefined,
+            reason: reason.trim(),
+            items: payloads,
+          });
+        } else {
+          throw error;
+        }
+      }
       setFinalResults(response.items);
       verification.setCode("");
       try {
@@ -839,6 +916,11 @@ export default function AbsenceForm() {
                           <div>
                             <p className="text-sm font-semibold text-[var(--color-wi-text)]">Student ID found</p>
                             <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
+                            {lookup.nickname_hint ? (
+                              <p className="text-xs text-[var(--color-wi-text-light)] mt-1" data-testid="lookup-nickname-hint">
+                                Nickname: {lookup.nickname_hint}
+                              </p>
+                            ) : null}
                           </div>
                           <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
                             Ready to verify
@@ -950,8 +1032,8 @@ export default function AbsenceForm() {
                           <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
                           <span className="text-xs font-semibold text-[var(--color-wi-text-light)]">
                             {selectedAbsenceDayCount} selected
-                            {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0) > 0
-                              ? ` (${sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).reduce((sum, g) => sum + remainingForGroup(g), 0)} remaining)`
+                            {selectedSubjectRemainingDays > 0
+                              ? ` (${selectedSubjectRemainingDays} remaining)`
                               : ""}
                           </span>
                         </div>
@@ -983,15 +1065,20 @@ export default function AbsenceForm() {
                           <LoadingSkeleton type="table" lines={3} />
                         ) : sessionsError ? (
                           <p role="alert" className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
-                        ) : sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).length === 0 ? (
+                        ) : selectedGroups.length === 0 ? (
                           <p className="text-sm text-[var(--color-wi-text-light)]">No classes found for the selected courses.</p>
                         ) : (
                           <div className="space-y-4">
-                            {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
-                              const sessionGroups = groupByDay(group.sessions);
-                              const groupLabel = group.subject_name?.trim() || group.course_name?.trim();
-                              const groupRemaining = remainingForGroup(group);
-                              const selectedDaysInGroup = countSelectedAbsenceDaysForGroup(group, selectedSessionIds);
+                            {selectedGroups.map((group) => {
+                              const sessionGroups = groupDayIndex.get(group.course_id) ?? [];
+                              const sourceLabel = group.subject_name?.trim() || group.course_name?.trim();
+                              const groupLabel = group.merge_group_name?.trim()
+                                ? `${group.merge_group_name.trim()} · ${sourceLabel}`
+                                : sourceLabel;
+                              const scopeKey = absenceScopeKey(group);
+                              const scopedGroups = scopeIndex.get(scopeKey) ?? [];
+                              const groupRemaining = Math.max(...scopedGroups.map(remainingForGroup), 0);
+                              const selectedDaysInGroup = selectedDaysByScope.get(scopeKey) ?? 0;
                               const effectiveRemaining = Math.max(0, groupRemaining - selectedDaysInGroup);
                               return (
                                 <div
@@ -1012,6 +1099,11 @@ export default function AbsenceForm() {
                                           : `${effectiveRemaining} day${effectiveRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
                                   </div>
+                                  {group.merge_group_name ? (
+                                    <div className="border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 pb-3 text-xs text-[var(--color-wi-text-light)]">
+                                      Shared absence quota across this merged course
+                                    </div>
+                                  ) : null}
                                   {group.absence_limit_reached ? (
                                     <div className="p-4">
                                       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
@@ -1019,7 +1111,7 @@ export default function AbsenceForm() {
                                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                                         </svg>
                                         <span>
-                                          You have reached the maximum absences allowed for this course.
+                                          You have reached the maximum absences allowed for {group.merge_group_name ? "this merged course" : "this course"}.
                                           {group.used_absence_days != null && (group.maximum_absence_days != null || group.total_course_days != null)
                                             ? ` (${group.used_absence_days} absence day${group.used_absence_days !== 1 ? "s" : ""} used, max ${group.maximum_absence_days ?? Math.round((group.total_course_days ?? 0) / 5)})`
                                             : ""}
@@ -1241,6 +1333,27 @@ export default function AbsenceForm() {
                       <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName}</span> — {lookup.wcode}
                     </p>
 
+                    {studentProfile?.nickname_set === false ? (
+                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-white px-5 py-4 space-y-2">
+                        <label htmlFor="student-nickname" className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
+                          Nickname <span className="normal-case tracking-normal font-medium">(optional)</span>
+                        </label>
+                        <input
+                          id="student-nickname"
+                          maxLength={50}
+                          className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                          placeholder="What our staff can call you"
+                          value={nickname}
+                          onChange={(e) => setNickname(e.target.value)}
+                        />
+                        <p className="text-xs text-[var(--color-wi-text-light)]" data-testid="nickname-echo">
+                          {nickname.trim()
+                            ? <>Helps our staff recognise you — it will be saved as {maskNickname(nickname)}.</>
+                            : <>No nickname on file. Adding one helps our staff recognise you.</>}
+                        </p>
+                      </div>
+                    ) : null}
+
                     {/* Classes section */}
                     <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
                       <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
@@ -1254,7 +1367,7 @@ export default function AbsenceForm() {
                         </button>
                       </div>
                       <div className="px-5 py-4 space-y-3">
-                        {sessions.filter(s => selectedSubjectIds.includes(s.subject_id)).map((group) => {
+                        {selectedGroups.map((group) => {
                           const selectedSessions = getSelectedSessionsForGroup(group, selectedSessionIds);
                           if (selectedSessions.length === 0) return null;
                           const groupLabel = group.subject_name?.trim() || group.course_name?.trim() || group.course_code;

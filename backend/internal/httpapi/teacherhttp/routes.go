@@ -21,6 +21,8 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 	mux.HandleFunc("GET /api/v1/teacher/dashboard", s.handleDashboard)
 	mux.HandleFunc("GET /api/v1/teacher/absences/{id}", s.handleAbsenceDetail)
+	mux.HandleFunc("GET /api/v1/teacher/merge/preview", s.handleMergePreview)
+	mux.HandleFunc("POST /api/v1/teacher/merge", s.handleMerge)
 }
 
 type teacherAbsenceSessionDTO struct {

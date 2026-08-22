@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { apiJson } from "@/api/client";
 import type { Student } from "@/types/shared";
 
@@ -14,23 +14,26 @@ export function useCourseStudents() {
     loading: {},
     errors: {},
   });
+  // In-flight dedupe lives in a ref so a second call before the first state
+  // commit cannot start a duplicate request.
+  const inFlight = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
-  mountedRef.current = true;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const fetchStudents = useCallback(async (courseId: string) => {
-    setState((prev) => {
-      if (prev.cache[courseId] !== undefined || prev.loading[courseId]) {
-        return prev;
-      }
-      return {
-        ...prev,
-        loading: { ...prev.loading, [courseId]: true },
-        errors: { ...prev.errors, [courseId]: null },
-      };
-    });
-
-    const shouldFetch = state.cache[courseId] === undefined && !state.loading[courseId];
-    if (!shouldFetch) return;
+    if (state.cache[courseId] !== undefined || inFlight.current.has(courseId)) return;
+    inFlight.current.add(courseId);
+    setState((prev) => ({
+      ...prev,
+      loading: { ...prev.loading, [courseId]: true },
+      errors: { ...prev.errors, [courseId]: null },
+    }));
 
     try {
       const students = await apiJson<Student[]>(
@@ -55,8 +58,10 @@ export function useCourseStudents() {
           },
         }));
       }
+    } finally {
+      inFlight.current.delete(courseId);
     }
-  }, [state.cache, state.loading]);
+  }, [state.cache]);
 
   return {
     cache: state.cache,

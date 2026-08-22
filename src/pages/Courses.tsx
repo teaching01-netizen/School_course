@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { apiJson } from "@/api/client";
@@ -16,6 +17,8 @@ import StudentStatusBadge from "@/components/StudentStatusBadge";
 import CourseAttendeeRow from "@/components/CourseAttendeeRow";
 import { createCourseDetailNavigationState } from "@/features/courses/navigation";
 import type { CourseGroupSummary } from "@/features/courses/types";
+import { queryKeys } from "@/query/cache";
+import { mapPageItems, useSmartMutation } from "@/query/useSmartMutation";
 
 const PAGE_SIZE = 50;
 const COURSE_TABLE_COLUMN_WIDTHS = [
@@ -77,7 +80,6 @@ export default function Courses() {
   const [searchInput, setSearchInput] = useState(urlQuery);
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [teachers, setTeachers] = useState<User[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const selectedRef = useRef(selected);
@@ -86,6 +88,9 @@ export default function Courses() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const { cache, loading: studentsLoading, errors: studentsErrors, fetchStudents } = useCourseStudents();
   const { data: mergedGroups } = useApiQuery<CourseGroupSummary[]>("/api/v1/course-groups", []);
+  // Shared reference cache: warmed by the Teachers page / nav prefetch, so the
+  // filter dropdown usually renders instantly with no dedicated request.
+  const { data: teachers } = useApiQuery<User[]>("/api/v1/users?role=Teacher");
 
   // The list is fully server-driven: every filter and the page offset live in
   // the URL, and the query key is URL-derived so each combination gets its own
@@ -103,7 +108,22 @@ export default function Courses() {
   }, [bucket, typeFilter, teacherFilter, urlQuery, offset]);
 
   const requestUrl = `/api/v1/courses?${requestQuery}`;
-  const { data: page, loading, error, refetch } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
+  const { data: page, loading, error } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
+
+  const batchDeleteMutation = useSmartMutation<{ ids: string[] }, { succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>({
+    mutationFn: ({ ids }) =>
+      apiJson<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>(
+        "/api/v1/courses/batch-delete",
+        { method: "POST", body: JSON.stringify({ ids }) },
+      ),
+    optimistic: (vars) => [
+      {
+        keyPrefix: queryKeys.courses.all,
+        patch: (data) => mapPageItems<CourseListPage, CourseRow>(data, (course) => (vars.ids.includes(course.id) ? null : course)),
+      },
+    ],
+    invalidates: [queryKeys.courses.all, queryKeys.courseRosters.all],
+  });
 
   // Keep the search box in sync with the URL (deep links, back/forward).
   useEffect(() => {
@@ -127,12 +147,6 @@ export default function Courses() {
   useEffect(() => {
     if (error) addToast("error", error.message);
   }, [error, addToast]);
-
-  useEffect(() => {
-    apiJson<User[]>("/api/v1/users?role=Teacher", { method: "GET" })
-      .then(setTeachers)
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     setSelected(new Set());
@@ -197,14 +211,7 @@ export default function Courses() {
     setDeleting(true);
     const ids = [...selectedRef.current];
     try {
-      const result = await apiJson<{
-        succeeded: string[];
-        failed: Array<{ id: string; error: string }>;
-        total_processed: number;
-      }>("/api/v1/courses/batch-delete", {
-        method: "POST",
-        body: JSON.stringify({ ids }),
-      });
+      const result = await batchDeleteMutation.mutateAsync({ ids });
       if (result.failed.length === 0) {
         addToast("success", `${result.succeeded.length} courses deleted`);
       } else {
@@ -215,7 +222,6 @@ export default function Courses() {
       }
       setConfirmDelete(false);
       setSelected(new Set());
-      await refetch();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Batch delete failed");
     } finally {
@@ -253,7 +259,7 @@ export default function Courses() {
               placeholder="C-ID, C-Code, P-Code, W-Code"
             />
           </div>
-          <select
+          <SearchableSelect
             aria-label="Course type filter"
             value={typeFilter}
             onChange={(event) => updateFilter("type", event.target.value)}
@@ -262,8 +268,8 @@ export default function Courses() {
             <option value="">All types</option>
             <option value="private">Private</option>
             <option value="general">General</option>
-          </select>
-          <select
+          </SearchableSelect>
+          <SearchableSelect
             aria-label="Teacher filter"
             value={teacherFilter}
             onChange={(event) => updateFilter("teacher_id", event.target.value)}
@@ -271,12 +277,12 @@ export default function Courses() {
           >
             <option value="">All teachers</option>
             <option value="none">No teacher</option>
-            {teachers.map((t) => (
+            {(teachers ?? []).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.full_name || t.username}
               </option>
             ))}
-          </select>
+          </SearchableSelect>
           <Link
             to="/courses/create"
             className="px-4 py-2 text-sm rounded-md bg-[var(--color-wi-green)] hover:bg-[var(--color-wi-green-dark)] text-white inline-block"

@@ -31,6 +31,7 @@ type CourseOverviewRow struct {
 	LastSessionAt      pgtype.Timestamptz `json:"last_session_at"`
 	HasOverlap         bool               `json:"has_overlap"`
 	HasConflict        bool               `json:"has_conflict"`
+	AbsenceFormVisible bool               `json:"absence_form_visible"`
 }
 
 type CourseCreateV2Params struct {

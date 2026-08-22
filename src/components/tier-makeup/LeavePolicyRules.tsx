@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
@@ -205,7 +206,7 @@ export default function LeavePolicyRules() {
                         </span>
                       </td>
                       <td className="px-2 py-2">
-                        <select
+                        <SearchableSelect
                           aria-label={`${rule.courseName} production course`}
                           value={selectedCourseIds[rule.id] ?? ""}
                           onChange={(event) => {
@@ -220,7 +221,7 @@ export default function LeavePolicyRules() {
                               {courseLabel(course)}
                             </option>
                           ))}
-                        </select>
+                        </SearchableSelect>
                       </td>
                       <td className="px-2 py-2 text-[var(--color-wi-text-light)]">
                         {rule.description}

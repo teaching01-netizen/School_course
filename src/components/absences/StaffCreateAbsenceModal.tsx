@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { ChevronRight, ChevronLeft, Info } from "lucide-react";
 import { apiJson } from "../../api/client";
 import {
@@ -1750,7 +1751,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                   >
                                                     Make-up class
                                                   </label>
-                                                  <select
+                                                  <SearchableSelect
                                                     id={`staff-sit-in-${firstSessionId}`}
                                                     value={currentSitIn}
                                                     onChange={(e) =>
@@ -1787,7 +1788,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                           </option>
                                                         )),
                                                     )}
-                                                  </select>
+                                                  </SearchableSelect>
                                                 </div>
                                               ) : unavailable.length > 0 ? (
                                                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -1844,7 +1845,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                               sitIn.sit_in_course?.name ||
                                               "To arrange"}
                                           </p>
-                                          <select
+                                          <SearchableSelect
                                             value={currentSitIn}
                                             onChange={(e) =>
                                               handleSitInSelectForSessions(
@@ -1877,7 +1878,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 )}
                                               </option>
                                             ))}
-                                          </select>
+                                          </SearchableSelect>
                                         </div>
                                       ) : sitIn.sit_in_method === "zoom" ? (
                                         <div className="flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">

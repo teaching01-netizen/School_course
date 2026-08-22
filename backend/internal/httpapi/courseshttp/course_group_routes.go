@@ -17,7 +17,9 @@ func registerCourseGroupRoutes(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("POST /api/v1/course-groups", s.handleCourseGroupCreate)
 	mux.HandleFunc("GET /api/v1/course-groups", s.handleCourseGroupList)
 	mux.HandleFunc("GET /api/v1/course-groups/{id}", s.handleCourseGroupGet)
+	mux.HandleFunc("PATCH /api/v1/course-groups/{id}", s.handleCourseGroupUpdate)
 	mux.HandleFunc("GET /api/v1/course-groups/{id}/sessions", s.handleCourseGroupSessions)
+	mux.HandleFunc("DELETE /api/v1/course-groups/{id}", s.handleCourseGroupDelete)
 }
 
 func (s *server) handleCourseGroupList(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +133,79 @@ func (s *server) handleCourseGroupGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.a.WriteJSON(w, http.StatusOK, response)
+}
+
+func (s *server) handleCourseGroupUpdate(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid merged course ID")
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+
+	s.a.WithIdempotentTx(w, r, user.ID, "course-groups", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		result, err := coursegroups.NewService().UpdateNameTx(r.Context(), qtx, coursegroups.UpdateNameCommand{
+			ActorID: pgtype.UUID{Bytes: user.ID, Valid: true},
+			GroupID: id,
+			Name:    body.Name,
+		})
+		if err != nil {
+			writeCourseGroupError(w, s.a, err)
+			return 0, nil, err
+		}
+		return http.StatusOK, map[string]any{
+			"id":   result.GroupID.String(),
+			"name": result.NewName,
+		}, nil
+	})
+}
+
+func (s *server) handleCourseGroupDelete(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid merged course ID")
+		return
+	}
+
+	var courseIDs []string
+	completed := s.a.WithIdempotentTx(w, r, user.ID, "course-groups", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		result, err := coursegroups.NewService().DeleteTx(r.Context(), qtx, coursegroups.DeleteCommand{
+			ActorID: pgtype.UUID{Bytes: user.ID, Valid: true},
+			GroupID: id,
+		})
+		if err != nil {
+			writeCourseGroupError(w, s.a, err)
+			return 0, nil, err
+		}
+		courseIDs = make([]string, 0, len(result.CourseIDs))
+		for _, courseID := range result.CourseIDs {
+			courseIDs = append(courseIDs, courseID.String())
+		}
+		return http.StatusOK, map[string]any{
+			"ok":         true,
+			"id":         result.GroupID.String(),
+			"course_ids": courseIDs,
+		}, nil
+	})
+	if completed {
+		s.publishCourseUpdates(courseIDs)
+	}
 }
 
 func (s *server) handleCourseGroupSessions(w http.ResponseWriter, r *http.Request) {

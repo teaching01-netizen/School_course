@@ -16,17 +16,34 @@ export type DayRangeGroup<T extends TimeRanged> = MergedDayRange & {
   items: T[];
 };
 
+// Hot path: instituteDateKey runs per session on every groupByDay call and
+// groupByDay runs O(groups) times per render. Two invariants keep it cheap:
+// the formatter is constructed once, and results are memoized by input
+// identity — server-state arrays are never mutated, so a WeakMap is safe.
+let instituteDateFormatter: Intl.DateTimeFormat | null = null;
+const dateKeyCache = new Map<string, string>();
+const DATE_KEY_CACHE_LIMIT = 2000;
+
 export function instituteDateKey(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  const cached = dateKeyCache.get(value);
+  if (cached !== undefined) return cached;
+  instituteDateFormatter ??= new Intl.DateTimeFormat("en-GB", {
     timeZone: INSTITUTE_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(date);
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  });
+  const date = new Date(value);
+  const key = Number.isNaN(date.getTime())
+    ? value.slice(0, 10)
+    : (() => {
+        const parts = instituteDateFormatter!.formatToParts(date);
+        const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+        return `${part("year")}-${part("month")}-${part("day")}`;
+      })();
+  if (dateKeyCache.size >= DATE_KEY_CACHE_LIMIT) dateKeyCache.clear();
+  dateKeyCache.set(value, key);
+  return key;
 }
 
 export function dayKey(item: TimeRanged): string {
@@ -47,18 +64,28 @@ function sortByStart<T extends TimeRanged>(items: T[]): T[] {
   return items.slice().sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
 }
 
+const groupByDayCache = new WeakMap<object, unknown>();
+
 export function groupByDay<T extends TimeRanged>(items: T[]): DayRangeGroup<T>[] {
+  const cached = groupByDayCache.get(items);
+  if (cached !== undefined) return cached as DayRangeGroup<T>[];
+  // One global sort by start time; per-day buckets preserve that order, so no
+  // re-sort inside a day is needed.
+  const sorted = sortByStart(items);
   const byDay = new Map<string, T[]>();
-  for (const item of sortByStart(items)) {
+  for (const item of sorted) {
     const key = dayKey(item);
-    byDay.set(key, [...(byDay.get(key) ?? []), item]);
+    const bucket = byDay.get(key);
+    if (bucket) bucket.push(item);
+    else byDay.set(key, [item]);
   }
-  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, dayItems]) => {
-    const sorted = sortByStart(dayItems);
-    const merged = mergeRanges(sorted);
-    const id = sorted.map((item) => item.id ?? `${item.start_at}-${item.end_at}`).join(MERGED_SESSION_ID_SEPARATOR);
-    return { id, date, start_at: merged.start_at, end_at: merged.end_at, items: sorted };
+  const result = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, dayItems]) => {
+    const merged = mergeRanges(dayItems);
+    const id = dayItems.map((item) => item.id ?? `${item.start_at}-${item.end_at}`).join(MERGED_SESSION_ID_SEPARATOR);
+    return { id, date, start_at: merged.start_at, end_at: merged.end_at, items: dayItems };
   });
+  groupByDayCache.set(items, result);
+  return result;
 }
 
 export function mergedSessionValue(items: Array<{ id: string }>): string {
@@ -86,9 +113,32 @@ export function countSelectedAbsenceDaysForGroup(group: SubjectSessions, selecte
     .filter((sessionGroup) => sessionGroup.items.length > 0 && isDayGroupSelected(sessionGroup, selected)).length;
 }
 
+export function absenceScopeKey(group: SubjectSessions): string {
+  return group.merge_group_id ? `merge:${group.merge_group_id}` : `course:${group.course_id}`;
+}
+
+export function countSelectedAbsenceDaysForScope(
+  groups: SubjectSessions[],
+  selected: Set<string>,
+  scopeKey: string,
+): number {
+  const selectedDays = new Set<string>();
+  for (const group of groups) {
+    if (absenceScopeKey(group) !== scopeKey) continue;
+    for (const sessionGroup of groupByDay(group.sessions)) {
+      const activeItems = sessionGroup.items.filter((session) => !session.already_absent);
+      if (activeItems.length > 0 && isDayGroupSelected({ ...sessionGroup, items: activeItems }, selected)) {
+        selectedDays.add(sessionGroup.date);
+      }
+    }
+  }
+  return selectedDays.size;
+}
+
 export function countSelectedAbsenceDays(groups: SubjectSessions[], selected: Set<string>): number {
-  return groups.reduce(
-    (total, group) => total + countSelectedAbsenceDaysForGroup(group, selected),
+  const scopeKeys = new Set(groups.map(absenceScopeKey));
+  return [...scopeKeys].reduce(
+    (total, scopeKey) => total + countSelectedAbsenceDaysForScope(groups, selected, scopeKey),
     0,
   );
 }

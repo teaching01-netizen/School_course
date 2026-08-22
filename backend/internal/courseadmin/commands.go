@@ -40,6 +40,9 @@ type UpdateCourseCommand struct {
 	CycleID      *string
 	ExpirySet    bool
 	ExpiryDays   *int32
+	// AbsenceFormVisible toggles the course's availability in the student
+	// absence form; nil leaves the current value untouched.
+	AbsenceFormVisible *bool
 }
 
 // UpdateCourseResult reports the outcome of a successful teacher-set update.

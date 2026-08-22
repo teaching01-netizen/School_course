@@ -72,6 +72,7 @@ func (q *Queries) AppSettingsUpdateAbsencePolicies(ctx context.Context, policies
 type AbsencePolicies struct {
 	Subjects         map[string]SubjectPolicy `json:"subjects"`
 	RootCourseGroups map[string]SubjectPolicy `json:"root_course_groups"`
+	MergeGroups      map[string]SubjectPolicy `json:"merge_groups"`
 	Zoom             ZoomConfig               `json:"zoom"`
 	SitIn            SitInPolicyConfig        `json:"sit_in"`
 }
@@ -96,6 +97,7 @@ func DefaultAbsencePolicies() AbsencePolicies {
 	return AbsencePolicies{
 		Subjects:         map[string]SubjectPolicy{},
 		RootCourseGroups: map[string]SubjectPolicy{},
+		MergeGroups:      map[string]SubjectPolicy{},
 		Zoom: ZoomConfig{
 			Description: "Zoom session — no physical class attendance required.",
 		},

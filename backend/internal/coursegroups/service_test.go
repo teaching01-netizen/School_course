@@ -43,3 +43,15 @@ func TestValidateCreateAcceptsExactlyTwoCourses(t *testing.T) {
 		t.Fatalf("expected valid command, got %v", err)
 	}
 }
+
+func TestValidateNameTrimsAndRejectsBlankValues(t *testing.T) {
+	if err := ValidateName("   "); err == nil {
+		t.Fatal("expected blank name to be rejected")
+	} else if domainErr, ok := err.(*Error); !ok || domainErr.Code != "invalid_name" {
+		t.Fatalf("expected invalid_name, got %v", err)
+	}
+
+	if err := ValidateName(" Reading + Writing "); err != nil {
+		t.Fatalf("expected trimmed non-blank name to be accepted, got %v", err)
+	}
+}

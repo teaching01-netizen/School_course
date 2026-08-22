@@ -64,6 +64,10 @@ func (s *server) courseGroupResponse(ctx context.Context, q *sqldb.Queries, grou
 		if err != nil {
 			return nil, err
 		}
+		courseTeachers := teachersByCourse[id]
+		if courseTeachers == nil {
+			courseTeachers = make([]map[string]any, 0)
+		}
 		memberDTOs = append(memberDTOs, map[string]any{
 			"id":                   id,
 			"code":                 member.Code,
@@ -78,7 +82,7 @@ func (s *server) courseGroupResponse(ctx context.Context, q *sqldb.Queries, grou
 			"root_course_group_id": nullableUUID(s.a, member.RootCourseGroupID),
 			"legacy_course_id":     nullableText(member.LegacyCourseID),
 			"legacy_archived":      member.LegacyArchived,
-			"teachers":             teachersByCourse[id],
+			"teachers":             courseTeachers,
 		})
 	}
 	merged := make([]map[string]any, 0, len(mergedTeachers))

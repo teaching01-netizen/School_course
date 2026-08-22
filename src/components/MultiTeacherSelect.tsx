@@ -131,7 +131,7 @@ export default function MultiTeacherSelect(props: {
         <div
           id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto border border-wi-line bg-white rounded-sm shadow animate-dropdown-enter"
+          className="animate-notion-popover-in absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-wi-line bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]"
         >
           {hasNoResults ? (
             <div className="px-3 py-2 text-sm text-[var(--color-wi-text-light)]">No matches found</div>

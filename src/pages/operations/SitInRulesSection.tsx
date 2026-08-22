@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
@@ -10,7 +11,7 @@ import useReturnsDesk from "../../hooks/useReturnsDesk";
 import ReturnsDeskPanel from "../../components/ReturnsDeskPanel";
 import { useSitInRules } from "../../features/absences/hooks/useSitInRules";
 import { getGapWarning } from "../../utils/levels";
-import type { CourseLevelItem, PolicyResponse, RootCourseGroupInfo } from "../../utils/levels";
+import type { CourseLevelItem, CourseMergeGroupConfig, PolicyResponse, RootCourseGroupInfo } from "../../utils/levels";
 import type { SitInRule } from "../../types";
 
 type CardCourse = {
@@ -52,6 +53,7 @@ export function SitInRulesSection() {
   const returnsDesk = useReturnsDesk();
   const { rules: sitInRules } = useSitInRules();
   const [courses, setCourses] = useState<CourseLevelItem[]>([]);
+  const [mergeGroups, setMergeGroups] = useState<CourseMergeGroupConfig[]>([]);
   const [courseTotal, setCourseTotal] = useState(0);
   const [courseOffset, setCourseOffset] = useState(0);
   const [coursePageLoading, setCoursePageLoading] = useState(false);
@@ -91,22 +93,31 @@ export function SitInRulesSection() {
   useEffect(() => {
     (async () => {
       try {
-        const [coursesData, policiesResp, rootGroupsData] = await Promise.all([
+        const [coursesData, policiesResp, rootGroupsData, mergeGroupsData] = await Promise.all([
           apiJson<CourseLevelItem[] | CourseLevelsPage>(`/api/v1/admin/course-levels?limit=${COURSE_PAGE_SIZE}&offset=0`, { method: "GET" }),
           apiJson<PolicyResponse>("/api/v1/admin/absence-policies", { method: "GET" }),
           apiJson<RootCourseGroupInfo[]>("/api/v1/admin/root-course-groups", { method: "GET" }),
+          apiJson<CourseMergeGroupConfig[]>("/api/v1/admin/course-merge-groups", { method: "GET" }),
         ]);
         const coursesPage = parseCourseLevelsPage(coursesData);
         setCourses(coursesPage.items);
         setCourseTotal(coursesPage.total);
         setCourseOffset(coursesPage.offset);
         setRootCourseGroupMap(new Map(rootGroupsData.map(g => [g.id, g])));
+        setMergeGroups(mergeGroupsData ?? []);
         const rootPolicies = policiesResp.absence_policies?.root_course_groups ?? {};
+        const mergePolicies = policiesResp.absence_policies?.merge_groups ?? {};
         const toggles: Record<string, boolean> = {};
         const initial: Record<string, boolean> = {};
         const weeks: Record<string, number> = {};
         const initialWeeks: Record<string, number> = {};
         for (const [id, policy] of Object.entries(rootPolicies)) {
+          toggles[id] = policy.auto_sit_in_enabled;
+          initial[id] = policy.auto_sit_in_enabled;
+          weeks[id] = policy.sit_in_window_weeks ?? 0;
+          initialWeeks[id] = policy.sit_in_window_weeks ?? 0;
+        }
+        for (const [id, policy] of Object.entries(mergePolicies)) {
           toggles[id] = policy.auto_sit_in_enabled;
           initial[id] = policy.auto_sit_in_enabled;
           weeks[id] = policy.sit_in_window_weeks ?? 0;
@@ -197,6 +208,45 @@ export function SitInRulesSection() {
       addToast("success", "Rule assigned");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to assign rule");
+    }
+  }
+
+  async function saveMergeRuleAssignment(groupId: string, ruleId: string | null) {
+    try {
+      await apiJson(`/api/v1/admin/course-merge-groups/${groupId}`, {
+        method: "PUT",
+        body: JSON.stringify({ sit_in_rule_id: ruleId ?? "" }),
+      });
+      setMergeGroups((previous) => previous.map((group) => group.id === groupId ? { ...group, sit_in_rule_id: ruleId } : group));
+      addToast("success", "Merged course rule assigned");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to assign merged course rule");
+    }
+  }
+
+  async function saveMergeAutoPolicy(groupId: string) {
+    setSavingPolicy((previous) => ({ ...previous, [groupId]: true }));
+    try {
+      await apiJson("/api/v1/admin/absence-policies", {
+        method: "PUT",
+        body: JSON.stringify({
+          absence_policies: {
+            merge_groups: {
+              [groupId]: {
+                auto_sit_in_enabled: autoToggles[groupId] ?? true,
+                sit_in_window_weeks: windowWeeks[groupId] ?? 0,
+              },
+            },
+          },
+        }),
+      });
+      setInitialAutoToggles((previous) => ({ ...previous, [groupId]: autoToggles[groupId] ?? true }));
+      setInitialWindowWeeks((previous) => ({ ...previous, [groupId]: windowWeeks[groupId] ?? 0 }));
+      addToast("success", "Merged course policy saved");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to save merged course policy");
+    } finally {
+      setSavingPolicy((previous) => ({ ...previous, [groupId]: false }));
     }
   }
 
@@ -347,6 +397,59 @@ export function SitInRulesSection() {
         </div>
       ) : null}
 
+      {mergeGroups.length > 0 ? (
+        <section className="mb-5" aria-labelledby="merged-course-rules-heading">
+          <div className="mb-3">
+            <h2 id="merged-course-rules-heading" className="text-sm font-semibold text-[var(--color-wi-text)]">Merged course policies</h2>
+            <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">These settings apply once to the merged absence scope. Source course sessions remain the physical sit-in destinations.</p>
+          </div>
+          <div className="space-y-3">
+            {mergeGroups.map((group) => {
+              const autoEnabled = autoToggles[group.id] ?? true;
+              const weeks = windowWeeks[group.id] ?? 0;
+              const dirty = autoEnabled !== (initialAutoToggles[group.id] ?? true) || weeks !== (initialWindowWeeks[group.id] ?? 0);
+              return (
+                <div key={group.id} className="rounded-sm border border-blue-200 bg-blue-50/40 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-[var(--color-wi-text)]">{group.name}</span>
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">Merged scope</span>
+                      </div>
+                      <p className="mt-1 font-mono text-xs text-[var(--color-wi-text-light)]">{group.course_codes.join(" + ")}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]">
+                        <span>Rule:</span>
+                        <SearchableSelect
+                          aria-label={`Sit-in rule for ${group.name}`}
+                          value={group.sit_in_rule_id ?? ""}
+                          onChange={(event) => saveMergeRuleAssignment(group.id, event.target.value || null)}
+                          className="border border-wi-line rounded px-2 py-1 text-xs bg-white"
+                        >
+                          <option value="">No rule assigned</option>
+                          {sitInRules.map((rule: SitInRule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}
+                        </SearchableSelect>
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]">
+                        <input type="checkbox" checked={autoEnabled} onChange={(event) => setAutoToggles((previous) => ({ ...previous, [group.id]: event.target.checked }))} />
+                        <span>Auto</span>
+                      </label>
+                      <label className="flex items-center gap-1 text-xs text-[var(--color-wi-text-light)]">
+                        <span>Window:</span>
+                        <input type="number" min={0} className="w-14 border border-wi-line rounded px-1.5 py-1 text-xs bg-white" value={weeks} onChange={(event) => setWindowWeeks((previous) => ({ ...previous, [group.id]: Math.max(0, parseInt(event.target.value) || 0) }))} />
+                        <span>weeks</span>
+                      </label>
+                      {dirty ? <Button size="sm" loading={savingPolicy[group.id]} onClick={() => saveMergeAutoPolicy(group.id)}>Save policy</Button> : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <div className="space-y-4">
         {cardGroups.map((group) => {
           const rcId = group.rootCourseGroupId;
@@ -387,7 +490,7 @@ export function SitInRulesSection() {
                     {selectedCount > 0 ? (
                       <span className="text-xs text-blue-600">{selectedCount} selected</span>
                     ) : null}
-                    <select
+                    <SearchableSelect
                       value={group.sitInRuleId ?? ""}
                       onChange={(e) => {
                         const ruleId = e.target.value || null;
@@ -399,7 +502,7 @@ export function SitInRulesSection() {
                       {sitInRules.map((rule: SitInRule) => (
                         <option key={rule.id} value={rule.id}>{rule.name}</option>
                       ))}
-                    </select>
+                    </SearchableSelect>
                     <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]" title="Automatically assign students to next-level course when no sit-in capacity remains">
                       <input
                         type="checkbox"

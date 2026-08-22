@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { format } from "date-fns";
 import { apiJson, ApiRequestError } from "../api/client";
 import { useToast } from "../hooks/useToast";
@@ -166,7 +167,7 @@ export default function Availability() {
 
         <div>
           <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">{mode === "teacher" ? "Teacher" : "Room"}</label>
-          <select
+          <SearchableSelect
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
             className="px-2 py-1 text-sm border border-wi-line rounded-sm min-w-[240px]"
@@ -184,7 +185,7 @@ export default function Availability() {
                   {r.name} ({r.capacity ?? "—"})
                 </option>
               ))}
-          </select>
+          </SearchableSelect>
         </div>
 
         <div className="ml-auto flex items-end gap-2">

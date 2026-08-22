@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 
 interface ActiveCourseSelectorProps {
   subjectId: string;
@@ -16,7 +16,14 @@ export default function ActiveCourseSelector({
   onSelect,
 }: ActiveCourseSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredCourses = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return courses;
+    return courses.filter((course) => `${course.code} ${course.name} ${course.cycleLabel}`.toLowerCase().includes(needle));
+  }, [courses, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -70,7 +77,10 @@ export default function ActiveCourseSelector({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => setOpen((prev) => {
+          if (!prev) setQuery("");
+          return !prev;
+        })}
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm transition-colors duration-150
           ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--color-wi-row-alt)] cursor-pointer"}
         `}
@@ -90,9 +100,18 @@ export default function ActiveCourseSelector({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white border border-wi-line rounded-sm shadow-lg">
-          <div className="py-1">
-            {courses.map((course) => {
+        <div className="animate-notion-popover-in absolute left-0 top-full z-50 mt-1 w-64 rounded-md border border-wi-line bg-white p-2 shadow-[0_12px_32px_rgba(0,0,0,0.14),0_1px_3px_rgba(0,0,0,0.12)]">
+          <input
+            role="combobox"
+            aria-label={`Search active courses for ${subjectId}`}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search active courses…"
+            className="mb-1.5 h-8 w-full rounded-sm border border-wi-line px-2.5 text-xs placeholder:text-[var(--color-wi-faint)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-3 focus:ring-[var(--color-wi-primary)]/15"
+          />
+          <div className="notion-scrollbar max-h-56 overflow-y-auto py-1">
+            {filteredCourses.length === 0 ? <div className="px-2.5 py-3 text-center text-xs text-[var(--color-wi-text-light)]">No matches found</div> : null}
+            {filteredCourses.map((course) => {
               const isActive = course.id === activeCourseId;
               return (
                 <button

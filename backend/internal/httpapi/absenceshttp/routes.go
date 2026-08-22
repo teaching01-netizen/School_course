@@ -46,8 +46,9 @@ type sessionRow struct {
 // student is enrolled in it, only the active course and its same-cycle
 // sibling courses are bookable — stale enrollments from earlier cycles are
 // hidden. Students not enrolled in the active course keep seeing all their
-// enrolled courses so the form never goes empty. Courses are hard-deleted
-// (migration 00032), so no course soft-delete filter is needed.
+// enrolled courses so the form never goes empty. Courses flagged
+// absence_form_visible = false are hidden from the form entirely. Courses are
+// hard-deleted (migration 00032), so no course soft-delete filter is needed.
 func sessionsInRangeSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
@@ -64,6 +65,7 @@ func sessionsInRangeSelectSQL() string {
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
+		  AND c.absence_form_visible
 		  AND (
 			sac.course_id IS NULL
 			OR c.id = sac.course_id
@@ -507,6 +509,13 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
+		// Hard gate: a course hidden from the absence form cannot be booked by
+		// students even via a hand-crafted request. Staff submitting on a
+		// student's behalf keep full access.
+		if !adminRequest && !course.AbsenceFormVisible {
+			s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
+			return 0, nil, fmt.Errorf("course %s is hidden from the absence form", course.CourseID)
+		}
 		missedUUIDs, err := parseUUIDStrings(body.MissedSessionIDs)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
@@ -583,6 +592,11 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			SitInCourseID: sitInCourseID,
 		})
 		if err != nil {
+			status, code, msg := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, msg)
+			return 0, nil, err
+		}
+		if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, item.ID, course.CourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -794,7 +808,8 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 
 // Public lookup returns only the values needed to start self-service. It must
 // never become a student directory: profile data is available only after OTP
-// verification has created a student self-service session.
+// verification has created a student self-service session. The nickname hint
+// is the one pre-verification identity cue and is always masked server-side.
 func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 	if _, hasNickname := r.URL.Query()["nickname"]; hasNickname {
 		s.a.WriteErr(w, http.StatusBadRequest, "nickname_not_supported", "nickname lookup is not supported; use wcode")
@@ -850,12 +865,18 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		return http.StatusOK, map[string]any{
+		response := map[string]any{
 			"wcode":                         result.Wcode,
 			"lookup_token":                  result.LookupToken,
 			"email_input_required":          result.EmailInputRequired,
 			"parent_verification_available": result.ParentVerificationAvailable,
-		}, nil
+		}
+		// Masked identity cue so the submitter can confirm the W-Code hit the
+		// right student before verification; raw values stay behind the OTP.
+		if hint := maskNicknameForPublic(result.DisplayName); hint != "" {
+			response["nickname_hint"] = hint
+		}
+		return http.StatusOK, response, nil
 	}) {
 		return
 	}
@@ -1215,7 +1236,15 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	absentRows, err := s.deps.DB.Query(r.Context(), `
 		SELECT DISTINCT sess.id
 		FROM sessions sess
-		JOIN student_absences sa ON sa.course_id = sess.course_id
+		JOIN student_absences sa ON (
+			sa.course_id = sess.course_id
+			OR EXISTS (
+				SELECT 1
+				FROM course_merge_group_members merge_member
+				WHERE merge_member.group_id = sa.merge_group_id
+				  AND merge_member.course_id = sess.course_id
+			)
+		)
 		WHERE sa.wcode = $1
 		  AND sa.status <> 'cancelled'
 		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
@@ -1307,6 +1336,8 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		CourseID             string               `json:"course_id"`
 		CourseCode           string               `json:"course_code"`
 		CourseName           string               `json:"course_name"`
+		MergeGroupID         string               `json:"merge_group_id,omitempty"`
+		MergeGroupName       string               `json:"merge_group_name,omitempty"`
 		Sessions             []sessionResponse    `json:"sessions"`
 		SitIn                *courseSitInResponse `json:"sit_in,omitempty"`
 		TotalCourseDays      int32                `json:"total_course_days"`
@@ -1387,11 +1418,29 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading course absence days")
 			return
 		}
-		dayCounts, dayCountErr := s.deps.Q.AbsenceDayCountsForCourse(r.Context(), sqldb.AbsenceDayCountsForCourseParams{
-			Wcode:       wcode,
-			CourseID:    courseID,
-			InstituteTZ: s.deps.InstituteTZ,
-		})
+		mergeScope, hasMergeScope, scopeErr := mergeGroupScopeForCourse(r.Context(), s.deps.Q, courseID)
+		if scopeErr != nil {
+			if s.deps.Log != nil {
+				s.deps.Log.Error("failed to resolve course absence scope", "course_id", g.CourseID, "error", scopeErr)
+			}
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
+			return
+		}
+		var dayCounts sqldb.AbsenceDayCounts
+		var dayCountErr error
+		if hasMergeScope {
+			dayCounts, dayCountErr = s.deps.Q.AbsenceDayCountsForMergeGroup(r.Context(), sqldb.AbsenceDayCountsForMergeGroupParams{
+				Wcode:        wcode,
+				MergeGroupID: mergeScope.ID,
+				InstituteTZ:  s.deps.InstituteTZ,
+			})
+		} else {
+			dayCounts, dayCountErr = s.deps.Q.AbsenceDayCountsForCourse(r.Context(), sqldb.AbsenceDayCountsForCourseParams{
+				Wcode:       wcode,
+				CourseID:    courseID,
+				InstituteTZ: s.deps.InstituteTZ,
+			})
+		}
 		if dayCountErr != nil {
 			if s.deps.Log != nil {
 				s.deps.Log.Error("failed to calculate course absence days", "course_id", g.CourseID, "error", dayCountErr)
@@ -1400,6 +1449,14 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			return
 		}
 		limitStats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays)
+		mergeGroupID := ""
+		if hasMergeScope {
+			mergeGroupID, dayCountErr = sUUIDString(mergeScope.ID)
+			if dayCountErr != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading course absence scope")
+				return
+			}
+		}
 
 		courses = append(courses, courseResponse{
 			SubjectID:            g.SubjectID,
@@ -1408,6 +1465,8 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			CourseID:             g.CourseID,
 			CourseCode:           g.CourseCode,
 			CourseName:           g.CourseName,
+			MergeGroupID:         mergeGroupID,
+			MergeGroupName:       mergeScope.Name,
 			Sessions:             sessionsResp,
 			SitIn:                sitIn,
 			TotalCourseDays:      limitStats.TotalCourseDays,

@@ -209,6 +209,8 @@ export type PublicStudentLookupResponse = {
   lookup_token: string;
   email_input_required: boolean;
   parent_verification_available: boolean;
+  /** Masked server-side (e.g. "B***"); the raw name stays behind the OTP. */
+  nickname_hint?: string;
 };
 
 export type VerifiedStudentSubject = {
@@ -221,6 +223,8 @@ export type VerifiedStudentProfile = {
   wcode: string;
   display_name: string;
   email_on_file: boolean;
+  /** Whether a nickname exists on file — never the value itself. */
+  nickname_set?: boolean;
   subjects: VerifiedStudentSubject[];
 };
 
@@ -399,6 +403,8 @@ export type SubjectSessions = {
   course_id: string;
   course_code: string;
   course_name: string;
+  merge_group_id?: string | null;
+  merge_group_name?: string | null;
   sessions: SessionInSubject[];
   sit_in?: SitInInfo;
   total_course_days?: number;
