@@ -94,6 +94,23 @@ func (q *Queries) CourseAbsenceFormVisibleUpdate(ctx context.Context, courseID p
 	return tag.RowsAffected() > 0, nil
 }
 
+// CourseAbsenceFormVisibleBulkUpdate applies one visibility value to many
+// courses in a single atomic statement — the operations bulk action. Ids are
+// passed as a uuid[] cast so the query works in every pgx exec mode; unknown
+// ids simply match nothing. Returns how many courses actually changed.
+func (q *Queries) CourseAbsenceFormVisibleBulkUpdate(ctx context.Context, courseIDs []string, visible bool) (int64, error) {
+	tag, err := q.db.Exec(ctx, `
+		UPDATE courses
+		SET absence_form_visible = $2,
+		    updated_at = now()
+		WHERE id = ANY($1::uuid[])
+	`, courseIDs, visible)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 type CourseBatchDeleteResult struct {
 	ID      pgtype.UUID
 	Success bool

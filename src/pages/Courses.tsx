@@ -56,6 +56,7 @@ type CourseRow = {
   has_overlap?: boolean;
   has_conflict?: boolean;
   absence_form_visible?: boolean;
+  is_active_course?: boolean;
   teachers?: { id: string; username: string; full_name?: string | null }[];
 };
 
@@ -434,12 +435,12 @@ export default function Courses() {
                       <td className="py-3 px-2 break-words font-mono text-xs text-[var(--color-wi-text-light)]">
                         <span className="flex flex-wrap items-center gap-1">
                           <span>{course.code}</span>
-                          {course.absence_form_visible === false && (
+                          {course.is_active_course && (
                             <span
-                              className="rounded-full bg-amber-100 px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wide text-amber-800"
-                              title="Hidden from the student absence form — students cannot see or book this class"
+                              className="rounded-full bg-green-100 px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wide text-green-700"
+                              title="Active course — the student absence form auto-assigns this class for its subject"
                             >
-                              Hidden
+                              Active
                             </span>
                           )}
                         </span>

@@ -345,3 +345,58 @@ func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
 		}
 	}
 }
+
+// TestCoursesList_ActiveCourseFlag covers the list badge: exactly the course
+// designated as its subject's active course carries is_active_course=true.
+func TestCoursesList_ActiveCourseFlag(t *testing.T) {
+	fx := setupTestServer(t)
+	token := "LAC" + uuid.NewString()[:8]
+	activeID := courseSeed(t, fx, courseCode(token+"A"), "Private", false)
+	otherID := courseSeed(t, fx, courseCode(token+"B"), "Private", false)
+	subjectCode := "SUBJ-" + token
+	ctx := context.Background()
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subjects (code, name) VALUES ($1, $1)
+	`, subjectCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		UPDATE courses SET subject_id = (SELECT id FROM subjects WHERE code = $1)
+		WHERE code IN ($2, $3)
+	`, subjectCode, courseCode(token+"A"), courseCode(token+"B")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.dbpool.Exec(ctx, `
+		INSERT INTO subject_active_courses (subject_id, course_id)
+		SELECT s.id, c.id FROM subjects s, courses c
+		WHERE s.code = $1 AND c.code = $2
+	`, subjectCode, courseCode(token+"A")); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := doRequest(t, fx.server.URL, "GET", "/api/v1/courses?limit=100", nil)
+	assertResponseCode(t, resp, http.StatusOK)
+	var envelope struct {
+		Items []map[string]any `json:"items"`
+	}
+	parseResponse(t, resp, &envelope)
+
+	found := map[string]bool{}
+	for _, item := range envelope.Items {
+		switch item["id"].(string) {
+		case activeID:
+			found["active"] = true
+			if got, ok := item["is_active_course"].(bool); !ok || !got {
+				t.Fatalf("designated active course must report is_active_course=true, got %#v", item["is_active_course"])
+			}
+		case otherID:
+			found["other"] = true
+			if got, ok := item["is_active_course"].(bool); !ok || got {
+				t.Fatalf("non-active course must report is_active_course=false, got %#v", item["is_active_course"])
+			}
+		}
+	}
+	if !found["active"] || !found["other"] {
+		t.Fatalf("seeded courses missing from list response (found %v)", found)
+	}
+}

@@ -206,6 +206,7 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		HasOverlap         bool             `json:"has_overlap"`
 		HasConflict        bool             `json:"has_conflict"`
 		AbsenceFormVisible bool             `json:"absence_form_visible"`
+		IsActiveCourse     bool             `json:"is_active_course"`
 		Teachers           []map[string]any `json:"teachers"`
 	}
 	out := make([]courseDTO, 0, len(items))
@@ -286,6 +287,7 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			HasOverlap:         c.HasOverlap,
 			HasConflict:        c.HasConflict,
 			AbsenceFormVisible: c.AbsenceFormVisible,
+			IsActiveCourse:     c.IsActiveCourse,
 			Teachers:           teachersByCourse[cid],
 		})
 	}
@@ -1412,6 +1414,7 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		"legacy_course_id":      legacyCourseID,
 		"legacy_last_synced_at": legacyLastSyncedAt,
 		"absence_form_visible":  item.AbsenceFormVisible,
+		"is_active_course":      item.IsActiveCourse,
 		"version":               item.Version.Int32,
 		"teachers":              teachers,
 	}, nil

@@ -100,9 +100,74 @@ func (q *Queries) ActiveCoursesList(ctx context.Context) ([]ActiveCourseSubjectR
 	return subjects, coursesBySubject, nil
 }
 
-func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset int) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, int64, int64, error) {
+// ActiveCourseStatus values understood by ActiveCoursesListPaginated and
+// mirrored by the operations UI filter chips. The empty string behaves as
+// StatusAll so older callers get the unfiltered list.
+const (
+	ActiveCourseStatusAll           = "all"
+	ActiveCourseStatusConfigured    = "configured"
+	ActiveCourseStatusHiddenActive  = "hidden_active"
+	ActiveCourseStatusMissingActive = "missing_active"
+)
+
+type ActiveCoursesListParams struct {
+	Limit  int
+	Offset int
+	// Search matches subject code or name (case-insensitive substring).
+	Search string
+	// Status filters subjects by active-course state; see the constants above.
+	Status string
+}
+
+// The per-subject active-course state is computed the same way for the count
+// and the page queries, so the join and predicate live here once.
+const activeCourseStateJoin = `
+	LEFT JOIN LATERAL (
+		SELECT c.absence_form_visible AS active_visible
+		FROM subject_active_courses sac
+		JOIN courses c ON c.id = sac.course_id
+		WHERE sac.subject_id = s.id
+		LIMIT 1
+	) act ON true`
+
+// Placeholders are anchored at $1/$2 so the same fragment serves both the
+// count query (args: search, status) and the page query, where LIMIT/OFFSET
+// take $3/$4.
+const activeCourseFilterWhere = `
+	WHERE ($1 = '' OR s.code ILIKE '%' || $1 || '%' OR s.name ILIKE '%' || $1 || '%')
+	  AND (
+	    $2 = '' OR $2 = 'all'
+	    OR ($2 = 'configured' AND act.active_visible = true)
+	    OR ($2 = 'hidden_active' AND act.active_visible = false)
+	    OR ($2 = 'missing_active' AND act.active_visible IS NULL)
+	  )`
+
+type ActiveCoursesStatsRow struct {
+	Total         int64
+	MissingActive int64
+	HiddenActive  int64
+}
+
+// ActiveCoursesStats returns the institute-wide audit numbers behind the
+// operations filter chips: how many subjects exist, how many have no active
+// course, and how many have an active course that students cannot book
+// because it is hidden from the absence form.
+func (q *Queries) ActiveCoursesStats(ctx context.Context) (ActiveCoursesStatsRow, error) {
+	var row ActiveCoursesStatsRow
+	err := q.db.QueryRow(ctx, `
+		SELECT count(*),
+		       count(*) FILTER (WHERE act.active_visible IS NULL),
+		       count(*) FILTER (WHERE act.active_visible = false)
+		FROM subjects s`+activeCourseStateJoin).Scan(
+		&row.Total, &row.MissingActive, &row.HiddenActive)
+	return row, err
+}
+
+func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCoursesListParams) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, int64, int64, error) {
 	var totalSubjects, totalCourses int64
-	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM subjects`).Scan(&totalSubjects); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT count(*) FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere,
+		p.Search, p.Status).Scan(&totalSubjects); err != nil {
 		return nil, nil, 0, 0, err
 	}
 	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM courses c JOIN subjects s ON s.id = c.subject_id`).Scan(&totalCourses); err != nil {
@@ -110,11 +175,15 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset 
 	}
 
 	rows, err := q.db.Query(ctx, `
-		WITH paged_subjects AS (
+		WITH filtered_subjects AS (
 			SELECT s.id, s.code, s.name
-			FROM subjects s
-			ORDER BY s.code ASC, s.id ASC
-			LIMIT $1 OFFSET $2
+			FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere+`
+		),
+		paged_subjects AS (
+			SELECT id, code, name
+			FROM filtered_subjects
+			ORDER BY code ASC, id ASC
+			LIMIT $3 OFFSET $4
 		)
 		SELECT ps.id, ps.code, ps.name,
 		       c.id, c.code, c.name,
@@ -131,7 +200,7 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, limit, offset 
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = ps.id
 		ORDER BY ps.code ASC, ps.id ASC, c.code ASC NULLS LAST, c.id ASC
-	`, limit, offset)
+	`, p.Search, p.Status, p.Limit, p.Offset)
 	if err != nil {
 		return nil, nil, 0, 0, err
 	}

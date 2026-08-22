@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -24,6 +25,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/admin/active-courses", s.handleList)
 	mux.HandleFunc("PUT /api/v1/admin/active-courses", s.handleSet)
 	mux.HandleFunc("PUT /api/v1/admin/active-courses/visibility", s.handleSetVisibility)
+	mux.HandleFunc("PUT /api/v1/admin/active-courses/visibility/bulk", s.handleSetVisibilityBulk)
 }
 
 type courseDTO struct {
@@ -53,11 +55,22 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_pagination", err.Error())
 		return
 	}
+	search, statusFilter, err := parseListFilters(r.URL.Query())
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
+		return
+	}
 	if paginated {
-		subjects, coursesBySubject, totalSubjects, totalCourses, err := s.deps.Q.ActiveCoursesListPaginated(r.Context(), limit, offset)
+		subjects, coursesBySubject, totalSubjects, totalCourses, err := s.deps.Q.ActiveCoursesListPaginated(r.Context(), sqldb.ActiveCoursesListParams{
+			Limit: limit, Offset: offset, Search: search, Status: statusFilter,
+		})
 		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			s.err(w, err)
+			return
+		}
+		stats, err := s.deps.Q.ActiveCoursesStats(r.Context())
+		if err != nil {
+			s.err(w, err)
 			return
 		}
 		out, err := outSubjectDTOs(s, subjects, coursesBySubject)
@@ -68,6 +81,11 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteJSON(w, http.StatusOK, map[string]any{
 			"subjects": out, "total_subjects": totalSubjects,
 			"total_courses": totalCourses, "limit": limit, "offset": offset,
+			"stats": map[string]int64{
+				"total_subjects": stats.Total,
+				"missing_active": stats.MissingActive,
+				"hidden_active":  stats.HiddenActive,
+			},
 		})
 		return
 	}
@@ -151,6 +169,28 @@ func parsePagination(query url.Values) (int, int, bool, error) {
 	return limit, offset, true, nil
 }
 
+func (s *server) err(w http.ResponseWriter, dbErr error) {
+	status, code, msg := s.a.ClassifyDBErr(dbErr)
+	s.a.WriteErr(w, status, code, msg)
+}
+
+// parseListFilters extracts the optional subject search text and active-course
+// status filter shared by the operations filter chips.
+func parseListFilters(query url.Values) (string, string, error) {
+	search := strings.TrimSpace(query.Get("search"))
+	if len(search) > 100 {
+		search = search[:100]
+	}
+	status := strings.TrimSpace(query.Get("status"))
+	switch status {
+	case "", sqldb.ActiveCourseStatusAll, sqldb.ActiveCourseStatusConfigured,
+		sqldb.ActiveCourseStatusHiddenActive, sqldb.ActiveCourseStatusMissingActive:
+		return search, status, nil
+	default:
+		return "", "", fmt.Errorf("status must be one of all, configured, hidden_active, missing_active")
+	}
+}
+
 func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
@@ -232,5 +272,68 @@ func (s *server) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, fmt.Errorf("course %s not found", courseID.String())
 		}
 		return http.StatusOK, map[string]string{"status": "ok"}, nil
+	})
+}
+
+const bulkVisibilityMaxCourses = 200
+
+// handleSetVisibilityBulk is the operations bulk action: apply one visibility
+// value to many courses atomically. Ids are validated, deduped, and capped so
+// the payload stays bounded; the response reports how many courses actually
+// changed, so the UI can say "12 hidden, 3 were already hidden" without a
+// second round trip.
+func (s *server) handleSetVisibilityBulk(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		CourseIDs           []string `json:"course_ids"`
+		AbsenceFormVisible *bool    `json:"absence_form_visible"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.AbsenceFormVisible == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_absence_form_visible", "absence_form_visible must be true or false")
+		return
+	}
+	if len(body.CourseIDs) == 0 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids", "course_ids must contain at least one course")
+		return
+	}
+	if len(body.CourseIDs) > bulkVisibilityMaxCourses {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids",
+			fmt.Sprintf("course_ids is limited to %d courses per bulk action", bulkVisibilityMaxCourses))
+		return
+	}
+	seen := make(map[string]struct{}, len(body.CourseIDs))
+	ids := make([]string, 0, len(body.CourseIDs))
+	for _, raw := range body.CourseIDs {
+		if _, err := s.a.ParseUUID(raw); err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", fmt.Sprintf("Invalid course_id: %s", raw))
+			return
+		}
+		if _, dup := seen[raw]; dup {
+			continue
+		}
+		seen[raw] = struct{}{}
+		ids = append(ids, raw)
+	}
+
+	s.a.WithIdempotentTx(w, r, user.ID, "active-courses-visibility-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		updated, err := qtx.CourseAbsenceFormVisibleBulkUpdate(r.Context(), ids, *body.AbsenceFormVisible)
+		if err != nil {
+			s.err(w, err)
+			return 0, nil, err
+		}
+		if updated == 0 {
+			s.a.WriteErr(w, http.StatusNotFound, "not_found", "No matching courses")
+			return 0, nil, fmt.Errorf("bulk visibility: no courses matched %d ids", len(ids))
+		}
+		return http.StatusOK, map[string]int64{"updated": updated}, nil
 	})
 }

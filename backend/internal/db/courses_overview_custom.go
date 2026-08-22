@@ -32,6 +32,7 @@ type CourseOverviewRow struct {
 	HasOverlap         bool               `json:"has_overlap"`
 	HasConflict        bool               `json:"has_conflict"`
 	AbsenceFormVisible bool               `json:"absence_form_visible"`
+	IsActiveCourse     bool               `json:"is_active_course"`
 }
 
 type CourseCreateV2Params struct {
@@ -192,7 +193,9 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			       c.hour, c.course_type,
 			       c.created_at, c.updated_at, c.legacy_course_id, c.legacy_last_synced_at,
 			       c.cycle_id, COALESCE(cy.display_name, cy.label, '') AS cycle_label,
-			       c.expiry_days, c.legacy_code_conflict, c.absence_form_visible
+			       c.expiry_days, c.legacy_code_conflict, c.absence_form_visible,
+			       EXISTS (SELECT 1 FROM subject_active_courses sac
+			               WHERE sac.course_id = c.id) AS is_active_course
 			FROM courses c
 			LEFT JOIN users u ON u.id = c.teacher_id
 			LEFT JOIN subjects s ON s.id = c.subject_id
@@ -236,8 +239,8 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 		           AND EXISTS (SELECT 1 FROM legacy_sync_conflicts lc
 		             WHERE lc.status = 'open'
 		               AND lc.source_payload->>'legacy_schedule_id' = ls.legacy_schedule_id))),
-		       page.absence_form_visible
-		FROM page
+			       page.absence_form_visible, page.is_active_course
+			FROM page
 		ORDER BY page.course_no DESC
 	`, append(courseOverviewFilterArgs(p), p.Limit, p.Offset)...)
 	if err != nil {
@@ -255,7 +258,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.LegacyCourseID, &r.LegacyLastSyncedAt,
 			&r.CycleID, &r.CycleLabel, &r.ExpiryDays, &r.LastSessionAt, &r.HasOverlap, &r.HasConflict,
-			&r.AbsenceFormVisible,
+			&r.AbsenceFormVisible, &r.IsActiveCourse,
 		); err != nil {
 			return nil, err
 		}

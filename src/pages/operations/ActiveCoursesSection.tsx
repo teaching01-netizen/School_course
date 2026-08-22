@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
@@ -8,20 +8,69 @@ import SearchInput from "../../components/ui/SearchInput";
 import { Switch } from "../../components/ui/Switch";
 import type { ActiveCoursePayload, ActiveCourseSubject } from "../../types";
 
+type ActiveCoursesStats = {
+  total_subjects: number;
+  missing_active: number;
+  hidden_active: number;
+};
+
 type ActiveCoursesResponse = {
   subjects: ActiveCourseSubject[];
   total_subjects?: number;
   total_courses?: number;
   limit?: number;
   offset?: number;
+  stats?: ActiveCoursesStats;
 };
 
 const SUBJECT_PAGE_SIZE = 50;
+
+type StatusFilter = "all" | "configured" | "hidden_active" | "missing_active";
+
+const STATUS_FILTERS: Array<{ value: StatusFilter; label: string; title: string }> = [
+  { value: "all", label: "All", title: "Every subject" },
+  { value: "configured", label: "Active", title: "Active course set and visible — students can book" },
+  { value: "hidden_active", label: "Active, hidden", title: "Active course is hidden — students cannot book this subject" },
+  { value: "missing_active", label: "No active", title: "No active course set — absence forms cannot auto-assign" },
+];
 
 type SubjectDraft = {
   subjectId: string;
   pendingCourseId: string | null;
 };
+
+/** Checkbox that can render the third, indeterminate state used by
+ *  select-all controls. The DOM property is imperative, so it is synced from
+ *  React state in an effect rather than through JSX. */
+function TriStateCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: () => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate, checked]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label={label}
+      className="accent-[var(--color-wi-primary)]"
+    />
+  );
+}
 
 /** One course row: the active-course choice (radio — it is a single pick per
  *  subject) and the absence-form visibility switch live together, because
@@ -34,7 +83,9 @@ function CourseRow({
   isSelected,
   dirty,
   disabled,
+  selected,
   onSelect,
+  onToggleSelect,
   onToggleVisibility,
   visibilitySaving,
 }: {
@@ -43,7 +94,9 @@ function CourseRow({
   isSelected: boolean;
   dirty: boolean;
   disabled: boolean;
+  selected: boolean;
   onSelect: (courseId: string) => void;
+  onToggleSelect: (courseId: string) => void;
   onToggleVisibility: (courseId: string, next: boolean) => void;
   visibilitySaving: boolean;
 }) {
@@ -56,8 +109,13 @@ function CourseRow({
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm transition-colors hover:bg-[var(--color-wi-row-alt)]/50 ${
         dirty && isSelected ? "bg-blue-50/50" : ""
-      }`}
+      } ${selected ? "bg-blue-50/40" : ""}`}
     >
+      <TriStateCheckbox
+        checked={selected}
+        onChange={() => onToggleSelect(course.course_id)}
+        label={`Select ${course.course_code}`}
+      />
       <label className="flex cursor-pointer items-center gap-3">
         <input
           type="radio"
@@ -114,68 +172,47 @@ export function ActiveCoursesSection() {
   const [originals, setOriginals] = useState<Record<string, string | null>>({});
   const [savingSubjects, setSavingSubjects] = useState<Set<string>>(new Set());
   const [savingVisibility, setSavingVisibility] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState("");
   const [totalSubjects, setTotalSubjects] = useState(0);
   const [subjectOffset, setSubjectOffset] = useState(0);
   const [pageLoading, setPageLoading] = useState(false);
+  const [stats, setStats] = useState<ActiveCoursesStats | null>(null);
 
-  const filteredSubjects = useMemo(() => {
-    if (!searchQuery.trim()) return subjects;
-    const q = searchQuery.toLowerCase();
-    return subjects.filter(
-      (s) =>
-        s.subject_code.toLowerCase().includes(q) ||
-        s.subject_name.toLowerCase().includes(q),
-    );
-  }, [subjects, searchQuery]);
+  // Filtering runs server-side so search reaches every subject, not just the
+  // loaded page. Input is debounced before it hits the API.
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("all");
 
-  /** A subject only counts as covered when its active course is actually
-   *  bookable: an active course hidden from the form is a trap state students
-   *  experience as "this subject is gone", so it must surface as a warning,
-   *  never as green. */
-  const coveredCount = useMemo(
-    () =>
-      subjects.filter((s) => {
-        const active = s.courses.find((c) => c.is_active);
-        return !!active && active.absence_form_visible !== false;
-      }).length,
-    [subjects],
-  );
+  // The only selection state: course ids. Checkbox states, counts, and bulk
+  // previews all derive from it. Selection survives page changes so a bulk
+  // action can span pages; ids not on the current page stay in the set.
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
-  const hiddenActiveCount = useMemo(
-    () =>
-      subjects.filter((s) => {
-        const active = s.courses.find((c) => c.is_active);
-        return !!active && active.absence_form_visible === false;
-      }).length,
-    [subjects],
-  );
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
-  const dirtySubjectIds = useMemo(() => {
-    const dirty: string[] = [];
-    for (const subject of subjects) {
-      const draft = drafts[subject.subject_id];
-      if (!draft) continue;
-      if (draft.pendingCourseId !== originals[subject.subject_id]) {
-        dirty.push(subject.subject_id);
-      }
-    }
-    return dirty;
-  }, [drafts, originals, subjects]);
-
-  const hasBulkDirty = dirtySubjectIds.length >= 2;
-
-  async function loadSubjects(offset = subjectOffset) {
+  async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter) {
     setLoading(true);
     setLoadError(null);
     try {
+      const params = new URLSearchParams({
+        limit: String(SUBJECT_PAGE_SIZE),
+        offset: String(offset),
+      });
+      const trimmed = search.trim();
+      if (trimmed) params.set("search", trimmed);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       const data = await apiJson<ActiveCoursesResponse>(
-        `/api/v1/admin/active-courses?limit=${SUBJECT_PAGE_SIZE}&offset=${offset}`,
+        `/api/v1/admin/active-courses?${params.toString()}`,
         { method: "GET" },
       );
       setSubjects(data.subjects);
       setTotalSubjects(data.total_subjects ?? data.subjects.length);
       setSubjectOffset(data.offset ?? offset);
+      if (data.stats) setStats(data.stats);
       const initDrafts: Record<string, SubjectDraft> = {};
       const initOriginals: Record<string, string | null> = {};
       for (const subject of data.subjects) {
@@ -195,19 +232,145 @@ export function ActiveCoursesSection() {
     }
   }
 
+  useEffect(() => {
+    setSubjectOffset(0);
+    void loadSubjects(0, debouncedSearch, status);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, status]);
+
   async function loadPage(offset: number) {
     setPageLoading(true);
     try {
-      await loadSubjects(offset);
+      await loadSubjects(offset, debouncedSearch, status);
     } finally {
       setPageLoading(false);
     }
   }
 
-  useEffect(() => {
-    void loadSubjects();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ----- Derived selection model -----
+
+  const loadedCourses = useMemo(
+    () => subjects.flatMap((s) => s.courses.map((c) => ({ course: c, subject: s }))),
+    [subjects],
+  );
+  const loadedCourseIds = useMemo(
+    () => new Set(loadedCourses.map((x) => x.course.course_id)),
+    [loadedCourses],
+  );
+  const selectedLoaded = useMemo(
+    () => loadedCourses.filter((x) => selection.has(x.course.course_id)),
+    [loadedCourses, selection],
+  );
+  const selectedNotOnPage = selection.size - selectedLoaded.length;
+
+  const pageCourseIds = useMemo(() => loadedCourses.map((x) => x.course.course_id), [loadedCourses]);
+  const allPageSelected = pageCourseIds.length > 0 && pageCourseIds.every((id) => selection.has(id));
+  const somePageSelected = pageCourseIds.some((id) => selection.has(id));
+
+  /** Only ids whose loaded state differs from the target are sent (plus
+   *  unknown ids from other pages) so the bulk statement never carries no-ops. */
+  const bulkTargets = (target: boolean) =>
+    selectedLoaded.filter((x) => (x.course.absence_form_visible !== false) !== target);
+  const canApply = (target: boolean) => bulkTargets(target).length > 0 || selectedNotOnPage > 0;
+  const activeInSelection = selectedLoaded.filter((x) => x.course.is_active);
+
+  function toggleCourseSelected(courseId: string) {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseId)) next.delete(courseId);
+      else next.add(courseId);
+      return next;
+    });
+  }
+
+  function toggleSubjectCourses(subject: ActiveCourseSubject) {
+    const ids = subject.courses.map((c) => c.course_id);
+    setSelection((prev) => {
+      const next = new Set(prev);
+      const allSelected = ids.length > 0 && ids.every((id) => next.has(id));
+      for (const id of ids) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function togglePageSelection() {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      const target = !allPageSelected;
+      for (const id of pageCourseIds) {
+        if (target) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function patchSubjectsVisible(courseIds: string[], visible: boolean) {
+    const idSet = new Set(courseIds);
+    setSubjects((prev) =>
+      prev.map((s) => ({
+        ...s,
+        courses: s.courses.map((c) =>
+          idSet.has(c.course_id) ? { ...c, absence_form_visible: visible } : c,
+        ),
+      })),
+    );
+  }
+
+  /** The audit counts treat "active course hidden" as its own state, so a
+   *  visibility change to an active course must move the counter. Courses not
+   *  on the loaded page are corrected by the next full load. */
+  function bumpHiddenActive(delta: number) {
+    setStats((prev) => (prev ? { ...prev, hidden_active: Math.max(0, prev.hidden_active + delta) } : prev));
+  }
+
+  async function applyBulk(target: boolean) {
+    const flips = bulkTargets(target);
+    const ids = [
+      ...flips.map((x) => x.course.course_id),
+      ...[...selection].filter((id) => !loadedCourseIds.has(id)),
+    ];
+    if (ids.length === 0) return;
+
+    const activeFlips = flips.filter((x) => x.course.is_active).length;
+    if (!target && activeFlips > 0) {
+      const confirmed = window.confirm(
+        `Hide ${ids.length} classes from the student absence form?\n\n` +
+          `${activeFlips} of them are active courses — those subjects will not be ` +
+          `bookable by students until they are shown again. Sit-ins and staff booking are unaffected.`,
+      );
+      if (!confirmed) return;
+    }
+
+    setBulkBusy(true);
+    try {
+      const res = await apiJson<{ updated: number }>(
+        "/api/v1/admin/active-courses/visibility/bulk",
+        {
+          method: "PUT",
+          body: JSON.stringify({ course_ids: ids, absence_form_visible: target }),
+        },
+      );
+      patchSubjectsVisible(ids, target);
+      bumpHiddenActive(target ? -activeFlips : activeFlips);
+      setSelection(new Set());
+      addToast(
+        "success",
+        target
+          ? `${res.updated} class${res.updated === 1 ? "" : "es"} shown in the student absence form.`
+          : `${res.updated} class${res.updated === 1 ? "" : "es"} hidden — students can no longer select them. Sit-ins and staff booking are unaffected.`,
+      );
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Bulk update failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // ----- Draft (active-course choice) machinery -----
 
   function handleCourseChange(subjectId: string, courseId: string) {
     setDrafts((prev) => ({
@@ -221,6 +384,17 @@ export function ActiveCoursesSection() {
     if (!draft) return false;
     return draft.pendingCourseId !== originals[subjectId];
   }
+
+  const dirtySubjectIds = useMemo(() => {
+    const dirty: string[] = [];
+    for (const subject of subjects) {
+      if (isDirty(subject.subject_id)) dirty.push(subject.subject_id);
+    }
+    return dirty;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drafts, originals, subjects]);
+
+  const hasDirtySubjects = dirtySubjectIds.length >= 2;
 
   /** Visibility is independent of the active-course draft: it saves
    *  immediately through the dedicated endpoint and updates the loaded
@@ -237,18 +411,8 @@ export function ActiveCoursesSection() {
         method: "PUT",
         body: JSON.stringify({ course_id: courseId, absence_form_visible: next }),
       });
-      setSubjects((prev) =>
-        prev.map((s) =>
-          s.subject_id === subjectId
-            ? {
-                ...s,
-                courses: s.courses.map((c) =>
-                  c.course_id === courseId ? { ...c, absence_form_visible: next } : c,
-                ),
-              }
-            : s,
-        ),
-      );
+      patchSubjectsVisible([courseId], next);
+      if (course.is_active) bumpHiddenActive(next ? -1 : 1);
       addToast(
         "success",
         next
@@ -364,16 +528,35 @@ export function ActiveCoursesSection() {
     });
   }
 
-  if (loading) {
+  // ----- Audit banner (server stats when available, page fallback) -----
+
+  const missingCount = useMemo(() => {
+    if (stats) return stats.missing_active;
+    return subjects.filter((s) => !s.courses.some((c) => c.is_active)).length;
+  }, [stats, subjects]);
+
+  const hiddenActiveCount = useMemo(() => {
+    if (stats) return stats.hidden_active;
+    return subjects.filter((s) => {
+      const active = s.courses.find((c) => c.is_active);
+      return !!active && active.absence_form_visible === false;
+    }).length;
+  }, [stats, subjects]);
+
+  const totalSubjectCount = stats?.total_subjects ?? subjects.length;
+  const coveredCount = Math.max(0, totalSubjectCount - missingCount - hiddenActiveCount);
+  const allCovered = coveredCount === totalSubjectCount && hiddenActiveCount === 0;
+
+  if (loading && subjects.length === 0) {
     return <LoadingSkeleton type="card" lines={5} />;
   }
 
-  if (loadError) {
+  if (loadError && subjects.length === 0) {
     return (
       <EmptyState
         message={loadError}
         action={(
-          <Button variant="secondary" size="sm" onClick={() => void loadSubjects()}>
+          <Button variant="secondary" size="sm" onClick={() => void loadSubjects(0, debouncedSearch, status)}>
             Retry
           </Button>
         )}
@@ -382,10 +565,29 @@ export function ActiveCoursesSection() {
   }
 
   if (subjects.length === 0) {
-    return <EmptyState message="No subjects configured yet" />;
+    const filtered = searchInput.trim() !== "" || status !== "all";
+    return filtered ? (
+      <EmptyState
+        message="No subjects match the current filters"
+        action={(
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setSearchInput("");
+              setStatus("all");
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
+      />
+    ) : (
+      <EmptyState message="No subjects configured yet" />
+    );
   }
 
-  const allCovered = coveredCount === subjects.length;
+  const filterActive = status !== "all" || searchInput.trim() !== "";
 
   return (
     <div className="space-y-4">
@@ -414,7 +616,7 @@ export function ActiveCoursesSection() {
 
       <div
         className={`flex flex-col gap-1 rounded-sm border px-4 py-2.5 text-sm ${
-          allCovered && hiddenActiveCount === 0
+          allCovered
             ? "border-green-200 bg-green-50 text-green-700"
             : "border-amber-200 bg-amber-50 text-amber-700"
         }`}
@@ -422,7 +624,7 @@ export function ActiveCoursesSection() {
         <span className="font-medium">
           {allCovered
             ? "All subjects configured ✓"
-            : `${coveredCount}/${subjects.length} subjects have a bookable active course`}
+            : `${coveredCount}/${totalSubjectCount} subjects have a bookable active course`}
         </span>
         {hiddenActiveCount > 0 ? (
           <span>
@@ -433,24 +635,79 @@ export function ActiveCoursesSection() {
         ) : null}
       </div>
 
-      <SearchInput
-        value={searchQuery}
-        onChange={setSearchQuery}
-        placeholder="Search subjects..."
-      />
-      {searchQuery.trim() && (
-        <p className="text-xs text-[var(--color-wi-text-light)]">
-          Showing {filteredSubjects.length} of {subjects.length} loaded subjects
-        </p>
-      )}
+      <div className="flex flex-col gap-2">
+        <SearchInput
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search subjects across all pages..."
+        />
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter subjects by active-course state">
+          {STATUS_FILTERS.map((f) => {
+            const count =
+              f.value === "all"
+                ? totalSubjectCount
+                : f.value === "configured"
+                  ? coveredCount
+                  : f.value === "hidden_active"
+                    ? hiddenActiveCount
+                    : missingCount;
+            const isCurrent = status === f.value;
+            return (
+              <button
+                key={f.value}
+                type="button"
+                title={f.title}
+                aria-pressed={isCurrent}
+                onClick={() => setStatus(f.value)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isCurrent
+                    ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)] text-white"
+                    : f.value === "configured"
+                      ? "border-wi-line bg-white text-[var(--color-wi-text)] hover:bg-[var(--color-wi-row-alt)]"
+                      : "border-wi-line bg-white text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)]"
+                }`}
+              >
+                {f.label} <span className="font-normal opacity-80">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-      {filteredSubjects.map((subject) => {
+      <div className="flex items-center justify-between rounded-sm border border-wi-line bg-white px-4 py-2">
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-wi-text)]">
+          <TriStateCheckbox
+            checked={allPageSelected}
+            indeterminate={somePageSelected && !allPageSelected}
+            onChange={togglePageSelection}
+            label="Select all classes on this page"
+          />
+          Select all classes on this page ({pageCourseIds.length})
+        </label>
+        {selection.size > 0 ? (
+          <span className="text-xs text-blue-700">
+            {selection.size} selected{selectedNotOnPage > 0 ? ` · ${selectedNotOnPage} on other pages` : ""}
+          </span>
+        ) : null}
+      </div>
+
+      {filterActive ? (
+        <p className="text-xs text-[var(--color-wi-text-light)]">
+          Showing {subjects.length} of {totalSubjects} matching subjects
+        </p>
+      ) : null}
+
+      {subjects.map((subject) => {
         const draft = drafts[subject.subject_id];
         const dirty = isDirty(subject.subject_id);
         const isSaving = savingSubjects.has(subject.subject_id);
         const pendingCourseId = draft?.pendingCourseId ?? null;
         const savedActive = subject.courses.find((c) => c.is_active);
         const savedActiveHidden = !!savedActive && savedActive.absence_form_visible === false;
+
+        const subjectIds = subject.courses.map((c) => c.course_id);
+        const subjectAll = subjectIds.length > 0 && subjectIds.every((id) => selection.has(id));
+        const subjectSome = subjectIds.some((id) => selection.has(id));
 
         return (
           <div
@@ -461,6 +718,14 @@ export function ActiveCoursesSection() {
           >
             <div className="flex items-center justify-between border-b border-wi-line-soft bg-[var(--color-wi-row-alt)]/70 px-4 py-3">
               <div className="flex items-center gap-2">
+                {subject.courses.length > 0 ? (
+                  <TriStateCheckbox
+                    checked={subjectAll}
+                    indeterminate={subjectSome && !subjectAll}
+                    onChange={() => toggleSubjectCourses(subject)}
+                    label={`Select all ${subject.subject_code} classes`}
+                  />
+                ) : null}
                 <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
                 </span>
@@ -505,7 +770,9 @@ export function ActiveCoursesSection() {
                     isSelected={pendingCourseId === course.course_id}
                     dirty={dirty}
                     disabled={isSaving}
+                    selected={selection.has(course.course_id)}
                     onSelect={(courseId) => handleCourseChange(subject.subject_id, courseId)}
+                    onToggleSelect={toggleCourseSelected}
                     onToggleVisibility={(courseId, next) => void toggleVisibility(subject.subject_id, courseId, next)}
                     visibilitySaving={savingVisibility.has(course.course_id)}
                   />
@@ -532,7 +799,51 @@ export function ActiveCoursesSection() {
         );
       })}
 
-      {hasBulkDirty ? (
+      {selection.size > 0 ? (
+        <div
+          className="sticky bottom-0 space-y-1 rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 shadow-md"
+          data-testid="bulk-bar"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-blue-800">
+              {selection.size} classes selected
+              {selectedNotOnPage > 0 ? (
+                <span className="ml-1 font-normal text-xs">({selectedNotOnPage} selected on other pages)</span>
+              ) : null}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSelection(new Set())} disabled={bulkBusy}>
+                Clear
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!canApply(true) || bulkBusy}
+                onClick={() => void applyBulk(true)}
+              >
+                Show in form
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!canApply(false) || bulkBusy}
+                loading={bulkBusy}
+                onClick={() => void applyBulk(false)}
+              >
+                Hide from form
+              </Button>
+            </div>
+          </div>
+          {activeInSelection.length > 0 ? (
+            <p className="text-xs text-amber-700">
+              {activeInSelection.length} active course{activeInSelection.length === 1 ? "" : "s"} in this
+              selection — hiding them makes those subjects unbookable for students until shown again.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {hasDirtySubjects ? (
         <div className="sticky bottom-0 flex items-center justify-between rounded-sm border border-blue-200 bg-blue-50 px-4 py-3 shadow-md">
           <span className="text-sm text-blue-800">
             <strong>{dirtySubjectIds.length}</strong> subjects have unsaved changes
