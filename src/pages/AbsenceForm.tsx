@@ -60,6 +60,7 @@ import {
   getSitInSessionGroupLabel,
   getSitInSessionLabel,
   findSitInSessionConflicts,
+  formatSitInSessionConflictDescription,
   groupSitInOptionsByTargetAndDay,
   groupWithSitInForMissedSession,
   hasPriorityLevel,
@@ -103,15 +104,7 @@ function makeUpPickerOptions(
 ): MakeUpOption[] {
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
-    const conflictDescription = conflicts.length > 0
-      ? `Overlaps with ${conflicts.map(({ group, session }) => {
-        const subjectName = appendTeacher(
-          group.subject_name?.trim() || group.course_name?.trim() || group.course_code,
-          group.teacher_name,
-        );
-        return `${subjectName} — ${formatDate(session.date)} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
-      }).join("; ")}`
-      : undefined;
+    const conflictDescription = formatSitInSessionConflictDescription(conflicts);
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionGroupLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),

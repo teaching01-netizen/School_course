@@ -20,6 +20,7 @@ import {
   getSitInSessionLabel,
   getSitInSessionGroupLabel,
   findSitInSessionConflicts,
+  formatSitInSessionConflictDescription,
   groupSitInOptionsByTargetAndDay,
   appendTeacher,
 } from "../sitInResolution";
@@ -538,6 +539,53 @@ describe("findSitInSessionConflicts", () => {
     );
 
     expect(conflicts).toEqual([]);
+  });
+
+  it("describes overlapping merged members as one merged course", () => {
+    const conflicts = findSitInSessionConflicts(
+      [{ start_at: "2026-08-29T06:00:00Z", end_at: "2026-08-29T09:20:00Z" }],
+      [
+        {
+          ...baseGroup,
+          subject_id: "rank3-writing",
+          subject_name: "SAT Verbal Writing : Rank 3 Section 1 C3",
+          teacher_name: "AJ. RYU",
+          course_id: "rank3-writing-course",
+          merge_group_id: "rank3-section1",
+          merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+          sessions: [{
+            id: "writing-session",
+            start_at: "2026-08-29T07:40:00Z",
+            end_at: "2026-08-29T09:20:00Z",
+            date: "2026-08-29",
+            already_absent: false,
+          }],
+        },
+        {
+          ...baseGroup,
+          subject_id: "rank3-reading",
+          subject_name: "SAT Verbal Reading : Rank 3 Section 1 C3",
+          teacher_name: "AJ. NICE",
+          course_id: "rank3-reading-course",
+          merge_group_id: "rank3-section1",
+          merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+          sessions: [{
+            id: "reading-session",
+            start_at: "2026-08-29T06:00:00Z",
+            end_at: "2026-08-29T07:40:00Z",
+            date: "2026-08-29",
+            already_absent: false,
+          }],
+        },
+      ],
+      ["selected-rank2"],
+    );
+
+    const description = formatSitInSessionConflictDescription(conflicts);
+
+    expect(description).toBe("Overlaps with SAT Verbal Rank 3 Section 1 C3 (AJ. RYU, AJ. NICE) — Sat, 29 Aug 2026 13:00-16:20");
+    expect(description).not.toContain("SAT Verbal Writing : Rank 3 Section 1 C3");
+    expect(description).not.toContain("SAT Verbal Reading : Rank 3 Section 1 C3");
   });
 });
 

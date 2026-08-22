@@ -140,6 +140,42 @@ export function findSitInSessionConflicts(
   return conflicts;
 }
 
+export function formatSitInSessionConflictDescription(conflicts: SitInSessionConflict[]): string | undefined {
+  if (conflicts.length === 0) return undefined;
+
+  type ConflictBucket = {
+    label: string;
+    teachers: string[];
+    sessions: SubjectSessions["sessions"];
+  };
+
+  const buckets = new Map<string, ConflictBucket>();
+  for (const { group, session } of conflicts) {
+    const mergeKey = group.merge_group_id?.trim() || group.merge_group_name?.trim();
+    const key = mergeKey ? `merge:${mergeKey}` : `course:${group.course_id}`;
+    const bucket = buckets.get(key) ?? {
+      label: group.merge_group_name?.trim()
+        || group.subject_name?.trim()
+        || group.course_name?.trim()
+        || group.course_code,
+      teachers: [],
+      sessions: [],
+    };
+    const teacher = group.teacher_name?.trim();
+    if (teacher && !bucket.teachers.includes(teacher)) bucket.teachers.push(teacher);
+    bucket.sessions.push(session);
+    buckets.set(key, bucket);
+  }
+
+  const descriptions = [...buckets.values()].flatMap((bucket) => {
+    const label = appendTeacher(bucket.label, bucket.teachers.join(", "));
+    return groupByDay(bucket.sessions).map((day) =>
+      `${label} — ${formatDate(day.date)} ${formatTime(day.start_at)}-${formatTime(day.end_at)}`,
+    );
+  });
+  return descriptions.length > 0 ? `Overlaps with ${descriptions.join("; ")}` : undefined;
+}
+
 function sitInTargetKey(
   sitInCourse: SitInCourse | undefined,
   sessions: SitInAvailableSession[],
