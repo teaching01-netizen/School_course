@@ -129,7 +129,7 @@ describe("LegacyLinkButton", () => {
 
     await user.click(screen.getByRole("button", { name: "Legacy system link" }));
     expect(await screen.findByText("ID: 1234")).toBeInTheDocument();
-    expect(screen.getByText(/Last synced: 2026-08-01/)).toBeInTheDocument();
+    expect(screen.getByText(/Last synced: .*2026/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Remove link" }));
 

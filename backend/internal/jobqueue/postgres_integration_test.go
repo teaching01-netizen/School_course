@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -117,6 +118,64 @@ func TestPostgresStore_ConcurrentClaimsHaveOneOwner(t *testing.T) {
 	}
 	if claimed != 1 {
 		t.Fatalf("successful claims = %d, want 1", claimed)
+	}
+}
+
+func TestPostgresStore_ClaimsAbsenceFormActiveCourseFirst(t *testing.T) {
+	pool := queueTestPool(t)
+	cleanupQueueTestJobs(t, pool)
+	ctx := t.Context()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	activeLegacyID := "queue-active-" + suffix
+	otherLegacyID := "queue-other-" + suffix
+
+	var subjectID pgtype.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO subjects (code, name)
+		VALUES ($1, $2)
+		RETURNING id
+	`, "QUEUE-SUBJECT-"+suffix, "Queue subject").Scan(&subjectID); err != nil {
+		t.Fatal(err)
+	}
+	var activeCourseID pgtype.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO courses (code, name, subject_id, legacy_course_id, source_kind, absence_form_visible)
+		VALUES ($1, $2, $3, $4, 'legacy', true)
+		RETURNING id
+	`, "QUEUE-ACTIVE-"+suffix, "Active queue course", subjectID, activeLegacyID).Scan(&activeCourseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)`, subjectID, activeCourseID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM subject_active_courses WHERE subject_id = $1`, subjectID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM courses WHERE id = $1`, activeCourseID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM subjects WHERE id = $1`, subjectID)
+	})
+
+	store := NewPostgresStore(sqldb.New(pool))
+	queuedAt := time.Now().UTC().Add(-time.Second)
+	if _, err := store.Enqueue(ctx, EnqueueRequest{
+		JobType: "legacy_refresh_course", EntityType: "course", ExternalID: otherLegacyID,
+		UniqueKey: queueUniqueKey(t) + ":other", Priority: 0, RunAfter: queuedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Enqueue(ctx, EnqueueRequest{
+		JobType: "legacy_refresh_course", EntityType: "course", ExternalID: activeLegacyID,
+		UniqueKey: queueUniqueKey(t) + ":active", Priority: 100, RunAfter: queuedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := store.Claim(ctx, "queue-worker-active-first", time.Now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.ExternalID != activeLegacyID {
+		t.Fatalf("claimed legacy course %q, want absence-form active course %q", claimed.ExternalID, activeLegacyID)
 	}
 }
 

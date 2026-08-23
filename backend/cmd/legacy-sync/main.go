@@ -26,6 +26,7 @@ import (
 	"warwick-institute/internal/legacysync/normalize"
 	"warwick-institute/internal/legacysync/outbox"
 	"warwick-institute/internal/legacysync/reconcile"
+	"warwick-institute/internal/logging"
 	"warwick-institute/internal/realtime"
 )
 
@@ -96,12 +97,12 @@ func findLinkedLegacyCourse(ctx context.Context, pool *pgxpool.Pool, legacyID st
 }
 
 func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	cfg, err := config.FromEnv()
 	if err != nil {
-		log.Error("config", "error", err)
+		slog.New(slog.NewTextHandler(os.Stderr, nil)).Error("config", "error", err)
 		os.Exit(1)
 	}
+	log := logging.New(cfg.LegacySyncLogLevel)
 	if _, err := time.LoadLocation(cfg.InstituteTZ); err != nil {
 		log.Error("timezone", "error", err)
 		os.Exit(1)

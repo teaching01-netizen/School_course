@@ -12,3 +12,10 @@ export function extractLegacyCourseId(url: string): string | null {
   if (/^\d+$/.test(trimmed)) return trimmed;
   return null;
 }
+
+export function formatLegacySyncTime(value: string | null | undefined): string {
+  if (!value) return "Not synced yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}

@@ -17,6 +17,7 @@ type Config struct {
 	TrustedProxyCIDRs   string
 	StaticDir           string
 	LogLevel            string
+	LegacySyncLogLevel  string
 	InstituteTZ         string
 	InstituteName       string
 
@@ -53,6 +54,7 @@ func FromEnv() (Config, error) {
 	cfg.CookieSecure = envBoolOr("COOKIE_SECURE", true)
 	cfg.TrustedProxyCIDRs = strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	cfg.LogLevel = envOr("LOG_LEVEL", "info")
+	cfg.LegacySyncLogLevel = envOr("LEGACY_SYNC_LOG_LEVEL", "warn")
 	cfg.InstituteTZ = envOr("INSTITUTE_TZ", "Asia/Bangkok")
 	cfg.InstituteName = envOr("INSTITUTE_NAME", "Warwick Institute")
 	cfg.CRMBaseURL = envOr("CRM_BASE_URL", "")

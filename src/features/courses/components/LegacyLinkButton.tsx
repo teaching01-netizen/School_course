@@ -4,7 +4,7 @@ import Button from "@/components/ui/Button";
 import { Popover } from "@/components/ui/Popover";
 import { useToast } from "@/hooks/useToast";
 import type { Course } from "../types";
-import { extractLegacyCourseId } from "../domain/legacyCourse";
+import { extractLegacyCourseId, formatLegacySyncTime } from "../domain/legacyCourse";
 import { syncLegacyCourse, updateCourse } from "../api/courseApi";
 
 /**
@@ -95,9 +95,7 @@ export function LegacyLinkButton({ course, onLinked }: { course: Course; onLinke
           <div className="px-1 pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Old System</p>
             <p className="mt-1 font-mono text-[13px] text-[var(--color-wi-text)]">ID: {course.legacy_course_id}</p>
-            {course.legacy_last_synced_at && (
-              <p className="mt-0.5 text-[12px] text-[var(--color-wi-text-light)]">Last synced: {course.legacy_last_synced_at}</p>
-            )}
+            <p className="mt-0.5 text-[12px] text-[var(--color-wi-text-light)]">Last synced: {formatLegacySyncTime(course.legacy_last_synced_at)}</p>
           </div>
           <p className="px-1 text-[12px] text-[var(--color-wi-text-light)]">
             Managed by the legacy sync service. Local data remains available during source outages.

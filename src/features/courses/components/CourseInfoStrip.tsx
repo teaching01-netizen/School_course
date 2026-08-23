@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Course } from "../types";
 import { formatRemainingHours, remainingMinutes, remainingStatus } from "../domain/sessionUsage";
+import { formatLegacySyncTime } from "../domain/legacyCourse";
 
 function StatItem({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -29,6 +30,11 @@ export function CourseInfoStrip({ course, teacherName, usedMinutes = 0 }: { cour
     : course.expiry_status === "active" && expiryDate
       ? `Until ${expiryDate}`
       : "No expiration";
+  const legacySyncValue = course.legacy_course_id == null
+    ? null
+    : course.legacy_last_synced_at
+      ? <time dateTime={course.legacy_last_synced_at}>{formatLegacySyncTime(course.legacy_last_synced_at)}</time>
+      : "Not synced yet";
 
   return (
     <div
@@ -61,6 +67,7 @@ export function CourseInfoStrip({ course, teacherName, usedMinutes = 0 }: { cour
       />
       <StatItem label="Student" value={course.student_count ?? "—"} />
       <StatItem label="Type" value={course.course_type ?? "—"} />
+      {legacySyncValue !== null && <StatItem label="Last sync" value={legacySyncValue} />}
       {(course.cycle_id || course.cycle_label || course.expiry_days != null || course.expiry_status) && <StatItem label="Cycle" value={course.cycle_label ?? "—"} />}
       {(course.expiry_days != null || course.expiry_status) && <StatItem label="Expires" value={expiryValue} />}
     </div>

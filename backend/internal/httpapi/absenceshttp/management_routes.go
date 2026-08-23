@@ -687,12 +687,6 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_reason", "Cancellation reason is required")
 		return
 	}
-	settings, settingsErr := s.readAbsenceSettings(r)
-	if settingsErr != nil {
-		status, code, msg := s.a.ClassifyDBErr(settingsErr)
-		s.a.WriteErr(w, status, code, msg)
-		return
-	}
 	adminID := actorID(user.ID)
 	absenceID := r.PathValue("id")
 	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
@@ -741,28 +735,6 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write audit log")
 			return 0, nil, err
-		}
-		if body.Status == "actioned" {
-			recipients := successSMSPhones(current.ParentPhone, current.StudentPhone)
-			if len(recipients) > 0 {
-				smsTemplate := successSMSTemplateForStatus(settings, body.Status)
-				sessions, sessErr := qtx.ManagedAbsenceSessions(r.Context(), id)
-				if sessErr == nil {
-					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
-					currentForSms := current
-					currentForSms.Status = body.Status
-					if missedErr == nil {
-						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, missed, recipients, s.deps.InstituteTZ)
-					} else {
-						if s.deps.Log != nil {
-							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", r.PathValue("id"), "error", missedErr)
-						}
-						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, currentForSms, sessions, nil, recipients, s.deps.InstituteTZ)
-					}
-				} else if s.deps.Log != nil {
-					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", r.PathValue("id"), "error", sessErr)
-				}
-			}
 		}
 		return http.StatusOK, map[string]any{"status": body.Status, "version": version}, nil
 	}) {

@@ -39,6 +39,30 @@ func TestFromEnvReadsStaticDirectoryDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestFromEnvLegacySyncLogLevelDefaultsToWarnAndReadsOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("AUTH_PEPPER", "pepper")
+	t.Setenv("OTP_HMAC_KEY", "otp-key")
+	t.Setenv("LEGACY_SYNC_LOG_LEVEL", "")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.LegacySyncLogLevel != "warn" {
+		t.Fatalf("LegacySyncLogLevel = %q, want warn by default", cfg.LegacySyncLogLevel)
+	}
+
+	t.Setenv("LEGACY_SYNC_LOG_LEVEL", "error")
+	cfg, err = FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv with LEGACY_SYNC_LOG_LEVEL: %v", err)
+	}
+	if cfg.LegacySyncLogLevel != "error" {
+		t.Fatalf("LegacySyncLogLevel = %q, want error override", cfg.LegacySyncLogLevel)
+	}
+}
+
 func TestFromEnvCookieSecureCanBeDisabled(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("AUTH_PEPPER", "pepper")

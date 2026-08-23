@@ -461,12 +461,23 @@ func (q *Queries) ExternalRefUpsert(ctx context.Context, arg ExternalRefUpsertPa
 
 const legacyJobClaim = `-- name: LegacyJobClaim :one
 WITH candidate AS (
-    SELECT id
-    FROM legacy_sync_jobs
-    WHERE (status = 'queued' AND run_after <= now())
-       OR (status = 'running' AND locked_until < now())
-    ORDER BY priority ASC, created_at ASC
-    FOR UPDATE SKIP LOCKED
+    SELECT j.id
+    FROM legacy_sync_jobs j
+    WHERE (j.status = 'queued' AND j.run_after <= now())
+       OR (j.status = 'running' AND j.locked_until < now())
+    ORDER BY CASE WHEN j.job_type = 'legacy_refresh_course'
+                       AND EXISTS (
+                           SELECT 1
+                           FROM courses c
+                           JOIN subject_active_courses sac
+                             ON sac.subject_id = c.subject_id AND sac.course_id = c.id
+                           WHERE c.legacy_course_id = j.external_id
+                             AND c.absence_form_visible
+                       )
+                  THEN 0 ELSE 1 END,
+             j.priority ASC,
+             j.created_at ASC
+    FOR UPDATE OF j SKIP LOCKED
     LIMIT 1
 )
 UPDATE legacy_sync_jobs j

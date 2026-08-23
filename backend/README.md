@@ -94,6 +94,7 @@ for those jobs.
 |---|---|---|
 | `INSTITUTE_TZ` | `Asia/Bangkok` | Institute timezone |
 | `LOG_LEVEL` | `info` | |
+| `LEGACY_SYNC_LOG_LEVEL` | `warn` | Worker-only log level; normal worker output is JSON on stdout. Use `info`/`debug` temporarily for investigation or `error` for a quieter worker. |
 | `COOKIE_SECURE` | `true` | Production rejects `false`; set `false` only for local http |
 | `TRUSTED_PROXY_CIDRS` | — | Exact CIDR(s) for directly connecting reverse proxies; **required when deployed behind a proxy** (Railway edge/nginx/Cloudflare) or per-IP rate limits collapse to the proxy IP; leave empty for direct clients |
 | `APP_ENV` | — | Set `production` (or `prod`) for production startup checks |
@@ -153,3 +154,24 @@ token (students directory and archived course list) is cached per session, so
 lookups cost one request instead of a page read + search; and the token cache
 auto-refreshes on re-login or on a failed search, so a rotated token never
 silently drops students.
+
+### Legacy-sync retention
+
+The server’s maintenance loop runs once at startup and every six hours. It
+keeps legacy-sync operational history for one day, deleting in bounded batches:
+
+- `legacy_sync_dead_letters` older than 24 hours
+- terminal `legacy_sync_jobs` (`completed`/`dead`) whose `updated_at` is older than 24 hours
+- non-running `legacy_sync_runs` whose completion/start time is older than 24 hours; linked progress rows cascade with the run
+
+It does not delete `legacy_sync_outbox`, `legacy_sync_conflicts`,
+`legacy_entity_snapshots`, `legacy_change_events`, or domain audit tables.
+Those tables carry idempotency, reconciliation, or user-facing history rather
+than disposable execution logs.
+
+`LEGACY_SYNC_LOG_LEVEL=warn` is the default so routine per-course worker
+messages are omitted while warnings and errors remain visible. Platform log
+retention is provider-side and is not controlled by `railway.toml`. Railway’s
+built-in deploy-log window is plan-based rather than a per-service one-day
+setting; use an external log sink/forwarder with a one-day TTL when an exact
+one-day stdout window is required.

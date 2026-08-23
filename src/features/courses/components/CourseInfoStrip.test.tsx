@@ -69,6 +69,27 @@ describe("CourseInfoStrip", () => {
     expect(screen.queryByText("legacy:95")).not.toBeInTheDocument();
   });
 
+  it("shows the last legacy sync time for a linked course", () => {
+    render(
+      <CourseInfoStrip
+        course={makeCourse({
+          legacy_course_id: "7090",
+          legacy_last_synced_at: "2026-08-01T00:00:00Z",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Last sync")).toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+  });
+
+  it("shows an explicit not-synced state for a linked course without a sync time", () => {
+    render(<CourseInfoStrip course={makeCourse({ legacy_course_id: "7090", legacy_last_synced_at: null })} />);
+
+    expect(screen.getByText("Last sync")).toBeInTheDocument();
+    expect(screen.getByText("Not synced yet")).toBeInTheDocument();
+  });
+
   it("renders an em dash for missing values", () => {
     render(<CourseInfoStrip course={makeCourse({ hour: null, student_count: null, course_type: null, teachers: [], teacher_name: null })} />);
 
