@@ -3,6 +3,8 @@ package activecourseshttp
 import (
 	"net/url"
 	"testing"
+
+	"warwick-institute/internal/httpapi/sessiontimefilter"
 )
 
 func TestParseSessionTimeFilters(t *testing.T) {
@@ -20,7 +22,7 @@ func TestParseSessionTimeFilters(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			from, to, err := parseSessionTimeFilters(parseQuery(tt.query))
+			from, to, err := sessiontimefilter.Parse(parseQuery(tt.query))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("error = %v, want error %v", err, tt.wantErr)
 			}

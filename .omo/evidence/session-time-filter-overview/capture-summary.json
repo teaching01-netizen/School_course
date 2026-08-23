@@ -1,0 +1,23 @@
+{
+  "adminRequests": [
+    "?limit=50&offset=0",
+    "?limit=50&offset=0&session_from=09%3A00",
+    "?limit=50&offset=0&session_from=09%3A00&session_to=11%3A00"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response",
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response",
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response",
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response",
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response",
+    "WebSocket connection to 'ws://127.0.0.1:4173/api/v1/ws' failed: Connection closed before receiving a handshake response"
+  ],
+  "screenshots": [
+    "desktop-admin-filtered.png",
+    "desktop-course-detail-no-filter.png",
+    "desktop-overview-filtered.png",
+    "desktop-overview-rest.png",
+    "mobile-overview-filtered.png"
+  ]
+}

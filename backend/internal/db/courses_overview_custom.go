@@ -103,14 +103,13 @@ type CourseOverviewParams struct {
 	TeacherID   string
 	Q           string
 	AbsenceForm string
+	SessionFrom string
+	SessionTo   string
+	InstituteTZ string
 	Limit       int32
 	Offset      int32
 }
 
-// courseOverviewWhere is the shared filter for the list and count queries.
-// Placeholders $1-$5 are archived, course type, teacher, search text, and the
-// absence-form filter; the sentinel-style conditions keep every branch constant
-// so a single query shape serves all filter combinations.
 const courseOverviewWhere = `
 		WHERE c.legacy_archived = $1
 		  AND ($2 = ''
@@ -137,15 +136,32 @@ const courseOverviewWhere = `
 		       OR s.name ILIKE '%' || $4 || '%'
 		       OR u.full_name ILIKE '%' || $4 || '%'
 		       OR u.username ILIKE '%' || $4 || '%'
-		       OR EXISTS (
-		           SELECT 1 FROM course_teachers ct
-		           JOIN users ctu ON ctu.id = ct.teacher_id
-		           WHERE ct.course_id = c.id
-		             AND (ctu.full_name ILIKE '%' || $4 || '%' OR ctu.username ILIKE '%' || $4 || '%')
-		       ))`
+			       OR EXISTS (
+			           SELECT 1 FROM course_teachers ct
+			           JOIN users ctu ON ctu.id = ct.teacher_id
+			           WHERE ct.course_id = c.id
+			             AND (ctu.full_name ILIKE '%' || $4 || '%' OR ctu.username ILIKE '%' || $4 || '%')
+			       ))
+		  AND (
+			       ($6 = '' AND $7 = '')
+			       OR EXISTS (
+			           SELECT 1 FROM sessions time_session
+			           WHERE time_session.course_id = c.id
+			             AND time_session.deleted_at IS NULL
+			             AND ($6 = '' OR (time_session.start_at AT TIME ZONE $8)::time >= $6::time)
+			             AND ($7 = '' OR (time_session.end_at AT TIME ZONE $8)::time <= $7::time)
+			       )
+		  )`
 
 func courseOverviewFilterArgs(p CourseOverviewParams) []any {
-	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q, p.AbsenceForm}
+	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q, p.AbsenceForm, p.SessionFrom, p.SessionTo, p.InstituteTZ}
+}
+
+func normalizeCourseOverviewParams(p CourseOverviewParams) CourseOverviewParams {
+	if p.InstituteTZ == "" {
+		p.InstituteTZ = "UTC"
+	}
+	return p
 }
 
 func (q *Queries) StudentCoursesList(ctx context.Context, studentID pgtype.UUID) ([]CourseOverviewRow, error) {
@@ -184,6 +200,7 @@ func (q *Queries) StudentCoursesList(ctx context.Context, studentID pgtype.UUID)
 }
 
 func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([]CourseOverviewRow, error) {
+	p = normalizeCourseOverviewParams(p)
 	rows, err := q.db.Query(ctx, `
 		WITH page AS MATERIALIZED (
 			SELECT c.id, c.course_no, c.code, c.name, c.year, c.teacher_id,
@@ -201,7 +218,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 			`+courseOverviewWhere+`
 			ORDER BY c.course_no DESC
-			LIMIT NULLIF($6, 0) OFFSET $7
+			LIMIT NULLIF($9, 0) OFFSET $10
 		)
 		SELECT page.id, page.course_no, page.code, page.name, page.year, page.teacher_id,
 		       page.teacher_name, page.subject_id, page.subject_code, page.subject_name,
@@ -273,6 +290,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 // as CourseOverview (users/subjects joins are 1:1, so COUNT over the same FROM
 // is exact). It backs the paginated envelope's total_count.
 func (q *Queries) CourseOverviewCount(ctx context.Context, p CourseOverviewParams) (int64, error) {
+	p = normalizeCourseOverviewParams(p)
 	var total int64
 	err := q.db.QueryRow(ctx, `
 		SELECT COUNT(*)

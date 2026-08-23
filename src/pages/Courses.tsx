@@ -15,8 +15,14 @@ import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import Modal from "@/components/Modal";
 import StudentStatusBadge from "@/components/StudentStatusBadge";
 import CourseAttendeeRow from "@/components/CourseAttendeeRow";
+import SessionTimeFilter from "@/components/SessionTimeFilter";
 import { createCourseDetailNavigationState } from "@/features/courses/navigation";
 import type { CourseGroupSummary } from "@/features/courses/types";
+import {
+  isSessionTimeFilterActive,
+  validateSessionTimeFilter,
+  type SessionTimeFilter as SessionTimeFilterValue,
+} from "@/features/scheduling/domain/sessionTimeRange";
 import { queryKeys } from "@/query/cache";
 import { mapPageItems, useSmartMutation } from "@/query/useSmartMutation";
 
@@ -83,6 +89,10 @@ export default function Courses() {
   const typeFilter = searchParams.get("type") ?? "";
   const teacherFilter = searchParams.get("teacher_id") ?? "";
   const absenceFormFilter = absenceFormFilterValue(searchParams.get("absence_form"));
+  const sessionFrom = searchParams.get("session_from") ?? "";
+  const sessionTo = searchParams.get("session_to") ?? "";
+  const sessionTimeFilter: SessionTimeFilterValue = { from: sessionFrom, to: sessionTo };
+  const sessionTimeFilterError = validateSessionTimeFilter(sessionTimeFilter);
   const urlQuery = searchParams.get("q") ?? "";
   const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -115,9 +125,13 @@ export default function Courses() {
     if (typeFilter) params.set("type", typeFilter);
     if (teacherFilter) params.set("teacher_id", teacherFilter);
     if (absenceFormFilter !== "all") params.set("absence_form", absenceFormFilter);
+    if (!sessionTimeFilterError) {
+      if (sessionFrom) params.set("session_from", sessionFrom);
+      if (sessionTo) params.set("session_to", sessionTo);
+    }
     if (urlQuery) params.set("q", urlQuery);
     return params.toString();
-  }, [bucket, typeFilter, teacherFilter, absenceFormFilter, urlQuery, offset]);
+  }, [bucket, typeFilter, teacherFilter, absenceFormFilter, sessionFrom, sessionTo, sessionTimeFilterError, urlQuery, offset]);
 
   const requestUrl = `/api/v1/courses?${requestQuery}`;
   const { data: page, loading, refreshing, error, refetch } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
@@ -170,6 +184,16 @@ export default function Courses() {
     else if (value) params.set(key, value);
     else params.delete(key);
     if (key !== "offset") params.delete("offset");
+    setSearchParams(params);
+  }
+
+  function updateSessionTimeFilter(next: SessionTimeFilterValue) {
+    const params = new URLSearchParams(searchParams);
+    if (next.from) params.set("session_from", next.from);
+    else params.delete("session_from");
+    if (next.to) params.set("session_to", next.to);
+    else params.delete("session_to");
+    params.delete("offset");
     setSearchParams(params);
   }
 
@@ -312,6 +336,19 @@ export default function Courses() {
           >
             Create
           </Link>
+        </div>
+        <div className="mt-3">
+          <SessionTimeFilter
+            value={sessionTimeFilter}
+            onChange={updateSessionTimeFilter}
+            onClear={() => updateSessionTimeFilter({ from: "", to: "" })}
+            idPrefix="courses-overview-session-time"
+          />
+          {isSessionTimeFilterActive(sessionTimeFilter) && !sessionTimeFilterError ? (
+            <p className="mt-1.5 text-xs text-[var(--color-wi-text-light)]" aria-live="polite">
+              Showing {page?.total_count ?? 0} {page?.total_count === 1 ? "course" : "courses"} with a matching session
+            </p>
+          ) : null}
         </div>
       </section>
 

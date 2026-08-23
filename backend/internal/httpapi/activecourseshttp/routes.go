@@ -6,13 +6,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/httpapi/sessiontimefilter"
 	"warwick-institute/internal/realtime"
 )
 
@@ -78,7 +78,7 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
 		return
 	}
-	sessionFrom, sessionTo, err := parseSessionTimeFilters(r.URL.Query())
+	sessionFrom, sessionTo, err := sessiontimefilter.Parse(r.URL.Query())
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
 		return
@@ -222,23 +222,6 @@ func parseListFilters(query url.Values) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("status must be one of all, configured, hidden_active, missing_active")
 	}
-}
-
-func parseSessionTimeFilters(query url.Values) (string, string, error) {
-	from := strings.TrimSpace(query.Get("session_from"))
-	to := strings.TrimSpace(query.Get("session_to"))
-	for name, value := range map[string]string{"session_from": from, "session_to": to} {
-		if value == "" {
-			continue
-		}
-		if _, err := time.Parse("15:04", value); err != nil {
-			return "", "", fmt.Errorf("%s must be a valid 24-hour time", name)
-		}
-	}
-	if from != "" && to != "" && from > to {
-		return "", "", fmt.Errorf("session_from must be earlier than or equal to session_to")
-	}
-	return from, to, nil
 }
 
 // handleSet is the CourseLevels single-picker endpoint: the chosen course

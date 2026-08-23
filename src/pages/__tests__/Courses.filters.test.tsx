@@ -114,6 +114,15 @@ async function listMock(url: string): Promise<unknown> {
   const absenceForm = params.get("absence_form");
   if (absenceForm === "active") items = items.filter((c) => c.is_active_course !== false && c.absence_form_visible !== false);
   else if (absenceForm === "hidden") items = items.filter((c) => c.is_active_course === false || c.absence_form_visible === false);
+  const sessionFrom = params.get("session_from");
+  const sessionTo = params.get("session_to");
+  if (sessionFrom || sessionTo) {
+    items = items.filter((c) => {
+      const start = c.course_no % 2 === 0 ? "09:00" : "13:00";
+      const end = c.course_no % 2 === 0 ? "11:00" : "15:00";
+      return (!sessionFrom || start >= sessionFrom) && (!sessionTo || end <= sessionTo);
+    });
+  }
   const q = params.get("q");
   if (q) {
     const needle = q.toLowerCase();
@@ -234,6 +243,24 @@ describe("Courses filters and pagination", () => {
       expect(last).toContain("type=general");
       expect(last).toContain("offset=0");
     });
+  });
+
+  it("filters courses by a fully contained session time window", async () => {
+    const user = userEvent.setup();
+    renderCourses();
+    await waitForFirstPage();
+
+    await user.type(screen.getByLabelText("From"), "09:00");
+    await user.type(screen.getByLabelText("To"), "11:00");
+
+    await waitFor(() => {
+      const last = courseRequests[courseRequests.length - 1];
+      expect(last).toContain("session_from=09%3A00");
+      expect(last).toContain("session_to=11%3A00");
+      expect(screen.getByText("60 records")).toBeTruthy();
+    });
+    expect(screen.getByText("CODE-000")).toBeTruthy();
+    expect(screen.queryByText("CODE-001")).toBeNull();
   });
 
   it("debounces search input into a single q request", async () => {

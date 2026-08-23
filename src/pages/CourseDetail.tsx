@@ -47,14 +47,6 @@ import { CourseTitle } from "@/features/courses/components/CourseTitle";
 import { CoursePropertiesPanel } from "@/features/courses/components/CoursePropertiesPanel";
 import { CourseInfoStrip } from "@/features/courses/components/CourseInfoStrip";
 import { sumSessionMinutes } from "@/features/courses/domain/sessionUsage";
-import SessionTimeFilter from "@/components/SessionTimeFilter";
-import {
-  EMPTY_SESSION_TIME_FILTER,
-  isSessionTimeFilterActive,
-  sessionMatchesTimeFilter,
-  validateSessionTimeFilter,
-  type SessionTimeFilter as SessionTimeFilterValue,
-} from "@/features/scheduling/domain/sessionTimeRange";
 import {
   addCourseStudent,
   deleteCourse,
@@ -156,7 +148,6 @@ export default function CourseDetail() {
   }, [sessions]);
 
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
-  const [sessionTimeFilter, setSessionTimeFilter] = useState<SessionTimeFilterValue>(EMPTY_SESSION_TIME_FILTER);
   /** Calendar sub-view (day / week / month), behaving like a normal calendar. */
   const [calendarMode, setCalendarMode] = useState<'day' | 'week' | 'month'>('week');
   /** Anchor date of the active calendar sub-view. */
@@ -185,16 +176,11 @@ export default function CourseDetail() {
   const usedMinutes = useMemo(() => sumSessionMinutes(sessions), [sessions]);
   // Single shared map instead of a fresh allocation per rendered row.
   const coursesById = useMemo(() => (course ? new Map([[course.id, course]]) : new Map<string, Course>()), [course]);
-  const sessionTimeFilterError = validateSessionTimeFilter(sessionTimeFilter);
-  const visibleSessions = useMemo(() => {
-    if (sessionTimeFilterError) return sessions;
-    return sessions.filter((session) => sessionMatchesTimeFilter(session, zone, sessionTimeFilter));
-  }, [sessionTimeFilter, sessionTimeFilterError, sessions, zone]);
 
   /** Sessions grouped by institute-local calendar day (yyyy-MM-dd), sorted by start. */
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, Session[]>();
-    for (const s of visibleSessions) {
+    for (const s of sessions) {
       const day = utcISOToZoneDate(s.start_at, zone);
       if (!day) continue;
       const list = map.get(day);
@@ -208,7 +194,7 @@ export default function CourseDetail() {
       list.sort((a, b) => a.start_at.localeCompare(b.start_at));
     }
     return map;
-  }, [visibleSessions, zone]);
+  }, [sessions, zone]);
 
   /** Days to render for the active calendar sub-view, with the toolbar label. */
   const calendarRange = useMemo(() => {
@@ -252,14 +238,6 @@ export default function CourseDetail() {
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<Session | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const visibleIDs = new Set(visibleSessions.map((session) => session.id));
-    setSelectedIds((previous) => {
-      const next = new Set([...previous].filter((sessionID) => visibleIDs.has(sessionID)));
-      return next.size === previous.size ? previous : next;
-    });
-  }, [visibleSessions]);
 
   const handleConfirmDeleteSession = async () => {
     const session = confirmDeleteSession;
@@ -342,10 +320,10 @@ export default function CourseDetail() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === visibleSessions.length) {
+    if (selectedIds.size === sessions.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(visibleSessions.map((s) => s.id)));
+      setSelectedIds(new Set(sessions.map((s) => s.id)));
     }
   };
 
@@ -406,10 +384,11 @@ export default function CourseDetail() {
   // If the session being edited disappears (deleted elsewhere or reloaded),
   // close the editor rather than leave it pointing at a ghost.
   useEffect(() => {
-    if (!edit.open || !edit.session) return;
-    if (sessions.length > 0 && !visibleSessions.some((s) => s.id === edit.session!.id)) edit.closeModal();
+    const editingSessionID = edit.session?.id;
+    if (!edit.open || !editingSessionID) return;
+    if (sessions.length > 0 && !sessions.some((s) => s.id === editingSessionID)) edit.closeModal();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edit.open, edit.session?.id, sessions, visibleSessions]);
+  }, [edit.open, edit.session?.id, sessions]);
 
   const cellValueClass =
     "min-h-6 cursor-pointer rounded-sm text-start text-[13px] text-[var(--color-wi-text)] transition-colors duration-150 hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-wi-primary)] motion-reduce:transition-none";
@@ -1181,20 +1160,6 @@ export default function CourseDetail() {
           </div>
         </div>
 
-        <div className="mb-3">
-          <SessionTimeFilter
-            value={sessionTimeFilter}
-            onChange={setSessionTimeFilter}
-            onClear={() => setSessionTimeFilter(EMPTY_SESSION_TIME_FILTER)}
-            idPrefix="course-detail-session-time"
-          />
-          {isSessionTimeFilterActive(sessionTimeFilter) && !sessionTimeFilterError ? (
-            <p className="mt-1.5 text-xs text-[var(--color-wi-text-light)]" aria-live="polite">
-              Showing {visibleSessions.length} of {sessions.length} sessions
-            </p>
-          ) : null}
-        </div>
-
         {viewMode === 'calendar' ? (
           <div
             className={`border border-wi-line p-4 bg-white transition-opacity duration-150 motion-reduce:transition-none ${
@@ -1321,8 +1286,8 @@ export default function CourseDetail() {
                 <th scope="col" className="w-12 py-2 px-3 text-center">
                   <input
                     type="checkbox"
-                    checked={selectedIds.size === visibleSessions.length && visibleSessions.length > 0}
-                    ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < visibleSessions.length; }}
+                    checked={selectedIds.size === sessions.length && sessions.length > 0}
+                    ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < sessions.length; }}
                     onChange={toggleSelectAll}
                     className="accent-gray-900"
                   />
@@ -1344,14 +1309,14 @@ export default function CourseDetail() {
                     <LoadingSkeleton type="table" lines={3} />
                   </td>
                 </tr>
-              ) : visibleSessions.length === 0 ? (
+              ) : sessions.length === 0 ? (
                 <tr>
                   <td colSpan={9}>
-                    <EmptyState message={isSessionTimeFilterActive(sessionTimeFilter) ? "No sessions match this time range" : "No sessions in range"} />
+                    <EmptyState message="No sessions in range" />
                   </td>
                 </tr>
               ) : (
-                visibleSessions.map((s) => {
+                sessions.map((s) => {
                   const mins = minutesBetween(s.start_at, s.end_at);
                   const dateLabel = formatUTCToZone(s.start_at, zone, "EEE d MMM yy") ?? s.start_at.slice(0, 10);
                   const begin = formatUTCToZone(s.start_at, zone, "HH:mm") ?? s.start_at.slice(11, 16);

@@ -17,6 +17,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
+	"warwick-institute/internal/httpapi/sessiontimefilter"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
@@ -91,6 +92,14 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		Q:           s.a.SearchQuery(r.URL.Query().Get("q")),
 		AbsenceForm: absenceFormFilter(r.URL.Query().Get("absence_form")),
 	}
+	sessionFrom, sessionTo, err := sessiontimefilter.Parse(r.URL.Query())
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
+		return
+	}
+	params.SessionFrom = sessionFrom
+	params.SessionTo = sessionTo
+	params.InstituteTZ = s.deps.InstituteTZ
 	switch teacherParam := strings.TrimSpace(r.URL.Query().Get("teacher_id")); teacherParam {
 	case "":
 		// No teacher filter.

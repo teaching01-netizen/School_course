@@ -301,6 +301,71 @@ func TestCourseOverview_PaginationAndCount(t *testing.T) {
 	}
 }
 
+func TestCourseOverview_SessionTimeFilter(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	suffix := courseTestSuffix()
+	matching, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-MATCH-" + suffix, Name: "Matching session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-OUTSIDE-" + suffix, Name: "Outside session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossing, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-CROSSING-" + suffix, Name: "Crossing session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createSession := func(courseID pgtype.UUID, startHour, endHour int) {
+		t.Helper()
+		_, err := q.SessionCreate(ctx, SessionCreateParams{
+			CourseID: courseID,
+			StartAt:  pgtype.Timestamptz{Time: time.Date(2026, 6, 1, startHour, 0, 0, 0, time.UTC), Valid: true},
+			EndAt:    pgtype.Timestamptz{Time: time.Date(2026, 6, 1, endHour, 0, 0, 0, time.UTC), Valid: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	createSession(matching.ID, 2, 4)
+	createSession(outside.ID, 6, 8)
+	createSession(crossing.ID, 1, 5)
+
+	params := CourseOverviewParams{
+		Archived:    false,
+		Q:           suffix,
+		SessionFrom: "09:00",
+		SessionTo:   "11:00",
+		InstituteTZ: "Asia/Bangkok",
+	}
+	items, err := q.CourseOverview(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findCourseOverviewRow(items, matching.ID) == nil {
+		t.Fatalf("matching session course missing from filtered overview")
+	}
+	if findCourseOverviewRow(items, outside.ID) != nil || findCourseOverviewRow(items, crossing.ID) != nil {
+		t.Fatalf("time filter must require a fully contained matching session")
+	}
+	total, err := q.CourseOverviewCount(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("filtered count = %d, want 1", total)
+	}
+}
+
 func TestCourseOverview_AllowsNullTeacherAndSubject(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
