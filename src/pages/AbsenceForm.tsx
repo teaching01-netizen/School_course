@@ -20,7 +20,6 @@ import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
 import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
 import type { AbsenceDraftV1 } from "@/features/absences/storage/absenceDraftStorage";
-import { useConnectivity } from "@/hooks/useConnectivity";
 import { useOtp } from "@/hooks/useOtp";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
@@ -118,7 +117,6 @@ function makeUpPickerOptions(
 
 export default function AbsenceForm() {
   const { addToast } = useToast();
-  const { online, justRestored } = useConnectivity();
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
   const reduceMotion = useReducedMotion();
   const { draft: savedDraft, saveDraft, clearDraft } = useAbsenceDraft();
@@ -278,7 +276,7 @@ export default function AbsenceForm() {
   }, [verification.clearStoredToken, verification.setCode]);
 
   useEffect(() => {
-    if (step !== 2 || !lookup || !online) return;
+    if (step !== 2 || !lookup) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
@@ -336,7 +334,7 @@ export default function AbsenceForm() {
       })
       .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup, online, sessionsReloadToken, handleStudentSessionExpired]);
+  }, [step, lookup, sessionsReloadToken, handleStudentSessionExpired]);
 
   useEffect(() => {
     let active = true;
@@ -454,10 +452,6 @@ export default function AbsenceForm() {
     const requestId = ++lookupRequestId.current;
     const cleaned = normalizeLookupWcode(lookupInput);
     setLookupError(null);
-    if (!online) {
-      setLookupError("You're offline. Reconnect to search for your profile.");
-      return;
-    }
     clearStudentSessionHint();
     setLookup(null);
     setStudentProfile(null);
@@ -694,10 +688,6 @@ export default function AbsenceForm() {
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
-    if (!online) {
-      setSubmissionError("You're offline. Reconnect before submitting your absence.");
-      return;
-    }
     const verificationExpired = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
     if (!verificationSatisfied || verificationBlocked || verificationExpired) {
       setVerificationSatisfied(false);
@@ -871,13 +861,11 @@ export default function AbsenceForm() {
   }
 
   
-  const classDataAvailable = online || sessions.length > 0;
-
   const actionCanProceed =
     step === 0 ? canProceedFromStudent :
     step === 1 ? verificationSatisfied :
-    step === 2 ? classDataAvailable && !sessionsLoading && !draftNeedsReview :
-    step === 3 ? verificationSatisfied && !verificationBlocked && online : false;
+    step === 2 ? !sessionsLoading && !draftNeedsReview :
+    step === 3 ? verificationSatisfied && !verificationBlocked : false;
 
   const primaryActionLabel =
     step === 0 ? "Continue to verification" :
@@ -939,15 +927,6 @@ export default function AbsenceForm() {
     >
       <div className="mx-auto w-full max-w-3xl py-6">
         {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
-        {!online ? (
-          <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm text-[var(--color-wi-amber)]">
-            You're offline. Network actions are paused; your current progress remains on this device.
-          </div>
-        ) : justRestored ? (
-          <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-[var(--color-wi-green)]/30 bg-[var(--color-wi-green)]/10 px-4 py-3 text-sm font-medium text-[var(--color-wi-green)]">
-            Back online. Rechecking your classes...
-          </div>
-        ) : null}
 
         <p aria-live="polite" className="sr-only">
           Step {step + 1} of {STEP_LABELS.length}: {STEP_LABELS[step].label} — {STEP_LABELS[step].description}
@@ -1067,7 +1046,6 @@ export default function AbsenceForm() {
                   <StepCoverVerification
                     lookupToken={lookup.lookup_token}
                     wcode={lookup.wcode}
-                    online={online}
                     parentVerificationAvailable={lookup.parent_verification_available}
                     smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
                     adminContact={config.admin_contact}

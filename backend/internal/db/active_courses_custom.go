@@ -131,10 +131,10 @@ type ActiveCoursesListParams struct {
 	// (case-insensitive substring).
 	Search string
 	// Status filters subjects by active-course state; see the constants above.
-	Status      string
-	SessionFrom string
-	SessionTo   string
-	InstituteTZ string
+	Status          string
+	SessionDateFrom string
+	SessionDateTo   string
+	InstituteTZ     string
 }
 
 // The per-subject active-course state is computed the same way for the count
@@ -188,8 +188,8 @@ const activeCourseSessionFilterForSubject = `
 			JOIN sessions time_session ON time_session.course_id = time_course.id
 			WHERE time_course.subject_id = s.id
 			  AND time_session.deleted_at IS NULL
-			  AND ($3 = '' OR (time_session.start_at AT TIME ZONE $5)::time >= $3::time)
-			  AND ($4 = '' OR (time_session.end_at AT TIME ZONE $5)::time <= $4::time)
+			  AND ($3 = '' OR (time_session.start_at AT TIME ZONE $5)::date >= $3::date)
+			  AND ($4 = '' OR (time_session.start_at AT TIME ZONE $5)::date <= $4::date)
 		)
 	)`
 
@@ -222,7 +222,7 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 	}
 	if err := q.db.QueryRow(ctx, `
 		SELECT count(*) FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere+activeCourseSessionFilterForSubject,
-		p.Search, p.Status, p.SessionFrom, p.SessionTo, instituteTZ).Scan(&totalSubjects); err != nil {
+		p.Search, p.Status, p.SessionDateFrom, p.SessionDateTo, instituteTZ).Scan(&totalSubjects); err != nil {
 		return nil, nil, 0, 0, err
 	}
 	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM courses c JOIN subjects s ON s.id = c.subject_id`).Scan(&totalCourses); err != nil {
@@ -269,7 +269,7 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = ps.id
 		ORDER BY ps.code ASC, ps.id ASC, c.code ASC NULLS LAST, c.id ASC
-	`, p.Search, p.Status, p.SessionFrom, p.SessionTo, instituteTZ, p.Limit, p.Offset)
+	`, p.Search, p.Status, p.SessionDateFrom, p.SessionDateTo, instituteTZ, p.Limit, p.Offset)
 	if err != nil {
 		return nil, nil, 0, 0, err
 	}

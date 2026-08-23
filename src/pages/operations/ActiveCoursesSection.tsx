@@ -5,16 +5,16 @@ import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
 import SearchInput from "../../components/ui/SearchInput";
-import SessionTimeFilter from "../../components/SessionTimeFilter";
+import SessionDateFilter from "../../components/SessionDateFilter";
 import { Switch } from "../../components/ui/Switch";
 import type { ActiveCourseSubject } from "../../types";
 import { queryClient, queryKeys } from "../../query/cache";
 import {
-  EMPTY_SESSION_TIME_FILTER,
-  isSessionTimeFilterActive,
-  validateSessionTimeFilter,
-  type SessionTimeFilter as SessionTimeFilterValue,
-} from "../../features/scheduling/domain/sessionTimeRange";
+  EMPTY_SESSION_DATE_FILTER,
+  isSessionDateFilterActive,
+  validateSessionDateFilter,
+  type SessionDateFilter as SessionDateFilterValue,
+} from "../../features/scheduling/domain/sessionDateRange";
 
 type ActiveCoursesStats = {
   total_subjects: number;
@@ -165,8 +165,8 @@ export function ActiveCoursesSection() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
-  const [sessionTimeFilter, setSessionTimeFilter] = useState<SessionTimeFilterValue>(EMPTY_SESSION_TIME_FILTER);
-  const sessionTimeFilterError = validateSessionTimeFilter(sessionTimeFilter);
+  const [sessionDateFilter, setSessionDateFilter] = useState<SessionDateFilterValue>(EMPTY_SESSION_DATE_FILTER);
+  const sessionDateFilterError = validateSessionDateFilter(sessionDateFilter);
 
   // The only selection state: course ids. Checkbox states, counts, and bulk
   // previews all derive from it. Selection survives page changes so a bulk
@@ -179,7 +179,7 @@ export function ActiveCoursesSection() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter, timeFilter: SessionTimeFilterValue) {
+  async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter, dateFilter: SessionDateFilterValue) {
     setLoading(true);
     setLoadError(null);
     try {
@@ -190,8 +190,8 @@ export function ActiveCoursesSection() {
       const trimmed = search.trim();
       if (trimmed) params.set("search", trimmed);
       if (statusFilter !== "all") params.set("status", statusFilter);
-      if (timeFilter.from) params.set("session_from", timeFilter.from);
-      if (timeFilter.to) params.set("session_to", timeFilter.to);
+      if (dateFilter.from) params.set("session_date_from", dateFilter.from);
+      if (dateFilter.to) params.set("session_date_to", dateFilter.to);
       const data = await apiJson<ActiveCoursesResponse>(
         `/api/v1/admin/active-courses?${params.toString()}`,
         { method: "GET" },
@@ -210,16 +210,16 @@ export function ActiveCoursesSection() {
   }
 
   useEffect(() => {
-    if (sessionTimeFilterError) return;
+    if (sessionDateFilterError) return;
     setSubjectOffset(0);
-    void loadSubjects(0, debouncedSearch, status, sessionTimeFilter);
+    void loadSubjects(0, debouncedSearch, status, sessionDateFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, status, sessionTimeFilter.from, sessionTimeFilter.to, sessionTimeFilterError]);
+  }, [debouncedSearch, status, sessionDateFilter.from, sessionDateFilter.to, sessionDateFilterError]);
 
   async function loadPage(offset: number) {
     setPageLoading(true);
     try {
-      await loadSubjects(offset, debouncedSearch, status, sessionTimeFilter);
+      await loadSubjects(offset, debouncedSearch, status, sessionDateFilter);
     } finally {
       setPageLoading(false);
     }
@@ -373,7 +373,7 @@ export function ActiveCoursesSection() {
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
       setSelection(new Set());
-      await loadSubjects(subjectOffset, debouncedSearch, status, sessionTimeFilter);
+      await loadSubjects(subjectOffset, debouncedSearch, status, sessionDateFilter);
       addToast(
         "success",
         target
@@ -415,7 +415,7 @@ export function ActiveCoursesSection() {
       <EmptyState
         message={loadError}
         action={(
-          <Button variant="secondary" size="sm" onClick={() => void loadSubjects(0, debouncedSearch, status, sessionTimeFilter)}>
+          <Button variant="secondary" size="sm" onClick={() => void loadSubjects(0, debouncedSearch, status, sessionDateFilter)}>
             Retry
           </Button>
         )}
@@ -424,7 +424,7 @@ export function ActiveCoursesSection() {
   }
 
   if (subjects.length === 0) {
-    const filtered = searchInput.trim() !== "" || status !== "all" || isSessionTimeFilterActive(sessionTimeFilter);
+    const filtered = searchInput.trim() !== "" || status !== "all" || isSessionDateFilterActive(sessionDateFilter);
     return filtered ? (
       <EmptyState
         message="No subjects match the current filters"
@@ -435,7 +435,7 @@ export function ActiveCoursesSection() {
             onClick={() => {
               setSearchInput("");
               setStatus("all");
-              setSessionTimeFilter(EMPTY_SESSION_TIME_FILTER);
+              setSessionDateFilter(EMPTY_SESSION_DATE_FILTER);
             }}
           >
             Clear filters
@@ -447,7 +447,7 @@ export function ActiveCoursesSection() {
     );
   }
 
-  const filterActive = status !== "all" || searchInput.trim() !== "" || isSessionTimeFilterActive(sessionTimeFilter);
+  const filterActive = status !== "all" || searchInput.trim() !== "" || isSessionDateFilterActive(sessionDateFilter);
 
   return (
     <div className="space-y-4">
@@ -501,11 +501,11 @@ export function ActiveCoursesSection() {
           onChange={setSearchInput}
           placeholder="Search subjects, classes, or merged courses..."
         />
-        <SessionTimeFilter
-          value={sessionTimeFilter}
-          onChange={setSessionTimeFilter}
-          onClear={() => setSessionTimeFilter(EMPTY_SESSION_TIME_FILTER)}
-          idPrefix="active-courses-session-time"
+        <SessionDateFilter
+          value={sessionDateFilter}
+          onChange={setSessionDateFilter}
+          onClear={() => setSessionDateFilter(EMPTY_SESSION_DATE_FILTER)}
+          idPrefix="active-courses-session-date"
         />
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter subjects by active-class state">
           {STATUS_FILTERS.map((f) => {

@@ -301,7 +301,7 @@ func TestCourseOverview_PaginationAndCount(t *testing.T) {
 	}
 }
 
-func TestCourseOverview_SessionTimeFilter(t *testing.T) {
+func TestCourseOverview_SessionDateFilter(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
 	dbpool := newPool(t, databaseURL)
@@ -312,40 +312,40 @@ func TestCourseOverview_SessionTimeFilter(t *testing.T) {
 	defer cancel()
 
 	suffix := courseTestSuffix()
-	matching, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-MATCH-" + suffix, Name: "Matching session"})
+	matching, err := q.CourseCreate(ctx, CourseCreateParams{Code: "DATE-MATCH-" + suffix, Name: "Matching session date"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	outside, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-OUTSIDE-" + suffix, Name: "Outside session"})
+	outside, err := q.CourseCreate(ctx, CourseCreateParams{Code: "DATE-OUTSIDE-" + suffix, Name: "Outside session date"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	crossing, err := q.CourseCreate(ctx, CourseCreateParams{Code: "TIME-CROSSING-" + suffix, Name: "Crossing session"})
+	previous, err := q.CourseCreate(ctx, CourseCreateParams{Code: "DATE-PREVIOUS-" + suffix, Name: "Previous session date"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	createSession := func(courseID pgtype.UUID, startHour, endHour int) {
+	createSession := func(courseID pgtype.UUID, start, end time.Time) {
 		t.Helper()
 		_, err := q.SessionCreate(ctx, SessionCreateParams{
 			CourseID: courseID,
-			StartAt:  pgtype.Timestamptz{Time: time.Date(2026, 6, 1, startHour, 0, 0, 0, time.UTC), Valid: true},
-			EndAt:    pgtype.Timestamptz{Time: time.Date(2026, 6, 1, endHour, 0, 0, 0, time.UTC), Valid: true},
+			StartAt:  pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:    pgtype.Timestamptz{Time: end, Valid: true},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	createSession(matching.ID, 2, 4)
-	createSession(outside.ID, 6, 8)
-	createSession(crossing.ID, 1, 5)
+	createSession(matching.ID, time.Date(2026, 5, 31, 17, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 19, 0, 0, 0, time.UTC))
+	createSession(outside.ID, time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC), time.Date(2026, 6, 1, 19, 0, 0, 0, time.UTC))
+	createSession(previous.ID, time.Date(2026, 5, 31, 16, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 16, 30, 0, 0, time.UTC))
 
 	params := CourseOverviewParams{
-		Archived:    false,
-		Q:           suffix,
-		SessionFrom: "09:00",
-		SessionTo:   "11:00",
-		InstituteTZ: "Asia/Bangkok",
+		Archived:        false,
+		Q:               suffix,
+		SessionDateFrom: "2026-06-01",
+		SessionDateTo:   "2026-06-01",
+		InstituteTZ:     "Asia/Bangkok",
 	}
 	items, err := q.CourseOverview(ctx, params)
 	if err != nil {
@@ -354,8 +354,8 @@ func TestCourseOverview_SessionTimeFilter(t *testing.T) {
 	if findCourseOverviewRow(items, matching.ID) == nil {
 		t.Fatalf("matching session course missing from filtered overview")
 	}
-	if findCourseOverviewRow(items, outside.ID) != nil || findCourseOverviewRow(items, crossing.ID) != nil {
-		t.Fatalf("time filter must require a fully contained matching session")
+	if findCourseOverviewRow(items, outside.ID) != nil || findCourseOverviewRow(items, previous.ID) != nil {
+		t.Fatalf("date filter must include only sessions on the selected local calendar date")
 	}
 	total, err := q.CourseOverviewCount(ctx, params)
 	if err != nil {

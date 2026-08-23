@@ -44,45 +44,28 @@ test("restored draft step cannot bypass student and parent verification", async 
   expect(sessionRequests).toBe(0);
 });
 
-test("offline lookup is rejected without issuing a network request", async ({ page }) => {
+test("connectivity changes do not render an offline state", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
-  let lookupRequests = 0;
   await installAbsenceRoutes(page, submitted);
-  await page.route("**/api/v1/absence-self-service/lookup", (route) => {
-    lookupRequests += 1;
-    return route.fallback();
-  });
 
   await page.goto("/absence");
   await expect(page.getByPlaceholder("e.g. W250389")).toBeVisible();
   await setConnectivity(page, false);
-  await page.getByPlaceholder("e.g. W250389").fill("W250389");
-  await page.getByRole("button", { name: /search/i }).click();
 
-  await expect(page.getByRole("alert").filter({ hasText: /offline/i })).toBeVisible();
-  expect(lookupRequests).toBe(0);
+  await expect(page.getByRole("status").filter({ hasText: /offline/i })).toHaveCount(0);
+  await expect(page.getByText(/back online.*rechecking/i)).toHaveCount(0);
 });
 
-test("reconnect revalidates classes and offline review cannot submit", async ({ page }) => {
+test("connectivity changes do not block the review action", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
-  let sessionRequests = 0;
   await installAbsenceRoutes(page, submitted);
-  await page.route("**/api/v1/absence-self-service/sessions**", (route) => {
-    sessionRequests += 1;
-    return route.fallback();
-  });
 
   await completeToClasses(page);
-  await expect.poll(() => sessionRequests).toBeGreaterThan(0);
+  await completeToReview(page, "Connectivity state removed");
   await setConnectivity(page, false);
-  await expect(page.getByRole("status").filter({ hasText: /offline/i })).toBeVisible();
-  await setConnectivity(page, true);
-  await expect(page.getByRole("status").filter({ hasText: /back online.*rechecking/i })).toBeVisible();
-  await expect.poll(() => sessionRequests).toBeGreaterThan(1);
 
-  await completeToReview(page, "Offline submit guard");
-  await setConnectivity(page, false);
-  await expect(page.getByRole("button", { name: "Submit absence" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Submit absence" })).toBeEnabled();
+  await expect(page.getByRole("status").filter({ hasText: /offline/i })).toHaveCount(0);
 });
 
 test("visual viewport resize keeps the focused reason and action bar reachable", async ({ page }) => {

@@ -15,14 +15,14 @@ import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import Modal from "@/components/Modal";
 import StudentStatusBadge from "@/components/StudentStatusBadge";
 import CourseAttendeeRow from "@/components/CourseAttendeeRow";
-import SessionTimeFilter from "@/components/SessionTimeFilter";
+import SessionDateFilter from "@/components/SessionDateFilter";
 import { createCourseDetailNavigationState } from "@/features/courses/navigation";
 import type { CourseGroupSummary } from "@/features/courses/types";
 import {
-  isSessionTimeFilterActive,
-  validateSessionTimeFilter,
-  type SessionTimeFilter as SessionTimeFilterValue,
-} from "@/features/scheduling/domain/sessionTimeRange";
+  isSessionDateFilterActive,
+  validateSessionDateFilter,
+  type SessionDateFilter as SessionDateFilterValue,
+} from "@/features/scheduling/domain/sessionDateRange";
 import { queryKeys } from "@/query/cache";
 import { mapPageItems, useSmartMutation } from "@/query/useSmartMutation";
 
@@ -89,10 +89,10 @@ export default function Courses() {
   const typeFilter = searchParams.get("type") ?? "";
   const teacherFilter = searchParams.get("teacher_id") ?? "";
   const absenceFormFilter = absenceFormFilterValue(searchParams.get("absence_form"));
-  const sessionFrom = searchParams.get("session_from") ?? "";
-  const sessionTo = searchParams.get("session_to") ?? "";
-  const sessionTimeFilter: SessionTimeFilterValue = { from: sessionFrom, to: sessionTo };
-  const sessionTimeFilterError = validateSessionTimeFilter(sessionTimeFilter);
+  const sessionDateFrom = searchParams.get("session_date_from") ?? "";
+  const sessionDateTo = searchParams.get("session_date_to") ?? "";
+  const sessionDateFilter: SessionDateFilterValue = { from: sessionDateFrom, to: sessionDateTo };
+  const sessionDateFilterError = validateSessionDateFilter(sessionDateFilter);
   const urlQuery = searchParams.get("q") ?? "";
   const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -125,13 +125,13 @@ export default function Courses() {
     if (typeFilter) params.set("type", typeFilter);
     if (teacherFilter) params.set("teacher_id", teacherFilter);
     if (absenceFormFilter !== "all") params.set("absence_form", absenceFormFilter);
-    if (!sessionTimeFilterError) {
-      if (sessionFrom) params.set("session_from", sessionFrom);
-      if (sessionTo) params.set("session_to", sessionTo);
+    if (!sessionDateFilterError) {
+      if (sessionDateFrom) params.set("session_date_from", sessionDateFrom);
+      if (sessionDateTo) params.set("session_date_to", sessionDateTo);
     }
     if (urlQuery) params.set("q", urlQuery);
     return params.toString();
-  }, [bucket, typeFilter, teacherFilter, absenceFormFilter, sessionFrom, sessionTo, sessionTimeFilterError, urlQuery, offset]);
+  }, [bucket, typeFilter, teacherFilter, absenceFormFilter, sessionDateFrom, sessionDateTo, sessionDateFilterError, urlQuery, offset]);
 
   const requestUrl = `/api/v1/courses?${requestQuery}`;
   const { data: page, loading, refreshing, error, refetch } = useApiQuery<CourseListPage>(requestUrl, [], { keepPreviousData: true });
@@ -187,12 +187,12 @@ export default function Courses() {
     setSearchParams(params);
   }
 
-  function updateSessionTimeFilter(next: SessionTimeFilterValue) {
+  function updateSessionDateFilter(next: SessionDateFilterValue) {
     const params = new URLSearchParams(searchParams);
-    if (next.from) params.set("session_from", next.from);
-    else params.delete("session_from");
-    if (next.to) params.set("session_to", next.to);
-    else params.delete("session_to");
+    if (next.from) params.set("session_date_from", next.from);
+    else params.delete("session_date_from");
+    if (next.to) params.set("session_date_to", next.to);
+    else params.delete("session_date_to");
     params.delete("offset");
     setSearchParams(params);
   }
@@ -338,13 +338,13 @@ export default function Courses() {
           </Link>
         </div>
         <div className="mt-3">
-          <SessionTimeFilter
-            value={sessionTimeFilter}
-            onChange={updateSessionTimeFilter}
-            onClear={() => updateSessionTimeFilter({ from: "", to: "" })}
-            idPrefix="courses-overview-session-time"
+          <SessionDateFilter
+            value={sessionDateFilter}
+            onChange={updateSessionDateFilter}
+            onClear={() => updateSessionDateFilter({ from: "", to: "" })}
+            idPrefix="courses-overview-session-date"
           />
-          {isSessionTimeFilterActive(sessionTimeFilter) && !sessionTimeFilterError ? (
+          {isSessionDateFilterActive(sessionDateFilter) && !sessionDateFilterError ? (
             <p className="mt-1.5 text-xs text-[var(--color-wi-text-light)]" aria-live="polite">
               Showing {page?.total_count ?? 0} {page?.total_count === 1 ? "course" : "courses"} with a matching session
             </p>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../../hooks/useToast";
 import { ActiveCoursesSection } from "./ActiveCoursesSection";
@@ -212,19 +212,18 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     }, { timeout: 2000 });
   });
 
-  it("filters server-side by the session time range", async () => {
+  it("filters server-side by the session calendar date range", async () => {
     renderSection();
     await screen.findByText("MATH — Mathematics");
 
-    const user = userEvent.setup();
-    await user.type(screen.getByLabelText("From"), "09:00");
-    await user.type(screen.getByLabelText("To"), "11:00");
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-06-01" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-06-01" } });
 
     await waitFor(() => {
       const call = getCalls().at(-1);
       const path = typeof call?.[0] === "string" ? call[0] : "";
-      expect(path).toContain("session_from=09%3A00");
-      expect(path).toContain("session_to=11%3A00");
+      expect(path).toContain("session_date_from=2026-06-01");
+      expect(path).toContain("session_date_to=2026-06-01");
     }, { timeout: 2000 });
   });
 

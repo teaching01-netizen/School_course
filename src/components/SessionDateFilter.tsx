@@ -1,35 +1,35 @@
 import Button from "./ui/Button";
 import Input from "./ui/Input";
 import {
-  isSessionTimeFilterActive,
-  validateSessionTimeFilter,
-  type SessionTimeFilter as SessionTimeFilterValue,
-} from "@/features/scheduling/domain/sessionTimeRange";
+  isSessionDateFilterActive,
+  validateSessionDateFilter,
+  type SessionDateFilter as SessionDateFilterValue,
+} from "@/features/scheduling/domain/sessionDateRange";
 
-type SessionTimeFilterProps = Readonly<{
-  value: SessionTimeFilterValue;
-  onChange: (value: SessionTimeFilterValue) => void;
+type SessionDateFilterProps = Readonly<{
+  value: SessionDateFilterValue;
+  onChange: (value: SessionDateFilterValue) => void;
   onClear: () => void;
   idPrefix: string;
 }>;
 
-export default function SessionTimeFilter({
+export default function SessionDateFilter({
   value,
   onChange,
   onClear,
   idPrefix,
-}: SessionTimeFilterProps) {
-  const error = validateSessionTimeFilter(value);
-  const active = isSessionTimeFilterActive(value);
+}: SessionDateFilterProps) {
+  const error = validateSessionDateFilter(value);
+  const active = isSessionDateFilterActive(value);
   const errorId = `${idPrefix}-error`;
 
   return (
     <fieldset
       className="rounded-sm border border-wi-line bg-white px-3 py-2.5"
-      aria-label="Filter sessions by time"
+      aria-label="Filter sessions by date"
     >
       <legend className="mb-1.5 text-xs font-semibold text-[var(--color-wi-text)]">
-        Session time
+        Session dates
       </legend>
       <div className="flex flex-wrap items-end gap-2.5">
         <div>
@@ -39,9 +39,9 @@ export default function SessionTimeFilter({
           >
             From
           </label>
-          <Input
-            id={`${idPrefix}-from`}
-            type="time"
+            <Input
+              id={`${idPrefix}-from`}
+              type="date"
             size="sm"
             value={value.from}
             onChange={(event) =>
@@ -59,9 +59,9 @@ export default function SessionTimeFilter({
           >
             To
           </label>
-          <Input
-            id={`${idPrefix}-to`}
-            type="time"
+            <Input
+              id={`${idPrefix}-to`}
+              type="date"
             size="sm"
             value={value.to}
             onChange={(event) => onChange({ ...value, to: event.target.value })}
@@ -80,7 +80,7 @@ export default function SessionTimeFilter({
           id={error ? errorId : undefined}
           role={error ? "alert" : undefined}
         >
-          {error ?? "Sessions must fit fully inside this local-time window."}
+          {error ?? "Sessions must fall within this local calendar date range."}
         </p>
       </div>
     </fieldset>

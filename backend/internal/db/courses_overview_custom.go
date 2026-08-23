@@ -98,16 +98,16 @@ func (q *Queries) CourseCreateV2(ctx context.Context, p CourseCreateV2Params) (C
 }
 
 type CourseOverviewParams struct {
-	Archived    bool
-	CourseType  string
-	TeacherID   string
-	Q           string
-	AbsenceForm string
-	SessionFrom string
-	SessionTo   string
-	InstituteTZ string
-	Limit       int32
-	Offset      int32
+	Archived        bool
+	CourseType      string
+	TeacherID       string
+	Q               string
+	AbsenceForm     string
+	SessionDateFrom string
+	SessionDateTo   string
+	InstituteTZ     string
+	Limit           int32
+	Offset          int32
 }
 
 const courseOverviewWhere = `
@@ -145,16 +145,16 @@ const courseOverviewWhere = `
 		  AND (
 			       ($6 = '' AND $7 = '')
 			       OR EXISTS (
-			           SELECT 1 FROM sessions time_session
-			           WHERE time_session.course_id = c.id
-			             AND time_session.deleted_at IS NULL
-			             AND ($6 = '' OR (time_session.start_at AT TIME ZONE $8)::time >= $6::time)
-			             AND ($7 = '' OR (time_session.end_at AT TIME ZONE $8)::time <= $7::time)
+			           SELECT 1 FROM sessions date_session
+			           WHERE date_session.course_id = c.id
+			             AND date_session.deleted_at IS NULL
+			             AND ($6 = '' OR (date_session.start_at AT TIME ZONE $8)::date >= $6::date)
+			             AND ($7 = '' OR (date_session.start_at AT TIME ZONE $8)::date <= $7::date)
 			       )
 		  )`
 
 func courseOverviewFilterArgs(p CourseOverviewParams) []any {
-	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q, p.AbsenceForm, p.SessionFrom, p.SessionTo, p.InstituteTZ}
+	return []any{p.Archived, p.CourseType, p.TeacherID, p.Q, p.AbsenceForm, p.SessionDateFrom, p.SessionDateTo, p.InstituteTZ}
 }
 
 func normalizeCourseOverviewParams(p CourseOverviewParams) CourseOverviewParams {

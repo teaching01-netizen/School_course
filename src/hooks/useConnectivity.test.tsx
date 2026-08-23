@@ -26,4 +26,12 @@ describe("useConnectivity", () => {
     act(() => window.dispatchEvent(new Event("online")));
     expect(screen.getByTestId("connectivity")).toHaveTextContent('{"online":true,"justRestored":true}');
   });
+
+  it("does not trust a stale false navigator hint on startup", () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+
+    render(<ConnectivityProbe />);
+
+    expect(screen.getByTestId("connectivity")).toHaveTextContent('{"online":true,"justRestored":false}');
+  });
 });

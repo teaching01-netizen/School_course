@@ -6,7 +6,7 @@ export type ConnectivityState = {
 };
 
 export function useConnectivity(): ConnectivityState {
-  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  const [online, setOnline] = useState(true);
   const [justRestored, setJustRestored] = useState(false);
 
   useEffect(() => {

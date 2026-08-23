@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Courses from "../Courses";
@@ -114,13 +114,12 @@ async function listMock(url: string): Promise<unknown> {
   const absenceForm = params.get("absence_form");
   if (absenceForm === "active") items = items.filter((c) => c.is_active_course !== false && c.absence_form_visible !== false);
   else if (absenceForm === "hidden") items = items.filter((c) => c.is_active_course === false || c.absence_form_visible === false);
-  const sessionFrom = params.get("session_from");
-  const sessionTo = params.get("session_to");
-  if (sessionFrom || sessionTo) {
+  const sessionDateFrom = params.get("session_date_from");
+  const sessionDateTo = params.get("session_date_to");
+  if (sessionDateFrom || sessionDateTo) {
     items = items.filter((c) => {
-      const start = c.course_no % 2 === 0 ? "09:00" : "13:00";
-      const end = c.course_no % 2 === 0 ? "11:00" : "15:00";
-      return (!sessionFrom || start >= sessionFrom) && (!sessionTo || end <= sessionTo);
+      const sessionDate = c.course_no % 2 === 0 ? "2026-06-01" : "2026-06-03";
+      return (!sessionDateFrom || sessionDate >= sessionDateFrom) && (!sessionDateTo || sessionDate <= sessionDateTo);
     });
   }
   const q = params.get("q");
@@ -245,18 +244,17 @@ describe("Courses filters and pagination", () => {
     });
   });
 
-  it("filters courses by a fully contained session time window", async () => {
-    const user = userEvent.setup();
+  it("filters courses by an inclusive session calendar date range", async () => {
     renderCourses();
     await waitForFirstPage();
 
-    await user.type(screen.getByLabelText("From"), "09:00");
-    await user.type(screen.getByLabelText("To"), "11:00");
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-06-01" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-06-01" } });
 
     await waitFor(() => {
       const last = courseRequests[courseRequests.length - 1];
-      expect(last).toContain("session_from=09%3A00");
-      expect(last).toContain("session_to=11%3A00");
+      expect(last).toContain("session_date_from=2026-06-01");
+      expect(last).toContain("session_date_to=2026-06-01");
       expect(screen.getByText("60 records")).toBeTruthy();
     });
     expect(screen.getByText("CODE-000")).toBeTruthy();

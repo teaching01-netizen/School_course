@@ -12,7 +12,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
-	"warwick-institute/internal/httpapi/sessiontimefilter"
+	"warwick-institute/internal/httpapi/sessiondaterange"
 	"warwick-institute/internal/realtime"
 )
 
@@ -78,18 +78,18 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
 		return
 	}
-	sessionFrom, sessionTo, err := sessiontimefilter.Parse(r.URL.Query())
+	sessionDateFrom, sessionDateTo, err := sessiondaterange.Parse(r.URL.Query())
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_filter", err.Error())
 		return
 	}
-	if !paginated && (sessionFrom != "" || sessionTo != "") {
+	if !paginated && (sessionDateFrom != "" || sessionDateTo != "") {
 		limit, offset, paginated = 50, 0, true
 	}
 	if paginated {
 		subjects, coursesBySubject, totalSubjects, totalCourses, err := s.deps.Q.ActiveCoursesListPaginated(r.Context(), sqldb.ActiveCoursesListParams{
 			Limit: limit, Offset: offset, Search: search, Status: statusFilter,
-			SessionFrom: sessionFrom, SessionTo: sessionTo, InstituteTZ: s.deps.InstituteTZ,
+			SessionDateFrom: sessionDateFrom, SessionDateTo: sessionDateTo, InstituteTZ: s.deps.InstituteTZ,
 		})
 		if err != nil {
 			s.err(w, err)

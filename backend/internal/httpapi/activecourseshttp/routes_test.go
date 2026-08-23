@@ -4,10 +4,10 @@ import (
 	"net/url"
 	"testing"
 
-	"warwick-institute/internal/httpapi/sessiontimefilter"
+	"warwick-institute/internal/httpapi/sessiondaterange"
 )
 
-func TestParseSessionTimeFilters(t *testing.T) {
+func TestParseSessionDateFilters(t *testing.T) {
 	tests := []struct {
 		name     string
 		query    string
@@ -15,14 +15,14 @@ func TestParseSessionTimeFilters(t *testing.T) {
 		wantTo   string
 		wantErr  bool
 	}{
-		{name: "both bounds", query: "session_from=09:00&session_to=11:30", wantFrom: "09:00", wantTo: "11:30"},
-		{name: "from only", query: "session_from=09:00", wantFrom: "09:00"},
-		{name: "invalid time", query: "session_from=9am", wantErr: true},
-		{name: "reversed", query: "session_from=12:00&session_to=09:00", wantErr: true},
+		{name: "both bounds", query: "session_date_from=2026-06-01&session_date_to=2026-06-30", wantFrom: "2026-06-01", wantTo: "2026-06-30"},
+		{name: "from only", query: "session_date_from=2026-06-01", wantFrom: "2026-06-01"},
+		{name: "invalid date", query: "session_date_from=2026-02-30", wantErr: true},
+		{name: "reversed", query: "session_date_from=2026-06-30&session_date_to=2026-06-01", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			from, to, err := sessiontimefilter.Parse(parseQuery(tt.query))
+			from, to, err := sessiondaterange.Parse(parseQuery(tt.query))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("error = %v, want error %v", err, tt.wantErr)
 			}
