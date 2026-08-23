@@ -29,22 +29,22 @@ func satEnrolled(id, name string) sqldb.StudentEnrolledCourseV2 {
 	}
 }
 
-func TestSatVerbalSessionBlockReason_BlocksUsedInstituteDate(t *testing.T) {
+func TestSatVerbalSessionBlockReason_BlocksOnlyUsedSession(t *testing.T) {
 	instituteLoc, err := instituteLocation("Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	usedDate := map[string]struct{}{"2026-02-09": {}}
 	usedSession := session("d9000000-0000-0000-0000-000000000001", "94000000-0000-0000-0000-000000000004", "2026-02-08T17:30:00Z", "2026-02-08T18:30:00Z")
-	nextDaySession := session("d9000000-0000-0000-0000-000000000002", "94000000-0000-0000-0000-000000000004", "2026-02-09T17:30:00Z", "2026-02-09T18:30:00Z")
+	sameDaySession := session("d9000000-0000-0000-0000-000000000002", "94000000-0000-0000-0000-000000000004", "2026-02-08T19:30:00Z", "2026-02-08T20:30:00Z")
 
-	reason, code := satVerbalSessionBlockReasonWithBlockedDate(usedSession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, usedDate)
-	if code != "sit_in_day_already_used" || reason == "" {
+	blocked := map[string]struct{}{uuidStringOrZero(usedSession.ID): {}}
+	reason, code := satVerbalSessionBlockReasonWithBlockedSession(usedSession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, blocked)
+	if code != "sit_in_session_already_used" || reason == "" {
 		t.Fatalf("blocked session result = %q, %q", reason, code)
 	}
-	reason, code = satVerbalSessionBlockReasonWithBlockedDate(nextDaySession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, usedDate)
+	reason, code = satVerbalSessionBlockReasonWithBlockedSession(sameDaySession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, blocked)
 	if reason != "" || code != "" {
-		t.Fatalf("next-day session result = %q, %q, want available", reason, code)
+		t.Fatalf("same-day different-time session result = %q, %q, want available", reason, code)
 	}
 }
 

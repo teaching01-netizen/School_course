@@ -203,7 +203,7 @@ func TestSitInsBySessionIDs_MixedCaseWCode(t *testing.T) {
 	})
 }
 
-func TestActiveSitInDatesForStudent_BlocksAllSessionsOnDateUntilCancelled(t *testing.T) {
+func TestActiveSitInSessionIDsForStudent_BlocksOnlyExactSessionUntilCancelled(t *testing.T) {
 	databaseURL := requireTestDB(t)
 	migrateUpOnce(t, databaseURL)
 	dbpool := newPool(t, databaseURL)
@@ -250,29 +250,29 @@ func TestActiveSitInDatesForStudent_BlocksAllSessionsOnDateUntilCancelled(t *tes
 		t.Fatal(err)
 	}
 
-	dates, err := q.ActiveSitInDatesForStudent(ctx, student.ID, "Asia/Bangkok")
+	active, err := q.ActiveSitInSessionIDsForStudent(ctx, student.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dates) != 1 || dates[0] != "2026-06-22" {
-		t.Fatalf("active sit-in dates = %#v, want [2026-06-22]", dates)
+	if len(active) != 1 || active[0] != usedSession {
+		t.Fatalf("active sit-in session IDs = %#v, want used session only", active)
 	}
-	blocked, err := q.ActiveSitInSessionIDsForStudentOnDates(ctx, student.ID, []pgtype.UUID{sameDaySession, nextDaySession}, "Asia/Bangkok")
+	blocked, err := q.ActiveSitInSessionIDsForStudentCandidates(ctx, student.ID, []pgtype.UUID{usedSession, sameDaySession, nextDaySession})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(blocked) != 1 || blocked[0] != sameDaySession {
-		t.Fatalf("blocked session IDs = %#v, want same-day session only", blocked)
+	if len(blocked) != 1 || blocked[0] != usedSession {
+		t.Fatalf("blocked session IDs = %#v, want exact used session only", blocked)
 	}
 
 	if _, err := dbpool.Exec(ctx, `UPDATE student_absences SET status = 'cancelled' WHERE id = $1`, absence.ID); err != nil {
 		t.Fatal(err)
 	}
-	dates, err = q.ActiveSitInDatesForStudent(ctx, student.ID, "Asia/Bangkok")
+	active, err = q.ActiveSitInSessionIDsForStudent(ctx, student.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dates) != 0 {
-		t.Fatalf("active sit-in dates after cancellation = %#v, want empty", dates)
+	if len(active) != 0 {
+		t.Fatalf("active sit-in session IDs after cancellation = %#v, want empty", active)
 	}
 }

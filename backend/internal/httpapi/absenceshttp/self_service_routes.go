@@ -52,7 +52,7 @@ func (s *server) handleStudentProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.deps.Q.StudentSubjectByWCode(r.Context(), session.Wcode)
+	rows, err := s.deps.Q.StudentSubjectByWCodeForAbsenceForm(r.Context(), session.Wcode)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)

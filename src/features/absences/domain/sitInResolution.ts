@@ -109,6 +109,13 @@ export type SitInOptionGroup = {
   sitInCourse?: SitInCourse;
 };
 
+export function sitInOptionGroupsBySession(
+  sessions: SitInAvailableSession[],
+  sitInCourse?: SitInCourse,
+): SitInOptionGroup[] {
+  return sessions.map((session) => ({ items: [session], sitInCourse }));
+}
+
 export type SitInSessionConflict = {
   group: SubjectSessions;
   session: SubjectSessions["sessions"][number];
@@ -187,28 +194,29 @@ function sitInTargetKey(
   return courseID ? `course:${courseID}` : fallbackKey;
 }
 
-export function groupSitInOptionsByTargetAndDay(
+export function sitInOptionsByTargetAndSession(
   priorities: SitInPriority[],
   missedSessionIds: string[],
 ): SitInOptionGroup[] {
   const buckets = new Map<string, SitInOptionGroup>();
+  const seenSessionIDs = new Set<string>();
   priorities.forEach((priority, index) => {
     const sessions = availableSessionsForMissedSessions(priority, missedSessionIds);
     if (sessions.length === 0) return;
     const key = sitInTargetKey(priority.sit_in_course, sessions, `priority:${index}`);
     const bucket = buckets.get(key);
     if (bucket) {
-      bucket.items.push(...sessions);
+      bucket.items.push(...sessions.filter((session) => !seenSessionIDs.has(session.id)));
+      sessions.forEach((session) => seenSessionIDs.add(session.id));
       return;
     }
-    buckets.set(key, { items: [...sessions], sitInCourse: priority.sit_in_course });
+    const uniqueSessions = sessions.filter((session) => !seenSessionIDs.has(session.id));
+    uniqueSessions.forEach((session) => seenSessionIDs.add(session.id));
+    buckets.set(key, { items: uniqueSessions, sitInCourse: priority.sit_in_course });
   });
 
   return [...buckets.values()].flatMap((bucket) =>
-    groupByDay(bucket.items).map((dayGroup) => ({
-      items: dayGroup.items,
-      sitInCourse: bucket.sitInCourse,
-    })),
+    sitInOptionGroupsBySession(bucket.items, bucket.sitInCourse),
   );
 }
 
@@ -310,15 +318,21 @@ export function getSitInSessionLabel(
   fallbackSubjectName: string,
   allSubjects: SubjectSessions[],
 ) {
-  const className =
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    session.class_name?.trim() ||
+  const subjectName =
     session.subject_name?.trim() ||
-    session.course_name?.trim() ||
-    fallbackSubjectName;
+    sitInCourse?.subject_name?.trim() ||
+    allSubjects.find((subject) => subject.course_id === sitInCourse?.id)?.subject_name?.trim();
+  const className =
+    sitInCourse?.merge_group_name?.trim() ||
+    sitInCourse?.name?.trim() ||
+    sitInCourse?.subject_name?.trim() ||
+    session.class_name?.trim() ||
+    session.course_name?.trim();
+  const label = subjectName && className && subjectName.toLowerCase() !== className.toLowerCase()
+    ? `${subjectName} — ${className}`
+    : subjectName || className || fallbackSubjectName;
   const teacher = resolveSitInCourseTeacher(sitInCourse, allSubjects) ?? session.teacher_name;
-  return `${appendTeacher(className, teacher)} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+  return `${appendTeacher(label, teacher)} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
 }
 
 export function getSitInSessionGroupLabel(
@@ -329,14 +343,20 @@ export function getSitInSessionGroupLabel(
 ) {
   if (sessions.length === 1) return getSitInSessionLabel(sessions[0], sitInCourse, fallbackSubjectName, allSubjects);
   const first = sessions[0];
-  const className =
-    resolveSitInSubjectName(sitInCourse, allSubjects) ||
-    sitInCourse?.name?.trim() ||
-    first.class_name?.trim() ||
+  const subjectName =
     first.subject_name?.trim() ||
-    first.course_name?.trim() ||
-    fallbackSubjectName;
+    sitInCourse?.subject_name?.trim() ||
+    allSubjects.find((subject) => subject.course_id === sitInCourse?.id)?.subject_name?.trim();
+  const className =
+    sitInCourse?.merge_group_name?.trim() ||
+    sitInCourse?.name?.trim() ||
+    sitInCourse?.subject_name?.trim() ||
+    first.class_name?.trim() ||
+    first.course_name?.trim();
+  const label = subjectName && className && subjectName.toLowerCase() !== className.toLowerCase()
+    ? `${subjectName} — ${className}`
+    : subjectName || className || fallbackSubjectName;
   const teacher = resolveSitInCourseTeacher(sitInCourse, allSubjects) ?? first.teacher_name;
   const range = groupByDay(sessions)[0];
-  return `${appendTeacher(className, teacher)} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
+  return `${appendTeacher(label, teacher)} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }

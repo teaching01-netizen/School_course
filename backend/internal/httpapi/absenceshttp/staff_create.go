@@ -179,8 +179,8 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
 			return 0, nil, err
 		}
-		if err := ensureSitInDatesAvailable(r.Context(), qtx, student.ID, sessionUUIDs, s.deps.InstituteTZ); err != nil {
-			if s.writeSitInDayConflict(w, err) {
+		if err := ensureSitInSessionsAvailable(r.Context(), qtx, student.ID, sessionUUIDs); err != nil {
+			if s.writeSitInSessionConflict(w, err) {
 				return 0, nil, err
 			}
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check sit-in session availability")

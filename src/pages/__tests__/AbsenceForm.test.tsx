@@ -1044,7 +1044,7 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
-  it("merges same-day physical sit-in options and submits all sit-in session IDs", async () => {
+  it("shows same-day physical sit-in sessions as separate subject/time options", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
@@ -1063,8 +1063,8 @@ describe("AbsenceForm", () => {
             sit_in_method: "physical",
             sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
             available_sessions: [
-              { id: "as1", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00", course_name: "Calculus III" },
-              { id: "as2", start_at: "2026-06-04T14:45:00+07:00", end_at: "2026-06-04T16:30:00+07:00", course_name: "Calculus III" },
+              { id: "as1", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00", subject_name: "Mathematics", course_name: "Calculus III" },
+              { id: "as2", start_at: "2026-06-04T14:45:00+07:00", end_at: "2026-06-04T16:30:00+07:00", subject_name: "Mathematics", course_name: "Calculus III" },
             ],
           },
         },
@@ -1081,8 +1081,9 @@ describe("AbsenceForm", () => {
 
     const makeUpSelect = await screen.findByRole("combobox");
     const makeUpOptions = screen.getAllByRole("option").filter((option) => option.getAttribute("value"));
-    expect(makeUpOptions).toHaveLength(1);
-    expect(makeUpOptions[0]).toHaveTextContent(/Calculus III.*4 Jun 2026 13:00-16:30/);
+    expect(makeUpOptions).toHaveLength(2);
+    expect(makeUpOptions[0]).toHaveTextContent(/Mathematics.*Calculus III.*4 Jun 2026 13:00-14:30/);
+    expect(makeUpOptions[1]).toHaveTextContent(/Mathematics.*Calculus III.*4 Jun 2026 14:45-16:30/);
 
     await user.selectOptions(makeUpSelect, makeUpOptions[0].getAttribute("value")!);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
@@ -1098,11 +1099,11 @@ describe("AbsenceForm", () => {
     };
     expect(parsedBody.items[0]).toMatchObject({
       sit_in_course_id: "c-math301",
-      sit_in_session_ids: ["as1", "as2"],
+      sit_in_session_ids: ["as1"],
     });
   }, 30000);
 
-  it("shows a used sit-in day as unavailable in the public form", async () => {
+  it("shows a used sit-in session as unavailable in the public form", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
@@ -1119,8 +1120,8 @@ describe("AbsenceForm", () => {
           sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
           unavailable_sessions: [{
             session: { id: "used-day-session", start_at: "2026-06-02T13:00:00+07:00", end_at: "2026-06-02T14:30:00+07:00" },
-            reason: "This sit-in day is already assigned to this student's absence.",
-            reason_code: "sit_in_day_already_used",
+            reason: "This sit-in session is already assigned to this student's absence.",
+            reason_code: "sit_in_session_already_used",
           }],
         },
       }]),
@@ -1133,12 +1134,12 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByText("This sit-in day is already used.")).toBeInTheDocument();
-    expect(screen.getByText("Choose a make-up class on another day.")).toBeInTheDocument();
+    expect(await screen.findByText("This sit-in session is already used.")).toBeInTheDocument();
+    expect(screen.getByText("Choose another sit-in session.")).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   }, 30000);
 
-  it("returns to classes and refreshes after a stale public sit-in day conflict", async () => {
+  it("returns to classes and refreshes after a stale public sit-in session conflict", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
@@ -1157,7 +1158,7 @@ describe("AbsenceForm", () => {
         },
       }]),
       submission: () => {
-        throw new ApiRequestError("This sit-in day is already assigned", { code: "sit_in_day_already_used", status: 409 });
+        throw new ApiRequestError("This sit-in session is already assigned", { code: "sit_in_session_already_used", status: 409 });
       },
     });
 
@@ -1171,7 +1172,7 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 
-    expect(await screen.findByText(/That sit-in day was just used for this student/)).toBeInTheDocument();
+    expect(await screen.findByText(/That sit-in session was just used for this student/)).toBeInTheDocument();
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
     await waitFor(() => {
       expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length).toBeGreaterThanOrEqual(2);

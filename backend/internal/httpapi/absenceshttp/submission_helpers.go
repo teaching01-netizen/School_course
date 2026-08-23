@@ -69,19 +69,19 @@ func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
 	return parsed, nil
 }
 
-type sitInDayAlreadyUsedError struct {
+type sitInSessionAlreadyUsedError struct {
 	SessionIDs []string
 }
 
-func (e *sitInDayAlreadyUsedError) Error() string {
-	return "This sit-in day is already assigned to this student's absence. Choose another day."
+func (e *sitInSessionAlreadyUsedError) Error() string {
+	return "This sit-in session is already assigned to this student's absence. Choose another session."
 }
 
-func ensureSitInDatesAvailable(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) error {
+func ensureSitInSessionsAvailable(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, sessionIDs []pgtype.UUID) error {
 	if len(sessionIDs) == 0 {
 		return nil
 	}
-	used, err := q.ActiveSitInSessionIDsForStudentOnDates(ctx, studentID, sessionIDs, instituteTZ)
+	used, err := q.ActiveSitInSessionIDsForStudentCandidates(ctx, studentID, sessionIDs)
 	if err != nil {
 		return err
 	}
@@ -92,15 +92,15 @@ func ensureSitInDatesAvailable(ctx context.Context, q *sqldb.Queries, studentID 
 	for _, sessionID := range used {
 		conflicts = append(conflicts, sessionID.String())
 	}
-	return &sitInDayAlreadyUsedError{SessionIDs: conflicts}
+	return &sitInSessionAlreadyUsedError{SessionIDs: conflicts}
 }
 
-func (s *server) writeSitInDayConflict(w http.ResponseWriter, err error) bool {
-	var conflict *sitInDayAlreadyUsedError
+func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) bool {
+	var conflict *sitInSessionAlreadyUsedError
 	if !errors.As(err, &conflict) {
 		return false
 	}
-	s.a.WriteErrDetails(w, http.StatusConflict, "sit_in_day_already_used", conflict.Error(), map[string]any{
+	s.a.WriteErrDetails(w, http.StatusConflict, "sit_in_session_already_used", conflict.Error(), map[string]any{
 		"session_ids": conflict.SessionIDs,
 	})
 	return true

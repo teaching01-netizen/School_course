@@ -361,7 +361,7 @@ describe("StaffCreateAbsenceModal", () => {
     expect(sitInOption).toHaveValue("sit1");
   });
 
-  it("shows a used sit-in day as unavailable in the staff form", async () => {
+  it("shows a used sit-in session as unavailable in the staff form", async () => {
     const user = userEvent.setup();
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
@@ -374,8 +374,8 @@ describe("StaffCreateAbsenceModal", () => {
             sit_in_course: MOCK_SESSIONS.subjects[0].sit_in.sit_in_course,
             unavailable_sessions: [{
               session: { id: "used-day-session", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z" },
-              reason: "This sit-in day is already assigned to this student's absence.",
-              reason_code: "sit_in_day_already_used",
+              reason: "This sit-in session is already assigned to this student's absence.",
+              reason_code: "sit_in_session_already_used",
             }],
           },
         }],
@@ -390,18 +390,18 @@ describe("StaffCreateAbsenceModal", () => {
     await waitFor(() => expect(screen.getByText(/1 class day/)).toBeInTheDocument());
     await user.click(await screen.findByRole("checkbox"));
 
-    expect(await screen.findByText("This sit-in day is already used.")).toBeInTheDocument();
-    expect(screen.getByText("Choose a make-up class on another day.")).toBeInTheDocument();
+    expect(await screen.findByText("This sit-in session is already used.")).toBeInTheDocument();
+    expect(screen.getByText("Choose another sit-in session.")).toBeInTheDocument();
   });
 
-  it("refreshes the staff sessions after a stale sit-in day conflict", async () => {
+  it("refreshes the staff sessions after a stale sit-in session conflict", async () => {
     const user = userEvent.setup();
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
-      .mockRejectedValueOnce(new ApiRequestError("This sit-in day is already assigned", { code: "sit_in_day_already_used", status: 409 }))
+      .mockRejectedValueOnce(new ApiRequestError("This sit-in session is already assigned", { code: "sit_in_session_already_used", status: 409 }))
       .mockResolvedValueOnce(MOCK_SESSIONS);
     renderModal();
     await advanceToSubjectsStep(user);
@@ -417,7 +417,7 @@ describe("StaffCreateAbsenceModal", () => {
     await waitFor(() => expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /create absence/i }));
 
-    expect(await screen.findByText(/That sit-in day was just used for this student/)).toBeInTheDocument();
+    expect(await screen.findByText(/That sit-in session was just used for this student/)).toBeInTheDocument();
     await waitFor(() => {
       expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length).toBeGreaterThanOrEqual(2);
     });

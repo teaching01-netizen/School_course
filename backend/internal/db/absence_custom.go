@@ -43,6 +43,14 @@ type StudentSubjectRow struct {
 // With multiple active courses per subject it is the lowest id for shape
 // stability; consumers display per-course data from session groups instead.
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
+	return q.studentSubjectByWCode(ctx, wcode, false)
+}
+
+func (q *Queries) StudentSubjectByWCodeForAbsenceForm(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
+	return q.studentSubjectByWCode(ctx, wcode, true)
+}
+
+func (q *Queries) studentSubjectByWCode(ctx context.Context, wcode string, requireAbsenceFormAvailability bool) ([]StudentSubjectRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT s.id, s.wcode, s.full_name, s.student_phone, s.parent_phone,
 		       COALESCE(s.email_crm, s.email_system) AS email,
@@ -68,9 +76,17 @@ func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]St
 		LEFT JOIN course_merge_group_members mm ON mm.course_id = sac.course_id
 		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 		WHERE lower(s.wcode) = lower($1)
+		  AND ($2 = false OR (
+			c.absence_form_visible
+			AND EXISTS (
+				SELECT 1 FROM subject_active_courses sac_visible
+				WHERE sac_visible.subject_id = c.subject_id
+				  AND sac_visible.course_id = c.id
+			)
+		  ))
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
-	`, wcode)
+	`, wcode, requireAbsenceFormAvailability)
 	if err != nil {
 		return nil, err
 	}
@@ -180,32 +196,28 @@ func (q *Queries) LockStudentForAbsenceSubmission(ctx context.Context, studentID
 	return nil
 }
 
-func (q *Queries) ActiveSitInDatesForStudent(ctx context.Context, studentID pgtype.UUID, instituteTZ string) ([]string, error) {
-	query := `
-		SELECT DISTINCT to_char(sess.start_at AT TIME ZONE $2, 'YYYY-MM-DD')
+func (q *Queries) ActiveSitInSessionIDsForStudent(ctx context.Context, studentID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT DISTINCT asi.session_id
 		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
 		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
-		JOIN sessions sess ON sess.id = asi.session_id
 		WHERE st.id = $1
 		  AND sa.status <> 'cancelled'
-		ORDER BY 1
-	`
-	args := []any{studentID, instituteTZ}
-
-	rows, err := q.db.Query(ctx, query, args...)
+		ORDER BY asi.session_id
+	`, studentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []string
+	var out []pgtype.UUID
 	for rows.Next() {
-		var date string
-		if err := rows.Scan(&date); err != nil {
+		var sessionID pgtype.UUID
+		if err := rows.Scan(&sessionID); err != nil {
 			return nil, err
 		}
-		out = append(out, date)
+		out = append(out, sessionID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -213,23 +225,20 @@ func (q *Queries) ActiveSitInDatesForStudent(ctx context.Context, studentID pgty
 	return out, nil
 }
 
-func (q *Queries) ActiveSitInSessionIDsForStudentOnDates(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) ([]pgtype.UUID, error) {
+func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID) ([]pgtype.UUID, error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil
 	}
 	rows, err := q.db.Query(ctx, `
-		SELECT DISTINCT candidate.id
-		FROM sessions candidate
-		JOIN absence_sit_ins asi ON TRUE
+		SELECT DISTINCT asi.session_id
+		FROM absence_sit_ins asi
 		JOIN student_absences sa ON sa.id = asi.absence_id
 		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
-		JOIN sessions used ON used.id = asi.session_id
 		WHERE st.id = $1
-		  AND candidate.id = ANY($2::uuid[])
+		  AND asi.session_id = ANY($2::uuid[])
 		  AND sa.status <> 'cancelled'
-		  AND (candidate.start_at AT TIME ZONE $3)::date = (used.start_at AT TIME ZONE $3)::date
-		ORDER BY candidate.id
-	`, studentID, sessionIDs, instituteTZ)
+		ORDER BY asi.session_id
+	`, studentID, sessionIDs)
 	if err != nil {
 		return nil, err
 	}

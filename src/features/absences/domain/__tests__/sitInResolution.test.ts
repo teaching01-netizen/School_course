@@ -21,7 +21,7 @@ import {
   getSitInSessionGroupLabel,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
-  groupSitInOptionsByTargetAndDay,
+  sitInOptionsByTargetAndSession,
   appendTeacher,
 } from "../sitInResolution";
 
@@ -493,10 +493,13 @@ describe("getSitInSessionGroupLabel", () => {
       },
     ];
 
-    const options = groupSitInOptionsByTargetAndDay(priorities, ["missed-session"]);
+    const options = sitInOptionsByTargetAndSession(priorities, ["missed-session"]);
 
-    expect(options).toHaveLength(1);
-    expect(options[0].items.map((session) => session.id)).toEqual(["reading-session", "writing-session"]);
+    expect(options).toHaveLength(2);
+    expect(options.map((option) => option.items.map((session) => session.id))).toEqual([
+      ["reading-session"],
+      ["writing-session"],
+    ]);
     expect(getSitInSessionGroupLabel(options[0].items, options[0].sitInCourse, "Fallback", [])).toContain("SAT Verbal Rank 3 Section 2 C3");
   });
 });
@@ -609,7 +612,7 @@ describe("teacher names in sit-in labels", () => {
   it("appends the sit-in course's teacher from the loaded subjects", () => {
     const sessions = [{ id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03" }];
     const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", allSubjects as never);
-    expect(result).toMatch(/Mathematics \(Ajarn Somchai\) —/);
+    expect(result).toMatch(/Mathematics.*Calc III \(Ajarn Somchai\) —/);
   });
 
   it("falls back to the session's own teacher_name", () => {

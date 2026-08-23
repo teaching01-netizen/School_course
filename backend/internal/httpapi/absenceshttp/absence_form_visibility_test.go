@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"warwick-institute/internal/studentauth"
 )
 
 // The absence-form visibility flag is a student-facing gate only: the student
@@ -33,6 +36,58 @@ func setAbsenceFormVisible(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 		UPDATE courses SET absence_form_visible = $2 WHERE id = $1
 	`, courseID, visible); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStudentProfileExcludesInactiveEnrolledSubjects(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	mux := selfServiceMux(t, dbpool)
+	seed := seedActiveCourseFixture(t, dbpool)
+	setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
+	t.Cleanup(func() { clearActiveCourseRow(t, dbpool, seed.subjID) })
+	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+
+	var inactiveSubjectID uuid.UUID
+	if err := dbpool.QueryRow(context.Background(), `
+		INSERT INTO subjects (code, name) VALUES ($1, $2) RETURNING id
+	`, "AINACTIVE-"+seed.suffix, "Inactive absence subject "+seed.suffix).Scan(&inactiveSubjectID); err != nil {
+		t.Fatal(err)
+	}
+	var inactiveCourseID uuid.UUID
+	if err := dbpool.QueryRow(context.Background(), `
+		INSERT INTO courses (code, name, subject_id, absence_form_visible)
+		VALUES ($1, $2, $3, true) RETURNING id
+	`, "ACRS-inactive-"+seed.suffix, "Inactive absence course "+seed.suffix, inactiveSubjectID).Scan(&inactiveCourseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(context.Background(), `
+		INSERT INTO course_students (course_id, student_id, status)
+		SELECT $1, id, 'enrolled' FROM students WHERE wcode = $2
+	`, inactiveCourseID, seed.wcode); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/absence-self-service/me", nil)
+	req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: rawToken})
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("student profile status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Subjects []struct {
+			ID string `json:"id"`
+		} `json:"subjects"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Subjects) != 1 || response.Subjects[0].ID != seed.subjID.String() {
+		t.Fatalf("student profile subjects = %#v, want only active subject %s", response.Subjects, seed.subjID)
 	}
 }
 

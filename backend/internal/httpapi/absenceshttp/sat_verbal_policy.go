@@ -47,20 +47,20 @@ type satVerbalSessionOptions struct {
 }
 
 type satVerbalResolveInput struct {
-	Rule               *satVerbalCourseRule
-	Policy             []satVerbalCourseRule
-	MappedCourses      []satVerbalMappedCourse
-	MergeGroupNames    map[string]string
-	MissedCourse       sqldb.SubjectCourseV2
-	Enrolled           []sqldb.StudentEnrolledCourseV2
-	AllCourses         []sqldb.SubjectCourseV2
-	MissedSessions     []sqldb.SessionInRange
-	Cutoff             time.Time
-	RequestTime        time.Time
-	InstituteTZ        string
-	AfterPriorityLevel int
-	BlockedSitInDates  map[string]struct{}
-	LoadSessions       func(context.Context, pgtype.UUID) ([]sqldb.SessionInRange, error)
+	Rule                   *satVerbalCourseRule
+	Policy                 []satVerbalCourseRule
+	MappedCourses          []satVerbalMappedCourse
+	MergeGroupNames        map[string]string
+	MissedCourse           sqldb.SubjectCourseV2
+	Enrolled               []sqldb.StudentEnrolledCourseV2
+	AllCourses             []sqldb.SubjectCourseV2
+	MissedSessions         []sqldb.SessionInRange
+	Cutoff                 time.Time
+	RequestTime            time.Time
+	InstituteTZ            string
+	AfterPriorityLevel     int
+	BlockedSitInSessionIDs map[string]struct{}
+	LoadSessions           func(context.Context, pgtype.UUID) ([]sqldb.SessionInRange, error)
 }
 
 func decodeSatVerbalPolicyRules(raw []byte) ([]satVerbalCourseRule, error) {
@@ -191,7 +191,7 @@ func satVerbalResolvePriorities(
 			if err != nil {
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
-			options := satVerbalSessionOptionsForTargetWithBlockedDates(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, rule.LastClassExcluded, notBefore, input.Cutoff, instituteLoc, offered, input.BlockedSitInDates)
+			options := satVerbalSessionOptionsForTargetWithBlockedSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, rule.LastClassExcluded, notBefore, input.Cutoff, instituteLoc, offered, input.BlockedSitInSessionIDs)
 			if len(options.Available) == 0 && len(options.Unavailable) == 0 {
 				continue
 			}
@@ -574,10 +574,10 @@ func satVerbalSessionOptionsForTarget(
 	instituteLoc *time.Location,
 	offered map[pgtype.UUID]struct{},
 ) satVerbalSessionOptions {
-	return satVerbalSessionOptionsForTargetWithBlockedDates(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, excludeFinal, notBefore, cutoff, instituteLoc, offered, nil)
+	return satVerbalSessionOptionsForTargetWithBlockedSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, excludeFinal, notBefore, cutoff, instituteLoc, offered, nil)
 }
 
-func satVerbalSessionOptionsForTargetWithBlockedDates(
+func satVerbalSessionOptionsForTargetWithBlockedSessions(
 	targetSessions []sqldb.SessionInRange,
 	missedSessions []sqldb.SessionInRange,
 	missedLessonSlots []satVerbalMissedLessonSlot,
@@ -587,7 +587,7 @@ func satVerbalSessionOptionsForTargetWithBlockedDates(
 	cutoff time.Time,
 	instituteLoc *time.Location,
 	offered map[pgtype.UUID]struct{},
-	blockedDates map[string]struct{},
+	blockedSessionIDs map[string]struct{},
 ) satVerbalSessionOptions {
 	sessions := sortedSessions(targetSessions)
 	finalDay := ""
@@ -607,7 +607,7 @@ func satVerbalSessionOptionsForTargetWithBlockedDates(
 				continue
 			}
 			session := sessions[slot.Index]
-			if reason, code := satVerbalSessionBlockReasonWithBlockedDate(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, blockedDates); reason != "" {
+			if reason, code := satVerbalSessionBlockReasonWithBlockedSession(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, blockedSessionIDs); reason != "" {
 				out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
 					Session:         &session,
 					MissedSessionID: slot.Missed.ID,
@@ -622,9 +622,9 @@ func satVerbalSessionOptionsForTargetWithBlockedDates(
 		return out
 	}
 	for _, session := range sessions {
-		if reason, code := satVerbalSessionBlockReasonWithBlockedDate(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, blockedDates); reason == "" {
+		if reason, code := satVerbalSessionBlockReasonWithBlockedSession(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, blockedSessionIDs); reason == "" {
 			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
-		} else if code == "sit_in_day_already_used" {
+		} else if code == "sit_in_session_already_used" {
 			out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
 				Session:    &session,
 				Reason:     reason,
@@ -645,10 +645,10 @@ func satVerbalSessionBlockReason(
 	instituteLoc *time.Location,
 	offered map[pgtype.UUID]struct{},
 ) (string, string) {
-	return satVerbalSessionBlockReasonWithBlockedDate(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, nil)
+	return satVerbalSessionBlockReasonWithBlockedSession(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, nil)
 }
 
-func satVerbalSessionBlockReasonWithBlockedDate(
+func satVerbalSessionBlockReasonWithBlockedSession(
 	session sqldb.SessionInRange,
 	finalDay string,
 	excludeFinal bool,
@@ -657,7 +657,7 @@ func satVerbalSessionBlockReasonWithBlockedDate(
 	cutoff time.Time,
 	instituteLoc *time.Location,
 	offered map[pgtype.UUID]struct{},
-	blockedDates map[string]struct{},
+	blockedSessionIDs map[string]struct{},
 ) (string, string) {
 	if excludeFinal && finalDay != "" && session.StartAt.Time.In(instituteLoc).Format("2006-01-02") == finalDay {
 		return "This class is on the final class day in the target cycle.", "target_final_class"
@@ -665,8 +665,8 @@ func satVerbalSessionBlockReasonWithBlockedDate(
 	if _, ok := offered[session.ID]; ok {
 		return "This slot was already used for another selected missed class.", "already_offered"
 	}
-	if _, ok := blockedDates[session.StartAt.Time.In(instituteLoc).Format("2006-01-02")]; ok {
-		return "This sit-in day is already assigned to this student's absence.", "sit_in_day_already_used"
+	if _, ok := blockedSessionIDs[uuidStringOrZero(session.ID)]; ok {
+		return "This sit-in session is already assigned to this student's absence.", "sit_in_session_already_used"
 	}
 	if !notBefore.IsZero() && session.StartAt.Time.Before(notBefore) {
 		return "This same-number sit-in slot is before today/request date.", "before_request_date"

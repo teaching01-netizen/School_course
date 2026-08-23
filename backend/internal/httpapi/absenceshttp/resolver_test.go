@@ -216,7 +216,7 @@ func TestBuildPhysicalSitInResult_ZeroCutoff_DoesNotFilter(t *testing.T) {
 	}
 }
 
-func TestBuildPhysicalSitInResult_BlocksUsedInstituteDateAcrossSessions(t *testing.T) {
+func TestBuildPhysicalSitInResult_BlocksOnlyUsedSession(t *testing.T) {
 	target := sqldb.SubjectCourseV2{
 		ID:   makeUUID("10000000-0000-0000-0000-000000000001"),
 		Code: "TGT",
@@ -230,30 +230,22 @@ func TestBuildPhysicalSitInResult_BlocksUsedInstituteDateAcrossSessions(t *testi
 		session("a0000000-0000-0000-0000-00000000000b", "30000000-0000-0000-0000-000000000003", "2025-03-08T08:00:00Z", "2025-03-08T09:00:00Z"),
 		session("a0000000-0000-0000-0000-00000000000c", "30000000-0000-0000-0000-000000000003", "2025-03-09T02:00:00Z", "2025-03-09T03:00:00Z"),
 	}
-	instituteLoc, err := instituteLocation("Asia/Bangkok")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := buildPhysicalSitInResultWithBlockedDates(
+	result := buildPhysicalSitInResultWithBlockedSessions(
 		&target,
 		missed,
 		available,
 		time.Time{},
-		map[string]struct{}{"2025-03-08": {}},
-		instituteLoc,
+		map[string]struct{}{"a0000000-0000-0000-0000-00000000000b": {}},
 	)
 
-	if len(result.Available) != 1 || result.Available[0].ID != "a0000000-0000-0000-0000-00000000000c" {
-		t.Fatalf("available = %#v, want only the next institute day", result.Available)
+	if len(result.Available) != 2 || result.Available[0].ID != "a0000000-0000-0000-0000-00000000000a" || result.Available[1].ID != "a0000000-0000-0000-0000-00000000000c" {
+		t.Fatalf("available = %#v, want unused same-day and next-day sessions", result.Available)
 	}
-	if len(result.Unavailable) != 2 {
-		t.Fatalf("unavailable = %#v, want both sessions on the blocked day", result.Unavailable)
+	if len(result.Unavailable) != 1 || result.Unavailable[0].Session.ID != "a0000000-0000-0000-0000-00000000000b" {
+		t.Fatalf("unavailable = %#v, want only the used session", result.Unavailable)
 	}
-	for _, unavailable := range result.Unavailable {
-		if unavailable.ReasonCode != "sit_in_day_already_used" {
-			t.Fatalf("reason code = %q, want sit_in_day_already_used", unavailable.ReasonCode)
-		}
+	if result.Unavailable[0].ReasonCode != "sit_in_session_already_used" {
+		t.Fatalf("reason code = %q, want sit_in_session_already_used", result.Unavailable[0].ReasonCode)
 	}
 }
 

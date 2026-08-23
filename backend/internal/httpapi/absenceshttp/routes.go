@@ -535,8 +535,8 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
 			return 0, nil, err
 		}
-		if err := ensureSitInDatesAvailable(r.Context(), qtx, student.ID, sessionUUIDs, s.deps.InstituteTZ); err != nil {
-			if s.writeSitInDayConflict(w, err) {
+		if err := ensureSitInSessionsAvailable(r.Context(), qtx, student.ID, sessionUUIDs); err != nil {
+			if s.writeSitInSessionConflict(w, err) {
 				return 0, nil, err
 			}
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check sit-in session availability")
@@ -1394,14 +1394,14 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 
 	staffSubjectAvailable := map[string][]sessionBrief{}
 	staffSubjectUnavailable := map[string][]unavailableSessionBrief{}
-	var blockedSitInDates map[string]struct{}
+	var blockedSitInSessionIDs map[string]struct{}
 	if includeAllSubjects && len(sessions) > 0 {
 		student, studentErr := s.deps.Q.StudentGetByWCode(r.Context(), wcode)
 		if studentErr != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session availability")
 			return
 		}
-		blockedSitInDates, studentErr = activeSitInDatesForStudent(r.Context(), s.deps.Q, student.ID, s.deps.InstituteTZ)
+		blockedSitInSessionIDs, studentErr = activeSitInSessionIDsForStudent(r.Context(), s.deps.Q, student.ID)
 		if studentErr != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session availability")
 			return
@@ -1421,12 +1421,12 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 				SubjectName: sess.SubjectName,
 				TeacherName: sess.TeacherName,
 			}
-			if _, blocked := blockedSitInDates[sessionDateKey(sess.StartAt, s.deps.InstituteTZ)]; blocked {
+			if _, blocked := blockedSitInSessionIDs[sess.ID]; blocked {
 				briefCopy := brief
 				staffSubjectUnavailable[sess.SubjectID] = append(staffSubjectUnavailable[sess.SubjectID], unavailableSessionBrief{
 					Session:    &briefCopy,
-					Reason:     "This sit-in day is already assigned to this student's absence.",
-					ReasonCode: "sit_in_day_already_used",
+					Reason:     "This sit-in session is already assigned to this student's absence.",
+					ReasonCode: "sit_in_session_already_used",
 				})
 				continue
 			}
