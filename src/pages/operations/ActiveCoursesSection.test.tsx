@@ -212,6 +212,22 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     }, { timeout: 2000 });
   });
 
+  it("filters server-side by the session time range", async () => {
+    renderSection();
+    await screen.findByText("MATH — Mathematics");
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("From"), "09:00");
+    await user.type(screen.getByLabelText("To"), "11:00");
+
+    await waitFor(() => {
+      const call = getCalls().at(-1);
+      const path = typeof call?.[0] === "string" ? call[0] : "";
+      expect(path).toContain("session_from=09%3A00");
+      expect(path).toContain("session_to=11%3A00");
+    }, { timeout: 2000 });
+  });
+
   it("bulk turns off the selection through the bulk endpoint and refetches", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderSection();

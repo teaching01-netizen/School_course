@@ -119,6 +119,23 @@ describe("CourseDetail session editing", () => {
     expect(screen.getByLabelText("Classroom")).toHaveFocus();
   });
 
+  it("filters the visible schedule by institute-local session time", async () => {
+    const user = userEvent.setup();
+    renderCourseDetail();
+
+    expect(await screen.findByRole("button", { name: "Edit session Mon 1 Jun 26" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit session Wed 3 Jun 26" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("From"), "09:00");
+    await user.type(screen.getByLabelText("To"), "11:00");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit session Mon 1 Jun 26" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edit session Wed 3 Jun 26" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Showing 1 of 2 sessions")).toBeInTheDocument();
+  });
+
   it("moves focus between fields without losing the open editor", async () => {
     const user = userEvent.setup();
     renderCourseDetail();

@@ -5,9 +5,16 @@ import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
 import SearchInput from "../../components/ui/SearchInput";
+import SessionTimeFilter from "../../components/SessionTimeFilter";
 import { Switch } from "../../components/ui/Switch";
 import type { ActiveCourseSubject } from "../../types";
 import { queryClient, queryKeys } from "../../query/cache";
+import {
+  EMPTY_SESSION_TIME_FILTER,
+  isSessionTimeFilterActive,
+  validateSessionTimeFilter,
+  type SessionTimeFilter as SessionTimeFilterValue,
+} from "../../features/scheduling/domain/sessionTimeRange";
 
 type ActiveCoursesStats = {
   total_subjects: number;
@@ -158,6 +165,8 @@ export function ActiveCoursesSection() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [sessionTimeFilter, setSessionTimeFilter] = useState<SessionTimeFilterValue>(EMPTY_SESSION_TIME_FILTER);
+  const sessionTimeFilterError = validateSessionTimeFilter(sessionTimeFilter);
 
   // The only selection state: course ids. Checkbox states, counts, and bulk
   // previews all derive from it. Selection survives page changes so a bulk
@@ -170,7 +179,7 @@ export function ActiveCoursesSection() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter) {
+  async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter, timeFilter: SessionTimeFilterValue) {
     setLoading(true);
     setLoadError(null);
     try {
@@ -181,6 +190,8 @@ export function ActiveCoursesSection() {
       const trimmed = search.trim();
       if (trimmed) params.set("search", trimmed);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (timeFilter.from) params.set("session_from", timeFilter.from);
+      if (timeFilter.to) params.set("session_to", timeFilter.to);
       const data = await apiJson<ActiveCoursesResponse>(
         `/api/v1/admin/active-courses?${params.toString()}`,
         { method: "GET" },
@@ -199,15 +210,16 @@ export function ActiveCoursesSection() {
   }
 
   useEffect(() => {
+    if (sessionTimeFilterError) return;
     setSubjectOffset(0);
-    void loadSubjects(0, debouncedSearch, status);
+    void loadSubjects(0, debouncedSearch, status, sessionTimeFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, status]);
+  }, [debouncedSearch, status, sessionTimeFilter.from, sessionTimeFilter.to, sessionTimeFilterError]);
 
   async function loadPage(offset: number) {
     setPageLoading(true);
     try {
-      await loadSubjects(offset, debouncedSearch, status);
+      await loadSubjects(offset, debouncedSearch, status, sessionTimeFilter);
     } finally {
       setPageLoading(false);
     }
@@ -361,7 +373,7 @@ export function ActiveCoursesSection() {
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
       setSelection(new Set());
-      await loadSubjects(subjectOffset, debouncedSearch, status);
+      await loadSubjects(subjectOffset, debouncedSearch, status, sessionTimeFilter);
       addToast(
         "success",
         target
@@ -403,7 +415,7 @@ export function ActiveCoursesSection() {
       <EmptyState
         message={loadError}
         action={(
-          <Button variant="secondary" size="sm" onClick={() => void loadSubjects(0, debouncedSearch, status)}>
+          <Button variant="secondary" size="sm" onClick={() => void loadSubjects(0, debouncedSearch, status, sessionTimeFilter)}>
             Retry
           </Button>
         )}
@@ -412,7 +424,7 @@ export function ActiveCoursesSection() {
   }
 
   if (subjects.length === 0) {
-    const filtered = searchInput.trim() !== "" || status !== "all";
+    const filtered = searchInput.trim() !== "" || status !== "all" || isSessionTimeFilterActive(sessionTimeFilter);
     return filtered ? (
       <EmptyState
         message="No subjects match the current filters"
@@ -423,6 +435,7 @@ export function ActiveCoursesSection() {
             onClick={() => {
               setSearchInput("");
               setStatus("all");
+              setSessionTimeFilter(EMPTY_SESSION_TIME_FILTER);
             }}
           >
             Clear filters
@@ -434,7 +447,7 @@ export function ActiveCoursesSection() {
     );
   }
 
-  const filterActive = status !== "all" || searchInput.trim() !== "";
+  const filterActive = status !== "all" || searchInput.trim() !== "" || isSessionTimeFilterActive(sessionTimeFilter);
 
   return (
     <div className="space-y-4">
@@ -487,6 +500,12 @@ export function ActiveCoursesSection() {
           value={searchInput}
           onChange={setSearchInput}
           placeholder="Search subjects, classes, or merged courses..."
+        />
+        <SessionTimeFilter
+          value={sessionTimeFilter}
+          onChange={setSessionTimeFilter}
+          onClear={() => setSessionTimeFilter(EMPTY_SESSION_TIME_FILTER)}
+          idPrefix="active-courses-session-time"
         />
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter subjects by active-class state">
           {STATUS_FILTERS.map((f) => {

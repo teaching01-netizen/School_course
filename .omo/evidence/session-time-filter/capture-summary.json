@@ -1,0 +1,33 @@
+{
+  "referencePacket": null,
+  "surface": "web",
+  "routes": [
+    "/courses/course-1",
+    "/admin/operations?tab=active-courses"
+  ],
+  "viewports": {
+    "desktop": { "width": 1440, "height": 900, "documentWidth": 1440, "documentHeight": 900 },
+    "mobile": { "width": 390, "height": 844, "documentWidth": 390, "documentHeight": 985 }
+  },
+  "behavior": {
+    "courseFilteredSummary": "Showing 1 of 2 sessions",
+    "adminFilteredSummary": "Showing 1 of 1 matching subjects",
+    "adminRequests": [
+      "?limit=50&offset=0&session_from=09%3A00",
+      "?limit=50&offset=0&session_from=09%3A00&session_to=11%3A00"
+    ],
+    "pageErrors": []
+  },
+  "screenshots": [
+    "desktop-course-rest.png",
+    "desktop-course-filtered-table.png",
+    "desktop-course-filtered-calendar.png",
+    "desktop-admin-rest.png",
+    "desktop-admin-filtered.png",
+    "mobile-course-rest.png",
+    "mobile-course-filtered-table.png",
+    "mobile-course-filtered-calendar.png",
+    "mobile-admin-rest.png",
+    "mobile-admin-filtered.png"
+  ]
+}

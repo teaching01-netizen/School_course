@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -130,7 +131,10 @@ type ActiveCoursesListParams struct {
 	// (case-insensitive substring).
 	Search string
 	// Status filters subjects by active-course state; see the constants above.
-	Status string
+	Status      string
+	SessionFrom string
+	SessionTo   string
+	InstituteTZ string
 }
 
 // The per-subject active-course state is computed the same way for the count
@@ -175,6 +179,20 @@ const activeCourseFilterWhere = `
 	    OR ($2 = 'missing_active' AND act.active_count = 0)
 	  )`
 
+const activeCourseSessionFilterForSubject = `
+	AND (
+		($3 = '' AND $4 = '')
+		OR EXISTS (
+			SELECT 1
+			FROM courses time_course
+			JOIN sessions time_session ON time_session.course_id = time_course.id
+			WHERE time_course.subject_id = s.id
+			  AND time_session.deleted_at IS NULL
+			  AND ($3 = '' OR (time_session.start_at AT TIME ZONE $5)::time >= $3::time)
+			  AND ($4 = '' OR (time_session.end_at AT TIME ZONE $5)::time <= $4::time)
+		)
+	)`
+
 type ActiveCoursesStatsRow struct {
 	Total         int64
 	MissingActive int64
@@ -198,9 +216,13 @@ func (q *Queries) ActiveCoursesStats(ctx context.Context) (ActiveCoursesStatsRow
 
 func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCoursesListParams) ([]ActiveCourseSubjectRow, [][]ActiveCourseCourseRow, int64, int64, error) {
 	var totalSubjects, totalCourses int64
+	instituteTZ := strings.TrimSpace(p.InstituteTZ)
+	if instituteTZ == "" {
+		instituteTZ = "UTC"
+	}
 	if err := q.db.QueryRow(ctx, `
-		SELECT count(*) FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere,
-		p.Search, p.Status).Scan(&totalSubjects); err != nil {
+		SELECT count(*) FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere+activeCourseSessionFilterForSubject,
+		p.Search, p.Status, p.SessionFrom, p.SessionTo, instituteTZ).Scan(&totalSubjects); err != nil {
 		return nil, nil, 0, 0, err
 	}
 	if err := q.db.QueryRow(ctx, `SELECT count(*) FROM courses c JOIN subjects s ON s.id = c.subject_id`).Scan(&totalCourses); err != nil {
@@ -210,13 +232,13 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 	rows, err := q.db.Query(ctx, `
 		WITH filtered_subjects AS (
 			SELECT s.id, s.code, s.name
-			FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere+`
+			FROM subjects s`+activeCourseStateJoin+activeCourseFilterWhere+activeCourseSessionFilterForSubject+`
 		),
 		paged_subjects AS (
 			SELECT id, code, name
 			FROM filtered_subjects
 			ORDER BY code ASC, id ASC
-			LIMIT $3 OFFSET $4
+			LIMIT $6 OFFSET $7
 		)
 		SELECT ps.id, ps.code, ps.name,
 		       c.id, c.code, c.name,
@@ -231,12 +253,23 @@ func (q *Queries) ActiveCoursesListPaginated(ctx context.Context, p ActiveCourse
 			LEFT JOIN course_merge_group_members mm ON mm.course_id = c.id
 			LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 			WHERE c.subject_id = ps.id
+			  AND (
+				($3 = '' AND $4 = '')
+				OR EXISTS (
+					SELECT 1
+					FROM sessions time_session
+					WHERE time_session.course_id = c.id
+					  AND time_session.deleted_at IS NULL
+					  AND ($3 = '' OR (time_session.start_at AT TIME ZONE $5)::time >= $3::time)
+					  AND ($4 = '' OR (time_session.end_at AT TIME ZONE $5)::time <= $4::time)
+				)
+			  )
 			ORDER BY c.code ASC NULLS LAST, c.id ASC
 		) c ON true
 		LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 		LEFT JOIN subject_active_courses sac ON sac.course_id = c.id AND sac.subject_id = ps.id
 		ORDER BY ps.code ASC, ps.id ASC, c.code ASC NULLS LAST, c.id ASC
-	`, p.Search, p.Status, p.Limit, p.Offset)
+	`, p.Search, p.Status, p.SessionFrom, p.SessionTo, instituteTZ, p.Limit, p.Offset)
 	if err != nil {
 		return nil, nil, 0, 0, err
 	}
