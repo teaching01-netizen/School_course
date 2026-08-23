@@ -1,0 +1,12 @@
+{
+  "requests": [
+    "/api/v1/courses?limit=50&offset=0",
+    "/api/v1/courses?limit=50&offset=0&session_date_from=2026-06-01",
+    "/api/v1/courses?limit=50&offset=0&session_date_from=2026-06-01&session_date_to=2026-06-01",
+    "/api/v1/admin/active-courses?limit=50&offset=0",
+    "/api/v1/admin/active-courses?limit=50&offset=0&session_date_from=2026-06-01",
+    "/api/v1/admin/active-courses?limit=50&offset=0&session_date_from=2026-06-01&session_date_to=2026-06-01"
+  ],
+  "pageErrors": [],
+  "consoleErrors": []
+}

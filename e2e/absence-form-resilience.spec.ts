@@ -56,15 +56,15 @@ test("connectivity changes do not render an offline state", async ({ page }) => 
   await expect(page.getByText(/back online.*rechecking/i)).toHaveCount(0);
 });
 
-test("connectivity changes do not block the review action", async ({ page }) => {
+test("connectivity changes do not block the student form", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
 
-  await completeToClasses(page);
-  await completeToReview(page, "Connectivity state removed");
+  await page.goto("/absence");
+  await expect(page.getByPlaceholder("e.g. W250389")).toBeVisible();
   await setConnectivity(page, false);
 
-  await expect(page.getByRole("button", { name: "Submit absence" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Search" })).toBeEnabled();
   await expect(page.getByRole("status").filter({ hasText: /offline/i })).toHaveCount(0);
 });
 

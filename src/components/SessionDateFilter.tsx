@@ -39,9 +39,9 @@ export default function SessionDateFilter({
           >
             From
           </label>
-            <Input
-              id={`${idPrefix}-from`}
-              type="date"
+          <Input
+            id={`${idPrefix}-from`}
+            type="date"
             size="sm"
             value={value.from}
             onChange={(event) =>
@@ -59,9 +59,9 @@ export default function SessionDateFilter({
           >
             To
           </label>
-            <Input
-              id={`${idPrefix}-to`}
-              type="date"
+          <Input
+            id={`${idPrefix}-to`}
+            type="date"
             size="sm"
             value={value.to}
             onChange={(event) => onChange({ ...value, to: event.target.value })}

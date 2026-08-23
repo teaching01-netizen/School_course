@@ -124,7 +124,7 @@ describe("CourseDetail session editing", () => {
 
     await screen.findByRole("button", { name: "Edit session Mon 1 Jun 26" });
 
-    expect(screen.queryByRole("group", { name: "Filter sessions by time" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Filter sessions by date" })).not.toBeInTheDocument();
   });
 
   it("moves focus between fields without losing the open editor", async () => {
