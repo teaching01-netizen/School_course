@@ -460,12 +460,22 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleAbsenceInbox(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.a.MustAdmin(w, r); !ok {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
 		return
 	}
 	filter, ok := s.parseFilter(w, r, 25)
 	if !ok {
 		return
+	}
+	autoArchived, err := s.autoArchiveExpiredSitIns(r.Context(), actorID(user.ID))
+	if err != nil {
+		status, code, message := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, message)
+		return
+	}
+	if len(autoArchived) > 0 {
+		s.publishAbsenceChanges(autoArchived)
 	}
 	rows, total, err := s.deps.Q.ManagedAbsenceList(r.Context(), filter)
 	if err != nil {
