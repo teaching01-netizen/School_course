@@ -347,6 +347,26 @@ export type SessionInSubject = {
   already_absent: boolean;
 };
 
+export type SitInUnavailableSession = {
+  session?: {
+    id: string;
+    start_at: string;
+    end_at: string;
+    course_id?: string | null;
+    missed_session_id?: string | null;
+    class_name?: string | null;
+    subject_name?: string | null;
+    subject_code?: string | null;
+    course_name?: string | null;
+    course_code?: string | null;
+    teacher_name?: string | null;
+  } | null;
+  reason: string;
+  reason_code: string;
+  missed_session_id?: string | null;
+  occurrence_number?: number | null;
+};
+
 export type SitInPriority = {
   level: number;
   label: string;
@@ -373,24 +393,7 @@ export type SitInPriority = {
     teacher_name?: string | null;
   }>;
   pre_selected?: Array<{ id: string; start_at: string; end_at: string; course_id?: string | null }>;
-  unavailable_sessions?: Array<{
-    session?: {
-      id: string;
-      start_at: string;
-      end_at: string;
-      missed_session_id?: string | null;
-      class_name?: string | null;
-      subject_name?: string | null;
-      subject_code?: string | null;
-      course_name?: string | null;
-      course_code?: string | null;
-      teacher_name?: string | null;
-    } | null;
-    reason: string;
-    reason_code: string;
-    missed_session_id?: string | null;
-    occurrence_number?: number | null;
-  }>;
+  unavailable_sessions?: SitInUnavailableSession[];
 };
 
 export type SitInSessionInfo = {
@@ -422,6 +425,7 @@ export type SitInSessionInfo = {
     course_code?: string | null;
     teacher_name?: string | null;
   }>;
+  unavailable_sessions?: SitInUnavailableSession[];
   missed_sessions?: Array<{ id: string; start_at: string; end_at: string }>;
   missed_occurrence_number?: number;
 };

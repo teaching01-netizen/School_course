@@ -29,6 +29,25 @@ func satEnrolled(id, name string) sqldb.StudentEnrolledCourseV2 {
 	}
 }
 
+func TestSatVerbalSessionBlockReason_BlocksUsedInstituteDate(t *testing.T) {
+	instituteLoc, err := instituteLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	usedDate := map[string]struct{}{"2026-02-09": {}}
+	usedSession := session("d9000000-0000-0000-0000-000000000001", "94000000-0000-0000-0000-000000000004", "2026-02-08T17:30:00Z", "2026-02-08T18:30:00Z")
+	nextDaySession := session("d9000000-0000-0000-0000-000000000002", "94000000-0000-0000-0000-000000000004", "2026-02-09T17:30:00Z", "2026-02-09T18:30:00Z")
+
+	reason, code := satVerbalSessionBlockReasonWithBlockedDate(usedSession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, usedDate)
+	if code != "sit_in_day_already_used" || reason == "" {
+		t.Fatalf("blocked session result = %q, %q", reason, code)
+	}
+	reason, code = satVerbalSessionBlockReasonWithBlockedDate(nextDaySession, "", false, nil, time.Time{}, time.Time{}, instituteLoc, nil, usedDate)
+	if reason != "" || code != "" {
+		t.Fatalf("next-day session result = %q, %q, want available", reason, code)
+	}
+}
+
 func TestSatVerbalPriorityResultIncludesTargetMergeGroup(t *testing.T) {
 	mergeGroupID := "93000000-0000-0000-0000-000000000003"
 	target := satCourse("94000000-0000-0000-0000-000000000004", "SAT Verbal Reading Rank 3 Section 2")

@@ -7,6 +7,25 @@ import (
 )
 
 const sessionConflictsByCourseSQL = `
+WITH active_sessions AS (
+    SELECT s.*
+    FROM sessions s
+    WHERE s.deleted_at IS NULL
+      AND NOT (
+        s.source_kind = 'legacy'
+        AND EXISTS (
+          SELECT 1
+          FROM sessions native_session
+          WHERE native_session.deleted_at IS NULL
+            AND native_session.source_kind = 'native'
+            AND native_session.course_id = s.course_id
+            AND native_session.teacher_id = s.teacher_id
+            AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+            AND native_session.start_at = s.start_at
+            AND native_session.end_at = s.end_at
+        )
+      )
+)
 SELECT s.id,
        'room_overlap'::text AS kind,
        other.id,
@@ -15,15 +34,13 @@ SELECT s.id,
        other_course.name,
        other.start_at,
        other.end_at
-FROM sessions s
-JOIN sessions other ON other.id <> s.id
-  AND other.deleted_at IS NULL
+FROM active_sessions s
+JOIN active_sessions other ON other.id <> s.id
   AND s.room_id IS NOT NULL
   AND s.room_id = other.room_id
   AND s.time_range && other.time_range
 JOIN courses other_course ON other_course.id = other.course_id
 WHERE s.course_id = $1
-  AND s.deleted_at IS NULL
 UNION ALL
 SELECT s.id,
        'teacher_overlap'::text AS kind,
@@ -33,14 +50,12 @@ SELECT s.id,
        other_course.name,
        other.start_at,
        other.end_at
-FROM sessions s
-JOIN sessions other ON other.id <> s.id
-  AND other.deleted_at IS NULL
+FROM active_sessions s
+JOIN active_sessions other ON other.id <> s.id
   AND s.teacher_id = other.teacher_id
   AND s.time_range && other.time_range
 JOIN courses other_course ON other_course.id = other.course_id
 WHERE s.course_id = $1
-  AND s.deleted_at IS NULL
 ORDER BY 1, 2, 7
 `
 

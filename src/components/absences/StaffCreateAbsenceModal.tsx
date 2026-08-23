@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ChevronLeft, Info } from "lucide-react";
-import { apiJson } from "../../api/client";
+import { ApiRequestError, apiJson } from "../../api/client";
 import {
   loadSessionsInRange,
   lookupStaffStudentByWcode,
@@ -85,8 +85,7 @@ const STEP_KEYS: ModalStep[] = ["type", "subjects", "sessions", "confirm"];
 function specialSitInSessionsForGroup(
   group: SubjectSessions,
 ): SpecialSitInAvailableSession[] {
-  const fromSitIn = group.sit_in?.available_sessions ?? [];
-  if (fromSitIn.length > 0) return fromSitIn;
+  if (group.sit_in) return group.sit_in.available_sessions ?? [];
   return group.sessions
     .filter((session) => !session.already_absent)
     .map((session) => ({
@@ -255,6 +254,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionsReloadToken, setSessionsReloadToken] = useState(0);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
     new Set(),
   );
@@ -462,7 +462,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         if (!controller.signal.aborted) setSessionsLoading(false);
       });
     return () => controller.abort();
-  }, [step, student, selectedSubjectIds, enrolledSubjectIds]);
+  }, [step, student, selectedSubjectIds, enrolledSubjectIds, sessionsReloadToken]);
 
   // Load form config when entering step "confirm"
   useEffect(() => {
@@ -893,6 +893,11 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       ? (specialSitInSessionsBySubject[selection.subjectId] ?? [])
       : [];
     const sessionOptions = buildSpecialSitInSessionOptions(subjectGroups);
+    const hasBlockedSession = subjectGroups.some((group) =>
+      (group.sit_in?.unavailable_sessions ?? []).some(
+        (unavailable) => unavailable.reason_code === "sit_in_day_already_used",
+      ),
+    );
     const loading = selection.subjectId
       ? Boolean(specialSitInLoadingBySubject[selection.subjectId])
       : false;
@@ -966,7 +971,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           </p>
         ) : selection.subjectId && !loading && sessionOptions.length === 0 ? (
           <p className="mt-2 text-xs text-[var(--color-wi-text-light)]">
-            No sessions found for this subject.
+            {hasBlockedSession
+              ? "All sessions on this sit-in day are already used for this student. Choose another day."
+              : "No sessions found for this subject."}
           </p>
         ) : null}
       </div>
@@ -1010,6 +1017,19 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     else if (step === "subjects") setStep("type");
   }
 
+  function handleSitInDayConflict() {
+    setSitInSelections({});
+    setSpecialSitInSelections({});
+    setSitInPriorityLevels({});
+    setSitInPriorityHistory({});
+    setSessionsReloadToken((current) => current + 1);
+    setStep("sessions");
+    addToast(
+      "error",
+      "That sit-in day was just used for this student. We refreshed the sessions; choose another day and submit again.",
+    );
+  }
+
   async function lookupStudent() {
     if (!wcode.trim()) return;
     setLookingUp(true);
@@ -1037,6 +1057,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
     setSubmitting(true);
     const created: string[] = [];
+    let sitInDayConflict = false;
 
     for (const group of sessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
@@ -1139,12 +1160,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
             );
             created.push(res.id);
           } catch (err) {
-            addToast(
-              "error",
-              `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`,
-            );
+            if (err instanceof ApiRequestError && err.code === "sit_in_day_already_used") {
+              handleSitInDayConflict();
+              sitInDayConflict = true;
+              break;
+            }
+            addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
           }
         }
+        if (sitInDayConflict) break;
         continue;
       }
 
@@ -1202,14 +1226,17 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         );
         created.push(res.id);
       } catch (err) {
-        addToast(
-          "error",
-          `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`,
-        );
+        if (err instanceof ApiRequestError && err.code === "sit_in_day_already_used") {
+          handleSitInDayConflict();
+          sitInDayConflict = true;
+          break;
+        }
+        addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
       }
     }
 
     setSubmitting(false);
+    if (sitInDayConflict) return;
     if (created.length === 0) return;
     setCreatedAbsenceIds(created);
 
@@ -1647,6 +1674,13 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                   firstSessionId,
                                 );
                               const sitIn = sessionGroup.sit_in;
+                              const sitInUnavailable =
+                                sitIn?.unavailable_sessions ?? [];
+                              const sitInAvailable =
+                                rootAvailableSessionsForMissedSessions(
+                                  sitIn,
+                                  sessionIds,
+                                );
                               const hasPriorities = Boolean(
                                 sitIn?.priorities &&
                                 sitIn.priorities.length > 0,
@@ -1754,6 +1788,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 firstSessionId,
                                               ),
                                             );
+                                          const hasBlockedUnavailable = unavailable.some(
+                                            (item) => item.reason_code === "sit_in_day_already_used",
+                                          );
 
                                           if (
                                             available.length === 0 &&
@@ -1843,7 +1880,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                               ) : unavailable.length > 0 ? (
                                                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                                                   <p className="font-semibold">
-                                                    Checked same-number slot:
+                                                    {hasBlockedUnavailable
+                                                      ? "This sit-in day is already used:"
+                                                      : "Checked same-number slot:"}
                                                   </p>
                                                   <ul className="mt-1 space-y-1">
                                                     {unavailable.map(
@@ -1883,41 +1922,45 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                           </div>
                                           <p className="mb-2 text-xs text-[var(--color-wi-text-light)] truncate">
                                             Sit-in:{" "}
-                                            {getSitInSessionGroupLabel(
-                                              rootAvailableSessionsForMissedSessions(
-                                                sitIn,
-                                                sessionIds,
-                                              ),
-                                              sitIn.sit_in_course,
-                                              groupLabel,
-                                              sessions,
-                                            ) ||
+                                            {(sitInAvailable.length > 0
+                                              ? getSitInSessionGroupLabel(
+                                                  sitInAvailable,
+                                                  sitIn.sit_in_course,
+                                                  groupLabel,
+                                                  sessions,
+                                                )
+                                              : undefined) ||
                                               sitIn.sit_in_course?.name ||
                                               "To arrange"}
                                           </p>
-                                          <MakeUpPicker
-                                            id={`staff-sit-in-${firstSessionId}`}
-                                            label="Make-up class"
-                                            value={currentSitIn}
-                                            options={makeUpPickerOptions(
-                                              groupByDay(
-                                                rootAvailableSessionsForMissedSessions(
-                                                  sitIn,
-                                                  sessionIds,
+                                          {sitInUnavailable.some((item) => item.reason_code === "sit_in_day_already_used") &&
+                                          sitInAvailable.length === 0 ? (
+                                            <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                              <p className="font-semibold">This sit-in day is already used.</p>
+                                              <p className="mt-0.5 text-xs">Choose a make-up class on another day.</p>
+                                            </div>
+                                          ) : (
+                                            <MakeUpPicker
+                                              id={`staff-sit-in-${firstSessionId}`}
+                                              label="Make-up class"
+                                              value={currentSitIn}
+                                              options={makeUpPickerOptions(
+                                                groupByDay(
+                                                  sitInAvailable,
                                                 ),
-                                              ),
-                                              sessions,
-                                              selectedSubjectIds,
-                                              groupLabel,
-                                              sitIn.sit_in_course,
-                                            )}
-                                            onChange={(value) =>
-                                              handleSitInSelectForSessions(
-                                                sessionIds,
-                                                value,
-                                              )
-                                            }
-                                          />
+                                                sessions,
+                                                selectedSubjectIds,
+                                                groupLabel,
+                                                sitIn.sit_in_course,
+                                              )}
+                                              onChange={(value) =>
+                                                handleSitInSelectForSessions(
+                                                  sessionIds,
+                                                  value,
+                                                )
+                                              }
+                                            />
+                                          )}
                                         </div>
                                       ) : sitIn.sit_in_method === "zoom" ? (
                                         <div className="flex items-start gap-2 text-sm text-[var(--color-wi-text-light)]">

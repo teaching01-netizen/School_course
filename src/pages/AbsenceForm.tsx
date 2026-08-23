@@ -765,7 +765,15 @@ export default function AbsenceForm() {
         handleStudentSessionExpired();
         return;
       }
-      if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
+      if (error instanceof ApiRequestError && error.code === "sit_in_day_already_used") {
+        draftRef.current = null;
+        setSitInSelections({});
+        setSitInPriorityLevels({});
+        setSitInPriorityHistory({});
+        setSessionsReloadToken((current) => current + 1);
+        setStep(2);
+        setSubmissionError("That sit-in day was just used for this student. We refreshed the available sessions; choose a make-up class on another day and submit again.");
+      } else if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
       } else if (error instanceof TypeError) {
         setSubmissionError("Your connection was interrupted, so we couldn't confirm whether your absence was received. Stay on this page, check your connection, then tap Submit again. This retry will not create a duplicate.");
@@ -1233,6 +1241,7 @@ export default function AbsenceForm() {
                                       const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = rootAvailableSessionsForMissedSessions(sitIn, sessionIds);
+                                      const sitInUnavailable = sitIn?.unavailable_sessions ?? [];
                                       const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
                                       const currentPriorities = hasPriorities ? prioritiesForLevel(priorityGroup, currentLevel) : [];
                                       const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
@@ -1262,6 +1271,7 @@ export default function AbsenceForm() {
                                                       availableSessionsForMissedSessions(p, sessionIds));
                                                     const currentPriorityUnavailable = currentPriorities.flatMap(p =>
                                                       unavailableSessionsForMissedSession(p, session.id).map((u) => ({ ...u, sitInCourse: p.sit_in_course })));
+                                                    const hasBlockedPriorityUnavailable = currentPriorityUnavailable.some((u) => u.reason_code === "sit_in_day_already_used");
 
                                                     if (!currentPriority) {
                                                       return (
@@ -1315,7 +1325,7 @@ export default function AbsenceForm() {
                                                             </p>
                                                             {currentPriorityUnavailable.length > 0 ? (
                                                               <div className="rounded-md border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs text-[var(--color-wi-amber)]">
-                                                                <p className="font-semibold">Checked same-number slot:</p>
+                                                                <p className="font-semibold">{hasBlockedPriorityUnavailable ? "This sit-in day is already used:" : "Checked same-number slot:"}</p>
                                                                 <ul className="mt-1 space-y-1">
                                                                   {currentPriorityUnavailable.map((unavailable, index) => {
                                                                     const checkedSession = unavailable.session;
@@ -1351,13 +1361,20 @@ export default function AbsenceForm() {
                                                         Pick a make-up class
                                                       </div>
                                                       <p className="text-xs text-[var(--color-wi-text-light)] mb-2 truncate">Sit-in class: {sitInClassLabel}</p>
-                                                      <MakeUpPicker
-                                                        id={`sit-in-${session.id}`}
-                                                        label="Make-up class"
-                                                        value={currentSitIn}
-                                                        options={makeUpPickerOptions(groupByDay(sitInAvailable), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
-                                                        onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
-                                                      />
+                                                      {sitInUnavailable.some((u) => u.reason_code === "sit_in_day_already_used") && sitInAvailable.length === 0 ? (
+                                                        <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                                          <p className="font-semibold">This sit-in day is already used.</p>
+                                                          <p className="mt-0.5 text-xs">Choose a make-up class on another day.</p>
+                                                        </div>
+                                                      ) : (
+                                                        <MakeUpPicker
+                                                          id={`sit-in-${session.id}`}
+                                                          label="Make-up class"
+                                                          value={currentSitIn}
+                                                          options={makeUpPickerOptions(groupByDay(sitInAvailable), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
+                                                          onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
+                                                        />
+                                                      )}
                                                     </div>
                                                   );
                                                 })()

@@ -57,11 +57,12 @@ type SitInResult struct {
 	HasNextPriority      bool                  `json:"has_next_priority,omitempty"`
 
 	// For physical sit-in (single-level, backward compat)
-	SitInCourse   *SitInCourseInfo `json:"sit_in_course,omitempty"`
-	MissedCount   int              `json:"missed_count"`
-	MissedSession []sessionBrief   `json:"missed_sessions,omitempty"`
-	Available     []sessionBrief   `json:"available_sessions,omitempty"`
-	PreSelected   []sessionBrief   `json:"pre_selected,omitempty"`
+	SitInCourse   *SitInCourseInfo          `json:"sit_in_course,omitempty"`
+	MissedCount   int                       `json:"missed_count"`
+	MissedSession []sessionBrief            `json:"missed_sessions,omitempty"`
+	Available     []sessionBrief            `json:"available_sessions,omitempty"`
+	PreSelected   []sessionBrief            `json:"pre_selected,omitempty"`
+	Unavailable   []unavailableSessionBrief `json:"unavailable_sessions,omitempty"`
 
 	// Per missed session sit-in options. SAT Verbal Beginner uses this to keep
 	// same-occurrence choices independent when multiple leave dates are selected.
@@ -69,16 +70,17 @@ type SitInResult struct {
 }
 
 type SitInSessionResult struct {
-	SitInMethod            string                `json:"sit_in_method"`
-	RuleName               string                `json:"rule_name,omitempty"`
-	RuleType               string                `json:"rule_type,omitempty"`
-	Priorities             []SitInPriorityResult `json:"priorities,omitempty"`
-	CurrentPriorityLevel   int                   `json:"current_priority_level,omitempty"`
-	HasNextPriority        bool                  `json:"has_next_priority,omitempty"`
-	SitInCourse            *SitInCourseInfo      `json:"sit_in_course,omitempty"`
-	Available              []sessionBrief        `json:"available_sessions,omitempty"`
-	PreSelected            []sessionBrief        `json:"pre_selected,omitempty"`
-	MissedOccurrenceNumber int                   `json:"missed_occurrence_number,omitempty"`
+	SitInMethod            string                    `json:"sit_in_method"`
+	RuleName               string                    `json:"rule_name,omitempty"`
+	RuleType               string                    `json:"rule_type,omitempty"`
+	Priorities             []SitInPriorityResult     `json:"priorities,omitempty"`
+	CurrentPriorityLevel   int                       `json:"current_priority_level,omitempty"`
+	HasNextPriority        bool                      `json:"has_next_priority,omitempty"`
+	SitInCourse            *SitInCourseInfo          `json:"sit_in_course,omitempty"`
+	Available              []sessionBrief            `json:"available_sessions,omitempty"`
+	PreSelected            []sessionBrief            `json:"pre_selected,omitempty"`
+	Unavailable            []unavailableSessionBrief `json:"unavailable_sessions,omitempty"`
+	MissedOccurrenceNumber int                       `json:"missed_occurrence_number,omitempty"`
 }
 
 type SitInCourseInfo struct {
@@ -120,7 +122,19 @@ func buildPhysicalSitInResult(
 	available []sqldb.SessionInRange,
 	cutoff time.Time,
 ) *SitInResult {
+	return buildPhysicalSitInResultWithBlockedDates(target, missed, available, cutoff, nil, time.UTC)
+}
+
+func buildPhysicalSitInResultWithBlockedDates(
+	target *sqldb.SubjectCourseV2,
+	missed []sqldb.SessionInRange,
+	available []sqldb.SessionInRange,
+	cutoff time.Time,
+	blockedDates map[string]struct{},
+	instituteLoc *time.Location,
+) *SitInResult {
 	var nonOverlapping []sqldb.SessionInRange
+	var unavailable []unavailableSessionBrief
 	for _, a := range available {
 		overlaps := false
 		for _, m := range missed {
@@ -133,6 +147,15 @@ func buildPhysicalSitInResult(
 			continue
 		}
 		if !cutoff.IsZero() && a.StartAt.Time.After(cutoff) {
+			continue
+		}
+		if _, ok := blockedDates[a.StartAt.Time.In(instituteLoc).Format("2006-01-02")]; ok {
+			brief := toSessionBriefForCourse(a, target)
+			unavailable = append(unavailable, unavailableSessionBrief{
+				Session:    &brief,
+				Reason:     "This sit-in day is already assigned to this student's absence.",
+				ReasonCode: "sit_in_day_already_used",
+			})
 			continue
 		}
 		nonOverlapping = append(nonOverlapping, a)
@@ -148,6 +171,7 @@ func buildPhysicalSitInResult(
 		SitInMethod: SitInMethodPhysical,
 		SitInCourse: sitInCourseInfo(target, ""),
 		MissedCount: len(missed),
+		Unavailable: unavailable,
 	}
 
 	for _, m := range missed {
@@ -193,21 +217,38 @@ type priorityInput struct {
 // Each priority has its own target course, missed sessions, and available sessions.
 // Overlap and cutoff filtering are applied per-priority.
 func buildPrioritySitInResults(priorities []priorityInput, cutoff time.Time) []SitInPriorityResult {
+	return buildPrioritySitInResultsWithBlockedDates(priorities, cutoff, nil, time.UTC)
+}
+
+func buildPrioritySitInResultsWithBlockedDates(priorities []priorityInput, cutoff time.Time, blockedDates map[string]struct{}, instituteLoc *time.Location) []SitInPriorityResult {
 	if len(priorities) == 0 {
 		return nil
 	}
 	results := make([]SitInPriorityResult, 0, len(priorities))
 	for _, p := range priorities {
-		result := buildPhysicalSitInResult(p.target, p.missed, p.available, cutoff)
+		result := buildPhysicalSitInResultWithBlockedDates(p.target, p.missed, p.available, cutoff, blockedDates, instituteLoc)
 		results = append(results, SitInPriorityResult{
 			Level:       p.level,
 			Label:       p.label,
 			SitInCourse: result.SitInCourse,
 			Available:   result.Available,
 			PreSelected: result.PreSelected,
+			Unavailable: result.Unavailable,
 		})
 	}
 	return results
+}
+
+func activeSitInDatesForStudent(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, instituteTZ string) (map[string]struct{}, error) {
+	dates, err := q.ActiveSitInDatesForStudent(ctx, studentID, instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	blocked := make(map[string]struct{}, len(dates))
+	for _, date := range dates {
+		blocked[date] = struct{}{}
+	}
+	return blocked, nil
 }
 
 // resolveSitInWithPriorities resolves sit-in using priority-based rules.
@@ -221,6 +262,21 @@ func resolveSitInWithPriorities(
 	studentLevel int16,
 	enrolledLevels []int16,
 	cutoff time.Time,
+) (*SitInResult, error) {
+	return resolveSitInWithPrioritiesAndBlockedDates(ctx, q, priorities, allCourses, missedSessions, studentLevel, enrolledLevels, cutoff, nil, time.UTC)
+}
+
+func resolveSitInWithPrioritiesAndBlockedDates(
+	ctx context.Context,
+	q *sqldb.Queries,
+	priorities []sqldb.SitInPriorityWithRule,
+	allCourses []sqldb.SubjectCourseV2,
+	missedSessions []sqldb.SessionInRange,
+	studentLevel int16,
+	enrolledLevels []int16,
+	cutoff time.Time,
+	blockedDates map[string]struct{},
+	instituteLoc *time.Location,
 ) (*SitInResult, error) {
 	var inputs []priorityInput
 
@@ -284,7 +340,7 @@ func resolveSitInWithPriorities(
 		return nil, nil
 	}
 
-	results := buildPrioritySitInResults(inputs, cutoff)
+	results := buildPrioritySitInResultsWithBlockedDates(inputs, cutoff, blockedDates, instituteLoc)
 	return &SitInResult{
 		SitInMethod: SitInMethodPhysical,
 		Priorities:  results,
@@ -366,7 +422,16 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 
-	if mapped, err := resolveMappedSatVerbalSitIn(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing); err != nil {
+	blockedSitInDates, err := activeSitInDatesForStudent(ctx, q, student.ID, instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("active sit-in dates lookup: %w", err)
+	}
+	instituteLoc, err := instituteLocation(instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("institute timezone: %w", err)
+	}
+
+	if mapped, err := resolveMappedSatVerbalSitInWithBlockedDates(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInDates); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		return mapped, nil
@@ -435,7 +500,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if missedCourse.RootCourseGroupID.Valid && (!hasMergeScope || !mergeScope.SitInRuleID.Valid) {
 		priorities, pErr := q.SitInPrioritiesByRootCourseGroupWithRule(ctx, missedCourse.RootCourseGroupID)
 		if pErr == nil && len(priorities) > 0 {
-			return resolveSitInWithPriorities(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff)
+			return resolveSitInWithPrioritiesAndBlockedDates(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, blockedSitInDates, instituteLoc)
 		}
 	}
 
@@ -504,7 +569,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			return nil, fmt.Errorf("target course not found in course group")
 		}
 
-		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions, cutoff)
+		result = buildPhysicalSitInResultWithBlockedDates(targetCourse, missedSessions, availSessions, cutoff, blockedSitInDates, instituteLoc)
 	default:
 		return nil, nil
 	}
@@ -525,6 +590,22 @@ func resolveMappedSatVerbalSitIn(
 	instituteTZ string,
 	afterPriorityLevel int,
 	studentFacing bool,
+) (*SitInResult, error) {
+	return resolveMappedSatVerbalSitInWithBlockedDates(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, afterPriorityLevel, studentFacing, nil)
+}
+
+func resolveMappedSatVerbalSitInWithBlockedDates(
+	ctx context.Context,
+	q *sqldb.Queries,
+	subjectID pgtype.UUID,
+	courseID pgtype.UUID,
+	enrolled []sqldb.StudentEnrolledCourseV2,
+	dateFrom time.Time,
+	dateTo time.Time,
+	instituteTZ string,
+	afterPriorityLevel int,
+	studentFacing bool,
+	blockedSitInDates map[string]struct{},
 ) (*SitInResult, error) {
 	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
 	if err != nil {
@@ -650,6 +731,7 @@ func resolveMappedSatVerbalSitIn(
 		RequestTime:        time.Now(),
 		InstituteTZ:        instituteTZ,
 		AfterPriorityLevel: afterPriorityLevel,
+		BlockedSitInDates:  blockedSitInDates,
 		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
 			return q.SessionsByCourse(ctx, targetCourseID)
 		},
@@ -728,11 +810,19 @@ func satVerbalMissedCourse(courseID pgtype.UUID, allCourses []sqldb.SubjectCours
 	return sqldb.SubjectCourseV2{}, false
 }
 
-func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID pgtype.UUID, dateFrom, dateTo time.Time) (*SitInResult, error) {
+func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string) (*SitInResult, error) {
 	// 1. Find student by wcode
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
+	}
+	blockedSitInDates, err := activeSitInDatesForStudent(ctx, q, student.ID, instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("active sit-in dates lookup: %w", err)
+	}
+	instituteLoc, err := instituteLocation(instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("institute timezone: %w", err)
 	}
 
 	// 2. Get student's enrolled courses in this subject (v2)
@@ -865,7 +955,7 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 		if win > 0 {
 			cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
 		}
-		result = buildPhysicalSitInResult(targetCourse, missedSessions, availSessions, cutoff)
+		result = buildPhysicalSitInResultWithBlockedDates(targetCourse, missedSessions, availSessions, cutoff, blockedSitInDates, instituteLoc)
 	default:
 		return nil, nil
 	}

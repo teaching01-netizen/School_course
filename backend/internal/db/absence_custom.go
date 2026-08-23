@@ -169,6 +169,86 @@ type SessionInRange struct {
 	EndAt    pgtype.Timestamptz `json:"end_at"`
 }
 
+func (q *Queries) LockStudentForAbsenceSubmission(ctx context.Context, studentID pgtype.UUID) error {
+	locked, err := q.StudentsLockOrdered(ctx, []pgtype.UUID{studentID})
+	if err != nil {
+		return err
+	}
+	if len(locked) != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (q *Queries) ActiveSitInDatesForStudent(ctx context.Context, studentID pgtype.UUID, instituteTZ string) ([]string, error) {
+	query := `
+		SELECT DISTINCT to_char(sess.start_at AT TIME ZONE $2, 'YYYY-MM-DD')
+		FROM absence_sit_ins asi
+		JOIN student_absences sa ON sa.id = asi.absence_id
+		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
+		JOIN sessions sess ON sess.id = asi.session_id
+		WHERE st.id = $1
+		  AND sa.status <> 'cancelled'
+		ORDER BY 1
+	`
+	args := []any{studentID, instituteTZ}
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var date string
+		if err := rows.Scan(&date); err != nil {
+			return nil, err
+		}
+		out = append(out, date)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (q *Queries) ActiveSitInSessionIDsForStudentOnDates(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) ([]pgtype.UUID, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT DISTINCT candidate.id
+		FROM sessions candidate
+		JOIN absence_sit_ins asi ON TRUE
+		JOIN student_absences sa ON sa.id = asi.absence_id
+		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
+		JOIN sessions used ON used.id = asi.session_id
+		WHERE st.id = $1
+		  AND candidate.id = ANY($2::uuid[])
+		  AND sa.status <> 'cancelled'
+		  AND (candidate.start_at AT TIME ZONE $3)::date = (used.start_at AT TIME ZONE $3)::date
+		ORDER BY candidate.id
+	`, studentID, sessionIDs, instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []pgtype.UUID
+	for rows.Next() {
+		var sessionID pgtype.UUID
+		if err := rows.Scan(&sessionID); err != nil {
+			return nil, err
+		}
+		out = append(out, sessionID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.UUID, dateFrom time.Time, dateTo time.Time) ([]SessionInRange, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT id, course_id, room_id, start_at, end_at

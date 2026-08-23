@@ -1102,6 +1102,82 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
+  it("shows a used sit-in day as unavailable in the public form", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
+      sessions: createMockSessionsInRange([{
+        subject_id: "subj-1",
+        subject_code: "MATH",
+        subject_name: "Mathematics",
+        course_id: "c-math201",
+        course_code: "MATH201",
+        course_name: "Mathematics",
+        sessions: [{ id: "missed-1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false }],
+        sit_in: {
+          sit_in_method: "physical",
+          sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
+          unavailable_sessions: [{
+            session: { id: "used-day-session", start_at: "2026-06-02T13:00:00+07:00", end_at: "2026-06-02T14:30:00+07:00" },
+            reason: "This sit-in day is already assigned to this student's absence.",
+            reason_code: "sit_in_day_already_used",
+          }],
+        },
+      }]),
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+
+    expect(await screen.findByText("This sit-in day is already used.")).toBeInTheDocument();
+    expect(screen.getByText("Choose a make-up class on another day.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  }, 30000);
+
+  it("returns to classes and refreshes after a stale public sit-in day conflict", async () => {
+    const user = userEvent.setup();
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
+      sessions: createMockSessionsInRange([{
+        subject_id: "subj-1",
+        subject_code: "MATH",
+        subject_name: "Mathematics",
+        course_id: "c-math201",
+        course_code: "MATH201",
+        course_name: "Mathematics",
+        sessions: [{ id: "missed-1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false }],
+        sit_in: {
+          sit_in_method: "physical",
+          sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
+          available_sessions: [{ id: "available-day-session", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00" }],
+        },
+      }]),
+      submission: () => {
+        throw new ApiRequestError("This sit-in day is already assigned", { code: "sit_in_day_already_used", status: 409 });
+      },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+    await user.selectOptions(screen.getByRole("combobox"), "available-day-session");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText(/That sit-in day was just used for this student/)).toBeInTheDocument();
+    expect(screen.getByText("Courses & classes")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length).toBeGreaterThanOrEqual(2);
+    });
+  }, 30000);
+
   it("submits the selected priority sit-in course for SAT Verbal priority options", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({

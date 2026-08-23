@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,4 +201,78 @@ func TestSitInsBySessionIDs_MixedCaseWCode(t *testing.T) {
 			t.Errorf("expected from_course_code SIWCB-%s, got %s", suffix, row.FromCourseCode)
 		}
 	})
+}
+
+func TestActiveSitInDatesForStudent_BlocksAllSessionsOnDateUntilCancelled(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	teacherID, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "teacher-sit-day-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "SitDayRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, CourseCreateParams{Code: "SITDAY-" + suffix, Name: "Sit Day " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	studentWcode := "w-sit-day-" + suffix
+	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: studentWcode, FullName: "Sit Day Student " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	usedSession := createTestSession(t, ctx, q, course.ID, teacherID, room.ID, time.Date(2026, 6, 22, 2, 0, 0, 0, time.UTC), time.Date(2026, 6, 22, 3, 0, 0, 0, time.UTC))
+	sameDaySession := createTestSession(t, ctx, q, course.ID, teacherID, room.ID, time.Date(2026, 6, 22, 8, 0, 0, 0, time.UTC), time.Date(2026, 6, 22, 9, 0, 0, 0, time.UTC))
+	nextDaySession := createTestSession(t, ctx, q, course.ID, teacherID, room.ID, time.Date(2026, 6, 23, 2, 0, 0, 0, time.UTC), time.Date(2026, 6, 23, 3, 0, 0, 0, time.UTC))
+
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
+		Wcode:         strings.ToUpper(studentWcode),
+		CourseID:      course.ID,
+		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC), Valid: true},
+		Reason:        pgtype.Text{String: "sick", Valid: true},
+		SitInCourseID: course.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.AbsenceSitInsCreate(ctx, absence.ID, []pgtype.UUID{usedSession}); err != nil {
+		t.Fatal(err)
+	}
+
+	dates, err := q.ActiveSitInDatesForStudent(ctx, student.ID, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dates) != 1 || dates[0] != "2026-06-22" {
+		t.Fatalf("active sit-in dates = %#v, want [2026-06-22]", dates)
+	}
+	blocked, err := q.ActiveSitInSessionIDsForStudentOnDates(ctx, student.ID, []pgtype.UUID{sameDaySession, nextDaySession}, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocked) != 1 || blocked[0] != sameDaySession {
+		t.Fatalf("blocked session IDs = %#v, want same-day session only", blocked)
+	}
+
+	if _, err := dbpool.Exec(ctx, `UPDATE student_absences SET status = 'cancelled' WHERE id = $1`, absence.ID); err != nil {
+		t.Fatal(err)
+	}
+	dates, err = q.ActiveSitInDatesForStudent(ctx, student.ID, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dates) != 0 {
+		t.Fatalf("active sit-in dates after cancellation = %#v, want empty", dates)
+	}
 }

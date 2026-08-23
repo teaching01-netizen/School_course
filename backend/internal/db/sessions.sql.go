@@ -180,6 +180,41 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 	return i, err
 }
 
+const sessionFindActiveNativeExact = `-- name: SessionFindActiveNativeExact :one
+SELECT id
+FROM sessions
+WHERE deleted_at IS NULL
+  AND source_kind = 'native'
+  AND course_id = $1
+  AND teacher_id = $2
+  AND room_id IS NOT DISTINCT FROM $3
+  AND start_at = $4
+  AND end_at = $5
+ORDER BY id ASC
+LIMIT 1
+`
+
+type SessionFindActiveNativeExactParams struct {
+	CourseID  pgtype.UUID        `json:"course_id"`
+	TeacherID pgtype.UUID        `json:"teacher_id"`
+	RoomID    pgtype.UUID        `json:"room_id"`
+	StartAt   pgtype.Timestamptz `json:"start_at"`
+	EndAt     pgtype.Timestamptz `json:"end_at"`
+}
+
+func (q *Queries) SessionFindActiveNativeExact(ctx context.Context, arg SessionFindActiveNativeExactParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, sessionFindActiveNativeExact,
+		arg.CourseID,
+		arg.TeacherID,
+		arg.RoomID,
+		arg.StartAt,
+		arg.EndAt,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const sessionFindActiveSeriesPivot = `-- name: SessionFindActiveSeriesPivot :one
 SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id,
        s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at,
@@ -383,11 +418,25 @@ func (q *Queries) SessionHardDeleteFutureBySeriesCount(ctx context.Context, arg 
 }
 
 const sessionListActiveByCourse = `-- name: SessionListActiveByCourse :many
-SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
-FROM sessions
-WHERE deleted_at IS NULL
-  AND course_id = $1
-ORDER BY start_at ASC
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at
+FROM sessions s
+WHERE s.deleted_at IS NULL
+  AND s.course_id = $1
+  AND NOT (
+    s.source_kind = 'legacy'
+    AND EXISTS (
+      SELECT 1
+      FROM sessions native_session
+      WHERE native_session.deleted_at IS NULL
+        AND native_session.source_kind = 'native'
+        AND native_session.course_id = s.course_id
+        AND native_session.teacher_id = s.teacher_id
+        AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+        AND native_session.start_at = s.start_at
+        AND native_session.end_at = s.end_at
+    )
+  )
+ORDER BY s.start_at ASC
 `
 
 type SessionListActiveByCourseRow struct {
@@ -437,12 +486,26 @@ func (q *Queries) SessionListActiveByCourse(ctx context.Context, courseID pgtype
 }
 
 const sessionListActiveByRange = `-- name: SessionListActiveByRange :many
-SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
-FROM sessions
-WHERE deleted_at IS NULL
-  AND start_at < $1
-  AND end_at > $2
-ORDER BY start_at ASC
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at
+FROM sessions s
+WHERE s.deleted_at IS NULL
+  AND s.start_at < $1
+  AND s.end_at > $2
+  AND NOT (
+    s.source_kind = 'legacy'
+    AND EXISTS (
+      SELECT 1
+      FROM sessions native_session
+      WHERE native_session.deleted_at IS NULL
+        AND native_session.source_kind = 'native'
+        AND native_session.course_id = s.course_id
+        AND native_session.teacher_id = s.teacher_id
+        AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+        AND native_session.start_at = s.start_at
+        AND native_session.end_at = s.end_at
+    )
+  )
+ORDER BY s.start_at ASC
 `
 
 type SessionListActiveByRangeParams struct {

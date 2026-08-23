@@ -3,6 +3,7 @@ package absenceshttp
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +67,43 @@ func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
 		parsed = append(parsed, pgtype.UUID{Bytes: id, Valid: true})
 	}
 	return parsed, nil
+}
+
+type sitInDayAlreadyUsedError struct {
+	SessionIDs []string
+}
+
+func (e *sitInDayAlreadyUsedError) Error() string {
+	return "This sit-in day is already assigned to this student's absence. Choose another day."
+}
+
+func ensureSitInDatesAvailable(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string) error {
+	if len(sessionIDs) == 0 {
+		return nil
+	}
+	used, err := q.ActiveSitInSessionIDsForStudentOnDates(ctx, studentID, sessionIDs, instituteTZ)
+	if err != nil {
+		return err
+	}
+	if len(used) == 0 {
+		return nil
+	}
+	conflicts := make([]string, 0, len(used))
+	for _, sessionID := range used {
+		conflicts = append(conflicts, sessionID.String())
+	}
+	return &sitInDayAlreadyUsedError{SessionIDs: conflicts}
+}
+
+func (s *server) writeSitInDayConflict(w http.ResponseWriter, err error) bool {
+	var conflict *sitInDayAlreadyUsedError
+	if !errors.As(err, &conflict) {
+		return false
+	}
+	s.a.WriteErrDetails(w, http.StatusConflict, "sit_in_day_already_used", conflict.Error(), map[string]any{
+		"session_ids": conflict.SessionIDs,
+	})
+	return true
 }
 
 func courseAvailableToStudents(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) (bool, error) {

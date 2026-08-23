@@ -499,6 +499,15 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
 			return 0, nil, fmt.Errorf("too many sessions")
 		}
+		sessionUUIDs, err := parseUUIDStrings(body.SitInSessionIDs)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_session_id", "Invalid sit-in session ID")
+			return 0, nil, err
+		}
+		if len(sessionUUIDs) > 0 && sitInMethod.String != "physical" {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
+			return 0, nil, fmt.Errorf("non-physical sit-in with sessions")
+		}
 		student, subjectID, course, err := s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, &body.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -521,6 +530,17 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		if !adminRequest && !availableToStudents {
 			s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
 			return 0, nil, fmt.Errorf("course %s is hidden from the absence form", course.CourseID)
+		}
+		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
+			return 0, nil, err
+		}
+		if err := ensureSitInDatesAvailable(r.Context(), qtx, student.ID, sessionUUIDs, s.deps.InstituteTZ); err != nil {
+			if s.writeSitInDayConflict(w, err) {
+				return 0, nil, err
+			}
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check sit-in session availability")
+			return 0, nil, err
 		}
 		missedUUIDs, err := parseUUIDStrings(body.MissedSessionIDs)
 		if err != nil {
@@ -625,19 +645,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(body.SitInSessionIDs) > 0 {
-			var sessionUUIDs []pgtype.UUID
-			for _, sid := range body.SitInSessionIDs {
-				uid, err := s.a.ParseUUID(sid)
-				if err != nil {
-					s.a.WriteErr(w, http.StatusBadRequest, "bad_session_id", "Invalid sit-in session ID")
-					return 0, nil, err
-				}
-				sessionUUIDs = append(sessionUUIDs, uid)
-			}
-			if sitInMethod.String != "physical" {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
-				return 0, nil, fmt.Errorf("bad sessions")
-			}
 			excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, course.CourseID)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
@@ -1054,7 +1061,7 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := resolveSitIn(r.Context(), s.deps.Q, wcode, subjectID, dateFrom, dateTo)
+	result, err := resolveSitIn(r.Context(), s.deps.Q, wcode, subjectID, dateFrom, dateTo, s.deps.InstituteTZ)
 	if err != nil {
 		s.deps.Log.Error("resolve sit-in failed", "error", err)
 		s.a.WriteErr(w, http.StatusBadRequest, "resolve_error", "Could not resolve sit-in")
@@ -1362,6 +1369,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		HasNextPriority      bool                          `json:"has_next_priority,omitempty"`
 		SitInCourse          *SitInCourseInfo              `json:"sit_in_course,omitempty"`
 		AvailableSessions    []sessionBrief                `json:"available_sessions,omitempty"`
+		UnavailableSessions  []unavailableSessionBrief     `json:"unavailable_sessions,omitempty"`
 		MissedSessions       []sessionBrief                `json:"missed_sessions,omitempty"`
 		SitInByMissedSession map[string]SitInSessionResult `json:"sit_in_by_missed_session,omitempty"`
 	}
@@ -1385,9 +1393,23 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	}
 
 	staffSubjectAvailable := map[string][]sessionBrief{}
+	staffSubjectUnavailable := map[string][]unavailableSessionBrief{}
+	var blockedSitInDates map[string]struct{}
+	if includeAllSubjects && len(sessions) > 0 {
+		student, studentErr := s.deps.Q.StudentGetByWCode(r.Context(), wcode)
+		if studentErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session availability")
+			return
+		}
+		blockedSitInDates, studentErr = activeSitInDatesForStudent(r.Context(), s.deps.Q, student.ID, s.deps.InstituteTZ)
+		if studentErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session availability")
+			return
+		}
+	}
 	if includeAllSubjects {
 		for _, sess := range sessions {
-			staffSubjectAvailable[sess.SubjectID] = append(staffSubjectAvailable[sess.SubjectID], sessionBrief{
+			brief := sessionBrief{
 				ID:          sess.ID,
 				StartAt:     sess.StartAt,
 				EndAt:       sess.EndAt,
@@ -1398,7 +1420,17 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 				SubjectCode: sess.SubjectCode,
 				SubjectName: sess.SubjectName,
 				TeacherName: sess.TeacherName,
-			})
+			}
+			if _, blocked := blockedSitInDates[sessionDateKey(sess.StartAt, s.deps.InstituteTZ)]; blocked {
+				briefCopy := brief
+				staffSubjectUnavailable[sess.SubjectID] = append(staffSubjectUnavailable[sess.SubjectID], unavailableSessionBrief{
+					Session:    &briefCopy,
+					Reason:     "This sit-in day is already assigned to this student's absence.",
+					ReasonCode: "sit_in_day_already_used",
+				})
+				continue
+			}
+			staffSubjectAvailable[sess.SubjectID] = append(staffSubjectAvailable[sess.SubjectID], brief)
 		}
 	}
 
@@ -1420,8 +1452,9 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		courseID, cErr := s.a.ParseUUID(g.CourseID)
 		if includeAllSubjects {
 			sitIn = &courseSitInResponse{
-				SitInMethod:       SitInMethodPhysical,
-				AvailableSessions: staffSubjectAvailable[g.SubjectID],
+				SitInMethod:         SitInMethodPhysical,
+				AvailableSessions:   staffSubjectAvailable[g.SubjectID],
+				UnavailableSessions: staffSubjectUnavailable[g.SubjectID],
 			}
 		} else if cErr == nil {
 			// Resolve sit-in using the student's enrolled course ID for this block.
@@ -1447,6 +1480,9 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 					}
 					if len(result.MissedSession) > 0 {
 						sitIn.MissedSessions = result.MissedSession
+					}
+					if len(result.Unavailable) > 0 {
+						sitIn.UnavailableSessions = result.Unavailable
 					}
 				}
 			}

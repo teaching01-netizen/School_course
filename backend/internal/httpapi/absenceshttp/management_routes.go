@@ -891,7 +891,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusConflict, "no_resolution", "Absence does not have a subject for automatic resolution")
 				return 0, nil, fmt.Errorf("missing subject")
 			}
-			resolved, err := resolveSitIn(r.Context(), qtx, current.Wcode, current.SubjectID, current.DateFrom.Time, current.DateTo.Time)
+			resolved, err := resolveSitIn(r.Context(), qtx, current.Wcode, current.SubjectID, current.DateFrom.Time, current.DateTo.Time, s.deps.InstituteTZ)
 			if err != nil || resolved == nil {
 				s.a.WriteErr(w, http.StatusConflict, "no_resolution", "Automatic sit-in resolution is unavailable")
 				if err == nil {

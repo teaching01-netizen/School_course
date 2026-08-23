@@ -293,6 +293,19 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 					return skipped, err
 				}
 			}
+			nativeSessionID, err := a.findActiveNativeSession(ctx, qtx, request.CourseID, request.TeacherID, roomID, start, end)
+			if err != nil {
+				return skipped, err
+			}
+			if nativeSessionID.Valid {
+				if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
+					return skipped, err
+				}
+				if err := a.hitFault("after_schedule_mapping_upsert"); err != nil {
+					return skipped, err
+				}
+				continue
+			}
 			forceOverride := false
 			conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
 			if err != nil {
@@ -404,6 +417,20 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 		if err != nil {
 			return 0, err
 		}
+		scheduleHash, err := ScheduleHash(schedule)
+		if err != nil {
+			return 0, fmt.Errorf("hash legacy schedule %s: %w", schedule.LegacyScheduleID, err)
+		}
+		nativeSessionID, err := a.findActiveNativeSession(ctx, qtx, request.CourseID, request.TeacherID, roomID, start, end)
+		if err != nil {
+			return 0, err
+		}
+		if nativeSessionID.Valid {
+			if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
+				return 0, err
+			}
+			continue
+		}
 		conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
 		if err != nil {
 			return 0, err
@@ -412,10 +439,6 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 			continue
 		}
 		if !request.allowConflicts {
-			scheduleHash, hashErr := ScheduleHash(schedule)
-			if hashErr != nil {
-				return 0, fmt.Errorf("hash legacy schedule %s: %w", schedule.LegacyScheduleID, hashErr)
-			}
 			if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, conflict); err != nil {
 				return 0, err
 			}
@@ -464,6 +487,68 @@ func appendWithoutSkipped(incoming, skipped []string) []string {
 		}
 	}
 	return result
+}
+
+func (a *ScheduleApplier) findActiveNativeSession(ctx context.Context, qtx *sqldb.Queries, courseID, teacherID, roomID pgtype.UUID, start, end time.Time) (pgtype.UUID, error) {
+	sessionID, err := qtx.SessionFindActiveNativeExact(ctx, sqldb.SessionFindActiveNativeExactParams{
+		CourseID:  courseID,
+		TeacherID: teacherID,
+		RoomID:    roomID,
+		StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, nil
+	}
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("find exact native schedule: %w", err)
+	}
+	return sessionID, nil
+}
+
+func (a *ScheduleApplier) linkNativeSchedule(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest, schedule normalize.LegacySchedule, scheduleHash string, nativeSessionID, roomID pgtype.UUID, start, end time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		WITH retired AS (
+			UPDATE sessions
+			SET deleted_at = now(), updated_at = now(), version = sessions.version + 1
+			WHERE deleted_at IS NULL
+			  AND source_kind = 'legacy'
+			  AND course_id = $2
+			  AND id <> $1
+			  AND (
+				legacy_schedule_id = $3
+				OR (
+					teacher_id = $4
+					AND room_id IS NOT DISTINCT FROM $5
+					AND start_at = $6
+					AND end_at = $7
+				)
+			  )
+			RETURNING legacy_schedule_id
+		)
+		UPDATE external_refs AS refs
+		SET state = 'tombstoned'
+		FROM retired
+		WHERE refs.source = $8
+		  AND refs.entity_type = 'schedule'
+		  AND refs.external_id = retired.legacy_schedule_id
+		  AND retired.legacy_schedule_id IS NOT NULL
+	`, nativeSessionID, request.CourseID, schedule.LegacyScheduleID, request.TeacherID, roomID, start, end, a.source); err != nil {
+		return fmt.Errorf("retire duplicate legacy schedule %s: %w", schedule.LegacyScheduleID, err)
+	}
+	if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{
+		Source:     a.source,
+		EntityType: "schedule",
+		ExternalID: schedule.LegacyScheduleID,
+		InternalID: nativeSessionID,
+		SourceHash: pgtype.Text{String: scheduleHash, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("map legacy schedule %s to native session: %w", schedule.LegacyScheduleID, err)
+	}
+	if err := a.resolveScheduleConflict(ctx, tx, request, schedule.LegacyScheduleID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *ScheduleApplier) lockScheduleResources(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest) error {

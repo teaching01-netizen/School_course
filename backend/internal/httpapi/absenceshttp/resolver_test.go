@@ -216,6 +216,47 @@ func TestBuildPhysicalSitInResult_ZeroCutoff_DoesNotFilter(t *testing.T) {
 	}
 }
 
+func TestBuildPhysicalSitInResult_BlocksUsedInstituteDateAcrossSessions(t *testing.T) {
+	target := sqldb.SubjectCourseV2{
+		ID:   makeUUID("10000000-0000-0000-0000-000000000001"),
+		Code: "TGT",
+		Name: "Target",
+	}
+	missed := []sqldb.SessionInRange{
+		session("m0000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001", "2025-03-01T09:00:00Z", "2025-03-01T10:00:00Z"),
+	}
+	available := []sqldb.SessionInRange{
+		session("a0000000-0000-0000-0000-00000000000a", "20000000-0000-0000-0000-000000000002", "2025-03-08T02:00:00Z", "2025-03-08T03:00:00Z"),
+		session("a0000000-0000-0000-0000-00000000000b", "30000000-0000-0000-0000-000000000003", "2025-03-08T08:00:00Z", "2025-03-08T09:00:00Z"),
+		session("a0000000-0000-0000-0000-00000000000c", "30000000-0000-0000-0000-000000000003", "2025-03-09T02:00:00Z", "2025-03-09T03:00:00Z"),
+	}
+	instituteLoc, err := instituteLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := buildPhysicalSitInResultWithBlockedDates(
+		&target,
+		missed,
+		available,
+		time.Time{},
+		map[string]struct{}{"2025-03-08": {}},
+		instituteLoc,
+	)
+
+	if len(result.Available) != 1 || result.Available[0].ID != "a0000000-0000-0000-0000-00000000000c" {
+		t.Fatalf("available = %#v, want only the next institute day", result.Available)
+	}
+	if len(result.Unavailable) != 2 {
+		t.Fatalf("unavailable = %#v, want both sessions on the blocked day", result.Unavailable)
+	}
+	for _, unavailable := range result.Unavailable {
+		if unavailable.ReasonCode != "sit_in_day_already_used" {
+			t.Fatalf("reason code = %q, want sit_in_day_already_used", unavailable.ReasonCode)
+		}
+	}
+}
+
 func TestBuildPhysicalSitInResult_FinalTargetSessionAllowedForGenericRule(t *testing.T) {
 	target := sqldb.SubjectCourseV2{
 		ID:   makeUUID("10000000-0000-0000-0000-000000000001"),

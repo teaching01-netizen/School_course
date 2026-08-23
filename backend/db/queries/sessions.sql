@@ -30,19 +30,60 @@ WHERE start_at < @range_end AND end_at > @range_start
 ORDER BY start_at ASC;
 
 -- name: SessionListActiveByRange :many
-SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
-FROM sessions
-WHERE deleted_at IS NULL
-  AND start_at < @range_end
-  AND end_at > @range_start
-ORDER BY start_at ASC;
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at
+FROM sessions s
+WHERE s.deleted_at IS NULL
+  AND s.start_at < @range_end
+  AND s.end_at > @range_start
+  AND NOT (
+    s.source_kind = 'legacy'
+    AND EXISTS (
+      SELECT 1
+      FROM sessions native_session
+      WHERE native_session.deleted_at IS NULL
+        AND native_session.source_kind = 'native'
+        AND native_session.course_id = s.course_id
+        AND native_session.teacher_id = s.teacher_id
+        AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+        AND native_session.start_at = s.start_at
+        AND native_session.end_at = s.end_at
+    )
+  )
+ORDER BY s.start_at ASC;
 
 -- name: SessionListActiveByCourse :many
-SELECT id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
+SELECT s.id, s.series_id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at, s.version, s.deleted_at, s.created_at, s.updated_at
+FROM sessions s
+WHERE s.deleted_at IS NULL
+  AND s.course_id = $1
+  AND NOT (
+    s.source_kind = 'legacy'
+    AND EXISTS (
+      SELECT 1
+      FROM sessions native_session
+      WHERE native_session.deleted_at IS NULL
+        AND native_session.source_kind = 'native'
+        AND native_session.course_id = s.course_id
+        AND native_session.teacher_id = s.teacher_id
+        AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+        AND native_session.start_at = s.start_at
+        AND native_session.end_at = s.end_at
+    )
+  )
+ORDER BY s.start_at ASC;
+
+-- name: SessionFindActiveNativeExact :one
+SELECT id
 FROM sessions
 WHERE deleted_at IS NULL
-  AND course_id = $1
-ORDER BY start_at ASC;
+  AND source_kind = 'native'
+  AND course_id = sqlc.arg(course_id)
+  AND teacher_id = sqlc.arg(teacher_id)
+  AND room_id IS NOT DISTINCT FROM sqlc.arg(room_id)
+  AND start_at = sqlc.arg(start_at)
+  AND end_at = sqlc.arg(end_at)
+ORDER BY id ASC
+LIMIT 1;
 
 -- name: SessionHardDelete :one
 DELETE FROM sessions

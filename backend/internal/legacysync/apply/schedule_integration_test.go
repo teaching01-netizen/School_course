@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -107,6 +108,86 @@ func TestScheduleApply_ReusesStableLegacyScheduleIdentity(t *testing.T) {
 		t.Fatalf("external series = duration %d/mode %q, want 60/external", seriesDuration, materializationMode)
 	}
 	_ = courseID
+}
+
+func TestScheduleApply_ReusesExactNativeSessionForLegacySchedule(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	var previousSystemEnforced, previousLegacySyncEnforced bool
+	if err := pool.QueryRow(t.Context(), `SELECT schedule_conflict_enforcement, legacy_sync_conflict_enforcement FROM app_settings WHERE id = true`).Scan(&previousSystemEnforced, &previousLegacySyncEnforced); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE app_settings SET legacy_sync_conflict_enforcement = false WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE app_settings SET schedule_conflict_enforcement = $1, legacy_sync_conflict_enforcement = $2 WHERE id = true`, previousSystemEnforced, previousLegacySyncEnforced)
+	})
+
+	loc, err := time.LoadLocation(request.InstituteTZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date, err := parseSourceDate(request.Aggregate.Schedules[0].Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end, err := normalize.SessionWindow(date, request.Aggregate.Schedules[0].Begin, request.Aggregate.Schedules[0].End, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nativeSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, source_kind)
+		VALUES ($1, NULLIF($2::text, '')::uuid, $3, $4, $5, 'native')
+		RETURNING id
+	`, courseID, request.Aggregate.Schedules[0].Classroom, request.TeacherID, start, end).Scan(&nativeSessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := newTestScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SkippedSessions != 0 {
+		t.Fatalf("exact native match was skipped: %+v", result)
+	}
+
+	var activeCount int
+	if err := pool.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM sessions
+		WHERE course_id = $1 AND start_at = $2 AND end_at = $3 AND deleted_at IS NULL
+	`, courseID, start, end).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("active exact-match sessions = %d, want 1", activeCount)
+	}
+
+	var mappedSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `
+		SELECT internal_id
+		FROM external_refs
+		WHERE source = $1 AND entity_type = 'schedule' AND external_id = $2
+	`, master.source, scheduleID).Scan(&mappedSessionID); err != nil {
+		t.Fatal(err)
+	}
+	if mappedSessionID != nativeSessionID {
+		t.Fatalf("schedule mapping = %v, want native session %v", mappedSessionID, nativeSessionID)
+	}
+
+	var activeLegacyCount int
+	if err := pool.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM sessions
+		WHERE course_id = $1 AND legacy_schedule_id = $2 AND source_kind = 'legacy' AND deleted_at IS NULL
+	`, courseID, scheduleID).Scan(&activeLegacyCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeLegacyCount != 0 {
+		t.Fatalf("active legacy exact-match sessions = %d, want 0", activeLegacyCount)
+	}
 }
 
 func TestScheduleApply_UsesCurrentCourseTeacher(t *testing.T) {

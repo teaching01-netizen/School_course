@@ -425,6 +425,15 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "Invalid sit-in method")
 		return createdAbsenceRecord{}, false
 	}
+	sessionUUIDs, err := parseUUIDStrings(item.SitInSessionIDs)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_session_id", "Invalid sit-in session ID")
+		return createdAbsenceRecord{}, false
+	}
+	if len(sessionUUIDs) > 0 && sitInMethod.String != "physical" {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
+		return createdAbsenceRecord{}, false
+	}
 	if len(item.SitInSessionIDs) > settings.SitIn.MaxSessionsPerAbsence {
 		s.a.WriteErr(w, http.StatusBadRequest, "too_many_sessions", "Selected sit-in sessions exceed the configured maximum")
 		return createdAbsenceRecord{}, false
@@ -449,6 +458,17 @@ func (s *server) createAbsenceRecordTx(
 	}
 	if !availableToStudents {
 		s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
+		return createdAbsenceRecord{}, false
+	}
+	if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
+		return createdAbsenceRecord{}, false
+	}
+	if err := ensureSitInDatesAvailable(r.Context(), qtx, student.ID, sessionUUIDs, s.deps.InstituteTZ); err != nil {
+		if s.writeSitInDayConflict(w, err) {
+			return createdAbsenceRecord{}, false
+		}
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check sit-in session availability")
 		return createdAbsenceRecord{}, false
 	}
 	if len(item.MissedSessionIDs) == 0 {
@@ -522,19 +542,6 @@ func (s *server) createAbsenceRecordTx(
 	}
 
 	if len(item.SitInSessionIDs) > 0 {
-		var sessionUUIDs []pgtype.UUID
-		for _, sid := range item.SitInSessionIDs {
-			uid, err := s.a.ParseUUID(sid)
-			if err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_session_id", "Invalid sit-in session ID")
-				return createdAbsenceRecord{}, false
-			}
-			sessionUUIDs = append(sessionUUIDs, uid)
-		}
-		if sitInMethod.String != "physical" {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_sessions", "Only physical sit-ins may select sessions")
-			return createdAbsenceRecord{}, false
-		}
 		excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, course.CourseID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)

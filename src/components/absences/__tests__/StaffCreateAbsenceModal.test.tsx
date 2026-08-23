@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../../../hooks/useToast";
 import StaffCreateAbsenceModal from "../StaffCreateAbsenceModal";
+import { ApiRequestError } from "../../../api/client";
 
 vi.mock("../../../features/absences/domain/submissionPayload", async () => {
   const actual = await vi.importActual<
@@ -358,6 +359,68 @@ describe("StaffCreateAbsenceModal", () => {
     const sitInOption = await screen.findByRole("option", { name: /Science/ });
     expect(sitInOption).toBeDisabled();
     expect(sitInOption).toHaveValue("sit1");
+  });
+
+  it("shows a used sit-in day as unavailable in the staff form", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce({
+        subjects: [{
+          ...MOCK_SESSIONS.subjects[0],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: MOCK_SESSIONS.subjects[0].sit_in.sit_in_course,
+            unavailable_sessions: [{
+              session: { id: "used-day-session", start_at: "2026-06-24T14:00:00Z", end_at: "2026-06-24T15:00:00Z" },
+              reason: "This sit-in day is already assigned to this student's absence.",
+              reason_code: "sit_in_day_already_used",
+            }],
+          },
+        }],
+      });
+    renderModal();
+    await advanceToSubjectsStep(user);
+    await user.type(screen.getByLabelText(/w-code/i), "W000012");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => expect(screen.getByText("Test Student")).toBeInTheDocument());
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/1 class day/)).toBeInTheDocument());
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(await screen.findByText("This sit-in day is already used.")).toBeInTheDocument();
+    expect(screen.getByText("Choose a make-up class on another day.")).toBeInTheDocument();
+  });
+
+  it("refreshes the staff sessions after a stale sit-in day conflict", async () => {
+    const user = userEvent.setup();
+    mockApiJson
+      .mockResolvedValueOnce(MOCK_STUDENT)
+      .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
+      .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockRejectedValueOnce(new ApiRequestError("This sit-in day is already assigned", { code: "sit_in_day_already_used", status: 409 }))
+      .mockResolvedValueOnce(MOCK_SESSIONS);
+    renderModal();
+    await advanceToSubjectsStep(user);
+    await user.type(screen.getByLabelText(/w-code/i), "W000012");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => expect(screen.getByText("Test Student")).toBeInTheDocument());
+    await user.click(screen.getByRole("checkbox", { name: /Mathematics/ }));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/1 class day/)).toBeInTheDocument());
+    await user.click(await screen.findByRole("checkbox"));
+    await user.selectOptions(await screen.findByRole("combobox"), "sit1");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    expect(await screen.findByText(/That sit-in day was just used for this student/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("sessions-in-range")).length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   it("advances through all steps to confirm", async () => {

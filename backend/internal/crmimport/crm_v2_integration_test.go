@@ -1480,6 +1480,155 @@ func TestReconcileApply_StudentScheduleConflictIncludesStudentAndCourseDetails(t
 	}
 }
 
+func createStudentScheduleConflictFixture(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool) (pgtype.UUID, pgtype.UUID, crmtypes.CourseFilter) {
+	t.Helper()
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	rows := []xlsx.Row{
+		{WCode: "W250043", CourseName: "Math", CycleLabel: "Cycle A", FirstName: "Warning", LastName: "Student"},
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, rows)
+
+	filter := crmtypes.CourseFilter{
+		CycleLabels:              []string{"Cycle A"},
+		CycleBlankMode:           crmtypes.BlankModeAny,
+		CourseNameBlankMode:      crmtypes.BlankModeAny,
+		AcademicLevelBlankMode:   crmtypes.BlankModeAny,
+		SecondarySchoolBlankMode: crmtypes.BlankModeAny,
+		TeachersBlankMode:        crmtypes.BlankModeAny,
+	}
+	targetCourseID := createTestCourse(t, ctx, dbpool, "C-V2-WARNING-A-"+suffix, "Target CRM Warning Course", filter)
+	conflictCourseID := createTestCourse(t, ctx, dbpool, "C-V2-WARNING-B-"+suffix, "Existing Warning Course", filter)
+
+	q := sqldb.New(dbpool)
+	student, err := q.StudentCreate(ctx, sqldb.StudentCreateParams{
+		Wcode:    "W250043",
+		FullName: "Warning Student",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: conflictCourseID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	teacherA, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "crm-warning-teacher-a-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherB, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "crm-warning-teacher-b-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomA, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "CRM-warning-A-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomB, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "CRM-warning-B-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, teacherID := range []pgtype.UUID{teacherA, teacherB} {
+		if _, err := q.CreateTeacherAvailability(ctx, sqldb.CreateTeacherAvailabilityParams{
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 9, 0, 0, 0, time.UTC), Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addTestTeacherToCourse(t, ctx, q, targetCourseID, teacherA)
+	addTestTeacherToCourse(t, ctx, q, conflictCourseID, teacherB)
+
+	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulingSvc, err := scheduling.NewService(dbpool, "Asia/Bangkok", seriesSvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
+		CourseID:  conflictCourseID,
+		RoomID:    roomB.ID,
+		TeacherID: teacherB,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedulingSvc.CreateSession(ctx, scheduling.CreateSessionParams{
+		CourseID:  targetCourseID,
+		RoomID:    roomA.ID,
+		TeacherID: teacherA,
+		StartAt:   pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 10, 30, 0, 0, time.UTC), Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: time.Date(2026, 5, 21, 11, 30, 0, 0, time.UTC), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	return snapshotID, targetCourseID, filter
+}
+
+func TestReconcileApply_StudentScheduleConflictIsWarningWhenSystemEnforcementDisabled(t *testing.T) {
+	databaseURL := requireTestDBV2(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snapshotID, targetCourseID, filter := createStudentScheduleConflictFixture(t, ctx, dbpool)
+	if _, err := dbpool.Exec(ctx, `UPDATE app_settings SET schedule_conflict_enforcement = false, legacy_sync_conflict_enforcement = true WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = dbpool.Exec(context.Background(), `UPDATE app_settings SET schedule_conflict_enforcement = true, legacy_sync_conflict_enforcement = true WHERE id = true`)
+	})
+
+	reconcileSvc := newReconcileTestService(t, dbpool)
+	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, targetCourseID, filter)
+	if err != nil {
+		t.Fatalf("ApplyCourseReconcile with system enforcement disabled: %v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("expected one student to be added, got %d", result.Added)
+	}
+	if len(result.Warnings) == 0 || result.Warnings[0].Rule != schedulepolicy.RuleStudentOverlap {
+		t.Fatalf("expected student overlap warning, got %+v", result.Warnings)
+	}
+
+	var enrolledCount int
+	if err := dbpool.QueryRow(ctx, `SELECT COUNT(*) FROM course_students WHERE course_id = $1`, targetCourseID).Scan(&enrolledCount); err != nil {
+		t.Fatal(err)
+	}
+	if enrolledCount != 1 {
+		t.Fatalf("expected the conflicting student to be enrolled, got %d roster rows", enrolledCount)
+	}
+
+	var sessionOverrides int
+	if err := dbpool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE course_id = $1 AND deleted_at IS NULL AND conflict_override`, targetCourseID).Scan(&sessionOverrides); err != nil {
+		t.Fatal(err)
+	}
+	if sessionOverrides == 0 {
+		t.Fatal("expected target sessions to retain the conflict override marker")
+	}
+
+	var busyRangeOverrides int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM student_busy_ranges sbr
+		JOIN sessions s ON s.id = sbr.session_id
+		WHERE s.course_id = $1 AND sbr.deleted_at IS NULL AND sbr.conflict_override
+	`, targetCourseID).Scan(&busyRangeOverrides); err != nil {
+		t.Fatal(err)
+	}
+	if busyRangeOverrides == 0 {
+		t.Fatal("expected target busy ranges to retain the conflict override marker")
+	}
+}
+
 func TestParseCRMJobError_ExtractsPrefixedStructuredConflict(t *testing.T) {
 	raw := `apply reconcile: {"message":"Student schedule conflict: Jane (W250001) cannot be added to SAT","details":{"kind":"crm_student_schedule_conflict","student":{"wcode":"W250001","full_name":"Jane"},"target_course":{"code":"SAT"},"conflicts":[{"course":{"code":"ALG"},"start_at":"2026-05-20T10:00:00Z","end_at":"2026-05-20T11:00:00Z"}]}}`
 
