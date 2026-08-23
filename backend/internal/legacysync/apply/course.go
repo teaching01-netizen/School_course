@@ -16,6 +16,7 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync/normalize"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 var (
@@ -24,14 +25,14 @@ var (
 )
 
 type CourseApplyRequest struct {
-	CourseID                  pgtype.UUID
-	LegacyCourseID            string
-	Aggregate                 normalize.LegacyCourseAggregate
-	ObservedAt                time.Time
-	InstituteTZ               string
-	ShadowMode                bool
-	RealtimeEnabled           bool
-	AllowConstraintViolations bool
+	CourseID        pgtype.UUID
+	LegacyCourseID  string
+	Aggregate       normalize.LegacyCourseAggregate
+	ObservedAt      time.Time
+	InstituteTZ     string
+	ShadowMode      bool
+	RealtimeEnabled bool
+	allowConflicts  bool
 }
 
 // FaultPoint is an injectable failure boundary used by deterministic integration tests.
@@ -43,11 +44,12 @@ type CourseApplier struct {
 	pool   *pgxpool.Pool
 	q      *sqldb.Queries
 	source string
+	policy schedulepolicy.Reader
 	fault  FaultPoint
 }
 
-func NewCourseApplier(pool *pgxpool.Pool, q *sqldb.Queries, source string) *CourseApplier {
-	return &CourseApplier{pool: pool, q: q, source: source}
+func NewCourseApplier(pool *pgxpool.Pool, q *sqldb.Queries, source string, policy schedulepolicy.Reader) *CourseApplier {
+	return &CourseApplier{pool: pool, q: q, source: source, policy: policy}
 }
 
 func ValidateCourseAggregate(request CourseApplyRequest) error {
@@ -107,6 +109,14 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 		}
 	}
 	qtx := a.q.WithTx(tx)
+	if a.policy == nil {
+		return ScheduleApplyResult{}, errors.New("legacy course: policy reader is required")
+	}
+	policy, err := a.policy.Load(ctx, tx)
+	if err != nil {
+		return ScheduleApplyResult{}, err
+	}
+	request.allowConflicts = !policy.Enforced(schedulepolicy.ScopeLegacySync)
 	previous, err := qtx.SnapshotGet(ctx, sqldb.SnapshotGetParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ScheduleApplyResult{}, fmt.Errorf("load legacy course snapshot: %w", err)
@@ -246,15 +256,15 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("load legacy course timezone: %w", err)
 	}
-	scheduleApplier := &ScheduleApplier{source: a.source, fault: a.fault}
+	scheduleApplier := &ScheduleApplier{source: a.source, policy: a.policy, fault: a.fault}
 	scheduleRequest := ScheduleApplyRequest{
-		CourseID:                  request.CourseID,
-		LegacyCourseID:            request.LegacyCourseID,
-		TeacherID:                 teacherID,
-		Aggregate:                 request.Aggregate,
-		ObservedAt:                request.ObservedAt,
-		InstituteTZ:               loc.String(),
-		AllowConstraintViolations: request.AllowConstraintViolations,
+		CourseID:       request.CourseID,
+		LegacyCourseID: request.LegacyCourseID,
+		TeacherID:      teacherID,
+		Aggregate:      request.Aggregate,
+		ObservedAt:     request.ObservedAt,
+		InstituteTZ:    loc.String(),
+		allowConflicts: request.allowConflicts,
 	}
 	skipped, err = scheduleApplier.applyDomain(ctx, tx, qtx, scheduleRequest, loc, sourceHash)
 	if err != nil {
@@ -267,7 +277,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 		return ScheduleApplyResult{}, err
 	}
 	quality := "ok"
-	if skipped > 0 && !request.AllowConstraintViolations {
+	if skipped > 0 && !request.allowConflicts {
 		quality = "partial"
 	}
 	if _, err := qtx.SnapshotUpsert(ctx, sqldb.SnapshotUpsertParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID, CanonicalData: string(canonical), SourceHash: sourceHash, ParserVersion: 1, ObservedAt: timestamp(request.ObservedAt), Quality: quality}); err != nil {

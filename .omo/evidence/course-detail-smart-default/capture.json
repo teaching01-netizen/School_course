@@ -1,0 +1,27 @@
+{
+  "surface": "Course detail Add Session",
+  "build": "vite preview from current working tree",
+  "pages": [
+    {
+      "viewport": "375x844",
+      "courseValue": "MATH-101 — Math",
+      "courseReadOnly": true,
+      "teacherValue": "Teacher One",
+      "dialogVisible": true
+    },
+    {
+      "viewport": "768x1024",
+      "courseValue": "MATH-101 — Math",
+      "courseReadOnly": true,
+      "teacherValue": "Teacher One",
+      "dialogVisible": true
+    },
+    {
+      "viewport": "1280x900",
+      "courseValue": "MATH-101 — Math",
+      "courseReadOnly": true,
+      "teacherValue": "Teacher One",
+      "dialogVisible": true
+    }
+  ]
+}

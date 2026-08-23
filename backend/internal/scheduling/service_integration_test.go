@@ -656,6 +656,69 @@ func TestPreflight_ExplicitEmptyRosterDoesNotFallbackToCourse(t *testing.T) {
 	}
 }
 
+func TestPreflight_AdvisoryPolicyReturnsWarningStatus(t *testing.T) {
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := sqldb.New(dbpool)
+	svc := newTestService(t, dbpool)
+	ctx := context.Background()
+
+	if _, err := dbpool.Exec(ctx, `UPDATE app_settings SET schedule_conflict_enforcement = true, legacy_sync_conflict_enforcement = true WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = dbpool.Exec(context.Background(), `UPDATE app_settings SET schedule_conflict_enforcement = true, legacy_sync_conflict_enforcement = true WHERE id = true`)
+	})
+
+	fx := seedOccupancyFixture(t, q, "preflight-warning")
+	start := futureBangkok(40, 9)
+	end := start.Add(time.Hour)
+	if _, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+		CourseID:  fx.courseID,
+		RoomID:    fx.roomID,
+		TeacherID: fx.teacherID,
+		StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `UPDATE app_settings SET schedule_conflict_enforcement = false WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+
+	courseID, err := uuidString(fx.courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomID, err := uuidString(fx.roomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	teacherID, err := uuidString(fx.teacherID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, conflict, err := svc.Preflight(ctx, PreflightParams{
+		CourseID:  fx.courseID,
+		RoomID:    fx.roomID,
+		TeacherID: fx.teacherID,
+		StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
+		EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
+		Requested: ConflictRequested{StartAt: start.Format(time.RFC3339Nano), EndAt: end.Format(time.RFC3339Nano), CourseID: courseID, RoomID: &roomID, TeacherID: teacherID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict != nil {
+		t.Fatalf("advisory preflight returned blocking conflict: %s", conflict.Message)
+	}
+	if result.Status != PreflightStatusWarning || len(result.Warnings) == 0 {
+		t.Fatalf("result = %+v, want warning status with warning details", result)
+	}
+}
+
 // TestPreflight_TeacherMembership_Advisory covers the advisory teacher-membership
 // branch of preflightSlot (preflight.go): (a) a course with a NON-empty teacher
 // set rejects an unassigned teacher with teacher_not_assigned_to_course before

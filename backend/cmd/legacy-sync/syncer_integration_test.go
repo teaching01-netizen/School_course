@@ -18,6 +18,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync"
 	"warwick-institute/internal/legacysync/apply"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 // digitsOnly strips everything but ASCII digits from s, keeping legacy ids
@@ -127,8 +128,9 @@ func newSyncerUnderTest(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server) 
 	source := "syncer_" + uuid.NewString()
 	q := sqldb.New(pool)
 	master := apply.NewMasterDataService(pool, q, source)
-	courseApp := apply.NewCourseApplier(pool, q, source)
-	scheduleApp := apply.NewScheduleApplier(pool, q, source)
+	policyReader := schedulepolicy.NewDBReader()
+	courseApp := apply.NewCourseApplier(pool, q, source, policyReader)
+	scheduleApp := apply.NewScheduleApplier(pool, q, source, policyReader)
 	return newCourseSyncer(pool, q, client, master, courseApp, scheduleApp, "Asia/Bangkok",
 		slog.New(slog.NewTextHandler(io.Discard, nil)), 1, 30*time.Minute)
 }

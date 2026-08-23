@@ -79,6 +79,7 @@ export const navSections: NavSection[] = [
     items: [
       { path: "/operations/schedule-impact", label: "Schedule Impact", icon: AlertTriangle, badge: "schedule-impact" },
       { path: "/admin/operations", label: "Operations", icon: Workflow },
+      { path: "/admin/scheduling-rules", label: "Scheduling Rules", icon: AlertOctagon, adminOnly: true },
     ],
   },
   {
@@ -128,6 +129,7 @@ export const pageTitles: Record<string, string> = {
   "/absences/dashboard": "Absence Dashboard",
   "/absences/calendar": "Operations Calendar",
   "/admin/absence-settings": "Absence Settings",
+  "/admin/scheduling-rules": "Scheduling Rules",
   "/reports": "Reports",
   "/logs": "Logs",
   "/teacher-dashboard": "Teacher Dashboard",

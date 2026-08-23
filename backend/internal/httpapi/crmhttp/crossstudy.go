@@ -176,13 +176,14 @@ func (s *crossStudyServer) handleAssignmentSave(w http.ResponseWriter, r *http.R
 		ExtraNoteText:       body.ExtraNoteText,
 	}
 
-	if err := s.cs.SaveAssignment(r.Context(), input, au.ID); err != nil {
+	warnings, err := s.cs.SaveAssignmentWithWarnings(r.Context(), input, au.ID)
+	if err != nil {
 		s.deps.Log.Error("cross-study save failed", "error", err)
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
-	s.a.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "warnings": warnings})
 }
 
 func normalizeWeekdays(input []int16) ([]int16, bool) {
@@ -222,10 +223,11 @@ func (s *crossStudyServer) handleAssignmentDelete(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := s.cs.DeleteAssignment(r.Context(), id); err != nil {
+	warnings, err := s.cs.DeleteAssignmentWithWarnings(r.Context(), id)
+	if err != nil {
 		s.deps.Log.Error("cross-study delete failed", "id", idStr, "error", err)
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
-	s.a.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	s.a.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "warnings": warnings})
 }

@@ -11,6 +11,7 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 type CourseStudentStatus string
@@ -21,29 +22,45 @@ const (
 )
 
 func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, studentID pgtype.UUID, status CourseStudentStatus) error {
+	_, err := s.AddCourseStudentWithWarningsTx(ctx, tx, qtx, courseID, studentID, status)
+	return err
+}
+
+func (s *Service) AddCourseStudentWithWarningsTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, studentID pgtype.UUID, status CourseStudentStatus) ([]ScheduleWarning, error) {
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
 		CourseIDs:  []pgtype.UUID{courseID},
 		StudentIDs: []pgtype.UUID{studentID},
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	alreadyRostered, err := courseStudentExists(ctx, tx, courseID, studentID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if alreadyRostered {
-		return nil
+		return nil, nil
 	}
 
 	preflightInputs, err := s.courseStudentPreflightInputs(ctx, tx, courseID, studentID, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	var warnings []ScheduleWarning
 	if len(preflightInputs) > 0 {
 		for _, preflightIn := range preflightInputs {
 			if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
-				return se
+				if !allowConflicts {
+					return nil, se
+				}
+				if warning, ok := warningForErr(se); ok {
+					warnings = append(warnings, warning)
+				}
 			}
 		}
 	}
@@ -79,22 +96,22 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 		LIMIT 1
 	`, courseID, studentID).Scan(&firstOverlapID, &secondOverlapID, &overlapStart)
 	if rowErr != nil && !errors.Is(rowErr, pgx.ErrNoRows) {
-		return rowErr
+		return nil, rowErr
 	}
 	if rowErr == nil {
 		courseIDStr, err := uuidString(courseID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		firstStr, err := uuidString(firstOverlapID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		secondStr, err := uuidString(secondOverlapID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return &Err{
+		se := &Err{
 			Code:    ErrCourseSessionsOverlap,
 			Message: "This course has sessions that overlap each other; resolve the overlaps before enrolling students.",
 			Details: ConflictDetails{
@@ -105,6 +122,21 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 				},
 				Requested: ConflictRequested{CourseID: courseIDStr},
 			},
+		}
+		if !allowConflicts {
+			return nil, se
+		}
+		if warning, ok := warningForErr(se); ok {
+			warnings = append(warnings, warning)
+		}
+	}
+
+	if len(warnings) > 0 {
+		if err := qtx.CourseSessionsSetConflictOverride(ctx, courseID, true); err != nil {
+			return nil, err
+		}
+		if err := qtx.CourseBusyRangesSetConflictOverride(ctx, courseID, true); err != nil {
+			return nil, err
 		}
 	}
 
@@ -123,12 +155,12 @@ func (s *Service) AddCourseStudentTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.
 	if err != nil {
 		for _, preflightIn := range preflightInputs {
 			if se := s.explainStudentDBErrByRepreflight(ctx, err, tx, preflightIn); se != nil {
-				return se
+				return nil, se
 			}
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return warnings, nil
 }
 
 func (s *Service) RemoveCourseStudentTx(ctx context.Context, qtx *sqldb.Queries, courseID, studentID pgtype.UUID) error {
@@ -142,45 +174,103 @@ func (s *Service) RemoveCourseStudentTx(ctx context.Context, qtx *sqldb.Queries,
 }
 
 func (s *Service) ConvertCourseStudentTx(ctx context.Context, qtx *sqldb.Queries, courseID, studentID pgtype.UUID) (int64, error) {
+	count, _, err := s.ConvertCourseStudentWithWarningsTx(ctx, qtx, courseID, studentID)
+	return count, err
+}
+
+func (s *Service) ConvertCourseStudentWithWarningsTx(ctx context.Context, qtx *sqldb.Queries, courseID, studentID pgtype.UUID) (int64, []ScheduleWarning, error) {
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
 		CourseIDs:  []pgtype.UUID{courseID},
 		StudentIDs: []pgtype.UUID{studentID},
 	}); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return qtx.CourseStudentUpdateStatusRow(ctx, sqldb.CourseStudentUpdateStatusRowParams{
+	policy, err := s.policy.Load(ctx, qtx.DBTX())
+	if err != nil {
+		return 0, nil, err
+	}
+	preflightInputs, err := s.courseStudentPreflightInputs(ctx, qtx.DBTX(), courseID, studentID, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	var warnings []ScheduleWarning
+	for _, preflightIn := range preflightInputs {
+		if se := s.preflightStudentOverlap(ctx, qtx.DBTX(), preflightIn); se != nil {
+			if !allowConflicts {
+				return 0, nil, se
+			}
+			if warning, ok := warningForErr(se); ok {
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+	if len(warnings) > 0 {
+		if err := qtx.CourseSessionsSetConflictOverride(ctx, courseID, true); err != nil {
+			return 0, nil, err
+		}
+		if err := qtx.CourseBusyRangesSetConflictOverride(ctx, courseID, true); err != nil {
+			return 0, nil, err
+		}
+	}
+	count, err := qtx.CourseStudentUpdateStatusRow(ctx, sqldb.CourseStudentUpdateStatusRowParams{
 		CourseID: courseID, StudentID: studentID, NewStatus: "enrolled", OldStatus: "draft",
 	})
+	return count, warnings, err
 }
 
 func (s *Service) UpsertSessionAttendanceTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID, status string) error {
+	_, err := s.UpsertSessionAttendanceWithWarningsTx(ctx, tx, qtx, sessionID, studentID, status)
+	return err
+}
+
+func (s *Service) UpsertSessionAttendanceWithWarningsTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID, status string) ([]ScheduleWarning, error) {
 	session, err := qtx.SessionGetByID(ctx, sessionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
 		CourseIDs:  []pgtype.UUID{session.CourseID},
 		StudentIDs: []pgtype.UUID{studentID},
 		SessionIDs: []pgtype.UUID{sessionID},
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	lockedSession, err := qtx.SessionGetByID(ctx, sessionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if lockedSession.DeletedAt.Valid || lockedSession.CourseID != session.CourseID {
-		return &Err{Code: "stale_edit", Message: "session has been modified"}
+		return nil, &Err{Code: "stale_edit", Message: "session has been modified"}
 	}
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	var warnings []ScheduleWarning
 
 	if status == "included" {
 		preflightIn, ok, err := s.sessionIncludedStudentPreflightInput(ctx, qtx, sessionID, studentID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if ok {
 			if se := s.preflightStudentOverlap(ctx, tx, preflightIn); se != nil {
-				return se
+				if !allowConflicts {
+					return nil, se
+				}
+				if warning, ok := warningForErr(se); ok {
+					warnings = append(warnings, warning)
+				}
+			}
+		}
+		if len(warnings) > 0 {
+			if err := qtx.SessionSetConflictOverride(ctx, sessionID, true); err != nil {
+				return nil, err
+			}
+			if err := qtx.SessionBusyRangesSetConflictOverride(ctx, sessionID, true); err != nil {
+				return nil, err
 			}
 		}
 
@@ -189,15 +279,15 @@ func (s *Service) UpsertSessionAttendanceTx(ctx context.Context, tx pgx.Tx, qtx 
 		}); err != nil {
 			if ok {
 				if se := s.explainStudentDBErrByRepreflight(ctx, err, tx, preflightIn); se != nil {
-					return se
+					return nil, se
 				}
 			}
-			return err
+			return nil, err
 		}
-		return nil
+		return warnings, nil
 	}
 
-	return qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{SessionID: sessionID, StudentID: studentID, Status: status})
+	return warnings, qtx.SessionAttendanceUpsert(ctx, sqldb.SessionAttendanceUpsertParams{SessionID: sessionID, StudentID: studentID, Status: status})
 }
 
 func (s *Service) DeleteSessionAttendanceTx(ctx context.Context, qtx *sqldb.Queries, sessionID, studentID pgtype.UUID) error {

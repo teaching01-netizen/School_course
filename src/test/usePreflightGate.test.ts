@@ -7,6 +7,7 @@ function makePreflight(overrides: Partial<UsePreflightReturn>): UsePreflightRetu
     status: "idle",
     loading: false,
     details: null,
+    warnings: [],
     error: null,
     occurrencesPlanned: null,
     lastParams: null,
@@ -45,6 +46,7 @@ describe("usePreflightGate", () => {
     ["checking", true],
     ["blocked", false],
     ["error", false],
+    ["warning", false],
     ["idle", false],
   ] as const)("reports the %s gate state", (status, loading) => {
     const gate = usePreflightGate(makePreflight({ status, loading }));

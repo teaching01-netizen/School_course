@@ -352,6 +352,7 @@ func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":     res.Status,
 		"session_id": sessionIDStr,
+		"warnings":   res.Warnings,
 	})
 
 	s.deps.Log.LogAttrs(r.Context(), slog.LevelInfo, "schedule_preflight",

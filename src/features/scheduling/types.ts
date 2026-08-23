@@ -62,6 +62,21 @@ export type ConflictDetails = {
   session_ids?: string[];
 };
 
+export type ScheduleWarningRule =
+  | "room_overlap"
+  | "teacher_overlap"
+  | "student_overlap"
+  | "teacher_availability"
+  | "room_availability"
+  | "course_sessions_overlap";
+
+export type ScheduleWarning = {
+  rule: ScheduleWarningRule;
+  code: string;
+  message: string;
+  details: ConflictDetails;
+};
+
 export type StaleEditDetails = {
   current?: {
     id: string;

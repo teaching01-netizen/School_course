@@ -28,6 +28,7 @@ import (
 	"warwick-institute/internal/legacysync/reconcile"
 	"warwick-institute/internal/logging"
 	"warwick-institute/internal/realtime"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 // listLinkedLegacyCourses returns the legacy course ids of local courses
@@ -159,8 +160,9 @@ func main() {
 	}
 	defer leaderConn.Release()
 	store := jobqueue.NewPostgresStore(q)
-	applier := apply.NewScheduleApplier(pool, q, "legacy_warwick")
-	courseApplier := apply.NewCourseApplier(pool, q, "legacy_warwick")
+	policyReader := schedulepolicy.NewDBReader()
+	applier := apply.NewScheduleApplier(pool, q, "legacy_warwick", policyReader)
+	courseApplier := apply.NewCourseApplier(pool, q, "legacy_warwick", policyReader)
 	masterData := apply.NewMasterDataService(pool, q, "legacy_warwick")
 	fullReconciler := reconcile.NewFullReconciler(pool, q, store, masterData, "legacy_warwick")
 	syncer := newCourseSyncer(pool, q, client, masterData, courseApplier, applier, cfg.InstituteTZ, log, client.MaxConcurrent(), legacyCourseRefreshInterval())
@@ -289,6 +291,7 @@ func main() {
 				"enqueued", stats.Enqueued,
 				"roster_students", stats.RosterStudents,
 				"roster_enrollments", stats.RosterEnrollments,
+				"conflict_warnings", stats.ConflictWarnings,
 				"profiles_applied", profilesApplied,
 				"shadow", control.ShadowMode,
 				"student_import", control.StudentEnabled,

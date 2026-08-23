@@ -1,13 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ApiRequestError, apiJson } from "@/api/client";
 import { isConflictDetails } from "@/utils/conflictErrors";
-import type { ConflictDetails } from "../types";
+import type { ConflictDetails, ScheduleWarning, ScheduleWarningRule } from "../types";
 
 export type PreflightStatus =
   | "idle"
   | "checking"
   | "available"
   | "provisional"
+  | "warning"
   | "blocked"
   | "error";
 
@@ -33,6 +34,7 @@ export type UsePreflightReturn = {
   status: PreflightStatus;
   loading: boolean;
   details: ConflictDetails | null;
+  warnings: ScheduleWarning[];
   error: ApiRequestError | null;
   occurrencesPlanned: number | null;
   lastParams: PreflightParams | null;
@@ -44,10 +46,52 @@ export function isSchedulingConflict(error: unknown): error is ApiRequestError {
   return error instanceof ApiRequestError && error.status === 409 && isConflictDetails(error.details);
 }
 
+const scheduleWarningRules: readonly ScheduleWarningRule[] = [
+  "room_overlap",
+  "teacher_overlap",
+  "student_overlap",
+  "teacher_availability",
+  "room_availability",
+  "course_sessions_overlap",
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isScheduleWarning(value: unknown): value is ScheduleWarning {
+  if (!isRecord(value) || typeof value.rule !== "string" || !scheduleWarningRules.includes(value.rule as ScheduleWarningRule)) return false;
+  return typeof value.code === "string" && typeof value.message === "string" && isConflictDetails(value.details);
+}
+
+type PreflightSuccessResponse = {
+  status: Exclude<PreflightStatus, "idle" | "checking" | "blocked" | "error">;
+  occurrences_planned?: number;
+  warnings: ScheduleWarning[];
+};
+
+function parsePreflightResponse(value: unknown): PreflightSuccessResponse {
+  if (!isRecord(value) || (value.status !== "available" && value.status !== "provisional" && value.status !== "warning")) {
+    throw new Error("Invalid preflight response");
+  }
+  if (value.occurrences_planned !== undefined && (typeof value.occurrences_planned !== "number" || value.occurrences_planned < 0)) {
+    throw new Error("Invalid preflight occurrence count");
+  }
+  if (value.warnings !== undefined && (!Array.isArray(value.warnings) || !value.warnings.every(isScheduleWarning))) {
+    throw new Error("Invalid preflight warning payload");
+  }
+  return {
+    status: value.status,
+    occurrences_planned: value.occurrences_planned,
+    warnings: value.warnings ?? [],
+  };
+}
+
 export function usePreflight(endpoint: "preflight" | "preflight_series" = "preflight"): UsePreflightReturn {
   const [status, setStatus] = useState<PreflightStatus>("idle");
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<ConflictDetails | null>(null);
+  const [warnings, setWarnings] = useState<ScheduleWarning[]>([]);
   const [error, setError] = useState<ApiRequestError | null>(null);
   const [occurrencesPlanned, setOccurrencesPlanned] = useState<number | null>(null);
   const mountedRef = useRef(false);
@@ -67,6 +111,7 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
     setStatus: (s: PreflightStatus) => { if (mountedRef.current) setStatus(s); },
     setLoading: (v: boolean) => { if (mountedRef.current) setLoading(v); },
     setDetails: (d: ConflictDetails | null) => { if (mountedRef.current) setDetails(d); },
+    setWarnings: (w: ScheduleWarning[]) => { if (mountedRef.current) setWarnings(w); },
     setError: (e: ApiRequestError | null) => { if (mountedRef.current) setError(e); },
     setOccurrencesPlanned: (v: number | null) => { if (mountedRef.current) setOccurrencesPlanned(v); },
     setLastParams: (p: PreflightParams | null) => { if (mountedRef.current) { setLastParams(p); lastParamsRef.current = p; } },
@@ -81,6 +126,7 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
     safe.setStatus("checking");
     safe.setLoading(true);
     safe.setDetails(null);
+    safe.setWarnings([]);
     safe.setError(null);
     safe.setLastParams(params);
 
@@ -118,14 +164,17 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
         }
       }
 
-      const res = await apiJson<{ status: "available" | "provisional"; occurrences_planned?: number }>(url, {
+      const raw = await apiJson<unknown>(url, {
         method: "POST",
         signal: controller.signal,
         body: JSON.stringify(body),
       });
+      const res = parsePreflightResponse(raw);
 
       if (controller.signal.aborted) return;
       safe.setStatus(res.status);
+      safe.setWarnings(res.warnings);
+      safe.setDetails(res.warnings[0]?.details ?? null);
       safe.setOccurrencesPlanned(res.occurrences_planned ?? null);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -158,10 +207,11 @@ export function usePreflight(endpoint: "preflight" | "preflight_series" = "prefl
     safe.setStatus("idle");
     safe.setLoading(false);
     safe.setDetails(null);
+    safe.setWarnings([]);
     safe.setError(null);
     safe.setOccurrencesPlanned(null);
     safe.setLastParams(null);
   }, []);
 
-  return { status, loading, details, error, occurrencesPlanned, lastParams, check, reset };
+  return { status, loading, details, warnings, error, occurrencesPlanned, lastParams, check, reset };
 }

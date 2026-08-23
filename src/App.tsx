@@ -40,6 +40,7 @@ const Absences = lazy(() => import('./pages/Absences'));
 const AbsenceDetail = lazy(() => import('./pages/AbsenceDetail'));
 const AbsenceDashboard = lazy(() => import('./pages/AbsenceDashboard'));
 const AbsenceSettings = lazy(() => import('./pages/AbsenceSettings'));
+const SchedulingRules = lazy(() => import('./pages/SchedulingRules'));
 const OperationsCalendar = lazy(() => import('./pages/OperationsCalendar'));
 const OperationsHub = lazy(() => import('./pages/operations/OperationsHub'));
 const SessionChanges = lazy(() => import('./pages/SessionChanges'));
@@ -175,6 +176,7 @@ function App() {
                 <Route path="/crm/conflicts" element={<CrmConflicts />} />
                 <Route path="/crm/cross-study" element={<CrossStudyPage />} />
                 <Route path="/admin/absence-settings" element={<AbsenceSettings />} />
+                <Route path="/admin/scheduling-rules" element={<SchedulingRules />} />
                 <Route path="/absences/calendar" element={<OperationsCalendar />} />
                 <Route path="/operations/calendar" element={<Navigate to="/absences/calendar" replace />} />
                 <Route path="/admin/operations" element={<OperationsHub />} />

@@ -37,6 +37,7 @@ import (
 	"warwick-institute/internal/httpapi/realtimehttp"
 	"warwick-institute/internal/httpapi/roomshttp"
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
+	"warwick-institute/internal/httpapi/schedulepolicyhttp"
 	"warwick-institute/internal/httpapi/schedulinghttp"
 	"warwick-institute/internal/httpapi/serieshttp"
 	"warwick-institute/internal/httpapi/sessionchangehttp"
@@ -51,6 +52,7 @@ import (
 	"warwick-institute/internal/otpdelivery"
 	"warwick-institute/internal/ratelimit"
 	"warwick-institute/internal/realtime"
+	"warwick-institute/internal/schedulepolicy"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 	"warwick-institute/internal/sessionchangeimpact"
@@ -167,7 +169,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	if err != nil {
 		panic(err)
 	}
-	schedulingSvc, err := scheduling.NewService(db, cfg.InstituteTZ, seriesSvc, log)
+	schedulingSvc, err := scheduling.NewServiceWithPolicy(db, cfg.InstituteTZ, seriesSvc, schedulepolicy.NewDBReader(), log)
 	if err != nil {
 		// Fail fast at startup for invalid timezone config.
 		panic(err)
@@ -261,8 +263,9 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	audithttp.Register(mux, deps)
 	serieshttp.Register(mux, deps)
 	availabilityhttp.Register(mux, deps)
+	schedulepolicyhttp.Register(mux, deps)
 	teacherhttp.Register(mux, deps)
-	crossStudyStore := crossstudy.NewStore(db)
+	crossStudyStore := crossstudy.NewStore(db, schedulingSvc)
 	deps.CrossStudy = crossStudyStore
 	crmhttp.Register(mux, deps)
 	crmhttp.RegisterCrossStudy(mux, deps)

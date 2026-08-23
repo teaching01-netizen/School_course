@@ -18,15 +18,15 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/schedulelock"
 	"warwick-institute/internal/scheduling"
-	"warwick-institute/internal/series"
 )
 
 type ReconcileApplyResult struct {
-	DesiredStudents      int      `json:"desired_students"`
-	Added                int      `json:"added"`
-	Removed              int      `json:"removed"`
-	SkippedInvalidWcodes []string `json:"skipped_invalid_wcodes,omitempty"`
-	SnapshotID           string   `json:"snapshot_id"`
+	DesiredStudents      int                          `json:"desired_students"`
+	Added                int                          `json:"added"`
+	Removed              int                          `json:"removed"`
+	SkippedInvalidWcodes []string                     `json:"skipped_invalid_wcodes,omitempty"`
+	Warnings             []scheduling.ScheduleWarning `json:"warnings,omitempty"`
+	SnapshotID           string                       `json:"snapshot_id"`
 }
 
 type ReconcileDiffResult struct {
@@ -76,14 +76,8 @@ func (e *EnqueueApplyJobError) Error() string {
 
 func (e *EnqueueApplyJobError) Unwrap() error { return e.Err }
 
-func NewReconcileV2Service(db *pgxpool.Pool, schedulingSvc ...*scheduling.Service) *ReconcileV2Service {
-	var svc *scheduling.Service
-	if len(schedulingSvc) > 0 {
-		svc = schedulingSvc[0]
-	} else if seriesSvc, err := series.NewService(db, "Asia/Bangkok"); err == nil {
-		svc, _ = scheduling.NewService(db, "Asia/Bangkok", seriesSvc)
-	}
-	return &ReconcileV2Service{db: db, scheduling: svc}
+func NewReconcileV2Service(db *pgxpool.Pool, schedulingSvc *scheduling.Service) *ReconcileV2Service {
+	return &ReconcileV2Service{db: db, scheduling: schedulingSvc}
 }
 
 type CRMStudentScheduleConflictDetails struct {
@@ -393,6 +387,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 
 	added := 0
 	removed := 0
+	var warnings []scheduling.ScheduleWarning
 
 	desiredUUIDSet := make(map[uuid.UUID]bool, len(finalDesired))
 	for _, pgid := range finalDesired {
@@ -413,13 +408,15 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		if s.scheduling == nil {
 			return nil, fmt.Errorf("add student %s: scheduling service not configured", wcode)
 		}
-		if err := s.scheduling.AddCourseStudentTx(ctx, tx, qtx, courseID, pgid, scheduling.CourseStudentStatusEnrolled); err != nil {
+		studentWarnings, err := s.scheduling.AddCourseStudentWithWarningsTx(ctx, tx, qtx, courseID, pgid, scheduling.CourseStudentStatusEnrolled)
+		if err != nil {
 			var scheduleErr *scheduling.Err
 			if errors.As(err, &scheduleErr) {
 				return nil, s.newStudentScheduleConflictError(ctx, tx, courseID, pgid, wcode, studentNames[wcode], scheduleErr)
 			}
 			return nil, fmt.Errorf("add student %s: %w", wcode, err)
 		}
+		warnings = append(warnings, studentWarnings...)
 		added++
 	}
 
@@ -454,6 +451,7 @@ func (s *ReconcileV2Service) ApplyCourseReconcile(ctx context.Context, snapshotI
 		Added:                added,
 		Removed:              removed,
 		SkippedInvalidWcodes: skippedWcodes,
+		Warnings:             warnings,
 		SnapshotID:           snapshotIDStr.String(),
 	}, nil
 }

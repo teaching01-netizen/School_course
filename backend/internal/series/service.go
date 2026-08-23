@@ -27,6 +27,7 @@ type CreateParams struct {
 	EndDate         *LocalDate
 	Count           *int
 	Occurrences     []Occurrence // pre-materialized occurrences; computed from params if nil
+	AllowConflicts  bool
 }
 
 type CreateResult struct {
@@ -60,6 +61,7 @@ type SplitParams struct {
 	DurationMinutes *int
 	EndDate         *LocalDate
 	Count           *int
+	AllowConflicts  bool
 }
 
 type SplitResult struct {
@@ -195,12 +197,13 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, qtx *sqldb.Q
 			return CreateResult{}, err
 		}
 		_, err = qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-			SeriesID:  seriesID,
-			CourseID:  p.CourseID,
-			RoomID:    p.RoomID,
-			TeacherID: p.TeacherID,
-			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
-			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+			SeriesID:         seriesID,
+			CourseID:         p.CourseID,
+			RoomID:           p.RoomID,
+			TeacherID:        p.TeacherID,
+			StartAt:          pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+			EndAt:            pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+			ConflictOverride: p.AllowConflicts,
 		})
 		if err != nil {
 			return CreateResult{}, err
@@ -443,8 +446,13 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 		if !unchangedDefinition {
 			for _, o := range occNew {
 				if _, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-					SeriesID: old.ID, CourseID: old.CourseID, RoomID: old.RoomID, TeacherID: old.TeacherID,
-					StartAt: pgtype.Timestamptz{Time: o.StartUTC, Valid: true}, EndAt: pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+					SeriesID:         old.ID,
+					CourseID:         old.CourseID,
+					RoomID:           old.RoomID,
+					TeacherID:        old.TeacherID,
+					StartAt:          pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+					EndAt:            pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+					ConflictOverride: p.AllowConflicts,
 				}); err != nil {
 					return SplitResult{}, err
 				}
@@ -484,12 +492,13 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, qtx *sqldb.Queries, 
 	} else {
 		for _, o := range occNew {
 			_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-				SeriesID:  newSeries.ID,
-				CourseID:  old.CourseID,
-				RoomID:    old.RoomID,
-				TeacherID: old.TeacherID,
-				StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
-				EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+				SeriesID:         newSeries.ID,
+				CourseID:         old.CourseID,
+				RoomID:           old.RoomID,
+				TeacherID:        old.TeacherID,
+				StartAt:          pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+				EndAt:            pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+				ConflictOverride: p.AllowConflicts,
 			})
 			if err != nil {
 				return SplitResult{}, err
@@ -558,6 +567,7 @@ type EditEntireFutureParams struct {
 	DurationMinutes int
 	EndDate         *LocalDate
 	Count           *int
+	AllowConflicts  bool
 }
 
 type EditEntireFutureResult struct {
@@ -691,12 +701,13 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, qtx *sqldb.Q
 			continue
 		}
 		_, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-			SeriesID:  updated.ID,
-			CourseID:  updated.CourseID,
-			RoomID:    updated.RoomID,
-			TeacherID: updated.TeacherID,
-			StartAt:   pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
-			EndAt:     pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+			SeriesID:         updated.ID,
+			CourseID:         updated.CourseID,
+			RoomID:           updated.RoomID,
+			TeacherID:        updated.TeacherID,
+			StartAt:          pgtype.Timestamptz{Time: o.StartUTC, Valid: true},
+			EndAt:            pgtype.Timestamptz{Time: o.EndUTC, Valid: true},
+			ConflictOverride: p.AllowConflicts,
 		})
 		if err != nil {
 			return EditEntireFutureResult{}, err

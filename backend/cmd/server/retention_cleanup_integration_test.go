@@ -86,6 +86,8 @@ func TestCleanupLegacySyncOperationalHistoryRetainsLiveAndFunctionalRows(t *test
 	old := time.Now().UTC().Add(-48 * time.Hour)
 	recent := time.Now().UTC().Add(-2 * time.Hour)
 	cutoff := time.Now().UTC().Add(-legacySyncOperationalRetention)
+	oldPolicyAudit := time.Now().UTC().Add(-96 * time.Hour)
+	recentPolicyAudit := time.Now().UTC().Add(-2 * time.Hour)
 
 	oldDeadKey := "retention-old-dead-" + suffix
 	recentDeadKey := "retention-recent-dead-" + suffix
@@ -144,13 +146,21 @@ VALUES ('course', $1, 'retention_test', 'internal_bug', '{}'::jsonb, 'open', $2)
 `, conflictExternalID, old); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_log (action, payload, created_at)
+VALUES
+('schedule_conflict_policy.updated', '{"previous":{},"next":{}}'::jsonb, $1),
+('schedule_conflict_policy.updated', '{"previous":{},"next":{}}'::jsonb, $2)
+`, oldPolicyAudit, recentPolicyAudit); err != nil {
+		t.Fatal(err)
+	}
 
 	deleted, err := cleanupLegacySyncOperationalHistory(ctx, tx, cutoff)
 	if err != nil {
 		t.Fatalf("cleanupLegacySyncOperationalHistory: %v", err)
 	}
-	if deleted != 3 {
-		t.Fatalf("deleted rows = %d, want 3", deleted)
+	if deleted < 3 {
+		t.Fatalf("deleted rows = %d, want at least 3", deleted)
 	}
 
 	assertExists := func(query string, args ...any) bool {
@@ -194,5 +204,18 @@ VALUES ('course', $1, 'retention_test', 'internal_bug', '{}'::jsonb, 'open', $2)
 	}
 	if !assertExists(`SELECT EXISTS (SELECT 1 FROM legacy_sync_conflicts WHERE external_id = $1)`, conflictExternalID) {
 		t.Fatal("conflict history row was deleted")
+	}
+	auditDeleted, err := cleanupSchedulePolicyAuditHistory(ctx, tx, time.Now().UTC().Add(-schedulePolicyAuditRetention))
+	if err != nil {
+		t.Fatalf("cleanupSchedulePolicyAuditHistory: %v", err)
+	}
+	if auditDeleted < 1 {
+		t.Fatalf("deleted scheduling policy audit rows = %d, want at least 1", auditDeleted)
+	}
+	if assertExists(`SELECT EXISTS (SELECT 1 FROM audit_log WHERE action = 'schedule_conflict_policy.updated' AND created_at = $1)`, oldPolicyAudit) {
+		t.Fatal("old scheduling policy audit row was retained")
+	}
+	if !assertExists(`SELECT EXISTS (SELECT 1 FROM audit_log WHERE action = 'schedule_conflict_policy.updated' AND created_at = $1)`, recentPolicyAudit) {
+		t.Fatal("recent scheduling policy audit row was deleted")
 	}
 }

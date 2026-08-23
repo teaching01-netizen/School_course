@@ -8,10 +8,13 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync/normalize"
+	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 // wcodeRe validates roster wcodes: the old site's "W" prefix followed by
@@ -34,6 +37,14 @@ func (r *FullReconciler) applyRoster(ctx context.Context, course normalize.Legac
 	}
 	defer tx.Rollback(context.Background()) // no-op on committed tx
 	qtx := r.q.WithTx(tx)
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{courseID}}); err != nil {
+		return fmt.Errorf("lock roster course: %w", err)
+	}
+	policy, err := schedulepolicy.NewDBReader().Load(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("load roster conflict policy: %w", err)
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeLegacySync)
 	for _, entry := range course.Attendees {
 		wcode, name, nickname, err := splitRosterEntry(entry)
 		if err != nil {
@@ -65,6 +76,35 @@ func (r *FullReconciler) applyRoster(ctx context.Context, course normalize.Legac
 		default:
 			return fmt.Errorf("upsert roster student %s: %w", wcode, err)
 		}
+		if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+			CourseIDs:  []pgtype.UUID{courseID},
+			StudentIDs: []pgtype.UUID{studentID},
+		}); err != nil {
+			return fmt.Errorf("lock roster student %s: %w", wcode, err)
+		}
+		var alreadyEnrolled bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM course_students WHERE course_id=$1 AND student_id=$2)`, courseID, studentID).Scan(&alreadyEnrolled); err != nil {
+			return fmt.Errorf("check roster student %s: %w", wcode, err)
+		}
+		if alreadyEnrolled {
+			continue
+		}
+		conflict, err := legacyRosterConflict(ctx, tx, courseID, studentID)
+		if err != nil {
+			return fmt.Errorf("check roster conflict %s: %w", wcode, err)
+		}
+		if conflict && !allowConflicts {
+			return fmt.Errorf("legacy roster student %s: %w", wcode, &pgconn.PgError{Code: "23P01", ConstraintName: "student_busy_ranges_no_overlap", Message: "student schedule overlap"})
+		}
+		if conflict {
+			if _, err := tx.Exec(ctx, `UPDATE sessions SET legacy_conflict_override=true, updated_at=now() WHERE course_id=$1 AND deleted_at IS NULL`, courseID); err != nil {
+				return fmt.Errorf("mark allowed roster conflict %s: %w", wcode, err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE student_busy_ranges SET conflict_override=true WHERE session_id IN (SELECT id FROM sessions WHERE course_id=$1 AND deleted_at IS NULL)`, courseID); err != nil {
+				return fmt.Errorf("mark roster busy ranges %s: %w", wcode, err)
+			}
+			stats.ConflictWarnings++
+		}
 		res, err := tx.Exec(ctx, `
 			INSERT INTO course_students (course_id, student_id, status)
 			VALUES ($1, $2, 'enrolled')
@@ -84,6 +124,30 @@ func (r *FullReconciler) applyRoster(ctx context.Context, course normalize.Legac
 		return fmt.Errorf("commit roster: %w", err)
 	}
 	return nil
+}
+
+func legacyRosterConflict(ctx context.Context, tx pgx.Tx, courseID, studentID pgtype.UUID) (bool, error) {
+	var conflict bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM sessions target
+			JOIN student_busy_ranges busy ON busy.student_id = $2
+			WHERE target.course_id = $1
+			  AND target.deleted_at IS NULL
+			  AND busy.deleted_at IS NULL
+			  AND target.time_range && busy.time_range
+		) OR EXISTS (
+			SELECT 1
+			FROM sessions first_session
+			JOIN sessions second_session ON first_session.id < second_session.id
+			WHERE first_session.course_id = $1
+			  AND second_session.course_id = $1
+			  AND first_session.deleted_at IS NULL
+			  AND second_session.deleted_at IS NULL
+			  AND first_session.time_range && second_session.time_range
+		)`, courseID, studentID).Scan(&conflict)
+	return conflict, err
 }
 
 // splitRosterEntry splits one parsed attendee ("W250025 Nutnicha (Nicha)")

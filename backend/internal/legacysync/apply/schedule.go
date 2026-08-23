@@ -15,6 +15,8 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync/normalize"
+	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 var (
@@ -23,15 +25,15 @@ var (
 )
 
 type ScheduleApplyRequest struct {
-	CourseID                  pgtype.UUID
-	LegacyCourseID            string
-	TeacherID                 pgtype.UUID
-	Aggregate                 normalize.LegacyCourseAggregate
-	ObservedAt                time.Time
-	InstituteTZ               string
-	ShadowMode                bool
-	RealtimeEnabled           bool
-	AllowConstraintViolations bool
+	CourseID        pgtype.UUID
+	LegacyCourseID  string
+	TeacherID       pgtype.UUID
+	Aggregate       normalize.LegacyCourseAggregate
+	ObservedAt      time.Time
+	InstituteTZ     string
+	ShadowMode      bool
+	RealtimeEnabled bool
+	allowConflicts  bool
 }
 
 type ScheduleApplyResult struct {
@@ -61,11 +63,12 @@ type ScheduleApplier struct {
 	pool   *pgxpool.Pool
 	q      *sqldb.Queries
 	source string
+	policy schedulepolicy.Reader
 	fault  FaultPoint
 }
 
-func NewScheduleApplier(pool *pgxpool.Pool, q *sqldb.Queries, source string) *ScheduleApplier {
-	return &ScheduleApplier{pool: pool, q: q, source: source}
+func NewScheduleApplier(pool *pgxpool.Pool, q *sqldb.Queries, source string, policy schedulepolicy.Reader) *ScheduleApplier {
+	return &ScheduleApplier{pool: pool, q: q, source: source, policy: policy}
 }
 
 func ValidateScheduleAggregate(aggregate normalize.LegacyCourseAggregate) error {
@@ -141,6 +144,14 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 		request.TeacherID = currentTeacherID
 	}
 	qtx := a.q.WithTx(tx)
+	if a.policy == nil {
+		return ScheduleApplyResult{}, errors.New("legacy schedule: policy reader is required")
+	}
+	policy, err := a.policy.Load(ctx, tx)
+	if err != nil {
+		return ScheduleApplyResult{}, err
+	}
+	request.allowConflicts = !policy.Enforced(schedulepolicy.ScopeLegacySync)
 	previous, err := qtx.SnapshotGet(ctx, sqldb.SnapshotGetParams{Source: a.source, EntityType: "course", ExternalID: externalCourseID})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ScheduleApplyResult{}, fmt.Errorf("load course snapshot: %w", err)
@@ -153,8 +164,10 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 		// Even an unchanged aggregate converges local drift: sessions that
 		// were locally soft-deleted while still present in the source are
 		// restored (the source is the contract).
+		skipped := 0
 		if !request.ShadowMode {
-			if err := a.restoreSourcePresentSessions(ctx, tx, request); err != nil {
+			skipped, err = a.restoreSourcePresentSessions(ctx, tx, qtx, request, loc)
+			if err != nil {
 				return ScheduleApplyResult{}, err
 			}
 		}
@@ -167,7 +180,7 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 		if err := tx.Commit(ctx); err != nil {
 			return ScheduleApplyResult{}, fmt.Errorf("commit unchanged schedule: %w", err)
 		}
-		return ScheduleApplyResult{SourceHash: sourceHash, AppliedAt: request.ObservedAt}, nil
+		return ScheduleApplyResult{SourceHash: sourceHash, SkippedSessions: skipped, AppliedAt: request.ObservedAt}, nil
 	}
 	if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{Source: a.source, EntityType: "course", ExternalID: externalCourseID, InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true}}); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("upsert course mapping: %w", err)
@@ -210,6 +223,9 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 }
 
 func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest, loc *time.Location, sourceHash string) (int, error) {
+	if err := a.lockScheduleResources(ctx, tx, qtx, request); err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_source_hash=$1, legacy_last_seen_at=$2, legacy_last_synced_at=$2, source_kind='legacy', updated_at=now() WHERE id=$3`, sourceHash, request.ObservedAt, request.CourseID); err != nil {
 		return 0, fmt.Errorf("update legacy course metadata: %w", err)
 	}
@@ -277,17 +293,32 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 					return skipped, err
 				}
 			}
+			forceOverride := false
+			conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
+			if err != nil {
+				return skipped, err
+			}
+			if conflict != nil {
+				if !request.allowConflicts {
+					if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, conflict); err != nil {
+						return skipped, err
+					}
+					skipped++
+					continue
+				}
+				forceOverride = true
+			}
 			if _, err := tx.Exec(ctx, `SAVEPOINT legacy_schedule_upsert`); err != nil {
 				return skipped, fmt.Errorf("savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 			}
 			var sessionID pgtype.UUID
-			upsertErr := tx.QueryRow(ctx, `INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at, legacy_schedule_id, legacy_confirmed, legacy_confirmed_by, legacy_source_hash, legacy_last_synced_at, legacy_last_seen_at, source_kind) VALUES ($1,$2,NULLIF($3::text,'')::uuid,$4,$5,$6,$7,$8,NULLIF($9::text,''),$10,$11,$11,'legacy') ON CONFLICT (legacy_schedule_id) WHERE legacy_schedule_id IS NOT NULL DO UPDATE SET series_id=EXCLUDED.series_id, course_id=EXCLUDED.course_id, room_id=EXCLUDED.room_id, teacher_id=EXCLUDED.teacher_id, start_at=EXCLUDED.start_at, end_at=EXCLUDED.end_at, deleted_at=NULL, legacy_confirmed=EXCLUDED.legacy_confirmed, legacy_confirmed_by=EXCLUDED.legacy_confirmed_by, legacy_source_hash=EXCLUDED.legacy_source_hash, legacy_last_synced_at=EXCLUDED.legacy_last_synced_at, legacy_last_seen_at=EXCLUDED.legacy_last_seen_at, source_kind='legacy', updated_at=now(), version=sessions.version+1 RETURNING id`, seriesID, request.CourseID, uuidText(roomID), request.TeacherID, start, end, schedule.LegacyScheduleID, schedule.Confirmed, schedule.ConfirmedBy, scheduleHash, request.ObservedAt).Scan(&sessionID)
+			upsertErr := tx.QueryRow(ctx, `INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at, legacy_schedule_id, legacy_confirmed, legacy_confirmed_by, legacy_source_hash, legacy_last_synced_at, legacy_last_seen_at, source_kind, legacy_conflict_override) VALUES ($1,$2,NULLIF($3::text,'')::uuid,$4,$5,$6,$7,$8,NULLIF($9::text,''),$10,$11,$11,'legacy',$12) ON CONFLICT (legacy_schedule_id) WHERE legacy_schedule_id IS NOT NULL DO UPDATE SET series_id=EXCLUDED.series_id, course_id=EXCLUDED.course_id, room_id=EXCLUDED.room_id, teacher_id=EXCLUDED.teacher_id, start_at=EXCLUDED.start_at, end_at=EXCLUDED.end_at, deleted_at=NULL, legacy_confirmed=EXCLUDED.legacy_confirmed, legacy_confirmed_by=EXCLUDED.legacy_confirmed_by, legacy_source_hash=EXCLUDED.legacy_source_hash, legacy_last_synced_at=EXCLUDED.legacy_last_synced_at, legacy_last_seen_at=EXCLUDED.legacy_last_seen_at, source_kind='legacy', legacy_conflict_override=EXCLUDED.legacy_conflict_override, updated_at=now(), version=sessions.version+1 RETURNING id`, seriesID, request.CourseID, uuidText(roomID), request.TeacherID, start, end, schedule.LegacyScheduleID, schedule.Confirmed, schedule.ConfirmedBy, scheduleHash, request.ObservedAt, forceOverride).Scan(&sessionID)
 			switch {
 			case upsertErr == nil:
 				if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT legacy_schedule_upsert`); err != nil {
 					return skipped, fmt.Errorf("release savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 				}
-			case (isExclusionViolation(upsertErr) || isAvailabilityViolation(upsertErr)) && request.AllowConstraintViolations:
+			case (isExclusionViolation(upsertErr) || isAvailabilityViolation(upsertErr)) && request.allowConflicts:
 				if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT legacy_schedule_upsert`); err != nil {
 					return skipped, fmt.Errorf("rollback savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 				}
@@ -346,27 +377,214 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 // schedule rows the source still carries, and reactivates their external
 // mappings. Generic series cancellation can soft-delete sessions; without
 // this, source-present rows would stay missing locally forever.
-func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest) error {
+func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest, loc *time.Location) (int, error) {
 	incoming := make([]string, 0, len(request.Aggregate.Schedules))
 	for _, schedule := range request.Aggregate.Schedules {
 		incoming = append(incoming, schedule.LegacyScheduleID)
 	}
 	if len(incoming) == 0 {
-		return nil
+		return 0, nil
+	}
+
+	if err := a.lockScheduleResources(ctx, tx, qtx, request); err != nil {
+		return 0, err
+	}
+	skipped := make([]string, 0)
+	allowed := make([]string, 0)
+	for _, schedule := range request.Aggregate.Schedules {
+		date, err := parseSourceDate(schedule.Date)
+		if err != nil {
+			return 0, fmt.Errorf("parse legacy schedule %s date: %w", schedule.LegacyScheduleID, err)
+		}
+		start, end, err := normalize.SessionWindow(date, schedule.Begin, schedule.End, loc)
+		if err != nil {
+			return 0, fmt.Errorf("parse legacy schedule %s time: %w", schedule.LegacyScheduleID, err)
+		}
+		roomID, err := a.resolveRoomID(ctx, tx, schedule.ClassroomLegacyID)
+		if err != nil {
+			return 0, err
+		}
+		conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
+		if err != nil {
+			return 0, err
+		}
+		if conflict == nil {
+			continue
+		}
+		if !request.allowConflicts {
+			scheduleHash, hashErr := ScheduleHash(schedule)
+			if hashErr != nil {
+				return 0, fmt.Errorf("hash legacy schedule %s: %w", schedule.LegacyScheduleID, hashErr)
+			}
+			if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, conflict); err != nil {
+				return 0, err
+			}
+			skipped = append(skipped, schedule.LegacyScheduleID)
+			continue
+		}
+		allowed = append(allowed, schedule.LegacyScheduleID)
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE sessions SET deleted_at = NULL, updated_at = now(), version = sessions.version + 1
-		WHERE course_id = $1 AND source_kind = 'legacy' AND deleted_at IS NOT NULL
-		  AND legacy_schedule_id = ANY($2::text[])`, request.CourseID, incoming); err != nil {
-		return fmt.Errorf("restore locally deleted legacy sessions: %w", err)
+		UPDATE sessions
+		SET deleted_at = NULL, legacy_conflict_override = false, updated_at = now(), version = sessions.version + 1
+		WHERE course_id = $1 AND source_kind = 'legacy' AND legacy_schedule_id = ANY($2::text[])
+		  AND NOT (legacy_schedule_id = ANY($3::text[]))
+		  AND NOT (legacy_schedule_id = ANY($4::text[]))
+		  AND (deleted_at IS NOT NULL OR legacy_conflict_override)`, request.CourseID, incoming, skipped, allowed); err != nil {
+		return 0, fmt.Errorf("restore locally deleted legacy sessions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE sessions
+		SET deleted_at = NULL, legacy_conflict_override = true, updated_at = now(), version = sessions.version + 1
+		WHERE course_id = $1 AND source_kind = 'legacy' AND legacy_schedule_id = ANY($2::text[])
+		  AND (deleted_at IS NOT NULL OR NOT legacy_conflict_override)`, request.CourseID, allowed); err != nil {
+		return 0, fmt.Errorf("restore allowed legacy conflicts: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE external_refs SET state='active'
 		WHERE source=$1 AND entity_type='schedule' AND external_id = ANY($2::text[])
-		  AND state IN ('tombstoned','suspected_missing','confirmed_missing')`, a.source, incoming); err != nil {
-		return fmt.Errorf("reactivate restored schedule mappings: %w", err)
+		  AND state IN ('tombstoned','suspected_missing','confirmed_missing')`, a.source, appendWithoutSkipped(incoming, skipped)); err != nil {
+		return 0, fmt.Errorf("reactivate restored schedule mappings: %w", err)
+	}
+	return len(skipped), nil
+}
+
+func appendWithoutSkipped(incoming, skipped []string) []string {
+	if len(skipped) == 0 {
+		return incoming
+	}
+	skippedSet := make(map[string]struct{}, len(skipped))
+	for _, id := range skipped {
+		skippedSet[id] = struct{}{}
+	}
+	result := make([]string, 0, len(incoming)-len(skipped))
+	for _, id := range incoming {
+		if _, ok := skippedSet[id]; !ok {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func (a *ScheduleApplier) lockScheduleResources(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest) error {
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{request.CourseID}}); err != nil {
+		return fmt.Errorf("lock legacy course resources: %w", err)
+	}
+	students, err := qtx.CourseStudentsList(ctx, request.CourseID)
+	if err != nil {
+		return fmt.Errorf("list legacy course students: %w", err)
+	}
+	studentIDs := make([]pgtype.UUID, 0, len(students))
+	for _, student := range students {
+		studentIDs = append(studentIDs, student.StudentID)
+	}
+	existing, err := qtx.SessionListActiveByCourse(ctx, request.CourseID)
+	if err != nil {
+		return fmt.Errorf("list legacy course sessions: %w", err)
+	}
+	sessionIDs := make([]pgtype.UUID, 0, len(existing))
+	roomIDs := make([]pgtype.UUID, 0, len(request.Aggregate.Schedules))
+	for _, session := range existing {
+		sessionIDs = append(sessionIDs, session.ID)
+		roomIDs = append(roomIDs, session.RoomID)
+	}
+	for _, schedule := range request.Aggregate.Schedules {
+		roomID, err := a.resolveRoomID(ctx, tx, schedule.ClassroomLegacyID)
+		if err != nil {
+			return err
+		}
+		roomIDs = append(roomIDs, roomID)
+	}
+	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{
+		CourseIDs:  []pgtype.UUID{request.CourseID},
+		StudentIDs: studentIDs,
+		TeacherIDs: []pgtype.UUID{request.TeacherID},
+		RoomIDs:    roomIDs,
+		SessionIDs: sessionIDs,
+	}); err != nil {
+		return fmt.Errorf("lock legacy schedule resources: %w", err)
 	}
 	return nil
+}
+
+func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb.Queries, request ScheduleApplyRequest, scheduleID string, roomID pgtype.UUID, start, end time.Time) (error, error) {
+	startAt := pgtype.Timestamptz{Time: start, Valid: true}
+	endAt := pgtype.Timestamptz{Time: end, Valid: true}
+	if request.TeacherID.Valid {
+		availability, err := qtx.CheckTeacherAvailability(ctx, sqldb.CheckTeacherAvailabilityParams{TeacherID: request.TeacherID, Column2: startAt, Column3: endAt})
+		if err != nil {
+			return nil, fmt.Errorf("check legacy teacher availability: %w", err)
+		}
+		if availability.HasWindows && !availability.IsAvailable {
+			return &pgconn.PgError{Code: "23514", Message: "teacher not available for requested time"}, nil
+		}
+	}
+	if roomID.Valid {
+		availability, err := qtx.CheckRoomAvailability(ctx, sqldb.CheckRoomAvailabilityParams{RoomID: roomID, Column2: startAt, Column3: endAt})
+		if err != nil {
+			return nil, fmt.Errorf("check legacy room availability: %w", err)
+		}
+		if availability.HasWindows && !availability.IsAvailable {
+			return &pgconn.PgError{Code: "23514", Message: "room not available for requested time"}, nil
+		}
+	}
+	var exists bool
+	if request.TeacherID.Valid {
+		if err := qtx.DBTX().QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM sessions
+				WHERE deleted_at IS NULL AND teacher_id = $1
+				  AND time_range && tstzrange($2, $3, '[)')
+				  AND legacy_schedule_id IS DISTINCT FROM $4::text
+			)`, request.TeacherID, start, end, scheduleID).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("check legacy teacher overlap: %w", err)
+		}
+		if exists {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_teacher_overlap", Message: "teacher schedule overlap"}, nil
+		}
+	}
+	if roomID.Valid {
+		if err := qtx.DBTX().QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM sessions
+				WHERE deleted_at IS NULL AND room_id = $1
+				  AND time_range && tstzrange($2, $3, '[)')
+				  AND legacy_schedule_id IS DISTINCT FROM $4::text
+			)`, roomID, start, end, scheduleID).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("check legacy room overlap: %w", err)
+		}
+		if exists {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_room_overlap", Message: "room schedule overlap"}, nil
+		}
+	}
+	if err := qtx.DBTX().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM student_busy_ranges br
+			JOIN sessions other ON other.id = br.session_id
+			JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
+			WHERE br.deleted_at IS NULL AND other.deleted_at IS NULL
+			  AND br.time_range && tstzrange($2, $3, '[)')
+			  AND other.legacy_schedule_id IS DISTINCT FROM $4::text
+		)`, request.CourseID, start, end, scheduleID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("check legacy student overlap: %w", err)
+	}
+	if exists {
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "student_busy_ranges_no_overlap", Message: "student schedule overlap"}, nil
+	}
+	if err := qtx.DBTX().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sessions
+			WHERE deleted_at IS NULL AND course_id = $1
+			  AND time_range && tstzrange($2, $3, '[)')
+			  AND legacy_schedule_id IS DISTINCT FROM $4::text
+		)`, request.CourseID, start, end, scheduleID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("check legacy course overlap: %w", err)
+	}
+	if exists {
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_course_overlap", Message: "course session overlap"}, nil
+	}
+	return nil, nil
 }
 
 // deactivateMissingSchedules soft-deletes this course's local legacy sessions
@@ -438,13 +656,22 @@ func isNotNullViolation(err error) bool {
 // ID so repeated refreshes do not accumulate duplicate rows.
 func (a *ScheduleApplier) recordScheduleConflict(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest, schedule normalize.LegacySchedule, scheduleHash string, cause error) error {
 	conflictType := "schedule_exclusion"
+	constraintName := ""
+	var pgErr *pgconn.PgError
+	if errors.As(cause, &pgErr) {
+		constraintName = pgErr.ConstraintName
+	}
 	switch {
 	case isAvailabilityViolation(cause):
 		conflictType = "availability"
-	case strings.Contains(cause.Error(), "sessions_no_teacher_overlap"):
+	case constraintName == "sessions_no_teacher_overlap" || strings.Contains(cause.Error(), "sessions_no_teacher_overlap"):
 		conflictType = "teacher_overlap"
-	case strings.Contains(cause.Error(), "sessions_no_room_overlap"):
+	case constraintName == "sessions_no_room_overlap" || strings.Contains(cause.Error(), "sessions_no_room_overlap"):
 		conflictType = "room_overlap"
+	case constraintName == "student_busy_ranges_no_overlap" || strings.Contains(cause.Error(), "student_busy_ranges_no_overlap"):
+		conflictType = "student_overlap"
+	case constraintName == "sessions_no_course_overlap" || strings.Contains(cause.Error(), "sessions_no_course_overlap"):
+		conflictType = "course_overlap"
 	}
 	payload, err := json.Marshal(map[string]any{
 		"legacy_schedule_id":  schedule.LegacyScheduleID,

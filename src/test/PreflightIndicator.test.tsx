@@ -18,6 +18,7 @@ function makePreflight(overrides: Partial<ReturnType<typeof usePreflight>>): Ret
     status: "idle" as const,
     loading: false,
     details: null,
+    warnings: [],
     error: null,
     occurrencesPlanned: null,
     lastParams: null,

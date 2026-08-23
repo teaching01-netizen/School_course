@@ -7,7 +7,7 @@ import Select from "@/components/ui/Select";
 import TypeaheadSelect, { type TypeaheadOption } from "@/components/TypeaheadSelect";
 import { getSessionSaveLabel, SessionAvailabilityStatus } from "./AvailabilityStatus";
 import { PropertyRow } from "./SessionPropertyRow";
-import type { EditSessionForm } from "@/features/scheduling/hooks/useEditSession";
+import type { CreateSessionForm } from "@/features/scheduling/hooks/useCreateSession";
 import type { UsePreflightReturn } from "@/features/scheduling/hooks/usePreflight";
 import type { Course } from "@/features/courses/types";
 import type { User } from "@/types/shared";
@@ -18,8 +18,8 @@ interface CreateSessionPopoverProps {
   onOpenChange: (open: boolean) => void;
   /** The button this creator is anchored to. */
   trigger: ReactElement<{ ref?: Ref<HTMLElement>; onClick?: React.MouseEventHandler }>;
-  form: EditSessionForm;
-  setForm: Dispatch<SetStateAction<EditSessionForm>>;
+  form: CreateSessionForm;
+  setForm: Dispatch<SetStateAction<CreateSessionForm>>;
   preflight: UsePreflightReturn;
   canSave: boolean;
   saving: boolean;
@@ -38,8 +38,8 @@ interface CreateSessionPopoverProps {
 /**
  * Anchored "New session" creator. Creating a one-off session is the common
  * case, so it lives in the same quiet popover grammar as editing — the course
- * is the page context rather than a form field, and the availability strip
- * reports the result before anything is created.
+ * is the page context and is shown as a fixed field, while the availability
+ * strip reports the result before anything is created.
  */
 export default function CreateSessionPopover(props: CreateSessionPopoverProps) {
   const { open, onOpenChange, trigger, ...panelProps } = props;
@@ -126,6 +126,17 @@ function CreateSessionPanel(props: Omit<CreateSessionPopoverProps, "open" | "tri
       </div>
 
       <div className="space-y-0.5">
+        <PropertyRow label="Course" htmlFor="session-create-course">
+          <Input
+            id="session-create-course"
+            size="sm"
+            value={course ? `${course.code} — ${course.name}` : ""}
+            readOnly
+            aria-readonly="true"
+            placeholder="Course context"
+            className="cursor-default bg-[var(--color-wi-callout)] text-[var(--color-wi-text)]"
+          />
+        </PropertyRow>
         <PropertyRow label="Date" htmlFor="session-create-date">
           <Input
             ref={dateRef}

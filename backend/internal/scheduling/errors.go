@@ -1,6 +1,10 @@
 package scheduling
 
-import "fmt"
+import (
+	"fmt"
+
+	"warwick-institute/internal/schedulepolicy"
+)
 
 // Validation error codes for resource and membership validation.
 const (
@@ -63,6 +67,37 @@ type ConflictDetails struct {
 	Requested           ConflictRequested    `json:"requested"`
 	Resource            string               `json:"resource,omitempty"`
 	SessionIDs          []string             `json:"session_ids,omitempty"`
+}
+
+type ScheduleWarning struct {
+	Rule    schedulepolicy.Rule `json:"rule"`
+	Code    string              `json:"code"`
+	Message string              `json:"message"`
+	Details ConflictDetails     `json:"details"`
+}
+
+func warningForErr(se *Err) (ScheduleWarning, bool) {
+	if se == nil {
+		return ScheduleWarning{}, false
+	}
+	var rule schedulepolicy.Rule
+	switch se.Details.Kind {
+	case ConflictKindRoomOverlap:
+		rule = schedulepolicy.RuleRoomOverlap
+	case ConflictKindTeacherOverlap:
+		rule = schedulepolicy.RuleTeacherOverlap
+	case ConflictKindStudentOverlap:
+		rule = schedulepolicy.RuleStudentOverlap
+	case ConflictKindTeacherAvailability:
+		rule = schedulepolicy.RuleTeacherAvailability
+	case ConflictKindRoomAvailability:
+		rule = schedulepolicy.RuleRoomAvailability
+	case ConflictKindCourseSessionsOverlap:
+		rule = schedulepolicy.RuleCourseOverlap
+	default:
+		return ScheduleWarning{}, false
+	}
+	return ScheduleWarning{Rule: rule, Code: se.Code, Message: se.Message, Details: se.Details}, true
 }
 
 // Err is a scheduling-domain error intended to be returned to callers as a stable API response.

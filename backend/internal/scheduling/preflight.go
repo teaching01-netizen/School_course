@@ -301,6 +301,21 @@ func (s *Service) preflightSlot(ctx context.Context, db sqldb.DBTX, q *sqldb.Que
 	return nil, nil
 }
 
+func (s *Service) preflightSlotWithPolicy(ctx context.Context, db sqldb.DBTX, q *sqldb.Queries, in preflightInput, enforced bool) ([]ScheduleWarning, *Err, error) {
+	se, err := s.preflightSlot(ctx, db, q, in)
+	if err != nil || se == nil {
+		return nil, se, err
+	}
+	if enforced {
+		return nil, se, nil
+	}
+	warning, ok := warningForErr(se)
+	if !ok {
+		return nil, se, nil
+	}
+	return []ScheduleWarning{warning}, nil, nil
+}
+
 func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DBTX, studentIDs []pgtype.UUID, startUTC, endUTC time.Time, ignore *pgtype.UUID, ignoreSeries *pgtype.UUID) ([]ConflictSession, int, bool, error) {
 	if len(studentIDs) == 0 {
 		return nil, 0, false, nil

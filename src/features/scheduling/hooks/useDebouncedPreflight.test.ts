@@ -8,6 +8,7 @@ function makePreflight(): UsePreflightReturn {
     status: "idle" as const,
     loading: false,
     details: null,
+    warnings: [],
     error: null,
     occurrencesPlanned: null,
     lastParams: null,

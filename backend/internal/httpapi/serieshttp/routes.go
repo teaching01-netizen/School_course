@@ -239,6 +239,7 @@ func (s *server) handleSeriesCreate(w http.ResponseWriter, r *http.Request) {
 		return http.StatusCreated, map[string]any{
 			"series_id":      seriesID,
 			"sessions_added": res.SessionsAdded,
+			"warnings":       res.Warnings,
 		}, nil
 	}) {
 		s.publishSessionsChanged(changedID)
@@ -448,7 +449,7 @@ func (s *server) handleSeriesSplit(w http.ResponseWriter, r *http.Request) {
 		}); aErr != nil {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "series_id", r.PathValue("id"))
 		}
-		return http.StatusOK, map[string]any{"old_series_id": oldID, "new_series_id": newID, "new_sessions_added": res.NewSessionsAdded}, nil
+		return http.StatusOK, map[string]any{"old_series_id": oldID, "new_series_id": newID, "new_sessions_added": res.NewSessionsAdded, "warnings": res.Warnings}, nil
 	}) {
 		s.publishSessionsChanged(changedID)
 	}
@@ -736,6 +737,7 @@ func (s *server) handleSeriesEditEntire(w http.ResponseWriter, r *http.Request) 
 			"series_id":         seriesID,
 			"sessions_canceled": res.SessionsCanceled,
 			"sessions_added":    res.SessionsAdded,
+			"warnings":          res.Warnings,
 		}, nil
 	}) {
 		s.publishSessionsChanged(changedID)

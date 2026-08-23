@@ -11,6 +11,9 @@ import (
 
 	"warwick-institute/internal/crmimport/crossstudy"
 	"warwick-institute/internal/crmimport/xlsx"
+	"warwick-institute/internal/schedulepolicy"
+	"warwick-institute/internal/scheduling"
+	"warwick-institute/internal/series"
 )
 
 // ============================================================================
@@ -61,6 +64,19 @@ func createTestCourseWithCRMFilter(t *testing.T, ctx context.Context, dbpool *pg
 func requireDB(t *testing.T) string {
 	t.Helper()
 	return requireTestDBV2(t)
+}
+
+func newCrossStudyStore(t *testing.T, dbpool *pgxpool.Pool) *crossstudy.Store {
+	t.Helper()
+	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("create series service: %v", err)
+	}
+	schedulingSvc, err := scheduling.NewServiceWithPolicy(dbpool, "Asia/Bangkok", seriesSvc, schedulepolicy.NewDBReader())
+	if err != nil {
+		t.Fatalf("create scheduling service: %v", err)
+	}
+	return crossstudy.NewStore(dbpool, schedulingSvc)
 }
 
 func uuidFromPG(t *testing.T, id pgtype.UUID) uuid.UUID {
@@ -120,7 +136,7 @@ func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260001", "Test Student 001")
 
 	// Act: lookup the student
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	resp, err := store.LookupStudent(ctx, "W260001")
 	if err != nil {
 		t.Fatalf("LookupStudent failed: %v", err)
@@ -178,7 +194,7 @@ func TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides(t *testing.T) {
 	userID := createTestUser(t, ctx, dbpool)
 
 	// Act
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260002",
 		SourceCourseID:   sourceCourseID,
@@ -248,7 +264,7 @@ func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *tes
 	createTestStudent(t, ctx, dbpool, "W260202", "Both Destinations Student")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260202",
 		SourceCourseID:   sourceCourseID,
@@ -338,7 +354,7 @@ func TestCrossStudy_SaveAssignment_UpdatesExistingAssignmentWhenDestAChanges(t *
 	createTestStudent(t, ctx, dbpool, "W260115", "Change Dest A Student")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	save := func(destA uuid.UUID) {
 		t.Helper()
@@ -453,7 +469,7 @@ func TestCrossStudy_SaveAssignment_FallbackSelectsMostRecentAssignment(t *testin
 	createTestStudent(t, ctx, dbpool, "W260126", "Most Recent Student")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	// The current assignment: Dest A = X.
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
@@ -564,7 +580,7 @@ func TestCrossStudy_DeleteAssignment_SoftDeletesAndCleansOverrides(t *testing.T)
 	createTestStudent(t, ctx, dbpool, "W260003", "Test Student 003")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260003",
@@ -652,7 +668,7 @@ func TestCrossStudy_ListAssignments_ReturnsFilteredAndSorted(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260010", "Test Student 010")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260010",
@@ -749,7 +765,7 @@ func TestCrossStudy_ListAssignments_PaginatesAndCounts(t *testing.T) {
 	}
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	for _, wcode := range []string{"w260011", "w260012", "w260013"} {
 		if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 			WCode:            wcode,
@@ -848,7 +864,7 @@ func TestCrossStudy_LoadPendingChanges_DetectsOrphaned(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260020", "Test Student 020")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260020",
@@ -913,7 +929,7 @@ func TestCrossStudy_ProcessSnapshot_MatchesLegacyUppercaseAssignmentToLowercaseI
 	}})
 	createTestStudent(t, ctx, dbpool, "w240591", "Case Student")
 
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "w240591",
 		SourceCourseID:   sourceID,
@@ -993,7 +1009,7 @@ func TestCrossStudy_RosterEffect_UpdatesCourseStudents(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260099", "Roster Test Student")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	// Initially: student is NOT in either dest course's course_students (no reconcile yet)
 	var csCount int
@@ -1180,7 +1196,7 @@ func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAt
 	activateSnapshot(t, ctx, dbpool, snapshotID)
 	createTestStudent(t, ctx, dbpool, "W260203", "Weekday Scope Student")
 
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:               "W260203",
 		SourceCourseID:      sourceID,
@@ -1291,7 +1307,7 @@ func TestCrossStudy_RosterEffect_AssignedIsSource(t *testing.T) {
 	activateSnapshot(t, ctx, dbpool, snapshotID)
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	// Act: save with assigned == source
 	err = store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
@@ -1380,7 +1396,7 @@ func TestCrossStudy_DeleteAssignment_PreservesPreExistingAssignedEnrollment(t *t
 	}
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260110",
 		SourceCourseID:   sourceID,
@@ -1447,7 +1463,7 @@ func TestCrossStudy_SaveAssignment_PreservesPreExistingPreviousAssignedEnrollmen
 	}
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260111",
 		SourceCourseID:   sourceID,
@@ -1516,7 +1532,7 @@ func TestCrossStudy_DeleteAssignment_RestoresOnlySourceEnrollmentRemovedByCrossS
 	}
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 	for _, tc := range []struct {
 		wcode    string
 		sourceID uuid.UUID
@@ -1600,7 +1616,7 @@ func TestCrossStudy_SaveAssignment_MovesOwnershipWhenDestAChanges(t *testing.T) 
 	createTestStudent(t, ctx, dbpool, "W260101", "Multi Assignment Student")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260101",
@@ -1757,7 +1773,7 @@ func TestCrossStudy_Processor_UpdatesStatus(t *testing.T) {
 	createTestStudent(t, ctx, dbpool, "W260030", "Test Student 030")
 
 	userID := createTestUser(t, ctx, dbpool)
-	store := crossstudy.NewStore(dbpool)
+	store := newCrossStudyStore(t, dbpool)
 
 	err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
 		WCode:            "W260030",

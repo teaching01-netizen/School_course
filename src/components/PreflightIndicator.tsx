@@ -33,6 +33,7 @@ export function getSaveButtonLabel(
   if (preflight.loading) return "Checking…";
   if (preflight.status === "blocked" && details) return `Blocked — ${conflictSuggestion(details.kind).toLowerCase()}`;
   if (preflight.status === "blocked") return "Blocked — fix conflicts";
+  if (preflight.status === "warning") return "Save with warnings";
   if (preflight.status === "error") return "Unavailable — check schedule";
   return submitLabel;
 }
@@ -92,6 +93,7 @@ export function PreflightBadge({ status, details, loading }: PreflightBadgeProps
     </span>
   );
   if (status === "provisional") return <span className="text-xs text-amber-700">Provisional</span>;
+  if (status === "warning") return <span className="text-xs text-red-700">Warning</span>;
   if (status === "blocked") {
     return (
       <span className="flex items-center gap-1 text-xs text-red-700">
@@ -105,7 +107,7 @@ export function PreflightBadge({ status, details, loading }: PreflightBadgeProps
 }
 
 export function PreflightIndicator({ preflight, coursesById, teachersById, roomsById, requiredFields }: PreflightIndicatorProps) {
-  const { status, details, occurrencesPlanned } = preflight;
+  const { status, details, warnings, occurrencesPlanned } = preflight;
   const isSeries = occurrencesPlanned != null;
 
   const conflictCount = details?.conflicts?.length ?? 0;
@@ -140,6 +142,8 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
             </div>
           ) : status === "provisional" ? (
             <div className="text-amber-700">Provisional</div>
+          ) : status === "warning" ? (
+            <div className="font-medium text-red-700">Warning — conflicts allowed</div>
           ) : status === "blocked" ? (
             <div className="flex items-center gap-1.5 text-red-700">
               <span>Blocked</span>
@@ -179,6 +183,14 @@ export function PreflightIndicator({ preflight, coursesById, teachersById, rooms
           {status === "available" && (
             <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
               <span className="font-medium text-green-800">No conflicts found</span>
+            </div>
+          )}
+          {status === "warning" && (
+            <div data-testid="preflight-warning" className="bg-red-50 border border-red-200 rounded px-2 py-1 text-red-800">
+              <div className="font-medium">Conflicts found; this write is allowed by emergency mode.</div>
+              <ul className="mt-1 list-disc pl-4">
+                {warnings.map((warning) => <li key={`${warning.rule}-${warning.code}`}>{warning.message}</li>)}
+              </ul>
             </div>
           )}
           {status === "blocked" && (

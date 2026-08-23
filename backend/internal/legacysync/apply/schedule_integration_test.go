@@ -55,7 +55,7 @@ func legacyScheduleRequest(t *testing.T, pool *pgxpool.Pool, source, suffix stri
 func TestScheduleApply_ReusesStableLegacyScheduleIdentity(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, true)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 
 	first, err := applier.Apply(t.Context(), request)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestScheduleApply_UsesCurrentCourseTeacher(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := NewScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), request); err != nil {
+	if _, err := newTestScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestScheduleApply_UsesCurrentCourseTeacher(t *testing.T) {
 func TestScheduleApply_IdenticalAggregateIsNoOp(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, true)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	first, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestScheduleApply_SameCourseConcurrentUpdatesReuseSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	var group sync.WaitGroup
@@ -241,7 +241,7 @@ func TestScheduleApply_HistoricalCorrectionPreservesAttendanceDependency(t *test
 	master, pool, suffix := masterDataTestService(t)
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, true)
 	request.Aggregate.Schedules[0].Date = "2020-05-23"
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestScheduleApply_HistoricalCorrectionPreservesAttendanceDependency(t *test
 func TestScheduleApply_RepeatedHistoricalRefreshesRemainBounded(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, true)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	for range 100 {
 		if _, err := applier.Apply(t.Context(), request); err != nil {
 			t.Fatal(err)
@@ -305,7 +305,7 @@ func TestScheduleApply_UnassignedRoomPreservesNullRoom(t *testing.T) {
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
 	request.Aggregate.Schedules[0].Classroom = "[NOT SET]"
 	request.Aggregate.Schedules[0].ClassroomLegacyID = ""
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestScheduleApply_UnassignedRoomPreservesNullRoom(t *testing.T) {
 func TestScheduleApply_OverlappingScheduleSkippedAndRecorded(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	first, _, _ := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), first); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestScheduleApply_AvailabilityConflictSkipsOnlyOneRow(t *testing.T) {
 		},
 	}
 
-	result, err := NewScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), request)
+	result, err := newTestScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 		ClassroomLegacyID: request.Aggregate.Schedules[0].ClassroomLegacyID,
 		Confirmed:         true,
 	})
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 func TestScheduleApply_PartialApplyRetriesAfterConflictResolution(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	blocker, _, _ := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	blockerApplier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	blockerApplier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := blockerApplier.Apply(t.Context(), blocker); err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +582,7 @@ func TestScheduleApply_PartialApplyRetriesAfterConflictResolution(t *testing.T) 
 		ObservedAt:  blocker.ObservedAt.Add(time.Minute),
 		InstituteTZ: "Asia/Bangkok",
 	}
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	result, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -632,7 +632,7 @@ func TestScheduleApply_PartialApplyRetriesAfterConflictResolution(t *testing.T) 
 func TestScheduleApply_ShadowModeDoesNotStampOkSnapshot(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 
 	request.ShadowMode = true
 	if _, err := applier.Apply(t.Context(), request); err != nil {
@@ -674,7 +674,7 @@ func TestScheduleApply_ShadowModeDoesNotStampOkSnapshot(t *testing.T) {
 func TestScheduleApply_ReapplicationRestoresDeletedSessionsAndMappings(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +722,7 @@ func TestScheduleApply_ReapplicationRestoresDeletedSessionsAndMappings(t *testin
 func TestScheduleApply_UnchangedRefreshRestoresLocallyDeletedSessions(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	applier := NewScheduleApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}

@@ -75,6 +75,7 @@ describe("CourseDetail create flows", () => {
 
     // The course is the page context — shown, not editable.
     expect(within(popover).getByText(/MATH-101 — Math/)).toBeInTheDocument();
+    expect(within(popover).getByLabelText("Course")).toHaveValue("MATH-101 — Math");
     expect(within(popover).getByLabelText("Teacher")).toHaveValue("Teacher One");
 
     await user.selectOptions(within(popover).getByLabelText("Classroom"), "room-1");

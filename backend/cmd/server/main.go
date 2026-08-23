@@ -27,6 +27,7 @@ import (
 	"warwick-institute/internal/otpdelivery"
 	"warwick-institute/internal/pg"
 	"warwick-institute/internal/realtime"
+	"warwick-institute/internal/schedulepolicy"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 	"warwick-institute/internal/sessionchangedelivery"
@@ -90,7 +91,7 @@ func main() {
 		log.Error("init series service", "error", err)
 		os.Exit(1)
 	}
-	schedulingSvc, err := scheduling.NewService(dbpool, cfg.InstituteTZ, seriesSvc, log)
+	schedulingSvc, err := scheduling.NewServiceWithPolicy(dbpool, cfg.InstituteTZ, seriesSvc, schedulepolicy.NewDBReader(), log)
 	if err != nil {
 		log.Error("init scheduling service", "error", err)
 		os.Exit(1)
@@ -101,7 +102,7 @@ func main() {
 	queueStore := queue.NewPostgresQueueStore(dbpool)
 	worker := queue.NewQueueWorker(log, queueStore, "crm-worker-main")
 
-	crossStudyStore := crossstudy.NewStore(dbpool)
+	crossStudyStore := crossstudy.NewStore(dbpool, schedulingSvc)
 	crossStudyProc := crossstudy.NewProcessor(dbpool, crossStudyStore, log)
 
 	// Register job handlers.

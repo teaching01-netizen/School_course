@@ -2,15 +2,18 @@ package legacysync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/schedulepolicy"
 )
 
 type Syncer struct {
@@ -25,8 +28,16 @@ func NewSyncer(pool *pgxpool.Pool, q *sqldb.Queries, log *slog.Logger, loc *time
 }
 
 type SyncResult struct {
-	SessionsCreated int
-	SyncedAt        time.Time
+	SessionsCreated  int
+	ConflictWarnings int
+	SyncedAt         time.Time
+}
+
+type legacySyncSlot struct {
+	teacherID pgtype.UUID
+	roomID    pgtype.UUID
+	startAt   time.Time
+	endAt     time.Time
 }
 
 func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []ParsedRow, rooms []Room) (*SyncResult, error) {
@@ -47,6 +58,11 @@ func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []Pa
 	defer tx.Rollback(ctx)
 
 	qtx := s.q.WithTx(tx)
+	policy, err := schedulepolicy.NewDBReader().Load(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("load schedule conflict policy: %w", err)
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeLegacySync)
 
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{courseID}}); err != nil {
 		return nil, fmt.Errorf("lock course: %w", err)
@@ -102,6 +118,8 @@ func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []Pa
 	}
 
 	created := 0
+	conflictWarnings := 0
+	materialized := make([]legacySyncSlot, 0, len(rows))
 	for _, row := range rows {
 		startAt, err := localToUTC(row.Date, row.Begin, s.loc)
 		if err != nil {
@@ -126,16 +144,37 @@ func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []Pa
 
 		startPg := pgtype.Timestamptz{Time: startAt, Valid: true}
 		endPg := pgtype.Timestamptz{Time: endAt, Valid: true}
+		conflictErr := strictLegacySyncConflict(ctx, qtx, courseID, teacherID, roomID, startAt, endAt)
+		if conflictErr != nil && !isLegacySyncConflict(conflictErr) {
+			return nil, fmt.Errorf("legacy schedule conflict check at %s %s: %w", row.Date.Format("2006-01-02"), row.Begin, conflictErr)
+		}
+		if conflictErr == nil {
+			conflictErr = legacySyncBatchConflict(materialized, len(studentIDs) > 0, legacySyncSlot{
+				teacherID: teacherID,
+				roomID:    roomID,
+				startAt:   startAt,
+				endAt:     endAt,
+			})
+		}
+		if conflictErr != nil {
+			if !allowConflicts {
+				return nil, fmt.Errorf("legacy schedule conflict at %s %s: %w", row.Date.Format("2006-01-02"), row.Begin, conflictErr)
+			}
+			conflictWarnings++
+			s.log.Warn("legacy schedule conflict allowed by policy", "date", row.Date.Format("2006-01-02"), "begin", row.Begin, "error", conflictErr)
+		}
 
 		if _, err := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{
-			CourseID:  courseID,
-			TeacherID: teacherID,
-			RoomID:    roomID,
-			StartAt:   startPg,
-			EndAt:     endPg,
+			CourseID:         courseID,
+			TeacherID:        teacherID,
+			RoomID:           roomID,
+			StartAt:          startPg,
+			EndAt:            endPg,
+			ConflictOverride: allowConflicts,
 		}); err != nil {
 			return nil, fmt.Errorf("create session at %s %s: %w", row.Date.Format("2006-01-02"), row.Begin, err)
 		}
+		materialized = append(materialized, legacySyncSlot{teacherID: teacherID, roomID: roomID, startAt: startAt, endAt: endAt})
 		created++
 	}
 
@@ -148,7 +187,31 @@ func (s *Syncer) SyncCourse(ctx context.Context, courseID pgtype.UUID, rows []Pa
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	return &SyncResult{SessionsCreated: created, SyncedAt: now}, nil
+	return &SyncResult{SessionsCreated: created, ConflictWarnings: conflictWarnings, SyncedAt: now}, nil
+}
+
+func isLegacySyncConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23P01" || pgErr.Code == "23514")
+}
+
+func legacySyncBatchConflict(slots []legacySyncSlot, hasStudents bool, candidate legacySyncSlot) error {
+	for _, previous := range slots {
+		if !previous.startAt.Before(candidate.endAt) || !candidate.startAt.Before(previous.endAt) {
+			continue
+		}
+		if previous.teacherID.Valid && candidate.teacherID.Valid && previous.teacherID.Bytes == candidate.teacherID.Bytes {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_teacher_overlap", Message: "teacher schedule overlap"}
+		}
+		if previous.roomID.Valid && candidate.roomID.Valid && previous.roomID.Bytes == candidate.roomID.Bytes {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_room_overlap", Message: "room schedule overlap"}
+		}
+		if hasStudents {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "student_busy_ranges_no_overlap", Message: "student schedule overlap"}
+		}
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_course_overlap", Message: "course session overlap"}
+	}
+	return nil
 }
 
 func localToUTC(date time.Time, clock string, loc *time.Location) (time.Time, error) {
@@ -169,4 +232,76 @@ func pgTypeUUID(s string) (pgtype.UUID, error) {
 		return pgtype.UUID{}, err
 	}
 	return u, nil
+}
+
+func strictLegacySyncConflict(ctx context.Context, qtx *sqldb.Queries, courseID, teacherID, roomID pgtype.UUID, start, end time.Time) error {
+	startAt := pgtype.Timestamptz{Time: start, Valid: true}
+	endAt := pgtype.Timestamptz{Time: end, Valid: true}
+	availability, err := qtx.CheckTeacherAvailability(ctx, sqldb.CheckTeacherAvailabilityParams{TeacherID: teacherID, Column2: startAt, Column3: endAt})
+	if err != nil {
+		return fmt.Errorf("check teacher availability: %w", err)
+	}
+	if availability.HasWindows && !availability.IsAvailable {
+		return &pgconn.PgError{Code: "23514", Message: "teacher not available for requested time"}
+	}
+	if roomID.Valid {
+		availability, err := qtx.CheckRoomAvailability(ctx, sqldb.CheckRoomAvailabilityParams{RoomID: roomID, Column2: startAt, Column3: endAt})
+		if err != nil {
+			return fmt.Errorf("check room availability: %w", err)
+		}
+		if availability.HasWindows && !availability.IsAvailable {
+			return &pgconn.PgError{Code: "23514", Message: "room not available for requested time"}
+		}
+	}
+	var exists bool
+	if err := qtx.DBTX().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sessions
+			WHERE deleted_at IS NULL AND teacher_id = $1
+			  AND time_range && tstzrange($2, $3, '[)')
+		)`, teacherID, start, end).Scan(&exists); err != nil {
+		return fmt.Errorf("check teacher overlap: %w", err)
+	}
+	if exists {
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_teacher_overlap", Message: "teacher schedule overlap"}
+	}
+	if roomID.Valid {
+		if err := qtx.DBTX().QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM sessions
+				WHERE deleted_at IS NULL AND room_id = $1
+				  AND time_range && tstzrange($2, $3, '[)')
+			)`, roomID, start, end).Scan(&exists); err != nil {
+			return fmt.Errorf("check room overlap: %w", err)
+		}
+		if exists {
+			return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_room_overlap", Message: "room schedule overlap"}
+		}
+	}
+	if err := qtx.DBTX().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM student_busy_ranges br
+			JOIN sessions other ON other.id = br.session_id
+			JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
+			WHERE br.deleted_at IS NULL AND other.deleted_at IS NULL
+			  AND br.time_range && tstzrange($2, $3, '[)')
+		)`, courseID, start, end).Scan(&exists); err != nil {
+		return fmt.Errorf("check student overlap: %w", err)
+	}
+	if exists {
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "student_busy_ranges_no_overlap", Message: "student schedule overlap"}
+	}
+	if err := qtx.DBTX().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sessions
+			WHERE deleted_at IS NULL AND course_id = $1
+			  AND time_range && tstzrange($2, $3, '[)')
+		)`, courseID, start, end).Scan(&exists); err != nil {
+		return fmt.Errorf("check course overlap: %w", err)
+	}
+	if exists {
+		return &pgconn.PgError{Code: "23P01", ConstraintName: "sessions_no_course_overlap", Message: "course session overlap"}
+	}
+	return nil
 }

@@ -36,7 +36,7 @@ export function SessionAvailabilityStatus({
   /** Verb used by the provisional hint ("you can still <verb> it."). */
   actionVerb?: string;
 }) {
-  const { status, details } = preflight;
+  const { status, details, warnings } = preflight;
   const conflictCount = details?.conflicts?.length ?? 0;
   const [conflictsExpanded, setConflictsExpanded] = useState(() => conflictCount > 0 && conflictCount <= 2);
   const [studentsExpanded, setStudentsExpanded] = useState(() => details?.kind === "student_overlap");
@@ -84,6 +84,17 @@ export function SessionAvailabilityStatus({
             {" "}— {roomMissing ? `no classroom assigned; you can still ${actionVerb} it.` : "some details are unconfirmed."}
           </span>
         </span>
+      </div>
+    );
+  }
+
+  if (status === "warning") {
+    return (
+      <div className="rounded-md border border-red-200 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-[13px] text-[var(--color-wi-red)]" role="alert">
+        <p className="font-medium">Conflicts found; this write is allowed by emergency mode.</p>
+        {warnings.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--color-wi-text-light)]">
+          {warnings.map((warning) => <li key={`${warning.rule}-${warning.code}`}>{warning.message}</li>)}
+        </ul>}
       </div>
     );
   }
@@ -279,6 +290,7 @@ export function SessionAvailabilityStatus({
 export function getSessionSaveLabel(preflight: UsePreflightReturn, submitLabel = "Save", provisionalLabel = "Save as provisional"): string {
   if (preflight.loading) return "Checking…";
   if (preflight.status === "blocked") return "Fix conflicts to save";
+  if (preflight.status === "warning") return "Save with warnings";
   if (preflight.status === "error") return "Couldn't check — try again";
   if (preflight.status === "provisional") return provisionalLabel;
   return submitLabel;

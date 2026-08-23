@@ -659,7 +659,8 @@ func (s *server) handleCourseStudentsAdd(w http.ResponseWriter, r *http.Request)
 
 	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusEnrolled); err != nil {
+		warnings, err := s.deps.Scheduling.AddCourseStudentWithWarningsTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusEnrolled)
+		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
 				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
@@ -675,7 +676,7 @@ func (s *server) handleCourseStudentsAdd(w http.ResponseWriter, r *http.Request)
 			Action:      "course_students.add",
 			Payload:     map[string]any{"course_id": cid, "student_id": sid},
 		})
-		return http.StatusOK, map[string]any{"ok": true}, nil
+		return http.StatusOK, map[string]any{"ok": true, "warnings": warnings}, nil
 	}) {
 		s.publishCourseUpdated(cid)
 	}
@@ -772,7 +773,8 @@ func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Req
 
 	if s.a.WithIdempotentTx(w, r, actor.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := s.deps.Scheduling.AddCourseStudentTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusDraft); err != nil {
+		warnings, err := s.deps.Scheduling.AddCourseStudentWithWarningsTx(r.Context(), tx, qtx, courseID, studentID, scheduling.CourseStudentStatusDraft)
+		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
 				s.a.WriteErrDetails(w, http.StatusConflict, se.Code, se.Message, se.Details)
@@ -790,7 +792,7 @@ func (s *server) handleCourseStudentsAddDraft(w http.ResponseWriter, r *http.Req
 		}); aErr != nil {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "course_id", courseIDStr, "student_id", studentIDStr)
 		}
-		return http.StatusOK, map[string]any{"student_id": studentIDStr, "status": "draft"}, nil
+		return http.StatusOK, map[string]any{"student_id": studentIDStr, "status": "draft", "warnings": warnings}, nil
 	}) {
 		s.publishCourseUpdated(courseIDStr)
 	}
@@ -827,7 +829,7 @@ func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Requ
 		qtx := s.deps.Q.WithTx(tx)
 
 		// Only update if currently draft.
-		rows, err := s.deps.Scheduling.ConvertCourseStudentTx(r.Context(), qtx, courseID, studentID)
+		rows, warnings, err := s.deps.Scheduling.ConvertCourseStudentWithWarningsTx(r.Context(), qtx, courseID, studentID)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
@@ -851,7 +853,7 @@ func (s *server) handleCourseStudentsConvert(w http.ResponseWriter, r *http.Requ
 			Action:      "course_students.convert",
 			Payload:     map[string]any{"course_id": cid, "student_id": sid, "source": "manual"},
 		})
-		return http.StatusOK, map[string]any{"student_id": sid, "status": "enrolled"}, nil
+		return http.StatusOK, map[string]any{"student_id": sid, "status": "enrolled", "warnings": warnings}, nil
 	}) {
 		s.publishCourseUpdated(cid)
 	}

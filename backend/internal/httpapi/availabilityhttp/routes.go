@@ -115,7 +115,7 @@ func (s *server) handleTeacherAvailabilityCreate(w http.ResponseWriter, r *http.
 
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		row, err := s.deps.Scheduling.CreateTeacherAvailabilityTx(r.Context(), tx, qtx, teacherID, startAt, endAt)
+		row, warnings, err := s.deps.Scheduling.CreateTeacherAvailabilityWithWarningsTx(r.Context(), tx, qtx, teacherID, startAt, endAt)
 		if err != nil {
 			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
@@ -137,6 +137,7 @@ func (s *server) handleTeacherAvailabilityCreate(w http.ResponseWriter, r *http.
 			"teacher_id": tid,
 			"start_at":   start,
 			"end_at":     end,
+			"warnings":   warnings,
 		}, nil
 	})
 }
@@ -158,11 +159,12 @@ func (s *server) handleTeacherAvailabilityDelete(w http.ResponseWriter, r *http.
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := s.deps.Scheduling.DeleteTeacherAvailabilityTx(r.Context(), tx, qtx, teacherID, id); err != nil {
+		warnings, err := s.deps.Scheduling.DeleteTeacherAvailabilityWithWarningsTx(r.Context(), tx, qtx, teacherID, id)
+		if err != nil {
 			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
-		return http.StatusOK, map[string]any{"ok": true}, nil
+		return http.StatusOK, map[string]any{"ok": true, "warnings": warnings}, nil
 	})
 }
 
@@ -243,7 +245,7 @@ func (s *server) handleRoomAvailabilityCreate(w http.ResponseWriter, r *http.Req
 
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		row, err := s.deps.Scheduling.CreateRoomAvailabilityTx(r.Context(), tx, qtx, roomID, startAt, endAt)
+		row, warnings, err := s.deps.Scheduling.CreateRoomAvailabilityWithWarningsTx(r.Context(), tx, qtx, roomID, startAt, endAt)
 		if err != nil {
 			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
@@ -265,6 +267,7 @@ func (s *server) handleRoomAvailabilityCreate(w http.ResponseWriter, r *http.Req
 			"room_id":  rid,
 			"start_at": start,
 			"end_at":   end,
+			"warnings": warnings,
 		}, nil
 	})
 }
@@ -286,10 +289,11 @@ func (s *server) handleRoomAvailabilityDelete(w http.ResponseWriter, r *http.Req
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "availability", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := s.deps.Scheduling.DeleteRoomAvailabilityTx(r.Context(), tx, qtx, roomID, id); err != nil {
+		warnings, err := s.deps.Scheduling.DeleteRoomAvailabilityWithWarningsTx(r.Context(), tx, qtx, roomID, id)
+		if err != nil {
 			s.writeAvailabilityMutationErr(w, err)
 			return 0, nil, err
 		}
-		return http.StatusOK, map[string]any{"ok": true}, nil
+		return http.StatusOK, map[string]any{"ok": true, "warnings": warnings}, nil
 	})
 }

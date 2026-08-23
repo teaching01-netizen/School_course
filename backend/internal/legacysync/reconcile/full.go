@@ -76,6 +76,7 @@ type FullReconcileStats struct {
 	Enqueued          int // legacy_refresh_course jobs enqueued
 	RosterStudents    int // roster students created (add-only)
 	RosterEnrollments int // roster enrollments added (add-only)
+	ConflictWarnings  int
 }
 
 func (r *FullReconciler) Reconcile(
@@ -308,6 +309,7 @@ func mergeStats(dst *FullReconcileStats, delta FullReconcileStats) {
 	dst.Enqueued += delta.Enqueued
 	dst.RosterStudents += delta.RosterStudents
 	dst.RosterEnrollments += delta.RosterEnrollments
+	dst.ConflictWarnings += delta.ConflictWarnings
 }
 
 // applyMasterDataParallel applies the observed teachers and subjects through

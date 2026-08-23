@@ -28,6 +28,7 @@ import (
 	"warwick-institute/internal/crmimport/reconcile"
 	"warwick-institute/internal/crmimport/xlsx"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/schedulepolicy"
 	"warwick-institute/internal/scheduling"
 	"warwick-institute/internal/series"
 )
@@ -101,6 +102,19 @@ func newPoolV2(t *testing.T, databaseURL string) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	return pool
+}
+
+func newReconcileTestService(t *testing.T, dbpool *pgxpool.Pool) *reconcile.ReconcileV2Service {
+	t.Helper()
+	seriesSvc, err := series.NewService(dbpool, "Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("create series service: %v", err)
+	}
+	schedulingSvc, err := scheduling.NewServiceWithPolicy(dbpool, "Asia/Bangkok", seriesSvc, schedulepolicy.NewDBReader())
+	if err != nil {
+		t.Fatalf("create scheduling service: %v", err)
+	}
+	return reconcile.NewReconcileV2Service(dbpool, schedulingSvc)
 }
 
 func cleanupV2(t *testing.T, dbpool *pgxpool.Pool) {
@@ -645,7 +659,7 @@ func TestSetCourseFilterAndEnqueueApplyReturnsJobID(t *testing.T) {
 		{WCode: "W250001", CourseName: "SAT", CycleLabel: "Cycle A", FirstName: "Jane", LastName: "Student"},
 	})
 	courseID := createTestCourse(t, ctx, dbpool, "SAT-001", "SAT", filter)
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	worker := queue.NewQueueWorker(tLogger, queue.NewPostgresQueueStore(dbpool), "test-worker")
 	filterJSON, err := json.Marshal(filter)
 	if err != nil {
@@ -1315,7 +1329,7 @@ func TestReconcileApply_AddsStudentsFromSnapshot(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-ADD-"+suffix, "V2 Add Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
 	if err != nil {
 		t.Fatalf("ApplyCourseReconcile: %v", err)
@@ -1526,7 +1540,7 @@ func TestReconcileApply_RemovesExtraStudents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
 	if err != nil {
 		t.Fatalf("ApplyCourseReconcile: %v", err)
@@ -1582,7 +1596,7 @@ func TestReconcileApply_Idempotent(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-IDEM-"+suffix, "V2 Idempotent Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// First apply.
 	r1, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
@@ -1638,7 +1652,7 @@ func TestReconcileApply_WithOverridesIncludeExclude(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-OVERRIDE-"+suffix, "V2 Override Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// Create a user for audit (use unique suffix to avoid conflicts).
 	var userID pgtype.UUID
@@ -1735,7 +1749,7 @@ func TestFilterConcurrency_StaleJobAbortsAndReenqueues(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-STALE-"+suffix, "V2 Stale Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// Check current filter version.
 	currentVersion, err := reconcileSvc.CheckFilterVersion(ctx, courseID, 1)
@@ -1805,7 +1819,7 @@ func TestReconcileDiff_StoresDiffs(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-DIFF-"+suffix, "V2 Diff Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// Initially, no students enrolled — so diff should show 2 adds, 0 removes.
 	result, err := reconcileSvc.DiffCourseReconcile(ctx, snapshotID, courseID, filter)
@@ -1896,7 +1910,7 @@ func TestReviewDiffPaging(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-PAGE-"+suffix, "V2 Paging Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// Store diffs.
 	_, err := reconcileSvc.DiffCourseReconcile(ctx, snapshotID, courseID, filter)
@@ -1970,7 +1984,7 @@ func TestApproveReviewEnqueuesApply(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-APPRV-"+suffix, "V2 Approve Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	queueStore := queue.NewPostgresQueueStore(dbpool)
 	worker := queue.NewQueueWorker(tLogger, queueStore, "test-worker-approve")
 
@@ -2045,7 +2059,7 @@ func TestRejectReviewClearsDiffs(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-V2-REJCT-"+suffix, "V2 Reject Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// First create the diff.
 	_, err := reconcileSvc.DiffCourseReconcile(ctx, snapshotID, courseID, filter)
@@ -2152,7 +2166,7 @@ func TestCRMPipelineEndToEnd(t *testing.T) {
 	}
 	courseB := createTestCourse(t, ctx, dbpool, "C-V2-E2E-B-"+suffix, "V2 E2E Course B", filterB)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 
 	// Apply Course A: should get 3 students (Cycle A).
 	resultA, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseA, filterA)
@@ -2246,7 +2260,7 @@ func TestReconcileApply_SyncsStudentAndParentPhones(t *testing.T) {
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-PHONE-"+suffix, "Phone Sync Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
 	if err != nil {
 		t.Fatalf("ApplyCourseReconcile: %v", err)
@@ -2311,7 +2325,7 @@ func TestReconcileApply_PreservesExistingStudentPhoneWhenCRMBlank(t *testing.T) 
 
 	courseID := createTestCourse(t, ctx, dbpool, "C-PHONE-KEEP-"+suffix, "Phone Preserve Test", filter)
 
-	reconcileSvc := reconcile.NewReconcileV2Service(dbpool)
+	reconcileSvc := newReconcileTestService(t, dbpool)
 	result, err := reconcileSvc.ApplyCourseReconcile(ctx, snapshotID, courseID, filter)
 	if err != nil {
 		t.Fatalf("ApplyCourseReconcile: %v", err)

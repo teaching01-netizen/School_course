@@ -10,6 +10,7 @@ import { useAuth } from "../hooks/useAuth";
 import { usePreflight } from "@/features/scheduling/hooks/usePreflight";
 import usePreflightGate from "@/features/scheduling/hooks/usePreflightGate";
 import { useEditSession } from "@/features/scheduling/hooks/useEditSession";
+import type { CreateSessionForm } from "@/features/scheduling/hooks/useCreateSession";
 import SessionEditorPopover, { type SessionEditorFocusField } from "@/features/scheduling/components/SessionEditorPopover";
 import CreateSessionPopover from "@/features/scheduling/components/CreateSessionPopover";
 import { PreflightIndicator, PreflightBadge, getSaveButtonLabel } from "@/components/PreflightIndicator";
@@ -646,7 +647,7 @@ export default function CourseDetail() {
   const [createTab, setCreateTab] = useState<"series" | "paste">("series");
 
   const [creatingSession, setCreatingSession] = useState(false);
-  const [sessionForm, setSessionForm] = useState({
+  const [sessionForm, setSessionForm] = useState<CreateSessionForm>({
     course_id: "",
     room_id: "" as string, // "" => no room (send null)
     teacher_id: "",
@@ -728,7 +729,7 @@ export default function CourseDetail() {
     edit.closeModal();
     setCreatePopoverOpen(true);
     setSessionForm({
-      course_id: id ?? "",
+      course_id: course?.id ?? id ?? "",
       room_id: "",
       teacher_id: teachers[0]?.id ?? "",
       start_local: "",

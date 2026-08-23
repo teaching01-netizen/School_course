@@ -124,18 +124,19 @@ func (q *Queries) SessionCountActiveBeforeSeriesPivot(ctx context.Context, arg S
 }
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at, conflict_override)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
 `
 
 type SessionCreateParams struct {
-	SeriesID  pgtype.UUID        `json:"series_id"`
-	CourseID  pgtype.UUID        `json:"course_id"`
-	RoomID    pgtype.UUID        `json:"room_id"`
-	TeacherID pgtype.UUID        `json:"teacher_id"`
-	StartAt   pgtype.Timestamptz `json:"start_at"`
-	EndAt     pgtype.Timestamptz `json:"end_at"`
+	SeriesID         pgtype.UUID        `json:"series_id"`
+	CourseID         pgtype.UUID        `json:"course_id"`
+	RoomID           pgtype.UUID        `json:"room_id"`
+	TeacherID        pgtype.UUID        `json:"teacher_id"`
+	StartAt          pgtype.Timestamptz `json:"start_at"`
+	EndAt            pgtype.Timestamptz `json:"end_at"`
+	ConflictOverride bool               `json:"conflict_override"`
 }
 
 type SessionCreateRow struct {
@@ -160,6 +161,7 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		arg.TeacherID,
 		arg.StartAt,
 		arg.EndAt,
+		arg.ConflictOverride,
 	)
 	var i SessionCreateRow
 	err := row.Scan(
@@ -687,20 +689,22 @@ SET course_id = $2,
     teacher_id = $4,
     start_at = $5,
     end_at = $6,
+    conflict_override = $7,
     updated_at = now(),
     version = version + 1
-WHERE id = $1 AND version = $7
+WHERE id = $1 AND version = $8
 RETURNING id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at
 `
 
 type SessionUpdateOccurrenceParams struct {
-	ID        pgtype.UUID        `json:"id"`
-	CourseID  pgtype.UUID        `json:"course_id"`
-	RoomID    pgtype.UUID        `json:"room_id"`
-	TeacherID pgtype.UUID        `json:"teacher_id"`
-	StartAt   pgtype.Timestamptz `json:"start_at"`
-	EndAt     pgtype.Timestamptz `json:"end_at"`
-	Version   int32              `json:"version"`
+	ID               pgtype.UUID        `json:"id"`
+	CourseID         pgtype.UUID        `json:"course_id"`
+	RoomID           pgtype.UUID        `json:"room_id"`
+	TeacherID        pgtype.UUID        `json:"teacher_id"`
+	StartAt          pgtype.Timestamptz `json:"start_at"`
+	EndAt            pgtype.Timestamptz `json:"end_at"`
+	ConflictOverride bool               `json:"conflict_override"`
+	Version          int32              `json:"version"`
 }
 
 type SessionUpdateOccurrenceRow struct {
@@ -725,6 +729,7 @@ func (q *Queries) SessionUpdateOccurrence(ctx context.Context, arg SessionUpdate
 		arg.TeacherID,
 		arg.StartAt,
 		arg.EndAt,
+		arg.ConflictOverride,
 		arg.Version,
 	)
 	var i SessionUpdateOccurrenceRow

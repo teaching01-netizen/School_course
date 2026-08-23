@@ -293,27 +293,25 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 		return err
 	}
 	if _, err := s.courseApp.Apply(ctx, apply.CourseApplyRequest{
-		CourseID:                  linked.courseID,
-		LegacyCourseID:            legacyID,
-		Aggregate:                 *aggregate,
-		ObservedAt:                observedAt,
-		InstituteTZ:               s.instituteTZ,
-		ShadowMode:                control.ShadowMode,
-		RealtimeEnabled:           control.RealtimeEnabled,
-		AllowConstraintViolations: true,
+		CourseID:        linked.courseID,
+		LegacyCourseID:  legacyID,
+		Aggregate:       *aggregate,
+		ObservedAt:      observedAt,
+		InstituteTZ:     s.instituteTZ,
+		ShadowMode:      control.ShadowMode,
+		RealtimeEnabled: control.RealtimeEnabled,
 	}); err != nil {
 		return err
 	}
 	_, err = s.scheduleApp.Apply(ctx, apply.ScheduleApplyRequest{
-		CourseID:                  linked.courseID,
-		LegacyCourseID:            legacyID,
-		TeacherID:                 linked.teacherID,
-		Aggregate:                 *aggregate,
-		ObservedAt:                observedAt,
-		InstituteTZ:               s.instituteTZ,
-		ShadowMode:                control.ShadowMode,
-		RealtimeEnabled:           control.RealtimeEnabled,
-		AllowConstraintViolations: true,
+		CourseID:        linked.courseID,
+		LegacyCourseID:  legacyID,
+		TeacherID:       linked.teacherID,
+		Aggregate:       *aggregate,
+		ObservedAt:      observedAt,
+		InstituteTZ:     s.instituteTZ,
+		ShadowMode:      control.ShadowMode,
+		RealtimeEnabled: control.RealtimeEnabled,
 	})
 	return err
 }

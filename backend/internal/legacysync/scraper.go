@@ -33,8 +33,9 @@ func NewScraper(client *Client, pool *pgxpool.Pool, q *sqldb.Queries, log *slog.
 }
 
 type ScrapeResult struct {
-	SessionsCreated int
-	SyncedAt        time.Time
+	SessionsCreated  int
+	ConflictWarnings int
+	SyncedAt         time.Time
 }
 
 func (s *Scraper) SyncCourse(ctx context.Context, courseID pgtype.UUID, legacyCourseID string) (*ScrapeResult, error) {
@@ -61,8 +62,9 @@ func (s *Scraper) SyncCourse(ctx context.Context, courseID pgtype.UUID, legacyCo
 	}
 
 	return &ScrapeResult{
-		SessionsCreated: result.SessionsCreated,
-		SyncedAt:        result.SyncedAt,
+		SessionsCreated:  result.SessionsCreated,
+		ConflictWarnings: result.ConflictWarnings,
+		SyncedAt:         result.SyncedAt,
 	}, nil
 }
 

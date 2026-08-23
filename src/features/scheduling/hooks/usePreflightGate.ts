@@ -5,6 +5,7 @@ type PreflightGateReason =
   | "checking"
   | "blocked"
   | "error"
+  | "warning"
   | "ok"
   | "no_fields";
 
@@ -29,13 +30,14 @@ export default function usePreflightGate(
   const isChecking = preflight.loading;
 
   const fieldsFilled = requiredFields.length === 0 || requiredFields.every(Boolean);
-  const canSave = fieldsFilled && (status === "available" || status === "provisional") && !isChecking && isFormValid;
+  const canSave = fieldsFilled && (status === "available" || status === "provisional" || status === "warning") && !isChecking && isFormValid;
 
   let reason: PreflightGateReason = "ok";
   if (isChecking) reason = "checking";
   else if (!fieldsFilled) reason = "no_fields";
   else if (status === "blocked") reason = "blocked";
   else if (status === "error") reason = "error";
+  else if (status === "warning") reason = "warning";
   else if (status === "idle") reason = "idle";
   else if (!isFormValid) reason = "idle";
 

@@ -76,7 +76,7 @@ func legacyCourseRequest(t *testing.T, pool *pgxpool.Pool, source, suffix string
 func TestCourseApply_CommitsAggregateMetadataTogether(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 
 	result, err := applier.Apply(t.Context(), request)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestCourseApply_CommitsAggregateMetadataTogether(t *testing.T) {
 func TestCourseApply_IdenticalHashIsCompleteNoOp(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	first, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestCourseApply_IdenticalHashIsCompleteNoOp(t *testing.T) {
 func TestCourseApply_ReusedOutboxKeyDoesNotRollbackAggregate(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	first, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +221,7 @@ func TestCourseApply_FaultInjectionRollsBackEveryAggregateWrite(t *testing.T) {
 		t.Run(point, func(t *testing.T) {
 			master, pool, suffix := masterDataTestService(t)
 			request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
-			applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+			applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 			applier.fault = faultPointFunc(func(name string) error {
 				if name == point {
 					return errors.New("injected failure")
@@ -273,7 +273,7 @@ func TestCourseApply_AtomicallyPersistsCourseScheduleAggregate(t *testing.T) {
 		Confirmed:         true,
 		ConfirmedBy:       "teacher",
 	}}
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	result, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +305,7 @@ func TestCourseApply_ScheduleFaultRollsBackCourseAndSchedule(t *testing.T) {
 		ClassroomLegacyID: "room-" + suffix,
 		Classroom:         "Room",
 	}}
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	applier.fault = faultPointFunc(func(name string) error {
 		if name == "after_session_upsert" {
 			return errors.New("injected schedule failure")
@@ -350,7 +350,7 @@ func TestCourseApply_SameCourseConcurrentUpdatesAreSerialized(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	for _, candidate := range []CourseApplyRequest{firstRequest, secondRequest} {
@@ -419,7 +419,7 @@ func TestCourseApply_DatabaseFailureRollsBackScheduleAggregate(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS `+functionName+`()`)
 	})
 
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err == nil {
 		t.Fatal("expected database failure")
 	}
@@ -489,7 +489,7 @@ func TestLegacySyncEndToEndCompletesWithinOneSecond(t *testing.T) {
 	aggregate.Course = request.Aggregate.Course
 	aggregate.Attendees = request.Aggregate.Attendees
 	request.Aggregate = *aggregate
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestCourseApply_EmptySourceScheduleDeactivatesLocalSessions(t *testing.T) {
 		Classroom:         "Room",
 		Confirmed:         true,
 	}}
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +584,7 @@ func TestCourseApply_EmptySourceScheduleDeactivatesLocalSessions(t *testing.T) {
 func TestCourseApply_PartialScheduleSnapshotRetries(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	blocker, _, _ := legacyScheduleRequest(t, pool, master.source, suffix, false)
-	if _, err := NewScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), blocker); err != nil {
+	if _, err := newTestScheduleApplier(pool, sqldb.New(pool), master.source).Apply(t.Context(), blocker); err != nil {
 		t.Fatal(err)
 	}
 
@@ -607,7 +607,7 @@ func TestCourseApply_PartialScheduleSnapshotRetries(t *testing.T) {
 			ClassroomLegacyID: blocker.Aggregate.Schedules[0].ClassroomLegacyID,
 		},
 	}
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	result, err := applier.Apply(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -665,7 +665,7 @@ func TestCourseApply_HonorsConfiguredTimezone(t *testing.T) {
 		End:              "10:00",
 		Confirmed:        true,
 	}}
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestCourseApply_HonorsConfiguredTimezone(t *testing.T) {
 func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
-	applier := NewCourseApplier(pool, sqldb.New(pool), master.source)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}

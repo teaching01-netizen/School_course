@@ -13,18 +13,31 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/scheduling"
 )
 
 type Store struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	scheduling SchedulingWriter
+}
+
+type SchedulingWriter interface {
+	AddCourseStudentWithWarningsTx(context.Context, pgx.Tx, *sqldb.Queries, pgtype.UUID, pgtype.UUID, scheduling.CourseStudentStatus) ([]scheduling.ScheduleWarning, error)
+	UpsertSessionAttendanceWithWarningsTx(context.Context, pgx.Tx, *sqldb.Queries, pgtype.UUID, pgtype.UUID, string) ([]scheduling.ScheduleWarning, error)
+}
+
+type scheduleWarningCollectorKey struct{}
+
+type scheduleWarningCollector struct {
+	warnings []scheduling.ScheduleWarning
 }
 
 func scheduleUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte(id), Valid: id != uuid.Nil}
 }
 
-func NewStore(db *pgxpool.Pool) *Store {
-	return &Store{db: db}
+func NewStore(db *pgxpool.Pool, schedulingService SchedulingWriter) *Store {
+	return &Store{db: db, scheduling: schedulingService}
 }
 
 func normalizeWCode(wcode string) string {
@@ -45,6 +58,50 @@ func (s *Store) IncludeStudent(ctx context.Context, tx pgx.Tx, courseID, student
 	// The caller holds the affected course and explicit student locks.
 	_, err := tx.Exec(ctx, `INSERT INTO course_students (course_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, courseID, studentID)
 	return err
+}
+
+func (s *Store) includeStudentWithWarnings(ctx context.Context, tx pgx.Tx, courseID, studentID uuid.UUID) error {
+	if s.scheduling == nil {
+		return fmt.Errorf("cross-study: scheduling writer is required")
+	}
+	warnings, err := s.scheduling.AddCourseStudentWithWarningsTx(
+		ctx,
+		tx,
+		sqldb.New(tx),
+		scheduleUUID(courseID),
+		scheduleUUID(studentID),
+		scheduling.CourseStudentStatusEnrolled,
+	)
+	if err != nil {
+		return err
+	}
+	appendScheduleWarnings(ctx, warnings)
+	return nil
+}
+
+func (s *Store) SaveAssignmentWithWarnings(ctx context.Context, input SaveAssignmentInput, userID uuid.UUID) ([]scheduling.ScheduleWarning, error) {
+	collector := &scheduleWarningCollector{}
+	ctx = context.WithValue(ctx, scheduleWarningCollectorKey{}, collector)
+	err := s.SaveAssignment(ctx, input, userID)
+	return collector.warnings, err
+}
+
+func (s *Store) DeleteAssignmentWithWarnings(ctx context.Context, id uuid.UUID) ([]scheduling.ScheduleWarning, error) {
+	collector := &scheduleWarningCollector{}
+	ctx = context.WithValue(ctx, scheduleWarningCollectorKey{}, collector)
+	err := s.DeleteAssignment(ctx, id)
+	return collector.warnings, err
+}
+
+func appendScheduleWarnings(ctx context.Context, warnings []scheduling.ScheduleWarning) {
+	if len(warnings) == 0 {
+		return
+	}
+	collector, ok := ctx.Value(scheduleWarningCollectorKey{}).(*scheduleWarningCollector)
+	if !ok || collector == nil {
+		return
+	}
+	collector.warnings = append(collector.warnings, warnings...)
 }
 
 func (s *Store) courseStudentExists(ctx context.Context, tx pgx.Tx, courseID, studentID uuid.UUID) (bool, error) {
@@ -103,26 +160,74 @@ func (s *Store) deleteCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx
 }
 
 func (s *Store) insertCrossStudySessionAttendance(ctx context.Context, tx pgx.Tx, assignmentID, studentID uuid.UUID, input SaveAssignmentInput) error {
-	// The caller holds both destination course locks and the explicit student lock.
-	_, err := tx.Exec(ctx, `
-		INSERT INTO session_attendance
-			(session_id, student_id, status, override_source, cross_study_assignment_id)
-		SELECT s.id, $1, 'included', 'cross_study', $2
+	_, err := s.insertCrossStudySessionAttendanceWithWarnings(ctx, tx, assignmentID, studentID, input)
+	return err
+}
+
+func (s *Store) insertCrossStudySessionAttendanceWithWarnings(ctx context.Context, tx pgx.Tx, assignmentID, studentID uuid.UUID, input SaveAssignmentInput) ([]scheduling.ScheduleWarning, error) {
+	if s.scheduling == nil {
+		return nil, fmt.Errorf("cross-study: scheduling writer is required")
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT s.id
 		FROM sessions s
 		WHERE s.deleted_at IS NULL
 		  AND (
 		    (
-		      s.course_id = $3
-		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($4::smallint[])
+		      s.course_id = $2
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($3::smallint[])
 		    )
 		    OR (
-		      s.course_id = $5
-		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($6::smallint[])
+		      s.course_id = $4
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($5::smallint[])
 		    )
 		  )
-		ON CONFLICT (session_id, student_id) DO NOTHING
-	`, studentID, assignmentID, input.DestCourseAID, input.DestCourseAWeekdays, input.DestCourseBID, input.DestCourseBWeekdays)
-	return err
+		  AND NOT EXISTS (
+		    SELECT 1 FROM session_attendance sa
+		    WHERE sa.session_id = s.id AND sa.student_id = $1
+		  )
+	`, studentID, input.DestCourseAID, input.DestCourseAWeekdays, input.DestCourseBID, input.DestCourseBWeekdays)
+	if err != nil {
+		return nil, err
+	}
+	var sessionIDs []uuid.UUID
+	for rows.Next() {
+		var sessionID uuid.UUID
+		if err := rows.Scan(&sessionID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	qtx := sqldb.New(tx)
+	var warnings []scheduling.ScheduleWarning
+	for _, sessionID := range sessionIDs {
+		currentWarnings, err := s.scheduling.UpsertSessionAttendanceWithWarningsTx(
+			ctx,
+			tx,
+			qtx,
+			scheduleUUID(sessionID),
+			scheduleUUID(studentID),
+			"included",
+		)
+		if err != nil {
+			return nil, err
+		}
+		warnings = append(warnings, currentWarnings...)
+		if _, err := tx.Exec(ctx, `
+			UPDATE session_attendance
+			SET override_source = 'cross_study', cross_study_assignment_id = $3
+			WHERE session_id = $1 AND student_id = $2
+		`, sessionID, studentID, assignmentID); err != nil {
+			return nil, err
+		}
+	}
+	return warnings, nil
 }
 
 func destinationCourses(input SaveAssignmentInput) []uuid.UUID {
@@ -524,7 +629,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		}
 		if !excludedByOtherAssignment {
 			if existingSourceCourseEnrollmentRemoved {
-				if err := s.IncludeStudent(ctx, tx, existingSourceCourseID, studentID); err != nil {
+				if err := s.includeStudentWithWarnings(ctx, tx, existingSourceCourseID, studentID); err != nil {
 					return fmt.Errorf("restore legacy source course_students: %w", err)
 				}
 			}
@@ -611,14 +716,16 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		}
 	}
 	for _, courseID := range destinationCourses(input) {
-		if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
+		if err := s.includeStudentWithWarnings(ctx, tx, courseID, studentID); err != nil {
 			return fmt.Errorf("include in destination course_students: %w", err)
 		}
 	}
 	if !usesFullCourseEnrollment {
-		if err := s.insertCrossStudySessionAttendance(ctx, tx, assignmentID, studentID, input); err != nil {
+		warnings, err := s.insertCrossStudySessionAttendanceWithWarnings(ctx, tx, assignmentID, studentID, input)
+		if err != nil {
 			return fmt.Errorf("insert scoped session attendance: %w", err)
 		}
+		appendScheduleWarnings(ctx, warnings)
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -758,7 +865,7 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 			return fmt.Errorf("check source course exclusion: %w", err)
 		}
 		if !required {
-			if err := s.IncludeStudent(ctx, tx, courseID, studentID); err != nil {
+			if err := s.includeStudentWithWarnings(ctx, tx, courseID, studentID); err != nil {
 				return fmt.Errorf("restore to source course_students: %w", err)
 			}
 			if err := s.deleteCrossStudyOverride(ctx, tx, courseID, studentID, "exclude"); err != nil {

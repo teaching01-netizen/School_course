@@ -60,6 +60,7 @@ function preflight(overrides: Partial<UsePreflightReturn>): UsePreflightReturn {
     status: "idle",
     loading: false,
     details: null,
+    warnings: [],
     error: null,
     occurrencesPlanned: null,
     lastParams: null,

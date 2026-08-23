@@ -336,7 +336,7 @@ func (s *server) handleSessionsCreate(w http.ResponseWriter, r *http.Request) {
 		}); aErr != nil {
 			s.deps.Log.Error("audit insert failed", "error", aErr, "session_id", idStr)
 		}
-		return http.StatusCreated, map[string]any{"id": idStr}, nil
+		return http.StatusCreated, map[string]any{"id": idStr, "warnings": item.Warnings}, nil
 	}) {
 		s.publishSessionUpdated(createdID)
 	}
@@ -413,14 +413,14 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var body struct {
-		StartAt           *string          `json:"start_at"`
-		EndAt             *string          `json:"end_at"`
-		CourseID          *string          `json:"course_id"`
-		RoomID            json.RawMessage  `json:"room_id"`
-		TeacherID         *string          `json:"teacher_id"`
-		ExpectedVersion   *int32           `json:"expected_version"`
-		AcknowledgeImpact *bool            `json:"acknowledge_impact"`
-		ImpactReason      string   `json:"impact_reason"`
+		StartAt           *string         `json:"start_at"`
+		EndAt             *string         `json:"end_at"`
+		CourseID          *string         `json:"course_id"`
+		RoomID            json.RawMessage `json:"room_id"`
+		TeacherID         *string         `json:"teacher_id"`
+		ExpectedVersion   *int32          `json:"expected_version"`
+		AcknowledgeImpact *bool           `json:"acknowledge_impact"`
+		ImpactReason      string          `json:"impact_reason"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -604,7 +604,7 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 			dto["series_id"] = mustUUIDStringOrEmpty(s.a, updated.SeriesID)
 		}
 		changeID, _ := s.a.UUIDString(item.SessionChangeID)
-		return http.StatusOK, map[string]any{"session": dto, "change_id": changeID}, nil
+		return http.StatusOK, map[string]any{"session": dto, "change_id": changeID, "warnings": item.Warnings}, nil
 	}) {
 		s.publishSessionUpdated(updatedID)
 	}
@@ -618,8 +618,8 @@ func (s *server) handleSessionsBulkUpdate(w http.ResponseWriter, r *http.Request
 
 	var body struct {
 		Updates []struct {
-			ID              string   `json:"id"`
-			ExpectedVersion int32    `json:"expected_version"`
+			ID              string          `json:"id"`
+			ExpectedVersion int32           `json:"expected_version"`
 			TeacherID       *string         `json:"teacher_id"`
 			RoomID          json.RawMessage `json:"room_id"`
 			StartAt         *string         `json:"start_at"`
@@ -851,7 +851,8 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 
 	if s.a.WithIdempotentTx(w, r, actor.ID, "sessions", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		if err := s.deps.Scheduling.UpsertSessionAttendanceTx(r.Context(), tx, qtx, sessionID, studentID, body.Status); err != nil {
+		warnings, err := s.deps.Scheduling.UpsertSessionAttendanceWithWarningsTx(r.Context(), tx, qtx, sessionID, studentID, body.Status)
+		if err != nil {
 			var se *scheduling.Err
 			if errors.As(err, &se) {
 				s.a.WriteErrDetails(w, scheduling.HTTPStatusForErr(se), se.Code, se.Message, se.Details)
@@ -867,7 +868,7 @@ func (s *server) handleSessionAttendanceUpsert(w http.ResponseWriter, r *http.Re
 			Action:      "session_attendance.upsert",
 			Payload:     map[string]any{"session_id": sessID, "student_id": stuID, "status": body.Status},
 		})
-		return http.StatusOK, map[string]any{"ok": true}, nil
+		return http.StatusOK, map[string]any{"ok": true, "warnings": warnings}, nil
 	}) {
 		s.publishSessionUpdated(sessID)
 	}

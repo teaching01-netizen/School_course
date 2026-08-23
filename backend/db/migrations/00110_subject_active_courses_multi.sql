@@ -21,4 +21,4 @@ WHERE course_id NOT IN (
     ORDER BY subject_id, updated_at DESC, course_id DESC
 );
 ALTER TABLE subject_active_courses ADD PRIMARY KEY (subject_id);
-CREATE INDEX idx_subject_active_courses_course ON subject_active_courses(course_id);
+CREATE INDEX IF NOT EXISTS idx_subject_active_courses_course ON subject_active_courses(course_id);

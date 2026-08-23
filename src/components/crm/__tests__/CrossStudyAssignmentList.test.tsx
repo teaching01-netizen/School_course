@@ -16,8 +16,11 @@ const assignment = (wcode: string, overrides: Partial<AssignmentListResponse["as
   wcode,
   full_name: `Student ${wcode}`,
   dest_course_a_name: "Course A",
+  dest_course_a_id: "course-a",
   dest_course_b_name: "Course B",
+  dest_course_b_id: "course-b",
   status: "active",
+  updated_at: "2026-08-23T03:00:00Z",
   ...overrides,
 });
 
@@ -106,7 +109,7 @@ describe("CrossStudyAssignmentList", () => {
         }
         resolveFirst = resolve;
         // keep a reference so the test can resolve it later
-        (firstRequest as unknown as { resolve?: () => void }).resolve = resolve;
+        (firstRequest as unknown as { resolve?: (value: AssignmentListResponse) => void }).resolve = resolve;
       }),
     );
 

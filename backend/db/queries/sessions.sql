@@ -1,6 +1,6 @@
 -- name: SessionCreate :one
-INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sessions (series_id, course_id, room_id, teacher_id, start_at, end_at, conflict_override)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at;
 
 -- name: SessionGetByID :one
@@ -62,9 +62,10 @@ SET course_id = $2,
     teacher_id = $4,
     start_at = $5,
     end_at = $6,
+    conflict_override = $7,
     updated_at = now(),
     version = version + 1
-WHERE id = $1 AND version = $7
+WHERE id = $1 AND version = $8
 RETURNING id, series_id, course_id, room_id, teacher_id, start_at, end_at, version, deleted_at, created_at, updated_at;
 
 -- name: SessionAttendanceDeleteNotInCourse :exec

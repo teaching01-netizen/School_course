@@ -17,6 +17,7 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/schedulelock"
+	"warwick-institute/internal/schedulepolicy"
 	"warwick-institute/internal/series"
 )
 
@@ -44,6 +45,7 @@ type Service struct {
 	instituteTZ string
 	loc         *time.Location
 	seriesSvc   SeriesService
+	policy      schedulepolicy.Reader
 }
 
 type PreflightParams struct {
@@ -58,8 +60,17 @@ type PreflightParams struct {
 }
 
 type PreflightResult struct {
-	Status string `json:"status"` // available|provisional
+	Status   PreflightStatus   `json:"status"`
+	Warnings []ScheduleWarning `json:"warnings,omitempty"`
 }
+
+type PreflightStatus string
+
+const (
+	PreflightStatusAvailable   PreflightStatus = "available"
+	PreflightStatusProvisional PreflightStatus = "provisional"
+	PreflightStatusWarning     PreflightStatus = "warning"
+)
 
 func (s *Service) Preflight(ctx context.Context, p PreflightParams) (PreflightResult, *Err, error) {
 	if !p.StartAt.Valid || !p.EndAt.Valid || !p.EndAt.Time.After(p.StartAt.Time) {
@@ -79,18 +90,25 @@ func (s *Service) Preflight(ctx context.Context, p PreflightParams) (PreflightRe
 		in.IgnoreSession = p.SessionID
 	}
 
-	se, err := s.preflightSlot(ctx, s.db, s.q, in)
+	policy, err := s.policy.Load(ctx, s.q.DBTX())
+	if err != nil {
+		return PreflightResult{}, nil, err
+	}
+	warnings, se, err := s.preflightSlotWithPolicy(ctx, s.db, s.q, in, policy.Enforced(schedulepolicy.ScopeSystem))
 	if err != nil {
 		return PreflightResult{}, nil, err
 	}
 	if se != nil {
 		return PreflightResult{}, se, nil
 	}
-	status := "available"
+	status := PreflightStatusAvailable
 	if !p.RoomID.Valid {
-		status = "provisional"
+		status = PreflightStatusProvisional
 	}
-	return PreflightResult{Status: status}, nil, nil
+	if len(warnings) > 0 {
+		status = PreflightStatusWarning
+	}
+	return PreflightResult{Status: status, Warnings: warnings}, nil, nil
 }
 
 type PreflightSeriesParams struct {
@@ -107,8 +125,9 @@ type PreflightSeriesParams struct {
 }
 
 type PreflightSeriesResult struct {
-	Status             string `json:"status"` // available|provisional
-	OccurrencesPlanned int    `json:"occurrences_planned"`
+	Status             PreflightStatus   `json:"status"`
+	OccurrencesPlanned int               `json:"occurrences_planned"`
+	Warnings           []ScheduleWarning `json:"warnings,omitempty"`
 }
 
 // PreflightSeries checks each occurrence of a proposed recurring series for
@@ -145,22 +164,40 @@ func (s *Service) PreflightSeries(ctx context.Context, p PreflightSeriesParams) 
 		return PreflightSeriesResult{}, nil, err
 	}
 
+	policy, err := s.policy.Load(ctx, s.q.DBTX())
+	if err != nil {
+		return PreflightSeriesResult{}, nil, err
+	}
 	se, err := s.preflightSeriesBatch(ctx, s.db, s.q, p, occ)
 	if err != nil {
 		return PreflightSeriesResult{}, nil, err
+	}
+	var warnings []ScheduleWarning
+	if se != nil && !policy.Enforced(schedulepolicy.ScopeSystem) {
+		if warning, ok := warningForErr(se); ok {
+			warnings = []ScheduleWarning{warning}
+			se = nil
+		}
 	}
 	if se != nil {
 		return PreflightSeriesResult{}, se, nil
 	}
 
-	status := "available"
+	status := PreflightStatusAvailable
 	if !p.RoomID.Valid {
-		status = "provisional"
+		status = PreflightStatusProvisional
 	}
-	return PreflightSeriesResult{Status: status, OccurrencesPlanned: len(occ)}, nil, nil
+	if len(warnings) > 0 {
+		status = PreflightStatusWarning
+	}
+	return PreflightSeriesResult{Status: status, OccurrencesPlanned: len(occ), Warnings: warnings}, nil, nil
 }
 
 func NewService(db *pgxpool.Pool, instituteTZ string, seriesSvc SeriesService, logs ...*slog.Logger) (*Service, error) {
+	return NewServiceWithPolicy(db, instituteTZ, seriesSvc, schedulepolicy.NewDBReader(), logs...)
+}
+
+func NewServiceWithPolicy(db *pgxpool.Pool, instituteTZ string, seriesSvc SeriesService, policy schedulepolicy.Reader, logs ...*slog.Logger) (*Service, error) {
 	loc, err := time.LoadLocation(instituteTZ)
 	if err != nil {
 		return nil, err
@@ -176,6 +213,7 @@ func NewService(db *pgxpool.Pool, instituteTZ string, seriesSvc SeriesService, l
 		instituteTZ: instituteTZ,
 		loc:         loc,
 		seriesSvc:   seriesSvc,
+		policy:      policy,
 	}, nil
 }
 
@@ -194,6 +232,7 @@ type CreateSeriesParams struct {
 type CreateSeriesResult struct {
 	SeriesID      pgtype.UUID
 	SessionsAdded int
+	Warnings      []ScheduleWarning
 }
 
 // CreateSeriesAndMaterializeTx performs series creation using an existing tx-bound
@@ -236,6 +275,10 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		return CreateSeriesResult{}, err
 	}
 
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return CreateSeriesResult{}, err
+	}
 	se, err := s.preflightSeriesBatch(ctx, tx, qtx, PreflightSeriesParams{
 		CourseID:        p.CourseID,
 		RoomID:          p.RoomID,
@@ -249,6 +292,14 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 	}, occ)
 	if err != nil {
 		return CreateSeriesResult{}, err
+	}
+	var warnings []ScheduleWarning
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	if se != nil && !policy.Enforced(schedulepolicy.ScopeSystem) {
+		if warning, ok := warningForErr(se); ok {
+			warnings = []ScheduleWarning{warning}
+			se = nil
+		}
 	}
 	if se != nil {
 		return CreateSeriesResult{}, se
@@ -265,6 +316,7 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		EndDate:         p.EndDate,
 		Count:           p.Count,
 		Occurrences:     occ,
+		AllowConflicts:  allowConflicts || len(warnings) > 0,
 	})
 	if err != nil {
 		ps, err2 := newPreflightStrings(p.CourseID, p.RoomID, p.TeacherID)
@@ -287,7 +339,7 @@ func (s *Service) CreateSeriesAndMaterializeTx(ctx context.Context, tx pgx.Tx, q
 		}
 		return CreateSeriesResult{}, err
 	}
-	return CreateSeriesResult{SeriesID: res.SeriesID, SessionsAdded: res.SessionsAdded}, nil
+	return CreateSeriesResult{SeriesID: res.SeriesID, SessionsAdded: res.SessionsAdded, Warnings: warnings}, nil
 }
 
 func (s *Service) CreateSeriesAndMaterialize(ctx context.Context, p CreateSeriesParams) (CreateSeriesResult, error) {
@@ -326,7 +378,7 @@ func (s *Service) CreateSeriesAndMaterialize(ctx context.Context, p CreateSeries
 			return CreateSeriesResult{}, err
 		}
 
-		return CreateSeriesResult{SeriesID: res.SeriesID, SessionsAdded: res.SessionsAdded}, nil
+		return res, nil
 	}
 
 	return CreateSeriesResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
@@ -370,6 +422,7 @@ type SplitSeriesResult struct {
 	OldSeriesID      pgtype.UUID
 	NewSeriesID      pgtype.UUID
 	NewSessionsAdded int
+	Warnings         []ScheduleWarning
 }
 
 // SplitThisAndFutureTx splits a series using an existing tx-bound handle.
@@ -380,9 +433,31 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	// (invalid pivot, count, or an infra error) the write still proceeds and
 	// its own error is returned — candidates are only used for explanation.
 	candidates, candErr := s.splitPreflightCandidates(ctx, qtx, p)
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return SplitSeriesResult{}, err
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	var warnings []ScheduleWarning
+	if candErr == nil {
+		for _, candidate := range candidates {
+			candidateWarnings, se, pfErr := s.preflightSlotWithPolicy(ctx, tx, qtx, candidate, policy.Enforced(schedulepolicy.ScopeSystem))
+			if pfErr != nil {
+				return SplitSeriesResult{}, pfErr
+			}
+			if se != nil {
+				return SplitSeriesResult{}, se
+			}
+			if len(candidateWarnings) > 0 {
+				warnings = append(warnings, candidateWarnings...)
+				allowConflicts = true
+				break
+			}
+		}
+	}
 
 	var res series.SplitResult
-	err := withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
+	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
 		var writeErr error
 		res, writeErr = s.seriesSvc.SplitThisAndFutureTx(ctx, qsp, series.SplitParams{
 			SeriesID:        p.SeriesID,
@@ -393,6 +468,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 			DurationMinutes: p.DurationMinutes,
 			EndDate:         p.EndDate,
 			Count:           p.Count,
+			AllowConflicts:  allowConflicts,
 		})
 		return writeErr
 	})
@@ -407,7 +483,7 @@ func (s *Service) SplitThisAndFutureTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		}
 		return SplitSeriesResult{}, err
 	}
-	return SplitSeriesResult{OldSeriesID: res.OldSeriesID, NewSeriesID: res.NewSeriesID, NewSessionsAdded: res.NewSessionsAdded}, nil
+	return SplitSeriesResult{OldSeriesID: res.OldSeriesID, NewSeriesID: res.NewSeriesID, NewSessionsAdded: res.NewSessionsAdded, Warnings: warnings}, nil
 }
 
 // splitPreflightCandidates computes the occurrences a split will create and
@@ -521,23 +597,39 @@ func (s *Service) splitPreflightCandidates(ctx context.Context, qtx *sqldb.Queri
 }
 
 func (s *Service) SplitThisAndFuture(ctx context.Context, p SplitSeriesParams) (SplitSeriesResult, error) {
-	res, err := s.seriesSvc.SplitThisAndFuture(ctx, series.SplitParams{
-		SeriesID:        p.SeriesID,
-		PivotDate:       p.PivotDate,
-		ExpectedVersion: p.ExpectedVersion,
-		Weekdays:        p.Weekdays,
-		StartLocalTime:  p.StartLocalTime,
-		DurationMinutes: p.DurationMinutes,
-		EndDate:         p.EndDate,
-		Count:           p.Count,
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "stale_edit") {
-			return SplitSeriesResult{}, &Err{Code: "stale_edit", Message: err.Error()}
+	const maxRetries = 2
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10+rand.Intn(20)) * time.Millisecond)
 		}
-		return SplitSeriesResult{}, err
+		tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return SplitSeriesResult{}, err
+		}
+		res, err := s.SplitThisAndFutureTx(ctx, tx, s.q.WithTx(tx), p)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isRetryableSchedulingErr(err) && attempt < maxRetries {
+				continue
+			}
+			if strings.Contains(err.Error(), "stale_edit") {
+				return SplitSeriesResult{}, &Err{Code: "stale_edit", Message: err.Error()}
+			}
+			return SplitSeriesResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			lastErr = err
+			if isRetryableSchedulingErr(err) && attempt < maxRetries {
+				continue
+			}
+			return SplitSeriesResult{}, err
+		}
+		return res, nil
 	}
-	return SplitSeriesResult{OldSeriesID: res.OldSeriesID, NewSeriesID: res.NewSeriesID, NewSessionsAdded: res.NewSessionsAdded}, nil
+	return SplitSeriesResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
 }
 
 type CancelSeriesParams struct {
@@ -609,6 +701,7 @@ type EditEntireSeriesResult struct {
 	SeriesID         pgtype.UUID
 	SessionsCanceled int
 	SessionsAdded    int
+	Warnings         []ScheduleWarning
 }
 
 // EditEntireSeriesFutureOnlyTx edits a series' future occurrences using an existing tx-bound handle.
@@ -680,6 +773,26 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 			Requested:         ps.conflictRequested(o.StartUTC, o.EndUTC, &seriesIDStr),
 		})
 	}
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return EditEntireSeriesResult{}, err
+	}
+	allowConflicts := !policy.Enforced(schedulepolicy.ScopeSystem)
+	var warnings []ScheduleWarning
+	for _, candidate := range candidates {
+		candidateWarnings, se, pfErr := s.preflightSlotWithPolicy(ctx, tx, qtx, candidate, policy.Enforced(schedulepolicy.ScopeSystem))
+		if pfErr != nil {
+			return EditEntireSeriesResult{}, pfErr
+		}
+		if se != nil {
+			return EditEntireSeriesResult{}, se
+		}
+		if len(candidateWarnings) > 0 {
+			warnings = append(warnings, candidateWarnings...)
+			allowConflicts = true
+			break
+		}
+	}
 
 	// The series write itself runs inside a savepoint: a constraint failure
 	// rolls back only the write, leaving the tx usable so the candidates above
@@ -700,6 +813,7 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 			DurationMinutes: p.DurationMinutes,
 			EndDate:         p.EndDate,
 			Count:           p.Count,
+			AllowConflicts:  allowConflicts,
 		})
 		return writeErr
 	})
@@ -712,7 +826,7 @@ func (s *Service) EditEntireSeriesFutureOnlyTx(ctx context.Context, tx pgx.Tx, q
 		}
 		return EditEntireSeriesResult{}, err
 	}
-	return EditEntireSeriesResult{SeriesID: res.SeriesID, SessionsCanceled: res.SessionsCanceled, SessionsAdded: res.SessionsAdded}, nil
+	return EditEntireSeriesResult{SeriesID: res.SeriesID, SessionsCanceled: res.SessionsCanceled, SessionsAdded: res.SessionsAdded, Warnings: warnings}, nil
 }
 
 func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireSeriesParams) (EditEntireSeriesResult, error) {
@@ -754,7 +868,7 @@ func (s *Service) EditEntireSeriesFutureOnly(ctx context.Context, p EditEntireSe
 			return EditEntireSeriesResult{}, err
 		}
 
-		return EditEntireSeriesResult{SeriesID: res.SeriesID, SessionsCanceled: res.SessionsCanceled, SessionsAdded: res.SessionsAdded}, nil
+		return res, nil
 	}
 
 	return EditEntireSeriesResult{}, fmt.Errorf("too many scheduling retries: %w", lastErr)
@@ -772,6 +886,7 @@ type CreateSessionParams struct {
 
 type CreateSessionResult struct {
 	SessionID pgtype.UUID
+	Warnings  []ScheduleWarning
 }
 
 // CreateSessionTx creates a session using an existing tx-bound handle.
@@ -892,8 +1007,11 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		},
 	}
 
-	// Preflight inside the caller's tx.
-	se, err := s.preflightSlot(ctx, tx, qtx, preflightIn)
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return CreateSessionResult{}, err
+	}
+	warnings, se, err := s.preflightSlotWithPolicy(ctx, tx, qtx, preflightIn, policy.Enforced(schedulepolicy.ScopeSystem))
 	if err != nil {
 		return CreateSessionResult{}, err
 	}
@@ -916,12 +1034,13 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
 		var createErr error
 		row, createErr = qsp.SessionCreate(ctx, sqldb.SessionCreateParams{
-			SeriesID:  seriesID,
-			CourseID:  p.CourseID,
-			RoomID:    p.RoomID,
-			TeacherID: p.TeacherID,
-			StartAt:   p.StartAt,
-			EndAt:     p.EndAt,
+			SeriesID:         seriesID,
+			CourseID:         p.CourseID,
+			RoomID:           p.RoomID,
+			TeacherID:        p.TeacherID,
+			StartAt:          p.StartAt,
+			EndAt:            p.EndAt,
+			ConflictOverride: !policy.Enforced(schedulepolicy.ScopeSystem) || len(warnings) > 0,
 		})
 		return createErr
 	})
@@ -957,7 +1076,7 @@ func (s *Service) CreateSessionTx(ctx context.Context, tx pgx.Tx, qtx *sqldb.Que
 		return CreateSessionResult{}, err
 	}
 
-	return CreateSessionResult{SessionID: row.ID}, nil
+	return CreateSessionResult{SessionID: row.ID, Warnings: warnings}, nil
 }
 
 func (s *Service) CreateSession(ctx context.Context, p CreateSessionParams) (CreateSessionResult, error) {
@@ -1038,6 +1157,7 @@ type EditOccurrenceParams struct {
 type EditOccurrenceResult struct {
 	SessionID       pgtype.UUID
 	SessionChangeID pgtype.UUID
+	Warnings        []ScheduleWarning
 }
 
 // EditOccurrenceTimeTx edits a session occurrence using an existing tx-bound handle.
@@ -1191,8 +1311,11 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		preflightIn.StudentIDs = studentIDsPtr
 	}
 
-	// Preflight inside the caller's tx.
-	se, err := s.preflightSlot(ctx, tx, qtx, preflightIn)
+	policy, err := s.policy.Load(ctx, tx)
+	if err != nil {
+		return EditOccurrenceResult{}, err
+	}
+	warnings, se, err := s.preflightSlotWithPolicy(ctx, tx, qtx, preflightIn, policy.Enforced(schedulepolicy.ScopeSystem))
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
@@ -1218,13 +1341,14 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 	err = withSavepoint(ctx, tx, func(qsp *sqldb.Queries) error {
 		var updateErr error
 		row, updateErr = qsp.SessionUpdateOccurrence(ctx, sqldb.SessionUpdateOccurrenceParams{
-			ID:        p.SessionID,
-			CourseID:  newCourseID,
-			RoomID:    newRoomID,
-			TeacherID: newTeacherID,
-			StartAt:   newStartAt,
-			EndAt:     newEndAt,
-			Version:   p.ExpectedVersion,
+			ID:               p.SessionID,
+			CourseID:         newCourseID,
+			RoomID:           newRoomID,
+			TeacherID:        newTeacherID,
+			StartAt:          newStartAt,
+			EndAt:            newEndAt,
+			ConflictOverride: !policy.Enforced(schedulepolicy.ScopeSystem) || len(warnings) > 0,
+			Version:          p.ExpectedVersion,
 		})
 		return updateErr
 	})
@@ -1270,7 +1394,7 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		return EditOccurrenceResult{}, err
 	}
 
-	return EditOccurrenceResult{SessionID: row.ID, SessionChangeID: changeID}, nil
+	return EditOccurrenceResult{SessionID: row.ID, SessionChangeID: changeID, Warnings: warnings}, nil
 }
 
 func sameSessionIdentity(a, b sqldb.SessionGetByIDRow) bool {

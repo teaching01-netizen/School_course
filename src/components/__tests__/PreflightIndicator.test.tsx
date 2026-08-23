@@ -14,6 +14,7 @@ function makePreflight(overrides: Partial<UsePreflightReturn>): UsePreflightRetu
     status: "idle",
     loading: false,
     details: null,
+    warnings: [],
     error: null,
     occurrencesPlanned: null,
     lastParams: null,
@@ -132,5 +133,20 @@ describe("PreflightIndicator user stories", () => {
       "Blocked — try a different room or time slot",
     );
     expect(isSaveDisabled(preflight)).toBe(true);
+  });
+
+  it("shows allowed conflicts in red while keeping the save enabled", () => {
+    const warning = {
+      rule: "room_overlap" as const,
+      code: "room_overlap",
+      message: "Room 101 is already in use.",
+      details: roomConflict,
+    };
+    const preflight = makePreflight({ status: "warning", details: roomConflict, warnings: [warning] });
+    renderIndicator(preflight);
+
+    expect(screen.getByTestId("preflight-warning")).toHaveTextContent("Room 101 is already in use.");
+    expect(getSaveButtonLabel(preflight, "Save")).toBe("Save with warnings");
+    expect(isSaveDisabled(preflight)).toBe(false);
   });
 });
