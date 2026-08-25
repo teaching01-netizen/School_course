@@ -167,7 +167,7 @@ func successSMSPairSummary(items []successSMSItem, loc *time.Location) string {
 			sitInClass := successSitInClass(item.row)
 			sitInDateTime := successSitInDateTime(item.sessions, loc)
 			if sitInClass == "" || sitInClass == "Not assigned" {
-				lines = append(lines, "   ชดเชย: ยังไม่ได้เลือก")
+				lines = append(lines, "   ชดเชย: Contact staff")
 			} else {
 				lines = append(lines, "   "+successSMSPairLine("ชดเชย", sitInClass, sitInDateTime))
 			}

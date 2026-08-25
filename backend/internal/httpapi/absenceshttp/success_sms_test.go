@@ -502,7 +502,7 @@ func TestRenderSuccessSMSTemplate_PairedPhysicalAbsenceWithoutSelectedSession(t 
 	}
 
 	got := renderSuccessSMSTemplate("{{absence_pair_summary}}", item.row, nil, item.missed, time.UTC)
-	want := "ลาเรียน: SAT Math : Rank 3 C3 (30 Aug 2026)\n   ชดเชย: ยังไม่ได้เลือก"
+	want := "ลาเรียน: SAT Math : Rank 3 C3 (30 Aug 2026)\n   ชดเชย: Contact staff"
 	if got != want {
 		t.Fatalf("unselected make-up summary = %q, want %q", got, want)
 	}
