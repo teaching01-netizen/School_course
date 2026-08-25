@@ -221,18 +221,24 @@ func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Loca
 		if !session.StartAt.Valid || !session.EndAt.Valid {
 			continue
 		}
-		day := session.StartAt.Time.In(loc).Format("2006-01-02")
+		start := session.StartAt.Time
+		end := session.EndAt.Time
+		if session.MergedStartAt.Valid && session.MergedEndAt.Valid {
+			start = session.MergedStartAt.Time
+			end = session.MergedEndAt.Time
+		}
+		day := start.In(loc).Format("2006-01-02")
 		current, ok := ranges[day]
 		if !ok {
-			ranges[day] = dayRange{start: session.StartAt.Time, end: session.EndAt.Time}
+			ranges[day] = dayRange{start: start, end: end}
 			order = append(order, day)
 			continue
 		}
-		if session.StartAt.Time.Before(current.start) {
-			current.start = session.StartAt.Time
+		if start.Before(current.start) {
+			current.start = start
 		}
-		if session.EndAt.Time.After(current.end) {
-			current.end = session.EndAt.Time
+		if end.After(current.end) {
+			current.end = end
 		}
 		ranges[day] = current
 	}

@@ -280,16 +280,18 @@ func (q *Queries) ManagedAbsenceGet(ctx context.Context, id pgtype.UUID) (Manage
 }
 
 type ManagedAbsenceSession struct {
-	AbsenceID   pgtype.UUID
-	ID          pgtype.UUID
-	SessionID   pgtype.UUID
-	CourseID    pgtype.UUID
-	CourseCode  string
-	CourseName  string
-	SubjectName pgtype.Text
-	RoomName    pgtype.Text
-	StartAt     pgtype.Timestamptz
-	EndAt       pgtype.Timestamptz
+	AbsenceID     pgtype.UUID
+	ID            pgtype.UUID
+	SessionID     pgtype.UUID
+	CourseID      pgtype.UUID
+	CourseCode    string
+	CourseName    string
+	SubjectName   pgtype.Text
+	RoomName      pgtype.Text
+	StartAt       pgtype.Timestamptz
+	EndAt         pgtype.Timestamptz
+	MergedStartAt pgtype.Timestamptz
+	MergedEndAt   pgtype.Timestamptz
 }
 
 func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
@@ -349,12 +351,21 @@ func (q *Queries) ManagedAbsenceMissedSessionsByAbsenceIDs(ctx context.Context, 
 
 func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at
+		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
+		       merged.start_at, merged.end_at
 		FROM absence_sit_ins asi
 		JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
 		LEFT JOIN subjects subj ON subj.id = c.subject_id
 		LEFT JOIN rooms room ON room.id = sess.room_id
+		LEFT JOIN LATERAL (
+			SELECT MIN(sibling.start_at) AS start_at, MAX(sibling.end_at) AS end_at
+			FROM course_merge_group_members source_member
+			JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source_member.group_id
+			JOIN sessions sibling ON sibling.course_id = sibling_member.course_id AND sibling.deleted_at IS NULL
+			WHERE source_member.course_id = sess.course_id
+			  AND (sibling.start_at AT TIME ZONE 'Asia/Bangkok')::date = (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date
+		) merged ON true
 		WHERE asi.absence_id = $1
 		ORDER BY sess.start_at ASC
 	`, absenceID)
@@ -365,7 +376,7 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt, &session.MergedStartAt, &session.MergedEndAt); err != nil {
 			return nil, err
 		}
 		out = append(out, session)
@@ -378,12 +389,21 @@ func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenc
 		return nil, nil
 	}
 	rows, err := q.db.Query(ctx, `
-		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at
+		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
+		       merged.start_at, merged.end_at
 		FROM absence_sit_ins asi
 		JOIN sessions sess ON sess.id = asi.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
 		LEFT JOIN subjects subj ON subj.id = c.subject_id
 		LEFT JOIN rooms room ON room.id = sess.room_id
+		LEFT JOIN LATERAL (
+			SELECT MIN(sibling.start_at) AS start_at, MAX(sibling.end_at) AS end_at
+			FROM course_merge_group_members source_member
+			JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source_member.group_id
+			JOIN sessions sibling ON sibling.course_id = sibling_member.course_id AND sibling.deleted_at IS NULL
+			WHERE source_member.course_id = sess.course_id
+			  AND (sibling.start_at AT TIME ZONE 'Asia/Bangkok')::date = (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date
+		) merged ON true
 		WHERE asi.absence_id = ANY($1::uuid[])
 		ORDER BY asi.absence_id, sess.start_at ASC, asi.id ASC
 	`, absenceIDs)
@@ -394,7 +414,7 @@ func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenc
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt, &session.MergedStartAt, &session.MergedEndAt); err != nil {
 			return nil, err
 		}
 		out = append(out, session)

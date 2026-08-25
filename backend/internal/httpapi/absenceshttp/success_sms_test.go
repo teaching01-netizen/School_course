@@ -152,6 +152,19 @@ func TestSuccessSitInDateTimeMergesSameDaySourceSessions(t *testing.T) {
 	}
 }
 
+func TestSuccessSitInDateTimeUsesPersistedMergedRange(t *testing.T) {
+	sessions := []sqldb.ManagedAbsenceSession{{
+		StartAt:       pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 6, 0, 0, 0, time.UTC), Valid: true},
+		EndAt:         pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 7, 40, 0, 0, time.UTC), Valid: true},
+		MergedStartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 6, 0, 0, 0, time.UTC), Valid: true},
+		MergedEndAt:   pgtype.Timestamptz{Time: time.Date(2026, 8, 29, 9, 20, 0, 0, time.UTC), Valid: true},
+	}}
+
+	if got := successSitInDateTime(sessions, time.FixedZone("ICT", 7*60*60)); got != "29 Aug, 13:00 - 16:20" {
+		t.Fatalf("persisted merged sit-in time = %q, want %q", got, "29 Aug, 13:00 - 16:20")
+	}
+}
+
 func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{
