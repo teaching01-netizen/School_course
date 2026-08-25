@@ -49,7 +49,7 @@ import {
   splitMergedSessionValue,
   type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
-import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/features/absences/domain/submissionPayload";
+import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
 import {
   availableSessionsForMissedSessions,
   firstPriorityLevel,
@@ -671,6 +671,15 @@ export default function AbsenceForm() {
       setPageError("Select at least one class you will miss.");
       setExpandedSubjectId(selectedSubjectIds[0] ?? null);
       focusFirstInvalid('[id^="session-"]');
+      return false;
+    }
+    const duplicateIds = duplicateSitInSessionIds(
+      Object.values(sitInSelections)
+        .flatMap(splitMergedSessionValue)
+        .map((id) => ({ sit_in_session_ids: [id] })),
+    );
+    if (duplicateIds.length > 0) {
+      setPageError("The same sit-in session is selected for more than one absence day. Choose a different session before submitting.");
       return false;
     }
     if (missingSitIn) {

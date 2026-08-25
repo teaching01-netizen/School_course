@@ -1023,6 +1023,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         addToast("error", "Select a special sit-in subject and session");
         return;
       }
+      const selectedSitInSessionIds = [
+        ...Object.values(sitInSelections).flatMap(splitMergedSessionValue),
+        ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue)),
+      ];
+      const duplicateIds = duplicateSitInSessionIds(selectedSitInSessionIds.map((id) => ({ sit_in_session_ids: [id] })));
+      if (duplicateIds.length > 0) {
+        addToast("error", "The same sit-in session is selected for more than one absence day. Choose a different session before continuing.");
+        return;
+      }
       setStep("confirm");
     }
   }
