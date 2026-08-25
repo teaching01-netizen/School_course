@@ -391,3 +391,20 @@ export function getSitInSessionGroupLabel(
   const range = groupByDay(sessions)[0];
   return `${appendTeacher(label, teacher)} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }
+
+export function getSitInSessionSubjectTimeLabel(
+  sessions: SitInAvailableSession[],
+  sitInCourse: SitInCourse,
+  fallbackSubjectName: string,
+  allSubjects: SubjectSessions[],
+): string {
+  const first = sessions[0];
+  const range = groupByDay(sessions)[0];
+  if (!first || !range) return "Session time unavailable";
+  const subjectName =
+    first.subject_name?.trim() ||
+    sitInCourse?.subject_name?.trim() ||
+    allSubjects.find((subject) => subject.course_id === sitInCourse?.id)?.subject_name?.trim() ||
+    fallbackSubjectName;
+  return `${subjectName} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
+}

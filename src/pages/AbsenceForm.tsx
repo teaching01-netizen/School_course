@@ -57,7 +57,7 @@ import {
   getReviewSitInLabel,
   appendTeacher,
   getSitInCourseDisplayName,
-  getSitInSessionGroupLabel,
+  getSitInSessionSubjectTimeLabel,
   getSitInSessionLabel,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
@@ -110,7 +110,7 @@ function makeUpPickerOptions(
     const conflictDescription = formatSitInSessionConflictDescription(conflicts);
     return {
       value: mergedSessionValue(optionGroup.items),
-      label: getSitInSessionGroupLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
+      label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
       description: conflictDescription,
     };

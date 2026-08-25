@@ -35,6 +35,7 @@ import {
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
   getSitInSessionGroupLabel,
+  getSitInSessionSubjectTimeLabel,
   getReviewSitInLabel,
 } from "../../features/absences/domain/sitInResolution";
 import MakeUpPicker, {
@@ -168,12 +169,7 @@ function buildSpecialSitInSessionOptions(
       options.push({
         value,
         courseId,
-        label: getSitInSessionGroupLabel(
-          [session],
-          undefined,
-          fallbackLabel,
-          subjectGroups,
-        ),
+        label: getSitInSessionSubjectTimeLabel([session], undefined, fallbackLabel, subjectGroups),
       });
     }
   }
@@ -210,12 +206,7 @@ function makeUpPickerOptions(
     );
     return {
       value: mergedSessionValue(optionGroup.items),
-      label: getSitInSessionGroupLabel(
-        optionGroup.items,
-        optionGroup.sitInCourse ?? defaultSitInCourse,
-        groupLabel,
-        sessions,
-      ),
+      label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
       description: formatSitInSessionConflictDescription(conflicts),
     };
