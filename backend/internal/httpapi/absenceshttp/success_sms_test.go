@@ -418,6 +418,29 @@ func TestRenderBatchSuccessSMSTemplate_GroupsMergedCourseItems(t *testing.T) {
 	}
 }
 
+func TestSuccessSMSTemplateForItems_NoSitInUsesAbsenceOnlyMessage(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	items := []successSMSItem{{row: sqldb.ManagedAbsenceRow{SitInMethod: pgtype.Text{Valid: false}}}}
+
+	got := successSMSTemplateForItems(settings, "pending", items)
+	if got != absenceOnlySuccessSMSTemplate {
+		t.Fatalf("template = %q, want absence-only template %q", got, absenceOnlySuccessSMSTemplate)
+	}
+	message := renderBatchSuccessSMSTemplate(got, items, time.UTC)
+	if strings.Contains(message, "ชดเชย") || strings.Contains(message, "sit_in") {
+		t.Fatalf("absence-only SMS contains sit-in content: %q", message)
+	}
+}
+
+func TestSuccessSMSTemplateForItems_PhysicalKeepsConfiguredMessage(t *testing.T) {
+	settings := absenceSettings{Notifications: absenceNotificationsSettings{SmsSuccessTemplate: "Normal {{absence_summary}} {{sit_in_summary}}"}}
+	items := []successSMSItem{{row: sqldb.ManagedAbsenceRow{SitInMethod: pgtype.Text{String: "physical", Valid: true}}}}
+
+	if got := successSMSTemplateForItems(settings, "pending", items); got != settings.Notifications.SmsSuccessTemplate {
+		t.Fatalf("template = %q, want configured physical template %q", got, settings.Notifications.SmsSuccessTemplate)
+	}
+}
+
 func TestSuccessSMSPhones_ExcludesNullPhones(t *testing.T) {
 	t.Run("both populated returns both", func(t *testing.T) {
 		phones := successSMSPhones(

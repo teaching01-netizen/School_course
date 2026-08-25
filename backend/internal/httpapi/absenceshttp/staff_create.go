@@ -66,11 +66,6 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_sessions", "At least one missed session is required")
 			return 0, nil, fmt.Errorf("missed sessions required")
 		}
-		if body.SitInMethod == nil || strings.TrimSpace(*body.SitInMethod) == "" {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "sit_in_method is required")
-			return 0, nil, fmt.Errorf("sit-in method required")
-		}
-
 		requestedStatus := absences.StatusPending
 		if body.Status != nil {
 			statusVal := strings.TrimSpace(*body.Status)
@@ -366,7 +361,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			createdID = id
 		}
 
-		smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
+		smsTemplate := successSMSTemplateForItems(settings, managed.Status, []successSMSItem{{row: managed, sessions: sessions, missed: missed}})
 		if smsTemplate != "" {
 			if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 				phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
@@ -610,6 +605,9 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 		smsTemplate := settings.Notifications.SmsSuccessTemplate
 		if hasSpecial && strings.TrimSpace(settings.Notifications.SmsSpecialApprovedTemplate) != "" {
 			smsTemplate = settings.Notifications.SmsSpecialApprovedTemplate
+		}
+		if len(items) > 0 {
+			smsTemplate = successSMSTemplateForItems(settings, items[0].row.Status, items)
 		}
 
 		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), wcode)

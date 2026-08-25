@@ -215,6 +215,8 @@ export function selectedSitInCourseIDForGroup(
   priorityLevels?: Record<string, number>,
   priorityHistory?: Record<string, Record<number, SubjectSessions>>,
 ): string | null {
+  if (!group.sit_in) return group.course_id.trim() || null;
+  if (group.sit_in.sit_in_method !== "physical" && group.sit_in.sit_in_method !== "zoom") return null;
   if (
     group.sit_in?.sit_in_method !== "physical" &&
     !group.sit_in?.sit_in_by_missed_session

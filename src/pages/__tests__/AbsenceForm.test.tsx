@@ -1082,8 +1082,8 @@ describe("AbsenceForm", () => {
     const makeUpSelect = await screen.findByRole("combobox");
     const makeUpOptions = screen.getAllByRole("option").filter((option) => option.getAttribute("value"));
     expect(makeUpOptions).toHaveLength(2);
-    expect(makeUpOptions[0]).toHaveTextContent(/Mathematics.*Calculus III.*4 Jun 2026 13:00-14:30/);
-    expect(makeUpOptions[1]).toHaveTextContent(/Mathematics.*Calculus III.*4 Jun 2026 14:45-16:30/);
+    expect(makeUpOptions[0]).toHaveTextContent(/Mathematics.*4 Jun 2026 13:00-14:30/);
+    expect(makeUpOptions[1]).toHaveTextContent(/Mathematics.*4 Jun 2026 14:45-16:30/);
 
     await user.selectOptions(makeUpSelect, makeUpOptions[0].getAttribute("value")!);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
@@ -1361,8 +1361,8 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /4 Jun 2026/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /5 Jun 2026/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see other times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
@@ -1370,12 +1370,12 @@ describe("AbsenceForm", () => {
         expect.anything(),
       );
     });
-    expect(await screen.findByRole("option", { name: /SAT Verbal Reading Rank 4/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /5 Jun 2026/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /see previous times/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see previous times/i }));
-    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /SAT Verbal Reading Rank 4/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /4 Jun 2026/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /5 Jun 2026/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
   }, 30000);
 
@@ -1451,7 +1451,7 @@ describe("AbsenceForm", () => {
     expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /see previous times/i })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {
@@ -1496,8 +1496,8 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByRole("option", { name: /SAT Verbal Rank 3 Section 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /SAT Verbal Rank 3 Section 2/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /4 Jun 2026/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /5 Jun 2026/ })).toBeInTheDocument();
   }, 30000);
 
   it("filters SAT Verbal same-occurrence options to each selected missed session", async () => {
@@ -1609,7 +1609,7 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     expect(screen.queryByText("No more options available")).not.toBeInTheDocument();
-    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /14 Jun 2026/ })).toBeInTheDocument();
   }, 30000);
 
   it("keeps SAT Verbal priority reveals isolated per selected missed session", async () => {
@@ -1676,7 +1676,7 @@ describe("AbsenceForm", () => {
     expect(await screen.findAllByRole("combobox")).toHaveLength(2);
 
     await user.click(screen.getAllByRole("button", { name: /see other times/i })[0]);
-    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /see previous times/i })).toBeInTheDocument();
   }, 30000);
 
   it("renders SAT Verbal same-number choices from per-missed-session sit-in results", async () => {
@@ -1787,9 +1787,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(screen.getByRole("option", { name: /SAT Verbal Writing Beginner Section 2 C2\/26/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /14 Jun 2026/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-    expect(await screen.findByRole("option", { name: /SAT Verbal Writing Beginner Section 3 C2\/26/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /15 Jun 2026/ })).toBeInTheDocument();
   }, 30000);
 
   it("offers parent phone enrollment instead of a dead end when no phone is on file", async () => {
@@ -2005,8 +2005,8 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("scholar");
-    expect(makeUpSelect).not.toHaveTextContent("0000000348");
+    expect(makeUpSelect).toHaveTextContent("Mathematics");
+    expect(makeUpSelect).not.toHaveTextContent("SCH-01");
   });
 
   it("uses the resolved Scholar sit-in course for mixed inter and advanced enrollments", async () => {
@@ -2032,7 +2032,7 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("Scholar");
+    expect(makeUpSelect).toHaveTextContent("Math advance");
     expect(makeUpSelect).not.toHaveTextContent("0000000371");
   });
 

@@ -37,11 +37,6 @@ func (s *server) createStaffAbsenceTx(
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_sessions", "At least one missed session is required")
 		return "", nil, fmt.Errorf("missed sessions required")
 	}
-	if body.SitInMethod == nil || strings.TrimSpace(*body.SitInMethod) == "" {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_method", "sit_in_method is required")
-		return "", nil, fmt.Errorf("sit-in method required")
-	}
-
 	requestedStatus := absences.StatusPending
 	if body.Status != nil {
 		statusVal := strings.TrimSpace(*body.Status)
@@ -158,7 +153,7 @@ func (s *server) createStaffAbsenceTx(
 		return "", nil, err
 	}
 	var sitInCourseID pgtype.UUID
-	if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
+	if sitInMethod.Valid && body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
 		parsed, err := s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
@@ -334,7 +329,7 @@ func (s *server) createStaffAbsenceTx(
 		createdID = id
 	}
 
-	smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
+	smsTemplate := successSMSTemplateForItems(settings, managed.Status, []successSMSItem{{row: managed, sessions: sessions, missed: missed}})
 	if smsTemplate != "" {
 		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
 			phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)

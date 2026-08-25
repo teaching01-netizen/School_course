@@ -249,10 +249,15 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 
 		// Collect notification data for post-commit delivery.
 		// SMS and email are external side-effects that must not hold the DB transaction open.
-		if len(created) > 0 && (settings.Notifications.SmsSuccessTemplate != "" && len(successSMSRecipients) > 0) || (s.deps.EmailService != nil && settings.emailSuccessConfig().Enabled) {
+		createdItems := make([]successSMSItem, 0, len(created))
+		for _, record := range created {
+			createdItems = append(createdItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
+		}
+		smsTemplate := successSMSTemplateForItems(settings, "pending", createdItems)
+		if len(created) > 0 && (smsTemplate != "" && len(successSMSRecipients) > 0) || (s.deps.EmailService != nil && settings.emailSuccessConfig().Enabled) {
 			notifyData = &batchNotificationData{
 				smsRecipients: successSMSRecipients,
-				smsTemplate:   settings.Notifications.SmsSuccessTemplate,
+				smsTemplate:   smsTemplate,
 				created:       created,
 				emailCfg:      settings.emailSuccessConfig(),
 			}
@@ -497,7 +502,7 @@ func (s *server) createAbsenceRecordTx(
 	}
 
 	var sitInCourseID pgtype.UUID
-	if item.SitInCourseID != nil && strings.TrimSpace(*item.SitInCourseID) != "" {
+	if sitInMethod.Valid && item.SitInCourseID != nil && strings.TrimSpace(*item.SitInCourseID) != "" {
 		parsed, err := s.a.ParseUUID(strings.TrimSpace(*item.SitInCourseID))
 		if err != nil {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")

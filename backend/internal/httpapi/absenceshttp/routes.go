@@ -611,7 +611,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var sitInCourseID pgtype.UUID
-		if body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
+		if sitInMethod.Valid && body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
 			sitInCourseID, err = s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
 			if err != nil {
 				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
@@ -791,22 +791,21 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Send success SMS after submission (non-critical; errors are logged only).
-		if settings.Notifications.SmsSuccessTemplate != "" {
-			if len(successSMSRecipients) > 0 {
-				sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
-				if sesErr == nil {
-					missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
-					if missedErr == nil {
-						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, missed, successSMSRecipients, s.deps.InstituteTZ)
-					} else {
-						if s.deps.Log != nil {
-							s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", item.ID, "error", missedErr)
-						}
-						sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, settings.Notifications.SmsSuccessTemplate, managed, sessions, nil, successSMSRecipients, s.deps.InstituteTZ)
+		if len(successSMSRecipients) > 0 {
+			sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
+			if sesErr == nil {
+				missed, missedErr := qtx.ManagedAbsenceMissedSessions(r.Context(), item.ID)
+				smsItems := []successSMSItem{{row: managed, sessions: sessions, missed: missed}}
+				if missedErr != nil {
+					if s.deps.Log != nil {
+						s.deps.Log.Error("failed to load missed sessions for sms", "absence_id", item.ID, "error", missedErr)
 					}
-				} else if s.deps.Log != nil {
-					s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
+					smsItems[0].missed = nil
 				}
+				smsTemplate := successSMSTemplateForItems(settings, managed.Status, smsItems)
+				sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, smsItems[0].missed, successSMSRecipients, s.deps.InstituteTZ)
+			} else if s.deps.Log != nil {
+				s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
 			}
 		}
 

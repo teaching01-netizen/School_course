@@ -25,6 +25,8 @@ type successSMSGroup struct {
 	missed   []sqldb.ManagedAbsenceSession
 }
 
+const absenceOnlySuccessSMSTemplate = "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ"
+
 func renderSuccessSMSTemplate(template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
 	return renderSuccessSMSTemplateFromItems(template, []successSMSItem{{
 		row:      row,
@@ -156,10 +158,7 @@ func successSitInSummary(row sqldb.ManagedAbsenceRow, sitInClass, sitInDateTime 
 	sitInClass = strings.TrimSpace(sitInClass)
 	sitInDateTime = strings.TrimSpace(sitInDateTime)
 	if !row.SitInMethod.Valid || (row.SitInMethod.String != "physical" && row.SitInMethod.String != "zoom") {
-		if sitInDateTime == "" {
-			return "To arrange"
-		}
-		return "To arrange (" + sitInDateTime + ")"
+		return ""
 	}
 	if sitInClass == "" || sitInClass == "Not assigned" {
 		sitInClass = "To arrange"
@@ -172,6 +171,22 @@ func successSitInSummary(row sqldb.ManagedAbsenceRow, sitInClass, sitInDateTime 
 	default:
 		return sitInClass + " (" + sitInDateTime + ")"
 	}
+}
+
+func successSMSTemplateForItems(settings absenceSettings, status string, items []successSMSItem) string {
+	if !successSMSItemsHaveSitIn(items) {
+		return absenceOnlySuccessSMSTemplate
+	}
+	return successSMSTemplateForStatus(settings, status)
+}
+
+func successSMSItemsHaveSitIn(items []successSMSItem) bool {
+	for _, item := range items {
+		if item.row.SitInMethod.Valid && (item.row.SitInMethod.String == "physical" || item.row.SitInMethod.String == "zoom") {
+			return true
+		}
+	}
+	return false
 }
 
 func successAbsenceDate(row sqldb.ManagedAbsenceRow, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
