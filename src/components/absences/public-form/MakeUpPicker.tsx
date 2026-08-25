@@ -63,6 +63,12 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         <ChevronRight className="h-5 w-5 shrink-0 text-[var(--color-wi-text-light)]" aria-hidden="true" />
       </button>
 
+      {selectedOption?.description ? (
+        <p role="status" className="text-xs text-amber-700">
+          {selectedOption.description}
+        </p>
+      ) : null}
+
       <MobileBottomSheet
         open={sheetOpen}
         title="Choose a make-up class"

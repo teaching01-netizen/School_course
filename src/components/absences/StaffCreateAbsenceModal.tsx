@@ -1972,6 +1972,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                     selectedSubjectIds,
                                                     groupLabel,
                                                     sitIn?.sit_in_course,
+                                                    [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
                                                   )}
                                                   onChange={(value) =>
                                                     handleSitInSelectForSessions(
@@ -2056,6 +2057,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 selectedSubjectIds,
                                                 groupLabel,
                                                 sitIn.sit_in_course,
+                                                [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
                                               )}
                                               onChange={(value) =>
                                                 handleSitInSelectForSessions(
