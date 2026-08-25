@@ -529,12 +529,15 @@ export default function Absences() {
       }
 
       try {
-        const res = await apiJson<{ email_sent: boolean }>(
+        const res = await apiJson<{ email_sent: boolean; queued?: boolean }>(
           "/api/v1/absences/batch-send-success-sms",
           { method: "POST", body: JSON.stringify({ ids: [specialApprovedTarget.id] }) },
         );
-        if (res.email_sent) {
-          addToast("success", "Absence marked as special approved · Email notification sent");
+        const parts: string[] = [];
+        if (res.queued) parts.push("SMS queued");
+        if (res.email_sent) parts.push("email notification sent");
+        if (parts.length > 0) {
+          addToast("success", `Absence marked as special approved · ${parts.join(" · ")}`);
         }
       } catch {
         // email send is best-effort
@@ -555,16 +558,19 @@ export default function Absences() {
     if (specialApprovedCreatedIds.length === 0) return;
     setSpecialApprovedSendingSms(true);
     try {
-      const res = await apiJson<{ sent: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
+      const res = await apiJson<{ sent: boolean; queued?: boolean; sms_queued?: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
         "/api/v1/absences/batch-send-success-sms",
         { method: "POST", body: JSON.stringify({ ids: specialApprovedCreatedIds }) }
       );
-      if (res.sent) {
+      const smsQueued = res.queued === true || res.sms_queued === true;
+      if (res.sent || smsQueued) {
         const parts: string[] = [];
         if (res.sms_sent) parts.push("SMS");
+        else if (smsQueued) parts.push("SMS queued");
         if (res.email_sent) parts.push("email");
         const label = parts.length > 0 ? parts.join(" & ") : "Notification";
-        addToast("success", `${label} sent to ${res.recipient_count} recipient(s)`);
+        const suffix = res.sms_sent ? "sent" : "queued";
+        addToast("success", `${label} ${suffix} to ${res.recipient_count} recipient(s)`);
       } else {
         addToast("error", "Notifications were not sent");
       }

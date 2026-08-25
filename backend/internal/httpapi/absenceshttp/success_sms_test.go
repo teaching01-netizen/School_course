@@ -2,17 +2,54 @@ package absenceshttp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/smartsms"
 )
+
+func TestBuildSuccessSMSOutboxPayload_preservesRenderedBatchAndRecipients(t *testing.T) {
+	row := sqldb.ManagedAbsenceRow{
+		ID:          pgtype.UUID{Bytes: uuid.MustParse("01000000-0000-0000-0000-000000000000"), Valid: true},
+		StudentName: pgtype.Text{String: "Ada", Valid: true},
+		SubjectName: pgtype.Text{String: "Mathematics", Valid: true},
+		DateFrom:    pgtype.Date{Time: time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC), Valid: true},
+		DateTo:      pgtype.Date{Time: time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+	items := []successSMSItem{{row: row}}
+
+	payloadJSON, err := buildSuccessSMSOutboxPayload("Hi {{nickname}}", items, []string{"+66811111111", "+66822222222"}, "UTC", "absence-batch-00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload struct {
+		Message    string   `json:"sms_message"`
+		Mobiles    []string `json:"sms_mobiles"`
+		CampaignNo string   `json:"campaign_no"`
+		RefNo      string   `json:"ref_no"`
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Message != "Hi Ada" {
+		t.Fatalf("queued message = %q, want rendered message", payload.Message)
+	}
+	if got, want := payload.Mobiles, []string{"+66811111111", "+66822222222"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("queued mobiles = %v, want %v", got, want)
+	}
+	if payload.CampaignNo != "absence-batch-00000000-0000-0000-0000-000000000001" || payload.RefNo != "01000000-0000-0000-0000-000000000000" {
+		t.Fatalf("queued provider identifiers = (%q, %q)", payload.CampaignNo, payload.RefNo)
+	}
+}
 
 type recordingSMSProvider struct {
 	sent []smartsms.SendRequest

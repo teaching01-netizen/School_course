@@ -820,7 +820,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 
-		// Send success SMS after submission (non-critical; errors are logged only).
 		if len(successSMSRecipients) > 0 {
 			sessions, sesErr := qtx.ManagedAbsenceSessions(r.Context(), item.ID)
 			if sesErr == nil {
@@ -833,7 +832,14 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 					smsItems[0].missed = nil
 				}
 				smsTemplate := successSMSTemplateForItems(settings, managed.Status, smsItems)
-				sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, smsItems[0].missed, successSMSRecipients, s.deps.InstituteTZ)
+				absenceID, _ := sUUIDString(item.ID)
+				if _, queueErr := enqueueSuccessSMS(
+					r.Context(), qtx, "absence_success_sms", "absence-success-sms:"+absenceID,
+					smsItems, successSMSRecipients, smsTemplate, s.deps.InstituteTZ, "absence-"+absenceID,
+				); queueErr != nil {
+					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not queue success SMS")
+					return 0, nil, queueErr
+				}
 			} else if s.deps.Log != nil {
 				s.deps.Log.Error("failed to load absence sessions for sms", "absence_id", item.ID, "error", sesErr)
 			}

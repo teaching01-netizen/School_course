@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,12 +17,18 @@ import (
 )
 
 type payload struct {
-	Student      string `json:"student"`
-	Action       string `json:"action"`
-	SMSTemplate  string `json:"sms_template"`
-	EmailSubject string `json:"email_subject"`
-	EmailBody    string `json:"email_body"`
+	Student       string   `json:"student"`
+	Action        string   `json:"action"`
+	SMSTemplate   string   `json:"sms_template"`
+	SMSMessage    string   `json:"sms_message"`
+	SMSMobiles    []string `json:"sms_mobiles"`
+	SMSCampaignNo string   `json:"campaign_no"`
+	SMSRefNo      string   `json:"ref_no"`
+	EmailSubject  string   `json:"email_subject"`
+	EmailBody     string   `json:"email_body"`
 }
+
+const notificationWorkerConcurrency = 4
 
 type Worker struct {
 	q     *sqldb.Queries
@@ -35,18 +42,26 @@ func New(q *sqldb.Queries, sms smartsms.SMSProvider, email *emailnotifier.Servic
 }
 
 func (w *Worker) Run(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := w.RunOnce(ctx); err != nil && w.log != nil {
-				w.log.Error("schedule impact notification delivery failed", "error", err)
+	var wg sync.WaitGroup
+	for range notificationWorkerConcurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := w.RunOnce(ctx); err != nil && w.log != nil {
+						w.log.Error("notification delivery failed", "error", err)
+					}
+				}
 			}
-		}
+		}()
 	}
+	wg.Wait()
 }
 
 func (w *Worker) RunOnce(ctx context.Context) error {
@@ -83,13 +98,34 @@ func decodePayload(raw []byte) (payload, error) {
 }
 
 func (w *Worker) sendSMS(ctx context.Context, recipient string, message payload) error {
-	if w.sms == nil || strings.TrimSpace(message.SMSTemplate) == "" {
+	if w.sms == nil {
 		return fmt.Errorf("SMS notification is not configured")
 	}
-	content := render(message.SMSTemplate, message)
+	mobiles := message.SMSMobiles
+	if len(mobiles) == 0 && strings.TrimSpace(recipient) != "" {
+		mobiles = []string{recipient}
+	}
+	if len(mobiles) == 0 {
+		return fmt.Errorf("SMS notification has no recipients")
+	}
+	content := message.SMSMessage
+	if strings.TrimSpace(content) == "" {
+		if strings.TrimSpace(message.SMSTemplate) == "" {
+			return fmt.Errorf("SMS notification is not configured")
+		}
+		content = render(message.SMSTemplate, message)
+	}
+	campaignNo := message.SMSCampaignNo
+	if strings.TrimSpace(campaignNo) == "" {
+		campaignNo = "schedule-impact"
+	}
+	refNo := message.SMSRefNo
+	if strings.TrimSpace(refNo) == "" {
+		refNo = "schedule-impact"
+	}
 	result, err := w.sms.SendSMS(ctx, smartsms.SendRequest{
-		CampaignNo: "schedule-impact", Campaign: "schedule-impact", Message: content,
-		Mobiles: []string{recipient}, RefNo: "schedule-impact",
+		CampaignNo: campaignNo, Campaign: campaignNo, Message: content,
+		Mobiles: mobiles, RefNo: refNo,
 	})
 	if err != nil {
 		return err

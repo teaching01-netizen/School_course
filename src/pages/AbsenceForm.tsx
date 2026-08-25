@@ -107,20 +107,23 @@ function makeUpPickerOptions(
   groupLabel: string,
   defaultSitInCourse?: SitInCourse,
   selectedSitInSessionIds: string[] = [],
+  currentValue = "",
 ): MakeUpOption[] {
   const selectedCounts = new Map<string, number>();
   for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
+  const currentIds = new Set(splitMergedSessionValue(currentValue));
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
     const conflictDescription = formatSitInSessionConflictDescription(conflicts);
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
-    const duplicateDescription = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 1)
-      ? "This sit-in session is selected for more than one absence day. Submission will be blocked."
+    const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
+    const duplicateDescription = duplicateSelection
+      ? "This sit-in session is already selected for another absence day. Choose another session."
       : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
-      disabled: conflicts.length > 0,
+      disabled: conflicts.length > 0 || Boolean(historicalDescription) || duplicateSelection,
       description: [conflictDescription, historicalDescription, duplicateDescription].filter(Boolean).join(" ") || undefined,
     };
   });
@@ -1374,7 +1377,7 @@ export default function AbsenceForm() {
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
-                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue))}
+                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn)}
                                                             onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                           />
                                                         )}
@@ -1397,7 +1400,7 @@ export default function AbsenceForm() {
                                                           id={`sit-in-${session.id}`}
                                                           label="Make-up class"
                                                           value={currentSitIn}
-                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue))}
+                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn)}
                                                           onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                         />
                                                       )}

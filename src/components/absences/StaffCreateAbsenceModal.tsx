@@ -200,9 +200,11 @@ function makeUpPickerOptions(
   groupLabel: string,
   defaultSitInCourse?: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"],
   selectedSitInSessionIds: string[] = [],
+  currentValue = "",
 ): MakeUpOption[] {
   const selectedCounts = new Map<string, number>();
   for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
+  const currentIds = new Set(splitMergedSessionValue(currentValue));
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(
       optionGroup.items,
@@ -210,13 +212,14 @@ function makeUpPickerOptions(
       selectedSubjectIds,
     );
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
-    const duplicateDescription = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 1)
-      ? "This sit-in session is selected for more than one absence day. Submission will be blocked."
+    const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
+    const duplicateDescription = duplicateSelection
+      ? "This sit-in session is already selected for another absence day. Choose another session."
       : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
-      disabled: conflicts.length > 0,
+      disabled: conflicts.length > 0 || Boolean(historicalDescription) || duplicateSelection,
       description: [formatSitInSessionConflictDescription(conflicts), historicalDescription, duplicateDescription].filter(Boolean).join(" ") || undefined,
     };
   });
@@ -1361,17 +1364,21 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       }
 
       try {
-        const res = await apiJson<{ email_sent: boolean }>(
+        const res = await apiJson<{ email_sent: boolean; queued?: boolean }>(
           "/api/v1/absences/batch-send-success-sms",
           {
             method: "POST",
             body: JSON.stringify({ ids: created }),
           },
         );
-        if (res.email_sent) {
+        if (res.email_sent || res.queued) {
+          const channels = [
+            ...(res.queued ? ["SMS queued"] : []),
+            ...(res.email_sent ? ["Email notification sent"] : []),
+          ];
           addToast(
             "success",
-            `${created.length} absence${created.length !== 1 ? "s" : ""} created · Email notification sent`,
+            `${created.length} absence${created.length !== 1 ? "s" : ""} created · ${channels.join(" · ")}`,
           );
         } else {
           addToast(
@@ -1397,24 +1404,27 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     }
     setSendingSms(true);
     try {
-      const res = await apiJson<{ sent: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
+      const res = await apiJson<{ sent: boolean; queued?: boolean; sms_queued?: boolean; sms_sent: boolean; email_sent: boolean; recipient_count: number }>(
         "/api/v1/absences/batch-send-success-sms",
         {
           method: "POST",
           body: JSON.stringify({ ids: createdAbsenceIds }),
         },
       );
-      if (!res.sent) {
+      const smsQueued = res.queued === true || res.sms_queued === true;
+      if (!res.sent && !smsQueued) {
         addToast("error", "Notifications were not sent");
         return;
       }
       const parts: string[] = [];
       if (res.sms_sent) parts.push("SMS");
+      else if (smsQueued) parts.push("SMS queued");
       if (res.email_sent) parts.push("email");
       const label = parts.length > 0 ? parts.join(" & ") : "Notification";
+      const suffix = res.sms_sent ? "sent" : "queued";
       addToast(
         "success",
-        `${label} sent to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
+        `${label} ${suffix} to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
       );
       onCreated();
     } catch (err) {
@@ -1973,6 +1983,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                     groupLabel,
                                                     sitIn?.sit_in_course,
                                                     [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
+                                                    currentSitIn,
                                                   )}
                                                   onChange={(value) =>
                                                     handleSitInSelectForSessions(
@@ -2058,6 +2069,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 groupLabel,
                                                 sitIn.sit_in_course,
                                                 [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
+                                                currentSitIn,
                                               )}
                                               onChange={(value) =>
                                                 handleSitInSelectForSessions(

@@ -431,11 +431,16 @@ func TestOutboxInsert_idempotencyKeyDeduplicates(t *testing.T) {
 		AbsenceID: fixture.absenceID, SessionVersion: 1, MessageType: "sit_in_session_moved",
 		Recipient: "+66812345678", Channel: "sms", Payload: `{}`, IdempotencyKey: key,
 	}
-	if err := q.NotificationOutboxInsert(ctx, params); err != nil {
+	firstID, err := q.NotificationOutboxEnqueue(ctx, params)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := q.NotificationOutboxInsert(ctx, params); err != nil {
+	secondID, err := q.NotificationOutboxEnqueue(ctx, params)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if firstID != secondID {
+		t.Fatalf("idempotent enqueue IDs differ: %s and %s", firstID, secondID)
 	}
 
 	var rows int

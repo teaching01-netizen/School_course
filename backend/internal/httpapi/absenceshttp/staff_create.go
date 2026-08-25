@@ -495,9 +495,19 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 		sessions, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
 		missed, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
 
-		smsSent := false
-		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
-			smsSent = sendSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, managed, sessions, missed, phones, s.deps.InstituteTZ)
+		notificationID, queueErr := enqueueSuccessSMS(
+			r.Context(), qtx, "absence_success_sms_manual", "manual-success-sms:"+id.String(),
+			[]successSMSItem{{row: managed, sessions: sessions, missed: missed}}, phones, smsTemplate,
+			s.deps.InstituteTZ, "absence-"+id.String(),
+		)
+		if queueErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not queue success SMS")
+			return 0, nil, queueErr
+		}
+		queued := notificationID.Valid
+		notificationIDString := ""
+		if queued {
+			notificationIDString, _ = sUUIDString(notificationID)
 		}
 
 		emailSent := false
@@ -512,9 +522,16 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 			s.deps.Log.Info("success email skipped: email service not configured", "absence_id", id)
 		}
 
-		return http.StatusOK, map[string]any{
-			"sent":            smsSent || emailSent,
-			"sms_sent":        smsSent,
+		statusCode := http.StatusOK
+		if queued {
+			statusCode = http.StatusAccepted
+		}
+		return statusCode, map[string]any{
+			"sent":            queued || emailSent,
+			"queued":          queued,
+			"notification_id": notificationIDString,
+			"sms_queued":      queued,
+			"sms_sent":        false,
 			"email_sent":      emailSent,
 			"recipient_count": len(phones),
 		}, nil
@@ -632,9 +649,19 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			return http.StatusOK, map[string]any{"preview": map[string]any{"phones": phones, "message": rendered}}, nil
 		}
 
-		smsSent := false
-		if strings.TrimSpace(smsTemplate) != "" && len(phones) > 0 {
-			smsSent = sendBatchSuccessSMS(r.Context(), s.deps.SMS, s.deps.Log, smsTemplate, items, phones, s.deps.InstituteTZ)
+		firstID, _ := sUUIDString(ids[0])
+		notificationID, queueErr := enqueueSuccessSMS(
+			r.Context(), qtx, "absence_success_sms_manual", "manual-batch-success-sms:"+strings.Join(body.IDs, ","),
+			items, phones, smsTemplate, s.deps.InstituteTZ, "absence-batch-"+firstID,
+		)
+		if queueErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not queue success SMS")
+			return 0, nil, queueErr
+		}
+		queued := notificationID.Valid
+		notificationIDString := ""
+		if queued {
+			notificationIDString, _ = sUUIDString(notificationID)
 		}
 
 		emailSent := false
@@ -649,9 +676,16 @@ func (s *server) handleBatchSendSuccessSMS(w http.ResponseWriter, r *http.Reques
 			s.deps.Log.Info("success email skipped: email service not configured", "absence_count", len(ids))
 		}
 
-		return http.StatusOK, map[string]any{
-			"sent":            smsSent || emailSent,
-			"sms_sent":        smsSent,
+		statusCode := http.StatusOK
+		if queued {
+			statusCode = http.StatusAccepted
+		}
+		return statusCode, map[string]any{
+			"sent":            queued || emailSent,
+			"queued":          queued,
+			"notification_id": notificationIDString,
+			"sms_queued":      queued,
+			"sms_sent":        false,
 			"email_sent":      emailSent,
 			"recipient_count": len(phones),
 			"absence_count":   len(ids),

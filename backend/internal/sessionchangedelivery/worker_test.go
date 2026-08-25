@@ -499,6 +499,35 @@ func TestRender_unicodeContentSurvives(t *testing.T) {
 	}
 }
 
+func TestWorkerSendSMS_usesQueuedBatchRecipientsAndRenderedMessage(t *testing.T) {
+	sms := &fakeSMSProvider{}
+	worker := New(nil, sms, nil, slog.Default())
+
+	err := worker.sendSMS(context.Background(), "+66810000000", payload{
+		SMSMessage:    "Warwick Institute: absence recorded",
+		SMSMobiles:    []string{"+66810000000", "+66820000000"},
+		SMSCampaignNo: "absence-batch-1",
+		SMSRefNo:      "absence-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requests := sms.recorded()
+	if len(requests) != 1 {
+		t.Fatalf("SMS sends = %d, want exactly 1", len(requests))
+	}
+	if got, want := requests[0].Mobiles, []string{"+66810000000", "+66820000000"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("mobiles = %v, want %v", got, want)
+	}
+	if requests[0].Message != "Warwick Institute: absence recorded" {
+		t.Fatalf("message = %q, want queued rendered message", requests[0].Message)
+	}
+	if requests[0].CampaignNo != "absence-batch-1" || requests[0].RefNo != "absence-1" {
+		t.Fatalf("provider identifiers = (%q, %q)", requests[0].CampaignNo, requests[0].RefNo)
+	}
+}
+
 // Current contract: unknown placeholders are left verbatim (a stricter
 // template_error failure is not implemented — see deferred template work).
 func TestRender_unknownPlaceholderLeftVerbatim(t *testing.T) {

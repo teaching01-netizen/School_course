@@ -2,6 +2,7 @@ package absenceshttp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,6 +13,13 @@ import (
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/smartsms"
 )
+
+type successSMSOutboxPayload struct {
+	Message    string   `json:"sms_message"`
+	Mobiles    []string `json:"sms_mobiles"`
+	CampaignNo string   `json:"campaign_no"`
+	RefNo      string   `json:"ref_no"`
+}
 
 type successSMSItem struct {
 	row      sqldb.ManagedAbsenceRow
@@ -308,6 +316,60 @@ func dedupePhones(phones []string) []string {
 		out = append(out, phone)
 	}
 	return out
+}
+
+func buildSuccessSMSOutboxPayload(template string, items []successSMSItem, phones []string, instituteTZ, campaignID string) (string, error) {
+	phones = dedupePhones(phones)
+	if strings.TrimSpace(template) == "" || len(phones) == 0 || len(items) == 0 {
+		return "", nil
+	}
+	loc, err := time.LoadLocation(instituteTZ)
+	if err != nil {
+		loc = time.UTC
+	}
+	absenceID, _ := sUUIDString(items[0].row.ID)
+	payload := successSMSOutboxPayload{
+		Message:    renderBatchSuccessSMSTemplate(template, items, loc),
+		Mobiles:    phones,
+		CampaignNo: campaignID,
+		RefNo:      absenceID,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode success SMS payload: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func enqueueSuccessSMS(
+	ctx context.Context,
+	q *sqldb.Queries,
+	messageType string,
+	idempotencyKey string,
+	items []successSMSItem,
+	phones []string,
+	template string,
+	instituteTZ string,
+	campaignID string,
+) (pgtype.UUID, error) {
+	var zero pgtype.UUID
+	phones = dedupePhones(phones)
+	if strings.TrimSpace(template) == "" || len(phones) == 0 || len(items) == 0 {
+		return zero, nil
+	}
+	payload, err := buildSuccessSMSOutboxPayload(template, items, phones, instituteTZ, campaignID)
+	if err != nil {
+		return zero, err
+	}
+	return q.NotificationOutboxEnqueue(ctx, sqldb.NotificationOutboxInsertParams{
+		AbsenceID:      items[0].row.ID,
+		SessionVersion: items[0].row.Version,
+		MessageType:    messageType,
+		Recipient:      phones[0],
+		Channel:        "sms",
+		Payload:        payload,
+		IdempotencyKey: idempotencyKey,
+	})
 }
 
 func sendSuccessSMS(

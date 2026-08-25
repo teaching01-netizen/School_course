@@ -247,19 +247,30 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		// Collect notification data for post-commit delivery.
-		// SMS and email are external side-effects that must not hold the DB transaction open.
 		createdItems := make([]successSMSItem, 0, len(created))
 		for _, record := range created {
 			createdItems = append(createdItems, successSMSItem{row: record.row, sessions: record.sessions, missed: record.missed})
 		}
 		smsTemplate := successSMSTemplateForItems(settings, "pending", createdItems)
-		if len(created) > 0 && (smsTemplate != "" && len(successSMSRecipients) > 0) || (s.deps.EmailService != nil && settings.emailSuccessConfig().Enabled) {
+		if len(created) > 0 && smsTemplate != "" && len(successSMSRecipients) > 0 {
+			firstID, _ := sUUIDString(created[0].row.ID)
+			queuedIDs := make([]string, 0, len(created))
+			for _, record := range created {
+				id, _ := sUUIDString(record.row.ID)
+				queuedIDs = append(queuedIDs, id)
+			}
+			if _, queueErr := enqueueSuccessSMS(
+				r.Context(), qtx, "absence_success_sms", "absence-success-batch-sms:"+strings.Join(queuedIDs, ","),
+				createdItems, successSMSRecipients, smsTemplate, s.deps.InstituteTZ, "absence-batch-"+firstID,
+			); queueErr != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not queue success SMS")
+				return 0, nil, queueErr
+			}
+		}
+		if s.deps.EmailService != nil && settings.emailSuccessConfig().Enabled {
 			notifyData = &batchNotificationData{
-				smsRecipients: successSMSRecipients,
-				smsTemplate:   smsTemplate,
-				created:       created,
-				emailCfg:      settings.emailSuccessConfig(),
+				created:  created,
+				emailCfg: settings.emailSuccessConfig(),
 			}
 		}
 
@@ -279,8 +290,6 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 	}
 
 	s.publishAbsenceChanges(createdIDs)
-	// Schedule notifications AFTER the idempotent transaction has committed.
-	// Delivery is detached so external APIs cannot delay the HTTP response.
 	s.sendBatchNotifications(notifyData)
 }
 

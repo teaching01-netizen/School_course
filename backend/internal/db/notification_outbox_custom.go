@@ -6,6 +6,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+func (q *Queries) NotificationOutboxEnqueue(ctx context.Context, arg NotificationOutboxInsertParams) (pgtype.UUID, error) {
+	var id pgtype.UUID
+	err := q.db.QueryRow(ctx, `
+		INSERT INTO notification_outbox (
+			absence_id, assignment_id, session_version, message_type,
+			recipient, channel, payload, idempotency_key
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::text::jsonb, $8)
+		ON CONFLICT (idempotency_key) DO UPDATE
+		SET idempotency_key = EXCLUDED.idempotency_key
+		RETURNING id
+	`, arg.AbsenceID, arg.AssignmentID, arg.SessionVersion, arg.MessageType,
+		arg.Recipient, arg.Channel, arg.Payload, arg.IdempotencyKey).Scan(&id)
+	return id, err
+}
+
 type NotificationOutboxStatusRow struct {
 	ID                pgtype.UUID
 	AbsenceID         pgtype.UUID
