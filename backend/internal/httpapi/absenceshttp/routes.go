@@ -1,6 +1,7 @@
 package absenceshttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
@@ -30,16 +32,61 @@ type server struct {
 }
 
 type sessionRow struct {
-	ID          string
-	StartAt     string
-	EndAt       string
-	CourseID    string
-	CourseCode  string
-	CourseName  string
-	SubjectID   string
-	SubjectCode string
-	SubjectName string
-	TeacherName string
+	ID            string
+	StartAt       string
+	EndAt         string
+	CourseID      string
+	CourseCode    string
+	CourseName    string
+	SubjectID     string
+	SubjectCode   string
+	SubjectName   string
+	TeacherName   string
+	MergedStartAt string
+	MergedEndAt   string
+}
+
+func mergedSessionRanges(ctx context.Context, db *pgxpool.Pool, from, to time.Time, zone string) (map[string][2]string, error) {
+	rows, err := db.Query(ctx, `
+		WITH merged_sessions AS (
+			SELECT source.id,
+			       source.start_at,
+			       source.end_at,
+			       source_member.group_id
+			FROM sessions source
+			JOIN course_merge_group_members source_member ON source_member.course_id = source.course_id
+			WHERE source.deleted_at IS NULL
+			  AND source.start_at >= $1
+			  AND source.start_at < $2
+		)
+		SELECT source.id,
+		       MIN(sibling.start_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $3)::date),
+		       MAX(sibling.end_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $3)::date)
+		FROM merged_sessions source
+		JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source.group_id
+		JOIN sessions sibling ON sibling.course_id = sibling_member.course_id
+		WHERE sibling.deleted_at IS NULL
+		  AND sibling.start_at >= $1
+		  AND sibling.start_at < $2
+	`, from, to, zone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][2]string)
+	for rows.Next() {
+		var id pgtype.UUID
+		var start, end time.Time
+		if err := rows.Scan(&id, &start, &end); err != nil {
+			return nil, err
+		}
+		idStr, err := sUUIDString(id)
+		if err != nil {
+			return nil, err
+		}
+		result[idStr] = [2]string{start.UTC().Format(time.RFC3339Nano), end.UTC().Format(time.RFC3339Nano)}
+	}
+	return result, rows.Err()
 }
 
 func sessionsInRangeSelectSQL() string {
@@ -1272,6 +1319,18 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 		return
 	}
+	mergedRanges, err := mergedSessionRanges(r.Context(), s.deps.DB, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return
+	}
+	for i := range sessions {
+		if merged, ok := mergedRanges[sessions[i].ID]; ok {
+			sessions[i].MergedStartAt = merged[0]
+			sessions[i].MergedEndAt = merged[1]
+		}
+	}
 
 	// Query session IDs already covered by existing absences
 	absentRows, err := s.deps.DB.Query(r.Context(), `
@@ -1410,16 +1469,18 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	if includeAllSubjects {
 		for _, sess := range sessions {
 			brief := sessionBrief{
-				ID:          sess.ID,
-				StartAt:     sess.StartAt,
-				EndAt:       sess.EndAt,
-				CourseID:    sess.CourseID,
-				ClassName:   sess.CourseName,
-				CourseName:  sess.CourseName,
-				CourseCode:  sess.CourseCode,
-				SubjectCode: sess.SubjectCode,
-				SubjectName: sess.SubjectName,
-				TeacherName: sess.TeacherName,
+				ID:            sess.ID,
+				StartAt:       sess.StartAt,
+				EndAt:         sess.EndAt,
+				MergedStartAt: sess.MergedStartAt,
+				MergedEndAt:   sess.MergedEndAt,
+				CourseID:      sess.CourseID,
+				ClassName:     sess.CourseName,
+				CourseName:    sess.CourseName,
+				CourseCode:    sess.CourseCode,
+				SubjectCode:   sess.SubjectCode,
+				SubjectName:   sess.SubjectName,
+				TeacherName:   sess.TeacherName,
 			}
 			if _, blocked := blockedSitInSessionIDs[sess.ID]; blocked {
 				briefCopy := brief

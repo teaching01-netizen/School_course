@@ -211,21 +211,35 @@ func uniqueSessionDateLabels(sessions []sqldb.ManagedAbsenceSession, loc *time.L
 }
 
 func successSitInDateTime(sessions []sqldb.ManagedAbsenceSession, loc *time.Location) string {
-	seen := map[string]bool{}
-	labels := make([]string, 0, len(sessions))
+	type dayRange struct {
+		start time.Time
+		end   time.Time
+	}
+	ranges := map[string]dayRange{}
+	order := make([]string, 0, len(sessions))
 	for _, session := range sessions {
-		if !session.StartAt.Valid {
+		if !session.StartAt.Valid || !session.EndAt.Valid {
 			continue
 		}
-		label := formatSMSDateTime(session.StartAt.Time, loc)
-		if session.EndAt.Valid {
-			label += " - " + session.EndAt.Time.In(loc).Format("15:04")
-		}
-		if seen[label] {
+		day := session.StartAt.Time.In(loc).Format("2006-01-02")
+		current, ok := ranges[day]
+		if !ok {
+			ranges[day] = dayRange{start: session.StartAt.Time, end: session.EndAt.Time}
+			order = append(order, day)
 			continue
 		}
-		seen[label] = true
-		labels = append(labels, label)
+		if session.StartAt.Time.Before(current.start) {
+			current.start = session.StartAt.Time
+		}
+		if session.EndAt.Time.After(current.end) {
+			current.end = session.EndAt.Time
+		}
+		ranges[day] = current
+	}
+	labels := make([]string, 0, len(order))
+	for _, day := range order {
+		rangeForDay := ranges[day]
+		labels = append(labels, formatSMSDateTime(rangeForDay.start, loc)+" - "+rangeForDay.end.In(loc).Format("15:04"))
 	}
 	return strings.Join(labels, ", ")
 }

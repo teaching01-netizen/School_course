@@ -42,8 +42,9 @@ type satVerbalUnavailableSession struct {
 }
 
 type satVerbalSessionOptions struct {
-	Available   []satVerbalAvailableSession
-	Unavailable []satVerbalUnavailableSession
+	Available    []satVerbalAvailableSession
+	Unavailable  []satVerbalUnavailableSession
+	MergedRanges map[string]struct{ StartAt, EndAt string }
 }
 
 type satVerbalResolveInput struct {
@@ -192,6 +193,7 @@ func satVerbalResolvePriorities(
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
 			options := satVerbalSessionOptionsForTargetWithBlockedSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, rule.LastClassExcluded, notBefore, input.Cutoff, instituteLoc, offered, input.BlockedSitInSessionIDs)
+			options.MergedRanges = mergedSessionRangesForTarget(ctx, input, target, targetSessions, instituteLoc)
 			if len(options.Available) == 0 && len(options.Unavailable) == 0 {
 				continue
 			}
@@ -206,6 +208,55 @@ func satVerbalResolvePriorities(
 		}
 	}
 	return priorities, nil
+}
+
+func mergedSessionRangesForTarget(ctx context.Context, input satVerbalResolveInput, target sqldb.SubjectCourseV2, targetSessions []sqldb.SessionInRange, loc *time.Location) map[string]struct{ StartAt, EndAt string } {
+	ranges := make(map[string]struct{ StartAt, EndAt string })
+	if !target.MergeGroupID.Valid {
+		return ranges
+	}
+	allSessions := append([]sqldb.SessionInRange(nil), targetSessions...)
+	for _, course := range input.AllCourses {
+		if course.ID == target.ID || !course.MergeGroupID.Valid || course.MergeGroupID != target.MergeGroupID {
+			continue
+		}
+		sessions, err := input.LoadSessions(ctx, course.ID)
+		if err == nil {
+			allSessions = append(allSessions, sessions...)
+		}
+	}
+	dayRanges := make(map[string]struct{ StartAt, EndAt time.Time })
+	for _, session := range allSessions {
+		if !session.StartAt.Valid || !session.EndAt.Valid {
+			continue
+		}
+		day := session.StartAt.Time.In(loc).Format("2006-01-02")
+		current, ok := dayRanges[day]
+		if !ok {
+			current = struct{ StartAt, EndAt time.Time }{StartAt: session.StartAt.Time, EndAt: session.EndAt.Time}
+		} else {
+			if session.StartAt.Time.Before(current.StartAt) {
+				current.StartAt = session.StartAt.Time
+			}
+			if session.EndAt.Time.After(current.EndAt) {
+				current.EndAt = session.EndAt.Time
+			}
+		}
+		dayRanges[day] = current
+	}
+	for _, session := range allSessions {
+		id := uuidStringOrZero(session.ID)
+		if id == "" || !session.StartAt.Valid {
+			continue
+		}
+		if current, ok := dayRanges[session.StartAt.Time.In(loc).Format("2006-01-02")]; ok {
+			ranges[id] = struct{ StartAt, EndAt string }{
+				StartAt: current.StartAt.Format(time.RFC3339),
+				EndAt:   current.EndAt.Format(time.RFC3339),
+			}
+		}
+	}
+	return ranges
 }
 
 func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) ([]SitInPriorityResult, int, bool) {
@@ -275,17 +326,31 @@ func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCours
 		out.SitInCourse = sitInCourseInfo(target, mergeGroupName)
 	}
 	for _, availableSession := range options.Available {
-		out.Available = append(out.Available, toSessionBriefForCourseWithMissedSession(availableSession, target))
+		brief := toSessionBriefForCourseWithMissedSession(availableSession, target)
+		if merged, ok := options.MergedRanges[brief.ID]; ok {
+			brief.MergedStartAt, brief.MergedEndAt = merged.StartAt, merged.EndAt
+		}
+		out.Available = append(out.Available, brief)
 	}
 	for _, unavailable := range options.Unavailable {
-		out.Unavailable = append(out.Unavailable, toUnavailableSessionBrief(unavailable, target))
+		brief := toUnavailableSessionBrief(unavailable, target)
+		if brief.Session != nil {
+			if merged, ok := options.MergedRanges[brief.Session.ID]; ok {
+				brief.Session.MergedStartAt, brief.Session.MergedEndAt = merged.StartAt, merged.EndAt
+			}
+		}
+		out.Unavailable = append(out.Unavailable, brief)
 	}
 	preSelectCount := missedCount
 	if preSelectCount > len(options.Available) {
 		preSelectCount = len(options.Available)
 	}
 	for _, availableSession := range options.Available[:preSelectCount] {
-		out.PreSelected = append(out.PreSelected, toSessionBriefForCourseWithMissedSession(availableSession, target))
+		brief := toSessionBriefForCourseWithMissedSession(availableSession, target)
+		if merged, ok := options.MergedRanges[brief.ID]; ok {
+			brief.MergedStartAt, brief.MergedEndAt = merged.StartAt, merged.EndAt
+		}
+		out.PreSelected = append(out.PreSelected, brief)
 	}
 	return out
 }

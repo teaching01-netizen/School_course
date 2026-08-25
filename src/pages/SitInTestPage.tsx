@@ -250,7 +250,9 @@ function getSitInSessionLabel(
     session.course_code?.trim() ||
     fallbackSubjectName ||
     sitInCourse?.code?.trim();
-  return `${className} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+  const start = session.merged_start_at?.trim() || session.start_at;
+  const end = session.merged_end_at?.trim() || session.end_at;
+  return `${className} — ${formatDate(dayKey(session))} ${formatTime(start)}-${formatTime(end)}`;
 }
 
 function getSitInSessionGroupLabel(

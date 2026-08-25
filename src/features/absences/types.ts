@@ -357,6 +357,8 @@ export type SitInUnavailableSession = {
     id: string;
     start_at: string;
     end_at: string;
+    merged_start_at?: string | null;
+    merged_end_at?: string | null;
     course_id?: string | null;
     missed_session_id?: string | null;
     class_name?: string | null;
@@ -388,6 +390,8 @@ export type SitInPriority = {
     id: string;
     start_at: string;
     end_at: string;
+    merged_start_at?: string | null;
+    merged_end_at?: string | null;
     course_id?: string | null;
     missed_session_id?: string | null;
     class_name?: string | null;
@@ -421,6 +425,8 @@ export type SitInSessionInfo = {
     id: string;
     start_at: string;
     end_at: string;
+    merged_start_at?: string | null;
+    merged_end_at?: string | null;
     course_id?: string | null;
     missed_session_id?: string | null;
     class_name?: string | null;

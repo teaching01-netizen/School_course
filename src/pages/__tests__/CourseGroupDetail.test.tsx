@@ -70,6 +70,8 @@ describe("CourseGroupDetail", () => {
     expect(screen.getAllByText("SAT-W").length).toBeGreaterThan(1);
     expect(screen.getByText("Room 101")).toBeInTheDocument();
     expect(screen.getByText("Not set")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Merged time" })).toBeInTheDocument();
+    expect(screen.getAllByText("13:00–16:20")).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "Open source course" })[0]).toHaveAttribute("href", "/courses/course-reading");
   });
 

@@ -97,6 +97,8 @@ type sessionBrief struct {
 	ID              string `json:"id"`
 	StartAt         string `json:"start_at"`
 	EndAt           string `json:"end_at"`
+	MergedStartAt   string `json:"merged_start_at,omitempty"`
+	MergedEndAt     string `json:"merged_end_at,omitempty"`
 	CourseID        string `json:"course_id,omitempty"`
 	MissedSessionID string `json:"missed_session_id,omitempty"`
 	ClassName       string `json:"class_name,omitempty"`

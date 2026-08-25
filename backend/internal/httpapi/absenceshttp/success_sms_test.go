@@ -141,6 +141,17 @@ func TestSendSuccessSMS_FormatsMissedAndSitInSessionsInInstituteTimezone(t *test
 	}
 }
 
+func TestSuccessSitInDateTimeMergesSameDaySourceSessions(t *testing.T) {
+	sessions := []sqldb.ManagedAbsenceSession{
+		{StartAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 6, 6, 0, 0, 0, time.UTC), Valid: true}, EndAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 6, 7, 40, 0, 0, time.UTC), Valid: true}},
+		{StartAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 6, 7, 40, 0, 0, time.UTC), Valid: true}, EndAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 6, 9, 20, 0, 0, time.UTC), Valid: true}},
+	}
+
+	if got := successSitInDateTime(sessions, time.FixedZone("ICT", 7*60*60)); got != "6 Sep, 13:00 - 16:20" {
+		t.Fatalf("merged sit-in time = %q, want %q", got, "6 Sep, 13:00 - 16:20")
+	}
+}
+
 func TestSendSuccessSMS_CampaignEqualsCampaignNo(t *testing.T) {
 	mock := &recordingSMSProvider{}
 	row := sqldb.ManagedAbsenceRow{

@@ -20,7 +20,7 @@ import {
 } from "../features/courses/api/courseApi";
 import type { CourseGroup } from "../features/courses/types";
 import { fmtDuration, minutesBetween } from "../features/scheduling/domain/time";
-import { formatUTCToZone } from "../utils/timezone";
+import { formatUTCToZone, utcISOToZoneDate } from "../utils/timezone";
 
 const DEFAULT_TIME_ZONE = "Asia/Bangkok";
 
@@ -34,6 +34,22 @@ function displayDate(value: string, zone: string): string {
 
 function displayTime(value: string, zone: string): string {
   return formatUTCToZone(value, zone, "HH:mm") ?? value.slice(11, 16);
+}
+
+function mergedTimeByDate(sessions: CourseGroupSessions[], zone: string): Map<string, { start_at: string; end_at: string }> {
+  const ranges = new Map<string, { start_at: string; end_at: string }>();
+  for (const session of sessions) {
+    const date = utcISOToZoneDate(session.start_at, zone);
+    if (!date) continue;
+    const current = ranges.get(date);
+    if (!current) {
+      ranges.set(date, { start_at: session.start_at, end_at: session.end_at });
+      continue;
+    }
+    if (Date.parse(session.start_at) < Date.parse(current.start_at)) current.start_at = session.start_at;
+    if (Date.parse(session.end_at) > Date.parse(current.end_at)) current.end_at = session.end_at;
+  }
+  return ranges;
 }
 
 export default function CourseGroupDetail() {
@@ -52,6 +68,7 @@ export default function CourseGroupDetail() {
   const [unmerging, setUnmerging] = useState(false);
 
   const roomByID = useMemo(() => new Map(rooms.map((room) => [room.id, room.name])), [rooms]);
+  const mergedTimeBySessionDate = useMemo(() => mergedTimeByDate(sessions, zone), [sessions, zone]);
 
   function openEditName() {
     if (!group) return;
@@ -200,6 +217,7 @@ export default function CourseGroupDetail() {
           <h2 id="merged-schedule-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Schedule</h2>
           <span className="text-sm text-[var(--color-wi-text-light)]">{sessions.length} sessions · TZ: {zone}</span>
         </div>
+        <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">Merged time shows the full daily span across this merged course; source times remain listed per course below.</p>
         <div className="overflow-x-auto rounded-md border border-[var(--color-wi-line)]">
           <table className="w-full min-w-[760px] text-[13px]">
             <caption className="sr-only">Combined schedule for {group.name}</caption>
@@ -209,6 +227,7 @@ export default function CourseGroupDetail() {
                 <th scope="col" className="px-4 py-3 font-semibold">Begin</th>
                 <th scope="col" className="px-4 py-3 font-semibold">End</th>
                 <th scope="col" className="px-4 py-3 font-semibold">Duration</th>
+                <th scope="col" className="px-4 py-3 font-semibold">Merged time</th>
                 <th scope="col" className="px-4 py-3 font-semibold">Source</th>
                 <th scope="col" className="px-4 py-3 font-semibold">Teacher</th>
                 <th scope="col" className="px-4 py-3 font-semibold">Classroom</th>
@@ -217,12 +236,16 @@ export default function CourseGroupDetail() {
             <tbody>
               {sessions.map((session, index) => {
                 const duration = minutesBetween(session.start_at, session.end_at);
+                const mergedRange = mergedTimeBySessionDate.get(utcISOToZoneDate(session.start_at, zone) ?? "");
                 return (
                   <tr key={session.id} className={`border-b border-[var(--color-wi-line)] last:border-0 ${index % 2 === 1 ? "bg-[var(--color-wi-row-alt)]/40" : "bg-white"}`}>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-[var(--color-wi-text)]">{displayDate(session.start_at, zone)}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[var(--color-wi-text-light)]">{displayTime(session.start_at, zone)}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[var(--color-wi-text-light)]">{displayTime(session.end_at, zone)}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[var(--color-wi-text-light)]">{duration === null ? "—" : fmtDuration(duration)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[var(--color-wi-primary)]">
+                      {mergedRange ? `${displayTime(mergedRange.start_at, zone)}–${displayTime(mergedRange.end_at, zone)}` : "—"}
+                    </td>
                     <td className="px-4 py-3"><Link to={`/courses/${session.course_id}`} className="font-mono text-xs text-[var(--color-wi-primary)] hover:underline">{session.course_code}</Link></td>
                     <td className="px-4 py-3 text-[var(--color-wi-text-light)]">{session.teacher_name}</td>
                     <td className="px-4 py-3 text-[var(--color-wi-text-light)]">{session.room_id ? roomByID.get(session.room_id) ?? "Unknown" : "Not set"}</td>

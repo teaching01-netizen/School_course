@@ -6,6 +6,12 @@ export type SitInAvailableSession = NonNullable<NonNullable<SubjectSessions["sit
 export type SitInCourse = NonNullable<SubjectSessions["sit_in"]>["sit_in_course"];
 type SitInPriority = NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number];
 
+function sessionTimeRange(session: SitInAvailableSession): string {
+  const start = session.merged_start_at?.trim() || session.start_at;
+  const end = session.merged_end_at?.trim() || session.end_at;
+  return `${formatTime(start)}-${formatTime(end)}`;
+}
+
 export function resolveSitInSubjectName(sitInCourse: SitInCourse, allSubjects: SubjectSessions[]): string | undefined {
   return sitInCourse?.merge_group_name?.trim() || sitInCourse?.subject_name?.trim() || allSubjects.find(s => s.course_id === sitInCourse?.id)?.subject_name?.trim();
 }
@@ -357,7 +363,7 @@ export function getSitInSessionLabel(
     ? `${subjectName} — ${className}`
     : subjectName || className || fallbackSubjectName;
   const teacher = resolveSitInCourseTeacher(sitInCourse, allSubjects) ?? session.teacher_name;
-  return `${appendTeacher(label, teacher)} — ${formatDate(dayKey(session))} ${formatTime(session.start_at)}-${formatTime(session.end_at)}`;
+  return `${appendTeacher(label, teacher)} — ${formatDate(dayKey(session))} ${sessionTimeRange(session)}`;
 }
 
 export function getSitInSessionGroupLabel(
