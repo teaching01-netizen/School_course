@@ -1260,8 +1260,8 @@ func defaultAbsenceSettings() absenceSettings {
 		Notifications: absenceNotificationsSettings{
 			SmsParentEnabled:           true,
 			SmsParentTemplate:          "Your Warwick verification code is {{code}}.",
-			SmsSuccessTemplate:         "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} และมีกำหนดเข้าเรียนชดเชย {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
-			SmsSpecialApprovedTemplate: "Warwick Institute: {{nickname}} จะมีเรียนชดเชย {{absence_summary}} และมีกำหนดเข้าเรียน {{sit_in_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ",
+			SmsSuccessTemplate:         successSMSDefaultTemplate,
+			SmsSpecialApprovedTemplate: successSMSSpecialApprovedTemplate,
 			EmailSuccessEnabled:        false,
 			EmailSuccessSubject:        defaultEmailSuccessConfig().Subject,
 			EmailSuccessBody:           defaultEmailSuccessConfig().Body,

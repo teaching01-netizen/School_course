@@ -455,6 +455,59 @@ func TestRenderBatchSuccessSMSTemplate_GroupsMergedCourseItems(t *testing.T) {
 	}
 }
 
+func TestRenderBatchSuccessSMSTemplate_PairsEachAbsenceWithItsOwnMakeUp(t *testing.T) {
+	items := []successSMSItem{
+		{
+			row: sqldb.ManagedAbsenceRow{
+				SubjectName:      pgtype.Text{String: "SAT Math : Rank 3 C3", Valid: true},
+				SitInMethod:      pgtype.Text{String: "physical", Valid: true},
+				SitInSubjectName: pgtype.Text{String: "SAT Math : Rank 2 C3", Valid: true},
+			},
+			sessions: []sqldb.ManagedAbsenceSession{{
+				StartAt:       pgtype.Timestamptz{Time: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC), Valid: true},
+				EndAt:         pgtype.Timestamptz{Time: time.Date(2026, 8, 24, 11, 40, 0, 0, time.UTC), Valid: true},
+				MergedStartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC), Valid: true},
+				MergedEndAt:   pgtype.Timestamptz{Time: time.Date(2026, 8, 24, 13, 20, 0, 0, time.UTC), Valid: true},
+			}},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+		{
+			row: sqldb.ManagedAbsenceRow{
+				SubjectName: pgtype.Text{String: "CU-ATS Chemistry Advanced (Sep - Nov)", Valid: true},
+			},
+			missed: []sqldb.ManagedAbsenceSession{{
+				StartAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC), Valid: true},
+			}},
+		},
+	}
+
+	got := renderBatchSuccessSMSTemplate("{{absence_pair_summary}}", items, time.UTC)
+	want := "1) ลาเรียน: SAT Math : Rank 3 C3 (30 Aug 2026)\n   ชดเชย: SAT Math : Rank 2 C3 (24 Aug, 10:00 - 13:20)\n\n2) ลาเรียน: CU-ATS Chemistry Advanced (Sep - Nov) (5 Sep 2026)"
+	if got != want {
+		t.Fatalf("paired summary = %q, want %q", got, want)
+	}
+}
+
+func TestRenderSuccessSMSTemplate_PairedPhysicalAbsenceWithoutSelectedSession(t *testing.T) {
+	item := successSMSItem{
+		row: sqldb.ManagedAbsenceRow{
+			SubjectName: pgtype.Text{String: "SAT Math : Rank 3 C3", Valid: true},
+			SitInMethod: pgtype.Text{String: "physical", Valid: true},
+		},
+		missed: []sqldb.ManagedAbsenceSession{{
+			StartAt: pgtype.Timestamptz{Time: time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC), Valid: true},
+		}},
+	}
+
+	got := renderSuccessSMSTemplate("{{absence_pair_summary}}", item.row, nil, item.missed, time.UTC)
+	want := "ลาเรียน: SAT Math : Rank 3 C3 (30 Aug 2026)\n   ชดเชย: ยังไม่ได้เลือก"
+	if got != want {
+		t.Fatalf("unselected make-up summary = %q, want %q", got, want)
+	}
+}
+
 func TestSuccessSMSTemplateForItems_NoSitInUsesAbsenceOnlyMessage(t *testing.T) {
 	settings := defaultAbsenceSettings()
 	items := []successSMSItem{{row: sqldb.ManagedAbsenceRow{SitInMethod: pgtype.Text{Valid: false}}}}
@@ -466,6 +519,31 @@ func TestSuccessSMSTemplateForItems_NoSitInUsesAbsenceOnlyMessage(t *testing.T) 
 	message := renderBatchSuccessSMSTemplate(got, items, time.UTC)
 	if strings.Contains(message, "ชดเชย") || strings.Contains(message, "sit_in") {
 		t.Fatalf("absence-only SMS contains sit-in content: %q", message)
+	}
+	if !strings.Contains(got, "{{absence_pair_summary}}") {
+		t.Fatalf("absence-only template does not use paired summary: %q", got)
+	}
+}
+
+func TestDefaultSuccessSMSTemplatesUsePairedSummary(t *testing.T) {
+	settings := defaultAbsenceSettings()
+	for name, template := range map[string]string{
+		"normal":  settings.Notifications.SmsSuccessTemplate,
+		"special": settings.Notifications.SmsSpecialApprovedTemplate,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(template, "{{absence_pair_summary}}") {
+				t.Fatalf("template = %q, want absence_pair_summary placeholder", template)
+			}
+			if name == "special" {
+				if !strings.Contains(template, "มีเรียนชดเชย") {
+					t.Fatalf("special template = %q, want มีเรียนชดเชย wording", template)
+				}
+				if strings.Contains(template, "จะมีเรียนชดเชย") {
+					t.Fatalf("special template still uses จะมีเรียนชดเชย wording: %q", template)
+				}
+			}
+		})
 	}
 }
 

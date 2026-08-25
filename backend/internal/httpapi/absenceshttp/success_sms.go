@@ -33,7 +33,11 @@ type successSMSGroup struct {
 	missed   []sqldb.ManagedAbsenceSession
 }
 
-const absenceOnlySuccessSMSTemplate = "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน {{absence_summary}} ทางสถาบันจึงเรียนมาเพื่อโปรดทราบ"
+const (
+	successSMSDefaultTemplate         = "Warwick Institute: {{nickname}} ได้แจ้งลาเรียน\n\n{{absence_pair_summary}}\n\nทางสถาบันจึงเรียนมาเพื่อโปรดทราบ"
+	successSMSSpecialApprovedTemplate = "Warwick Institute: {{nickname}} มีเรียนชดเชย\n\n{{absence_pair_summary}}\n\nทางสถาบันจึงเรียนมาเพื่อโปรดทราบ"
+	absenceOnlySuccessSMSTemplate     = successSMSDefaultTemplate
+)
 
 func renderSuccessSMSTemplate(template string, row sqldb.ManagedAbsenceRow, sessions []sqldb.ManagedAbsenceSession, missed []sqldb.ManagedAbsenceSession, loc *time.Location) string {
 	return renderSuccessSMSTemplateFromItems(template, []successSMSItem{{
@@ -104,13 +108,14 @@ func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map
 	}
 	if len(items) == 0 {
 		return map[string]string{
-			"{{nickname}}":         "",
-			"{{class_name}}":       "",
-			"{{absence_date}}":     "",
-			"{{sit_in_class}}":     "",
-			"{{sit_in_date_time}}": "",
-			"{{absence_summary}}":  "",
-			"{{sit_in_summary}}":   "",
+			"{{nickname}}":             "",
+			"{{absence_pair_summary}}": "",
+			"{{class_name}}":           "",
+			"{{absence_date}}":         "",
+			"{{sit_in_class}}":         "",
+			"{{sit_in_date_time}}":     "",
+			"{{absence_summary}}":      "",
+			"{{sit_in_summary}}":       "",
 		}
 	}
 
@@ -137,14 +142,55 @@ func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map
 	}
 
 	return map[string]string{
-		"{{nickname}}":         textOr(items[0].row.StudentName, items[0].row.Wcode),
-		"{{class_name}}":       joinSMSParts(classNames, ", "),
-		"{{absence_date}}":     joinSMSParts(absenceDates, ", "),
-		"{{sit_in_class}}":     joinSMSParts(sitInClasses, ", "),
-		"{{sit_in_date_time}}": joinSMSParts(sitInDateTimes, ", "),
-		"{{absence_summary}}":  joinSMSParts(absenceSummaries, "; "),
-		"{{sit_in_summary}}":   joinSMSParts(sitInSummaries, "; "),
+		"{{nickname}}":             textOr(items[0].row.StudentName, items[0].row.Wcode),
+		"{{absence_pair_summary}}": successSMSPairSummary(items, loc),
+		"{{class_name}}":           joinSMSParts(classNames, ", "),
+		"{{absence_date}}":         joinSMSParts(absenceDates, ", "),
+		"{{sit_in_class}}":         joinSMSParts(sitInClasses, ", "),
+		"{{sit_in_date_time}}":     joinSMSParts(sitInDateTimes, ", "),
+		"{{absence_summary}}":      joinSMSParts(absenceSummaries, "; "),
+		"{{sit_in_summary}}":       joinSMSParts(sitInSummaries, "; "),
 	}
+}
+
+func successSMSPairSummary(items []successSMSItem, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
+	blocks := make([]string, 0, len(items))
+	for index, item := range items {
+		className := textOr(item.row.MergeGroupName, textOr(item.row.SubjectName, item.row.CourseName))
+		absenceDate := successAbsenceDate(item.row, item.missed, loc)
+		lines := []string{successSMSPairLine("ลาเรียน", className, absenceDate)}
+
+		if item.row.SitInMethod.Valid && (item.row.SitInMethod.String == "physical" || item.row.SitInMethod.String == "zoom") {
+			sitInClass := successSitInClass(item.row)
+			sitInDateTime := successSitInDateTime(item.sessions, loc)
+			if sitInClass == "" || sitInClass == "Not assigned" {
+				lines = append(lines, "   ชดเชย: ยังไม่ได้เลือก")
+			} else {
+				lines = append(lines, "   "+successSMSPairLine("ชดเชย", sitInClass, sitInDateTime))
+			}
+		}
+
+		block := strings.Join(lines, "\n")
+		if len(items) > 1 {
+			block = fmt.Sprintf("%d) %s", index+1, block)
+		}
+		blocks = append(blocks, block)
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
+func successSMSPairLine(label, value, detail string) string {
+	line := strings.TrimSpace(label)
+	if value = strings.TrimSpace(value); value != "" {
+		line += ": " + value
+	}
+	if detail = strings.TrimSpace(detail); detail != "" {
+		line += " (" + detail + ")"
+	}
+	return line
 }
 
 func successAbsenceSummary(className, absenceDate string) string {

@@ -213,12 +213,12 @@ export function AbsenceFormEditor({
             <label className="block text-sm">
               Success SMS template (sent to parent and student after submission)
               <textarea className="mt-1 block w-full rounded-sm border border-wi-line p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_success_template ?? ""}               onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_success_template: e.target.value }) })} />
-              <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
+              <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{absence_pair_summary}}"}, {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
             <label className="block text-sm">
               Special approved SMS template
               <textarea className="mt-1 block w-full rounded-sm border border-wi-line p-2 text-sm" maxLength={500} rows={3} value={settings.notifications?.sms_special_approved_template ?? ""} onChange={(e) => onChange({ ...settings, notifications: notificationsWith({ sms_special_approved_template: e.target.value }) })} />
-              <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
+              <span className="mt-1 text-xs text-[var(--color-wi-text-light)]">Placeholders: {"{{absence_pair_summary}}"}, {"{{nickname}}"}, {"{{absence_summary}}"}, {"{{sit_in_summary}}"}, {"{{class_name}}"}, {"{{absence_date}}"}, {"{{sit_in_class}}"}, {"{{sit_in_date_time}}"}</span>
             </label>
           </div>
         </section>

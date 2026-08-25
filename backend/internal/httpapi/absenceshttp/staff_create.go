@@ -480,7 +480,10 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 
-		smsTemplate := successSMSTemplateForStatus(settings, managed.Status)
+		sessions, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
+		missed, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
+		smsItems := []successSMSItem{{row: managed, sessions: sessions, missed: missed}}
+		smsTemplate := successSMSTemplateForItems(settings, managed.Status, smsItems)
 
 		contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), managed.Wcode)
 		if contactErr != nil && s.deps.Log != nil {
@@ -492,12 +495,9 @@ func (s *server) handleSendSuccessSMS(w http.ResponseWriter, r *http.Request) {
 			phones = successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
 		}
 
-		sessions, _ := qtx.ManagedAbsenceSessions(r.Context(), id)
-		missed, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), id)
-
 		notificationID, queueErr := enqueueSuccessSMS(
 			r.Context(), qtx, "absence_success_sms_manual", "manual-success-sms:"+id.String(),
-			[]successSMSItem{{row: managed, sessions: sessions, missed: missed}}, phones, smsTemplate,
+			smsItems, phones, smsTemplate,
 			s.deps.InstituteTZ, "absence-"+id.String(),
 		)
 		if queueErr != nil {
