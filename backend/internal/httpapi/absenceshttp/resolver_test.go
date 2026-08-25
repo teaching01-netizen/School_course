@@ -238,8 +238,8 @@ func TestBuildPhysicalSitInResult_BlocksOnlyUsedSession(t *testing.T) {
 		map[string]struct{}{"a0000000-0000-0000-0000-00000000000b": {}},
 	)
 
-	if len(result.Available) != 2 || result.Available[0].ID != "a0000000-0000-0000-0000-00000000000a" || result.Available[1].ID != "a0000000-0000-0000-0000-00000000000c" {
-		t.Fatalf("available = %#v, want unused same-day and next-day sessions", result.Available)
+	if len(result.Available) != 3 || result.Available[0].ID != "a0000000-0000-0000-0000-00000000000a" || result.Available[1].ID != "a0000000-0000-0000-0000-00000000000b" || result.Available[2].ID != "a0000000-0000-0000-0000-00000000000c" {
+		t.Fatalf("available = %#v, want all sessions including the used session", result.Available)
 	}
 	if len(result.Unavailable) != 1 || result.Unavailable[0].Session.ID != "a0000000-0000-0000-0000-00000000000b" {
 		t.Fatalf("unavailable = %#v, want only the used session", result.Unavailable)

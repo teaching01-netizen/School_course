@@ -71,6 +71,7 @@ func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
 
 type sitInSessionAlreadyUsedError struct {
 	SessionIDs []string
+	Conflicts  []*sitInSessionConflictInfo
 }
 
 func (e *sitInSessionAlreadyUsedError) Error() string {
@@ -92,7 +93,19 @@ func ensureSitInSessionsAvailable(ctx context.Context, q *sqldb.Queries, student
 	for _, sessionID := range used {
 		conflicts = append(conflicts, sessionID.String())
 	}
-	return &sitInSessionAlreadyUsedError{SessionIDs: conflicts}
+	details, detailErr := q.ActiveSitInSessionConflictsForStudent(ctx, studentID)
+	if detailErr != nil {
+		return detailErr
+	}
+	bySession := make(map[string]*sitInSessionConflictInfo, len(details))
+	for _, detail := range details {
+		bySession[detail.SessionID.String()] = sitInConflictInfo(detail)
+	}
+	conflictDetails := make([]*sitInSessionConflictInfo, 0, len(conflicts))
+	for _, sessionID := range conflicts {
+		conflictDetails = append(conflictDetails, bySession[sessionID])
+	}
+	return &sitInSessionAlreadyUsedError{SessionIDs: conflicts, Conflicts: conflictDetails}
 }
 
 func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) bool {
@@ -102,6 +115,7 @@ func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) boo
 	}
 	s.a.WriteErrDetails(w, http.StatusConflict, "sit_in_session_already_used", conflict.Error(), map[string]any{
 		"session_ids": conflict.SessionIDs,
+		"conflicts":   conflict.Conflicts,
 	})
 	return true
 }

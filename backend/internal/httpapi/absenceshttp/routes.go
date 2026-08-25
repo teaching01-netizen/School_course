@@ -1453,11 +1453,21 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	staffSubjectAvailable := map[string][]sessionBrief{}
 	staffSubjectUnavailable := map[string][]unavailableSessionBrief{}
 	var blockedSitInSessionIDs map[string]struct{}
+	var sitInConflicts map[string]*sitInSessionConflictInfo
 	if includeAllSubjects && len(sessions) > 0 {
 		student, studentErr := s.deps.Q.StudentGetByWCode(r.Context(), wcode)
 		if studentErr != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session availability")
 			return
+		}
+		conflicts, conflictErr := s.deps.Q.ActiveSitInSessionConflictsForStudent(r.Context(), student.ID)
+		if conflictErr != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in session details")
+			return
+		}
+		sitInConflicts = make(map[string]*sitInSessionConflictInfo, len(conflicts))
+		for _, conflict := range conflicts {
+			sitInConflicts[uuidStringOrZero(conflict.SessionID)] = sitInConflictInfo(conflict)
 		}
 		blockedSitInSessionIDs, studentErr = activeSitInSessionIDsForStudent(r.Context(), s.deps.Q, student.ID)
 		if studentErr != nil {
@@ -1483,12 +1493,12 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			}
 			if _, blocked := blockedSitInSessionIDs[sess.ID]; blocked {
 				briefCopy := brief
+				briefCopy.Conflict = sitInConflicts[sess.ID]
 				staffSubjectUnavailable[sess.SubjectID] = append(staffSubjectUnavailable[sess.SubjectID], unavailableSessionBrief{
 					Session:    &briefCopy,
 					Reason:     "This sit-in session is already assigned to this student's absence.",
 					ReasonCode: "sit_in_session_already_used",
 				})
-				continue
 			}
 			staffSubjectAvailable[sess.SubjectID] = append(staffSubjectAvailable[sess.SubjectID], brief)
 		}

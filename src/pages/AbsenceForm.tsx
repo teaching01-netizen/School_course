@@ -61,6 +61,8 @@ import {
   getSitInSessionLabel,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
+  formatHistoricalSitInConflictDescription,
+  formatSitInSubmissionConflictDetails,
   blockedSitInSessionIds,
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
@@ -108,11 +110,12 @@ function makeUpPickerOptions(
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
     const conflictDescription = formatSitInSessionConflictDescription(conflicts);
+    const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
-      description: conflictDescription,
+      description: [conflictDescription, historicalDescription].filter(Boolean).join(" ") || undefined,
     };
   });
 }
@@ -792,7 +795,7 @@ export default function AbsenceForm() {
         setSitInPriorityHistory({});
         setSessionsReloadToken((current) => current + 1);
         setStep(2);
-        setSubmissionError("That sit-in session was just used for this student. We refreshed the available sessions; choose another session and submit again.");
+        setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session is already assigned to this student's absence. We refreshed the available sessions; choose another session and submit again.");
       } else if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
       } else if (error instanceof TypeError) {

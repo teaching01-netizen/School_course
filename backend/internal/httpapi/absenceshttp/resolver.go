@@ -94,19 +94,31 @@ type SitInCourseInfo struct {
 }
 
 type sessionBrief struct {
-	ID              string `json:"id"`
-	StartAt         string `json:"start_at"`
-	EndAt           string `json:"end_at"`
-	MergedStartAt   string `json:"merged_start_at,omitempty"`
-	MergedEndAt     string `json:"merged_end_at,omitempty"`
-	CourseID        string `json:"course_id,omitempty"`
-	MissedSessionID string `json:"missed_session_id,omitempty"`
-	ClassName       string `json:"class_name,omitempty"`
-	CourseName      string `json:"course_name,omitempty"`
-	CourseCode      string `json:"course_code,omitempty"`
-	SubjectCode     string `json:"subject_code,omitempty"`
-	SubjectName     string `json:"subject_name,omitempty"`
-	TeacherName     string `json:"teacher_name,omitempty"`
+	ID              string                    `json:"id"`
+	StartAt         string                    `json:"start_at"`
+	EndAt           string                    `json:"end_at"`
+	MergedStartAt   string                    `json:"merged_start_at,omitempty"`
+	MergedEndAt     string                    `json:"merged_end_at,omitempty"`
+	CourseID        string                    `json:"course_id,omitempty"`
+	MissedSessionID string                    `json:"missed_session_id,omitempty"`
+	ClassName       string                    `json:"class_name,omitempty"`
+	CourseName      string                    `json:"course_name,omitempty"`
+	CourseCode      string                    `json:"course_code,omitempty"`
+	SubjectCode     string                    `json:"subject_code,omitempty"`
+	SubjectName     string                    `json:"subject_name,omitempty"`
+	TeacherName     string                    `json:"teacher_name,omitempty"`
+	Conflict        *sitInSessionConflictInfo `json:"conflict,omitempty"`
+}
+
+type sitInSessionConflictInfo struct {
+	AbsenceID          string `json:"absence_id"`
+	AbsenceSubjectName string `json:"absence_subject_name,omitempty"`
+	AbsenceDateFrom    string `json:"absence_date_from,omitempty"`
+	AbsenceDateTo      string `json:"absence_date_to,omitempty"`
+	SitInSubjectName   string `json:"sit_in_subject_name,omitempty"`
+	SitInCourseName    string `json:"sit_in_course_name,omitempty"`
+	SitInStartAt       string `json:"sit_in_start_at,omitempty"`
+	SitInEndAt         string `json:"sit_in_end_at,omitempty"`
 }
 
 type ResolverInput struct {
@@ -135,6 +147,7 @@ func buildPhysicalSitInResultWithBlockedSessions(
 	blockedSessionIDs map[string]struct{},
 ) *SitInResult {
 	var nonOverlapping []sqldb.SessionInRange
+	var selectable []sqldb.SessionInRange
 	var unavailable []unavailableSessionBrief
 	for _, a := range available {
 		overlaps := false
@@ -157,16 +170,17 @@ func buildPhysicalSitInResultWithBlockedSessions(
 				Reason:     "This sit-in session is already assigned to this student's absence.",
 				ReasonCode: "sit_in_session_already_used",
 			})
-			continue
+		} else {
+			selectable = append(selectable, a)
 		}
 		nonOverlapping = append(nonOverlapping, a)
 	}
 
 	preSelectCount := len(missed)
-	if preSelectCount > len(nonOverlapping) {
-		preSelectCount = len(nonOverlapping)
+	if preSelectCount > len(selectable) {
+		preSelectCount = len(selectable)
 	}
-	preSelected := nonOverlapping[:preSelectCount]
+	preSelected := selectable[:preSelectCount]
 
 	result := &SitInResult{
 		SitInMethod: SitInMethodPhysical,
@@ -250,6 +264,85 @@ func activeSitInSessionIDsForStudent(ctx context.Context, q *sqldb.Queries, stud
 		blocked[uuidStringOrZero(sessionID)] = struct{}{}
 	}
 	return blocked, nil
+}
+
+func sitInConflictInfo(item sqldb.ActiveSitInSessionConflict) *sitInSessionConflictInfo {
+	absenceID, _ := uuidString(item.AbsenceID)
+	out := &sitInSessionConflictInfo{AbsenceID: absenceID, AbsenceSubjectName: item.AbsenceSubjectName, SitInSubjectName: item.SitInSubjectName, SitInCourseName: item.SitInCourseName}
+	if item.AbsenceDateFrom.Valid {
+		out.AbsenceDateFrom = item.AbsenceDateFrom.Time.Format("2006-01-02")
+	}
+	if item.AbsenceDateTo.Valid {
+		out.AbsenceDateTo = item.AbsenceDateTo.Time.Format("2006-01-02")
+	}
+	if item.SitInStartAt.Valid {
+		out.SitInStartAt = item.SitInStartAt.Time.Format(time.RFC3339)
+	}
+	if item.SitInEndAt.Valid {
+		out.SitInEndAt = item.SitInEndAt.Time.Format(time.RFC3339)
+	}
+	return out
+}
+
+func enrichSitInResultConflicts(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, result *SitInResult) error {
+	if result == nil {
+		return nil
+	}
+	items, err := q.ActiveSitInSessionConflictsForStudent(ctx, studentID)
+	if err != nil {
+		return err
+	}
+	conflicts := make(map[string]*sitInSessionConflictInfo, len(items))
+	for _, item := range items {
+		conflicts[uuidStringOrZero(item.SessionID)] = sitInConflictInfo(item)
+	}
+	apply := func(sessions []sessionBrief) {
+		for i := range sessions {
+			sessions[i].Conflict = conflicts[sessions[i].ID]
+		}
+	}
+	applySessionResult := func(item *SitInSessionResult) {
+		if item == nil {
+			return
+		}
+		apply(item.Available)
+		apply(item.PreSelected)
+		for i := range item.Priorities {
+			apply(item.Priorities[i].Available)
+			apply(item.Priorities[i].PreSelected)
+			for j := range item.Priorities[i].Unavailable {
+				if item.Priorities[i].Unavailable[j].Session != nil {
+					item.Priorities[i].Unavailable[j].Session.Conflict = conflicts[item.Priorities[i].Unavailable[j].Session.ID]
+				}
+			}
+		}
+		for i := range item.Unavailable {
+			if item.Unavailable[i].Session != nil {
+				item.Unavailable[i].Session.Conflict = conflicts[item.Unavailable[i].Session.ID]
+			}
+		}
+	}
+	apply(result.Available)
+	apply(result.PreSelected)
+	for i := range result.Unavailable {
+		if result.Unavailable[i].Session != nil {
+			result.Unavailable[i].Session.Conflict = conflicts[result.Unavailable[i].Session.ID]
+		}
+	}
+	for i := range result.Priorities {
+		apply(result.Priorities[i].Available)
+		apply(result.Priorities[i].PreSelected)
+		for j := range result.Priorities[i].Unavailable {
+			if result.Priorities[i].Unavailable[j].Session != nil {
+				result.Priorities[i].Unavailable[j].Session.Conflict = conflicts[result.Priorities[i].Unavailable[j].Session.ID]
+			}
+		}
+	}
+	for key, item := range result.SitInByMissedSession {
+		applySessionResult(&item)
+		result.SitInByMissedSession[key] = item
+	}
+	return nil
 }
 
 // resolveSitInWithPriorities resolves sit-in using priority-based rules.
@@ -429,6 +522,9 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
+		if err := enrichSitInResultConflicts(ctx, q, student.ID, mapped); err != nil {
+			return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+		}
 		return mapped, nil
 	}
 
@@ -495,7 +591,14 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if missedCourse.RootCourseGroupID.Valid && (!hasMergeScope || !mergeScope.SitInRuleID.Valid) {
 		priorities, pErr := q.SitInPrioritiesByRootCourseGroupWithRule(ctx, missedCourse.RootCourseGroupID)
 		if pErr == nil && len(priorities) > 0 {
-			return resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, blockedSitInSessionIDs)
+			result, resolveErr := resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, blockedSitInSessionIDs)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
+				return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+			}
+			return result, nil
 		}
 	}
 
@@ -571,6 +674,9 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
+	if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
+		return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+	}
 	return result, nil
 }
 
@@ -953,6 +1059,9 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
+	if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
+		return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+	}
 	return result, nil
 }
 

@@ -189,6 +189,28 @@ export function formatSitInSessionConflictDescription(conflicts: SitInSessionCon
   return descriptions.length > 0 ? `Overlaps with ${descriptions.join("; ")}` : undefined;
 }
 
+export function formatHistoricalSitInConflictDescription(session: SitInAvailableSession): string | undefined {
+  const conflict = session.conflict;
+  if (!conflict) return undefined;
+  const subject = conflict.sit_in_subject_name || conflict.sit_in_course_name || "This sit-in session";
+  const time = conflict.sit_in_start_at && conflict.sit_in_end_at
+    ? `${formatDate(conflict.sit_in_start_at)} ${formatTime(conflict.sit_in_start_at)}-${formatTime(conflict.sit_in_end_at)}`
+    : "the displayed time";
+  const absence = conflict.absence_subject_name
+    ? `absence for ${conflict.absence_subject_name}${conflict.absence_date_from ? ` on ${conflict.absence_date_from}` : ""}`
+    : `absence ${conflict.absence_id}`;
+  return `${subject} at ${time} is already assigned to an ${absence}. Submission will be blocked.`;
+}
+
+export function formatSitInSubmissionConflictDetails(details: unknown): string | undefined {
+  if (!details || typeof details !== "object" || !("conflicts" in details) || !Array.isArray(details.conflicts)) return undefined;
+  const conflict = details.conflicts.find((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  if (!conflict) return undefined;
+  const subject = typeof conflict.sit_in_subject_name === "string" && conflict.sit_in_subject_name ? conflict.sit_in_subject_name : typeof conflict.sit_in_course_name === "string" && conflict.sit_in_course_name ? conflict.sit_in_course_name : "This sit-in session";
+  const absence = typeof conflict.absence_subject_name === "string" && conflict.absence_subject_name ? `the ${conflict.absence_subject_name} absence` : "another absence";
+  return `${subject} is already assigned to ${absence}. Please choose another session.`;
+}
+
 function sitInTargetKey(
   sitInCourse: SitInCourse | undefined,
   sessions: SitInAvailableSession[],
@@ -253,17 +275,21 @@ export function rootAvailableSessionsForMissedSessions(
 
 export function blockedSitInSessionIds(groups: SubjectSessions[]): Set<string> {
   const blocked = new Set<string>();
+  const visibleConflicts = new Set<string>();
 
   const collect = (sitIn: SubjectSessions["sit_in"] | undefined) => {
+    for (const session of sitIn?.available_sessions ?? []) {
+      if (session.conflict?.absence_id) visibleConflicts.add(session.id);
+    }
     for (const unavailable of sitIn?.unavailable_sessions ?? []) {
       if (unavailable.reason_code === "sit_in_session_already_used" && unavailable.session?.id) {
-        blocked.add(unavailable.session.id);
+        if (!visibleConflicts.has(unavailable.session.id)) blocked.add(unavailable.session.id);
       }
     }
     for (const priority of sitIn?.priorities ?? []) {
       for (const unavailable of priority.unavailable_sessions ?? []) {
         if (unavailable.reason_code === "sit_in_session_already_used" && unavailable.session?.id) {
-          blocked.add(unavailable.session.id);
+          if (!visibleConflicts.has(unavailable.session.id)) blocked.add(unavailable.session.id);
         }
       }
     }

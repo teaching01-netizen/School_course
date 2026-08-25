@@ -31,6 +31,8 @@ import {
   appendTeacher,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
+  formatHistoricalSitInConflictDescription,
+  formatSitInSubmissionConflictDetails,
   blockedSitInSessionIds,
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
@@ -204,11 +206,12 @@ function makeUpPickerOptions(
       sessions,
       selectedSubjectIds,
     );
+    const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
-      description: formatSitInSessionConflictDescription(conflicts),
+      description: [formatSitInSessionConflictDescription(conflicts), historicalDescription].filter(Boolean).join(" ") || undefined,
     };
   });
 }
@@ -1030,7 +1033,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     else if (step === "subjects") setStep("type");
   }
 
-  function handleSitInDayConflict() {
+  function handleSitInDayConflict(error?: unknown) {
     setSitInSelections({});
     setSpecialSitInSelections({});
     setSitInPriorityLevels({});
@@ -1039,7 +1042,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     setStep("sessions");
     addToast(
       "error",
-      "That sit-in session was just used for this student. We refreshed the sessions; choose another session and submit again.",
+      formatSitInSubmissionConflictDetails(error instanceof ApiRequestError ? error.details : undefined) ?? "That sit-in session is already assigned to this student's absence. We refreshed the sessions; choose another session and submit again.",
     );
   }
 
@@ -1295,7 +1298,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         created.push(...res.ids);
       } catch (err) {
         if (err instanceof ApiRequestError && err.code === "sit_in_session_already_used") {
-          handleSitInDayConflict();
+          handleSitInDayConflict(err);
           sitInDayConflict = true;
         } else {
           addToast("error", err instanceof Error ? err.message : "Failed to create absences");

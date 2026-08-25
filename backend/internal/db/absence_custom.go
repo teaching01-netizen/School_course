@@ -258,6 +258,56 @@ func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context,
 	return out, nil
 }
 
+type ActiveSitInSessionConflict struct {
+	SessionID          pgtype.UUID
+	AbsenceID          pgtype.UUID
+	AbsenceSubjectName string
+	AbsenceDateFrom    pgtype.Date
+	AbsenceDateTo      pgtype.Date
+	SitInSubjectName   string
+	SitInCourseName    string
+	SitInStartAt       pgtype.Timestamptz
+	SitInEndAt         pgtype.Timestamptz
+}
+
+func (q *Queries) ActiveSitInSessionConflictsForStudent(ctx context.Context, studentID pgtype.UUID) ([]ActiveSitInSessionConflict, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT asi.session_id, sa.id,
+		       COALESCE(abs_subj.name, ''), sa.date_from, sa.date_to,
+		       COALESCE(sit_subj.name, ''), COALESCE(sit_course.name, ''),
+		       sit_session.start_at, sit_session.end_at
+		FROM absence_sit_ins asi
+		JOIN student_absences sa ON sa.id = asi.absence_id
+		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
+		JOIN sessions sit_session ON sit_session.id = asi.session_id
+		JOIN courses sit_course ON sit_course.id = sit_session.course_id
+		LEFT JOIN subjects sit_subj ON sit_subj.id = sit_course.subject_id
+		LEFT JOIN subjects abs_subj ON abs_subj.id = sa.subject_id
+		WHERE st.id = $1
+		  AND sa.status <> 'cancelled'
+		ORDER BY asi.session_id, sa.created_at DESC
+	`, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ActiveSitInSessionConflict
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		var item ActiveSitInSessionConflict
+		if err := rows.Scan(&item.SessionID, &item.AbsenceID, &item.AbsenceSubjectName, &item.AbsenceDateFrom, &item.AbsenceDateTo, &item.SitInSubjectName, &item.SitInCourseName, &item.SitInStartAt, &item.SitInEndAt); err != nil {
+			return nil, err
+		}
+		key := item.SessionID.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.UUID, dateFrom time.Time, dateTo time.Time) ([]SessionInRange, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT id, course_id, room_id, start_at, end_at

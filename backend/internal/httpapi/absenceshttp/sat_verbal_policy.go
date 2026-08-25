@@ -695,6 +695,7 @@ func satVerbalSessionOptionsForTargetWithBlockedSessions(
 				Reason:     reason,
 				ReasonCode: code,
 			})
+			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
 		}
 	}
 	return out
