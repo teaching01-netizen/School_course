@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SubjectSessions } from "../../types";
 import {
   buildSubmissionPayloads,
+  duplicateSitInSessionIds,
   selectedSitInCourseIDForGroup,
 } from "../submissionPayload";
 
@@ -25,6 +26,15 @@ const baseGroup = {
 } satisfies SubjectSessions;
 
 describe("absence submission payload builder", () => {
+  it("detects a sit-in session selected in multiple absence items", () => {
+    expect(
+      duplicateSitInSessionIds([
+        { sit_in_session_ids: ["sit-1"] },
+        { sit_in_session_ids: ["sit-1", "sit-2"] },
+      ]),
+    ).toEqual(["sit-1"]);
+  });
+
   it("excludes a selected session that is already covered by an absence", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",

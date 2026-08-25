@@ -21,6 +21,20 @@ export type AbsenceBatchCreateItem = {
   sit_in_session_ids: string[];
 };
 
+export function duplicateSitInSessionIds(
+  items: Array<Pick<AbsenceBatchCreateItem, "sit_in_session_ids">>,
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const item of items) {
+    for (const sessionID of item.sit_in_session_ids) {
+      if (seen.has(sessionID)) duplicates.add(sessionID);
+      seen.add(sessionID);
+    }
+  }
+  return [...duplicates];
+}
+
 export type BuildSubmissionPayloadsInput = {
   lookupWcode: string | null;
   sessions: SubjectSessions[];

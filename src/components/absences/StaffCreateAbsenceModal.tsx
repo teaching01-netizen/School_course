@@ -39,7 +39,10 @@ import {
 import MakeUpPicker, {
   type MakeUpOption,
 } from "./public-form/MakeUpPicker";
-import { selectedSitInCourseIDForGroup } from "../../features/absences/domain/submissionPayload";
+import {
+  duplicateSitInSessionIds,
+  selectedSitInCourseIDForGroup,
+} from "../../features/absences/domain/submissionPayload";
 import type {
   SubjectSessions,
   StudentLookupResponse,
@@ -1047,6 +1050,19 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     );
   }
 
+  function handleDuplicateSitInSelection() {
+    setSitInSelections({});
+    setSpecialSitInSelections({});
+    setSitInPriorityLevels({});
+    setSitInPriorityHistory({});
+    setSessionsReloadToken((current) => current + 1);
+    setStep("sessions");
+    addToast(
+      "error",
+      "The same sit-in session was selected more than once. We refreshed the sessions; choose a different session and submit again.",
+    );
+  }
+
   async function lookupStudent() {
     if (!wcode.trim()) return;
     setLookingUp(true);
@@ -1252,6 +1268,12 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         reason: reason || undefined,
         status: absenceType === "special" ? "special_approved" : undefined,
       });
+    }
+
+    if (duplicateSitInSessionIds(requests).length > 0) {
+      handleDuplicateSitInSelection();
+      setSubmitting(false);
+      return;
     }
 
     if (requests.length > 0) {
