@@ -981,7 +981,7 @@ describe("Absence inbox", () => {
     });
   });
 
-  it("Send button sends SMS and closes modal", async () => {
+  it("Send button queues SMS and closes modal", async () => {
     const updatedPage = freshPage();
     updatedPage.items[0].status = "special_approved";
     mockApiJson
@@ -989,7 +989,7 @@ describe("Absence inbox", () => {
       .mockResolvedValueOnce({ status: "special_approved", version: 2 })
       .mockResolvedValueOnce(updatedPage)
       .mockResolvedValueOnce({ preview: { phones: ["+66812345678"], message: "Preview" } })
-      .mockResolvedValueOnce({ sent: true, sms_sent: true, email_sent: true, recipient_count: 1 });
+      .mockResolvedValueOnce({ sent: true, queued: true, sms_queued: true, sms_sent: false, email_sent: true, recipient_count: 1 });
     renderPage();
     const user = userEvent.setup();
 
@@ -1016,7 +1016,7 @@ describe("Absence inbox", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/sms & email sent/i)).toBeInTheDocument();
+      expect(screen.getByText(/sms queued.*email sent/i)).toBeInTheDocument();
     });
   });
 

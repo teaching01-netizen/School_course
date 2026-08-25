@@ -1416,16 +1416,24 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         addToast("error", "Notifications were not sent");
         return;
       }
-      const parts: string[] = [];
-      if (res.sms_sent) parts.push("SMS");
-      else if (smsQueued) parts.push("SMS queued");
-      if (res.email_sent) parts.push("email");
-      const label = parts.length > 0 ? parts.join(" & ") : "Notification";
-      const suffix = res.sms_sent ? "sent" : "queued";
-      addToast(
-        "success",
-        `${label} ${suffix} to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
-      );
+      if (res.sms_sent) {
+        const parts = ["SMS", ...(res.email_sent ? ["email"] : [])];
+        addToast(
+          "success",
+          `${parts.join(" & ")} sent to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
+        );
+      } else if (smsQueued) {
+        const parts = ["SMS queued", ...(res.email_sent ? ["email sent"] : [])];
+        addToast(
+          "success",
+          `${parts.join(" · ")} to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
+        );
+      } else {
+        addToast(
+          "success",
+          `email sent to ${res.recipient_count} recipient${res.recipient_count !== 1 ? "s" : ""}`,
+        );
+      }
       onCreated();
     } catch (err) {
       addToast(
