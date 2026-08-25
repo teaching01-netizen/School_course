@@ -588,7 +588,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SPECIAL_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "new-absence", status: "pending" })
+      .mockResolvedValueOnce({ ids: ["new-absence"] })
       .mockResolvedValueOnce({ preview: { phones: [], message: "" } });
     renderModal();
 
@@ -655,7 +655,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
+      .mockResolvedValueOnce({ ids: ["new-absence"] });
     renderModal({ onCreated });
 
     await user.click(screen.getByRole("button", { name: /next/i }));
@@ -849,7 +849,7 @@ describe("accessibility and validation", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
+      .mockResolvedValueOnce({ ids: ["new-absence"] });
     renderModal();
 
     await user.click(screen.getByRole("button", { name: /next/i }));
@@ -1027,7 +1027,7 @@ describe("Absence type selection (Step 0)", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "new-absence", status: "special_approved" });
+      .mockResolvedValueOnce({ ids: ["new-absence"] });
     renderModal();
 
     // Select special type
@@ -1077,7 +1077,7 @@ describe("Absence type selection (Step 0)", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
+      .mockResolvedValueOnce({ ids: ["new-absence"] });
     renderModal();
 
     // Default is normal, just advance
@@ -1130,8 +1130,7 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
-      .mockResolvedValueOnce({ id: "absence-1", status: "pending" })
-      .mockResolvedValueOnce({ id: "absence-2", status: "pending" })
+      .mockResolvedValueOnce({ ids: ["absence-1", "absence-2"] })
       .mockResolvedValueOnce({
         preview: { phones: ["+66811111111"], message: "Aggregated preview" },
       })
@@ -1223,7 +1222,7 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
       .mockResolvedValueOnce(MOCK_SESSIONS)
-      .mockResolvedValueOnce({ id: "absence-single", status: "pending" })
+      .mockResolvedValueOnce({ ids: ["absence-single"] })
       .mockResolvedValueOnce({
         preview: { phones: ["+66811111111"], message: "Single aggregated" },
       })
@@ -1441,7 +1440,7 @@ describe("special sit-in multi-subject coverage", () => {
         return MOCK_SESSIONS_TWO_MISSED;
       }
       if (u.includes("staff-create"))
-        return { id: "abs-created", status: "special_approved" };
+        return { ids: ["abs-created"] };
       return {};
     });
   }
@@ -1530,15 +1529,14 @@ describe("special sit-in multi-subject coverage", () => {
       screen.queryByText(/use one special sit-in course per absence/i),
     ).not.toBeInTheDocument();
 
-    // One staff-create per distinct special sit-in course.
     await waitFor(() => {
       const calls = mockApiJson.mock.calls.filter(
         (c: unknown[]) => c[0] === "/api/v1/absences/staff-create",
       );
-      expect(calls).toHaveLength(2);
-      const bodies = calls.map((c: unknown[]) =>
-        JSON.parse((c[1] as RequestInit).body as string),
-      );
+      expect(calls).toHaveLength(1);
+      const body = JSON.parse((calls[0][1] as RequestInit).body as string);
+      const bodies = body.items as Array<Record<string, unknown>>;
+      expect(bodies).toHaveLength(2);
       const byCourse = new Map(bodies.map((b) => [b.sit_in_course_id, b]));
       expect(byCourse.get("cB-alt")).toBeDefined();
       expect(byCourse.get("cC-alt")).toBeDefined();

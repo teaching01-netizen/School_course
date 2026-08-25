@@ -45,6 +45,7 @@ import type {
   StudentLookupResponse,
   AbsenceFormConfig,
   SmsPreview,
+  StaffCreateAbsenceRequest,
 } from "../../types";
 import Button from "../ui/Button";
 import Select from "../ui/Select";
@@ -1105,6 +1106,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       return;
     }
     const created: string[] = [];
+    const requests: StaffCreateAbsenceRequest[] = [];
     let sitInDayConflict = false;
 
     for (const group of submissionSessions) {
@@ -1184,37 +1186,21 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           const dateFrom = dates[0];
           const dateTo = dates[dates.length - 1];
           if (!dateFrom || !dateTo) continue;
-          try {
-            const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>(
-              "/api/v1/absences/staff-create",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  wcode: student.wcode,
-                  subject_id: group.subject_id,
-                  course_id: group.course_id,
-                  date_from: dateFrom,
-                  date_to: dateTo,
-                  missed_session_ids: bucket.missed,
-                  sit_in_method: bucket.method,
-                  sit_in_course_id: courseId,
-                  sit_in_session_ids: bucket.sessions,
-                  reason_category: reasonCategory || undefined,
-                  reason: reason || undefined,
-                  status:
-                    absenceType === "special" ? "special_approved" : undefined,
-                }),
-              },
-            );
-            created.push(res.id);
-          } catch (err) {
-            if (err instanceof ApiRequestError && err.code === "sit_in_session_already_used") {
-              handleSitInDayConflict();
-              sitInDayConflict = true;
-              break;
-            }
-            addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
-          }
+          requests.push({
+            wcode: student.wcode,
+            subject_id: group.subject_id,
+            course_id: group.course_id,
+            date_from: dateFrom,
+            date_to: dateTo,
+            missed_session_ids: bucket.missed,
+            sit_in_method: bucket.method,
+            sit_in_course_id: courseId,
+            sit_in_session_ids: bucket.sessions,
+            reason_category: reasonCategory || undefined,
+            reason: reason || undefined,
+            status:
+              absenceType === "special" ? "special_approved" : undefined,
+          });
         }
         if (sitInDayConflict) break;
         continue;
@@ -1251,35 +1237,40 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           sitInPriorityHistory,
         ) ?? group.course_id;
 
+      requests.push({
+        wcode: student.wcode,
+        subject_id: group.subject_id,
+        course_id: group.course_id,
+        date_from: dateFrom,
+        date_to: dateTo,
+        missed_session_ids: missedIds,
+        sit_in_method: sitInMethod,
+        sit_in_course_id: sitInCourseId,
+        sit_in_session_ids: uniqueSitInSessionIds,
+        reason_category: reasonCategory || undefined,
+        reason: reason || undefined,
+        status: absenceType === "special" ? "special_approved" : undefined,
+      });
+    }
+
+    if (requests.length > 0) {
       try {
-        const res = await apiJson<{ id: string; sms_preview?: SmsPreview }>(
+        const res = await apiJson<{ ids: string[] }>(
           "/api/v1/absences/staff-create",
           {
             method: "POST",
-            body: JSON.stringify({
-              wcode: student.wcode,
-              subject_id: group.subject_id,
-              course_id: group.course_id,
-              date_from: dateFrom,
-              date_to: dateTo,
-              missed_session_ids: missedIds,
-              sit_in_method: sitInMethod,
-              sit_in_course_id: sitInCourseId,
-              sit_in_session_ids: uniqueSitInSessionIds,
-              reason_category: reasonCategory || undefined,
-              reason: reason || undefined,
-              status: absenceType === "special" ? "special_approved" : undefined,
-            }),
+            headers: { "X-Staff-Batch": "true" },
+            body: JSON.stringify({ ...requests[0], items: requests }),
           },
         );
-        created.push(res.id);
+        created.push(...res.ids);
       } catch (err) {
         if (err instanceof ApiRequestError && err.code === "sit_in_session_already_used") {
           handleSitInDayConflict();
           sitInDayConflict = true;
-          break;
+        } else {
+          addToast("error", err instanceof Error ? err.message : "Failed to create absences");
         }
-        addToast("error", `${group.subject_name || group.course_code}: ${err instanceof Error ? err.message : "Failed"}`);
       }
     }
 

@@ -69,7 +69,18 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 		}
 	case "staff-create":
 		if r.Method == http.MethodPost {
+			if r.Header.Get("X-Staff-Batch") == "true" {
+				s.handleStaffCreateAbsenceBatch(w, r)
+				return
+			}
 			s.handleStaffCreateAbsence(w, r)
+			return
+		}
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
+		return
+	case "staff-create-batch":
+		if r.Method == http.MethodPost {
+			s.handleStaffCreateAbsenceBatch(w, r)
 			return
 		}
 		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
