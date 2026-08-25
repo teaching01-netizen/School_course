@@ -100,6 +100,32 @@ function isStudentSessionUnauthorized(error: unknown): boolean {
     && error.code === "unauthorized";
 }
 
+type CurrentSitInOwner = { subjectName: string; date: string };
+
+function currentSitInOwners(
+  groups: SubjectSessions[],
+  selectedSubjectIds: string[],
+  selectedSessionIds: Set<string>,
+  sitInSelections: Record<string, string>,
+  currentSessionIds: string[],
+): Map<string, CurrentSitInOwner> {
+  const current = new Set(currentSessionIds);
+  const owners = new Map<string, CurrentSitInOwner>();
+  for (const group of groups) {
+    if (!selectedSubjectIds.includes(group.subject_id)) continue;
+    for (const missed of group.sessions) {
+      if (!selectedSessionIds.has(missed.id) || current.has(missed.id)) continue;
+      for (const sessionId of splitMergedSessionValue(sitInSelections[missed.id])) {
+        if (!owners.has(sessionId)) owners.set(sessionId, {
+          subjectName: group.subject_name || group.course_name,
+          date: missed.date || formatDate(missed.start_at),
+        });
+      }
+    }
+  }
+  return owners;
+}
+
 function makeUpPickerOptions(
   optionGroups: SitInOptionGroup[],
   sessions: SubjectSessions[],
@@ -108,6 +134,7 @@ function makeUpPickerOptions(
   defaultSitInCourse?: SitInCourse,
   selectedSitInSessionIds: string[] = [],
   currentValue = "",
+  currentOwners: Map<string, CurrentSitInOwner> = new Map(),
 ): MakeUpOption[] {
   const selectedCounts = new Map<string, number>();
   for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
@@ -117,8 +144,9 @@ function makeUpPickerOptions(
     const conflictDescription = formatSitInSessionConflictDescription(conflicts);
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
     const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
+    const duplicateOwner = optionGroup.items.map((item) => currentOwners.get(item.id)).find(Boolean);
     const duplicateDescription = duplicateSelection
-      ? "This sit-in session is already selected for another absence day. Choose another session."
+      ? `${getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions)} is already assigned to an absence for ${duplicateOwner?.subjectName ?? groupLabel} on ${duplicateOwner?.date ?? "another day"}. Submission will be blocked.`
       : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
@@ -1377,7 +1405,7 @@ export default function AbsenceForm() {
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
-                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn)}
+                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
                                                             onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                           />
                                                         )}
@@ -1400,7 +1428,7 @@ export default function AbsenceForm() {
                                                           id={`sit-in-${session.id}`}
                                                           label="Make-up class"
                                                           value={currentSitIn}
-                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn)}
+                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
                                                           onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                         />
                                                       )}

@@ -190,6 +190,32 @@ function findSpecialSitInSessionOption(
   );
 }
 
+type CurrentSitInOwner = { subjectName: string; date: string };
+
+function currentSitInOwners(
+  groups: SubjectSessions[],
+  selectedSubjectIds: string[],
+  selectedSessionIds: Set<string>,
+  sitInSelections: Record<string, string>,
+  currentSessionIds: string[],
+): Map<string, CurrentSitInOwner> {
+  const current = new Set(currentSessionIds);
+  const owners = new Map<string, CurrentSitInOwner>();
+  for (const group of groups) {
+    if (!selectedSubjectIds.includes(group.subject_id)) continue;
+    for (const missed of group.sessions) {
+      if (!selectedSessionIds.has(missed.id) || current.has(missed.id)) continue;
+      for (const sessionId of splitMergedSessionValue(sitInSelections[missed.id])) {
+        if (!owners.has(sessionId)) owners.set(sessionId, {
+          subjectName: group.subject_name || group.course_name,
+          date: missed.date || formatDate(missed.start_at),
+        });
+      }
+    }
+  }
+  return owners;
+}
+
 function makeUpPickerOptions(
   optionGroups: Array<{
     items: NonNullable<NonNullable<SubjectSessions["sit_in"]>["available_sessions"]>[number][];
@@ -201,6 +227,7 @@ function makeUpPickerOptions(
   defaultSitInCourse?: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"],
   selectedSitInSessionIds: string[] = [],
   currentValue = "",
+  currentOwners: Map<string, { subjectName: string; date: string }> = new Map(),
 ): MakeUpOption[] {
   const selectedCounts = new Map<string, number>();
   for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
@@ -213,8 +240,9 @@ function makeUpPickerOptions(
     );
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
     const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
+    const duplicateOwner = optionGroup.items.map((item) => currentOwners.get(item.id)).find(Boolean);
     const duplicateDescription = duplicateSelection
-      ? "This sit-in session is already selected for another absence day. Choose another session."
+      ? `${getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions)} is already assigned to an absence for ${duplicateOwner?.subjectName ?? groupLabel} on ${duplicateOwner?.date ?? "another day"}. Submission will be blocked.`
       : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
@@ -1992,6 +2020,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                     sitIn?.sit_in_course,
                                                     [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
                                                     currentSitIn,
+                                                    currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds),
                                                   )}
                                                   onChange={(value) =>
                                                     handleSitInSelectForSessions(
@@ -2078,6 +2107,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 sitIn.sit_in_course,
                                                 [...Object.values(sitInSelections).flatMap(splitMergedSessionValue), ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue))],
                                                 currentSitIn,
+                                                currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds),
                                               )}
                                               onChange={(value) =>
                                                 handleSitInSelectForSessions(
