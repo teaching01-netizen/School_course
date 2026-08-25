@@ -401,6 +401,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockRejectedValueOnce(new ApiRequestError("This sit-in session is already assigned", { code: "sit_in_session_already_used", status: 409 }))
       .mockResolvedValueOnce(MOCK_SESSIONS);
     renderModal();
@@ -586,6 +587,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_SPECIAL_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" })
       .mockResolvedValueOnce({ preview: { phones: [], message: "" } });
     renderModal();
@@ -652,6 +654,7 @@ describe("StaffCreateAbsenceModal", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal({ onCreated });
 
@@ -845,6 +848,7 @@ describe("accessibility and validation", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal();
 
@@ -1022,6 +1026,7 @@ describe("Absence type selection (Step 0)", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "new-absence", status: "special_approved" });
     renderModal();
 
@@ -1071,6 +1076,7 @@ describe("Absence type selection (Step 0)", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "new-absence", status: "pending" });
     renderModal();
 
@@ -1123,6 +1129,7 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS_TWO_SUBJECTS)
       .mockResolvedValueOnce({ id: "absence-1", status: "pending" })
       .mockResolvedValueOnce({ id: "absence-2", status: "pending" })
       .mockResolvedValueOnce({
@@ -1215,6 +1222,7 @@ describe("multi-subject SMS aggregation", () => {
       .mockResolvedValueOnce(MOCK_ALL_SUBJECTS)
       .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce(MOCK_FORM_CONFIG)
+      .mockResolvedValueOnce(MOCK_SESSIONS)
       .mockResolvedValueOnce({ id: "absence-single", status: "pending" })
       .mockResolvedValueOnce({
         preview: { phones: ["+66811111111"], message: "Single aggregated" },
@@ -1579,10 +1587,6 @@ describe("special sit-in multi-subject coverage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
     });
-    mockApiJson.mockImplementationOnce(async () => ({
-      id: "abs-special-ok",
-      status: "special_approved",
-    }));
     await user.click(screen.getByRole("button", { name: /create absence/i }));
 
     await waitFor(() => {

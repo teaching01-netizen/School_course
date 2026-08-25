@@ -30,6 +30,7 @@ import {
   appendTeacher,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
+  blockedSitInSessionIds,
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
   getSitInSessionGroupLabel,
@@ -82,6 +83,49 @@ type SpecialSitInSessionOption = {
 };
 
 const STEP_KEYS: ModalStep[] = ["type", "subjects", "sessions", "confirm"];
+
+async function loadStaffSessionsForSubjects(
+  wcode: string,
+  selectedSubjectIds: string[],
+  enrolledSubjectIds: Set<string>,
+  signal?: AbortSignal,
+): Promise<SubjectSessions[]> {
+  const enrolledSelectedIds = selectedSubjectIds.filter((subjectId) =>
+    enrolledSubjectIds.has(subjectId),
+  );
+  const specialSelectedIds = selectedSubjectIds.filter(
+    (subjectId) => !enrolledSubjectIds.has(subjectId),
+  );
+  const enrolledRequest =
+    enrolledSelectedIds.length > 0
+      ? loadSessionsInRange(
+          wcode,
+          "1970-01-01",
+          "2100-01-01",
+          signal ? { signal } : undefined,
+          { bypassTiming: true },
+        )
+      : Promise.resolve({ subjects: [] as SubjectSessions[] });
+  const specialRequest =
+    specialSelectedIds.length > 0
+      ? loadSessionsInRange(
+          wcode,
+          "1970-01-01",
+          "2100-01-01",
+          signal ? { signal } : undefined,
+          {
+            bypassTiming: true,
+            includeAllSubjects: true,
+            subjectIds: specialSelectedIds,
+          },
+        )
+      : Promise.resolve({ subjects: [] as SubjectSessions[] });
+  const [enrolledData, specialData] = await Promise.all([
+    enrolledRequest,
+    specialRequest,
+  ]);
+  return [...(enrolledData.subjects ?? []), ...(specialData.subjects ?? [])];
+}
 
 function specialSitInSessionsForGroup(
   group: SubjectSessions,
@@ -412,43 +456,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
-    const enrolledSelectedIds = selectedSubjectIds.filter((subjectId) =>
-      enrolledSubjectIds.has(subjectId),
-    );
-    const specialSelectedIds = selectedSubjectIds.filter(
-      (subjectId) => !enrolledSubjectIds.has(subjectId),
-    );
-    const enrolledRequest =
-      enrolledSelectedIds.length > 0
-        ? loadSessionsInRange(
-            student.wcode,
-            "1970-01-01",
-            "2100-01-01",
-            { signal: controller.signal },
-            { bypassTiming: true },
-          )
-        : Promise.resolve({ subjects: [] });
-    const specialRequest =
-      specialSelectedIds.length > 0
-        ? loadSessionsInRange(
-            student.wcode,
-            "1970-01-01",
-            "2100-01-01",
-            { signal: controller.signal },
-            {
-              bypassTiming: true,
-              includeAllSubjects: true,
-              subjectIds: specialSelectedIds,
-            },
-          )
-        : Promise.resolve({ subjects: [] });
-    void Promise.all([enrolledRequest, specialRequest])
-      .then(([enrolledData, specialData]) => {
+    void loadStaffSessionsForSubjects(
+      student.wcode,
+      selectedSubjectIds,
+      enrolledSubjectIds,
+      controller.signal,
+    )
+      .then((latestSessions) => {
         if (controller.signal.aborted) return;
-        setSessions([
-          ...(enrolledData.subjects ?? []),
-          ...(specialData.subjects ?? []),
-        ]);
+        setSessions(latestSessions);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -1055,10 +1071,43 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       return;
     }
     setSubmitting(true);
+    let submissionSessions: SubjectSessions[];
+    try {
+      submissionSessions = await loadStaffSessionsForSubjects(
+        student.wcode,
+        selectedSubjectIds,
+        enrolledSubjectIds,
+      );
+      setSessions(submissionSessions);
+      const blockedSessionIds = blockedSitInSessionIds(submissionSessions);
+      const selectedSitInSessionIds = new Set([
+        ...Object.values(sitInSelections).flatMap((value) => splitMergedSessionValue(value)),
+        ...Object.values(specialSitInSelections).flatMap((selection) =>
+          splitMergedSessionValue(selection.sessionValue),
+        ),
+      ]);
+      const staleSessionIds = [...selectedSitInSessionIds].filter((id) =>
+        blockedSessionIds.has(id),
+      );
+      if (staleSessionIds.length > 0) {
+        handleSitInDayConflict();
+        setSubmitting(false);
+        return;
+      }
+    } catch (error) {
+      setSubmitting(false);
+      addToast(
+        "error",
+        error instanceof Error
+          ? `Couldn't refresh sit-in sessions: ${error.message}`
+          : "Couldn't refresh sit-in sessions. Try again.",
+      );
+      return;
+    }
     const created: string[] = [];
     let sitInDayConflict = false;
 
-    for (const group of sessions) {
+    for (const group of submissionSessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
       const selectedSessions = getSelectedSessionsForGroup(
         group,
