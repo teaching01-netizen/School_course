@@ -3,6 +3,7 @@ import type { SubjectSessions } from "../../types";
 import {
   buildSubmissionPayloads,
   duplicateSitInSessionIds,
+  mergeAbsenceBatchItemsByScope,
   selectedSitInCourseIDForGroup,
 } from "../submissionPayload";
 
@@ -33,6 +34,42 @@ describe("absence submission payload builder", () => {
         { sit_in_session_ids: ["sit-1", "sit-2"] },
       ]),
     ).toEqual(["sit-1"]);
+  });
+
+  it("merges source courses that share an absence scope", () => {
+    const result = mergeAbsenceBatchItemsByScope([
+      {
+        scopeKey: "merge:scope-1",
+        item: {
+          subject_id: "subject-a",
+          course_id: "course-a",
+          date_from: "2026-09-03",
+          date_to: "2026-09-03",
+          missed_session_ids: ["missed-a"],
+          sit_in_method: "physical",
+          sit_in_course_id: "sit-course",
+          sit_in_session_ids: ["sit-1"],
+        },
+      },
+      {
+        scopeKey: "merge:scope-1",
+        item: {
+          subject_id: "subject-b",
+          course_id: "course-b",
+          date_from: "2026-09-03",
+          date_to: "2026-09-03",
+          missed_session_ids: ["missed-b"],
+          sit_in_method: "physical",
+          sit_in_course_id: "sit-course",
+          sit_in_session_ids: ["sit-1"],
+        },
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].course_id).toBe("course-a");
+    expect(result[0].missed_session_ids).toEqual(["missed-a", "missed-b"]);
+    expect(result[0].sit_in_session_ids).toEqual(["sit-1"]);
   });
 
   it("excludes a selected session that is already covered by an absence", () => {

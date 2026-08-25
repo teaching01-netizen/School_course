@@ -874,18 +874,18 @@ func DefaultSnapshotBuilder(
 	timezone string,
 ) ([]byte, int16, error) {
 	s := snapshot.AssignmentSession{
-		ID:         uuidFromPgtypeDB(sessionID),
-		SeriesID:   ptrUUIDDB(uuidFromPgtypeDB(seriesID)),
-		CourseID:   uuidFromPgtypeDB(courseID),
-		RoomID:     ptrUUIDDB(uuidFromPgtypeDB(roomID)),
-		TeacherID:  uuidFromPgtypeDB(teacherID),
-		StartAt:    startAt.Time.UTC(),
-		EndAt:      endAt.Time.UTC(),
-		Version:    version,
-		CourseCode: courseCode,
-		CourseName: courseName,
+		ID:          uuidFromPgtypeDB(sessionID),
+		SeriesID:    ptrUUIDDB(uuidFromPgtypeDB(seriesID)),
+		CourseID:    uuidFromPgtypeDB(courseID),
+		RoomID:      ptrUUIDDB(uuidFromPgtypeDB(roomID)),
+		TeacherID:   uuidFromPgtypeDB(teacherID),
+		StartAt:     startAt.Time.UTC(),
+		EndAt:       endAt.Time.UTC(),
+		Version:     version,
+		CourseCode:  courseCode,
+		CourseName:  courseName,
 		TeacherName: teacherName,
-		RoomName:   roomName,
+		RoomName:    roomName,
 	}
 
 	if s.RoomID != nil && *s.RoomID == uuid.Nil {
@@ -926,7 +926,7 @@ func ptrUUIDDB(u uuid.UUID) *uuid.UUID {
 // SessionVersionConflictError is returned when a session's version has changed
 // since the client last loaded it, indicating a concurrent modification.
 type SessionVersionConflictError struct {
-	SessionID      string
+	SessionID       string
 	ExpectedVersion int
 	ActualVersion   int
 }
@@ -1046,7 +1046,17 @@ func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.
 		FROM sessions sess
 		JOIN student_absences sa ON sa.id = $1
 		WHERE sess.id = ANY($2::uuid[])
-		  AND sess.course_id = sa.course_id
+		  AND (
+		    sess.course_id = sa.course_id
+		    OR EXISTS (
+		      SELECT 1
+		      FROM course_merge_group_members sess_member
+		      JOIN course_merge_group_members absence_member
+		        ON absence_member.group_id = sess_member.group_id
+		      WHERE sess_member.course_id = sess.course_id
+		        AND absence_member.course_id = sa.course_id
+		    )
+		  )
 		  AND sess.deleted_at IS NULL
 		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 	`, absenceID, sessionIDs, instituteTZ).Scan(&count)
@@ -1065,7 +1075,17 @@ func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype
 		FROM sessions sess
 		JOIN student_absences sa ON sa.id = $1
 		WHERE sess.id = ANY($2::uuid[])
-		  AND sess.course_id = sa.course_id
+		  AND (
+		    sess.course_id = sa.course_id
+		    OR EXISTS (
+		      SELECT 1
+		      FROM course_merge_group_members sess_member
+		      JOIN course_merge_group_members absence_member
+		        ON absence_member.group_id = sess_member.group_id
+		      WHERE sess_member.course_id = sess.course_id
+		        AND absence_member.course_id = sa.course_id
+		    )
+		  )
 		  AND sess.deleted_at IS NULL
 		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		ORDER BY sess.start_at ASC
@@ -1134,7 +1154,17 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM student_absences sa
-		    JOIN sessions missed ON missed.course_id = sa.course_id
+			JOIN sessions missed ON (
+			  missed.course_id = sa.course_id
+			  OR EXISTS (
+			    SELECT 1
+			    FROM course_merge_group_members missed_member
+			    JOIN course_merge_group_members absence_member
+			      ON absence_member.group_id = missed_member.group_id
+			    WHERE missed_member.course_id = missed.course_id
+			      AND absence_member.course_id = sa.course_id
+			  )
+			)
 		    WHERE sa.id = $1
 		      AND missed.deleted_at IS NULL
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
@@ -1657,11 +1687,11 @@ func (q *Queries) AbsenceScheduleIssueGetOpenByAbsence(ctx context.Context, abse
 // AbsenceScheduleIssueGetWithVersion returns an issue with its issue_version
 // for optimistic concurrency checks.
 type AbsenceScheduleIssueVersionRow struct {
-	ID            pgtype.UUID
-	AbsenceID     pgtype.UUID
-	Status        string
-	IssueVersion  int32
-	Fingerprint   string
+	ID           pgtype.UUID
+	AbsenceID    pgtype.UUID
+	Status       string
+	IssueVersion int32
+	Fingerprint  string
 }
 
 func (q *Queries) AbsenceScheduleIssueGetWithVersion(ctx context.Context, issueID pgtype.UUID) (AbsenceScheduleIssueVersionRow, error) {

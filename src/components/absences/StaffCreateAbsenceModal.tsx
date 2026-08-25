@@ -10,6 +10,7 @@ import { formatDate, formatTime } from "../../utils/date";
 import {
   combineSubjectGroups,
   combineSubjectPickerEntries,
+  absenceScopeKey,
   groupByDay,
   isDayGroupSelected,
   mergedSessionValue,
@@ -41,6 +42,7 @@ import MakeUpPicker, {
 } from "./public-form/MakeUpPicker";
 import {
   duplicateSitInSessionIds,
+  mergeAbsenceBatchItemsByScope,
   selectedSitInCourseIDForGroup,
 } from "../../features/absences/domain/submissionPayload";
 import type {
@@ -1269,6 +1271,19 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         status: absenceType === "special" ? "special_approved" : undefined,
       });
     }
+
+    const scopeKeyByCourseID = new Map(
+      submissionSessions.map((group) => [group.course_id, absenceScopeKey(group)]),
+    );
+    const mergedRequests = mergeAbsenceBatchItemsByScope(
+      requests.map((item) => ({
+        scopeKey:
+          scopeKeyByCourseID.get(item.course_id ?? "") ??
+          `course:${item.course_id ?? ""}`,
+        item,
+      })),
+    );
+    requests.splice(0, requests.length, ...mergedRequests);
 
     if (duplicateSitInSessionIds(requests).length > 0) {
       handleDuplicateSitInSelection();

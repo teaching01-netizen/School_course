@@ -35,6 +35,44 @@ export function duplicateSitInSessionIds(
   return [...duplicates];
 }
 
+type MergeableAbsenceItem = Pick<
+  AbsenceBatchCreateItem,
+  | "date_from"
+  | "date_to"
+  | "missed_session_ids"
+  | "sit_in_session_ids"
+  | "sit_in_course_id"
+  | "sit_in_method"
+>;
+
+export function mergeAbsenceBatchItemsByScope<T extends MergeableAbsenceItem>(
+  entries: Array<{ scopeKey: string; item: T }>,
+): T[] {
+  const merged = new Map<string, T>();
+  for (const entry of entries) {
+    const item = entry.item;
+    const key = `${entry.scopeKey}|${item.sit_in_course_id ?? ""}|${item.sit_in_method ?? ""}`;
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, {
+        ...item,
+        missed_session_ids: [...item.missed_session_ids],
+        sit_in_session_ids: [...item.sit_in_session_ids],
+      } as T);
+      continue;
+    }
+    current.date_from = current.date_from < item.date_from ? current.date_from : item.date_from;
+    current.date_to = current.date_to > item.date_to ? current.date_to : item.date_to;
+    current.missed_session_ids = [
+      ...new Set([...current.missed_session_ids, ...item.missed_session_ids]),
+    ];
+    current.sit_in_session_ids = [
+      ...new Set([...current.sit_in_session_ids, ...item.sit_in_session_ids]),
+    ];
+  }
+  return [...merged.values()];
+}
+
 export type BuildSubmissionPayloadsInput = {
   lookupWcode: string | null;
   sessions: SubjectSessions[];
@@ -265,7 +303,7 @@ export function buildSubmissionPayloads(
   input: BuildSubmissionPayloadsInput,
 ): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
-  const payloads: AbsenceBatchCreateItem[] = [];
+  const payloadEntries: Array<{ scopeKey: string; item: AbsenceBatchCreateItem }> = [];
   const attendingByDate = collectAttendingSessions(
     input.sessions,
     input.selectedSubjectIds,
@@ -331,7 +369,7 @@ export function buildSubmissionPayloads(
       input.sitInPriorityHistory,
     );
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
-    payloads.push(payload);
+    payloadEntries.push({ scopeKey: absenceScopeKey(group), item: payload });
   }
-  return { ok: true, payloads };
+  return { ok: true, payloads: mergeAbsenceBatchItemsByScope(payloadEntries) };
 }
