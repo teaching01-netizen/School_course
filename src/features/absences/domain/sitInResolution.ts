@@ -245,6 +245,31 @@ export function rootAvailableSessionsForMissedSessions(
   return available.filter((session) => session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false);
 }
 
+export function blockedSitInSessionIds(groups: SubjectSessions[]): Set<string> {
+  const blocked = new Set<string>();
+
+  const collect = (sitIn: SubjectSessions["sit_in"] | undefined) => {
+    for (const unavailable of sitIn?.unavailable_sessions ?? []) {
+      if (unavailable.reason_code === "sit_in_session_already_used" && unavailable.session?.id) {
+        blocked.add(unavailable.session.id);
+      }
+    }
+    for (const priority of sitIn?.priorities ?? []) {
+      for (const unavailable of priority.unavailable_sessions ?? []) {
+        if (unavailable.reason_code === "sit_in_session_already_used" && unavailable.session?.id) {
+          blocked.add(unavailable.session.id);
+        }
+      }
+    }
+    for (const missedSitIn of Object.values(sitIn?.sit_in_by_missed_session ?? {})) {
+      collect(missedSitIn);
+    }
+  };
+
+  for (const group of groups) collect(group.sit_in);
+  return blocked;
+}
+
 export function hasServerPriorityReveal(group: SubjectSessions): boolean {
   return group.sit_in?.current_priority_level !== undefined || group.sit_in?.has_next_priority !== undefined;
 }

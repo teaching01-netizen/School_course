@@ -1179,6 +1179,62 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
+  it("refreshes sit-in availability before submitting a stale selection", async () => {
+    const user = userEvent.setup();
+    let sessionRequestCount = 0;
+    const freshSessions = createMockSessionsInRange([{
+      subject_id: "subj-1",
+      subject_code: "MATH",
+      subject_name: "Mathematics",
+      course_id: "c-math201",
+      course_code: "MATH201",
+      course_name: "Mathematics",
+      sessions: [{ id: "missed-1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false }],
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
+        available_sessions: [{ id: "available-day-session", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00" }],
+      },
+    }]);
+    const blockedSessions = createMockSessionsInRange([{
+      subject_id: "subj-1",
+      subject_code: "MATH",
+      subject_name: "Mathematics",
+      course_id: "c-math201",
+      course_code: "MATH201",
+      course_name: "Mathematics",
+      sessions: [{ id: "missed-1", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:30:00+07:00", date: "2026-06-02", already_absent: false }],
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: { id: "c-math301", code: "MATH301", name: "Calculus III" },
+        unavailable_sessions: [{
+          session: { id: "available-day-session", start_at: "2026-06-04T13:00:00+07:00", end_at: "2026-06-04T14:30:00+07:00" },
+          reason: "This sit-in session is already assigned to this student's absence.",
+          reason_code: "sit_in_session_already_used",
+        }],
+      },
+    }]);
+    renderAbsenceForm({
+      sessions: () => {
+        sessionRequestCount += 1;
+        return sessionRequestCount === 1 ? freshSessions : blockedSessions;
+      },
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await toggleAllCourseSwitches(user);
+    await user.click(await findSessionCheckbox());
+    await user.selectOptions(screen.getByRole("combobox"), "available-day-session");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    expect(await screen.findByText(/selected sit-in session is no longer available/i)).toBeInTheDocument();
+    expect(screen.getByText("Courses & classes")).toBeInTheDocument();
+    expect(mockApiJson.mock.calls.some(([url, init]) => String(url).endsWith("/absences/batch") && init?.method === "POST")).toBe(false);
+  }, 30000);
+
   it("submits the selected priority sit-in course for SAT Verbal priority options", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({

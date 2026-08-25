@@ -46,6 +46,7 @@ import {
   countSelectedAbsenceDaysForGroup,
   groupByDay,
   mergedSessionValue,
+  splitMergedSessionValue,
   type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/features/absences/domain/submissionPayload";
@@ -60,6 +61,7 @@ import {
   getSitInSessionLabel,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
+  blockedSitInSessionIds,
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
   groupWithSitInForMissedSession,
@@ -697,25 +699,52 @@ export default function AbsenceForm() {
     }
     if (!validateClasses()) return;
     if (!lookup) { setPageError("Search for your profile first."); return; }
-    const payloadResult = buildAbsenceSubmissionPayloads({
-      lookupWcode: lookup.wcode,
-      sessions,
-      selectedSubjectIds,
-      selectedSessionIds,
-      sitInSelections,
-      reason,
-      maxDateRangeDays: config.form.max_date_range_days,
-      sitInPriorityLevels,
-      sitInPriorityHistory,
-    });
-    if (!payloadResult.ok) {
-      setPageError(payloadResult.error);
-      return;
-    }
-    const payloads = payloadResult.payloads;
-    if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
     try {
       setIsSubmitting(true);
+      let submissionSessions: SubjectSessions[];
+      try {
+        const latest = await loadStudentSessions();
+        submissionSessions = latest.subjects;
+        setSessions(submissionSessions);
+        const blockedSessionIds = blockedSitInSessionIds(submissionSessions);
+        const selectedSitInSessionIds = new Set(
+          Object.values(sitInSelections).flatMap((value) => splitMergedSessionValue(value)),
+        );
+        const staleSessionIds = [...selectedSitInSessionIds].filter((id) => blockedSessionIds.has(id));
+        if (staleSessionIds.length > 0) {
+          draftRef.current = null;
+          setSitInSelections({});
+          setSitInPriorityLevels({});
+          setSitInPriorityHistory({});
+          setStep(2);
+          setSubmissionError("A selected sit-in session is no longer available. We refreshed the available sessions; choose another session and submit again.");
+          return;
+        }
+      } catch (error) {
+        if (isStudentSessionUnauthorized(error)) {
+          handleStudentSessionExpired();
+          return;
+        }
+        setSubmissionError(error instanceof Error ? error.message : "Couldn't refresh available sit-in sessions. Please try again.");
+        return;
+      }
+      const payloadResult = buildAbsenceSubmissionPayloads({
+        lookupWcode: lookup.wcode,
+        sessions: submissionSessions,
+        selectedSubjectIds,
+        selectedSessionIds,
+        sitInSelections,
+        reason,
+        maxDateRangeDays: config.form.max_date_range_days,
+        sitInPriorityLevels,
+        sitInPriorityHistory,
+      });
+      if (!payloadResult.ok) {
+        setPageError(payloadResult.error);
+        return;
+      }
+      const payloads = payloadResult.payloads;
+      if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
       const nicknameForSubmission = studentProfile?.nickname_set === false && nickname.trim()
         ? nickname.trim()
         : undefined;
