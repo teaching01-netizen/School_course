@@ -96,6 +96,11 @@ export type ManagedAbsence = Omit<StudentAbsence, "sit_ins"> & {
   timeline?: AbsenceTimelineEntry[];
 };
 
+export type StaffCreateAbsenceBatchResponse = {
+  ids: string[];
+  items: ManagedAbsence[];
+};
+
 export type AbsencePage = {
   items: ManagedAbsence[];
   subjects?: Array<{ id: string; code: string; name: string }>;

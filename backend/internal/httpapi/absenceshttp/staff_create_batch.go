@@ -20,6 +20,7 @@ func (s *server) handleStaffCreateAbsenceBatch(w http.ResponseWriter, r *http.Re
 	}
 
 	createdIDs := make([]string, 0)
+	createdItems := make([]managedAbsenceDTO, 0)
 	if s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-staff-batch", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		var body staffBatchCreateAbsenceRequest
@@ -48,14 +49,20 @@ func (s *server) handleStaffCreateAbsenceBatch(w http.ResponseWriter, r *http.Re
 		}
 
 		for _, item := range body.Items {
-			createdID, _, err := s.createStaffAbsenceTx(w, r, tx, qtx, user, item)
+			createdID, rawDTO, err := s.createStaffAbsenceTx(w, r, tx, qtx, user, item)
 			if err != nil {
 				return 0, nil, err
 			}
+			dto, ok := rawDTO.(managedAbsenceDTO)
+			if !ok {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not build created absence response")
+				return 0, nil, fmt.Errorf("staff absence response type mismatch")
+			}
 			createdIDs = append(createdIDs, createdID)
+			createdItems = append(createdItems, dto)
 		}
 
-		return http.StatusCreated, map[string]any{"ids": createdIDs}, nil
+		return http.StatusCreated, map[string]any{"ids": createdIDs, "items": createdItems}, nil
 	}) {
 		return
 	}

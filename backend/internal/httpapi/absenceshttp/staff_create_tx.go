@@ -316,6 +316,20 @@ func (s *server) createStaffAbsenceTx(
 	}
 
 	dto := s.managedAbsenceDTO(managed)
+	sessions, err := qtx.ManagedAbsenceSessions(r.Context(), row.ID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return "", nil, err
+	}
+	missed, err := qtx.ManagedAbsenceMissedSessions(r.Context(), row.ID)
+	if err != nil {
+		status, code, msg := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, msg)
+		return "", nil, err
+	}
+	dto.SitIns = s.sessionDTO(sessions)
+	dto.MissedSessions = s.sessionDTO(missed)
 	if id, err := sUUIDString(row.ID); err == nil {
 		createdID = id
 	}

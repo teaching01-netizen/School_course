@@ -46,6 +46,7 @@ import type {
   AbsenceFormConfig,
   SmsPreview,
   StaffCreateAbsenceRequest,
+  StaffCreateAbsenceBatchResponse,
 } from "../../types";
 import Button from "../ui/Button";
 import Select from "../ui/Select";
@@ -1255,7 +1256,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
     if (requests.length > 0) {
       try {
-        const res = await apiJson<{ ids: string[] }>(
+        const res = await apiJson<StaffCreateAbsenceBatchResponse>(
           "/api/v1/absences/staff-create",
           {
             method: "POST",

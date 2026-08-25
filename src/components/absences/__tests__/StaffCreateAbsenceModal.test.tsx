@@ -1538,16 +1538,17 @@ describe("special sit-in multi-subject coverage", () => {
       const bodies = body.items as Array<Record<string, unknown>>;
       expect(bodies).toHaveLength(2);
       const byCourse = new Map(bodies.map((b) => [b.sit_in_course_id, b]));
-      expect(byCourse.get("cB-alt")).toBeDefined();
-      expect(byCourse.get("cC-alt")).toBeDefined();
+      const courseB = byCourse.get("cB-alt");
+      const courseC = byCourse.get("cC-alt");
+      if (!courseB || !courseC) throw new Error("missing special sit-in item");
 
-      expect(byCourse.get("cB-alt").missed_session_ids).toContain("sessA1");
-      expect(byCourse.get("cB-alt").sit_in_session_ids).toEqual(["sitB1"]);
-      expect(byCourse.get("cB-alt").status).toBe("special_approved");
+      expect(courseB.missed_session_ids).toContain("sessA1");
+      expect(courseB.sit_in_session_ids).toEqual(["sitB1"]);
+      expect(courseB.status).toBe("special_approved");
 
-      expect(byCourse.get("cC-alt").missed_session_ids).toContain("sessA2");
-      expect(byCourse.get("cC-alt").sit_in_session_ids).toEqual(["sitC1"]);
-      expect(byCourse.get("cC-alt").status).toBe("special_approved");
+      expect(courseC.missed_session_ids).toContain("sessA2");
+      expect(courseC.sit_in_session_ids).toEqual(["sitC1"]);
+      expect(courseC.status).toBe("special_approved");
     });
   });
 
