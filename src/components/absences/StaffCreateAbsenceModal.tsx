@@ -199,7 +199,10 @@ function makeUpPickerOptions(
   selectedSubjectIds: string[],
   groupLabel: string,
   defaultSitInCourse?: NonNullable<SubjectSessions["sit_in"]>["sit_in_course"],
+  selectedSitInSessionIds: string[] = [],
 ): MakeUpOption[] {
+  const selectedCounts = new Map<string, number>();
+  for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(
       optionGroup.items,
@@ -207,11 +210,14 @@ function makeUpPickerOptions(
       selectedSubjectIds,
     );
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
+    const duplicateDescription = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 1)
+      ? "This sit-in session is selected for more than one absence day. Submission will be blocked."
+      : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
-      description: [formatSitInSessionConflictDescription(conflicts), historicalDescription].filter(Boolean).join(" ") || undefined,
+      description: [formatSitInSessionConflictDescription(conflicts), historicalDescription, duplicateDescription].filter(Boolean).join(" ") || undefined,
     };
   });
 }
@@ -996,6 +1002,24 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     );
   }
 
+  function hasDuplicateSelectedSitInSessions(): boolean {
+    const datesBySitInSession = new Map<string, Set<string>>();
+    for (const group of sessions) {
+      if (!selectedSubjectIds.includes(group.subject_id)) continue;
+      for (const missed of getSelectedSessionsForGroup(group, selectedSessionIds)) {
+        const selection = (sitInModes[missed.id] ?? "suggested") === "special"
+          ? specialSitInSelections[missed.id]?.sessionValue
+          : sitInSelections[missed.id];
+        for (const sessionId of splitMergedSessionValue(selection)) {
+          const dates = datesBySitInSession.get(sessionId) ?? new Set<string>();
+          dates.add(missed.date);
+          datesBySitInSession.set(sessionId, dates);
+        }
+      }
+    }
+    return [...datesBySitInSession.values()].some((dates) => dates.size > 1);
+  }
+
   function handleNext() {
     if (step === "type") {
       setStep("subjects");
@@ -1023,12 +1047,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         addToast("error", "Select a special sit-in subject and session");
         return;
       }
-      const selectedSitInSessionIds = [
-        ...Object.values(sitInSelections).flatMap(splitMergedSessionValue),
-        ...Object.values(specialSitInSelections).flatMap((selection) => splitMergedSessionValue(selection.sessionValue)),
-      ];
-      const duplicateIds = duplicateSitInSessionIds(selectedSitInSessionIds.map((id) => ({ sit_in_session_ids: [id] })));
-      if (duplicateIds.length > 0) {
+      if (hasDuplicateSelectedSitInSessions()) {
         addToast("error", "The same sit-in session is selected for more than one absence day. Choose a different session before continuing.");
         return;
       }
@@ -1051,7 +1070,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     setStep("sessions");
     addToast(
       "error",
-      formatSitInSubmissionConflictDetails(error instanceof ApiRequestError ? error.details : undefined) ?? "That sit-in session is already assigned to this student's absence. We refreshed the sessions; choose another session and submit again.",
+      formatSitInSubmissionConflictDetails(error instanceof ApiRequestError ? error.details : undefined) ?? "That sit-in session was just used for this student. We refreshed the sessions; choose another session and submit again.",
     );
   }
 
@@ -1091,6 +1110,10 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     if (!student) return;
     if (incompleteSpecialSitIn) {
       addToast("error", "Select a special sit-in subject and session");
+      return;
+    }
+    if (hasDuplicateSelectedSitInSessions()) {
+      handleDuplicateSitInSelection();
       return;
     }
     setSubmitting(true);

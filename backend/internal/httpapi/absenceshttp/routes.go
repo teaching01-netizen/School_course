@@ -46,8 +46,8 @@ type sessionRow struct {
 	MergedEndAt   string
 }
 
-func mergedSessionRanges(ctx context.Context, db *pgxpool.Pool, from, to time.Time, zone string) (map[string][2]string, error) {
-	rows, err := db.Query(ctx, `
+func mergedSessionRangesSQL() string {
+	return `
 		WITH merged_sessions AS (
 			SELECT source.id,
 			       source.start_at,
@@ -56,24 +56,32 @@ func mergedSessionRanges(ctx context.Context, db *pgxpool.Pool, from, to time.Ti
 			FROM sessions source
 			JOIN course_merge_group_members source_member ON source_member.course_id = source.course_id
 			WHERE source.deleted_at IS NULL
+			  AND source.id = ANY($3::uuid[])
 			  AND source.start_at >= $1
 			  AND source.start_at < $2
 		)
 		SELECT source.id,
-		       MIN(sibling.start_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $3)::date),
-		       MAX(sibling.end_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $3)::date)
+		       MIN(sibling.start_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $4)::date),
+		       MAX(sibling.end_at) OVER (PARTITION BY source.id, (sibling.start_at AT TIME ZONE $4)::date)
 		FROM merged_sessions source
 		JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source.group_id
 		JOIN sessions sibling ON sibling.course_id = sibling_member.course_id
 		WHERE sibling.deleted_at IS NULL
 		  AND sibling.start_at >= $1
 		  AND sibling.start_at < $2
-	`, from, to, zone)
+	`
+}
+
+func mergedSessionRanges(ctx context.Context, db *pgxpool.Pool, from, to time.Time, zone string, sessionIDs []pgtype.UUID) (map[string][2]string, error) {
+	result := make(map[string][2]string)
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+	rows, err := db.Query(ctx, mergedSessionRangesSQL(), from, to, sessionIDs, zone)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[string][2]string)
 	for rows.Next() {
 		var id pgtype.UUID
 		var start, end time.Time
@@ -87,6 +95,28 @@ func mergedSessionRanges(ctx context.Context, db *pgxpool.Pool, from, to time.Ti
 		result[idStr] = [2]string{start.UTC().Format(time.RFC3339Nano), end.UTC().Format(time.RFC3339Nano)}
 	}
 	return result, rows.Err()
+}
+
+func sessionsAlreadyAbsentSelectSQL() string {
+	return `
+		SELECT DISTINCT sess.id
+		FROM sessions sess
+		JOIN student_absences sa ON (
+			sa.course_id = sess.course_id
+			OR EXISTS (
+				SELECT 1
+				FROM course_merge_group_members merge_member
+				WHERE merge_member.group_id = sa.merge_group_id
+				  AND merge_member.course_id = sess.course_id
+			)
+		)
+		WHERE sa.wcode = $1
+		  AND sa.status <> 'cancelled'
+		  AND sess.start_at >= $3
+		  AND sess.start_at < $4
+		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
+		  AND sess.deleted_at IS NULL
+	`
 }
 
 func sessionsInRangeSelectSQL() string {
@@ -1267,6 +1297,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 
 	now := time.Now()
 	var sessions []sessionRow
+	var sessionIDs []pgtype.UUID
 	for rows.Next() {
 		var dbRow sessionDBRow
 		if err := rows.Scan(&dbRow.ID, &dbRow.StartAt, &dbRow.EndAt,
@@ -1313,12 +1344,13 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		sessions = append(sessions, row)
+		sessionIDs = append(sessionIDs, dbRow.ID)
 	}
 	if err := rows.Err(); err != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
 		return
 	}
-	mergedRanges, err := mergedSessionRanges(r.Context(), s.deps.DB, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
+	mergedRanges, err := mergedSessionRanges(r.Context(), s.deps.DB, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ, sessionIDs)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -1332,23 +1364,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	}
 
 	// Query session IDs already covered by existing absences
-	absentRows, err := s.deps.DB.Query(r.Context(), `
-		SELECT DISTINCT sess.id
-		FROM sessions sess
-		JOIN student_absences sa ON (
-			sa.course_id = sess.course_id
-			OR EXISTS (
-				SELECT 1
-				FROM course_merge_group_members merge_member
-				WHERE merge_member.group_id = sa.merge_group_id
-				  AND merge_member.course_id = sess.course_id
-			)
-		)
-		WHERE sa.wcode = $1
-		  AND sa.status <> 'cancelled'
-		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
-		  AND sess.deleted_at IS NULL
-	`, wcode, s.deps.InstituteTZ)
+	absentRows, err := s.deps.DB.Query(r.Context(), sessionsAlreadyAbsentSelectSQL(), wcode, s.deps.InstituteTZ, dateFrom, dateTo.AddDate(0, 0, 1))
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)

@@ -279,6 +279,20 @@ func TestSessionsInRangeQueryAppliesRequestedDateBounds(t *testing.T) {
 	}
 }
 
+func TestMergedSessionRangesQueryRestrictsSourceRowsToReturnedSessions(t *testing.T) {
+	sql := mergedSessionRangesSQL()
+	if !strings.Contains(sql, "source.id = ANY($3::uuid[])") {
+		t.Fatalf("merged-session query should restrict source rows to returned session IDs, SQL: %s", sql)
+	}
+}
+
+func TestAlreadyAbsentSessionsQueryAppliesRequestedDateBounds(t *testing.T) {
+	sql := sessionsAlreadyAbsentSelectSQL()
+	if !strings.Contains(sql, "sess.start_at >= $3") || !strings.Contains(sql, "sess.start_at < $4") {
+		t.Fatalf("already-absent query should apply requested date bounds, SQL: %s", sql)
+	}
+}
+
 func TestResolveDateRangeForSessionStartsUsesInstituteTimezone(t *testing.T) {
 	fallbackFrom := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fallbackTo := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)

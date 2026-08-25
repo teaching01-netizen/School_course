@@ -106,16 +106,22 @@ function makeUpPickerOptions(
   selectedSubjectIds: string[],
   groupLabel: string,
   defaultSitInCourse?: SitInCourse,
+  selectedSitInSessionIds: string[] = [],
 ): MakeUpOption[] {
+  const selectedCounts = new Map<string, number>();
+  for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
     const conflictDescription = formatSitInSessionConflictDescription(conflicts);
     const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
+    const duplicateDescription = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 1)
+      ? "This sit-in session is selected for more than one absence day. Submission will be blocked."
+      : undefined;
     return {
       value: mergedSessionValue(optionGroup.items),
       label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
       disabled: conflicts.length > 0,
-      description: [conflictDescription, historicalDescription].filter(Boolean).join(" ") || undefined,
+      description: [conflictDescription, historicalDescription, duplicateDescription].filter(Boolean).join(" ") || undefined,
     };
   });
 }
@@ -804,7 +810,7 @@ export default function AbsenceForm() {
         setSitInPriorityHistory({});
         setSessionsReloadToken((current) => current + 1);
         setStep(2);
-        setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session is already assigned to this student's absence. We refreshed the available sessions; choose another session and submit again.");
+        setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session was just used for this student. We refreshed the available sessions; choose another session and submit again.");
       } else if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
       } else if (error instanceof TypeError) {
@@ -1368,7 +1374,7 @@ export default function AbsenceForm() {
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
-                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
+                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue))}
                                                             onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                           />
                                                         )}
@@ -1391,7 +1397,7 @@ export default function AbsenceForm() {
                                                           id={`sit-in-${session.id}`}
                                                           label="Make-up class"
                                                           value={currentSitIn}
-                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course)}
+                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue))}
                                                           onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                         />
                                                       )}
