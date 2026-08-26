@@ -37,18 +37,22 @@ export const conflictOverviewResponseSchema = z.object({
       detected_at: z.string(),
     }),
   ),
-  total_count: z.number().int().nonnegative(),
-  offset: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
-  summary: z.object({
-    total_conflicts: z.number().int().nonnegative(),
-    room_overlaps: z.number().int().nonnegative(),
-    teacher_overlaps: z.number().int().nonnegative(),
-    student_overlaps: z.number().int().nonnegative(),
-  }),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+  next_cursor: z.string().nullable(),
+  prev_cursor: z.string().nullable(),
+});
+
+export const conflictSummarySchema = z.object({
+  total_conflicts: z.number().int().nonnegative(),
+  room_overlaps: z.number().int().nonnegative(),
+  teacher_overlaps: z.number().int().nonnegative(),
+  student_overlaps: z.number().int().nonnegative(),
 });
 
 export type ConflictOverviewResponse = z.infer<typeof conflictOverviewResponseSchema>;
+export type ConflictSummaryResponse = z.infer<typeof conflictSummarySchema>;
 export type ConflictOverviewItem = ConflictOverviewResponse["items"][number];
 export type ConflictSession = ConflictOverviewItem["primary_session"];
 export type ConflictType = ConflictOverviewItem["conflict_type"];

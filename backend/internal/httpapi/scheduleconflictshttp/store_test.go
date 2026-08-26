@@ -5,70 +5,65 @@ import (
 	"testing"
 )
 
-func TestConflictQuerySuppressesLegacyDuplicateOfNativeOccurrence(t *testing.T) {
-	required := []string{
-		"WITH active_sessions AS NOT MATERIALIZED (",
-		"s.source_kind = 'legacy'",
-		"native_session.source_kind = 'native'",
-		"native_session.course_id = s.course_id",
-		"native_session.teacher_id = s.teacher_id",
-		"native_session.room_id IS NOT DISTINCT FROM s.room_id",
-		"native_session.start_at = s.start_at",
-		"native_session.end_at = s.end_at",
+func TestDefaultPageQueryLimitsCanonicalKeysBeforeEnrichment(t *testing.T) {
+	// Given: the common unfiltered first-page request.
+	query, args := pageQuery(listFilters{Limit: 50})
+
+	// When: its specialized SQL is inspected.
+	pageAt := strings.Index(query, "page_keys AS")
+	enrichmentAt := strings.LastIndex(query, "JOIN courses pc")
+
+	// Then: canonical pair keys are limited before metadata and JSON work.
+	if pageAt < 0 || enrichmentAt < 0 || pageAt > enrichmentAt || !strings.Contains(query[pageAt:enrichmentAt], "LIMIT $1") {
+		t.Fatalf("default query does not limit keys before enrichment:\n%s", query)
 	}
-	for _, fragment := range required {
-		if !strings.Contains(conflictQuery, fragment) {
-			t.Fatalf("conflict query missing duplicate-suppression invariant %q", fragment)
-		}
+	if len(args) != 1 || args[0] != 51 {
+		t.Fatalf("args = %#v", args)
 	}
 }
 
-func TestConflictQueryUsesCanonicalDistinctSessionPairs(t *testing.T) {
+func TestPageQueryEmitsCanonicalPairsWithoutDistinct(t *testing.T) {
+	// Given: the default pair-discovery query.
+	query, _ := pageQuery(listFilters{Limit: 50})
+
+	// When: both session and student overlap branches are considered.
+	// Then: overridden peers have one deterministic orientation and no DISTINCT cleanup pass.
 	for _, fragment := range []string{
-		"LEAST(s1.id, s2.id) AS primary_id",
-		"GREATEST(s1.id, s2.id) AS conflicting_id",
-		"LEAST(b1.session_id, b2.session_id)",
-		"GREATEST(b1.session_id, b2.session_id)",
-		"SELECT DISTINCT * FROM pair_rows",
+		"NOT (s2.conflict_override OR s2.legacy_conflict_override) OR s1.id < s2.id",
+		"NOT b2.conflict_override OR b1.session_id < b2.session_id",
 	} {
-		if !strings.Contains(conflictQuery, fragment) {
-			t.Fatalf("conflict query missing canonical pair invariant %q", fragment)
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("query missing canonical emission guard %q", fragment)
 		}
+	}
+	if strings.Contains(query, "SELECT DISTINCT") {
+		t.Fatal("query must not generate symmetric pairs and deduplicate them")
 	}
 }
 
-func TestConflictQueryRestrictsStudentBusyRangesToActiveOccurrences(t *testing.T) {
-	for _, fragment := range []string{
-		"JOIN active_sessions s1 ON s1.id = b1.session_id",
-		"JOIN active_sessions s2 ON s2.id = b2.session_id",
-	} {
-		if !strings.Contains(conflictQuery, fragment) {
-			t.Fatalf("student conflict query missing active-occurrence guard %q", fragment)
+func TestSummaryQueryCountsKeysWithoutEnrichment(t *testing.T) {
+	// Given: an unfiltered summary request.
+	query, args := summaryQuery(listFilters{})
+
+	// When: its query plan shape is inspected.
+	// Then: it counts canonical keys without course, subject, room, user, or JSON enrichment.
+	for _, forbidden := range []string{"JOIN courses", "JOIN subjects", "jsonb_", "numbered AS MATERIALIZED"} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("summary query unexpectedly contains %q", forbidden)
 		}
+	}
+	if len(args) != 0 || !strings.Contains(query, "FROM pairs") {
+		t.Fatalf("unexpected summary query or args: %#v\n%s", args, query)
 	}
 }
 
-func TestConflictQueryPushesPaginationAndAggregationIntoSQL(t *testing.T) {
-	for _, fragment := range []string{
-		"WITH active_sessions AS NOT MATERIALIZED",
-		"jsonb_agg(",
-		"count(*) OVER ()::int AS total_count",
-		"LIMIT $8 OFFSET $9",
-		"($1 = '' OR $1 = 'room_overlap')",
-		"($1 = '' OR $1 = 'teacher_overlap')",
-		"($1 = '' OR $1 = 'student_overlap')",
-	} {
-		if !strings.Contains(conflictQuery, fragment) {
-			t.Fatalf("conflict query missing performance invariant %q", fragment)
-		}
-	}
-}
+func TestFilteredPageQueryUsesTypedParameters(t *testing.T) {
+	// Given: any filtered request.
+	query, _ := pageQuery(listFilters{Limit: 50, ConflictType: "teacher_overlap"})
 
-func TestConflictQueryAnchorsOverlapSearchOnOverrides(t *testing.T) {
-	if got := strings.Count(conflictQuery, "s1.conflict_override OR s1.legacy_conflict_override"); got != 2 {
-		t.Fatalf("session override anchor count = %d, want 2", got)
-	}
-	if !strings.Contains(conflictQuery, "AND b1.conflict_override") {
-		t.Fatal("student overlap scan must anchor on overridden busy ranges")
+	// When: its predicates are inspected.
+	// Then: UUIDs remain UUIDs and empty-string OR predicates are absent.
+	if strings.Contains(query, "teacher_id::text") || strings.Contains(query, "$3 = ''") || !strings.Contains(query, "$3::uuid") {
+		t.Fatalf("filtered query does not preserve typed parameters:\n%s", query)
 	}
 }

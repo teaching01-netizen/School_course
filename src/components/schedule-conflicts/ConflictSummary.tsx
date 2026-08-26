@@ -1,7 +1,7 @@
 import { AlertTriangle, DoorOpen, GraduationCap, Users } from "lucide-react";
-import type { ConflictOverviewResponse } from "@/features/scheduling/types/conflictOverview";
+import type { ConflictSummaryResponse } from "@/features/scheduling/types/conflictOverview";
 
-export function ConflictSummary({ summary }: Readonly<{ summary: ConflictOverviewResponse["summary"] }>) {
+export function ConflictSummary({ summary }: Readonly<{ summary: ConflictSummaryResponse }>) {
   const cards = [
     { label: summary.total_conflicts === 1 ? "total conflict" : "total conflicts", value: summary.total_conflicts, icon: AlertTriangle, tone: "text-[var(--color-wi-red)]" },
     { label: "room overlaps", value: summary.room_overlaps, icon: DoorOpen, tone: "text-amber-700" },

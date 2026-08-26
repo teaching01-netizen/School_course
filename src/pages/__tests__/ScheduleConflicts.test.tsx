@@ -17,8 +17,7 @@ describe("ScheduleConflicts", () => {
 
   it("shows summary totals and expandable conflict rows when data loads", () => {
     // Given: the API returns one teacher overlap.
-    mockUseApiQuery.mockReturnValue({
-      data: {
+    const page = {
         items: [
           {
             id: "teacher_overlap:session-1:session-2",
@@ -58,16 +57,21 @@ describe("ScheduleConflicts", () => {
             detected_at: "2026-08-26T09:30:00Z",
           },
         ],
-        total_count: 1,
-        offset: 0,
         limit: 50,
-        summary: { total_conflicts: 1, room_overlaps: 0, teacher_overlaps: 1, student_overlaps: 0 },
-      },
+        has_next: false,
+        has_prev: false,
+        next_cursor: null,
+        prev_cursor: null,
+    };
+    mockUseApiQuery.mockImplementation((url: string) => ({
+      data: url.includes("/summary")
+        ? { total_conflicts: 1, room_overlaps: 0, teacher_overlaps: 1, student_overlaps: 0 }
+        : url.startsWith("/api/v1/schedule-conflicts?") ? page : [],
       loading: false,
       refreshing: false,
       error: null,
       refetch: vi.fn(),
-    });
+    }));
 
     // When: an admin opens the overview.
     render(

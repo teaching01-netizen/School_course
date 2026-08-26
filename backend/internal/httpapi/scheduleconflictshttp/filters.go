@@ -1,6 +1,8 @@
 package scheduleconflictshttp
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,16 +12,29 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	cursorNext = "next"
+	cursorPrev = "prev"
+)
+
+type conflictCursor struct {
+	StartAt       time.Time `json:"s"`
+	ConflictType  string    `json:"t"`
+	PrimaryID     uuid.UUID `json:"p"`
+	ConflictingID uuid.UUID `json:"c"`
+	Direction     string    `json:"d"`
+}
+
 type listFilters struct {
 	Limit        int
-	Offset       int
 	ConflictType string
-	SubjectID    string
-	TeacherID    string
-	StudentID    string
-	DateFrom     string
-	DateTo       string
+	SubjectID    *uuid.UUID
+	TeacherID    *uuid.UUID
+	StudentID    *uuid.UUID
+	DateFrom     *time.Time
+	DateTo       *time.Time
 	Query        string
+	Cursor       *conflictCursor
 }
 
 type invalidFilterError struct {
@@ -36,17 +51,12 @@ func parseListFilters(r *http.Request) (listFilters, error) {
 	filters := listFilters{
 		Limit:        50,
 		ConflictType: strings.TrimSpace(query.Get("conflict_type")),
-		SubjectID:    strings.TrimSpace(query.Get("subject_id")),
-		TeacherID:    strings.TrimSpace(query.Get("teacher_id")),
-		StudentID:    strings.TrimSpace(query.Get("student_id")),
-		DateFrom:     strings.TrimSpace(query.Get("date_from")),
-		DateTo:       strings.TrimSpace(query.Get("date_to")),
 		Query:        strings.TrimSpace(query.Get("q")),
 	}
 	if filters.ConflictType == "all" {
 		filters.ConflictType = ""
 	}
-	if filters.ConflictType != "" && filters.ConflictType != "room_overlap" && filters.ConflictType != "teacher_overlap" && filters.ConflictType != "student_overlap" {
+	if filters.ConflictType != "" && !validConflictType(filters.ConflictType) {
 		return listFilters{}, invalidFilterError{field: "conflict_type", value: filters.ConflictType}
 	}
 	if raw := strings.TrimSpace(query.Get("limit")); raw != "" {
@@ -56,29 +66,104 @@ func parseListFilters(r *http.Request) (listFilters, error) {
 		}
 		filters.Limit = min(value, 200)
 	}
-	if raw := strings.TrimSpace(query.Get("offset")); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 0 {
-			return listFilters{}, invalidFilterError{field: "offset", value: raw}
-		}
-		filters.Offset = value
+
+	var err error
+	if filters.SubjectID, err = parseOptionalUUID(query.Get("subject_id")); err != nil {
+		return listFilters{}, invalidFilterError{field: "subject_id", value: query.Get("subject_id")}
 	}
-	for field, value := range map[string]string{"subject_id": filters.SubjectID, "teacher_id": filters.TeacherID, "student_id": filters.StudentID} {
-		if value != "" {
-			if _, err := uuid.Parse(value); err != nil {
-				return listFilters{}, invalidFilterError{field: field, value: value}
-			}
-		}
+	if filters.TeacherID, err = parseOptionalUUID(query.Get("teacher_id")); err != nil {
+		return listFilters{}, invalidFilterError{field: "teacher_id", value: query.Get("teacher_id")}
 	}
-	for field, value := range map[string]string{"date_from": filters.DateFrom, "date_to": filters.DateTo} {
-		if value != "" {
-			if _, err := time.Parse(time.DateOnly, value); err != nil {
-				return listFilters{}, invalidFilterError{field: field, value: value}
-			}
-		}
+	if filters.StudentID, err = parseOptionalUUID(query.Get("student_id")); err != nil {
+		return listFilters{}, invalidFilterError{field: "student_id", value: query.Get("student_id")}
 	}
-	if filters.DateFrom != "" && filters.DateTo != "" && filters.DateFrom > filters.DateTo {
-		return listFilters{}, invalidFilterError{field: "date_range", value: filters.DateFrom + ".." + filters.DateTo}
+	if filters.DateFrom, err = parseOptionalDate(query.Get("date_from")); err != nil {
+		return listFilters{}, invalidFilterError{field: "date_from", value: query.Get("date_from")}
+	}
+	if filters.DateTo, err = parseOptionalDate(query.Get("date_to")); err != nil {
+		return listFilters{}, invalidFilterError{field: "date_to", value: query.Get("date_to")}
+	}
+	if filters.DateFrom != nil && filters.DateTo != nil && filters.DateFrom.After(*filters.DateTo) {
+		return listFilters{}, invalidFilterError{field: "date_range", value: query.Get("date_from") + ".." + query.Get("date_to")}
+	}
+	if raw := strings.TrimSpace(query.Get("cursor")); raw != "" {
+		filters.Cursor, err = decodeCursor(raw)
+		if err != nil {
+			return listFilters{}, invalidFilterError{field: "cursor", value: raw}
+		}
 	}
 	return filters, nil
+}
+
+func parseOptionalUUID(raw string) (*uuid.UUID, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func parseOptionalDate(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.DateOnly, raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func validConflictType(value string) bool {
+	return value == "room_overlap" || value == "teacher_overlap" || value == "student_overlap"
+}
+
+func encodeCursor(value conflictCursor) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeCursor(raw string) (*conflictCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var value conflictCursor
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return nil, err
+	}
+	if value.StartAt.IsZero() || !validConflictType(value.ConflictType) || value.PrimaryID == uuid.Nil || value.ConflictingID == uuid.Nil || (value.Direction != cursorNext && value.Direction != cursorPrev) {
+		return nil, fmt.Errorf("invalid cursor payload")
+	}
+	return &value, nil
+}
+
+func cursorFor(item conflictDTO, direction string) (string, error) {
+	startAt, err := time.Parse(time.RFC3339Nano, item.PrimarySession.StartAt)
+	if err != nil {
+		return "", fmt.Errorf("parse conflict cursor start: %w", err)
+	}
+	primaryID, err := uuid.Parse(item.PrimarySession.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("parse conflict cursor primary session: %w", err)
+	}
+	conflictingID, err := uuid.Parse(item.ConflictingSessions[0].SessionID)
+	if err != nil {
+		return "", fmt.Errorf("parse conflict cursor conflicting session: %w", err)
+	}
+	return encodeCursor(conflictCursor{
+		StartAt:       startAt,
+		ConflictType:  item.ConflictType,
+		PrimaryID:     primaryID,
+		ConflictingID: conflictingID,
+		Direction:     direction,
+	})
 }

@@ -46,8 +46,9 @@ type summaryDTO struct {
 
 type listResponse struct {
 	Items      []conflictDTO `json:"items"`
-	TotalCount int           `json:"total_count"`
-	Offset     int           `json:"offset"`
 	Limit      int           `json:"limit"`
-	Summary    summaryDTO    `json:"summary"`
+	HasNext    bool          `json:"has_next"`
+	HasPrev    bool          `json:"has_prev"`
+	NextCursor *string       `json:"next_cursor"`
+	PrevCursor *string       `json:"prev_cursor"`
 }
