@@ -239,6 +239,292 @@ func TestScheduleApply_ReusesExactNativeSessionForLegacySchedule(t *testing.T) {
 	}
 }
 
+func TestScheduleApply_RoomChangeKeepsMappedNativeIdentity(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	roomLegacyID := request.Aggregate.Schedules[0].ClassroomLegacyID
+	roomLabel := request.Aggregate.Schedules[0].Classroom
+	request.Aggregate.Schedules[0].ClassroomLegacyID = ""
+	request.Aggregate.Schedules[0].Classroom = "[NOT SET]"
+
+	var previousLegacySyncEnforced bool
+	if err := pool.QueryRow(t.Context(), `SELECT legacy_sync_conflict_enforcement FROM app_settings WHERE id = true`).Scan(&previousLegacySyncEnforced); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE app_settings SET legacy_sync_conflict_enforcement = false WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE app_settings SET legacy_sync_conflict_enforcement = $1 WHERE id = true`, previousLegacySyncEnforced)
+	})
+
+	loc, err := time.LoadLocation(request.InstituteTZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date, err := parseSourceDate(request.Aggregate.Schedules[0].Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end, err := normalize.SessionWindow(date, request.Aggregate.Schedules[0].Begin, request.Aggregate.Schedules[0].End, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nativeSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, source_kind)
+		VALUES ($1, NULL, $2, $3, $4, 'native') RETURNING id
+	`, courseID, request.TeacherID, start, end).Scan(&nativeSessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var mapped pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mapped); err != nil {
+		t.Fatal(err)
+	}
+	if mapped != nativeSessionID {
+		t.Fatalf("initial schedule mapping = %v, want native %v", mapped, nativeSessionID)
+	}
+
+	request.Aggregate.Schedules[0].ClassroomLegacyID = roomLegacyID
+	request.Aggregate.Schedules[0].Classroom = roomLabel
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var roomID, expectedRoomID pgtype.UUID
+	var override bool
+	if err := pool.QueryRow(t.Context(), `SELECT room_id, legacy_conflict_override FROM sessions WHERE id=$1`, nativeSessionID).Scan(&roomID, &override); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='room' AND external_id=$2`, master.source, roomLegacyID).Scan(&expectedRoomID); err != nil {
+		t.Fatal(err)
+	}
+	if roomID != expectedRoomID || override {
+		t.Fatalf("reconciled native room/override = %v/%v, want %v/false", roomID, override, expectedRoomID)
+	}
+	var activeCount, activeLegacyCount int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND start_at=$2 AND end_at=$3 AND deleted_at IS NULL`, courseID, start, end).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND source_kind='legacy' AND deleted_at IS NULL`, courseID).Scan(&activeLegacyCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 || activeLegacyCount != 0 {
+		t.Fatalf("active sessions after room change = %d (legacy=%d), want 1/0", activeCount, activeLegacyCount)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mapped); err != nil {
+		t.Fatal(err)
+	}
+	if mapped != nativeSessionID {
+		t.Fatalf("schedule mapping after room change = %v, want native %v", mapped, nativeSessionID)
+	}
+	conflicts, err := sqldb.New(pool).SessionConflictsByCourse(t.Context(), courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("room change created conflicts: %+v", conflicts)
+	}
+}
+
+func TestScheduleApply_MappedNativeRoomChangeStillDetectsRealRoomConflict(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	roomLegacyID := request.Aggregate.Schedules[0].ClassroomLegacyID
+	roomLabel := request.Aggregate.Schedules[0].Classroom
+	request.Aggregate.Schedules[0].ClassroomLegacyID = ""
+	request.Aggregate.Schedules[0].Classroom = "[NOT SET]"
+
+	var previousLegacySyncEnforced bool
+	if err := pool.QueryRow(t.Context(), `SELECT legacy_sync_conflict_enforcement FROM app_settings WHERE id = true`).Scan(&previousLegacySyncEnforced); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE app_settings SET legacy_sync_conflict_enforcement = true WHERE id = true`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE app_settings SET legacy_sync_conflict_enforcement = $1 WHERE id = true`, previousLegacySyncEnforced)
+	})
+
+	loc, err := time.LoadLocation(request.InstituteTZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date, err := parseSourceDate(request.Aggregate.Schedules[0].Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end, err := normalize.SessionWindow(date, request.Aggregate.Schedules[0].Begin, request.Aggregate.Schedules[0].End, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nativeSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, source_kind)
+		VALUES ($1, NULL, $2, $3, $4, 'native') RETURNING id
+	`, courseID, request.TeacherID, start, end).Scan(&nativeSessionID); err != nil {
+		t.Fatal(err)
+	}
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var targetRoomID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='room' AND external_id=$2`, master.source, roomLegacyID).Scan(&targetRoomID); err != nil {
+		t.Fatal(err)
+	}
+	blockerTeacher, err := master.ApplyTeacher(t.Context(), TeacherApplyRequest{
+		Teacher: normalize.LegacyTeacher{LegacyID: "room-blocker-teacher-" + suffix, Name: "Room Blocker", IsActive: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockerCourseID := insertLegacyTestCourse(t, pool, suffix+"-room-blocker")
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, source_kind)
+		VALUES ($1, $2, $3, $4, $5, 'native')
+	`, blockerCourseID, targetRoomID, blockerTeacher.InternalID, start, end); err != nil {
+		t.Fatal(err)
+	}
+
+	request.Aggregate.Schedules[0].ClassroomLegacyID = roomLegacyID
+	request.Aggregate.Schedules[0].Classroom = roomLabel
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	result, err := applier.Apply(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SkippedSessions != 1 {
+		t.Fatalf("mapped native room conflict skipped = %d, want 1", result.SkippedSessions)
+	}
+	var nativeRoom pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT room_id FROM sessions WHERE id=$1`, nativeSessionID).Scan(&nativeRoom); err != nil {
+		t.Fatal(err)
+	}
+	if nativeRoom.Valid {
+		t.Fatalf("blocked room change mutated canonical native room to %v", nativeRoom)
+	}
+	var mapped pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mapped); err != nil {
+		t.Fatal(err)
+	}
+	if mapped != nativeSessionID {
+		t.Fatalf("blocked room change remapped schedule = %v, want native %v", mapped, nativeSessionID)
+	}
+	var activeLegacyCount int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND source_kind='legacy' AND deleted_at IS NULL`, courseID).Scan(&activeLegacyCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeLegacyCount != 0 {
+		t.Fatalf("blocked room change created %d active legacy duplicates", activeLegacyCount)
+	}
+	var conflictType, status string
+	if err := pool.QueryRow(t.Context(), `
+		SELECT conflict_type, status FROM legacy_sync_conflicts
+		WHERE external_id=$1 AND source_payload->>'legacy_schedule_id'=$2
+		ORDER BY created_at DESC LIMIT 1
+	`, request.LegacyCourseID, scheduleID).Scan(&conflictType, &status); err != nil {
+		t.Fatal(err)
+	}
+	if conflictType != "room_overlap" || status != "open" {
+		t.Fatalf("mapped native room conflict = %q/%q, want room_overlap/open", conflictType, status)
+	}
+}
+
+func TestScheduleApply_RoomChangeRepairsExistingNativeLegacyDuplicate(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	loc, err := time.LoadLocation(request.InstituteTZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date, err := parseSourceDate(request.Aggregate.Schedules[0].Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end, err := normalize.SessionWindow(date, request.Aggregate.Schedules[0].Begin, request.Aggregate.Schedules[0].End, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roomID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='room' AND external_id=$2`, master.source, request.Aggregate.Schedules[0].ClassroomLegacyID).Scan(&roomID); err != nil {
+		t.Fatal(err)
+	}
+	var nativeSessionID, legacyDuplicateID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, source_kind)
+		VALUES ($1, NULL, $2, $3, $4, 'native') RETURNING id
+	`, courseID, request.TeacherID, start, end).Scan(&nativeSessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `
+		INSERT INTO sessions (course_id, room_id, teacher_id, start_at, end_at, legacy_schedule_id, source_kind, legacy_conflict_override)
+		VALUES ($1, $2, $3, $4, $5, $6, 'legacy', true) RETURNING id
+	`, courseID, roomID, request.TeacherID, start, end, scheduleID).Scan(&legacyDuplicateID); err != nil {
+		t.Fatal(err)
+	}
+	q := sqldb.New(pool)
+	if _, err := q.ExternalRefUpsert(t.Context(), sqldb.ExternalRefUpsertParams{
+		Source: master.source, EntityType: "schedule", ExternalID: scheduleID, InternalID: legacyDuplicateID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := normalize.CanonicalJSON(request.Aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, err := normalize.HashCanonical(request.Aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.SnapshotUpsert(t.Context(), sqldb.SnapshotUpsertParams{
+		Source: master.source, EntityType: "course", ExternalID: request.LegacyCourseID,
+		CanonicalData: string(canonical), SourceHash: sourceHash, ParserVersion: 1,
+		ObservedAt: timestamp(request.ObservedAt), Quality: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := newTestScheduleApplier(pool, q, master.source).Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var nativeRoom pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT room_id FROM sessions WHERE id=$1`, nativeSessionID).Scan(&nativeRoom); err != nil {
+		t.Fatal(err)
+	}
+	if nativeRoom != roomID {
+		t.Fatalf("canonical native room = %v, want %v", nativeRoom, roomID)
+	}
+	var duplicateDeletedAt *time.Time
+	if err := pool.QueryRow(t.Context(), `SELECT deleted_at FROM sessions WHERE id=$1`, legacyDuplicateID).Scan(&duplicateDeletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if duplicateDeletedAt == nil {
+		t.Fatal("pre-existing legacy duplicate remained active")
+	}
+	var mapped pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mapped); err != nil {
+		t.Fatal(err)
+	}
+	if mapped != nativeSessionID {
+		t.Fatalf("repaired mapping = %v, want native %v", mapped, nativeSessionID)
+	}
+	conflicts, err := q.SessionConflictsByCourse(t.Context(), courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("repaired room drift still reports conflicts: %+v", conflicts)
+	}
+}
+
 func TestScheduleApply_UsesCurrentCourseTeacher(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)

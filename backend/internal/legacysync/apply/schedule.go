@@ -296,11 +296,29 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 			if err := a.migrateDerivedScheduleIdentity(ctx, tx, request, schedule.LegacyScheduleID, roomID, start, end); err != nil {
 				return skipped, err
 			}
-			nativeSessionID, err := a.findActiveNativeSession(ctx, qtx, request.CourseID, request.TeacherID, roomID, start, end)
+			nativeSessionID, err := a.findCanonicalNativeSession(ctx, tx, qtx, request.CourseID, request.TeacherID, schedule.LegacyScheduleID, roomID, start, end)
 			if err != nil {
 				return skipped, err
 			}
 			if nativeSessionID.Valid {
+				forceOverride := false
+				conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, nativeSessionID, roomID, start, end)
+				if err != nil {
+					return skipped, err
+				}
+				if conflict != nil {
+					if !request.allowConflicts {
+						if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, conflict); err != nil {
+							return skipped, err
+						}
+						skipped++
+						continue
+					}
+					forceOverride = true
+				}
+				if err := a.reconcileNativeSchedule(ctx, tx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
+					return skipped, err
+				}
 				if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
 					return skipped, err
 				}
@@ -310,7 +328,7 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 				continue
 			}
 			forceOverride := false
-			conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
+			conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, pgtype.UUID{}, roomID, start, end)
 			if err != nil {
 				return skipped, err
 			}
@@ -443,6 +461,7 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 	}
 	skipped := make([]string, 0)
 	allowed := make([]string, 0)
+	linkedNative := make([]string, 0)
 	for _, schedule := range request.Aggregate.Schedules {
 		date, err := parseSourceDate(schedule.Date)
 		if err != nil {
@@ -460,17 +479,36 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 		if err != nil {
 			return 0, fmt.Errorf("hash legacy schedule %s: %w", schedule.LegacyScheduleID, err)
 		}
-		nativeSessionID, err := a.findActiveNativeSession(ctx, qtx, request.CourseID, request.TeacherID, roomID, start, end)
+		nativeSessionID, err := a.findCanonicalNativeSession(ctx, tx, qtx, request.CourseID, request.TeacherID, schedule.LegacyScheduleID, roomID, start, end)
 		if err != nil {
 			return 0, err
 		}
 		if nativeSessionID.Valid {
+			forceOverride := false
+			conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, nativeSessionID, roomID, start, end)
+			if err != nil {
+				return 0, err
+			}
+			if conflict != nil {
+				if !request.allowConflicts {
+					if err := a.recordScheduleConflict(ctx, tx, request, schedule, scheduleHash, conflict); err != nil {
+						return 0, err
+					}
+					skipped = append(skipped, schedule.LegacyScheduleID)
+					continue
+				}
+				forceOverride = true
+			}
+			if err := a.reconcileNativeSchedule(ctx, tx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
+				return 0, err
+			}
 			if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
 				return 0, err
 			}
+			linkedNative = append(linkedNative, schedule.LegacyScheduleID)
 			continue
 		}
-		conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, roomID, start, end)
+		conflict, err := a.strictScheduleConflict(ctx, qtx, request, schedule.LegacyScheduleID, pgtype.UUID{}, roomID, start, end)
 		if err != nil {
 			return 0, err
 		}
@@ -492,7 +530,8 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 		WHERE course_id = $1 AND source_kind = 'legacy' AND legacy_schedule_id = ANY($2::text[])
 		  AND NOT (legacy_schedule_id = ANY($3::text[]))
 		  AND NOT (legacy_schedule_id = ANY($4::text[]))
-		  AND (deleted_at IS NOT NULL OR legacy_conflict_override)`, request.CourseID, incoming, skipped, allowed); err != nil {
+		  AND NOT (legacy_schedule_id = ANY($5::text[]))
+		  AND (deleted_at IS NOT NULL OR legacy_conflict_override)`, request.CourseID, incoming, skipped, allowed, linkedNative); err != nil {
 		return 0, fmt.Errorf("restore locally deleted legacy sessions: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -526,6 +565,90 @@ func appendWithoutSkipped(incoming, skipped []string) []string {
 		}
 	}
 	return result
+}
+
+func (a *ScheduleApplier) findCanonicalNativeSession(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, teacherID pgtype.UUID, scheduleID string, roomID pgtype.UUID, start, end time.Time) (pgtype.UUID, error) {
+	ref, err := qtx.ExternalRefGet(ctx, sqldb.ExternalRefGetParams{Source: a.source, EntityType: "schedule", ExternalID: scheduleID})
+	if err == nil {
+		var mappedCourseID pgtype.UUID
+		var sourceKind string
+		if err := tx.QueryRow(ctx, `SELECT course_id, source_kind FROM sessions WHERE id=$1 FOR UPDATE`, ref.InternalID).Scan(&mappedCourseID, &sourceKind); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return pgtype.UUID{}, fmt.Errorf("legacy schedule %s maps to missing session %s", scheduleID, ref.InternalID.String())
+			}
+			return pgtype.UUID{}, fmt.Errorf("load mapped legacy schedule %s: %w", scheduleID, err)
+		}
+		if mappedCourseID != courseID {
+			return pgtype.UUID{}, fmt.Errorf("legacy schedule %s maps to session in another course", scheduleID)
+		}
+		if sourceKind == "native" {
+			return ref.InternalID, nil
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, fmt.Errorf("load legacy schedule mapping %s: %w", scheduleID, err)
+	}
+
+	exact, err := a.findActiveNativeSession(ctx, qtx, courseID, teacherID, roomID, start, end)
+	if err != nil || exact.Valid {
+		return exact, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id
+		FROM sessions
+		WHERE deleted_at IS NULL
+		  AND source_kind = 'native'
+		  AND course_id = $1
+		  AND teacher_id = $2
+		  AND start_at = $3
+		  AND end_at = $4
+		ORDER BY id
+		LIMIT 2
+		FOR UPDATE`, courseID, teacherID, start, end)
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("find native schedule with room drift: %w", err)
+	}
+	defer rows.Close()
+	candidates := make([]pgtype.UUID, 0, 2)
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return pgtype.UUID{}, fmt.Errorf("scan native room-drift candidate: %w", err)
+		}
+		candidates = append(candidates, id)
+	}
+	if err := rows.Err(); err != nil {
+		return pgtype.UUID{}, fmt.Errorf("iterate native room-drift candidates: %w", err)
+	}
+	if len(candidates) > 1 {
+		return pgtype.UUID{}, fmt.Errorf("legacy schedule %s has ambiguous native room-drift candidates", scheduleID)
+	}
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	return pgtype.UUID{}, nil
+}
+
+func (a *ScheduleApplier) reconcileNativeSchedule(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest, sessionID, roomID pgtype.UUID, start, end time.Time, forceOverride bool) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE sessions
+		SET room_id = NULLIF($2::text, '')::uuid,
+		    teacher_id = $3,
+		    start_at = $4,
+		    end_at = $5,
+		    deleted_at = NULL,
+		    legacy_conflict_override = $6,
+		    updated_at = now(),
+		    version = version + 1
+		WHERE id = $1 AND course_id = $7 AND source_kind = 'native'`,
+		sessionID, uuidText(roomID), request.TeacherID, start, end, forceOverride, request.CourseID)
+	if err != nil {
+		return fmt.Errorf("reconcile mapped native schedule %s: %w", sessionID.String(), err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("reconcile mapped native schedule %s: canonical native session disappeared", sessionID.String())
+	}
+	return nil
 }
 
 func (a *ScheduleApplier) findActiveNativeSession(ctx context.Context, qtx *sqldb.Queries, courseID, teacherID, roomID pgtype.UUID, start, end time.Time) (pgtype.UUID, error) {
@@ -631,7 +754,7 @@ func (a *ScheduleApplier) lockScheduleResources(ctx context.Context, tx pgx.Tx, 
 	return nil
 }
 
-func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb.Queries, request ScheduleApplyRequest, scheduleID string, roomID pgtype.UUID, start, end time.Time) (error, error) {
+func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb.Queries, request ScheduleApplyRequest, scheduleID string, excludeSessionID, roomID pgtype.UUID, start, end time.Time) (error, error) {
 	startAt := pgtype.Timestamptz{Time: start, Valid: true}
 	endAt := pgtype.Timestamptz{Time: end, Valid: true}
 	if request.TeacherID.Valid {
@@ -660,7 +783,8 @@ func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb
 				WHERE deleted_at IS NULL AND teacher_id = $1
 				  AND time_range && tstzrange($2, $3, '[)')
 				  AND legacy_schedule_id IS DISTINCT FROM $4::text
-			)`, request.TeacherID, start, end, scheduleID).Scan(&exists); err != nil {
+				  AND id IS DISTINCT FROM $5::uuid
+			)`, request.TeacherID, start, end, scheduleID, excludeSessionID).Scan(&exists); err != nil {
 			return nil, fmt.Errorf("check legacy teacher overlap: %w", err)
 		}
 		if exists {
@@ -674,7 +798,8 @@ func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb
 				WHERE deleted_at IS NULL AND room_id = $1
 				  AND time_range && tstzrange($2, $3, '[)')
 				  AND legacy_schedule_id IS DISTINCT FROM $4::text
-			)`, roomID, start, end, scheduleID).Scan(&exists); err != nil {
+				  AND id IS DISTINCT FROM $5::uuid
+			)`, roomID, start, end, scheduleID, excludeSessionID).Scan(&exists); err != nil {
 			return nil, fmt.Errorf("check legacy room overlap: %w", err)
 		}
 		if exists {
@@ -690,7 +815,8 @@ func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb
 			WHERE br.deleted_at IS NULL AND other.deleted_at IS NULL
 			  AND br.time_range && tstzrange($2, $3, '[)')
 			  AND other.legacy_schedule_id IS DISTINCT FROM $4::text
-		)`, request.CourseID, start, end, scheduleID).Scan(&exists); err != nil {
+			  AND other.id IS DISTINCT FROM $5::uuid
+		)`, request.CourseID, start, end, scheduleID, excludeSessionID).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check legacy student overlap: %w", err)
 	}
 	if exists {
@@ -702,7 +828,8 @@ func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb
 			WHERE deleted_at IS NULL AND course_id = $1
 			  AND time_range && tstzrange($2, $3, '[)')
 			  AND legacy_schedule_id IS DISTINCT FROM $4::text
-		)`, request.CourseID, start, end, scheduleID).Scan(&exists); err != nil {
+			  AND id IS DISTINCT FROM $5::uuid
+		)`, request.CourseID, start, end, scheduleID, excludeSessionID).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check legacy course overlap: %w", err)
 	}
 	if exists {
