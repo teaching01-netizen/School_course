@@ -115,4 +115,37 @@ describe("CrmFilterPanel reconcile status", () => {
     await waitFor(() => expect(saveButton).toBeDisabled());
     expect(screen.getByText("CRM reconcile running")).toBeInTheDocument();
   });
+
+  it("deduplicates selected course names in the displayed count and state updates", async () => {
+    mockApiJson.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/api/v1/courses/course-1/crm-filter" && init?.method === "GET") {
+        return {
+          enabled: true,
+          locked: false,
+          filter: { ...defaultFilter, course_name_values: ["SAT Math", "SAT Math\u00a0"] },
+        };
+      }
+      if (path === "/api/v1/crm/options") {
+        return {
+          cycle_labels: [],
+          course_names: ["SAT Math", "SAT Math ", "Algebra"],
+          academic_levels: [],
+          secondary_schools: [],
+        };
+      }
+      if (path === "/api/v1/courses/course-1/crm-filter/preview") {
+        return { distinct_students: 18 };
+      }
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+
+    const courseNames = await screen.findByRole("button", { name: "1 selected" });
+    await user.click(courseNames);
+    expect(screen.getAllByText("SAT Math")).toHaveLength(1);
+
+    await user.click(screen.getByRole("checkbox", { name: "Algebra" }));
+    expect(screen.getByRole("button", { name: "2 selected" })).toBeInTheDocument();
+  });
 });

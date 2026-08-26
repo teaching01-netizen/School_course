@@ -1019,6 +1019,10 @@ func (s *ReconcileV2Service) GetCourseFilterState(ctx context.Context, courseID 
 }
 
 func (s *ReconcileV2Service) UpdateCourseFilter(ctx context.Context, courseID pgtype.UUID, enabled bool, filter crmtypes.CourseFilter) error {
+	filter.Normalize()
+	if err := filter.Validate(); err != nil {
+		return fmt.Errorf("validate filter: %w", err)
+	}
 	filterJSON, err := json.Marshal(filter)
 	if err != nil {
 		return fmt.Errorf("marshal filter: %w", err)
@@ -1037,16 +1041,11 @@ func (s *ReconcileV2Service) UpdateCourseFilter(ctx context.Context, courseID pg
 }
 
 func (s *ReconcileV2Service) SetCourseFilterAndEnqueueApply(ctx context.Context, worker *queue.QueueWorker, courseID pgtype.UUID, enabled bool, filterJSON string) (uuid.UUID, bool, error) {
-	_, err := s.db.Exec(ctx, `
-		UPDATE courses
-		SET crm_filter_enabled = $2,
-		    crm_filter = $3::jsonb,
-		    crm_filter_updated_at = now(),
-		    crm_filter_version = crm_filter_version + 1,
-		    updated_at = now()
-		WHERE id = $1
-	`, courseID, enabled, filterJSON)
-	if err != nil {
+	var filter crmtypes.CourseFilter
+	if err := json.Unmarshal([]byte(filterJSON), &filter); err != nil {
+		return uuid.UUID{}, false, fmt.Errorf("decode course filter: %w", err)
+	}
+	if err := s.UpdateCourseFilter(ctx, courseID, enabled, filter); err != nil {
 		return uuid.UUID{}, false, fmt.Errorf("update course filter: %w", err)
 	}
 

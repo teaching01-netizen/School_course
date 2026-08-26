@@ -216,6 +216,8 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 		HasConflict        bool             `json:"has_conflict"`
 		AbsenceFormVisible bool             `json:"absence_form_visible"`
 		IsActiveCourse     bool             `json:"is_active_course"`
+		MergeGroupID       *string          `json:"merge_group_id,omitempty"`
+		MergeGroupName     *string          `json:"merge_group_name,omitempty"`
 		Teachers           []map[string]any `json:"teachers"`
 	}
 	out := make([]courseDTO, 0, len(items))
@@ -270,6 +272,20 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			lastSessionAt, _ = s.a.TimeString(c.LastSessionAt)
 		}
 		expiresAt, expiryStatus := courseExpiry(c.ExpiryDays, c.LastSessionAt)
+		var mergeGroupID *string
+		if c.MergeGroupID.Valid {
+			value, err := s.a.UUIDString(c.MergeGroupID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
+				return
+			}
+			mergeGroupID = &value
+		}
+		var mergeGroupName *string
+		if c.MergeGroupName.Valid {
+			value := c.MergeGroupName.String
+			mergeGroupName = &value
+		}
 		cid := id
 		out = append(out, courseDTO{
 			ID:                 cid,
@@ -297,6 +313,8 @@ func (s *server) handleCoursesList(w http.ResponseWriter, r *http.Request) {
 			HasConflict:        c.HasConflict,
 			AbsenceFormVisible: c.AbsenceFormVisible,
 			IsActiveCourse:     c.IsActiveCourse,
+			MergeGroupID:       mergeGroupID,
+			MergeGroupName:     mergeGroupName,
 			Teachers:           teachersByCourse[cid],
 		})
 	}
@@ -1400,6 +1418,14 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		lastSessionAt, _ = s.a.TimeString(item.LastSessionAt)
 	}
 	expiresAt, expiryStatus := courseExpiry(item.ExpiryDays, item.LastSessionAt)
+	var mergeGroupID any
+	if item.MergeGroupID.Valid {
+		mergeGroupID, _ = s.a.UUIDString(item.MergeGroupID)
+	}
+	var mergeGroupName any
+	if item.MergeGroupName.Valid {
+		mergeGroupName = item.MergeGroupName.String
+	}
 	return map[string]any{
 		"id":                    cid,
 		"course_no":             item.CourseNo,
@@ -1425,6 +1451,8 @@ func (s *server) courseOverviewResponse(item sqldb.CourseOverviewRow, teachers [
 		"legacy_last_synced_at": legacyLastSyncedAt,
 		"absence_form_visible":  item.AbsenceFormVisible,
 		"is_active_course":      item.IsActiveCourse,
+		"merge_group_id":        mergeGroupID,
+		"merge_group_name":      mergeGroupName,
 		"version":               item.Version.Int32,
 		"teachers":              teachers,
 	}, nil

@@ -28,7 +28,17 @@ const courses = [
     code: "0000000013",
     name: "SAT Verbal Writing Beginner Section 1 C2/26",
     subject_name: "SAT Writing",
+	merge_group_id: "merge-group-id",
+	merge_group_name: "Writing Merge Group",
   },
+	{
+		id: "course-a-peer-id",
+		code: "0000000014",
+		name: "SAT Verbal Writing Beginner Section 2 C2/26",
+		subject_name: "SAT Writing",
+		merge_group_id: "merge-group-id",
+		merge_group_name: "Writing Merge Group",
+	},
   {
     id: "course-b-id",
     code: "0000000018",
@@ -56,7 +66,7 @@ const crmRowWithoutMappedSource: CrmRowInfo = {
 const currentAssignmentWithDestinations: AssignmentDTO = {
   id: "assignment-id",
   dest_course_a: courses[2],
-  dest_course_b: courses[3],
+  dest_course_b: courses[4],
   dest_course_a_weekdays: [2],
   dest_course_b_weekdays: [6],
   assigned_course_id: "course-a-id",
@@ -149,7 +159,7 @@ describe("CrossStudyAssignmentForm", () => {
     const [courseAInput, courseBInput] = screen.getAllByRole("combobox");
     await userEvent.click(courseAInput);
     await userEvent.type(courseAInput, "Writing");
-    await userEvent.click(screen.getByRole("option", { name: /writing beginner/i }));
+    await userEvent.click(screen.getByRole("option", { name: /writing beginner section 1/i }));
     await userEvent.click(courseBInput);
     await userEvent.type(courseBInput, "Reading");
     await userEvent.click(screen.getByRole("option", { name: /reading beginner/i }));
@@ -184,4 +194,25 @@ describe("CrossStudyAssignmentForm", () => {
       }),
     });
   });
+
+	it("explains the paired course when a selected destination belongs to a merge group", () => {
+		// Given: the current destination is one member of a merge group.
+		render(
+			<CrossStudyAssignmentForm
+				student={student}
+				crmRow={crmRowWithoutMappedSource}
+				currentAssignment={currentAssignmentWithDestinations}
+				courses={courses}
+				onSaved={vi.fn()}
+			/>,
+			{ wrapper },
+		);
+
+		// When: the assignment form renders the selected course context.
+		const mergeNotice = screen.getByRole("status", { name: /course a merge group/i });
+
+		// Then: staff sees the group and the exact paired course before saving.
+		expect(mergeNotice).toHaveTextContent("Writing Merge Group");
+		expect(mergeNotice).toHaveTextContent("SAT Verbal Writing Beginner Section 2 C2/26");
+	});
 });

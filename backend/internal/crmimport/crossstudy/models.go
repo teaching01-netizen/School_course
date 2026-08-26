@@ -35,6 +35,8 @@ type Assignment struct {
 	AssignedCourseEnrollmentCreated bool
 	DestCourseAEnrollmentCreated    bool
 	DestCourseBEnrollmentCreated    bool
+	ExpandedDestinationCourseIDs    []uuid.UUID
+	ExpandedEnrollmentCreatedIDs    []uuid.UUID
 	SourceCourseEnrollmentRemoved   bool
 	SourceValid                     bool
 	Status                          string
@@ -86,20 +88,26 @@ type StudentInfo struct {
 }
 
 type CRMRowInfo struct {
-	SnapshotID    string `json:"snapshot_id"`
-	RowHash       string `json:"row_hash"`
-	XLSXRowNumber int32  `json:"xlsx_row_number"`
-	CourseName    string `json:"course_name"`
-	CourseID      string `json:"course_id"`
-	ExtraNote     string `json:"extra_note"`
-	ImportedAt    string `json:"imported_at"`
+	SnapshotID               string `json:"snapshot_id"`
+	RowHash                  string `json:"row_hash"`
+	XLSXRowNumber            int32  `json:"xlsx_row_number"`
+	CourseName               string `json:"course_name"`
+	CourseID                 string `json:"course_id"`
+	ExtraNote                string `json:"extra_note"`
+	ImportedAt               string `json:"imported_at"`
+	MergeGroupID             string `json:"merge_group_id,omitempty"`
+	MergeGroupName           string `json:"merge_group_name,omitempty"`
+	MergeGroupPeerCourseID   string `json:"merge_group_peer_course_id,omitempty"`
+	MergeGroupPeerCourseName string `json:"merge_group_peer_course_name,omitempty"`
 }
 
 type CourseRef struct {
-	ID          string `json:"id"`
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	SubjectName string `json:"subject_name"`
+	ID             string `json:"id"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	SubjectName    string `json:"subject_name"`
+	MergeGroupID   string `json:"merge_group_id,omitempty"`
+	MergeGroupName string `json:"merge_group_name,omitempty"`
 }
 
 type AssignmentDTO struct {

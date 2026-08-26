@@ -5,13 +5,13 @@ import CrossStudyCrmRowCard from "../components/crm/CrossStudyCrmRowCard";
 import CrossStudyAssignmentForm from "../components/crm/CrossStudyAssignmentForm";
 import CrossStudyAssignmentList from "../components/crm/CrossStudyAssignmentList";
 import PageHeading from "../components/ui/PageHeading";
-import type { StudentLookupResponse } from "../types/crossStudy";
+import type { CourseRef, StudentLookupResponse } from "../types/crossStudy";
 
 export default function CrossStudyPage() {
   const [lookupResult, setLookupResult] = useState<StudentLookupResponse | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [courses, setCourses] = useState<{ id: string; code: string; name: string; subject_name: string }[]>([]);
+	const [courses, setCourses] = useState<CourseRef[]>([]);
   const [lastSearchedWcode, setLastSearchedWcode] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
@@ -19,8 +19,8 @@ export default function CrossStudyPage() {
 
   const loadCourses = useCallback(async () => {
     try {
-      const items = await apiJson<any[]>("/api/v1/courses");
-      setCourses(items.map((c) => ({ id: c.id, code: c.code, name: c.name, subject_name: c.subject_name ?? "" })));
+		const items = await apiJson<CourseRef[]>("/api/v1/courses");
+		setCourses(items);
     } catch {
       // Best-effort
     }

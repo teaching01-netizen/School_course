@@ -3,6 +3,8 @@ export interface CourseRef {
   code: string;
   name: string;
   subject_name: string;
+	merge_group_id?: string;
+	merge_group_name?: string;
 }
 
 export interface CrmRowInfo {
@@ -13,6 +15,10 @@ export interface CrmRowInfo {
   course_id: string;
   extra_note: string;
   imported_at: string;
+	merge_group_id?: string;
+	merge_group_name?: string;
+	merge_group_peer_course_id?: string;
+	merge_group_peer_course_name?: string;
 }
 
 export interface StudentInfo {

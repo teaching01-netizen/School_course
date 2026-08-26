@@ -1,4 +1,5 @@
 import type { CrmRowInfo } from "../../types/crossStudy";
+import { Link2 } from "lucide-react";
 
 type Props = {
   crmRow: CrmRowInfo;
@@ -31,6 +32,25 @@ export default function CrossStudyCrmRowCard({ crmRow, selected, onSelect }: Pro
           <span className="font-semibold text-[var(--color-wi-text-light)] w-24 shrink-0">Course:</span>
           <span>{crmRow.course_name}</span>
         </div>
+        {crmRow.merge_group_name && (
+          <div className="flex items-start gap-2" aria-label="Merge group context">
+            <span className="w-24 shrink-0 font-semibold text-[var(--color-wi-text-light)]">Merged:</span>
+            <span className="inline-flex min-w-0 items-start gap-1.5 rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-2 py-1 text-xs text-[var(--color-wi-text)]">
+              <Link2
+                aria-hidden="true"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-wi-primary)]"
+              />
+              <span>
+                <span className="font-semibold">{crmRow.merge_group_name}</span>
+                {crmRow.merge_group_peer_course_name && (
+                  <span className="block text-[var(--color-wi-text-light)]">
+                    Paired with {crmRow.merge_group_peer_course_name}
+                  </span>
+                )}
+              </span>
+            </span>
+          </div>
+        )}
         <div className="flex items-start gap-2">
           <span className="font-semibold text-[var(--color-wi-text-light)] w-24 shrink-0">Extra note:</span>
           <span className={crmRow.extra_note ? "font-mono text-amber-800" : "text-[var(--color-wi-text-light)] italic"}>

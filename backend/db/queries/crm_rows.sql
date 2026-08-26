@@ -20,7 +20,7 @@ SELECT COUNT(*)::bigint FROM crm_rows;
 -- name: CrmDistinctOptions :one
 SELECT
   COALESCE(jsonb_agg(DISTINCT cycle_label ORDER BY cycle_label) FILTER (WHERE cycle_label IS NOT NULL), '[]'::jsonb) AS cycle_labels,
-  COALESCE(jsonb_agg(DISTINCT course_name ORDER BY course_name) FILTER (WHERE course_name IS NOT NULL), '[]'::jsonb) AS course_names,
+  COALESCE(jsonb_agg(DISTINCT btrim(course_name) ORDER BY btrim(course_name)) FILTER (WHERE course_name IS NOT NULL AND btrim(course_name) <> ''), '[]'::jsonb) AS course_names,
   COALESCE(jsonb_agg(DISTINCT academic_level ORDER BY academic_level) FILTER (WHERE academic_level IS NOT NULL AND btrim(academic_level) <> ''), '[]'::jsonb) AS academic_levels,
   COALESCE(jsonb_agg(DISTINCT secondary_school ORDER BY secondary_school) FILTER (WHERE secondary_school IS NOT NULL AND btrim(secondary_school) <> ''), '[]'::jsonb) AS secondary_schools
 FROM crm_rows

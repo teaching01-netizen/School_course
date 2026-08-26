@@ -470,6 +470,49 @@ func TestCourseOverview_StudentCountUsesEnrolledRoster(t *testing.T) {
 	}
 }
 
+func TestCourseOverview_ReturnsMergeGroupContext(t *testing.T) {
+	// Given: a course belongs to a named merge group.
+	databaseURL := requireTestDB(t)
+	migrateUpOnce(t, databaseURL)
+	dbpool := newPool(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	q := New(dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	first, err := q.CourseCreate(ctx, CourseCreateParams{Code: "MERGE-OVERVIEW-A-" + courseTestSuffix(), Name: "Merge Overview A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := q.CourseCreate(ctx, CourseCreateParams{Code: "MERGE-OVERVIEW-B-" + courseTestSuffix(), Name: "Merge Overview B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeGroupName := "Overview Merge Group " + courseTestSuffix()
+	if _, err := dbpool.Exec(ctx, `
+		WITH merge_group AS (INSERT INTO course_merge_groups (name) VALUES ($3) RETURNING id)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT id, $1::uuid, 1 FROM merge_group
+		UNION ALL SELECT id, $2::uuid, 2 FROM merge_group
+	`, first.ID, second.ID, mergeGroupName); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: the bounded course overview is loaded.
+	items, err := q.CourseOverview(ctx, CourseOverviewParams{Archived: false, Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: each member exposes the same merge-group identity and name.
+	for _, courseID := range []pgtype.UUID{first.ID, second.ID} {
+		row := findCourseOverviewRow(items, courseID)
+		if row == nil || !row.MergeGroupID.Valid || !row.MergeGroupName.Valid || row.MergeGroupName.String != mergeGroupName {
+			t.Fatalf("merge overview row for %v = %+v", courseID, row)
+		}
+	}
+}
+
 func strPtr(s string) *string { return &s }
 
 func findCourseOverviewRow(items []CourseOverviewRow, id pgtype.UUID) *CourseOverviewRow {

@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import TypeaheadSelect from "../TypeaheadSelect";
 import Button from "../ui/Button";
 import CrossStudyStatusBadge from "./CrossStudyStatusBadge";
-import type { AssignmentDTO, CrmRowInfo, StudentInfo } from "../../types/crossStudy";
+import type { AssignmentDTO, CourseRef, CrmRowInfo, StudentInfo } from "../../types/crossStudy";
 import { apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import { Link2 } from "lucide-react";
 
 type Props = {
   student: StudentInfo;
   crmRow: CrmRowInfo;
   currentAssignment: AssignmentDTO | null;
-  courses: { id: string; code: string; name: string; subject_name: string }[];
+  courses: CourseRef[];
   onSaved: () => void;
 };
 
@@ -67,6 +68,37 @@ function WeekdaySelector({
         })}
       </div>
     </fieldset>
+  );
+}
+
+function MergeGroupNotice({
+  label,
+  course,
+  courses,
+}: {
+  label: "Course A" | "Course B";
+  course: CourseRef;
+  courses: CourseRef[];
+}) {
+  if (!course.merge_group_id || !course.merge_group_name) return null;
+  const pairedCourses = courses.filter(
+    (candidate) => candidate.merge_group_id === course.merge_group_id && candidate.id !== course.id,
+  );
+  return (
+    <div
+      role="status"
+      aria-label={`${label} merge group`}
+      className="mt-2 flex items-start gap-2 rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-2.5 py-2 text-xs"
+    >
+      <Link2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-wi-primary)]" />
+      <span>
+        <span className="font-semibold text-[var(--color-wi-text)]">{course.merge_group_name}</span>
+        <span className="block text-[var(--color-wi-text-light)]">
+          The student will also be enrolled in{" "}
+          {pairedCourses.map((paired) => paired.name).join(", ") || "the paired course"}.
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -153,8 +185,11 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Course A</label>
+            <label htmlFor="cross-study-destination-a" className="block text-xs text-[var(--color-wi-text-light)] mb-1">
+              Course A
+            </label>
             <TypeaheadSelect
+              id="cross-study-destination-a"
               value={destA}
               onChange={setDestA}
               options={courseOptions}
@@ -165,13 +200,17 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
                 {courseA.code} &middot; {courseA.subject_name || "No subject"}
               </div>
             )}
+            {courseA && <MergeGroupNotice label="Course A" course={courseA} courses={courses} />}
             {destA && (
               <WeekdaySelector label="Course A" values={destAWeekdays} onChange={setDestAWeekdays} />
             )}
           </div>
           <div>
-            <label className="block text-xs text-[var(--color-wi-text-light)] mb-1">Course B</label>
+            <label htmlFor="cross-study-destination-b" className="block text-xs text-[var(--color-wi-text-light)] mb-1">
+              Course B
+            </label>
             <TypeaheadSelect
+              id="cross-study-destination-b"
               value={destB}
               onChange={setDestB}
               options={courseOptions}
@@ -182,6 +221,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
                 {courseB.code} &middot; {courseB.subject_name || "No subject"}
               </div>
             )}
+            {courseB && <MergeGroupNotice label="Course B" course={courseB} courses={courses} />}
             {destB && (
               <WeekdaySelector label="Course B" values={destBWeekdays} onChange={setDestBWeekdays} />
             )}

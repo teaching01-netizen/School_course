@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -654,7 +655,7 @@ func TestSetCourseFilterAndEnqueueApplyReturnsJobID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	filter := crmtypes.CourseFilter{CourseNameValues: []string{"SAT"}}
+	filter := crmtypes.CourseFilter{CourseNameValues: []string{" SAT ", "SAT", ""}}
 	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
 		{WCode: "W250001", CourseName: "SAT", CycleLabel: "Cycle A", FirstName: "Jane", LastName: "Student"},
 	})
@@ -675,6 +676,18 @@ func TestSetCourseFilterAndEnqueueApplyReturnsJobID(t *testing.T) {
 	}
 	if jobID == uuid.Nil {
 		t.Fatal("expected queued reconcile job ID")
+	}
+
+	var savedFilter crmtypes.CourseFilter
+	var savedFilterJSON []byte
+	if err := dbpool.QueryRow(ctx, `SELECT crm_filter FROM courses WHERE id = $1`, courseID).Scan(&savedFilterJSON); err != nil {
+		t.Fatalf("query saved course filter: %v", err)
+	}
+	if err := json.Unmarshal(savedFilterJSON, &savedFilter); err != nil {
+		t.Fatalf("decode saved course filter: %v", err)
+	}
+	if !slices.Equal([]string{"SAT"}, savedFilter.CourseNameValues) {
+		t.Fatalf("expected normalized saved course names, got %#v", savedFilter.CourseNameValues)
 	}
 
 	var status string

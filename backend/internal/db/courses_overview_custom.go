@@ -33,6 +33,8 @@ type CourseOverviewRow struct {
 	HasConflict        bool               `json:"has_conflict"`
 	AbsenceFormVisible bool               `json:"absence_form_visible"`
 	IsActiveCourse     bool               `json:"is_active_course"`
+	MergeGroupID       pgtype.UUID        `json:"merge_group_id"`
+	MergeGroupName     pgtype.Text        `json:"merge_group_name"`
 }
 
 type CourseCreateV2Params struct {
@@ -148,8 +150,8 @@ const courseOverviewWhere = `
 			           SELECT 1 FROM sessions date_session
 			           WHERE date_session.course_id = c.id
 			             AND date_session.deleted_at IS NULL
-			             AND ($6 = '' OR (date_session.start_at AT TIME ZONE $8)::date >= $6::date)
-			             AND ($7 = '' OR (date_session.start_at AT TIME ZONE $8)::date <= $7::date)
+			             AND ($6 = '' OR (date_session.start_at AT TIME ZONE $8)::date >= NULLIF($6, '')::date)
+			             AND ($7 = '' OR (date_session.start_at AT TIME ZONE $8)::date <= NULLIF($7, '')::date)
 			       )
 		  )`
 
@@ -210,12 +212,15 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			       c.created_at, c.updated_at, c.legacy_course_id, c.legacy_last_synced_at,
 			       c.cycle_id, COALESCE(cy.display_name, cy.label, '') AS cycle_label,
 			       c.expiry_days, c.legacy_code_conflict, c.absence_form_visible,
+			       merge_group.id AS merge_group_id, merge_group.name AS merge_group_name,
 			       EXISTS (SELECT 1 FROM subject_active_courses sac
 			               WHERE sac.course_id = c.id) AS is_active_course
 			FROM courses c
 			LEFT JOIN users u ON u.id = c.teacher_id
 			LEFT JOIN subjects s ON s.id = c.subject_id
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
+			LEFT JOIN course_merge_group_members merge_member ON merge_member.course_id = c.id
+			LEFT JOIN course_merge_groups merge_group ON merge_group.id = merge_member.group_id
 			`+courseOverviewWhere+`
 			ORDER BY c.course_no DESC
 			LIMIT NULLIF($9, 0) OFFSET $10
@@ -255,7 +260,8 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 		           AND EXISTS (SELECT 1 FROM legacy_sync_conflicts lc
 		             WHERE lc.status = 'open'
 		               AND lc.source_payload->>'legacy_schedule_id' = ls.legacy_schedule_id))),
-			       page.absence_form_visible, page.is_active_course
+			       page.absence_form_visible, page.is_active_course,
+			       page.merge_group_id, page.merge_group_name
 			FROM page
 		ORDER BY page.course_no DESC
 	`, append(courseOverviewFilterArgs(p), p.Limit, p.Offset)...)
@@ -274,7 +280,7 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.LegacyCourseID, &r.LegacyLastSyncedAt,
 			&r.CycleID, &r.CycleLabel, &r.ExpiryDays, &r.LastSessionAt, &r.HasOverlap, &r.HasConflict,
-			&r.AbsenceFormVisible, &r.IsActiveCourse,
+			&r.AbsenceFormVisible, &r.IsActiveCourse, &r.MergeGroupID, &r.MergeGroupName,
 		); err != nil {
 			return nil, err
 		}

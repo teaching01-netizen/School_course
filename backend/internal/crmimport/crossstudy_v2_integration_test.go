@@ -167,6 +167,50 @@ func TestCrossStudy_LookupStudent_ReturnsAllCRMRows(t *testing.T) {
 	}
 }
 
+func TestCrossStudy_LookupStudent_ReturnsMergeGroupContextForCRMRow(t *testing.T) {
+	// Given: the CRM course resolves to one member of a two-course merge group.
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	courseID := createTestCourseSimple(t, ctx, dbpool, "CS-LOOKUP-MERGE-A", "Lookup Merge Course A")
+	peerCourseID := createTestCourseSimple(t, ctx, dbpool, "CS-LOOKUP-MERGE-B", "Lookup Merge Course B")
+	mergeGroupName := "Lookup Merge Group " + uuid.NewString()
+	if _, err := dbpool.Exec(ctx, `
+		WITH merge_group AS (
+			INSERT INTO course_merge_groups (name) VALUES ($3) RETURNING id
+		)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT id, $1::uuid, 1 FROM merge_group
+		UNION ALL
+		SELECT id, $2::uuid, 2 FROM merge_group
+	`, courseID, peerCourseID, mergeGroupName); err != nil {
+		t.Fatal(err)
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{{WCode: "W260211", CourseName: "Lookup Merge Course A", CycleLabel: "Cycle A"}})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260211", "Merge Lookup Student")
+
+	// When: staff looks up the student from the active CRM snapshot.
+	response, err := newCrossStudyStore(t, dbpool).LookupStudent(ctx, "W260211")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the CRM row identifies both the group and its paired course.
+	if len(response.CRMRows) != 1 {
+		t.Fatalf("CRM row count = %d, want 1", len(response.CRMRows))
+	}
+	row := response.CRMRows[0]
+	if row.MergeGroupName != mergeGroupName || row.MergeGroupPeerCourseID != peerCourseID.String() || row.MergeGroupPeerCourseName != "Lookup Merge Course B" {
+		t.Fatalf("merge context = group %q peer %q/%q", row.MergeGroupName, row.MergeGroupPeerCourseID, row.MergeGroupPeerCourseName)
+	}
+}
+
 // TestCrossStudy_SaveAssignment_CreatesAssignmentAndOverrides verifies that
 // SaveAssignment creates a pending assignment and the corresponding roster
 // overrides (include on assigned, exclude on source).
@@ -312,6 +356,125 @@ func TestCrossStudy_SaveAssignment_AssignsStudentToBothDestinationCourses(t *tes
 	}
 	if includeOverrides != 2 {
 		t.Fatalf("expected include overrides for both destination courses, got %d", includeOverrides)
+	}
+}
+
+func TestCrossStudy_SaveAssignment_ExpandsMergedDestinationEnrollment(t *testing.T) {
+	// Given: destination A belongs to a merge group and destination B is independent.
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-MERGED-DST-A", "Merged Destination A")
+	mergedPeerID := createTestCourseSimple(t, ctx, dbpool, "CS-MERGED-DST-PEER", "Merged Destination Peer")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-MERGED-DST-B", "Independent Destination B")
+	if _, err := dbpool.Exec(ctx, `
+		WITH merge_group AS (
+			INSERT INTO course_merge_groups (name) VALUES ($3) RETURNING id
+		)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT id, $1::uuid, 1 FROM merge_group
+		UNION ALL
+		SELECT id, $2::uuid, 2 FROM merge_group
+	`, destAID, mergedPeerID, "Destination Merge Group "+uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{{WCode: "W260212", CourseName: "CRM Source", CycleLabel: "Cycle A"}})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260212", "Merged Destination Student")
+
+	// When: staff saves the two selected destinations.
+	if err := newCrossStudyStore(t, dbpool).SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode:            "W260212",
+		SnapshotID:       uuidFromPG(t, snapshotID),
+		CRMCourseName:    "CRM Source",
+		DestCourseAID:    destAID,
+		DestCourseBID:    destBID,
+		AssignedCourseID: destAID,
+	}, createTestUser(t, ctx, dbpool)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: enrollment and include overrides cover both merge members plus destination B.
+	var enrollmentCount, overrideCount int
+	if err := dbpool.QueryRow(ctx, `
+		SELECT count(*) FROM course_students
+		WHERE student_id=(SELECT id FROM students WHERE LOWER(wcode)='w260212')
+		  AND course_id IN ($1, $2, $3)
+	`, destAID, mergedPeerID, destBID).Scan(&enrollmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpool.QueryRow(ctx, `
+		SELECT count(*) FROM course_roster_overrides
+		WHERE student_id=(SELECT id FROM students WHERE LOWER(wcode)='w260212')
+		  AND action='include' AND override_source='cross_study'
+		  AND course_id IN ($1, $2, $3)
+	`, destAID, mergedPeerID, destBID).Scan(&overrideCount); err != nil {
+		t.Fatal(err)
+	}
+	if enrollmentCount != 3 || overrideCount != 3 {
+		t.Fatalf("merged destination rows = enrollment %d overrides %d, want 3/3", enrollmentCount, overrideCount)
+	}
+}
+
+func TestCrossStudy_DeleteAssignment_PreservesPreExistingMergePeerEnrollment(t *testing.T) {
+	// Given: a merged peer enrollment predates a cross-study assignment.
+	databaseURL := requireDB(t)
+	migrateUpV2(t, databaseURL)
+	dbpool := newPoolV2(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	cleanupV2(t, dbpool)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	destAID := createTestCourseSimple(t, ctx, dbpool, "CS-DELETE-MERGE-A", "Delete Merge A")
+	mergedPeerID := createTestCourseSimple(t, ctx, dbpool, "CS-DELETE-MERGE-PEER", "Delete Merge Peer")
+	destBID := createTestCourseSimple(t, ctx, dbpool, "CS-DELETE-MERGE-B", "Delete Merge B")
+	if _, err := dbpool.Exec(ctx, `
+		WITH merge_group AS (
+			INSERT INTO course_merge_groups (name) VALUES ($3) RETURNING id
+		)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT id, $1::uuid, 1 FROM merge_group
+		UNION ALL
+		SELECT id, $2::uuid, 2 FROM merge_group
+	`, destAID, mergedPeerID, "Delete Merge Group "+uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	snapshotID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{{WCode: "W260213", CourseName: "CRM Source", CycleLabel: "Cycle A"}})
+	activateSnapshot(t, ctx, dbpool, snapshotID)
+	createTestStudent(t, ctx, dbpool, "W260213", "Merge Delete Student")
+	if _, err := dbpool.Exec(ctx, `INSERT INTO course_students (course_id, student_id) SELECT $1, id FROM students WHERE LOWER(wcode)='w260213'`, mergedPeerID); err != nil {
+		t.Fatal(err)
+	}
+	store := newCrossStudyStore(t, dbpool)
+	if err := store.SaveAssignment(ctx, crossstudy.SaveAssignmentInput{
+		WCode: "W260213", SnapshotID: uuidFromPG(t, snapshotID), CRMCourseName: "CRM Source",
+		DestCourseAID: destAID, DestCourseBID: destBID, AssignedCourseID: destAID,
+	}, createTestUser(t, ctx, dbpool)); err != nil {
+		t.Fatal(err)
+	}
+	var assignmentID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `SELECT id FROM crm_cross_study_assignments WHERE LOWER(wcode)='w260213' AND deleted_at IS NULL`).Scan(&assignmentID); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: staff removes the cross-study assignment.
+	if err := store.DeleteAssignment(ctx, assignmentID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: only the enrollment that existed before cross-study remains.
+	var remainingCourseID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `SELECT course_id FROM course_students WHERE student_id=(SELECT id FROM students WHERE LOWER(wcode)='w260213')`).Scan(&remainingCourseID); err != nil {
+		t.Fatal(err)
+	}
+	if remainingCourseID != mergedPeerID {
+		t.Fatalf("remaining enrollment = %s, want pre-existing merge peer %s", remainingCourseID, mergedPeerID)
 	}
 }
 

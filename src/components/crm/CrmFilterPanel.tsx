@@ -73,6 +73,10 @@ function isActiveJob(status?: string): boolean {
   return status === "queued" || status === "running" || status === "retry";
 }
 
+function dedupeStrings<T extends string>(values: T[]): T[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))] as T[];
+}
+
 function MultiSelect<T extends string>({
   label,
   options,
@@ -87,8 +91,8 @@ function MultiSelect<T extends string>({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  const safeSelected = selected ?? [];
-  const safeOptions = options ?? [];
+  const safeSelected = useMemo(() => dedupeStrings(selected ?? []), [selected]);
+  const safeOptions = useMemo(() => dedupeStrings(options ?? []), [options]);
   const filteredOptions = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return safeOptions;
@@ -107,7 +111,7 @@ function MultiSelect<T extends string>({
     if (safeSelected.includes(v)) {
       onChange(safeSelected.filter((x) => x !== v));
     } else {
-      onChange([...safeSelected, v]);
+      onChange(dedupeStrings([...safeSelected, v]));
     }
   };
 

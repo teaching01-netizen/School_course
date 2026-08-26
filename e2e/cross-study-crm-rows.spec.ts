@@ -7,6 +7,10 @@ const crmRows = [
     xlsx_row_number: 12,
     course_name: "SAT Verbal Beginner Section 1",
     course_id: "source-a",
+    merge_group_id: "merge-source",
+    merge_group_name: "SAT Verbal Beginner Combined",
+    merge_group_peer_course_id: "source-b",
+    merge_group_peer_course_name: "SAT Verbal Beginner Section 2",
     extra_note: "Tuesday writing section",
     imported_at: "2026-08-26T02:00:00Z",
   },
@@ -25,7 +29,22 @@ async function installRoutes(page: Page) {
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { id: "admin-id", username: "admin", role: "Admin" } }));
   await page.route("**/api/v1/absences/stats", (route) => route.fulfill({ json: { pending_count: 0 } }));
   await page.route("**/api/v1/courses", (route) => route.fulfill({ json: [
-    { id: "course-a", code: "A", name: "Writing Destination", subject_name: "Writing" },
+    {
+      id: "course-a",
+      code: "A",
+      name: "Writing Destination",
+      subject_name: "Writing",
+      merge_group_id: "merge-destination",
+      merge_group_name: "Writing Combined",
+    },
+    {
+      id: "course-a-peer",
+      code: "A2",
+      name: "Writing Destination Section 2",
+      subject_name: "Writing",
+      merge_group_id: "merge-destination",
+      merge_group_name: "Writing Combined",
+    },
     { id: "course-b", code: "B", name: "Reading Destination", subject_name: "Reading" },
   ] }));
   await page.route("**/api/v1/cross-study/assignments?**", (route) => route.fulfill({
@@ -48,6 +67,13 @@ test("staff can inspect every CRM row and choose the assignment source", async (
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("SAT Verbal Beginner Section 1", { exact: true })).toBeVisible();
   await expect(page.getByText("SAT Verbal Beginner Section 2", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Merge group context")).toContainText("SAT Verbal Beginner Combined");
+  await expect(page.getByLabel("Merge group context")).toContainText("Paired with SAT Verbal Beginner Section 2");
+  await page.getByRole("combobox", { name: "Course A" }).click();
+  await page.getByRole("option", { name: /Writing Destination\s+·\s+Writing$/ }).click();
+  await expect(page.getByRole("status", { name: "Course A merge group" })).toContainText(
+    "Writing Destination Section 2",
+  );
   await page.getByRole("button", { name: "Select SAT Verbal Beginner Section 2" }).click();
 
   // Then: the chosen row is visibly selected and the responsive page has no horizontal overflow.

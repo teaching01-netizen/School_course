@@ -168,17 +168,21 @@ func (s *Store) insertCrossStudySessionAttendanceWithWarnings(ctx context.Contex
 	if s.scheduling == nil {
 		return nil, fmt.Errorf("cross-study: scheduling writer is required")
 	}
+	expanded, err := s.expandDestinationCourses(ctx, tx, input)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx, `
 		SELECT s.id
 		FROM sessions s
 		WHERE s.deleted_at IS NULL
 		  AND (
 		    (
-		      s.course_id = $2
+		      s.course_id = ANY($2::uuid[])
 		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($3::smallint[])
 		    )
 		    OR (
-		      s.course_id = $4
+		      s.course_id = ANY($4::uuid[])
 		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($5::smallint[])
 		    )
 		  )
@@ -186,7 +190,7 @@ func (s *Store) insertCrossStudySessionAttendanceWithWarnings(ctx context.Contex
 		    SELECT 1 FROM session_attendance sa
 		    WHERE sa.session_id = s.id AND sa.student_id = $1
 		  )
-	`, studentID, input.DestCourseAID, input.DestCourseAWeekdays, input.DestCourseBID, input.DestCourseBWeekdays)
+	`, studentID, databaseUUIDs(expanded.CourseA), input.DestCourseAWeekdays, databaseUUIDs(expanded.CourseB), input.DestCourseBWeekdays)
 	if err != nil {
 		return nil, err
 	}
@@ -230,15 +234,84 @@ func (s *Store) insertCrossStudySessionAttendanceWithWarnings(ctx context.Contex
 	return warnings, nil
 }
 
-func destinationCourses(input SaveAssignmentInput) []uuid.UUID {
-	if input.DestCourseAID == input.DestCourseBID {
-		return []uuid.UUID{input.DestCourseAID}
-	}
-	return []uuid.UUID{input.DestCourseAID, input.DestCourseBID}
+type expandedDestinationSet struct {
+	All     []uuid.UUID
+	CourseA []uuid.UUID
+	CourseB []uuid.UUID
 }
 
-func courseInDestinations(courseID, destAID, destBID uuid.UUID) bool {
-	return courseID == destAID || courseID == destBID
+func (s *Store) expandDestinationCourses(ctx context.Context, tx pgx.Tx, input SaveAssignmentInput) (expandedDestinationSet, error) {
+	courseA, err := mergeGroupCourseIDs(ctx, tx, input.DestCourseAID)
+	if err != nil {
+		return expandedDestinationSet{}, fmt.Errorf("expand destination A merge group: %w", err)
+	}
+	courseB, err := mergeGroupCourseIDs(ctx, tx, input.DestCourseBID)
+	if err != nil {
+		return expandedDestinationSet{}, fmt.Errorf("expand destination B merge group: %w", err)
+	}
+	all := appendUniqueCourseIDs(nil, courseA...)
+	all = appendUniqueCourseIDs(all, courseB...)
+	return expandedDestinationSet{All: all, CourseA: courseA, CourseB: courseB}, nil
+}
+
+func mergeGroupCourseIDs(ctx context.Context, tx pgx.Tx, courseID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT related.course_id
+		FROM (
+			SELECT $1::uuid AS course_id
+			UNION
+			SELECT sibling.course_id
+			FROM course_merge_group_members selected
+			JOIN course_merge_group_members sibling ON sibling.group_id = selected.group_id
+			WHERE selected.course_id = $1
+		) related
+		ORDER BY related.course_id
+	`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]uuid.UUID, 0, 2)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func appendUniqueCourseIDs(ids []uuid.UUID, candidates ...uuid.UUID) []uuid.UUID {
+	seen := make(map[uuid.UUID]struct{}, len(ids)+len(candidates))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	for _, id := range candidates {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func databaseUUIDs(ids []uuid.UUID) []pgtype.UUID {
+	values := make([]pgtype.UUID, len(ids))
+	for index, id := range ids {
+		values[index] = scheduleUUID(id)
+	}
+	return values
+}
+
+func courseInIDs(courseID uuid.UUID, courseIDs []uuid.UUID) bool {
+	for _, candidate := range courseIDs {
+		if candidate == courseID {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeWeekdays(values []int16) []int16 {
@@ -305,9 +378,25 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 	rows, err := s.db.Query(ctx, `
 		SELECT cr.snapshot_id, cr.row_hash, cr.xlsx_row_number, cr.course_name, cr.extra_note,
 		       cs.created_at,
-		       COALESCE((SELECT c.id::text FROM courses c WHERE c.name = cr.course_name LIMIT 1), '')
+		       COALESCE(matched.course_id, ''), COALESCE(matched.merge_group_id, ''),
+		       COALESCE(matched.merge_group_name, ''), COALESCE(matched.peer_course_id, ''),
+		       COALESCE(matched.peer_course_name, '')
 		FROM crm_rows cr
 		JOIN crm_state cs ON cr.snapshot_id = cs.active_snapshot_id
+		LEFT JOIN LATERAL (
+			SELECT c.id::text AS course_id, merge_group.id::text AS merge_group_id,
+			       merge_group.name AS merge_group_name, peer.id::text AS peer_course_id,
+			       peer.name AS peer_course_name
+			FROM courses c
+			LEFT JOIN course_merge_group_members member ON member.course_id = c.id
+			LEFT JOIN course_merge_groups merge_group ON merge_group.id = member.group_id
+			LEFT JOIN course_merge_group_members peer_member
+			  ON peer_member.group_id = member.group_id AND peer_member.course_id <> c.id
+			LEFT JOIN courses peer ON peer.id = peer_member.course_id
+			WHERE c.name = cr.course_name
+			ORDER BY c.course_no DESC, peer_member.position ASC
+			LIMIT 1
+		) matched ON true
 		WHERE LOWER(cr.wcode) = $1 AND cs.singleton = true
 		ORDER BY cr.xlsx_row_number ASC
 	`, wcode)
@@ -328,6 +417,10 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 			&crmRow.ExtraNote,
 			&importedAt,
 			&crmRow.CourseID,
+			&crmRow.MergeGroupID,
+			&crmRow.MergeGroupName,
+			&crmRow.MergeGroupPeerCourseID,
+			&crmRow.MergeGroupPeerCourseName,
 		); err != nil {
 			return nil, fmt.Errorf("scan crm row: %w", err)
 		}
@@ -376,13 +469,16 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 
 func lookupCourseRef(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) *CourseRef {
 	row := db.QueryRow(ctx, `
-		SELECT c.id::text, c.code, c.name, COALESCE(s.name, '') AS subject_name
+		SELECT c.id::text, c.code, c.name, COALESCE(s.name, '') AS subject_name,
+		       COALESCE(merge_group.id::text, ''), COALESCE(merge_group.name, '')
 		FROM courses c
 		LEFT JOIN subjects s ON s.id = c.subject_id
+		LEFT JOIN course_merge_group_members member ON member.course_id = c.id
+		LEFT JOIN course_merge_groups merge_group ON merge_group.id = member.group_id
 		WHERE c.id = $1
 	`, id)
 	ref := &CourseRef{}
-	if err := row.Scan(&ref.ID, &ref.Code, &ref.Name, &ref.SubjectName); err != nil {
+	if err := row.Scan(&ref.ID, &ref.Code, &ref.Name, &ref.SubjectName, &ref.MergeGroupID, &ref.MergeGroupName); err != nil {
 		return nil
 	}
 	return ref
@@ -424,6 +520,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 	var existingDestCourseAEnrollmentCreated bool
 	var existingDestCourseBEnrollmentCreated bool
 	var existingSourceCourseEnrollmentRemoved bool
+	var existingExpandedDestinationCourseIDs []uuid.UUID
+	var existingExpandedEnrollmentCreatedIDs []uuid.UUID
 	hasExistingAssignment := false
 	err = tx.QueryRow(ctx, `
 		SELECT id, dest_course_a_id, dest_course_b_id, assigned_course_id,
@@ -431,7 +529,9 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		       assigned_course_enrollment_created,
 		       dest_course_a_enrollment_created,
 		       dest_course_b_enrollment_created,
-		       source_course_enrollment_removed
+		       source_course_enrollment_removed,
+		       expanded_destination_course_ids,
+		       expanded_enrollment_created_ids
 		FROM crm_cross_study_assignments
 		WHERE LOWER(BTRIM(wcode)) = $1 AND deleted_at IS NULL
 		  AND source_course_id = $2
@@ -448,6 +548,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		&existingDestCourseAEnrollmentCreated,
 		&existingDestCourseBEnrollmentCreated,
 		&existingSourceCourseEnrollmentRemoved,
+		&existingExpandedDestinationCourseIDs,
+		&existingExpandedEnrollmentCreatedIDs,
 	)
 	if err != nil && err != pgx.ErrNoRows {
 		return fmt.Errorf("load existing assignment: %w", err)
@@ -466,7 +568,9 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			       assigned_course_enrollment_created,
 			       dest_course_a_enrollment_created,
 			       dest_course_b_enrollment_created,
-			       source_course_enrollment_removed
+			       source_course_enrollment_removed,
+			       expanded_destination_course_ids,
+			       expanded_enrollment_created_ids
 			FROM crm_cross_study_assignments
 			WHERE LOWER(BTRIM(wcode)) = $1 AND deleted_at IS NULL
 			ORDER BY updated_at DESC
@@ -482,6 +586,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			&existingDestCourseAEnrollmentCreated,
 			&existingDestCourseBEnrollmentCreated,
 			&existingSourceCourseEnrollmentRemoved,
+			&existingExpandedDestinationCourseIDs,
+			&existingExpandedEnrollmentCreatedIDs,
 		)
 		if err != nil && err != pgx.ErrNoRows {
 			return fmt.Errorf("load latest assignment: %w", err)
@@ -489,10 +595,16 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		hasExistingAssignment = err == nil
 	}
 	storageSourceCourseID := input.DestCourseAID
+	expandedDestinations, err := s.expandDestinationCourses(ctx, tx, input)
+	if err != nil {
+		return err
+	}
 
-	affectedCourses := []uuid.UUID{input.DestCourseAID, input.DestCourseBID, input.AssignedCourseID}
+	affectedCourses := appendUniqueCourseIDs(nil, expandedDestinations.All...)
+	affectedCourses = appendUniqueCourseIDs(affectedCourses, input.AssignedCourseID)
 	if hasExistingAssignment {
-		affectedCourses = append(affectedCourses, existingSourceCourseID, existingDestCourseAID, existingDestCourseBID, existingAssignedCourseID)
+		affectedCourses = appendUniqueCourseIDs(affectedCourses, existingExpandedDestinationCourseIDs...)
+		affectedCourses = appendUniqueCourseIDs(affectedCourses, existingSourceCourseID, existingDestCourseAID, existingDestCourseBID, existingAssignedCourseID)
 	}
 	if input.CRMCourseName != "" {
 		matching, matchErr := s.coursesMatchingCRMCourseName(ctx, tx, input.CRMCourseName)
@@ -511,25 +623,30 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		return fmt.Errorf("lock cross-study roster resources: %w", err)
 	}
 
-	destAAlreadyEnrolled, err := s.courseStudentExists(ctx, tx, input.DestCourseAID, studentID)
-	if err != nil {
-		return fmt.Errorf("check destination A enrollment: %w", err)
+	existingCreated := make(map[uuid.UUID]bool, len(existingExpandedEnrollmentCreatedIDs))
+	for _, courseID := range existingExpandedEnrollmentCreatedIDs {
+		existingCreated[courseID] = true
 	}
-	destBAlreadyEnrolled, err := s.courseStudentExists(ctx, tx, input.DestCourseBID, studentID)
-	if err != nil {
-		return fmt.Errorf("check destination B enrollment: %w", err)
+	createdByCrossStudy := make(map[uuid.UUID]bool, len(expandedDestinations.All))
+	for _, courseID := range expandedDestinations.All {
+		if courseInIDs(courseID, existingExpandedDestinationCourseIDs) {
+			createdByCrossStudy[courseID] = existingCreated[courseID]
+			continue
+		}
+		alreadyEnrolled, err := s.courseStudentExists(ctx, tx, courseID, studentID)
+		if err != nil {
+			return fmt.Errorf("check expanded destination enrollment: %w", err)
+		}
+		createdByCrossStudy[courseID] = !alreadyEnrolled
 	}
-	destCourseAEnrollmentCreated := !destAAlreadyEnrolled
-	if hasExistingAssignment && existingDestCourseAID == input.DestCourseAID {
-		destCourseAEnrollmentCreated = existingDestCourseAEnrollmentCreated
-	}
-	destCourseBEnrollmentCreated := false
-	if input.DestCourseBID != input.DestCourseAID {
-		destCourseBEnrollmentCreated = !destBAlreadyEnrolled
-		if hasExistingAssignment && existingDestCourseBID == input.DestCourseBID {
-			destCourseBEnrollmentCreated = existingDestCourseBEnrollmentCreated
+	expandedEnrollmentCreatedIDs := make([]uuid.UUID, 0, len(createdByCrossStudy))
+	for _, courseID := range expandedDestinations.All {
+		if createdByCrossStudy[courseID] {
+			expandedEnrollmentCreatedIDs = append(expandedEnrollmentCreatedIDs, courseID)
 		}
 	}
+	destCourseAEnrollmentCreated := createdByCrossStudy[input.DestCourseAID]
+	destCourseBEnrollmentCreated := input.DestCourseBID != input.DestCourseAID && createdByCrossStudy[input.DestCourseBID]
 	assignedCourseEnrollmentCreated := false
 	switch input.AssignedCourseID {
 	case input.DestCourseAID:
@@ -562,6 +679,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			    assigned_course_enrollment_created = $14,
 			    dest_course_a_enrollment_created = $15,
 			    dest_course_b_enrollment_created = $16,
+			    expanded_destination_course_ids = $17::uuid[],
+			    expanded_enrollment_created_ids = $18::uuid[],
 			    source_course_enrollment_removed = false,
 			    source_valid = true,
 			    status = 'pending',
@@ -573,7 +692,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
 			input.ExtraNoteText, noteHash, input.DestCourseAWeekdays,
 			input.DestCourseBWeekdays, assignedCourseEnrollmentCreated,
-			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated)
+			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated,
+			databaseUUIDs(expandedDestinations.All), databaseUUIDs(expandedEnrollmentCreatedIDs))
 	} else {
 		err = tx.QueryRow(ctx, `
 			INSERT INTO crm_cross_study_assignments
@@ -585,9 +705,11 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 				 assigned_course_enrollment_created,
 				 dest_course_a_enrollment_created,
 				 dest_course_b_enrollment_created,
+				 expanded_destination_course_ids,
+				 expanded_enrollment_created_ids,
 				 source_course_enrollment_removed,
 				 source_valid, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10, $11, $12, $13, $14, $15, $16, false, true, 'pending')
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10, $11, $12, $13, $14, $15, $16, $17::uuid[], $18::uuid[], false, true, 'pending')
 			ON CONFLICT (wcode, source_course_id) DO UPDATE SET
 				dest_course_a_id = EXCLUDED.dest_course_a_id,
 				dest_course_b_id = EXCLUDED.dest_course_b_id,
@@ -602,6 +724,8 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 				assigned_course_enrollment_created = EXCLUDED.assigned_course_enrollment_created,
 				dest_course_a_enrollment_created = EXCLUDED.dest_course_a_enrollment_created,
 				dest_course_b_enrollment_created = EXCLUDED.dest_course_b_enrollment_created,
+				expanded_destination_course_ids = EXCLUDED.expanded_destination_course_ids,
+				expanded_enrollment_created_ids = EXCLUDED.expanded_enrollment_created_ids,
 				source_course_enrollment_removed = false,
 				source_valid = true,
 				status = 'pending',
@@ -614,13 +738,14 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			input.CRMCourseName, input.CRMRowHash, input.CRMXLSXRowNumber,
 			input.ExtraNoteText, noteHash, input.DestCourseAWeekdays,
 			input.DestCourseBWeekdays, assignedCourseEnrollmentCreated,
-			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated).Scan(&assignmentID)
+			destCourseAEnrollmentCreated, destCourseBEnrollmentCreated,
+			databaseUUIDs(expandedDestinations.All), databaseUUIDs(expandedEnrollmentCreatedIDs)).Scan(&assignmentID)
 	}
 	if err != nil {
 		return fmt.Errorf("upsert assignment: %w", err)
 	}
 
-	if hasExistingAssignment && !courseInDestinations(existingSourceCourseID, input.DestCourseAID, input.DestCourseBID) {
+	if hasExistingAssignment && !courseInIDs(existingSourceCourseID, expandedDestinations.All) {
 		excludedByOtherAssignment, err := s.crossStudyExcludesSourceCourse(ctx, tx, studentID, existingSourceCourseID, assignmentID)
 		if err != nil {
 			return fmt.Errorf("check legacy source exclusion: %w", err)
@@ -641,7 +766,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 		return fmt.Errorf("delete stale scoped session attendance: %w", err)
 	}
 
-	for _, courseID := range destinationCourses(input) {
+	for _, courseID := range expandedDestinations.All {
 		if err := s.upsertCrossStudyOverride(ctx, tx, courseID, studentID, userID, assignmentID, "include"); err != nil {
 			return fmt.Errorf("insert include override: %w", err)
 		}
@@ -665,11 +790,9 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			return fmt.Errorf("find courses matching CRM course name: %w", err)
 		}
 
-		expandedDests := map[uuid.UUID]bool{
-			input.DestCourseAID: true,
-		}
-		if input.DestCourseBID != input.DestCourseAID {
-			expandedDests[input.DestCourseBID] = true
+		expandedDests := make(map[uuid.UUID]bool, len(expandedDestinations.All))
+		for _, courseID := range expandedDestinations.All {
+			expandedDests[courseID] = true
 		}
 
 		for _, srcID := range srcIDs {
@@ -687,14 +810,12 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 
 	// Apply immediate roster effect so preflight sees correct enrollment.
 	if hasExistingAssignment {
-		oldDestCreated := map[uuid.UUID]bool{
-			existingDestCourseAID: existingDestCourseAEnrollmentCreated,
-		}
-		if existingDestCourseBID != existingDestCourseAID {
-			oldDestCreated[existingDestCourseBID] = existingDestCourseBEnrollmentCreated
+		oldDestCreated := make(map[uuid.UUID]bool, len(existingExpandedDestinationCourseIDs))
+		for _, courseID := range existingExpandedDestinationCourseIDs {
+			oldDestCreated[courseID] = existingCreated[courseID]
 		}
 		for oldCourseID, created := range oldDestCreated {
-			if courseInDestinations(oldCourseID, input.DestCourseAID, input.DestCourseBID) {
+			if courseInIDs(oldCourseID, expandedDestinations.All) {
 				continue
 			}
 			required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, oldCourseID, assignmentID)
@@ -713,7 +834,7 @@ func (s *Store) SaveAssignment(ctx context.Context, input SaveAssignmentInput, u
 			}
 		}
 	}
-	for _, courseID := range destinationCourses(input) {
+	for _, courseID := range expandedDestinations.All {
 		if err := s.includeStudentWithWarnings(ctx, tx, courseID, studentID); err != nil {
 			return fmt.Errorf("include in destination course_students: %w", err)
 		}
@@ -757,6 +878,8 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 	var destCourseAEnrollmentCreated bool
 	var destCourseBEnrollmentCreated bool
 	var sourceCourseEnrollmentRemoved bool
+	var expandedDestinationCourseIDs []uuid.UUID
+	var expandedEnrollmentCreatedIDs []uuid.UUID
 	err = tx.QueryRow(ctx, `
 		UPDATE crm_cross_study_assignments
 		SET deleted_at = now(), updated_at = now()
@@ -766,7 +889,9 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		          assigned_course_enrollment_created,
 		          dest_course_a_enrollment_created,
 		          dest_course_b_enrollment_created,
-		          source_course_enrollment_removed
+		          source_course_enrollment_removed,
+		          expanded_destination_course_ids,
+		          expanded_enrollment_created_ids
 	`, id).Scan(
 		&assignmentID,
 		&wcode,
@@ -778,6 +903,8 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		&destCourseAEnrollmentCreated,
 		&destCourseBEnrollmentCreated,
 		&sourceCourseEnrollmentRemoved,
+		&expandedDestinationCourseIDs,
+		&expandedEnrollmentCreatedIDs,
 	)
 	if err != nil {
 		return fmt.Errorf("soft delete assignment: %w", err)
@@ -811,8 +938,9 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 		excludedCourseIDs = append(excludedCourseIDs, cid)
 	}
 	excludeRows.Close()
-	courseIDs := []uuid.UUID{srcCourseID, destCourseAID, destCourseBID, asgnCourseID}
-	courseIDs = append(courseIDs, excludedCourseIDs...)
+	courseIDs := appendUniqueCourseIDs(nil, expandedDestinationCourseIDs...)
+	courseIDs = appendUniqueCourseIDs(courseIDs, srcCourseID, destCourseAID, destCourseBID, asgnCourseID)
+	courseIDs = appendUniqueCourseIDs(courseIDs, excludedCourseIDs...)
 	courseLocks := make([]pgtype.UUID, 0, len(courseIDs))
 	for _, courseID := range courseIDs {
 		courseLocks = append(courseLocks, scheduleUUID(courseID))
@@ -834,11 +962,15 @@ func (s *Store) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 	_ = sourceCourseEnrollmentRemoved
 
 	// Restore roster: remove destination courses only when cross-study created them.
-	destCreated := map[uuid.UUID]bool{
-		destCourseAID: destCourseAEnrollmentCreated,
+	destCreated := make(map[uuid.UUID]bool, len(expandedDestinationCourseIDs))
+	for _, courseID := range expandedDestinationCourseIDs {
+		destCreated[courseID] = courseInIDs(courseID, expandedEnrollmentCreatedIDs)
 	}
-	if destCourseBID != destCourseAID {
-		destCreated[destCourseBID] = destCourseBEnrollmentCreated
+	if len(destCreated) == 0 {
+		destCreated[destCourseAID] = destCourseAEnrollmentCreated
+		if destCourseBID != destCourseAID {
+			destCreated[destCourseBID] = destCourseBEnrollmentCreated
+		}
 	}
 	for courseID, created := range destCreated {
 		required, err := s.crossStudyRequiresCourse(ctx, tx, studentID, courseID, assignmentID)
@@ -883,7 +1015,8 @@ func (s *Store) crossStudyRequiresCourse(ctx context.Context, tx pgx.Tx, student
 			FROM crm_cross_study_assignments a
 			JOIN students s ON LOWER(s.wcode) = LOWER(BTRIM(a.wcode))
 			WHERE s.id = $1
-			  AND (a.dest_course_a_id = $2 OR a.dest_course_b_id = $2)
+			  AND ($2 = ANY(a.expanded_destination_course_ids)
+			       OR a.dest_course_a_id = $2 OR a.dest_course_b_id = $2)
 			  AND a.id <> $3
 			  AND a.deleted_at IS NULL
 		)
