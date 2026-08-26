@@ -9,26 +9,46 @@ import (
 )
 
 const conflictQuery = `
-WITH pair_conflicts AS (
+WITH active_sessions AS (
+  SELECT s.*
+  FROM sessions s
+  WHERE s.deleted_at IS NULL
+    AND NOT (
+      s.source_kind = 'legacy'
+      AND EXISTS (
+        SELECT 1
+        FROM sessions native_session
+        WHERE native_session.deleted_at IS NULL
+          AND native_session.source_kind = 'native'
+          AND native_session.course_id = s.course_id
+          AND native_session.teacher_id = s.teacher_id
+          AND native_session.room_id IS NOT DISTINCT FROM s.room_id
+          AND native_session.start_at = s.start_at
+          AND native_session.end_at = s.end_at
+      )
+    )
+), pair_conflicts AS (
   SELECT 'room_overlap'::text AS conflict_type, s1.id AS primary_id, s2.id AS conflicting_id,
          s1.room_id AS resource_id, r.name AS resource_name,
          NULL::uuid AS student_id, NULL::text AS student_wcode, NULL::text AS student_name
-  FROM sessions s1
-  JOIN sessions s2 ON s1.id < s2.id AND s1.room_id = s2.room_id AND s1.time_range && s2.time_range
+  FROM active_sessions s1
+  JOIN active_sessions s2 ON s1.id < s2.id AND s1.room_id = s2.room_id AND s1.time_range && s2.time_range
   JOIN rooms r ON r.id = s1.room_id
   WHERE s1.deleted_at IS NULL AND s2.deleted_at IS NULL
   UNION ALL
   SELECT 'teacher_overlap', s1.id, s2.id, s1.teacher_id, COALESCE(u.full_name, u.username),
          NULL::uuid, NULL::text, NULL::text
-  FROM sessions s1
-  JOIN sessions s2 ON s1.id < s2.id AND s1.teacher_id = s2.teacher_id AND s1.time_range && s2.time_range
+  FROM active_sessions s1
+  JOIN active_sessions s2 ON s1.id < s2.id AND s1.teacher_id = s2.teacher_id AND s1.time_range && s2.time_range
   JOIN users u ON u.id = s1.teacher_id
   WHERE s1.deleted_at IS NULL AND s2.deleted_at IS NULL
   UNION ALL
   SELECT 'student_overlap', b1.session_id, b2.session_id, b1.student_id, st.full_name,
          st.id, st.wcode, st.full_name
   FROM student_busy_ranges b1
+  JOIN active_sessions bs1 ON bs1.id = b1.session_id
   JOIN student_busy_ranges b2 ON b1.session_id < b2.session_id AND b1.student_id = b2.student_id AND b1.time_range && b2.time_range
+  JOIN active_sessions bs2 ON bs2.id = b2.session_id
   JOIN students st ON st.id = b1.student_id
   WHERE b1.deleted_at IS NULL AND b2.deleted_at IS NULL
 ), enriched AS (

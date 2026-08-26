@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 import { ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import EmptyState from "@/components/ui/EmptyState";
 import type { ConflictOverviewItem } from "@/features/scheduling/types/conflictOverview";
 import { ConflictDetailPanel, formatDateTimeRange } from "./ConflictDetailPanel";
@@ -37,10 +38,10 @@ export function ConflictTable({ items, refreshing }: Readonly<{ items: readonly 
             <tr className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
               <td className="px-2 py-3"><button type="button" onClick={() => toggle(item.id)} className="flex h-7 w-7 items-center justify-center rounded-sm text-[var(--color-wi-text-light)] hover:bg-white hover:text-[var(--color-wi-text)]" aria-expanded={isExpanded} aria-controls={`conflict-details-${item.id}`} aria-label={isExpanded ? "Collapse conflict details" : "Expand conflict details"}><ChevronRight className={`h-4 w-4 transition-transform motion-reduce:transition-none ${isExpanded ? "rotate-90" : ""}`} /></button></td>
               <td className="px-2 py-3"><ConflictTypeBadge type={item.conflict_type} /></td>
-              <td className="px-2 py-3"><p className="font-medium text-[var(--color-wi-text)]">{item.primary_session.subject_name}</p><p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">{item.primary_session.course_code}</p></td>
-              <td className="px-2 py-3">{item.conflicting_sessions.map((session) => <div key={session.session_id}><span className="font-medium">{session.subject_name}</span><span className="ml-1 text-xs text-[var(--color-wi-text-light)]">{session.course_code}</span></div>)}</td>
+              <td className="px-2 py-3"><Link to={`/courses/${item.primary_session.course_id}`} className="font-medium text-[var(--color-wi-primary)] hover:underline">{item.primary_session.subject_name}</Link><p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]"><Link to={`/courses/${item.primary_session.course_id}`} className="hover:text-[var(--color-wi-primary)] hover:underline">{item.primary_session.course_code}</Link></p></td>
+              <td className="px-2 py-3">{item.conflicting_sessions.map((session) => <div key={session.session_id}><Link to={`/courses/${session.course_id}`} className="font-medium text-[var(--color-wi-primary)] hover:underline">{session.subject_name}</Link><Link to={`/courses/${session.course_id}`} className="ml-1 text-xs text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-primary)] hover:underline">{session.course_code}</Link></div>)}</td>
               <td className="px-2 py-3 whitespace-nowrap">{formatDateTimeRange(item.primary_session.start_at, item.primary_session.end_at)}</td>
-              <td className="px-2 py-3"><span className="font-medium">{item.shared_resource.name}</span>{item.affected_students.length > 1 ? <span className="ml-1 text-xs text-[var(--color-wi-text-light)]">+{item.affected_students.length - 1}</span> : null}</td>
+              <td className="px-2 py-3"><Link to={`/courses/${item.primary_session.course_id}`} className="font-medium text-[var(--color-wi-primary)] hover:underline">{item.shared_resource.name}</Link>{item.affected_students.length > 1 ? <span className="ml-1 text-xs text-[var(--color-wi-text-light)]">+{item.affected_students.length - 1}</span> : null}</td>
             </tr>
             {isExpanded ? <tr className="border-b border-wi-line"><td colSpan={6} className="p-0"><ConflictDetailPanel conflict={item} /></td></tr> : null}
           </Fragment>;

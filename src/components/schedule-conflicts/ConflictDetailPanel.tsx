@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { ConflictOverviewItem } from "@/features/scheduling/types/conflictOverview";
 
 export function ConflictDetailPanel({ conflict }: Readonly<{ conflict: ConflictOverviewItem }>) {
@@ -9,7 +10,7 @@ export function ConflictDetailPanel({ conflict }: Readonly<{ conflict: ConflictO
         <div className="md:col-span-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Affected students</h3>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {conflict.affected_students.map((student) => <span key={student.student_id} className="rounded-sm border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-800">{student.full_name} · {student.wcode}</span>)}
+            {conflict.affected_students.map((student) => <Link key={student.student_id} to={`/courses/${conflict.primary_session.course_id}`} className="rounded-sm border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-800 hover:underline">{student.full_name} · {student.wcode}</Link>)}
           </div>
         </div>
       ) : null}
@@ -21,10 +22,10 @@ function SessionDetail({ title, session }: Readonly<{ title: string; session: Co
   return (
     <div className="rounded-sm border border-wi-line bg-white p-3">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">{title}</h3>
-      <p className="mt-2 text-sm font-semibold text-[var(--color-wi-text)]">{session.subject_name}</p>
-      <p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">{session.course_code} · {session.course_name}</p>
+      <Link to={`/courses/${session.course_id}`} className="mt-2 inline-block text-sm font-semibold text-[var(--color-wi-primary)] hover:underline">{session.subject_name}</Link>
+      <p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]"><Link to={`/courses/${session.course_id}`} className="hover:text-[var(--color-wi-primary)] hover:underline">{session.course_code} · {session.course_name}</Link></p>
       <dl className="mt-3 grid grid-cols-[5rem_1fr] gap-x-2 gap-y-1 text-xs">
-        <dt className="text-[var(--color-wi-text-light)]">Teacher</dt><dd>{session.teacher_name}</dd>
+        <dt className="text-[var(--color-wi-text-light)]">Teacher</dt><dd><Link to={`/courses/${session.course_id}`} className="text-[var(--color-wi-primary)] hover:underline">{session.teacher_name}</Link></dd>
         <dt className="text-[var(--color-wi-text-light)]">Room</dt><dd>{session.room_name ?? "Unassigned"}</dd>
         <dt className="text-[var(--color-wi-text-light)]">Time</dt><dd>{formatDateTimeRange(session.start_at, session.end_at)}</dd>
       </dl>

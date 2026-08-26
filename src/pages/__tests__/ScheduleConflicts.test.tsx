@@ -79,7 +79,8 @@ describe("ScheduleConflicts", () => {
     // Then: the summary and both subjects are visible in the conflict row.
     expect(screen.getByRole("heading", { name: "Schedule conflicts" })).toBeInTheDocument();
     expect(screen.getByText("1 total conflict")).toBeInTheDocument();
-    expect(screen.getByText("Mathematics")).toBeInTheDocument();
-    expect(screen.getByText("Physics")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Mathematics" })).toHaveAttribute("href", "/courses/course-1");
+    expect(screen.getByRole("link", { name: "Physics" })).toHaveAttribute("href", "/courses/course-2");
+    expect(screen.getByRole("link", { name: "Ada Teacher" })).toHaveAttribute("href", "/courses/course-1");
   });
 });
