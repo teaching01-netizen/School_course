@@ -37,6 +37,7 @@ import (
 	"warwick-institute/internal/httpapi/realtimehttp"
 	"warwick-institute/internal/httpapi/roomshttp"
 	"warwick-institute/internal/httpapi/satverbalpolicyhttp"
+	"warwick-institute/internal/httpapi/scheduleconflictshttp"
 	"warwick-institute/internal/httpapi/schedulepolicyhttp"
 	"warwick-institute/internal/httpapi/schedulinghttp"
 	"warwick-institute/internal/httpapi/serieshttp"
@@ -251,6 +252,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	subjectshttp.Register(mux, deps)
 	roomshttp.Register(mux, deps)
 	satverbalpolicyhttp.Register(mux, deps)
+	scheduleconflictshttp.Register(mux, deps)
 	sitinruleshttp.Register(mux, deps)
 	studentshttp.Register(mux, deps)
 	sessionshttp.Register(mux, deps)

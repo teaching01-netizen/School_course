@@ -51,6 +51,7 @@ export const navSections: NavSection[] = [
       { path: "/", label: "Warwick Institute", icon: Home },
       { path: "/availability", label: "Availability", icon: CalendarDays },
       { path: "/slot-finder", label: "Slot Finder", icon: Clock },
+      { path: "/schedule-conflicts", label: "Schedule Conflicts", icon: AlertTriangle, adminOnly: true },
     ],
   },
   {
@@ -121,6 +122,7 @@ export const pageTitles: Record<string, string> = {
   "/classrooms": "Classrooms",
   "/users": "Users",
   "/schedule": "Schedule",
+  "/schedule-conflicts": "Schedule Conflicts",
   "/assign": "Assign Rooms",
   "/summary": "Summary",
   "/availability": "Availability",

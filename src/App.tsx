@@ -26,6 +26,7 @@ const SubjectCreate = lazy(() => import('./pages/SubjectCreate'));
 const Classrooms = lazy(() => import('./pages/Classrooms'));
 const Users = lazy(() => import('./pages/Users'));
 const Schedule = lazy(() => import('./pages/Schedule'));
+const ScheduleConflicts = lazy(() => import('./pages/ScheduleConflicts'));
 const Summary = lazy(() => import('./pages/Summary'));
 const Availability = lazy(() => import('./pages/Availability'));
 const Reports = lazy(() => import('./pages/Reports'));
@@ -161,6 +162,7 @@ function App() {
                 <Route path="/classrooms" element={<Classrooms />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/schedule" element={<Schedule />} />
+                <Route path="/schedule-conflicts" element={<ScheduleConflicts />} />
                 <Route path="/assign" element={<AssignRooms />} />
                 <Route path="/summary" element={<Summary />} />
                 <Route path="/availability" element={<Availability />} />
