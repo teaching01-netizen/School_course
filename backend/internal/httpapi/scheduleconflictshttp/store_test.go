@@ -41,6 +41,27 @@ func TestPageQueryEmitsCanonicalPairsWithoutDistinct(t *testing.T) {
 	}
 }
 
+func TestPageQueryAnchorsOverlapLookups(t *testing.T) {
+	// Given: the default pair-discovery query over a conflict-heavy dataset.
+	query, _ := pageQuery(listFilters{Limit: 50})
+
+	// When: the planner-sensitive overlap joins are inspected.
+	// Then: each branch starts from conflict rows and keeps peer range lookups correlated.
+	for _, fragment := range []string{
+		"conflict_sessions AS MATERIALIZED",
+		"conflict_busy_ranges AS MATERIALIZED",
+		"FROM sessions s2",
+		"FROM student_busy_ranges b2",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("query missing anchored overlap fragment %q", fragment)
+		}
+	}
+	if got := strings.Count(query, "OFFSET 0"); got != 3 {
+		t.Fatalf("query has %d overlap correlation barriers, want 3", got)
+	}
+}
+
 func TestSummaryQueryCountsKeysWithoutEnrichment(t *testing.T) {
 	// Given: an unfiltered summary request.
 	query, args := summaryQuery(listFilters{})

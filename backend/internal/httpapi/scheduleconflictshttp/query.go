@@ -27,45 +27,135 @@ WITH active_sessions AS NOT MATERIALIZED (
           AND native_session.end_at = s.end_at
       )
     )
+), conflict_sessions AS MATERIALIZED (
+  SELECT s.id, s.course_id, s.room_id, s.teacher_id, s.start_at, s.end_at,
+         s.time_range, s.created_at, s.conflict_override, s.legacy_conflict_override
+  FROM active_sessions s
+  WHERE s.conflict_override OR s.legacy_conflict_override
+), conflict_busy_ranges AS MATERIALIZED (
+  SELECT b.id, b.student_id, b.session_id, b.start_at, b.end_at,
+         b.time_range, b.conflict_override
+  FROM student_busy_ranges b
+  WHERE b.deleted_at IS NULL
+    AND b.conflict_override
 ), pair_rows AS (
   SELECT 'room_overlap'::text AS conflict_type,
          LEAST(s1.id, s2.id) AS primary_id,
          GREATEST(s1.id, s2.id) AS conflicting_id,
          s1.room_id AS resource_id,
          CASE WHEN s1.id < s2.id THEN s1.start_at ELSE s2.start_at END AS sort_at
-  FROM active_sessions s1
-  JOIN active_sessions s2
-    ON s1.id <> s2.id
-   AND s1.room_id = s2.room_id
-   AND s1.time_range && s2.time_range
+  FROM conflict_sessions s1
+  JOIN LATERAL (
+    SELECT s2.id, s2.course_id, s2.room_id, s2.teacher_id, s2.start_at, s2.end_at,
+           s2.time_range, s2.created_at, s2.conflict_override, s2.legacy_conflict_override
+    FROM sessions s2
+    WHERE s2.deleted_at IS NULL
+      AND NOT (
+        s2.source_kind = 'legacy'
+        AND EXISTS (
+          SELECT 1
+          FROM sessions native_session
+          WHERE native_session.deleted_at IS NULL
+            AND native_session.source_kind = 'native'
+            AND native_session.course_id = s2.course_id
+            AND native_session.teacher_id = s2.teacher_id
+            AND native_session.room_id IS NOT DISTINCT FROM s2.room_id
+            AND native_session.start_at = s2.start_at
+            AND native_session.end_at = s2.end_at
+        )
+      )
+      AND s1.id <> s2.id
+      AND s1.room_id = s2.room_id
+      AND s1.time_range && s2.time_range
+      AND (NOT (s2.conflict_override OR s2.legacy_conflict_override) OR s1.id < s2.id)
+    -- Keep range lookups correlated to the small conflict anchor set.
+    OFFSET 0
+  ) s2 ON true
   WHERE (s1.conflict_override OR s1.legacy_conflict_override)
-    AND (NOT (s2.conflict_override OR s2.legacy_conflict_override) OR s1.id < s2.id)
     %s
   UNION ALL
   SELECT 'teacher_overlap', LEAST(s1.id, s2.id), GREATEST(s1.id, s2.id), s1.teacher_id,
          CASE WHEN s1.id < s2.id THEN s1.start_at ELSE s2.start_at END
-  FROM active_sessions s1
-  JOIN active_sessions s2
-    ON s1.id <> s2.id
-   AND s1.teacher_id = s2.teacher_id
-   AND s1.time_range && s2.time_range
+  FROM conflict_sessions s1
+  JOIN LATERAL (
+    SELECT s2.id, s2.course_id, s2.room_id, s2.teacher_id, s2.start_at, s2.end_at,
+           s2.time_range, s2.created_at, s2.conflict_override, s2.legacy_conflict_override
+    FROM sessions s2
+    WHERE s2.deleted_at IS NULL
+      AND NOT (
+        s2.source_kind = 'legacy'
+        AND EXISTS (
+          SELECT 1
+          FROM sessions native_session
+          WHERE native_session.deleted_at IS NULL
+            AND native_session.source_kind = 'native'
+            AND native_session.course_id = s2.course_id
+            AND native_session.teacher_id = s2.teacher_id
+            AND native_session.room_id IS NOT DISTINCT FROM s2.room_id
+            AND native_session.start_at = s2.start_at
+            AND native_session.end_at = s2.end_at
+        )
+      )
+      AND s1.id <> s2.id
+      AND s1.teacher_id = s2.teacher_id
+      AND s1.time_range && s2.time_range
+      AND (NOT (s2.conflict_override OR s2.legacy_conflict_override) OR s1.id < s2.id)
+    -- Keep range lookups correlated to the small conflict anchor set.
+    OFFSET 0
+  ) s2 ON true
   WHERE (s1.conflict_override OR s1.legacy_conflict_override)
-    AND (NOT (s2.conflict_override OR s2.legacy_conflict_override) OR s1.id < s2.id)
     %s
   UNION ALL
   SELECT 'student_overlap', LEAST(b1.session_id, b2.session_id), GREATEST(b1.session_id, b2.session_id), b1.student_id,
          CASE WHEN b1.session_id < b2.session_id THEN s1.start_at ELSE s2.start_at END
-  FROM student_busy_ranges b1
-  JOIN active_sessions s1 ON s1.id = b1.session_id
-  JOIN student_busy_ranges b2
-    ON b1.session_id <> b2.session_id
-   AND b1.student_id = b2.student_id
-   AND b1.time_range && b2.time_range
-  JOIN active_sessions s2 ON s2.id = b2.session_id
-  WHERE b1.deleted_at IS NULL
-    AND b2.deleted_at IS NULL
-    AND b1.conflict_override
-    AND (NOT b2.conflict_override OR b1.session_id < b2.session_id)
+  FROM conflict_busy_ranges b1
+  JOIN LATERAL (
+    SELECT b2.id, b2.student_id, b2.session_id, b2.start_at, b2.end_at,
+           b2.time_range, b2.conflict_override
+    FROM student_busy_ranges b2
+    WHERE b2.deleted_at IS NULL
+      AND b1.session_id <> b2.session_id
+      AND b1.student_id = b2.student_id
+      AND b1.time_range && b2.time_range
+      AND (NOT b2.conflict_override OR b1.session_id < b2.session_id)
+    -- Keep range lookups correlated to the small conflict anchor set.
+    OFFSET 0
+  ) b2 ON true
+  JOIN sessions s1
+    ON s1.id = b1.session_id
+   AND s1.deleted_at IS NULL
+   AND NOT (
+     s1.source_kind = 'legacy'
+     AND EXISTS (
+       SELECT 1
+       FROM sessions native_session
+       WHERE native_session.deleted_at IS NULL
+         AND native_session.source_kind = 'native'
+         AND native_session.course_id = s1.course_id
+         AND native_session.teacher_id = s1.teacher_id
+         AND native_session.room_id IS NOT DISTINCT FROM s1.room_id
+         AND native_session.start_at = s1.start_at
+         AND native_session.end_at = s1.end_at
+     )
+   )
+  JOIN sessions s2
+    ON s2.id = b2.session_id
+   AND s2.deleted_at IS NULL
+   AND NOT (
+     s2.source_kind = 'legacy'
+     AND EXISTS (
+       SELECT 1
+       FROM sessions native_session
+       WHERE native_session.deleted_at IS NULL
+         AND native_session.source_kind = 'native'
+         AND native_session.course_id = s2.course_id
+         AND native_session.teacher_id = s2.teacher_id
+         AND native_session.room_id IS NOT DISTINCT FROM s2.room_id
+         AND native_session.start_at = s2.start_at
+         AND native_session.end_at = s2.end_at
+     )
+   )
+  WHERE b1.conflict_override
     %s
 ), pairs AS (
   SELECT conflict_type, primary_id, conflicting_id,
