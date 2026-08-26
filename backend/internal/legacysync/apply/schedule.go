@@ -293,6 +293,9 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 					return skipped, err
 				}
 			}
+			if err := a.migrateDerivedScheduleIdentity(ctx, tx, request, schedule.LegacyScheduleID, roomID, start, end); err != nil {
+				return skipped, err
+			}
 			nativeSessionID, err := a.findActiveNativeSession(ctx, qtx, request.CourseID, request.TeacherID, roomID, start, end)
 			if err != nil {
 				return skipped, err
@@ -384,6 +387,42 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 		return skipped, err
 	}
 	return skipped, nil
+}
+
+func (a *ScheduleApplier) migrateDerivedScheduleIdentity(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest, scheduleID string, roomID pgtype.UUID, start, end time.Time) error {
+	if strings.HasPrefix(scheduleID, "derived:") {
+		return nil
+	}
+	var previousID string
+	var sessionID pgtype.UUID
+	err := tx.QueryRow(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT id, legacy_schedule_id
+			FROM sessions
+			WHERE course_id=$1 AND teacher_id IS NOT DISTINCT FROM $2
+			  AND start_at=$3 AND end_at=$4 AND source_kind='legacy' AND deleted_at IS NULL
+			  AND legacy_schedule_id LIKE 'derived:%'
+			  AND (room_id IS NULL OR room_id IS NOT DISTINCT FROM NULLIF($5::text, '')::uuid)
+			FOR UPDATE
+		), migrated AS (
+			UPDATE sessions AS target
+			SET legacy_schedule_id=$6, updated_at=now(), version=target.version+1
+			FROM candidates AS candidate
+			WHERE target.id=candidate.id AND (SELECT count(*) FROM candidates)=1
+			  AND NOT EXISTS (SELECT 1 FROM sessions WHERE legacy_schedule_id=$6)
+			RETURNING candidate.legacy_schedule_id, target.id
+		)
+		SELECT legacy_schedule_id, id FROM migrated`, request.CourseID, request.TeacherID, start, end, uuidText(roomID), scheduleID).Scan(&previousID, &sessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("migrate derived legacy schedule identity %s: %w", scheduleID, err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2 AND internal_id=$3`, a.source, previousID, sessionID); err != nil {
+		return fmt.Errorf("remove derived schedule mapping %s: %w", previousID, err)
+	}
+	return nil
 }
 
 // restoreSourcePresentSessions un-soft-deletes local legacy sessions for

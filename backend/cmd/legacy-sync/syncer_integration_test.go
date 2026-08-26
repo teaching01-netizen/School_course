@@ -49,11 +49,13 @@ type fakeLegacySite struct {
 	srv            *httptest.Server
 	listRequests   atomic.Int32
 	detailRequests atomic.Int32
+	detailBody     atomic.Value
 }
 
 func newFakeLegacySite(t *testing.T, listBody, detailBody string) *fakeLegacySite {
 	t.Helper()
 	s := &fakeLegacySite{}
+	s.detailBody.Store(detailBody)
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		switch {
@@ -68,13 +70,17 @@ func newFakeLegacySite(t *testing.T, listBody, detailBody string) *fakeLegacySit
 			_, _ = w.Write([]byte(listBody))
 		case r.URL.Path == "/Admin/Courses/Detail":
 			s.detailRequests.Add(1)
-			_, _ = w.Write([]byte(detailBody))
+			_, _ = w.Write([]byte(s.detailBody.Load().(string)))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(s.srv.Close)
 	return s
+}
+
+func (s *fakeLegacySite) setDetailBody(body string) {
+	s.detailBody.Store(body)
 }
 
 // syncerListPage builds a contract-valid /Admin/Courses page: the search
@@ -103,6 +109,12 @@ func syncerListRow(id, code, teacherCell, subjectCell, status string) string {
 func syncerDetailPage() string {
 	return "<!DOCTYPE html><html><body><table class=\"table\"><thead><tr><th>Date</th><th>Begin</th><th>End</th><th>Duration</th><th>Classroom</th><th>Confirm</th><th>By</th></tr></thead><tbody>" +
 		"<tr><td>Sat 23 May 26</td><td>13:00</td><td>16:20</td><td>03:20</td><td></td><td>Yes</td><td>AJ. TY</td></tr>" +
+		"</tbody></table></body></html>"
+}
+
+func syncerAssignedRoomDetailPage(scheduleID, roomID string) string {
+	return "<!DOCTYPE html><html><body><table class=\"table\"><thead><tr><th>Date</th><th>Begin</th><th>End</th><th>Duration</th><th>Classroom</th><th>Confirm</th><th>By</th></tr></thead><tbody>" +
+		"<tr><td>Sat 23 May 26</td><td>13:00</td><td>16:20</td><td>03:20</td><td><a href=\"ClassroomSet?courseScheduleId=" + scheduleID + "\">[" + roomID + "] Room</a></td><td>Yes</td><td>AJ. TY</td></tr>" +
 		"</tbody></table></body></html>"
 }
 
@@ -299,6 +311,47 @@ func TestCourseSyncer_RefreshesActiveCourseOnEverySync(t *testing.T) {
 	}
 	if got := site.detailRequests.Load(); got != 2 {
 		t.Fatalf("detail page fetches = %d, want 2 (no legacy_warwick snapshot, cooldown falls through)", got)
+	}
+}
+
+func TestCourseSyncer_RoomAssignmentKeepsExistingSessionWhenSourceIDAppears(t *testing.T) {
+	// Given: the first source response has no room and therefore no schedule ID.
+	pool := mainLookupTestPool(t)
+	ctx := context.Background()
+	legacyID := numericLegacyID("8")
+	teacherID := numericLegacyID("9")
+	subjectID := numericLegacyID("7")
+	roomID := numericLegacyID("6")
+	scheduleID := numericLegacyID("5")
+	code := "SYNC-ROOM-" + uuid.NewString()
+	seedLinkedCourse(t, pool, code, legacyID, false, false)
+	site := newFakeLegacySite(t, syncerListPage(syncerListRow(legacyID, code, "["+teacherID+"] T", "["+subjectID+"] S", "Active")), syncerDetailPage())
+	syncer := newSyncerUnderTest(t, pool, site.srv)
+	if err := syncer.syncCourse(ctx, legacyID); err != nil {
+		t.Fatal(err)
+	}
+	var originalSessionID pgtype.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM sessions WHERE course_id=(SELECT id FROM courses WHERE legacy_course_id=$1) AND legacy_schedule_id LIKE 'derived:%'`, legacyID).Scan(&originalSessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: the source assigns a room and exposes the numeric schedule ID.
+	site.setDetailBody(syncerAssignedRoomDetailPage(scheduleID, roomID))
+	if err := syncer.syncCourse(ctx, legacyID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the source ID and room are applied to the original single session.
+	var syncedSessionID pgtype.UUID
+	var sessionCount int
+	if err := pool.QueryRow(ctx, `SELECT id FROM sessions WHERE legacy_schedule_id=$1 AND room_id IS NOT NULL`, scheduleID).Scan(&syncedSessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE course_id=(SELECT id FROM courses WHERE legacy_course_id=$1)`, legacyID).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if syncedSessionID != originalSessionID || sessionCount != 1 {
+		t.Fatalf("room transition session = %v count=%d, want original %v count=1", syncedSessionID, sessionCount, originalSessionID)
 	}
 }
 

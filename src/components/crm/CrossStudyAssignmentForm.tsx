@@ -8,7 +8,7 @@ import { useToast } from "../../hooks/useToast";
 
 type Props = {
   student: StudentInfo;
-  crmRow: CrmRowInfo | null;
+  crmRow: CrmRowInfo;
   currentAssignment: AssignmentDTO | null;
   courses: { id: string; code: string; name: string; subject_name: string }[];
   onSaved: () => void;
@@ -105,22 +105,20 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
     if (!canSave) return;
     setSaving(true);
     try {
-      const snapshotId = crmRow?.snapshot_id || "";
-
       await apiJson("/api/v1/cross-study/assignments", {
         method: "PUT",
         body: JSON.stringify({
           wcode: student.wcode,
-          snapshot_id: snapshotId,
-          crm_course_name: crmRow?.course_name ?? "",
-          crm_row_hash: crmRow?.row_hash ?? "",
-          crm_xlsx_row_number: crmRow?.xlsx_row_number ?? 0,
+          snapshot_id: crmRow.snapshot_id,
+          crm_course_name: crmRow.course_name,
+          crm_row_hash: crmRow.row_hash,
+          crm_xlsx_row_number: crmRow.xlsx_row_number,
           dest_course_a_id: destA,
           dest_course_b_id: destB,
           dest_course_a_weekdays: destAWeekdays,
           dest_course_b_weekdays: destBWeekdays,
           assigned_course_id: destA,
-          extra_note_text: crmRow?.extra_note ?? "",
+          extra_note_text: crmRow.extra_note,
         }),
       });
       addToast("success", "Assignment saved");
@@ -228,7 +226,7 @@ export default function CrossStudyAssignmentForm({ student, crmRow, currentAssig
         <CrossStudyStatusBadge
           status={currentAssignment.status}
           extraNoteSnapshot={currentAssignment.extra_note_snapshot}
-          currentNote={crmRow?.extra_note}
+          currentNote={crmRow.extra_note}
           sourceValid={currentAssignment.source_valid}
         />
       )}

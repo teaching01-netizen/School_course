@@ -36,7 +36,7 @@ export interface AssignmentDTO {
 
 export interface StudentLookupResponse {
   student: StudentInfo;
-  crm_row: CrmRowInfo | null;
+  crm_rows: CrmRowInfo[];
   current_assignment: AssignmentDTO | null;
 }
 

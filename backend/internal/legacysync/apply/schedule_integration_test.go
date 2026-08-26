@@ -110,6 +110,55 @@ func TestScheduleApply_ReusesStableLegacyScheduleIdentity(t *testing.T) {
 	_ = courseID
 }
 
+func TestScheduleApply_MigratesDerivedIdentityWhenRoomAssignmentExposesSourceID(t *testing.T) {
+	// Given: the legacy page first exposes a schedule without a room or source ID.
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, realScheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	derivedScheduleID := "derived:" + suffix
+	request.Aggregate.Schedules[0].LegacyScheduleID = derivedScheduleID
+	request.Aggregate.Schedules[0].Classroom = "[NOT SET]"
+	request.Aggregate.Schedules[0].ClassroomLegacyID = ""
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var originalSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM sessions WHERE legacy_schedule_id=$1`, derivedScheduleID).Scan(&originalSessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: assigning the room makes the real legacy schedule ID available.
+	request.Aggregate.Schedules[0].LegacyScheduleID = realScheduleID
+	request.Aggregate.Schedules[0].Classroom = "Schedule Room " + suffix
+	request.Aggregate.Schedules[0].ClassroomLegacyID = "schedule-room-" + suffix
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the existing session owns the real identity and mapping; no duplicate remains.
+	var migratedSessionID, roomID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id, room_id FROM sessions WHERE legacy_schedule_id=$1`, realScheduleID).Scan(&migratedSessionID, &roomID); err != nil {
+		t.Fatal(err)
+	}
+	if migratedSessionID != originalSessionID || !roomID.Valid {
+		t.Fatalf("migrated session = %v room=%v, want original %v with assigned room", migratedSessionID, roomID, originalSessionID)
+	}
+	var sessionCount, derivedMappingCount, realMappingCount int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1`, courseID).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, derivedScheduleID).Scan(&derivedMappingCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, realScheduleID).Scan(&realMappingCount); err != nil {
+		t.Fatal(err)
+	}
+	if sessionCount != 1 || derivedMappingCount != 0 || realMappingCount != 1 {
+		t.Fatalf("transition rows = sessions %d/derived mappings %d/real mappings %d, want 1/0/1", sessionCount, derivedMappingCount, realMappingCount)
+	}
+}
+
 func TestScheduleApply_ReusesExactNativeSessionForLegacySchedule(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)

@@ -110,10 +110,7 @@ func activateSnapshot(t *testing.T, ctx context.Context, dbpool *pgxpool.Pool, s
 // Tests
 // ============================================================================
 
-// TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote verifies that
-// LookupStudent returns a CRM row with extra_note populated when the student
-// exists in the active snapshot.
-func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
+func TestCrossStudy_LookupStudent_ReturnsAllCRMRows(t *testing.T) {
 	databaseURL := requireDB(t)
 	migrateUpV2(t, databaseURL)
 	dbpool := newPoolV2(t, databaseURL)
@@ -123,7 +120,7 @@ func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Arrange: create a snapshot with a row that has ExtraNote set
+	// Given: an active snapshot containing two CRM rows for the student.
 	snapID := createTestSnapshot(t, ctx, dbpool, []xlsx.Row{
 		{
 			WCode:      "W260001",
@@ -131,26 +128,35 @@ func TestCrossStudy_LookupStudent_ReturnsCRMRowAndExtraNote(t *testing.T) {
 			CycleLabel: "Cycle A",
 			ExtraNote:  "extra-section-info",
 		},
+		{
+			WCode:      "W260001",
+			CourseName: "CrossStudy Test Course B",
+			CycleLabel: "Cycle A",
+			ExtraNote:  "second-section-info",
+		},
 	})
 	activateSnapshot(t, ctx, dbpool, snapID)
 	createTestStudent(t, ctx, dbpool, "W260001", "Test Student 001")
 
-	// Act: lookup the student
+	// When: the student is looked up.
 	store := newCrossStudyStore(t, dbpool)
 	resp, err := store.LookupStudent(ctx, "W260001")
 	if err != nil {
 		t.Fatalf("LookupStudent failed: %v", err)
 	}
 
-	// Assert: CRM row is returned
-	if resp.CRMRow == nil {
-		t.Fatal("expected crm_row to be non-nil")
+	// Then: both CRM rows are returned in source order.
+	if len(resp.CRMRows) != 2 {
+		t.Fatalf("expected 2 crm_rows, got %d", len(resp.CRMRows))
 	}
-	if resp.CRMRow.ExtraNote != "extra-section-info" {
-		t.Fatalf("expected extra_note='extra-section-info', got %q", resp.CRMRow.ExtraNote)
+	if resp.CRMRows[0].ExtraNote != "extra-section-info" {
+		t.Fatalf("expected first extra_note='extra-section-info', got %q", resp.CRMRows[0].ExtraNote)
 	}
-	if resp.CRMRow.CourseName != "CrossStudy Test Course A" {
-		t.Fatalf("expected course_name='CrossStudy Test Course A', got %q", resp.CRMRow.CourseName)
+	if resp.CRMRows[0].CourseName != "CrossStudy Test Course A" {
+		t.Fatalf("expected first course_name='CrossStudy Test Course A', got %q", resp.CRMRows[0].CourseName)
+	}
+	if resp.CRMRows[1].CourseName != "CrossStudy Test Course B" {
+		t.Fatalf("expected second course_name='CrossStudy Test Course B', got %q", resp.CRMRows[1].CourseName)
 	}
 	if resp.Student.WCode != "w260001" {
 		t.Fatalf("expected wcode='w260001', got %q", resp.Student.WCode)

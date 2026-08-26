@@ -15,6 +15,7 @@ export default function CrossStudyPage() {
   const [lastSearchedWcode, setLastSearchedWcode] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
+  const [selectedCRMRowHash, setSelectedCRMRowHash] = useState<string | null>(null);
 
   const loadCourses = useCallback(async () => {
     try {
@@ -33,10 +34,12 @@ export default function CrossStudyPage() {
     setSearching(true);
     setSearchError(null);
     setLookupResult(null);
+    setSelectedCRMRowHash(null);
     setLastSearchedWcode(wcode);
     try {
       const res = await apiJson<StudentLookupResponse>(`/api/v1/cross-study/students/${encodeURIComponent(wcode)}`);
       setLookupResult(res);
+      setSelectedCRMRowHash(res.crm_rows[0]?.row_hash ?? null);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Lookup failed");
     } finally {
@@ -50,6 +53,8 @@ export default function CrossStudyPage() {
     }
     setRefreshKey((k) => k + 1);
   };
+
+  const selectedCRMRow = lookupResult?.crm_rows.find((row) => row.row_hash === selectedCRMRowHash) ?? null;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -101,7 +106,7 @@ export default function CrossStudyPage() {
           )}
 
           {/* Student not found in CRM */}
-          {!searching && lookupResult && lookupResult.crm_row === null && (
+          {!searching && lookupResult && lookupResult.crm_rows.length === 0 && (
             <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
               No CRM data found for this student in the active snapshot.
               Cross-study assignment requires a CRM row with "Extra note" and a source course.
@@ -109,7 +114,7 @@ export default function CrossStudyPage() {
           )}
 
           {/* Student found with CRM row */}
-          {!searching && lookupResult && lookupResult.crm_row && (
+          {!searching && lookupResult && lookupResult.crm_rows.length > 0 && selectedCRMRow && (
             <div className="space-y-4">
               {/* Student info header */}
               <div className="flex items-center gap-3 p-3 bg-[var(--color-wi-row-alt)] rounded-sm">
@@ -122,21 +127,28 @@ export default function CrossStudyPage() {
                 </div>
               </div>
 
-              {/* CRM row card */}
-              <CrossStudyCrmRowCard crmRow={lookupResult.crm_row} />
-
-              {/* Empty extra note warning */}
-              {!lookupResult.crm_row.extra_note && (
-                <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                  "Extra note" column is empty for this row. The note helps determine which section
-                  the student belongs to. You can still assign manually below.
-                </div>
-              )}
+              <div className="space-y-3">
+                {lookupResult.crm_rows.map((crmRow) => (
+                  <div key={`${crmRow.snapshot_id}:${crmRow.xlsx_row_number}`} className="space-y-2">
+                    <CrossStudyCrmRowCard
+                      crmRow={crmRow}
+                      selected={crmRow.row_hash === selectedCRMRowHash}
+                      onSelect={() => setSelectedCRMRowHash(crmRow.row_hash)}
+                    />
+                    {!crmRow.extra_note && (
+                      <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                        "Extra note" column is empty for this row. The note helps determine which section
+                        the student belongs to. You can still assign manually below.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
 
               {/* Assignment form */}
               <CrossStudyAssignmentForm
                 student={lookupResult.student}
-                crmRow={lookupResult.crm_row}
+                crmRow={selectedCRMRow}
                 currentAssignment={lookupResult.current_assignment}
                 courses={courses}
                 onSaved={handleSaved}

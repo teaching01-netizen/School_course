@@ -284,12 +284,12 @@ func assignmentUsesFullCourseEnrollment(input SaveAssignmentInput) bool {
 	return weekdaysAreAll(input.DestCourseAWeekdays) && weekdaysAreAll(input.DestCourseBWeekdays)
 }
 
-// LookupStudent finds a student and their latest CRM row.
+// LookupStudent finds a student and their CRM rows in the active snapshot.
 func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookupResponse, error) {
 	wcode = normalizeWCode(wcode)
 	resp := &StudentLookupResponse{
 		Student: &StudentInfo{},
-		CRMRow:  &CRMRowInfo{},
+		CRMRows: make([]CRMRowInfo, 0),
 	}
 
 	err := s.db.QueryRow(ctx, `
@@ -302,43 +302,41 @@ func (s *Store) LookupStudent(ctx context.Context, wcode string) (*StudentLookup
 		return nil, fmt.Errorf("query student: %w", err)
 	}
 
-	row := s.db.QueryRow(ctx, `
-		SELECT cr.snapshot_id, cr.row_hash, cr.xlsx_row_number, cr.course_name, cr.extra_note, cs.created_at
+	rows, err := s.db.Query(ctx, `
+		SELECT cr.snapshot_id, cr.row_hash, cr.xlsx_row_number, cr.course_name, cr.extra_note,
+		       cs.created_at,
+		       COALESCE((SELECT c.id::text FROM courses c WHERE c.name = cr.course_name LIMIT 1), '')
 		FROM crm_rows cr
 		JOIN crm_state cs ON cr.snapshot_id = cs.active_snapshot_id
 		WHERE LOWER(cr.wcode) = $1 AND cs.singleton = true
 		ORDER BY cr.xlsx_row_number ASC
-		LIMIT 1
 	`, wcode)
-
-	var snapID uuid.UUID
-	var importedAt time.Time
-	err = row.Scan(
-		&snapID,
-		&resp.CRMRow.RowHash,
-		&resp.CRMRow.XLSXRowNumber,
-		&resp.CRMRow.CourseName,
-		&resp.CRMRow.ExtraNote,
-		&importedAt,
-	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			resp.CRMRow = nil
-			return resp, nil
-		}
-		return nil, fmt.Errorf("query crm row: %w", err)
+		return nil, fmt.Errorf("query crm rows: %w", err)
 	}
+	defer rows.Close()
 
-	resp.CRMRow.SnapshotID = snapID.String()
-	resp.CRMRow.ImportedAt = importedAt.Format(time.RFC3339)
-
-	courseRow := s.db.QueryRow(ctx, `
-		SELECT id FROM courses WHERE name = $1
-	`, resp.CRMRow.CourseName)
-
-	var courseID uuid.UUID
-	if err := courseRow.Scan(&courseID); err == nil {
-		resp.CRMRow.CourseID = courseID.String()
+	for rows.Next() {
+		var crmRow CRMRowInfo
+		var snapID uuid.UUID
+		var importedAt time.Time
+		if err := rows.Scan(
+			&snapID,
+			&crmRow.RowHash,
+			&crmRow.XLSXRowNumber,
+			&crmRow.CourseName,
+			&crmRow.ExtraNote,
+			&importedAt,
+			&crmRow.CourseID,
+		); err != nil {
+			return nil, fmt.Errorf("scan crm row: %w", err)
+		}
+		crmRow.SnapshotID = snapID.String()
+		crmRow.ImportedAt = importedAt.Format(time.RFC3339)
+		resp.CRMRows = append(resp.CRMRows, crmRow)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate crm rows: %w", err)
 	}
 
 	assignRow := s.db.QueryRow(ctx, `

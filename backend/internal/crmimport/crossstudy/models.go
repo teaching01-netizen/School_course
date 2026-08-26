@@ -75,7 +75,7 @@ type AssignmentSummary struct {
 
 type StudentLookupResponse struct {
 	Student           *StudentInfo   `json:"student"`
-	CRMRow            *CRMRowInfo    `json:"crm_row"`
+	CRMRows           []CRMRowInfo   `json:"crm_rows"`
 	CurrentAssignment *AssignmentDTO `json:"current_assignment,omitempty"`
 }
 
