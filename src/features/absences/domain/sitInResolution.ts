@@ -243,9 +243,16 @@ export function sitInOptionsByTargetAndSession(
     buckets.set(key, { items: uniqueSessions, sitInCourse: priority.sit_in_course });
   });
 
-  return [...buckets.values()].flatMap((bucket) =>
-    sitInOptionGroupsBySession(bucket.items, bucket.sitInCourse),
-  );
+  return [...buckets.values()].flatMap((bucket) => {
+    const mergeGroupID = bucket.sitInCourse?.merge_group_id?.trim();
+    // A merged target is one logical sit-in per institute day. Ordinary
+    // targets keep distinct same-day times as separate choices.
+    if (!mergeGroupID) return sitInOptionGroupsBySession(bucket.items, bucket.sitInCourse);
+    return groupByDay(bucket.items).map((dayGroup) => ({
+      items: dayGroup.items,
+      sitInCourse: bucket.sitInCourse,
+    }));
+  });
 }
 
 export function unavailableSessionsForMissedSession(

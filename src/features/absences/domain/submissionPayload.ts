@@ -333,6 +333,15 @@ export function buildSubmissionPayloads(
     const scopeGroups = input.sessions.filter(
       (candidate) => absenceScopeKey(candidate) === absenceScopeKey(group),
     );
+    const selectedScopeSessionIds = uniqueValues(
+      scopeGroups.flatMap((candidate) =>
+        getSelectedSessionsForGroup(
+          candidate,
+          input.selectedSessionIds,
+        ).map((session) => session.id),
+      ),
+    );
+    const scopePrimaryGroup = scopeGroups[0] ?? group;
     const sitInSessionIds = uniqueValues(
       selectedSessIds.flatMap((id) =>
         splitMergedSessionValue(input.sitInSelections[id]),
@@ -364,8 +373,8 @@ export function buildSubmissionPayloads(
     if (sitInMethod === "physical" || sitInMethod === "zoom")
       payload.sit_in_method = sitInMethod;
     const sitInCourseID = selectedSitInCourseIDForGroup(
-      group,
-      selectedSessIds,
+      scopePrimaryGroup,
+      selectedScopeSessionIds,
       input.sitInSelections,
       input.sitInPriorityLevels,
       input.sitInPriorityHistory,
@@ -373,5 +382,13 @@ export function buildSubmissionPayloads(
     if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
     payloadEntries.push({ scopeKey: absenceScopeKey(group), item: payload });
   }
-  return { ok: true, payloads: mergeAbsenceBatchItemsByScope(payloadEntries) };
+  const payloads = mergeAbsenceBatchItemsByScope(payloadEntries);
+  const duplicateSitInIDs = duplicateSitInSessionIds(payloads);
+  if (duplicateSitInIDs.length > 0) {
+    return {
+      ok: false,
+      error: "The same sit-in session is assigned to more than one absence. Please choose a different make-up session.",
+    };
+  }
+  return { ok: true, payloads };
 }

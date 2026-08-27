@@ -1103,6 +1103,124 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
+  it("treats a same-day merged SAT Verbal sit-in as one choice after revealing other times", async () => {
+    const user = userEvent.setup();
+    const mergedTarget = {
+      merge_group_id: "merge-target",
+      merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+    };
+    const mergedSubjects = [
+      { id: "subj-reading", code: "READING", name: "SAT Verbal Reading", merge_group_id: "merge-absence", merge_group_name: "SAT Verbal Rank 3 Section 2 C3" },
+      { id: "subj-writing", code: "WRITING", name: "SAT Verbal Writing", merge_group_id: "merge-absence", merge_group_name: "SAT Verbal Rank 3 Section 2 C3" },
+    ];
+    const mergedSessions = createMockSessionsInRange([
+      {
+        subject_id: "subj-reading",
+        subject_code: "READING",
+        subject_name: "SAT Verbal Reading",
+        course_id: "course-reading",
+        course_code: "R3S2",
+        course_name: "SAT Verbal Reading Rank 3 Section 2",
+        merge_group_id: "merge-absence",
+        merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+        absence_limit_reached: false,
+        sessions: [{ id: "missed-reading", start_at: "2026-08-23T09:00:00+07:00", end_at: "2026-08-23T10:40:00+07:00", date: "2026-08-23", already_absent: false }],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [
+            {
+              level: 1,
+              label: "Rank 3 Section 2",
+              sit_in_course: { id: "target-reading", code: "R3S2", name: "SAT Verbal Reading Rank 3 Section 2", ...mergedTarget },
+              available_sessions: [{ id: "sit-reading", course_id: "target-reading", start_at: "2026-08-30T13:00:00+07:00", end_at: "2026-08-30T14:40:00+07:00" }],
+            },
+            {
+              level: 1,
+              label: "Rank 3 Section 2",
+              sit_in_course: { id: "target-writing", code: "W3S2", name: "SAT Verbal Writing Rank 3 Section 2", ...mergedTarget },
+              available_sessions: [{ id: "sit-writing", course_id: "target-writing", start_at: "2026-08-30T15:00:00+07:00", end_at: "2026-08-30T16:40:00+07:00" }],
+            },
+          ],
+        },
+      },
+      {
+        subject_id: "subj-writing",
+        subject_code: "WRITING",
+        subject_name: "SAT Verbal Writing",
+        course_id: "course-writing",
+        course_code: "W3S2",
+        course_name: "SAT Verbal Writing Rank 3 Section 2",
+        merge_group_id: "merge-absence",
+        merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+        absence_limit_reached: false,
+        sessions: [{ id: "missed-writing", start_at: "2026-08-23T11:00:00+07:00", end_at: "2026-08-23T12:40:00+07:00", date: "2026-08-23", already_absent: false }],
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 1,
+          has_next_priority: true,
+          priorities: [{
+            level: 1,
+            label: "Rank 3 Section 2",
+            sit_in_course: { id: "target-writing", code: "W3S2", name: "SAT Verbal Writing Rank 3 Section 2", ...mergedTarget },
+            available_sessions: [{ id: "sit-writing", course_id: "target-writing", start_at: "2026-08-30T15:00:00+07:00", end_at: "2026-08-30T16:40:00+07:00" }],
+          }],
+        },
+      },
+    ]);
+
+    renderAbsenceForm({
+      student: { ...MOCK_STUDENT, subjects: mergedSubjects },
+      sessions: mergedSessions,
+    });
+
+    await lookupStudent(user);
+    await verifyParent(user);
+    await goToCourses(user);
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
+    await toggleAllCourseSwitches(user);
+
+    const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
+      (checkbox) => checkbox.getAttribute("id")?.startsWith("session-"),
+    );
+    expect(sessionCheckboxes).toHaveLength(1);
+    await user.click(sessionCheckboxes[0]);
+
+    const makeUpSelect = await screen.findByRole("combobox");
+    const makeUpOptions = within(makeUpSelect).getAllByRole("option").filter(
+      (option) => option.getAttribute("value"),
+    );
+    expect(makeUpOptions).toHaveLength(1);
+    expect(makeUpOptions[0]).toHaveValue("sit-reading|sit-writing");
+
+    await user.click(screen.getByRole("button", { name: /see other times/i }));
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledWith(
+        expect.stringContaining("sat_verbal_after_priority=1"),
+        expect.anything(),
+      );
+    });
+    await user.selectOptions(await screen.findByRole("combobox"), "sit-reading|sit-writing");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    expect(await screen.findByText("Review your absence")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+
+    const batchCall = await waitFor(() => {
+      const call = mockApiJson.mock.calls.find(([url]) => url === "/api/v1/absences/batch");
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const parsedBody = JSON.parse(String(batchCall[1]?.body)) as {
+      items: Array<{ missed_session_ids: string[]; sit_in_session_ids: string[] }>;
+    };
+    expect(parsedBody.items).toHaveLength(1);
+    expect(parsedBody.items[0]).toMatchObject({
+      missed_session_ids: ["missed-reading", "missed-writing"],
+      sit_in_session_ids: ["sit-reading", "sit-writing"],
+    });
+  }, 30000);
+
   it("shows a used sit-in session as unavailable in the public form", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({

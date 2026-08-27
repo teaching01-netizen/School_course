@@ -495,12 +495,50 @@ describe("getSitInSessionGroupLabel", () => {
 
     const options = sitInOptionsByTargetAndSession(priorities, ["missed-session"]);
 
+    expect(options).toHaveLength(1);
+    expect(options[0].items.map((session) => session.id)).toEqual([
+      "reading-session",
+      "writing-session",
+    ]);
+    expect(getSitInSessionGroupLabel(options[0].items, options[0].sitInCourse, "Fallback", [])).toContain("SAT Verbal Rank 3 Section 2 C3");
+    expect(getSitInSessionGroupLabel(options[0].items, options[0].sitInCourse, "Fallback", [])).toContain("13:00-16:40");
+  });
+
+  it("keeps merged-target sessions on different days as separate sit-in options", () => {
+    const priorities = [
+      {
+        level: 1,
+        label: "Rank 3 Section 2",
+        sit_in_course: {
+          id: "reading-target",
+          code: "R3S2",
+          name: "SAT Verbal Reading Rank 3 Section 2",
+          merge_group_id: "merged-r3s2",
+          merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+        },
+        available_sessions: [{ id: "reading-session", start_at: "2026-08-23T13:00:00+07:00", end_at: "2026-08-23T14:40:00+07:00" }],
+      },
+      {
+        level: 1,
+        label: "Rank 3 Section 2",
+        sit_in_course: {
+          id: "writing-target",
+          code: "W3S2",
+          name: "SAT Verbal Writing Rank 3 Section 2",
+          merge_group_id: "merged-r3s2",
+          merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+        },
+        available_sessions: [{ id: "writing-session", start_at: "2026-08-24T15:00:00+07:00", end_at: "2026-08-24T16:40:00+07:00" }],
+      },
+    ];
+
+    const options = sitInOptionsByTargetAndSession(priorities, ["missed-session"]);
+
     expect(options).toHaveLength(2);
     expect(options.map((option) => option.items.map((session) => session.id))).toEqual([
       ["reading-session"],
       ["writing-session"],
     ]);
-    expect(getSitInSessionGroupLabel(options[0].items, options[0].sitInCourse, "Fallback", [])).toContain("SAT Verbal Rank 3 Section 2 C3");
   });
 });
 

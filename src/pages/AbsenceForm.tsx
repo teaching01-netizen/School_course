@@ -47,6 +47,7 @@ import {
   groupByDay,
   mergedSessionValue,
   splitMergedSessionValue,
+  uniqueValues,
   type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
@@ -710,11 +711,22 @@ export default function AbsenceForm() {
       focusFirstInvalid('[id^="session-"]');
       return false;
     }
-    const duplicateIds = duplicateSitInSessionIds(
-      Object.values(sitInSelections)
-        .flatMap(splitMergedSessionValue)
-        .map((id) => ({ sit_in_session_ids: [id] })),
+    const logicalSitInSelections = selectedBlocks.flatMap((block) =>
+      groupByDay(
+        block.sessions.filter(
+          (session) =>
+            selectedSessionIds.has(session.id) &&
+            !session.already_absent,
+        ),
+      ).map((dayGroup) => ({
+        sit_in_session_ids: uniqueValues(
+          dayGroup.items.flatMap((missedSession) =>
+            splitMergedSessionValue(sitInSelections[missedSession.id]),
+          ),
+        ),
+      })),
     );
+    const duplicateIds = duplicateSitInSessionIds(logicalSitInSelections);
     if (duplicateIds.length > 0) {
       setPageError("The same sit-in session is selected for more than one absence day. Choose a different session before submitting.");
       return false;

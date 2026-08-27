@@ -289,6 +289,103 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("merges same-day SAT Verbal source selections into one payload without duplicate sit-in sessions", () => {
+    const mergedTarget = {
+      merge_group_id: "merge-target",
+      merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+    };
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          subject_id: "subject-reading",
+          subject_name: "SAT Verbal Reading",
+          course_id: "course-reading",
+          course_code: "R3S2",
+          course_name: "SAT Verbal Reading Rank 3 Section 2",
+          merge_group_id: "merge-absence",
+          merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+          sessions: [{
+            id: "missed-reading",
+            start_at: "2026-06-03T09:00:00+07:00",
+            end_at: "2026-06-03T10:00:00+07:00",
+            date: "2026-06-03",
+            already_absent: false,
+          }],
+          sit_in: {
+            sit_in_method: "physical",
+            priorities: [{
+              level: 1,
+              label: "Priority 1",
+              sit_in_course: { id: "target-reading", code: "R3S2", name: "SAT Verbal Reading Rank 3 Section 2", ...mergedTarget },
+              available_sessions: [{
+                id: "sit-reading",
+                course_id: "target-reading",
+                start_at: "2026-06-23T13:00:00+07:00",
+                end_at: "2026-06-23T14:40:00+07:00",
+              }],
+            }],
+          },
+        },
+        {
+          ...baseGroup,
+          subject_id: "subject-writing",
+          subject_name: "SAT Verbal Writing",
+          course_id: "course-writing",
+          course_code: "W3S2",
+          course_name: "SAT Verbal Writing Rank 3 Section 2",
+          merge_group_id: "merge-absence",
+          merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+          sessions: [{
+            id: "missed-writing",
+            start_at: "2026-06-03T15:00:00+07:00",
+            end_at: "2026-06-03T16:40:00+07:00",
+            date: "2026-06-03",
+            already_absent: false,
+          }],
+          sit_in: {
+            sit_in_method: "physical",
+            priorities: [{
+              level: 1,
+              label: "Priority 1",
+              sit_in_course: { id: "target-writing", code: "W3S2", name: "SAT Verbal Writing Rank 3 Section 2", ...mergedTarget },
+              available_sessions: [{
+                id: "sit-writing",
+                course_id: "target-writing",
+                start_at: "2026-06-23T15:00:00+07:00",
+                end_at: "2026-06-23T16:40:00+07:00",
+              }],
+            }],
+          },
+        },
+      ],
+      selectedSubjectIds: ["subject-reading", "subject-writing"],
+      selectedSessionIds: new Set(["missed-reading", "missed-writing"]),
+      sitInSelections: {
+        "missed-reading": "sit-reading|sit-writing",
+        "missed-writing": "sit-reading|sit-writing",
+      },
+      reason: "Travel",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      payloads: [{
+        subject_id: "subject-reading",
+        course_id: "course-reading",
+        date_from: "2026-06-03",
+        date_to: "2026-06-03",
+        reason: "Travel",
+        sit_in_method: "physical",
+        sit_in_course_id: "target-reading",
+        missed_session_ids: ["missed-reading", "missed-writing"],
+        sit_in_session_ids: ["sit-reading", "sit-writing"],
+      }],
+    });
+  });
+
   it("accepts a selected session whose course differs from the selected sit-in course", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
