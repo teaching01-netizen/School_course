@@ -16,12 +16,13 @@ import {
   mergedSessionValue,
   getSelectedSessionsForGroup,
   splitMergedSessionValue,
+  uniqueValues,
 } from "../../features/absences/domain/sessionGrouping";
 import {
   sitInForMissedSession,
   groupWithSitInForMissedSession,
   availableSessionsForMissedSessions,
-  unavailableSessionsForMissedSession,
+  unavailableSessionsForMissedSessions,
   firstPriorityLevel,
   hasServerPriorityReveal,
   nextPriorityLevel,
@@ -46,7 +47,7 @@ import MakeUpPicker, {
 import {
   duplicateSitInSessionIds,
   mergeAbsenceBatchItemsByScope,
-  selectedSitInCourseIDForGroup,
+  selectedSitInCourseIDForScope,
 } from "../../features/absences/domain/submissionPayload";
 import type {
   SubjectSessions,
@@ -766,24 +767,87 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     handleSitInSelectForSessions(sessionIds, sessionValue);
   }
 
-  async function handleNotAvailable(group: SubjectSessions, sessionId: string) {
+  function scopeGroupsFor(group: SubjectSessions): SubjectSessions[] {
+    const scopeKey = absenceScopeKey(group);
+    const groups = selectedSubjectGroups.filter(
+      (candidate) => absenceScopeKey(candidate) === scopeKey,
+    );
+    return groups.length > 0 ? groups : [group];
+  }
+
+  function clearSitInSelectionsForSessions(sessionIds: string[]) {
+    setSitInSelections((prev) => {
+      const next = { ...prev };
+      for (const sessionId of sessionIds) delete next[sessionId];
+      return next;
+    });
+  }
+
+  function priorityGroupsForSessions(
+    groups: SubjectSessions[],
+    sessionIds: string[],
+    level: number,
+  ): SubjectSessions[] {
+    return sessionIds.flatMap((sessionId) => {
+      const owner =
+        ownerGroupBySessionId.get(sessionId) ??
+        groups.find((candidate) =>
+          candidate.sessions.some((session) => session.id === sessionId),
+        ) ??
+        groups[0];
+      if (!owner) return [];
+      return [
+        sitInPriorityHistory[sessionId]?.[level] ??
+          groupWithSitInForMissedSession(owner, sessionId),
+      ];
+    });
+  }
+
+  async function handleNotAvailable(
+    group: SubjectSessions,
+    sessionIds: string[],
+  ) {
+    const firstSessionId = sessionIds[0];
+    if (!firstSessionId) return;
+    const scopeGroups = scopeGroupsFor(group);
+    const serverReveal = scopeGroups.some(hasServerPriorityReveal);
     const currentLevel =
-      sitInPriorityLevels[sessionId] ||
+      sitInPriorityLevels[firstSessionId] ||
       group.sit_in?.current_priority_level ||
       firstPriorityLevel(group);
-    if (student && hasServerPriorityReveal(group)) {
-      setRevealingPrioritySessionIds((current) =>
-        new Set(current).add(sessionId),
+    if (student && serverReveal) {
+      setRevealingPrioritySessionIds(
+        (current) => new Set([...current, ...sessionIds]),
       );
-      setSitInSelections((prev) => {
-        const n = { ...prev };
-        delete n[sessionId];
-        return n;
+      clearSitInSelectionsForSessions(sessionIds);
+      const currentSnapshots = new Map<string, SubjectSessions>();
+      for (const sessionId of sessionIds) {
+        const owner =
+          ownerGroupBySessionId.get(sessionId) ??
+          scopeGroups.find((candidate) =>
+            candidate.sessions.some((session) => session.id === sessionId),
+          );
+        if (!owner) continue;
+        currentSnapshots.set(
+          sessionId,
+          sessionId === firstSessionId
+            ? group
+            : sitInPriorityHistory[sessionId]?.[currentLevel] ??
+              groupWithSitInForMissedSession(owner, sessionId),
+        );
+      }
+      setSitInPriorityHistory((prev) => {
+        const next = { ...prev };
+        for (const sessionId of sessionIds) {
+          const snapshot = currentSnapshots.get(sessionId);
+          if (!snapshot) continue;
+          next[sessionId] = {
+            ...(prev[sessionId] ?? {}),
+            [currentLevel]: snapshot,
+          };
+        }
+        return next;
       });
-      setSitInPriorityHistory((prev) => ({
-        ...prev,
-        [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group },
-      }));
       try {
         const data = await loadSessionsInRange(
           student.wcode,
@@ -791,38 +855,71 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           undefined,
           undefined,
           {
-            courseIds: [group.course_id],
+            courseIds: uniqueValues(
+              scopeGroups.map((candidate) => candidate.course_id),
+            ),
             satVerbalAfterPriority: currentLevel,
           },
         );
-        const updatedGroup = data.subjects.find(
-          (subject) => subject.course_id === group.course_id,
-        );
-        if (!updatedGroup) {
+        const updatedSnapshots = new Map<
+          string,
+          { group: SubjectSessions; level: number }
+        >();
+        for (const sessionId of sessionIds) {
+          const owner =
+            ownerGroupBySessionId.get(sessionId) ??
+            scopeGroups.find((candidate) =>
+              candidate.sessions.some((session) => session.id === sessionId),
+            );
+          if (!owner) continue;
+          const updatedGroup =
+            data.subjects.find(
+              (subject) =>
+                subject.course_id === owner.course_id ||
+                subject.subject_id === owner.subject_id,
+            ) ??
+            data.subjects.find(
+              (subject) => absenceScopeKey(subject) === absenceScopeKey(group),
+            );
+          if (!updatedGroup) continue;
+          const updatedSessionGroup = groupWithSitInForMissedSession(
+            updatedGroup,
+            sessionId,
+          );
+          updatedSnapshots.set(sessionId, {
+            group: updatedSessionGroup,
+            level:
+              updatedSessionGroup.sit_in?.current_priority_level ??
+              firstPriorityLevel(updatedSessionGroup),
+          });
+        }
+        if (updatedSnapshots.size !== sessionIds.length) {
           addToast(
             "error",
             "No more make-up times are available for this class.",
           );
           return;
         }
-        const updatedSessionGroup = groupWithSitInForMissedSession(
-          updatedGroup,
-          sessionId,
-        );
-        const updatedLevel =
-          updatedSessionGroup.sit_in?.current_priority_level ??
-          firstPriorityLevel(updatedSessionGroup);
-        setSitInPriorityLevels((prev) => ({
-          ...prev,
-          [sessionId]: updatedLevel,
-        }));
-        setSitInPriorityHistory((prev) => ({
-          ...prev,
-          [sessionId]: {
-            ...(prev[sessionId] ?? {}),
-            [updatedLevel]: updatedSessionGroup,
-          },
-        }));
+        setSitInPriorityLevels((prev) => {
+          const next = { ...prev };
+          for (const sessionId of sessionIds) {
+            const updated = updatedSnapshots.get(sessionId);
+            if (updated) next[sessionId] = updated.level;
+          }
+          return next;
+        });
+        setSitInPriorityHistory((prev) => {
+          const next = { ...prev };
+          for (const sessionId of sessionIds) {
+            const updated = updatedSnapshots.get(sessionId);
+            if (!updated) continue;
+            next[sessionId] = {
+              ...(prev[sessionId] ?? {}),
+              [updated.level]: updated.group,
+            };
+          }
+          return next;
+        });
       } catch (error) {
         addToast(
           "error",
@@ -832,30 +929,40 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         );
       } finally {
         setRevealingPrioritySessionIds((current) => {
-          const n = new Set(current);
-          n.delete(sessionId);
-          return n;
+          const next = new Set(current);
+          for (const sessionId of sessionIds) next.delete(sessionId);
+          return next;
         });
       }
       return;
     }
-    const nextLvl = nextPriorityLevel(group, currentLevel);
+    const nextLvl = scopeGroups
+      .map((candidate) => nextPriorityLevel(candidate, currentLevel))
+      .filter((level): level is number => level !== null)
+      .sort((a, b) => a - b)[0];
     if (nextLvl == null) return;
-    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: nextLvl }));
-    setSitInSelections((prev) => {
-      const n = { ...prev };
-      delete n[sessionId];
-      return n;
+    setSitInPriorityLevels((prev) => {
+      const next = { ...prev };
+      for (const sessionId of sessionIds) next[sessionId] = nextLvl;
+      return next;
     });
+    clearSitInSelectionsForSessions(sessionIds);
   }
 
-  function handlePreviousPriority(group: SubjectSessions, sessionId: string) {
+  function handlePreviousPriority(
+    group: SubjectSessions,
+    sessionIds: string[],
+  ) {
+    const firstSessionId = sessionIds[0];
+    if (!firstSessionId) return;
+    const scopeGroups = scopeGroupsFor(group);
+    const serverReveal = scopeGroups.some(hasServerPriorityReveal);
     const currentLevel =
-      sitInPriorityLevels[sessionId] ||
+      sitInPriorityLevels[firstSessionId] ||
       group.sit_in?.current_priority_level ||
       firstPriorityLevel(group);
-    if (hasServerPriorityReveal(group)) {
-      const history = sitInPriorityHistory[sessionId] ?? {};
+    if (serverReveal) {
+      const history = sitInPriorityHistory[firstSessionId] ?? {};
       const previousLevel = Object.keys(history)
         .map(Number)
         .filter((lvl) => lvl < currentLevel)
@@ -863,25 +970,35 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       const previousGroup =
         previousLevel !== undefined ? history[previousLevel] : undefined;
       if (!previousGroup) return;
-      setSitInPriorityLevels((prev) => ({
-        ...prev,
-        [sessionId]: previousLevel,
-      }));
-      setSitInSelections((prev) => {
-        const n = { ...prev };
-        delete n[sessionId];
-        return n;
+      setSitInPriorityLevels((prev) => {
+        const next = { ...prev };
+        for (const sessionId of sessionIds) next[sessionId] = previousLevel;
+        return next;
       });
+      setSitInPriorityHistory((prev) => {
+        const next = { ...prev };
+        for (const sessionId of sessionIds) {
+          next[sessionId] = {
+            ...(prev[sessionId] ?? {}),
+            [previousLevel]: prev[sessionId]?.[previousLevel] ?? previousGroup,
+          };
+        }
+        return next;
+      });
+      clearSitInSelectionsForSessions(sessionIds);
       return;
     }
-    const prevLvl = previousPriorityLevel(group, currentLevel);
+    const prevLvl = scopeGroups
+      .map((candidate) => previousPriorityLevel(candidate, currentLevel))
+      .filter((level): level is number => level !== null)
+      .sort((a, b) => b - a)[0];
     if (prevLvl == null) return;
-    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: prevLvl }));
-    setSitInSelections((prev) => {
-      const n = { ...prev };
-      delete n[sessionId];
-      return n;
+    setSitInPriorityLevels((prev) => {
+      const next = { ...prev };
+      for (const sessionId of sessionIds) next[sessionId] = prevLvl;
+      return next;
     });
+    clearSitInSelectionsForSessions(sessionIds);
   }
 
   function canAdvanceFromSubjects(): boolean {
@@ -1185,15 +1302,38 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
     const requests: StaffCreateAbsenceRequest[] = [];
     let sitInDayConflict = false;
 
+    const selectedScopeGroups = new Map<string, SubjectSessions[]>();
     for (const group of submissionSessions) {
       if (!selectedSubjectIds.includes(group.subject_id)) continue;
-      const selectedSessions = getSelectedSessionsForGroup(
-        group,
-        selectedSessionIds,
+      if (getSelectedSessionsForGroup(group, selectedSessionIds).length === 0)
+        continue;
+      const scopeKey = absenceScopeKey(group);
+      const groups = selectedScopeGroups.get(scopeKey) ?? [];
+      groups.push(group);
+      selectedScopeGroups.set(scopeKey, groups);
+    }
+
+    for (const scopeGroups of selectedScopeGroups.values()) {
+      const primaryGroup = scopeGroups[0];
+      if (!primaryGroup) continue;
+      const selectedSessionsById = new Map<
+        string,
+        SubjectSessions["sessions"][number]
+      >();
+      for (const group of scopeGroups) {
+        for (const session of getSelectedSessionsForGroup(
+          group,
+          selectedSessionIds,
+        )) {
+          selectedSessionsById.set(session.id, session);
+        }
+      }
+      const selectedSessions = [...selectedSessionsById.values()].sort((a, b) =>
+        a.start_at.localeCompare(b.start_at),
       );
       if (selectedSessions.length === 0) continue;
 
-      const missedIds = selectedSessions.map((s) => s.id);
+      const missedIds = selectedSessions.map((session) => session.id);
       const hasSpecialSitIn = missedIds.some(
         (id) => (sitInModes[id] ?? "suggested") === "special",
       );
@@ -1207,9 +1347,21 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           string,
           { missed: string[]; sessions: string[]; method: string | undefined }
         >();
+        const suggestedSitInCourseId =
+          selectedSitInCourseIDForScope(
+            scopeGroups,
+            missedIds,
+            sitInSelections,
+            sitInPriorityLevels,
+            sitInPriorityHistory,
+          ) ?? primaryGroup.course_id;
         for (const missedId of missedIds) {
           const isSpecial =
             (sitInModes[missedId] ?? "suggested") === "special";
+          const ownerGroup =
+            scopeGroups.find((candidate) =>
+              candidate.sessions.some((session) => session.id === missedId),
+            ) ?? primaryGroup;
           let courseId: string;
           let sessionIds: string[];
           let method: string | undefined;
@@ -1222,22 +1374,15 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                     sel.sessionValue,
                   )
                 : null;
-            courseId = option?.courseId ?? group.course_id;
+            courseId = option?.courseId ?? primaryGroup.course_id;
             sessionIds = sel?.sessionValue
               ? splitMergedSessionValue(sel.sessionValue)
               : [];
             method = courseId && sessionIds.length > 0 ? "physical" : undefined;
           } else {
             sessionIds = splitMergedSessionValue(sitInSelections[missedId]);
-            courseId =
-              selectedSitInCourseIDForGroup(
-                group,
-                [missedId],
-                sitInSelections,
-                sitInPriorityLevels,
-                sitInPriorityHistory,
-              ) ?? group.course_id;
-            const sitIn = sitInForMissedSession(group, missedId);
+            courseId = suggestedSitInCourseId;
+            const sitIn = sitInForMissedSession(ownerGroup, missedId);
             method =
               sitIn?.sit_in_method === "physical" ||
               sitIn?.sit_in_method === "zoom"
@@ -1264,8 +1409,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
           if (!dateFrom || !dateTo) continue;
           requests.push({
             wcode: student.wcode,
-            subject_id: group.subject_id,
-            course_id: group.course_id,
+            subject_id: primaryGroup.subject_id,
+            course_id: primaryGroup.course_id,
             date_from: dateFrom,
             date_to: dateTo,
             missed_session_ids: bucket.missed,
@@ -1278,7 +1423,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
               absenceType === "special" ? "special_approved" : undefined,
           });
         }
-        if (sitInDayConflict) break;
         continue;
       }
 
@@ -1291,10 +1435,14 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       const sitInSessionIds: string[] = [];
       let sitInMethod: string | undefined;
 
-      for (const session of missedIds) {
-        const selected = splitMergedSessionValue(sitInSelections[session]);
+      for (const missedId of missedIds) {
+        const selected = splitMergedSessionValue(sitInSelections[missedId]);
         for (const sid of selected) sitInSessionIds.push(sid);
-        const sitIn = sitInForMissedSession(group, session);
+        const ownerGroup =
+          scopeGroups.find((candidate) =>
+            candidate.sessions.some((session) => session.id === missedId),
+          ) ?? primaryGroup;
+        const sitIn = sitInForMissedSession(ownerGroup, missedId);
         if (
           sitIn?.sit_in_method === "physical" ||
           sitIn?.sit_in_method === "zoom"
@@ -1305,18 +1453,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
 
       const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
       const sitInCourseId =
-        selectedSitInCourseIDForGroup(
-          group,
+        selectedSitInCourseIDForScope(
+          scopeGroups,
           missedIds,
           sitInSelections,
           sitInPriorityLevels,
           sitInPriorityHistory,
-        ) ?? group.course_id;
+        ) ?? primaryGroup.course_id;
 
       requests.push({
         wcode: student.wcode,
-        subject_id: group.subject_id,
-        course_id: group.course_id,
+        subject_id: primaryGroup.subject_id,
+        course_id: primaryGroup.course_id,
         date_from: dateFrom,
         date_to: dateTo,
         missed_session_ids: missedIds,
@@ -1830,10 +1978,6 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                   sitIn,
                                   sessionIds,
                                 );
-                              const hasPriorities = Boolean(
-                                sitIn?.priorities &&
-                                sitIn.priorities.length > 0,
-                              );
                               const baseLevel =
                                 sitIn?.current_priority_level ||
                                 firstPriorityLevel(sessionGroup);
@@ -1844,12 +1988,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                 sitInPriorityHistory[firstSessionId]?.[
                                   currentLevel
                                 ] ?? sessionGroup;
-                              const currentPriorities = hasPriorities
-                                ? prioritiesForLevel(
-                                    priorityGroup,
-                                    currentLevel,
-                                  )
-                                : [];
+                              const currentPriorityGroups =
+                                priorityGroupsForSessions(
+                                  block.groups,
+                                  sessionIds,
+                                  currentLevel,
+                                );
+                              const currentPriorities =
+                                currentPriorityGroups.flatMap((currentGroup) =>
+                                  prioritiesForLevel(currentGroup, currentLevel),
+                                );
+                              const hasPriorities =
+                                currentPriorities.length > 0;
                               const currentSitIn =
                                 sitInSelections[firstSessionId] || "";
 
@@ -1896,32 +2046,48 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                         hasPriorities ? (
                                         (() => {
                                           const serverReveal =
-                                            hasServerPriorityReveal(
-                                              priorityGroup,
+                                            currentPriorityGroups.some(
+                                              hasServerPriorityReveal,
                                             );
                                           const nextLevelValue = serverReveal
-                                            ? Boolean(sitIn.has_next_priority)
-                                            : nextPriorityLevel(
-                                                priorityGroup,
-                                                currentLevel,
-                                              ) !== null;
+                                            ? currentPriorityGroups.some(
+                                                (currentGroup) =>
+                                                  Boolean(
+                                                    currentGroup.sit_in
+                                                      ?.has_next_priority,
+                                                  ),
+                                              )
+                                            : currentPriorityGroups.some(
+                                                (currentGroup) =>
+                                                  nextPriorityLevel(
+                                                    currentGroup,
+                                                    currentLevel,
+                                                  ) !== null,
+                                              );
                                           const hasPreviousPriority =
                                             serverReveal
-                                              ? Object.keys(
-                                                  sitInPriorityHistory[
-                                                    firstSessionId
-                                                  ] ?? {},
-                                                ).some(
-                                                  (l) =>
-                                                    Number(l) < currentLevel,
+                                              ? sessionIds.some((sessionId) =>
+                                                  Object.keys(
+                                                    sitInPriorityHistory[
+                                                      sessionId
+                                                    ] ?? {},
+                                                  ).some(
+                                                    (l) =>
+                                                      Number(l) < currentLevel,
+                                                  ),
                                                 )
-                                              : previousPriorityLevel(
-                                                  priorityGroup,
-                                                  currentLevel,
-                                                ) !== null;
+                                              : currentPriorityGroups.some(
+                                                  (currentGroup) =>
+                                                    previousPriorityLevel(
+                                                      currentGroup,
+                                                      currentLevel,
+                                                    ) !== null,
+                                                );
                                           const revealing =
-                                            revealingPrioritySessionIds.has(
-                                              firstSessionId,
+                                            sessionIds.some((sessionId) =>
+                                              revealingPrioritySessionIds.has(
+                                                sessionId,
+                                              ),
                                             );
                                           const available =
                                             currentPriorities.flatMap((p) =>
@@ -1932,9 +2098,9 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                             );
                                           const unavailable =
                                             currentPriorities.flatMap((p) =>
-                                              unavailableSessionsForMissedSession(
+                                              unavailableSessionsForMissedSessions(
                                                 p,
-                                                firstSessionId,
+                                                sessionIds,
                                               ),
                                             );
                                           const hasBlockedUnavailable = unavailable.some(
@@ -1971,7 +2137,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                       onClick={() =>
                                                         handlePreviousPriority(
                                                           priorityGroup,
-                                                          firstSessionId,
+                                                          sessionIds,
                                                         )
                                                       }
                                                       className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text-light)] hover:shadow-sm"
@@ -1987,7 +2153,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                       onClick={() =>
                                                         void handleNotAvailable(
                                                           priorityGroup,
-                                                          firstSessionId,
+                                                          sessionIds,
                                                         )
                                                       }
                                                       className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-[var(--color-wi-text-light)] transition hover:bg-white hover:text-[var(--color-wi-text-light)] hover:shadow-sm"

@@ -283,6 +283,67 @@ export function selectedSitInCourseIDForGroup(
   return null;
 }
 
+export function selectedSitInCourseIDForScope(
+  groups: SubjectSessions[],
+  selectedMissedSessionIds: string[],
+  sitInSelections: Record<string, string>,
+  priorityLevels?: Record<string, number>,
+  priorityHistory?: Record<string, Record<number, SubjectSessions>>,
+): string | null {
+  const primaryGroup = groups[0];
+  if (!primaryGroup) return null;
+
+  if (groups.length === 1) {
+    return selectedSitInCourseIDForGroup(
+      primaryGroup,
+      selectedMissedSessionIds,
+      sitInSelections,
+      priorityLevels,
+      priorityHistory,
+    );
+  }
+
+  for (const missedSessionID of selectedMissedSessionIds) {
+    const group =
+      groups.find((candidate) =>
+        candidate.sessions.some((session) => session.id === missedSessionID),
+      ) ?? primaryGroup;
+    let effectiveGroup = group;
+    const level = priorityLevels?.[missedSessionID];
+    if (level !== undefined) {
+      effectiveGroup = priorityHistory?.[missedSessionID]?.[level] ?? group;
+    }
+    const sitIn = sitInForMissedSession(effectiveGroup, missedSessionID);
+    if (sitIn?.sit_in_method !== "physical") continue;
+    const selectedSessionIDs = splitMergedSessionValue(
+      sitInSelections[missedSessionID],
+    );
+    const priorities = (sitIn.priorities ?? []).filter(
+      (priority) => level === undefined || priority.level === level,
+    );
+    for (const priority of priorities) {
+      if (
+        selectedSessionIDs.some((sessionID) =>
+          (priority.available_sessions ?? []).some(
+            (session) => session.id === sessionID,
+          ),
+        )
+      ) {
+        const courseID = priority.sit_in_course?.id?.trim();
+        if (courseID) return courseID;
+      }
+    }
+  }
+
+  return selectedSitInCourseIDForGroup(
+    primaryGroup,
+    selectedMissedSessionIds,
+    sitInSelections,
+    priorityLevels,
+    priorityHistory,
+  );
+}
+
 function collectAttendingSessions(
   sessions: SubjectSessions[],
   selectedSubjectIds: string[],

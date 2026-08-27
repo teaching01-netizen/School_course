@@ -9,7 +9,7 @@ vi.mock("../../../features/absences/domain/submissionPayload", async () => {
   const actual = await vi.importActual<
     typeof import("../../../features/absences/domain/submissionPayload")
   >("../../../features/absences/domain/submissionPayload");
-  return { ...actual, selectedSitInCourseIDForGroup: () => null };
+  return actual;
 });
 
 const mockApiJson = vi.hoisted(() => vi.fn());
@@ -33,6 +33,7 @@ function renderModal(props?: { onClose?: () => void; onCreated?: () => void }) {
 
 afterEach(() => {
   cleanup();
+  mockApiJson.mockReset();
 });
 
 async function advanceToSubjectsStep(user: ReturnType<typeof userEvent.setup>) {
@@ -94,6 +95,134 @@ const MOCK_SESSIONS = {
     },
   ],
 };
+
+const MOCK_STAFF_SAT_VERBAL_STUDENT = {
+  student_id: "s1",
+  wcode: "W001",
+  full_name: "Test Student",
+  subjects: [
+    {
+      id: "sub-reading",
+      code: "READING",
+      name: "SAT Verbal Reading : Rank 3 (Section 1) C3",
+      active_course_id: "course-reading",
+      teacher_name: "AJ. NICE",
+      merge_group_id: "staff-sat-verbal",
+      merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+    },
+    {
+      id: "sub-writing",
+      code: "WRITING",
+      name: "SAT Verbal Writing : Rank 3 (Section 1) C3",
+      active_course_id: "course-writing",
+      teacher_name: "AJ. RYU",
+      merge_group_id: "staff-sat-verbal",
+      merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+    },
+  ],
+};
+
+function staffSatVerbalSessionsForPriority(
+  level: number,
+  readingSitInId: string,
+  writingSitInId: string,
+  hasNextPriority: boolean,
+) {
+  const target = (subject: "reading" | "writing") => ({
+    id: `staff-target-${subject}-${level}`,
+    code: `SAT-${subject[0].toUpperCase()}${level}`,
+    name: `SAT Verbal ${subject} make-up ${level}`,
+    merge_group_id: "staff-sat-verbal-target",
+    merge_group_name: "SAT Verbal merged make-up",
+  });
+  const available = (
+    id: string,
+    missedSessionId: string,
+    subject: "reading" | "writing",
+  ) => ({
+    id,
+    start_at: subject === "reading"
+      ? "2026-06-23T09:00:00+07:00"
+      : "2026-06-23T11:00:00+07:00",
+    end_at: subject === "reading"
+      ? "2026-06-23T10:00:00+07:00"
+      : "2026-06-23T12:00:00+07:00",
+    course_id: `staff-target-${subject}-${level}`,
+    missed_session_id: missedSessionId,
+  });
+  return {
+    subjects: [
+      {
+        subject_id: "sub-reading",
+        subject_code: "READING",
+        subject_name: "SAT Verbal Reading",
+        course_id: "course-reading",
+        course_code: "SAT-R",
+        course_name: "SAT Verbal Reading Rank 3 Section 1",
+        merge_group_id: "staff-sat-verbal",
+        merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+        sessions: [
+          {
+            id: "missed-reading",
+            start_at: "2026-06-03T09:00:00+07:00",
+            end_at: "2026-06-03T10:00:00+07:00",
+            date: "2026-06-03",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical" as const,
+          current_priority_level: level,
+          has_next_priority: hasNextPriority,
+          priorities: [
+            {
+              level,
+              label: `Priority ${level}`,
+              sit_in_course: target("reading"),
+              available_sessions: [
+                available(readingSitInId, "missed-reading", "reading"),
+              ],
+            },
+          ],
+        },
+      },
+      {
+        subject_id: "sub-writing",
+        subject_code: "WRITING",
+        subject_name: "SAT Verbal Writing",
+        course_id: "course-writing",
+        course_code: "SAT-W",
+        course_name: "SAT Verbal Writing Rank 3 Section 1",
+        merge_group_id: "staff-sat-verbal",
+        merge_group_name: "SAT Verbal Rank 3 Section 1 C3",
+        sessions: [
+          {
+            id: "missed-writing",
+            start_at: "2026-06-03T15:00:00+07:00",
+            end_at: "2026-06-03T16:00:00+07:00",
+            date: "2026-06-03",
+            already_absent: false,
+          },
+        ],
+        sit_in: {
+          sit_in_method: "physical" as const,
+          current_priority_level: level,
+          has_next_priority: hasNextPriority,
+          priorities: [
+            {
+              level,
+              label: `Priority ${level}`,
+              sit_in_course: target("writing"),
+              available_sessions: [
+                available(writingSitInId, "missed-writing", "writing"),
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
 
 const MOCK_SPECIAL_SESSIONS = {
   subjects: [
@@ -698,6 +827,188 @@ describe("StaffCreateAbsenceModal", () => {
   });
 });
 
+describe("Staff SAT Verbal priority parity", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("keeps Reading and Writing merged through Priority 2 and 3 reveals and SMS", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    mockApiJson.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      const requestURL = String(url);
+      if (requestURL.includes("student-lookup")) {
+        return MOCK_STAFF_SAT_VERBAL_STUDENT;
+      }
+      if (requestURL === "/api/v1/subjects") {
+        return MOCK_STAFF_SAT_VERBAL_STUDENT.subjects;
+      }
+      if (requestURL.includes("absence-form-config")) return MOCK_FORM_CONFIG;
+      if (requestURL.includes("sat_verbal_after_priority=1")) {
+        return staffSatVerbalSessionsForPriority(
+          2,
+          "staff-p2-reading",
+          "staff-p2-writing",
+          true,
+        );
+      }
+      if (requestURL.includes("sat_verbal_after_priority=2")) {
+        return staffSatVerbalSessionsForPriority(
+          3,
+          "staff-p3-reading",
+          "staff-p3-writing",
+          false,
+        );
+      }
+      if (requestURL.includes("sessions-in-range")) {
+        return staffSatVerbalSessionsForPriority(
+          1,
+          "staff-p1-reading",
+          "staff-p1-writing",
+          true,
+        );
+      }
+      if (requestURL.includes("/api/v1/absences/staff-create")) {
+        return { ids: ["staff-absence-1"], items: [] };
+      }
+      if (requestURL.includes("batch-send-success-sms")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          dry_run?: boolean;
+        };
+        return body.dry_run
+          ? {
+              preview: {
+                phones: ["+66811111111"],
+                message: "Merged SAT Verbal absence notification",
+              },
+            }
+          : {
+              sent: true,
+              queued: true,
+              sms_queued: true,
+              sms_sent: false,
+              email_sent: true,
+              recipient_count: 1,
+            };
+      }
+      throw new Error(`Unexpected staff test request: ${requestURL}`);
+    });
+
+    renderModal({ onCreated });
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /SAT Verbal Rank 3 Section 1 C3/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    await user.click(await screen.findByRole("checkbox"));
+
+    const picker = await screen.findByRole("combobox", {
+      name: /make-up class/i,
+    });
+    expect(
+      Array.from((picker as HTMLSelectElement).options).some(
+        (option) => option.value === "staff-p1-reading|staff-p1-writing",
+      ),
+    ).toBe(true);
+
+    await user.click(
+      screen.getByRole("button", { name: /see other times/i }),
+    );
+    await waitFor(() => {
+      expect(
+        Array.from((picker as HTMLSelectElement).options).some(
+          (option) => option.value === "staff-p2-reading|staff-p2-writing",
+        ),
+      ).toBe(true);
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /see other times/i }),
+    );
+    await waitFor(() => {
+      expect(
+        Array.from((picker as HTMLSelectElement).options).some(
+          (option) => option.value === "staff-p3-reading|staff-p3-writing",
+        ),
+      ).toBe(true);
+    });
+    await user.selectOptions(
+      picker,
+      "staff-p3-reading|staff-p3-writing",
+    );
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => {
+      expect(screen.getByLabelText(/reason category/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const createCall = mockApiJson.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/v1/absences/staff-create",
+      );
+      expect(createCall).toBeTruthy();
+      const body = JSON.parse((createCall?.[1] as RequestInit).body as string) as {
+        items: Array<Record<string, unknown>>;
+      };
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0]).toMatchObject({
+        subject_id: "sub-reading",
+        course_id: "course-reading",
+        sit_in_course_id: "staff-target-reading-3",
+        missed_session_ids: ["missed-reading", "missed-writing"],
+        sit_in_session_ids: ["staff-p3-reading", "staff-p3-writing"],
+      });
+      expect(
+        new Set(body.items[0].sit_in_session_ids as string[]).size,
+      ).toBe(2);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Merged SAT Verbal absence notification"),
+      ).toBeInTheDocument();
+      const smsCalls = mockApiJson.mock.calls.filter(
+        (call: unknown[]) =>
+          call[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(smsCalls).toHaveLength(1);
+      const previewBody = JSON.parse(
+        (smsCalls[0][1] as RequestInit).body as string,
+      ) as { ids: string[]; dry_run?: boolean };
+      expect(previewBody).toEqual({
+        ids: ["staff-absence-1"],
+        dry_run: true,
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+    await waitFor(() => {
+      const smsCalls = mockApiJson.mock.calls.filter(
+        (call: unknown[]) =>
+          call[0] === "/api/v1/absences/batch-send-success-sms",
+      );
+      expect(smsCalls).toHaveLength(2);
+      const sendBody = JSON.parse(
+        (smsCalls[1][1] as RequestInit).body as string,
+      ) as { ids: string[]; dry_run?: boolean };
+      expect(sendBody).toEqual({ ids: ["staff-absence-1"] });
+      expect(onCreated).toHaveBeenCalled();
+    });
+  });
+});
+
 describe("accessibility and validation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -841,7 +1152,7 @@ describe("accessibility and validation", () => {
     });
   });
 
-  it("falls back to group.course_id when selectedSitInCourseIDForGroup returns null", async () => {
+  it("uses the resolved sit-in course for a standard absence", async () => {
     const user = userEvent.setup();
     mockApiJson
       .mockResolvedValueOnce(MOCK_STUDENT)
@@ -882,7 +1193,7 @@ describe("accessibility and validation", () => {
       );
       expect(calls.length).toBeGreaterThan(0);
       const body = JSON.parse((calls[0][1] as RequestInit).body as string);
-      expect(body.sit_in_course_id).toBe("c1");
+      expect(body.sit_in_course_id).toBe("sitcourse1");
     });
   });
 });

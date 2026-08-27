@@ -259,9 +259,18 @@ export function unavailableSessionsForMissedSession(
   priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
   missedSessionId: string,
 ) {
+  return unavailableSessionsForMissedSessions(priority, [missedSessionId]);
+}
+
+export function unavailableSessionsForMissedSessions(
+  priority: NonNullable<NonNullable<SubjectSessions["sit_in"]>["priorities"]>[number],
+  missedSessionIds: string[],
+) {
   const unavailable = priority.unavailable_sessions ?? [];
   if (!unavailable.some((session) => session.missed_session_id)) return unavailable;
-  return unavailable.filter((session) => session.missed_session_id === missedSessionId);
+  return unavailable.filter((session) =>
+    session.missed_session_id ? missedSessionIds.includes(session.missed_session_id) : false,
+  );
 }
 
 export function rootAvailableSessionsForMissedSession(
