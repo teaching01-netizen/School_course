@@ -1,691 +1,1551 @@
-# Schedule Conflicts Overview Page - Implementation Plan
+Yes. I would implement this as a **domain fix**, not as three separate patches to Cross Study, conflicts, and absence.
 
-## 1. Executive Summary
+The core design should be:
 
-This plan outlines the implementation of a comprehensive **Schedule Conflicts Overview** page that displays all conflicts for both students and teachers. The page will show subject names and date/time information for pairs or multiple pairs of conflicts, with filters matching the existing Courses overview page pattern.
+```text
+course_students
+= student belongs to the course
 
-### Key Requirements
-- Display ALL schedule conflicts (student overlaps, teacher overlaps, room overlaps)
-- Show subject name and date/time of conflicting sessions
-- Provide filters similar to the Courses overview page
-- Read-only view (no edit functionality in this phase)
-- Expandable rows to show conflict details
+effective student session
+= student is actually expected to attend this specific session
+```
+
+This preserves the intentional decision in migration `00061`: partial-week Cross Study students remain enrolled in both destination course rosters, while weekday scope controls actual attendance behavior.
+
+## Target business rule
+
+For every `(student, session)`:
+
+```text
+explicit excluded
+        ↓
+      FALSE
+
+explicit included
+        ↓
+       TRUE
+
+Cross Study assignment covers session course?
+        ↓ yes
+session weekday ∈ selected weekdays?
+        ↓
+    TRUE / FALSE
+
+otherwise
+        ↓
+normal enrolled course_student?
+        ↓
+       TRUE
+```
+
+I would name the concept:
+
+```text
+EffectiveStudentSession
+```
+
+and the canonical predicate:
+
+```text
+student_is_expected_at_session(student_id, session_id)
+```
+
+It should become the source of truth for conflict detection, busy ranges, absence eligibility, attendance, calendars, and later any notification/reporting logic.
 
 ---
 
-## 2. Change Chain Analysis
+# Implementation plan
 
-### 2.1 Entry Point
-- **User Intent**: View all schedule conflicts across the system
-- **Affected Actors**: Admin users (requires Admin role)
-- **Trigger**: Navigation to `/schedule-conflicts`
+### 1. Lock the invariant with failing acceptance tests first
 
-### 2.2 Current Behavior
-- `CrmConflicts.tsx` shows only CRM roster-related conflicts
-- `SlotFinder.tsx` shows conflicts per student/subject search
-- `CourseDetail.tsx` shows conflicts within a single course
-- No unified view of ALL system conflicts exists
+Before changing production behavior, extend the existing Cross Study fixture that already models exactly the useful scenario: destination A `{Tue}`, destination B `{Sat}`, with Tue/Wed and Sat/Sun sessions. Existing tests intentionally assert that the student remains a `course_students` member of both destination courses while only selected weekday sessions get Cross Study attendance rows.
 
-### 2.3 Target Behavior
-- New page at `/schedule-conflicts` showing all conflict types
-- Filterable by: conflict type, subject, teacher, student, date range
-- Expandable rows showing detailed conflict information
-- Summary statistics at the top
+Add acceptance cases covering:
 
-### 2.4 Source of Truth
-- **Backend**: `/api/v1/schedule-conflicts` (new endpoint)
-- **Frontend**: New `ScheduleConflicts.tsx` page
+```text
+Course A: Tue + Wed
+selected: Tue
 
-### 2.5 Dependency Graph
+Course B: Sat + Sun
+selected: Sat
 
+Expected:
+course_students
+  A = enrolled
+  B = enrolled
+
+Effective sessions
+  Tue = YES
+  Wed = NO
+  Sat = YES
+  Sun = NO
+
+Busy ranges
+  Tue = exists
+  Wed = absent
+  Sat = exists
+  Sun = absent
+
+Conflicts
+  overlap Tuesday = conflict
+  overlap Wednesday = no conflict
+
+Absence
+  Tuesday = selectable
+  Wednesday = impossible
+  Saturday = selectable
+  Sunday = impossible
 ```
-INTENT: Display all schedule conflicts
+
+**Code locations**
+
+| File                                                                          | Work                                                                   |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `backend/internal/crmimport/crossstudy_test.go`                               | Extend existing Tue/Wed/Sat/Sun fixture                                |
+| `backend/internal/scheduling/schedule_invariants_integration_test.go`         | Add effective-session scheduling invariant                             |
+| `backend/internal/scheduling/course_overlap_add_student_integration_test.go`  | Verify partial Cross Study does not generate false enrollment conflict |
+| `backend/internal/httpapi/scheduleconflictshttp/*_test.go`                    | Assert only selected-day conflict reaches `/schedule-conflicts`        |
+| New `backend/internal/httpapi/absenceshttp/cross_study_weekday_scope_test.go` | End-to-end absence tests                                               |
+
+The scheduling package already has dedicated invariant, overlap, busy-range, and preflight integration suites, so these tests fit the existing structure rather than creating a separate testing architecture.
+
+---
+
+### 2. Add one canonical DB-level effective-session predicate
+
+The latest migration is currently `00119_schedule_conflicts_overview_indexes.sql`, so create:
+
+```text
+backend/db/migrations/
+00120_effective_student_session_scope.sql
+```
+
+Create the database-level domain predicate:
+
+```text
+student_is_expected_at_session(
+    student_id UUID,
+    session_id UUID
+) → BOOLEAN
+```
+
+Do **not** put this rule only in Go because `student_busy_ranges` is maintained by database triggers. A Go-only implementation would immediately create two competing definitions again.
+
+The predicate should resolve:
+
+```text
+student
+  ↓
+session → course
+  ↓
+explicit session override?
+  ↓
+applicable Cross Study assignment?
+  ↓
+destination A / merge-group A
+    → dest_course_a_weekdays
+
+or
+
+destination B / merge-group B
+    → dest_course_b_weekdays
+  ↓
+ISO weekday in Asia/Bangkok
+  ↓
+fallback normal course enrollment
+```
+
+The timezone must remain `Asia/Bangkok`, matching current Cross Study weekday resolution. The existing Cross Study implementation already calculates weekday via `EXTRACT(ISODOW FROM start_at AT TIME ZONE 'Asia/Bangkok')`.
+
+Merge groups must be supported. Cross Study already expands destination courses through `course_merge_group_members`; effective-session lookup has to reproduce that A-vs-B ownership rather than merely checking the raw destination IDs.
+
+**Important semantic decision:** do not restrict this to `assignment.status='active'`. `SaveAssignment` immediately applies roster effects while the assignment can still be `pending`, so effective-session semantics need to follow any current non-deleted assignment whose roster effects are live.
+
+---
+
+### 3. Fix busy-range materialization at the source
+
+This is the highest-priority downstream correction.
+
+Current `refresh_student_busy_ranges_for_course_student()` materializes all sessions for an enrolled course unless a session has an explicit `excluded` attendance row. That is why a Monday-only Cross Study student becomes busy on Tuesday too.
+
+In migration `00120`, replace the relevant condition with:
+
+```text
+only materialize when
+student_is_expected_at_session(student_id, session_id) = true
+```
+
+Do this for every trigger/function path that builds or refreshes `student_busy_ranges`, including:
+
+```text
+course student added
+session created
+session time changed
+session course changed
+session restored
+session attendance changed
+session cancellation/restoration
+```
+
+Do not edit old migrations `00008`, `00096`, or `00114`. Override their current function definitions in `00120`.
+
+**Affected historical locations**
+
+| Location                                                                             | Reason                                               |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `backend/db/migrations/00008_course_students_incremental_busy.sql`                   | Original incremental busy-range lifecycle            |
+| `backend/db/migrations/00096_session_cancel_refresh_busy_ranges.sql`                 | Session cancellation refresh                         |
+| `backend/db/migrations/00114_incremental_busy_ranges_preserve_conflict_override.sql` | Current/latest course-student refresh implementation |
+| **new `00120_effective_student_session_scope.sql`**                                  | Final authoritative definitions                      |
+
+This makes:
+
+```text
+effective student session
+          ↓
+student_busy_ranges
+          ↓
+preflight
+/schedule-conflicts
+```
+
+instead of:
+
+```text
+course_students
+      ↓
+every session
+      ↓
+student_busy_ranges
+```
+
+---
+
+### 4. Rebuild existing incorrect busy ranges
+
+Changing the trigger only fixes future writes. Existing bad rows must be corrected.
+
+Inside the migration or a controlled migration step:
+
+```text
+find students with non-deleted partial Cross Study assignments
+        ↓
+lock affected students/courses consistently
+        ↓
+delete/rebuild their student_busy_ranges
+        ↓
+use new effective-session predicate
+```
+
+Preserve relevant `conflict_override` semantics when rebuilding; migration `00114` specifically exists to preserve those flags.
+
+After the migration, this invariant must hold:
+
+```text
+student_busy_ranges row exists
+⇔
+student_is_expected_at_session(student_id, session_id)
+```
+
+for normal enrolled attendance-derived ranges.
+
+---
+
+### 5. Make scheduling preflight consume the same truth
+
+`AddCourseStudentWithWarningsTx` currently runs a course-level preflight before adding the roster member.
+
+That creates the false warning path:
+
+```text
+Cross Study saved
     ↓
-ENTRY POINT: /schedule-conflicts route
+student joins full Course A
     ↓
-CONTROL FLOW: ScheduleConflicts.tsx page component
+preflight Course A
     ↓
-DOMAIN LOGIC: Filter state, pagination, conflict grouping
+checks Mon + Tue
     ↓
-STATE: useSearchParams for URL-based filtering
+false Tuesday conflict
+```
+
+The important files are:
+
+| File                                            | Change                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `backend/internal/scheduling/student_roster.go` | Keep full roster membership, but make course-add preflight scope-aware                      |
+| `backend/internal/scheduling/preflight.go`      | Ensure student/course overlap queries operate on effective busy ranges / effective sessions |
+| `backend/internal/scheduling/service.go`        | Audit shared overlap helpers for direct roster fallback                                     |
+| `backend/internal/scheduling/session_roster.go` | Verify session roster semantics use effective membership                                    |
+
+`preflight.go` already obtains student conflicts through `student_busy_ranges`, so fixing busy-range materialization handles a large part automatically.
+
+However, specifically inspect any fallback that expands `course_students → all sessions`; those must use the effective predicate instead of assuming whole-course attendance.
+
+---
+
+### 6. Fix direct course conflict queries
+
+There is a second path independent from the `/schedule-conflicts` materialized view.
+
+Current:
+
+```text
+backend/internal/db/student_conflicts_custom.go
+```
+
+`StudentConflictsByCourse` starts from `course_students`, joins all sessions, and only checks for explicit `status='excluded'`.
+
+Change both sides of the comparison:
+
+```text
+current session:
+student_is_expected_at_session(student, current_session)
+
+other session:
+student_is_expected_at_session(student, other_session)
+```
+
+Do not duplicate Cross Study weekday SQL directly inside this query.
+
+Afterward:
+
+```text
+Cross Study Monday only
+
+Monday × another course
+→ conflict
+
+Tuesday × another course
+→ no result
+```
+
+---
+
+### 7. Let `/schedule-conflicts` remain a consumer of correct busy ranges
+
+The schedule-conflicts page itself already bases student overlaps on `student_busy_ranges`.
+
+Therefore I would **not add Cross Study-specific joins to**:
+
+```text
+backend/internal/httpapi/scheduleconflictshttp/queries.go
+```
+
+That would leak domain logic into a reporting endpoint.
+
+Instead:
+
+```text
+EffectiveStudentSession
+        ↓
+correct busy ranges
+        ↓
+existing schedule conflict SQL
+```
+
+Only add regression tests to `scheduleconflictshttp`.
+
+This keeps `/schedule-conflicts` generic.
+
+---
+
+### 8. Fix the absence-form session source
+
+This is the direct absence bug.
+
+Current:
+
+```text
+backend/internal/httpapi/absenceshttp/routes.go
+```
+
+` sessionsInRangeSelectSQL()` currently does:
+
+```text
+student
+→ course_students
+→ course
+→ all sessions
+```
+
+with active-course and visibility checks, but no Cross Study session-scope check.
+
+Change the student query to require:
+
+```text
+student_is_expected_at_session(st.id, sess.id)
+```
+
+Keep all existing gates:
+
+```text
+course_students.status = enrolled
+AND effective session
+AND absence_form_visible
+AND active course
+AND date range
+AND session not deleted
+```
+
+Apply the same effective-session condition to `sessionsInRangeStaffSelectSQL()` when the query is answering:
+
+> Which classes was this student supposed to attend?
+
+Staff authorization should broaden visibility/access, **not fabricate attendance obligations**.
+
+So staff can see hidden/inactive administrative information where appropriate, but a Monday-only Cross Study student still should not be considered expected on Tuesday.
+
+---
+
+### 9. Add a hard server-side absence submission invariant
+
+Filtering the UI/API listing is insufficient.
+
+A caller could still manually submit:
+
+```text
+missed_session_ids = [TuesdaySession]
+```
+
+Therefore absence creation must validate:
+
+```text
+for every missed_session_id:
+    student_is_expected_at_session(student_id, session_id)
+    MUST be true
+```
+
+If false, reject the transaction with a domain error such as:
+
+```text
+session_not_expected
+```
+
+Do this in both:
+
+```text
+POST /api/v1/absences
+POST /api/v1/absences/batch
+```
+
+The invariant should be:
+
+> A non-staff-special absence cannot be created for a session the student was not expected to attend.
+
+`routes.go` currently owns both absence routes and the student sessions lookup, making it the immediate integration point.
+
+Longer-term, I would extract that validation from the HTTP handler into the absence application/domain service so staff APIs, batch APIs, imports, and future callers cannot bypass it.
+
+---
+
+### 10. Correct absence-day denominator/business limits
+
+This part is easy to miss.
+
+The current limit math uses:
+
+```text
+maximum absence days ≈ round(total course days / 5)
+```
+
+Therefore `total_course_days` must mean:
+
+```text
+number of course days this student was expected to attend
+```
+
+not:
+
+```text
+number of days the course itself runs
+```
+
+Audit/change:
+
+```text
+backend/internal/db/absence_custom.go
+```
+
+particularly:
+
+```text
+AbsenceDayCountsForCourse
+AbsenceDayCountsForMergeGroup
+candidate/projected absence-day calculations
+```
+
+Current routes call these counters when constructing the absence-form response.
+
+For:
+
+```text
+Course:
+Mon + Tue for 10 weeks = 20 course dates
+
+Student:
+Cross Study Monday only = 10 expected dates
+```
+
+the student's absence allowance denominator should be **10**, not 20.
+
+This is important business logic, not just UI correctness.
+
+---
+
+### 11. Keep Cross Study responsible for scope assignment, not downstream interpretation
+
+Keep these existing structures:
+
+```text
+backend/internal/crmimport/crossstudy/models.go
+backend/internal/httpapi/crmhttp/crossstudy.go
+```
+
+They already correctly capture and validate weekday selections.
+
+In:
+
+```text
+backend/internal/crmimport/crossstudy/store.go
+```
+
+retain:
+
+```text
+course_students enrollment
+course_roster_overrides
+dest_course_a_weekdays
+dest_course_b_weekdays
+cross-study session_attendance provenance
+```
+
+Do **not** change partial students back into non-roster students.
+
+I would rename/refactor conceptually:
+
+```text
+insertCrossStudySessionAttendanceWithWarnings
+```
+
+toward:
+
+```text
+reconcileCrossStudySessionScope
+```
+
+because the behavior is really maintaining the student's scoped sessions rather than ordinary attendance entry.
+
+Current save already deletes stale Cross Study attendance and rebuilds selected weekday rows, which is a good starting lifecycle.
+
+---
+
+### 12. Do not solve this by creating `excluded` rows for every unselected session
+
+That is tempting:
+
+```text
+Monday selected → included
+Tuesday unselected → excluded
+```
+
+It would fix several existing queries quickly, but I would **not use it as the source of truth**.
+
+Why:
+
+```text
+assignment created
     ↓
-CONTRACTS: ConflictOverviewItem type, API response type
+exclusions generated
+
+later
     ↓
-PERSISTENCE: Backend API endpoint (new)
+new session generated
+or session moves Wed → Tue
+or series regenerated
     ↓
-CONSUMERS: Table rows, expandable panels
+no exclusion exists
     ↓
-PRESENTATION: Filter bar, data table, empty states
+bug returns
+```
+
+The weekday rule belongs to the assignment and should be evaluated against the current session.
+
+`session_attendance` can remain useful for explicit/manual overrides and Cross Study provenance, but correctness should not require every future session to have been pre-materialized.
+
+---
+
+### 13. Define override precedence explicitly
+
+Make this a documented invariant in `00120` and tests:
+
+```text
+1. explicit excluded        → not expected
+2. explicit included        → expected
+3. Cross Study scope        → selected weekday only
+4. normal enrolled roster   → expected
+5. otherwise                → not expected
+```
+
+That gives sensible behavior for exceptional cases:
+
+```text
+Cross Study selects Monday
+Teacher explicitly excludes Monday
+→ false
+
+Cross Study does not select Tuesday
+Staff explicitly includes Tuesday as one-off
+→ true
+```
+
+Make sure ownership/source semantics are considered so Cross Study-generated rows do not accidentally override a manual staff decision.
+
+---
+
+### 14. Handle session edits and newly generated sessions automatically
+
+A Cross Study assignment may exist before a future occurrence is created.
+
+Therefore these lifecycle operations must remain correct without resaving the assignment:
+
+```text
+create new session
+edit session start date
+move session Monday → Tuesday
+move session Tuesday → Monday
+move session to another course
+series regenerate
+restore cancelled/deleted session
+```
+
+`backend/internal/scheduling/session_change.go` already records occurrence changes including old/new times and course IDs.
+
+The busy-range trigger/predicate solution makes the rule naturally reevaluate from current session data.
+
+Acceptance test:
+
+```text
+Student = Monday only
+
+session initially Tuesday
+→ not busy
+
+edit session → Monday
+→ busy range appears
+
+edit Monday → Tuesday
+→ busy range disappears
+```
+
+No Cross Study resave should be necessary.
+
+---
+
+### 15. Regression-test merge groups
+
+Cross Study destination expansion now includes merge-group sibling courses, so selected weekday scope must follow those expanded destinations as well. The repository added explicit merge-group destination support in migration `00118`.
+
+Test:
+
+```text
+Destination A
+├─ Course A1
+└─ Course A2
+selected weekday = Tue
+
+A1 Tue → expected
+A2 Tue → expected
+A1 Wed → not expected
+A2 Wed → not expected
+```
+
+Do the same for destination B.
+
+This is why the effective predicate cannot simply compare:
+
+```text
+session.course_id = dest_course_a_id
+```
+
+It must understand the group membership.
+
+---
+
+### 16. Add production-data verification before enforcement
+
+Before deploying the new hard absence validation, run an audit query to find historical inconsistencies:
+
+```text
+non-cancelled absence
+        ↓
+missed session
+        ↓
+student_is_expected_at_session = false
+```
+
+Do **not** silently delete old absences.
+
+Produce counts grouped by:
+
+```text
+student
+course
+Cross Study assignment
+absence
+session date
+```
+
+Then decide whether those are historical mistakes or valid staff overrides.
+
+Also audit:
+
+```text
+partial Cross Study assignment
+×
+student_busy_ranges on non-selected weekdays
+```
+
+Expected after migration:
+
+```text
+count = 0
+```
+
+---
+
+## Code-location map
+
+| Priority | Location                                                                             | Responsibility                     | Change                                                                                           |
+| -------- | ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| P0       | **new** `backend/db/migrations/00120_effective_student_session_scope.sql`            | Canonical domain rule              | Add effective-session predicate; replace busy-range refresh definitions; rebuild affected ranges |
+| P0       | `backend/db/migrations/00114_incremental_busy_ranges_preserve_conflict_override.sql` | Current busy-range behavior        | Reference only; supersede via 00120                                                              |
+| P0       | `backend/internal/scheduling/student_roster.go`                                      | Course enrollment/preflight        | Make roster add respect effective session scope                                                  |
+| P0       | `backend/internal/scheduling/preflight.go`                                           | Conflict preflight                 | Audit all student overlap paths against canonical effective sessions                             |
+| P0       | `backend/internal/db/student_conflicts_custom.go`                                    | Direct course conflict query       | Filter both sessions through effective-session predicate                                         |
+| P0       | `backend/internal/httpapi/absenceshttp/routes.go`                                    | Absence session listing/submission | Filter effective sessions + reject unowned/unexpected missed sessions                            |
+| P0       | `backend/internal/db/absence_custom.go`                                              | Absence denominator/counters       | Count effective student course days, not raw course days                                         |
+| P1       | `backend/internal/crmimport/crossstudy/store.go`                                     | Cross Study lifecycle              | Keep roster enrollment; refactor session-scope reconciliation                                    |
+| P1       | `backend/internal/crmimport/crossstudy/models.go`                                    | Cross Study model                  | Mostly unchanged; document weekday semantics                                                     |
+| P1       | `backend/internal/httpapi/crmhttp/crossstudy.go`                                     | API validation                     | Mostly unchanged                                                                                 |
+| P1       | `backend/internal/httpapi/scheduleconflictshttp/queries.go`                          | Conflict overview                  | Ideally no business-rule change; consume corrected busy ranges                                   |
+| P1       | `backend/internal/scheduling/session_change.go`                                      | Session lifecycle                  | Verify busy-range refresh correctly follows date/course changes                                  |
+| P1       | `backend/internal/scheduling/session_roster.go`                                      | Session-specific roster            | Audit against new invariant                                                                      |
+| Test     | `backend/internal/crmimport/crossstudy_test.go`                                      | Cross Study contract               | Extend existing partial-week fixture                                                             |
+| Test     | `backend/internal/scheduling/schedule_invariants_integration_test.go`                | Scheduling invariant               | Expected-session ↔ busy-range tests                                                              |
+| Test     | `backend/internal/scheduling/course_overlap_add_student_integration_test.go`         | Enrollment conflict                | No false conflict on unselected weekday                                                          |
+| Test     | **new** `backend/internal/httpapi/absenceshttp/cross_study_weekday_scope_test.go`    | Absence ATDD                       | Listing, submit guard, limits, merge groups                                                      |
+
+## Desired end-to-end chain
+
+```text
+Admin saves Cross Study
+        ↓
+dest A = Course A
+dest A weekdays = Mon
+dest B = Course B
+dest B weekdays = Thu
+        ↓
+course_students
+A = enrolled
+B = enrolled
+        ↓
+EffectiveStudentSession
+A Mon = yes
+A Tue = no
+B Thu = yes
+B Fri = no
+        ↓
+┌─────────────────────────────┐
+│ student_busy_ranges         │
+│ scheduling preflight        │
+│ schedule conflicts          │
+│ absence form                │
+│ absence submission          │
+│ absence day allowance       │
+│ attendance                  │
+│ makeup / sit-in             │
+│ student calendar            │
+└─────────────────────────────┘
+        ↓
+all consume the SAME truth
+```
+
+The key rule for implementation is: **do not teach each feature what “Cross Study” means. Teach the scheduling domain what “student is expected at this session” means.** Cross Study then becomes only one producer of student-session scope, while conflict, absence, attendance, and future features remain provider-neutral.
+
+Yes. I would implement this as a **domain fix**, not as three separate patches to Cross Study, conflicts, and absence.
+
+The core design should be:
+
+```text
+course_students
+= student belongs to the course
+
+effective student session
+= student is actually expected to attend this specific session
+```
+
+This preserves the intentional decision in migration `00061`: partial-week Cross Study students remain enrolled in both destination course rosters, while weekday scope controls actual attendance behavior.
+
+## Target business rule
+
+For every `(student, session)`:
+
+```text
+explicit excluded
+        ↓
+      FALSE
+
+explicit included
+        ↓
+       TRUE
+
+Cross Study assignment covers session course?
+        ↓ yes
+session weekday ∈ selected weekdays?
+        ↓
+    TRUE / FALSE
+
+otherwise
+        ↓
+normal enrolled course_student?
+        ↓
+       TRUE
+```
+
+I would name the concept:
+
+```text
+EffectiveStudentSession
+```
+
+and the canonical predicate:
+
+```text
+student_is_expected_at_session(student_id, session_id)
+```
+
+It should become the source of truth for conflict detection, busy ranges, absence eligibility, attendance, calendars, and later any notification/reporting logic.
+
+---
+
+# Implementation plan
+
+### 1. Lock the invariant with failing acceptance tests first
+
+Before changing production behavior, extend the existing Cross Study fixture that already models exactly the useful scenario: destination A `{Tue}`, destination B `{Sat}`, with Tue/Wed and Sat/Sun sessions. Existing tests intentionally assert that the student remains a `course_students` member of both destination courses while only selected weekday sessions get Cross Study attendance rows.
+
+Add acceptance cases covering:
+
+```text
+Course A: Tue + Wed
+selected: Tue
+
+Course B: Sat + Sun
+selected: Sat
+
+Expected:
+course_students
+  A = enrolled
+  B = enrolled
+
+Effective sessions
+  Tue = YES
+  Wed = NO
+  Sat = YES
+  Sun = NO
+
+Busy ranges
+  Tue = exists
+  Wed = absent
+  Sat = exists
+  Sun = absent
+
+Conflicts
+  overlap Tuesday = conflict
+  overlap Wednesday = no conflict
+
+Absence
+  Tuesday = selectable
+  Wednesday = impossible
+  Saturday = selectable
+  Sunday = impossible
+```
+
+**Code locations**
+
+| File                                                                          | Work                                                                   |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `backend/internal/crmimport/crossstudy_test.go`                               | Extend existing Tue/Wed/Sat/Sun fixture                                |
+| `backend/internal/scheduling/schedule_invariants_integration_test.go`         | Add effective-session scheduling invariant                             |
+| `backend/internal/scheduling/course_overlap_add_student_integration_test.go`  | Verify partial Cross Study does not generate false enrollment conflict |
+| `backend/internal/httpapi/scheduleconflictshttp/*_test.go`                    | Assert only selected-day conflict reaches `/schedule-conflicts`        |
+| New `backend/internal/httpapi/absenceshttp/cross_study_weekday_scope_test.go` | End-to-end absence tests                                               |
+
+The scheduling package already has dedicated invariant, overlap, busy-range, and preflight integration suites, so these tests fit the existing structure rather than creating a separate testing architecture.
+
+---
+
+### 2. Add one canonical DB-level effective-session predicate
+
+The latest migration is currently `00119_schedule_conflicts_overview_indexes.sql`, so create:
+
+```text
+backend/db/migrations/
+00120_effective_student_session_scope.sql
+```
+
+Create the database-level domain predicate:
+
+```text
+student_is_expected_at_session(
+    student_id UUID,
+    session_id UUID
+) → BOOLEAN
+```
+
+Do **not** put this rule only in Go because `student_busy_ranges` is maintained by database triggers. A Go-only implementation would immediately create two competing definitions again.
+
+The predicate should resolve:
+
+```text
+student
+  ↓
+session → course
+  ↓
+explicit session override?
+  ↓
+applicable Cross Study assignment?
+  ↓
+destination A / merge-group A
+    → dest_course_a_weekdays
+
+or
+
+destination B / merge-group B
+    → dest_course_b_weekdays
+  ↓
+ISO weekday in Asia/Bangkok
+  ↓
+fallback normal course enrollment
+```
+
+The timezone must remain `Asia/Bangkok`, matching current Cross Study weekday resolution. The existing Cross Study implementation already calculates weekday via `EXTRACT(ISODOW FROM start_at AT TIME ZONE 'Asia/Bangkok')`.
+
+Merge groups must be supported. Cross Study already expands destination courses through `course_merge_group_members`; effective-session lookup has to reproduce that A-vs-B ownership rather than merely checking the raw destination IDs.
+
+**Important semantic decision:** do not restrict this to `assignment.status='active'`. `SaveAssignment` immediately applies roster effects while the assignment can still be `pending`, so effective-session semantics need to follow any current non-deleted assignment whose roster effects are live.
+
+---
+
+### 3. Fix busy-range materialization at the source
+
+This is the highest-priority downstream correction.
+
+Current `refresh_student_busy_ranges_for_course_student()` materializes all sessions for an enrolled course unless a session has an explicit `excluded` attendance row. That is why a Monday-only Cross Study student becomes busy on Tuesday too.
+
+In migration `00120`, replace the relevant condition with:
+
+```text
+only materialize when
+student_is_expected_at_session(student_id, session_id) = true
+```
+
+Do this for every trigger/function path that builds or refreshes `student_busy_ranges`, including:
+
+```text
+course student added
+session created
+session time changed
+session course changed
+session restored
+session attendance changed
+session cancellation/restoration
+```
+
+Do not edit old migrations `00008`, `00096`, or `00114`. Override their current function definitions in `00120`.
+
+**Affected historical locations**
+
+| Location                                                                             | Reason                                               |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `backend/db/migrations/00008_course_students_incremental_busy.sql`                   | Original incremental busy-range lifecycle            |
+| `backend/db/migrations/00096_session_cancel_refresh_busy_ranges.sql`                 | Session cancellation refresh                         |
+| `backend/db/migrations/00114_incremental_busy_ranges_preserve_conflict_override.sql` | Current/latest course-student refresh implementation |
+| **new `00120_effective_student_session_scope.sql`**                                  | Final authoritative definitions                      |
+
+This makes:
+
+```text
+effective student session
+          ↓
+student_busy_ranges
+          ↓
+preflight
+/schedule-conflicts
+```
+
+instead of:
+
+```text
+course_students
+      ↓
+every session
+      ↓
+student_busy_ranges
+```
+
+---
+
+### 4. Rebuild existing incorrect busy ranges
+
+Changing the trigger only fixes future writes. Existing bad rows must be corrected.
+
+Inside the migration or a controlled migration step:
+
+```text
+find students with non-deleted partial Cross Study assignments
+        ↓
+lock affected students/courses consistently
+        ↓
+delete/rebuild their student_busy_ranges
+        ↓
+use new effective-session predicate
+```
+
+Preserve relevant `conflict_override` semantics when rebuilding; migration `00114` specifically exists to preserve those flags.
+
+After the migration, this invariant must hold:
+
+```text
+student_busy_ranges row exists
+⇔
+student_is_expected_at_session(student_id, session_id)
+```
+
+for normal enrolled attendance-derived ranges.
+
+---
+
+### 5. Make scheduling preflight consume the same truth
+
+`AddCourseStudentWithWarningsTx` currently runs a course-level preflight before adding the roster member.
+
+That creates the false warning path:
+
+```text
+Cross Study saved
     ↓
-TESTS: Component tests, API tests
+student joins full Course A
+    ↓
+preflight Course A
+    ↓
+checks Mon + Tue
+    ↓
+false Tuesday conflict
+```
+
+The important files are:
+
+| File                                            | Change                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `backend/internal/scheduling/student_roster.go` | Keep full roster membership, but make course-add preflight scope-aware                      |
+| `backend/internal/scheduling/preflight.go`      | Ensure student/course overlap queries operate on effective busy ranges / effective sessions |
+| `backend/internal/scheduling/service.go`        | Audit shared overlap helpers for direct roster fallback                                     |
+| `backend/internal/scheduling/session_roster.go` | Verify session roster semantics use effective membership                                    |
+
+`preflight.go` already obtains student conflicts through `student_busy_ranges`, so fixing busy-range materialization handles a large part automatically.
+
+However, specifically inspect any fallback that expands `course_students → all sessions`; those must use the effective predicate instead of assuming whole-course attendance.
+
+---
+
+### 6. Fix direct course conflict queries
+
+There is a second path independent from the `/schedule-conflicts` materialized view.
+
+Current:
+
+```text
+backend/internal/db/student_conflicts_custom.go
+```
+
+`StudentConflictsByCourse` starts from `course_students`, joins all sessions, and only checks for explicit `status='excluded'`.
+
+Change both sides of the comparison:
+
+```text
+current session:
+student_is_expected_at_session(student, current_session)
+
+other session:
+student_is_expected_at_session(student, other_session)
+```
+
+Do not duplicate Cross Study weekday SQL directly inside this query.
+
+Afterward:
+
+```text
+Cross Study Monday only
+
+Monday × another course
+→ conflict
+
+Tuesday × another course
+→ no result
 ```
 
 ---
 
-## 3. Backend Implementation Plan
+### 7. Let `/schedule-conflicts` remain a consumer of correct busy ranges
 
-### 3.1 New API Endpoint
+The schedule-conflicts page itself already bases student overlaps on `student_busy_ranges`.
 
-**Endpoint**: `GET /api/v1/schedule-conflicts`
+Therefore I would **not add Cross Study-specific joins to**:
 
-**Query Parameters**:
-```typescript
-{
-  // Pagination
-  limit?: number;      // default 50, max 200
-  offset?: number;     // default 0
-  
-  // Filters
-  conflict_type?: 'room_overlap' | 'teacher_overlap' | 'student_overlap' | 'all';
-  subject_id?: string;
-  teacher_id?: string;
-  student_id?: string;
-  date_from?: string;  // ISO date
-  date_to?: string;    // ISO date
-  q?: string;          // Search by name/code
-}
+```text
+backend/internal/httpapi/scheduleconflictshttp/queries.go
 ```
 
-**Response Type**:
-```typescript
-type ConflictOverviewResponse = {
-  items: ConflictOverviewItem[];
-  total_count: number;
-  offset: number;
-  limit: number;
-  summary: {
-    total_conflicts: number;
-    room_overlaps: number;
-    teacher_overlaps: number;
-    student_overlaps: number;
-  };
-};
+That would leak domain logic into a reporting endpoint.
 
-type ConflictOverviewItem = {
-  id: string;
-  conflict_type: 'room_overlap' | 'teacher_overlap' | 'student_overlap';
-  
-  // Primary session (the one being scheduled)
-  primary_session: {
-    session_id: string;
-    course_id: string;
-    course_code: string;
-    course_name: string;
-    subject_id: string;
-    subject_name: string;
-    teacher_id: string;
-    teacher_name: string;
-    room_id: string | null;
-    room_name: string | null;
-    start_at: string;
-    end_at: string;
-  };
-  
-  // Conflicting session(s)
-  conflicting_sessions: Array<{
-    session_id: string;
-    course_id: string;
-    course_code: string;
-    course_name: string;
-    subject_name: string;
-    teacher_name: string;
-    room_name: string | null;
-    start_at: string;
-    end_at: string;
-  }>;
-  
-  // For student overlaps: list of affected students
-  affected_students?: Array<{
-    student_id: string;
-    wcode: string;
-    full_name: string;
-  }>;
-  
-  // Shared resource (room or teacher depending on conflict type)
-  shared_resource: {
-    type: 'room' | 'teacher';
-    id: string;
-    name: string;
-  };
-  
-  detected_at: string;
-};
+Instead:
+
+```text
+EffectiveStudentSession
+        ↓
+correct busy ranges
+        ↓
+existing schedule conflict SQL
 ```
 
-### 3.2 Backend Implementation Steps
+Only add regression tests to `scheduleconflictshttp`.
 
-1. **Create new route handler** in `src/api/routes/scheduleConflicts.ts`
-2. **Implement query builder** that joins sessions, courses, subjects, teachers, rooms
-3. **Add conflict detection logic** to identify overlapping sessions
-4. **Implement filtering** with proper SQL WHERE clauses
-5. **Add pagination** with LIMIT/OFFSET
-6. **Add summary aggregation** query
-7. **Register route** in main API router
-8. **Add authentication check** (Admin only)
-9. **Add unit tests** for the endpoint
+This keeps `/schedule-conflicts` generic.
 
-### 3.3 Database Queries Required
+---
 
-**Main query** (simplified):
-```sql
-SELECT 
-  s1.id as session_id,
-  s1.course_id,
-  c.code as course_code,
-  c.name as course_name,
-  sub.id as subject_id,
-  sub.name as subject_name,
-  u.id as teacher_id,
-  u.full_name as teacher_name,
-  r.id as room_id,
-  r.name as room_name,
-  s1.start_at,
-  s1.end_at,
-  -- Conflicting session details
-  s2.id as conflict_session_id,
-  s2.course_id as conflict_course_id,
-  -- ... etc
-FROM sessions s1
-JOIN courses c ON s1.course_id = c.id
-JOIN subjects sub ON c.subject_id = sub.id
-JOIN users u ON s1.teacher_id = u.id
-LEFT JOIN rooms r ON s1.room_id = r.id
--- Find conflicts
-JOIN sessions s2 ON (
-  (s1.room_id = s2.room_id AND s1.room_id IS NOT NULL) OR
-  (s1.teacher_id = s2.teacher_id)
-) AND s1.id != s2.id
-AND s1.start_at < s2.end_at
-AND s1.end_at > s2.start_at
--- Apply filters
-WHERE [filters]
-ORDER BY s1.start_at DESC
-LIMIT ? OFFSET ?
+### 8. Fix the absence-form session source
+
+This is the direct absence bug.
+
+Current:
+
+```text
+backend/internal/httpapi/absenceshttp/routes.go
+```
+
+` sessionsInRangeSelectSQL()` currently does:
+
+```text
+student
+→ course_students
+→ course
+→ all sessions
+```
+
+with active-course and visibility checks, but no Cross Study session-scope check.
+
+Change the student query to require:
+
+```text
+student_is_expected_at_session(st.id, sess.id)
+```
+
+Keep all existing gates:
+
+```text
+course_students.status = enrolled
+AND effective session
+AND absence_form_visible
+AND active course
+AND date range
+AND session not deleted
+```
+
+Apply the same effective-session condition to `sessionsInRangeStaffSelectSQL()` when the query is answering:
+
+> Which classes was this student supposed to attend?
+
+Staff authorization should broaden visibility/access, **not fabricate attendance obligations**.
+
+So staff can see hidden/inactive administrative information where appropriate, but a Monday-only Cross Study student still should not be considered expected on Tuesday.
+
+---
+
+### 9. Add a hard server-side absence submission invariant
+
+Filtering the UI/API listing is insufficient.
+
+A caller could still manually submit:
+
+```text
+missed_session_ids = [TuesdaySession]
+```
+
+Therefore absence creation must validate:
+
+```text
+for every missed_session_id:
+    student_is_expected_at_session(student_id, session_id)
+    MUST be true
+```
+
+If false, reject the transaction with a domain error such as:
+
+```text
+session_not_expected
+```
+
+Do this in both:
+
+```text
+POST /api/v1/absences
+POST /api/v1/absences/batch
+```
+
+The invariant should be:
+
+> A non-staff-special absence cannot be created for a session the student was not expected to attend.
+
+`routes.go` currently owns both absence routes and the student sessions lookup, making it the immediate integration point.
+
+Longer-term, I would extract that validation from the HTTP handler into the absence application/domain service so staff APIs, batch APIs, imports, and future callers cannot bypass it.
+
+---
+
+### 10. Correct absence-day denominator/business limits
+
+This part is easy to miss.
+
+The current limit math uses:
+
+```text
+maximum absence days ≈ round(total course days / 5)
+```
+
+Therefore `total_course_days` must mean:
+
+```text
+number of course days this student was expected to attend
+```
+
+not:
+
+```text
+number of days the course itself runs
+```
+
+Audit/change:
+
+```text
+backend/internal/db/absence_custom.go
+```
+
+particularly:
+
+```text
+AbsenceDayCountsForCourse
+AbsenceDayCountsForMergeGroup
+candidate/projected absence-day calculations
+```
+
+Current routes call these counters when constructing the absence-form response.
+
+For:
+
+```text
+Course:
+Mon + Tue for 10 weeks = 20 course dates
+
+Student:
+Cross Study Monday only = 10 expected dates
+```
+
+the student's absence allowance denominator should be **10**, not 20.
+
+This is important business logic, not just UI correctness.
+
+---
+
+### 11. Keep Cross Study responsible for scope assignment, not downstream interpretation
+
+Keep these existing structures:
+
+```text
+backend/internal/crmimport/crossstudy/models.go
+backend/internal/httpapi/crmhttp/crossstudy.go
+```
+
+They already correctly capture and validate weekday selections.
+
+In:
+
+```text
+backend/internal/crmimport/crossstudy/store.go
+```
+
+retain:
+
+```text
+course_students enrollment
+course_roster_overrides
+dest_course_a_weekdays
+dest_course_b_weekdays
+cross-study session_attendance provenance
+```
+
+Do **not** change partial students back into non-roster students.
+
+I would rename/refactor conceptually:
+
+```text
+insertCrossStudySessionAttendanceWithWarnings
+```
+
+toward:
+
+```text
+reconcileCrossStudySessionScope
+```
+
+because the behavior is really maintaining the student's scoped sessions rather than ordinary attendance entry.
+
+Current save already deletes stale Cross Study attendance and rebuilds selected weekday rows, which is a good starting lifecycle.
+
+---
+
+### 12. Do not solve this by creating `excluded` rows for every unselected session
+
+That is tempting:
+
+```text
+Monday selected → included
+Tuesday unselected → excluded
+```
+
+It would fix several existing queries quickly, but I would **not use it as the source of truth**.
+
+Why:
+
+```text
+assignment created
+    ↓
+exclusions generated
+
+later
+    ↓
+new session generated
+or session moves Wed → Tue
+or series regenerated
+    ↓
+no exclusion exists
+    ↓
+bug returns
+```
+
+The weekday rule belongs to the assignment and should be evaluated against the current session.
+
+`session_attendance` can remain useful for explicit/manual overrides and Cross Study provenance, but correctness should not require every future session to have been pre-materialized.
+
+---
+
+### 13. Define override precedence explicitly
+
+Make this a documented invariant in `00120` and tests:
+
+```text
+1. explicit excluded        → not expected
+2. explicit included        → expected
+3. Cross Study scope        → selected weekday only
+4. normal enrolled roster   → expected
+5. otherwise                → not expected
+```
+
+That gives sensible behavior for exceptional cases:
+
+```text
+Cross Study selects Monday
+Teacher explicitly excludes Monday
+→ false
+
+Cross Study does not select Tuesday
+Staff explicitly includes Tuesday as one-off
+→ true
+```
+
+Make sure ownership/source semantics are considered so Cross Study-generated rows do not accidentally override a manual staff decision.
+
+---
+
+### 14. Handle session edits and newly generated sessions automatically
+
+A Cross Study assignment may exist before a future occurrence is created.
+
+Therefore these lifecycle operations must remain correct without resaving the assignment:
+
+```text
+create new session
+edit session start date
+move session Monday → Tuesday
+move session Tuesday → Monday
+move session to another course
+series regenerate
+restore cancelled/deleted session
+```
+
+`backend/internal/scheduling/session_change.go` already records occurrence changes including old/new times and course IDs.
+
+The busy-range trigger/predicate solution makes the rule naturally reevaluate from current session data.
+
+Acceptance test:
+
+```text
+Student = Monday only
+
+session initially Tuesday
+→ not busy
+
+edit session → Monday
+→ busy range appears
+
+edit Monday → Tuesday
+→ busy range disappears
+```
+
+No Cross Study resave should be necessary.
+
+---
+
+### 15. Regression-test merge groups
+
+Cross Study destination expansion now includes merge-group sibling courses, so selected weekday scope must follow those expanded destinations as well. The repository added explicit merge-group destination support in migration `00118`.
+
+Test:
+
+```text
+Destination A
+├─ Course A1
+└─ Course A2
+selected weekday = Tue
+
+A1 Tue → expected
+A2 Tue → expected
+A1 Wed → not expected
+A2 Wed → not expected
+```
+
+Do the same for destination B.
+
+This is why the effective predicate cannot simply compare:
+
+```text
+session.course_id = dest_course_a_id
+```
+
+It must understand the group membership.
+
+---
+
+### 16. Add production-data verification before enforcement
+
+Before deploying the new hard absence validation, run an audit query to find historical inconsistencies:
+
+```text
+non-cancelled absence
+        ↓
+missed session
+        ↓
+student_is_expected_at_session = false
+```
+
+Do **not** silently delete old absences.
+
+Produce counts grouped by:
+
+```text
+student
+course
+Cross Study assignment
+absence
+session date
+```
+
+Then decide whether those are historical mistakes or valid staff overrides.
+
+Also audit:
+
+```text
+partial Cross Study assignment
+×
+student_busy_ranges on non-selected weekdays
+```
+
+Expected after migration:
+
+```text
+count = 0
 ```
 
 ---
 
-## 4. Frontend Implementation Plan
+## Code-location map
 
-### 4.1 New Files to Create
+| Priority | Location                                                                             | Responsibility                     | Change                                                                                           |
+| -------- | ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| P0       | **new** `backend/db/migrations/00120_effective_student_session_scope.sql`            | Canonical domain rule              | Add effective-session predicate; replace busy-range refresh definitions; rebuild affected ranges |
+| P0       | `backend/db/migrations/00114_incremental_busy_ranges_preserve_conflict_override.sql` | Current busy-range behavior        | Reference only; supersede via 00120                                                              |
+| P0       | `backend/internal/scheduling/student_roster.go`                                      | Course enrollment/preflight        | Make roster add respect effective session scope                                                  |
+| P0       | `backend/internal/scheduling/preflight.go`                                           | Conflict preflight                 | Audit all student overlap paths against canonical effective sessions                             |
+| P0       | `backend/internal/db/student_conflicts_custom.go`                                    | Direct course conflict query       | Filter both sessions through effective-session predicate                                         |
+| P0       | `backend/internal/httpapi/absenceshttp/routes.go`                                    | Absence session listing/submission | Filter effective sessions + reject unowned/unexpected missed sessions                            |
+| P0       | `backend/internal/db/absence_custom.go`                                              | Absence denominator/counters       | Count effective student course days, not raw course days                                         |
+| P1       | `backend/internal/crmimport/crossstudy/store.go`                                     | Cross Study lifecycle              | Keep roster enrollment; refactor session-scope reconciliation                                    |
+| P1       | `backend/internal/crmimport/crossstudy/models.go`                                    | Cross Study model                  | Mostly unchanged; document weekday semantics                                                     |
+| P1       | `backend/internal/httpapi/crmhttp/crossstudy.go`                                     | API validation                     | Mostly unchanged                                                                                 |
+| P1       | `backend/internal/httpapi/scheduleconflictshttp/queries.go`                          | Conflict overview                  | Ideally no business-rule change; consume corrected busy ranges                                   |
+| P1       | `backend/internal/scheduling/session_change.go`                                      | Session lifecycle                  | Verify busy-range refresh correctly follows date/course changes                                  |
+| P1       | `backend/internal/scheduling/session_roster.go`                                      | Session-specific roster            | Audit against new invariant                                                                      |
+| Test     | `backend/internal/crmimport/crossstudy_test.go`                                      | Cross Study contract               | Extend existing partial-week fixture                                                             |
+| Test     | `backend/internal/scheduling/schedule_invariants_integration_test.go`                | Scheduling invariant               | Expected-session ↔ busy-range tests                                                              |
+| Test     | `backend/internal/scheduling/course_overlap_add_student_integration_test.go`         | Enrollment conflict                | No false conflict on unselected weekday                                                          |
+| Test     | **new** `backend/internal/httpapi/absenceshttp/cross_study_weekday_scope_test.go`    | Absence ATDD                       | Listing, submit guard, limits, merge groups                                                      |
 
-1. **`src/pages/ScheduleConflicts.tsx`** - Main page component
-2. **`src/features/scheduling/types/conflictOverview.ts`** - TypeScript types
-3. **`src/features/scheduling/api/conflictOverviewApi.ts`** - API client functions
-4. **`src/components/schedule-conflicts/ConflictFilters.tsx`** - Filter bar component
-5. **`src/components/schedule-conflicts/ConflictTable.tsx`** - Data table component
-6. **`src/components/schedule-conflicts/ConflictRow.tsx`** - Expandable row component
-7. **`src/components/schedule-conflicts/ConflictSummary.tsx`** - Summary stats component
-8. **`src/components/schedule-conflicts/ConflictDetailPanel.tsx`** - Expanded detail view
-9. **`src/pages/__tests__/ScheduleConflicts.test.tsx`** - Component tests
+## Desired end-to-end chain
 
-### 4.2 Files to Modify
-
-1. **`src/App.tsx`** - Add route for `/schedule-conflicts`
-2. **`src/components/layout/navConfig.ts`** - Add navigation item
-3. **`src/components/layout/Sidebar.tsx`** - Add badge for conflict count (optional)
-
-### 4.3 Type Definitions
-
-```typescript
-// src/features/scheduling/types/conflictOverview.ts
-
-export type ConflictType = 'room_overlap' | 'teacher_overlap' | 'student_overlap';
-
-export type ConflictSession = {
-  session_id: string;
-  course_id: string;
-  course_code: string;
-  course_name: string;
-  subject_name: string;
-  teacher_name: string;
-  room_name: string | null;
-  start_at: string;
-  end_at: string;
-};
-
-export type ConflictOverviewItem = {
-  id: string;
-  conflict_type: ConflictType;
-  primary_session: ConflictSession;
-  conflicting_sessions: ConflictSession[];
-  affected_students?: Array<{
-    student_id: string;
-    wcode: string;
-    full_name: string;
-  }>;
-  shared_resource: {
-    type: 'room' | 'teacher';
-    id: string;
-    name: string;
-  };
-  detected_at: string;
-};
-
-export type ConflictOverviewFilters = {
-  conflict_type: ConflictType | 'all';
-  subject_id: string;
-  teacher_id: string;
-  student_id: string;
-  date_from: string;
-  date_to: string;
-  q: string;
-};
-
-export type ConflictOverviewSummary = {
-  total_conflicts: number;
-  room_overlaps: number;
-  teacher_overlaps: number;
-  student_overlaps: number;
-};
+```text
+Admin saves Cross Study
+        ↓
+dest A = Course A
+dest A weekdays = Mon
+dest B = Course B
+dest B weekdays = Thu
+        ↓
+course_students
+A = enrolled
+B = enrolled
+        ↓
+EffectiveStudentSession
+A Mon = yes
+A Tue = no
+B Thu = yes
+B Fri = no
+        ↓
+┌─────────────────────────────┐
+│ student_busy_ranges         │
+│ scheduling preflight        │
+│ schedule conflicts          │
+│ absence form                │
+│ absence submission          │
+│ absence day allowance       │
+│ attendance                  │
+│ makeup / sit-in             │
+│ student calendar            │
+└─────────────────────────────┘
+        ↓
+all consume the SAME truth
 ```
 
-### 4.4 API Client Functions
-
-```typescript
-// src/features/scheduling/api/conflictOverviewApi.ts
-
-import { apiJson } from '@/api/client';
-import type {
-  ConflictOverviewItem,
-  ConflictOverviewFilters,
-  ConflictOverviewSummary,
-} from '../types/conflictOverview';
-
-type ConflictOverviewResponse = {
-  items: ConflictOverviewItem[];
-  total_count: number;
-  offset: number;
-  limit: number;
-  summary: ConflictOverviewSummary;
-};
-
-export async function getScheduleConflicts(
-  filters: ConflictOverviewFilters,
-  offset: number = 0,
-  limit: number = 50
-): Promise<ConflictOverviewResponse> {
-  const params = new URLSearchParams();
-  params.set('limit', String(limit));
-  params.set('offset', String(offset));
-  
-  if (filters.conflict_type !== 'all') {
-    params.set('conflict_type', filters.conflict_type);
-  }
-  if (filters.subject_id) params.set('subject_id', filters.subject_id);
-  if (filters.teacher_id) params.set('teacher_id', filters.teacher_id);
-  if (filters.student_id) params.set('student_id', filters.student_id);
-  if (filters.date_from) params.set('date_from', filters.date_from);
-  if (filters.date_to) params.set('date_to', filters.date_to);
-  if (filters.q) params.set('q', filters.q);
-  
-  return apiJson<ConflictOverviewResponse>(
-    `/api/v1/schedule-conflicts?${params.toString()}`,
-    { method: 'GET' }
-  );
-}
-```
-
----
-
-## 5. UI Component Design
-
-### 5.1 Page Layout
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Schedule Conflicts                                          │
-│ All room, teacher, and student scheduling conflicts         │
-├─────────────────────────────────────────────────────────────┤
-│ Summary Cards                                               │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│ │ Total    │ │ Room     │ │ Teacher  │ │ Student  │       │
-│ │ 156      │ │ 42       │ │ 89       │ │ 25       │       │
-│ └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
-├─────────────────────────────────────────────────────────────┤
-│ Filters                                                     │
-│ [Search...] [Type ▼] [Subject ▼] [Teacher ▼] [Date Range] │
-├─────────────────────────────────────────────────────────────┤
-│ ┌─┬────────────┬────────────┬────────────┬─────────┬─────┐ │
-│ │▶│ Subject    │ Conflict   │ Time       │ Type    │ ... │ │
-│ ├─┼────────────┼────────────┼────────────┼─────────┼─────┤ │
-│ │▶│ [Math]     │ 2 overlaps │ Mon 9:00   │ Room    │     │ │
-│ │ │            │            │            │         │     │ │
-│ ├─┼────────────┼────────────┼────────────┼─────────┼─────┤ │
-│ │▶│ [Physics]  │ 3 overlaps │ Tue 14:00  │ Teacher │     │ │
-│ └─┴────────────┴────────────┴────────────┴─────────┴─────┘ │
-│                                                             │
-│ 156 records  [Previous] 1 of 4 [Next]                      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 5.2 Filter Bar Component
-
-The filter bar will mirror the Courses page pattern:
-
-```tsx
-// ConflictFilters.tsx
-<SearchInput
-  value={searchInput}
-  onChange={setSearchInput}
-  placeholder="Search by subject, course, teacher..."
-/>
-
-<SearchableSelect
-  aria-label="Conflict type filter"
-  value={filters.conflict_type}
-  onChange={(e) => updateFilter('conflict_type', e.target.value)}
->
-  <option value="all">All types</option>
-  <option value="room_overlap">Room overlaps</option>
-  <option value="teacher_overlap">Teacher overlaps</option>
-  <option value="student_overlap">Student conflicts</option>
-</SearchableSelect>
-
-<SearchableSelect
-  aria-label="Subject filter"
-  value={filters.subject_id}
-  onChange={(e) => updateFilter('subject_id', e.target.value)}
->
-  <option value="">All subjects</option>
-  {subjects.map(s => (
-    <option key={s.id} value={s.id}>{s.name}</option>
-  ))}
-</SearchableSelect>
-
-<SearchableSelect
-  aria-label="Teacher filter"
-  value={filters.teacher_id}
-  onChange={(e) => updateFilter('teacher_id', e.target.value)}
->
-  <option value="">All teachers</option>
-  {teachers.map(t => (
-    <option key={t.id} value={t.id}>{t.full_name}</option>
-  ))}
-</SearchableSelect>
-
-<SessionDateFilter
-  value={{ from: filters.date_from, to: filters.date_to }}
-  onChange={updateDateFilter}
-  onClear={() => updateDateFilter({ from: '', to: '' })}
-/>
-```
-
-### 5.3 Table Structure
-
-```tsx
-<table className="w-full text-[13px]">
-  <thead>
-    <tr className="border-b border-wi-line">
-      <th scope="col" className="w-8 px-2"></th>  {/* Expand toggle */}
-      <th scope="col" className="text-left py-2 px-2">Subject</th>
-      <th scope="col" className="text-left py-2 px-2">Course</th>
-      <th scope="col" className="text-left py-2 px-2">Teacher</th>
-      <th scope="col" className="text-left py-2 px-2">Room</th>
-      <th scope="col" className="text-left py-2 px-2">Date/Time</th>
-      <th scope="col" className="text-left py-2 px-2">Type</th>
-      <th scope="col" className="text-left py-2 px-2">Conflicts</th>
-    </tr>
-  </thead>
-  <tbody>
-    {items.map(item => (
-      <ConflictRow
-        key={item.id}
-        item={item}
-        expanded={expandedIds.has(item.id)}
-        onToggle={() => handleToggleExpand(item.id)}
-      />
-    ))}
-  </tbody>
-</table>
-```
-
-### 5.4 Expandable Row Component
-
-```tsx
-// ConflictRow.tsx
-<Fragment key={item.id}>
-  <tr className="border-b border-wi-line hover:bg-[var(--color-wi-row-alt)]">
-    <td className="w-8 py-3 px-1">
-      <button
-        type="button"
-        onClick={() => onToggle()}
-        className="flex items-center justify-center h-6 w-6 rounded-sm"
-        aria-expanded={expanded}
-      >
-        <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-      </button>
-    </td>
-    <td className="py-3 px-2 font-medium">
-      {item.primary_session.subject_name}
-    </td>
-    <td className="py-3 px-2">
-      <span className="text-[var(--color-wi-text-light)]">
-        [{item.primary_session.course_code}] {item.primary_session.course_name}
-      </span>
-    </td>
-    <td className="py-3 px-2">{item.primary_session.teacher_name}</td>
-    <td className="py-3 px-2">{item.primary_session.room_name ?? '—'}</td>
-    <td className="py-3 px-2">
-      <span className="inline-flex items-center gap-1">
-        <Clock className="w-3.5 h-3.5 text-amber-500" />
-        {formatConflictTime(item.primary_session.start_at, item.primary_session.end_at)}
-      </span>
-    </td>
-    <td className="py-3 px-2">
-      <ConflictTypeBadge type={item.conflict_type} />
-    </td>
-    <td className="py-3 px-2">
-      <span className="text-sm font-medium">{item.conflicting_sessions.length}</span>
-    </td>
-  </tr>
-  
-  {expanded && (
-    <tr className="border-b border-wi-line">
-      <td colSpan={8} className="p-0">
-        <ConflictDetailPanel item={item} />
-      </td>
-    </tr>
-  )}
-</Fragment>
-```
-
-### 5.5 Detail Panel Component
-
-```tsx
-// ConflictDetailPanel.tsx
-<div className="px-8 py-4 bg-[var(--color-wi-row-alt)]/50">
-  <h4 className="text-sm font-semibold mb-3">Conflicting Sessions</h4>
-  
-  <div className="space-y-2">
-    {item.conflicting_sessions.map(session => (
-      <div
-        key={session.session_id}
-        className="rounded-sm border border-wi-line bg-white p-3"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="font-medium">{session.subject_name}</span>
-            <span className="text-[var(--color-wi-text-light)] ml-2">
-              [{session.course_code}] {session.course_name}
-            </span>
-          </div>
-          <ConflictTypeBadge type={item.conflict_type} />
-        </div>
-        <div className="mt-2 text-sm text-[var(--color-wi-text-light)]">
-          <span>Teacher: {session.teacher_name}</span>
-          {session.room_name && (
-            <span className="ml-4">Room: {session.room_name}</span>
-          )}
-          <span className="ml-4">
-            Time: {formatConflictTime(session.start_at, session.end_at)}
-          </span>
-        </div>
-      </div>
-    ))}
-  </div>
-  
-  {item.affected_students && item.affected_students.length > 0 && (
-    <div className="mt-4">
-      <h4 className="text-sm font-semibold mb-2">Affected Students</h4>
-      <div className="flex flex-wrap gap-2">
-        {item.affected_students.map(student => (
-          <span
-            key={student.student_id}
-            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700 border border-blue-200"
-          >
-            {student.full_name} ({student.wcode})
-          </span>
-        ))}
-      </div>
-    </div>
-  )}
-  
-  <div className="mt-4 text-xs text-[var(--color-wi-text-light)]">
-    Shared {item.shared_resource.type}: {item.shared_resource.name}
-  </div>
-</div>
-```
-
----
-
-## 6. Routing & Navigation
-
-### 6.1 Add Route to App.tsx
-
-```tsx
-// In App.tsx, inside <RequireAdmin /> route block:
-const ScheduleConflicts = lazy(() => import('./pages/ScheduleConflicts'));
-
-// Add route:
-<Route path="/schedule-conflicts" element={<ScheduleConflicts />} />
-```
-
-### 6.2 Add to Navigation Config
-
-```tsx
-// In navConfig.ts, add to 'operations' section:
-{
-  id: 'operations',
-  label: 'Operations',
-  items: [
-    // ... existing items
-    { path: '/schedule-conflicts', label: 'All Conflicts', icon: AlertOctagon },
-  ],
-}
-```
-
-### 6.3 Add Page Title
-
-```tsx
-// In navConfig.ts pageTitles:
-'/schedule-conflicts': 'Schedule Conflicts',
-```
-
----
-
-## 7. Implementation Order
-
-### Phase 1: Types & API Contract (Backend)
-1. [ ] Define TypeScript types for API request/response
-2. [ ] Create database migration if needed (likely not - using existing tables)
-3. [ ] Implement backend endpoint with filtering and pagination
-4. [ ] Add summary aggregation query
-5. [ ] Write unit tests for the endpoint
-
-### Phase 2: Frontend API Layer
-1. [ ] Create `conflictOverview.ts` types file
-2. [ ] Create `conflictOverviewApi.ts` API client
-3. [ ] Add query cache keys
-
-### Phase 3: UI Components
-1. [ ] Create `ConflictSummary.tsx` - Summary cards
-2. [ ] Create `ConflictFilters.tsx` - Filter bar
-3. [ ] Create `ConflictTable.tsx` - Main table
-4. [ ] Create `ConflictRow.tsx` - Expandable row
-5. [ ] Create `ConflictDetailPanel.tsx` - Detail view
-6. [ ] Create `ConflictTypeBadge.tsx` - Type indicator
-
-### Phase 4: Page Assembly
-1. [ ] Create `ScheduleConflicts.tsx` - Main page
-2. [ ] Add route to `App.tsx`
-3. [ ] Add navigation item to `navConfig.ts`
-
-### Phase 5: Testing & Polish
-1. [ ] Write component tests
-2. [ ] Add loading skeletons
-3. [ ] Add empty states
-4. [ ] Add error handling
-5. [ ] Test with large datasets
-6. [ ] Accessibility audit
-
----
-
-## 8. Testing Strategy
-
-### 8.1 Unit Tests
-
-```typescript
-// ScheduleConflicts.test.tsx
-describe('ScheduleConflicts', () => {
-  it('renders summary cards with correct counts');
-  it('applies filters correctly');
-  it('handles empty state');
-  it('expands row to show conflict details');
-  it('paginates through results');
-  it('searches by subject name');
-  it('filters by conflict type');
-  it('filters by date range');
-});
-```
-
-### 8.2 Integration Tests
-
-```typescript
-describe('ScheduleConflicts API', () => {
-  it('returns paginated results');
-  it('filters by conflict_type');
-  it('filters by subject_id');
-  it('filters by teacher_id');
-  it('filters by date range');
-  it('returns correct summary counts');
-  it('requires admin authentication');
-});
-```
-
----
-
-## 9. Risk Assessment
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Performance with large datasets | High | Implement pagination, add database indexes |
-| Complex SQL queries | Medium | Use query builder, add explain plans |
-| Filter state management | Low | Use URL params like Courses page |
-| Accessibility | Medium | Follow existing patterns, add ARIA labels |
-| Mobile responsiveness | Low | Use existing responsive patterns |
-
----
-
-## 10. Success Criteria
-
-- [ ] Page displays all conflict types (room, teacher, student)
-- [ ] Filters work correctly and persist in URL
-- [ ] Pagination works with large datasets
-- [ ] Expandable rows show detailed conflict information
-- [ ] Summary cards show accurate counts
-- [ ] Page loads in < 2 seconds with 1000+ conflicts
-- [ ] All existing tests continue to pass
-- [ ] New tests achieve > 80% coverage
-
----
-
-## 11. Future Enhancements (Out of Scope)
-
-- Edit/resolve conflicts from this page (Phase 2)
-- Bulk actions (select multiple, bulk resolve)
-- Export to CSV/XLSX
-- Real-time updates via WebSocket
-- Conflict resolution suggestions (AI-powered)
-- Calendar view of conflicts
-- Drill-down to course/student profiles
+The key rule for implementation is: **do not teach each feature what “Cross Study” means. Teach the scheduling domain what “student is expected at this session” means.** Cross Study then becomes only one producer of student-session scope, while conflict, absence, attendance, and future features remain provider-neutral.
