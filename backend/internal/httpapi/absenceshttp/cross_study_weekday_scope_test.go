@@ -69,6 +69,19 @@ func TestCrossStudyWeekdayScopeAbsenceSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var mergeGroupID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id
+	`, "Cross Study Scope "+seed.suffix).Scan(&mergeGroupID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		VALUES ($1, $2, 1), ($1, $3, 2)
+	`, mergeGroupID, seed.courses["current"], seed.courses["sibling"]); err != nil {
+		t.Fatal(err)
+	}
+
 	var snapshotID uuid.UUID
 	if err := dbpool.QueryRow(ctx, `
 		INSERT INTO crm_snapshots (status) VALUES ('ready') RETURNING id
@@ -81,7 +94,42 @@ func TestCrossStudyWeekdayScopeAbsenceSurface(t *testing.T) {
 			dest_course_b_id, assigned_course_id,
 			dest_course_a_weekdays, dest_course_b_weekdays
 		) VALUES ($1, $2, $3, $4, $5, $4, ARRAY[1]::smallint[], ARRAY[2]::smallint[])
-	`, snapshotID, seed.wcode, seed.courses["old"], seed.courses["current"], seed.courses["sibling"]); err != nil {
+	`, snapshotID, seed.wcode, seed.courses["old"], seed.courses["current"], seed.courses["old"]); err != nil {
+		t.Fatal(err)
+	}
+	for week := 1; week <= 4; week++ {
+		startAt := mondayLocal.UTC().AddDate(0, 0, week*7)
+		if _, err := dbpool.Exec(ctx, `
+			INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
+			VALUES ($1, $2, $3, $4)
+		`, seed.courses["current"], teacherID, startAt, startAt.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	addActiveCourseRow(t, dbpool, seed.subjID, seed.courses["sibling"])
+
+	var siblingMondaySessionID, sitInSessionID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, seed.courses["sibling"], teacherID, mondayLocal.UTC().Add(2*time.Hour), mondayLocal.UTC().Add(3*time.Hour)).Scan(&siblingMondaySessionID); err != nil {
+		t.Fatal(err)
+	}
+	var makeupTeacherID uuid.UUID
+	if err := dbpool.QueryRow(ctx, `
+		INSERT INTO users (username, role, password_hash)
+		VALUES ($1, 'Teacher', 'x')
+		RETURNING id
+	`, "cross-study-makeup-"+seed.suffix).Scan(&makeupTeacherID); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpool.QueryRow(ctx, `
+		INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, seed.courses["old"], makeupTeacherID, mondayLocal.UTC().Add(2*time.Hour), mondayLocal.UTC().Add(3*time.Hour)).Scan(&sitInSessionID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -107,6 +155,29 @@ func TestCrossStudyWeekdayScopeAbsenceSurface(t *testing.T) {
 		}
 		if len(ids) != 1 || ids[0] != mondaySessionID {
 			t.Fatalf("student session listing = %v, want only Monday session %s", ids, mondaySessionID)
+		}
+	})
+
+	t.Run("staff listing excludes unselected merge sibling", func(t *testing.T) {
+		rows, err := dbpool.Query(ctx, sessionsInRangeStaffSelectSQL(), seed.wcode, startRange, endRange)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, courseID, subjectID uuid.UUID
+			var startAt, endAt time.Time
+			var courseCode, courseName, subjectCode, subjectName, teacherName string
+			if err := rows.Scan(&id, &startAt, &endAt, &courseID, &courseCode, &courseName, &subjectID, &subjectCode, &subjectName, &teacherName); err != nil {
+				t.Fatal(err)
+			}
+			if id == siblingMondaySessionID {
+				t.Fatalf("staff session listing included unselected merge sibling %s", id)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -157,6 +228,24 @@ func TestCrossStudyWeekdayScopeAbsenceSurface(t *testing.T) {
 		t.Fatalf("invalid single submission created %d absence rows", absenceCount)
 	}
 
+	adminSiblingBody, err := json.Marshal(map[string]any{
+		"wcode":              seed.wcode,
+		"subject_id":         seed.subjID.String(),
+		"course_id":          seed.courses["current"].String(),
+		"date_from":          mondayLocal.Format("2006-01-02"),
+		"date_to":            mondayLocal.Format("2006-01-02"),
+		"missed_session_ids": []string{siblingMondaySessionID.String()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminSiblingRequest := httptest.NewRequest(http.MethodPost, "/api/v1/absences", bytes.NewReader(adminSiblingBody))
+	adminSiblingRequest.Header.Set("Content-Type", "application/json")
+	adminSiblingRequest.Header.Set("Idempotency-Key", uuid.NewString())
+	adminSiblingResponse := httptest.NewRecorder()
+	adminServer.handleAbsenceCreate(adminSiblingResponse, adminSiblingRequest)
+	assertInvalidMissedSessionsResponse(t, adminSiblingResponse)
+
 	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
 	studentResponse := postSelfService(t, selfServiceMux(t, dbpool), "/api/v1/absences/batch", rawToken, map[string]any{
 		"items": []map[string]any{{
@@ -174,6 +263,34 @@ func TestCrossStudyWeekdayScopeAbsenceSurface(t *testing.T) {
 	}
 	if absenceCount != 0 {
 		t.Fatalf("invalid batch submission created %d absence rows", absenceCount)
+	}
+
+	studentSiblingResponse := postSelfService(t, selfServiceMux(t, dbpool), "/api/v1/absences/batch", seedVerifiedStudentSession(t, dbpool, seed.wcode), map[string]any{
+		"items": []map[string]any{{
+			"subject_id":         seed.subjID.String(),
+			"course_id":          seed.courses["current"].String(),
+			"date_from":          mondayLocal.Format("2006-01-02"),
+			"date_to":            mondayLocal.Format("2006-01-02"),
+			"missed_session_ids": []string{siblingMondaySessionID.String()},
+		}},
+	})
+	assertInvalidMissedSessionsResponse(t, studentSiblingResponse)
+
+	addActiveCourseRow(t, dbpool, seed.subjID, seed.courses["old"])
+	validResponse := postSelfService(t, selfServiceMux(t, dbpool), "/api/v1/absences/batch", seedVerifiedStudentSession(t, dbpool, seed.wcode), map[string]any{
+		"items": []map[string]any{{
+			"subject_id":         seed.subjID.String(),
+			"course_id":          seed.courses["current"].String(),
+			"date_from":          mondayLocal.Format("2006-01-02"),
+			"date_to":            mondayLocal.Format("2006-01-02"),
+			"sit_in_method":      "physical",
+			"sit_in_course_id":   seed.courses["old"].String(),
+			"sit_in_session_ids": []string{sitInSessionID.String()},
+			"missed_session_ids": []string{mondaySessionID.String()},
+		}},
+	})
+	if validResponse.Code != http.StatusCreated {
+		t.Fatalf("valid make-up overlapping irrelevant sibling status = %d, body = %s", validResponse.Code, validResponse.Body.String())
 	}
 }
 

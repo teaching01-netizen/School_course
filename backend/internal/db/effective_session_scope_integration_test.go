@@ -40,6 +40,10 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	otherStudent, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: wcode + "-other", FullName: "Effective Scope Other Student"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sourceCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "EFFECTIVE-SRC-" + suffix, Name: "Effective Source"})
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +135,15 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 	`, snapshotID, wcode, sourceCourse.ID, destA.ID, destB.ID).Scan(&assignmentID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := dbpool.Exec(ctx, `
+		INSERT INTO crm_cross_study_assignments (
+			snapshot_id, wcode, source_course_id, dest_course_a_id,
+			dest_course_b_id, assigned_course_id,
+			dest_course_a_weekdays, dest_course_b_weekdays
+		) VALUES ($1, $2, $3, $4, $5, $4, ARRAY[2]::smallint[], ARRAY[7]::smallint[])
+	`, snapshotID, wcode+"-other", sourceCourse.ID, destA.ID, destB.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	createSession := func(courseID, sessionTeacherID, sessionRoomID pgtype.UUID, start time.Time) pgtype.UUID {
 		t.Helper()
@@ -154,25 +167,31 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 	bSaturday := createSession(destB.ID, teacherID, room.ID, time.Date(2026, 9, 5, 2, 0, 0, 0, time.UTC))
 	bPeerSaturday := createSession(destBPeer.ID, teacherID, room.ID, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
 
-	assertExpected := func(name string, sessionID pgtype.UUID, want bool) {
+	assertExpectedForStudent := func(name string, studentID pgtype.UUID, sessionID pgtype.UUID, want bool) {
 		t.Helper()
 		var got bool
 		if err := dbpool.QueryRow(ctx, `
 			SELECT student_is_expected_at_session($1, $2)
-		`, student.ID, sessionID).Scan(&got); err != nil {
+		`, studentID, sessionID).Scan(&got); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if got != want {
 			t.Fatalf("%s expected=%v, got=%v", name, want, got)
 		}
 	}
+	assertExpected := func(name string, sessionID pgtype.UUID, want bool) {
+		t.Helper()
+		assertExpectedForStudent(name, student.ID, sessionID, want)
+	}
 
 	assertExpected("destination A Monday", aMonday, true)
 	assertExpected("destination A Tuesday", aTuesday, false)
-	assertExpected("merged destination A2 Monday", aPeerMonday, true)
+	assertExpected("merged destination A2 Monday", aPeerMonday, false)
 	assertExpected("destination B Friday", bFriday, false)
 	assertExpected("destination B Saturday", bSaturday, true)
-	assertExpected("merged destination B2 Saturday", bPeerSaturday, true)
+	assertExpected("merged destination B2 Saturday", bPeerSaturday, false)
+	assertExpectedForStudent("other student Monday assignment", otherStudent.ID, aMonday, false)
+	assertExpectedForStudent("other student Tuesday assignment", otherStudent.ID, aTuesday, true)
 
 	assertActiveBusy := func(name string, sessionID pgtype.UUID, want int) {
 		t.Helper()
@@ -190,10 +209,10 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 
 	assertActiveBusy("weekday-scoped Tuesday", aTuesday, 0)
 	assertActiveBusy("weekday-scoped Monday", aMonday, 1)
-	assertActiveBusy("merge-group Monday", aPeerMonday, 1)
+	assertActiveBusy("merge-group Monday", aPeerMonday, 0)
 	assertActiveBusy("destination B Friday", bFriday, 0)
 	assertActiveBusy("destination B Saturday", bSaturday, 1)
-	assertActiveBusy("merge-group B Saturday", bPeerSaturday, 1)
+	assertActiveBusy("merge-group B Saturday", bPeerSaturday, 0)
 
 	if _, err := dbpool.Exec(ctx, `
 		INSERT INTO session_attendance (
@@ -297,8 +316,8 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mergeCounts.TotalCourseDays != 2 {
-		t.Fatalf("effective merge-group day denominator=%d, want 2: %+v", mergeCounts.TotalCourseDays, mergeCounts)
+	if mergeCounts.TotalCourseDays != 1 {
+		t.Fatalf("effective merge-group day denominator=%d, want 1: %+v", mergeCounts.TotalCourseDays, mergeCounts)
 	}
 
 	timingRows, err := q.ValidExpectedMissedSessionTiming(ctx, ab.ID, []pgtype.UUID{aMonday, aTuesday}, "Asia/Bangkok")

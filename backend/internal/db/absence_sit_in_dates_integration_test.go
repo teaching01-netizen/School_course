@@ -47,6 +47,14 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	studentWcode := "WSITIN-" + suffix
+	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: studentWcode, FullName: "Sit-in student " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: missedCourse.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
 
 	createSession := func(courseID pgtype.UUID, start, end time.Time) pgtype.UUID {
 		t.Helper()
@@ -119,7 +127,7 @@ func TestSitInSessionValidationAllowsAnyNonOverlappingDate(t *testing.T) {
 	)
 
 	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
-		Wcode:         "WSITIN-" + suffix,
+		Wcode:         studentWcode,
 		CourseID:      missedCourse.ID,
 		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
@@ -208,6 +216,14 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	studentWcode := "WOVRLAP-" + suffix
+	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: studentWcode, FullName: "Overlap student " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: missedCourse.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
 
 	createSession := func(courseID, sessionRoomID, sessionTeacherID pgtype.UUID, start, end time.Time) pgtype.UUID {
 		t.Helper()
@@ -256,7 +272,7 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	)
 
 	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
-		Wcode:         "WOVRLAP-" + suffix,
+		Wcode:         studentWcode,
 		CourseID:      missedCourse.ID,
 		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
@@ -346,6 +362,14 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	studentWcode := "WCAND-" + suffix
+	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: studentWcode, FullName: "Candidate student " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: missedCourse.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
 
 	createSession := func(courseID pgtype.UUID, start, end time.Time) pgtype.UUID {
 		t.Helper()
@@ -390,7 +414,7 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	)
 
 	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{
-		Wcode:         "WCAND-" + suffix,
+		Wcode:         studentWcode,
 		CourseID:      missedCourse.ID,
 		DateFrom:      pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
 		DateTo:        pgtype.Date{Time: time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC), Valid: true},
