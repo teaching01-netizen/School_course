@@ -459,6 +459,8 @@ func (s *Service) checkStudentOverlapsBatch(
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
+		  AND student_is_expected_at_session(br.student_id, s.id)
+		  AND student_is_expected_at_course_time(cs.student_id, $4, r.start_at, $5::uuid)
 		  AND br.time_range && tstzrange(r.start_at, r.end_at, '[)')
 		  AND ($5::uuid IS NULL OR s.id <> $5)
 		  AND ($6::uuid IS NULL OR s.series_id IS DISTINCT FROM $6)

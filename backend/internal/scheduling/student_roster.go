@@ -84,14 +84,8 @@ func (s *Service) AddCourseStudentWithWarningsTx(ctx context.Context, tx pgx.Tx,
 		  AND s1.course_id = $1 AND s2.course_id = $1
 		  AND s1.deleted_at IS NULL AND s2.deleted_at IS NULL
 		  AND s1.time_range && s2.time_range
-		  AND NOT EXISTS (
-			SELECT 1 FROM session_attendance sa
-			WHERE sa.session_id = s1.id AND sa.student_id = $2 AND sa.status = 'excluded'
-		  )
-		  AND NOT EXISTS (
-			SELECT 1 FROM session_attendance sa
-			WHERE sa.session_id = s2.id AND sa.student_id = $2 AND sa.status = 'excluded'
-		  )
+		  AND student_is_expected_at_course_time($2, s1.course_id, s1.start_at, s1.id, true)
+		  AND student_is_expected_at_course_time($2, s2.course_id, s2.start_at, s2.id, true)
 		ORDER BY s1.start_at
 		LIMIT 1
 	`, courseID, studentID).Scan(&firstOverlapID, &secondOverlapID, &overlapStart)

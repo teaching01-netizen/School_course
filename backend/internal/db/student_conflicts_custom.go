@@ -30,6 +30,8 @@ JOIN sessions other_session ON other_session.course_id = other_roster.course_id
 JOIN courses other_course ON other_course.id = other_session.course_id
 WHERE current_roster.course_id = $1
   AND current_roster.status = 'enrolled'
+  AND student_is_expected_at_session(current_roster.student_id, current_session.id)
+  AND student_is_expected_at_session(current_roster.student_id, other_session.id)
   AND NOT EXISTS (
     SELECT 1 FROM session_attendance excluded
     WHERE excluded.session_id = current_session.id

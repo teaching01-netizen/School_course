@@ -595,20 +595,14 @@ func (s *server) createAbsenceRecordTx(
 	}
 
 	if len(item.MissedSessionIDs) > 0 {
-		count, err := qtx.ValidMissedSessionCount(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
+		timingRows, err := qtx.ValidExpectedMissedSessionTiming(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return createdAbsenceRecord{}, false
 		}
-		if count != len(missedUUIDs) {
+		if len(timingRows) != len(missedUUIDs) {
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
-			return createdAbsenceRecord{}, false
-		}
-		timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
-		if err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
 			return createdAbsenceRecord{}, false
 		}
 		if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {

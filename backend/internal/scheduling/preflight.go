@@ -43,10 +43,12 @@ func (s *Service) conflictingStudentsForOverlap(ctx context.Context, db sqldb.DB
 			SELECT DISTINCT br.student_id, COALESCE(s.full_name, ''), COALESCE(cs.status, 'enrolled')
 			FROM student_busy_ranges br
 			JOIN students s ON s.id = br.student_id
+			JOIN sessions effective_session ON effective_session.id = br.session_id
 			LEFT JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
 			WHERE br.session_id = ANY($2::uuid[])
 			  AND br.deleted_at IS NULL
 			  AND br.student_id = ANY($3::uuid[])
+			  AND student_is_expected_at_session(br.student_id, effective_session.id)
 		`, courseID, sessionUUIDs, studentIDs)
 	} else {
 		// Fallback: find via course roster.
@@ -54,9 +56,11 @@ func (s *Service) conflictingStudentsForOverlap(ctx context.Context, db sqldb.DB
 			SELECT DISTINCT br.student_id, COALESCE(s.full_name, ''), COALESCE(cs.status, 'enrolled')
 			FROM student_busy_ranges br
 			JOIN students s ON s.id = br.student_id
+			JOIN sessions effective_session ON effective_session.id = br.session_id
 			JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
 			WHERE br.session_id = ANY($2::uuid[])
 			  AND br.deleted_at IS NULL
+			  AND student_is_expected_at_session(br.student_id, effective_session.id)
 		`, courseID, sessionUUIDs)
 	}
 	if err != nil {
@@ -328,6 +332,7 @@ func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DB
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
+		  AND student_is_expected_at_session(br.student_id, s.id)
 		  AND br.student_id = ANY($1::uuid[])
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
@@ -342,6 +347,7 @@ func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DB
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
+		  AND student_is_expected_at_session(br.student_id, s.id)
 		  AND br.student_id = ANY($1::uuid[])
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
@@ -447,6 +453,8 @@ func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db 
 		JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
+		  AND student_is_expected_at_session(br.student_id, s.id)
+		  AND student_is_expected_at_course_time(br.student_id, $1, $2, $4::uuid)
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
@@ -466,6 +474,8 @@ func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db 
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
+		  AND student_is_expected_at_session(br.student_id, s.id)
+		  AND student_is_expected_at_course_time(br.student_id, $1, $2, $4::uuid)
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)

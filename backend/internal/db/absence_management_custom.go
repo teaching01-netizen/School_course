@@ -1282,7 +1282,9 @@ func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, 
 				JOIN students st ON st.wcode = sa.wcode
 				JOIN course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
 				JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
-				WHERE sa.id = $1 AND normal.id <> sess.id
+				WHERE sa.id = $1
+				  AND normal.id <> sess.id
+				  AND student_is_expected_at_session(st.id, normal.id)
 				  AND sess.start_at < normal.end_at AND sess.end_at > normal.start_at
 		       ) AS normal_overlap,
 		       EXISTS (

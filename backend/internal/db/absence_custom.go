@@ -977,20 +977,28 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 
 	var counts AbsenceDayCounts
 	err := q.db.QueryRow(ctx, `
-		WITH course_days AS (
+		WITH student_scope AS (
+			SELECT id
+			FROM students
+			WHERE lower(wcode) = lower($1)
+		), course_days AS (
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM sessions s
+			CROSS JOIN student_scope st
 			WHERE s.course_id = $2
 			  AND s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 		), explicit_absence_days AS (
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM student_absences sa
 			JOIN absence_missed_sessions ams ON ams.absence_id = sa.id
 			JOIN sessions s ON s.id = ams.session_id
+			CROSS JOIN student_scope st
 			WHERE lower(sa.wcode) = lower($1)
 			  AND sa.course_id = $2
 			  AND s.course_id = $2
 			  AND s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 			  AND sa.status NOT IN ('cancelled', 'special_approved')
 		), legacy_absence_days AS (
 			SELECT DISTINCT cd.day
@@ -1009,8 +1017,10 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 		), candidate_days AS (
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM sessions s
+			CROSS JOIN student_scope st
 			WHERE s.course_id = $2
 			  AND s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 			  AND (
 				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
 				OR
@@ -1056,7 +1066,11 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 
 	var counts AbsenceDayCounts
 	err := q.db.QueryRow(ctx, `
-		WITH merge_courses AS (
+		WITH student_scope AS (
+			SELECT id
+			FROM students
+			WHERE lower(wcode) = lower($1)
+		), merge_courses AS (
 			SELECT course_id
 			FROM course_merge_group_members
 			WHERE group_id = $2
@@ -1064,7 +1078,9 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM sessions s
 			JOIN merge_courses mc ON mc.course_id = s.course_id
+			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 		), scoped_absences AS (
 			SELECT sa.*
 			FROM student_absences sa
@@ -1087,7 +1103,9 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			JOIN absence_missed_sessions ams ON ams.absence_id = sa.id
 			JOIN sessions s ON s.id = ams.session_id
 			JOIN merge_courses mc ON mc.course_id = s.course_id
+			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 		), legacy_absence_days AS (
 			SELECT DISTINCT cd.day
 			FROM scoped_absences sa
@@ -1103,7 +1121,9 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM sessions s
 			JOIN merge_courses mc ON mc.course_id = s.course_id
+			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
+			  AND student_is_expected_at_session(st.id, s.id)
 			  AND (
 				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
 				OR

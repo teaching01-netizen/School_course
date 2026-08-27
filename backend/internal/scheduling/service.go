@@ -1303,13 +1303,11 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		},
 	}
 
-	studentIDsPtr, hasOverrides, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, newCourseID, courseChanged)
+	effectiveStudentIDs, err := effectiveStudentIDsForCourseTime(ctx, qtx, p.SessionID, newCourseID, newStartAt, courseChanged)
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
-	if hasOverrides {
-		preflightIn.StudentIDs = studentIDsPtr
-	}
+	preflightIn.StudentIDs = &effectiveStudentIDs
 
 	policy, err := s.policy.Load(ctx, tx)
 	if err != nil {
@@ -1562,13 +1560,7 @@ func (s *Service) courseStudentPreflightInputs(ctx context.Context, db sqldb.DBT
 		WHERE s.course_id = $1
 		  AND s.deleted_at IS NULL
 		  AND ($2::uuid IS NULL OR s.id <> $2)
-		  AND NOT EXISTS (
-			SELECT 1
-			FROM session_attendance sa
-			WHERE sa.session_id = s.id
-			  AND sa.student_id = $3
-			  AND sa.status = 'excluded'
-		  )
+		  AND student_is_expected_at_course_time($3, $1, s.start_at, s.id, true)
 		ORDER BY s.start_at ASC
 	`, courseID, ignoreUUID(ignoreSession), studentID)
 	if err != nil {
@@ -1864,7 +1856,8 @@ FROM unnest(%s) WITH ORDINALITY AS sr(r, idx)
 JOIN student_busy_ranges br ON br.time_range && sr.r
 JOIN sessions s ON s.id = br.session_id AND s.deleted_at IS NULL
 WHERE br.student_id = ANY($1::uuid[])
-  AND br.deleted_at IS NULL`, rangeArray)
+  AND br.deleted_at IS NULL
+  AND student_is_expected_at_session(br.student_id, s.id)`, rangeArray)
 		rows, err := s.db.Query(ctx, q, studentIDs)
 		if err != nil {
 			return FindAvailableSlotsResult{}, fmt.Errorf("batch student overlap: %w", err)

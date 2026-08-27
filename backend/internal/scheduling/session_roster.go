@@ -8,59 +8,76 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
-// effectiveStudentIDsForSession returns the effective student roster for a session, matching the
-// DB-derived roster used by student_busy_ranges:
-//
-//	(course roster ∪ explicit includes) \ explicit excludes
-//
-// If the session has no session_attendance rows, it returns (nil, false, nil) so callers can use the
-// cheaper course-roster fallback query.
-//
-// When filterOverridesNotInCourse is true (used for preflight when a session is moved to a new course),
-// any overrides for students not in the new course roster are ignored because they will be deleted by
-// SessionAttendanceDeleteNotInCourse in the same transaction.
+func effectiveStudentIDsForCourseTime(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, startAt pgtype.Timestamptz, filterOverridesNotInCourse bool) ([]pgtype.UUID, error) {
+	rows, err := q.DBTX().Query(ctx, `
+		SELECT candidates.student_id
+		FROM (
+			SELECT cs.student_id
+			FROM course_students cs
+			WHERE cs.course_id = $2
+			UNION
+			SELECT sa.student_id
+			FROM session_attendance sa
+			WHERE sa.session_id = $1
+			  AND sa.status = 'included'
+			  AND (
+				NOT $4::boolean
+				OR EXISTS (
+					SELECT 1
+					FROM course_students cs
+					WHERE cs.course_id = $2
+					  AND cs.student_id = sa.student_id
+				)
+			  )
+			UNION
+			SELECT st.id
+			FROM students st
+			JOIN crm_cross_study_assignments a
+			  ON lower(a.wcode) = lower(st.wcode)
+			 AND a.deleted_at IS NULL
+			WHERE (
+				$2 = a.dest_course_a_id
+				OR $2 = a.dest_course_b_id
+				OR EXISTS (
+					SELECT 1
+					FROM course_merge_group_members selected_member
+					JOIN course_merge_group_members related_member
+					  ON related_member.group_id = selected_member.group_id
+					WHERE selected_member.course_id IN (a.dest_course_a_id, a.dest_course_b_id)
+					  AND related_member.course_id = $2
+				)
+			)
+		) candidates
+		WHERE student_is_expected_at_course_time(candidates.student_id, $2, $3, $1)
+		ORDER BY candidates.student_id
+	`, sessionID, courseID, startAt, filterOverridesNotInCourse)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	studentIDs := make([]pgtype.UUID, 0)
+	for rows.Next() {
+		var studentID pgtype.UUID
+		if err := rows.Scan(&studentID); err != nil {
+			return nil, err
+		}
+		studentIDs = append(studentIDs, studentID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return studentIDs, nil
+}
+
 func effectiveStudentIDsForSession(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, filterOverridesNotInCourse bool) (*[]pgtype.UUID, bool, error) {
-	overrides, err := q.SessionAttendanceList(ctx, sessionID)
+	session, err := q.SessionGetByID(ctx, sessionID)
 	if err != nil {
 		return nil, false, err
 	}
-	if len(overrides) == 0 {
-		return nil, false, nil
-	}
-
-	roster, err := q.CourseStudentsList(ctx, courseID)
+	studentIDs, err := effectiveStudentIDsForCourseTime(ctx, q, sessionID, courseID, session.StartAt, filterOverridesNotInCourse)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	}
-
-	students := map[[16]byte]pgtype.UUID{}
-	for _, row := range roster {
-		if row.StudentID.Valid {
-			students[row.StudentID.Bytes] = row.StudentID
-		}
-	}
-
-	for _, o := range overrides {
-		if !o.StudentID.Valid {
-			continue
-		}
-		if filterOverridesNotInCourse {
-			if _, ok := students[o.StudentID.Bytes]; !ok {
-				// Would be removed by SessionAttendanceDeleteNotInCourse; ignore for preflight correctness.
-				continue
-			}
-		}
-		switch o.Status {
-		case "included":
-			students[o.StudentID.Bytes] = o.StudentID
-		case "excluded":
-			delete(students, o.StudentID.Bytes)
-		}
-	}
-
-	out := make([]pgtype.UUID, 0, len(students))
-	for _, id := range students {
-		out = append(out, id)
-	}
-	return &out, true, nil
+	return &studentIDs, true, nil
 }

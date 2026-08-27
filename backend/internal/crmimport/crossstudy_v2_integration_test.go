@@ -1434,9 +1434,8 @@ func TestCrossStudy_RosterEffect_WeekdayScopeCreatesEnrollmentAndScopedSessionAt
 	`).Scan(&activeBusyRanges); err != nil {
 		t.Fatalf("count active busy ranges: %v", err)
 	}
-	// 2 course_students entries × 2 sessions each (all sessions in each course via trigger) = 4
-	if activeBusyRanges != 4 {
-		t.Fatalf("expected 4 active busy ranges (all sessions in both courses via course_students trigger), got %d", activeBusyRanges)
+	if activeBusyRanges != 2 {
+		t.Fatalf("expected 2 active busy ranges for selected weekdays, got %d", activeBusyRanges)
 	}
 }
 

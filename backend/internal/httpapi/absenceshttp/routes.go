@@ -135,6 +135,7 @@ func sessionsInRangeSelectSQL() string {
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
+		  AND student_is_expected_at_session(st.id, sess.id)
 		  AND c.absence_form_visible
 		  AND EXISTS (
 			SELECT 1 FROM subject_active_courses sac
@@ -165,6 +166,7 @@ func sessionsInRangeStaffSelectSQL() string {
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
+		  AND student_is_expected_at_session(st.id, sess.id)
 		ORDER BY sub.code, sess.start_at
 	`
 }
@@ -760,21 +762,15 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(body.MissedSessionIDs) > 0 {
-			count, err := qtx.ValidMissedSessionCount(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
+			timingRows, err := qtx.ValidExpectedMissedSessionTiming(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
 			if err != nil {
 				status, code, msg := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, msg)
 				return 0, nil, err
 			}
-			if count != len(missedUUIDs) {
+			if len(timingRows) != len(missedUUIDs) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 				return 0, nil, fmt.Errorf("invalid missed sessions")
-			}
-			timingRows, err := qtx.ValidMissedSessionTiming(r.Context(), item.ID, missedUUIDs, s.deps.InstituteTZ)
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return 0, nil, err
 			}
 			if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {
 				s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)

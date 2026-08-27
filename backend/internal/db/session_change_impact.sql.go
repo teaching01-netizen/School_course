@@ -1031,6 +1031,7 @@ SELECT asi.id, asi.absence_id, asi.session_id,
          JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
          WHERE sa.id = asi.absence_id
            AND normal.id <> sit.id
+           AND student_is_expected_at_session(st.id, normal.id)
            AND sit.start_at < normal.end_at
            AND sit.end_at > normal.start_at
        ) AS normal_overlap,

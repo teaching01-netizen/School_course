@@ -65,6 +65,7 @@ func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolut
 			JOIN sessions candidate ON candidate.id = $2
 			WHERE sa.id = $1
 			  AND normal.id <> candidate.id
+			  AND student_is_expected_at_session(st.id, normal.id)
 			  AND candidate.start_at < normal.end_at
 			  AND candidate.end_at > normal.start_at
 		) OR EXISTS (
