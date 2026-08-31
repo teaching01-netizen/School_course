@@ -108,6 +108,28 @@ it("displays the current session details", () => {
   expect(screen.getAllByText(/Dr Jones/).length).toBeGreaterThanOrEqual(1);
 });
 
+it("renders names from canonical snapshot entities", () => {
+  const issue = baseIssue({
+    assignment_context: {
+      ...baseIssue().assignment_context,
+      original_session: {
+        ...baseIssue().assignment_context.original_session,
+        snapshot: {
+          start_at: "2025-07-24T07:00:00.000Z",
+          end_at: "2025-07-24T08:00:00.000Z",
+          course: { id: "course-1", code: "MATH101", name: "Mathematics" },
+          room: { id: "room-3", name: "Room 3" },
+          teacher: { id: "teacher-3", name: "Dr Smith" },
+        },
+      },
+    },
+  });
+  render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);
+
+  expect(screen.getByText("Room 3")).toBeInTheDocument();
+  expect(screen.getByText("Dr Smith")).toBeInTheDocument();
+});
+
 it("shows impact explanation for overlap", () => {
   const issue = baseIssue();
   render(<ResolutionComparison issue={issue} selectedCandidate={candidate} onAction={vi.fn()} busy={false} resolutionError={null} />);

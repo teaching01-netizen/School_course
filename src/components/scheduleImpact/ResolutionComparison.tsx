@@ -16,6 +16,13 @@ function extractCurrentSession(issue: ScheduleImpactIssue) {
   return issue.assignment_context.current_session;
 }
 
+function snapshotDisplayName(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const name = Object.entries(value).find(([key]) => key === "name")?.[1];
+  return typeof name === "string" ? name : null;
+}
+
 function formatFieldTime(start: string | null, end: string | null): string {
   if (!start) return "Not set";
   const startDate = new Date(start);
@@ -82,8 +89,8 @@ function OriginalAssignment({ issue }: { issue: ScheduleImpactIssue }) {
   const time = snapshot
     ? formatFieldTime((snapshot.start_at as string) ?? null, (snapshot.end_at as string) ?? null)
     : formatFieldTime(null, null);
-  const room = (snapshot?.room_name as string) ?? (snapshot?.room as string) ?? "Not assigned";
-  const teacher = (snapshot?.teacher_name as string) ?? (snapshot?.teacher as string) ?? "Not assigned";
+  const room = snapshotDisplayName(snapshot?.room_name) ?? snapshotDisplayName(snapshot?.room) ?? "Not assigned";
+  const teacher = snapshotDisplayName(snapshot?.teacher_name) ?? snapshotDisplayName(snapshot?.teacher) ?? "Not assigned";
 
   return (
     <section aria-labelledby={sectionId} className="rounded-sm border border-wi-line bg-[var(--color-wi-row-alt)] p-4">
