@@ -17,37 +17,37 @@ type ScheduleImpactQueueFilter struct {
 }
 
 type ScheduleImpactQueueRow struct {
-	ID                          pgtype.UUID
-	AbsenceID                   pgtype.UUID
-	IssueType                   string
-	Severity                    string
-	Status                      string
-	IssueVersion                int32
-	SourceSessionID             pgtype.UUID
-	SitInSessionID              pgtype.UUID
-	MissedSessionID             pgtype.UUID
-	WCode                       string
-	StudentName                 pgtype.Text
-	StudentEmail                pgtype.Text
-	StudentPhone                pgtype.Text
-	CourseCode                  string
-	CourseName                  string
-	SubjectName                 string
-	StartAt                     pgtype.Timestamptz
-	EndAt                       pgtype.Timestamptz
-	UpdatedAt                   pgtype.Timestamptz
-	Details                     []byte
-	SuggestedResolutions        []byte
-	AssignmentSnapshotJSON      []byte
-	AssignmentSnapshotQuality   string
-	AssignmentSnapshotSource    pgtype.Text
-	AssignedAt                  pgtype.Timestamptz
-	LatestSessionChangeID       pgtype.UUID
-	ImpactAnalysisStatus        pgtype.Text
-	AssignedToUsername          pgtype.Text
-	ReviewReason                pgtype.Text
-	ReviewDueAt                 pgtype.Timestamptz
-	ResolutionAction            pgtype.Text
+	ID                        pgtype.UUID
+	AbsenceID                 pgtype.UUID
+	IssueType                 string
+	Severity                  string
+	Status                    string
+	IssueVersion              int32
+	SourceSessionID           pgtype.UUID
+	SitInSessionID            pgtype.UUID
+	MissedSessionID           pgtype.UUID
+	WCode                     string
+	StudentName               pgtype.Text
+	StudentEmail              pgtype.Text
+	StudentPhone              pgtype.Text
+	CourseCode                string
+	CourseName                string
+	SubjectName               string
+	StartAt                   pgtype.Timestamptz
+	EndAt                     pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+	Details                   []byte
+	SuggestedResolutions      []byte
+	AssignmentSnapshotJSON    []byte
+	AssignmentSnapshotQuality string
+	AssignmentSnapshotSource  pgtype.Text
+	AssignedAt                pgtype.Timestamptz
+	LatestSessionChangeID     pgtype.UUID
+	ImpactAnalysisStatus      pgtype.Text
+	AssignedToUsername        pgtype.Text
+	ReviewReason              pgtype.Text
+	ReviewDueAt               pgtype.Timestamptz
+	ResolutionAction          pgtype.Text
 }
 
 type ScheduleImpactSummary struct {
@@ -89,7 +89,7 @@ func (q *Queries) SessionChangeImpactRunSetStatus(ctx context.Context, changeID 
 func (q *Queries) SessionChangeImpactRunSetResult(ctx context.Context, changeID pgtype.UUID, resultJSON []byte, issueIDs []pgtype.UUID, errorCategory string, retryable bool) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE session_change_impact_runs
-		SET analysis_result = $2::jsonb,
+		SET analysis_result = convert_from($2, 'UTF8')::jsonb,
 		    created_issue_ids = $3,
 		    error_category = NULLIF($4, ''),
 		    retryable = $5,

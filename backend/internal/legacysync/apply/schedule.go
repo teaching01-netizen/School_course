@@ -316,7 +316,7 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 					}
 					forceOverride = true
 				}
-				if err := a.reconcileNativeSchedule(ctx, tx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
+				if err := a.reconcileNativeSchedule(ctx, tx, qtx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
 					return skipped, err
 				}
 				if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
@@ -341,6 +341,10 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 					continue
 				}
 				forceOverride = true
+			}
+			beforeSession, hadBeforeSession, err := loadLegacySessionByScheduleID(ctx, tx, qtx, schedule.LegacyScheduleID)
+			if err != nil {
+				return skipped, err
 			}
 			if _, err := tx.Exec(ctx, `SAVEPOINT legacy_schedule_upsert`); err != nil {
 				return skipped, fmt.Errorf("savepoint legacy schedule %s: %w", schedule.LegacyScheduleID, err)
@@ -386,6 +390,15 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 			}
 			if err := a.hitFault("after_session_upsert"); err != nil {
 				return skipped, err
+			}
+			if hadBeforeSession && !beforeSession.DeletedAt.Valid {
+				afterSession, err := qtx.SessionGetByID(ctx, sessionID)
+				if err != nil {
+					return skipped, fmt.Errorf("load updated legacy schedule %s: %w", schedule.LegacyScheduleID, err)
+				}
+				if err := recordLegacySessionChange(ctx, qtx, beforeSession, afterSession); err != nil {
+					return skipped, fmt.Errorf("track legacy schedule %s impact: %w", schedule.LegacyScheduleID, err)
+				}
 			}
 			if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{Source: a.source, EntityType: "schedule", ExternalID: schedule.LegacyScheduleID, InternalID: sessionID, SourceHash: pgtype.Text{String: scheduleHash, Valid: true}}); err != nil {
 				return skipped, fmt.Errorf("upsert schedule mapping %s: %w", schedule.LegacyScheduleID, err)
@@ -499,7 +512,7 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 				}
 				forceOverride = true
 			}
-			if err := a.reconcileNativeSchedule(ctx, tx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
+			if err := a.reconcileNativeSchedule(ctx, tx, qtx, request, nativeSessionID, roomID, start, end, forceOverride); err != nil {
 				return 0, err
 			}
 			if err := a.linkNativeSchedule(ctx, tx, qtx, request, schedule, scheduleHash, nativeSessionID, roomID, start, end); err != nil {
@@ -629,7 +642,11 @@ func (a *ScheduleApplier) findCanonicalNativeSession(ctx context.Context, tx pgx
 	return pgtype.UUID{}, nil
 }
 
-func (a *ScheduleApplier) reconcileNativeSchedule(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest, sessionID, roomID pgtype.UUID, start, end time.Time, forceOverride bool) error {
+func (a *ScheduleApplier) reconcileNativeSchedule(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest, sessionID, roomID pgtype.UUID, start, end time.Time, forceOverride bool) error {
+	beforeSession, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("load mapped native schedule %s before reconciliation: %w", sessionID.String(), err)
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE sessions
 		SET room_id = NULLIF($2::text, '')::uuid,
@@ -647,6 +664,16 @@ func (a *ScheduleApplier) reconcileNativeSchedule(ctx context.Context, tx pgx.Tx
 	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("reconcile mapped native schedule %s: canonical native session disappeared", sessionID.String())
+	}
+	if beforeSession.DeletedAt.Valid {
+		return nil
+	}
+	afterSession, err := qtx.SessionGetByID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("load mapped native schedule %s after reconciliation: %w", sessionID.String(), err)
+	}
+	if err := recordLegacySessionChange(ctx, qtx, beforeSession, afterSession); err != nil {
+		return fmt.Errorf("track mapped native schedule %s impact: %w", sessionID.String(), err)
 	}
 	return nil
 }

@@ -123,6 +123,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 	var createdIssueIDs []pgtype.UUID
 	activeByAbsence := make(map[pgtype.UUID][]string, len(affected))
 	for _, item := range affected {
+		snapshotQuality := item.AssignmentSnapshotQuality
 		if item.ImpactRelation != "" {
 			issueType := "sit_in_session_deleted"
 			if item.ImpactRelation == "missed_session" {
@@ -130,7 +131,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			}
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, pgtype.UUID{}, pgtype.UUID{})
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: []string{"session_deleted"}, fingerprint: fingerprint, deletionTarget: true, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: []string{"session_deleted"}, fingerprint: fingerprint, deletionTarget: true, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -150,7 +151,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			}
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: severity, reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: severity, reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -159,7 +160,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 		if item.MissedSessionID.Valid {
 			fingerprint := issueFingerprint(item.ID, "missed_session_changed", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "missed_session_changed", severity: "warning", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "missed_session_changed", severity: "warning", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -193,7 +194,7 @@ func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, critic
 		for _, item := range affected {
 			fingerprint := issueFingerprint(item.ID, "short_notice_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "short_notice_change", severity: severity, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "short_notice_change", severity: severity, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, err
 			}
@@ -204,7 +205,7 @@ func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, critic
 		for _, item := range affected {
 			fingerprint := issueFingerprint(item.ID, "past_time_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "past_time_change", severity: "critical", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality.String, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "past_time_change", severity: "critical", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, err
 			}

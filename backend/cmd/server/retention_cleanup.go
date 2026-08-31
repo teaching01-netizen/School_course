@@ -16,6 +16,7 @@ const (
 	retentionCleanupInterval       = 6 * time.Hour
 	retentionCleanupTimeout        = 30 * time.Second
 	legacySyncOperationalRetention = 24 * time.Hour
+	publishedLegacyOutboxRetention = 6 * time.Hour
 	schedulePolicyAuditRetention   = 72 * time.Hour
 	legacySyncCleanupBatchSize     = 5000
 )
@@ -61,7 +62,8 @@ func (c *retentionCleanup) Stop() {
 func (c *retentionCleanup) runOnce(parent context.Context) {
 	ctx, cancel := context.WithTimeout(parent, retentionCleanupTimeout)
 	defer cancel()
-	cutoff := time.Now().UTC().Add(-legacySyncOperationalRetention)
+	now := time.Now().UTC()
+	cutoff := now.Add(-legacySyncOperationalRetention)
 
 	if rows, err := idempotency.CleanupExpired(ctx, c.db, 5000); err != nil {
 		c.log.Error("retention cleanup: idempotency keys failed", "error", err)
@@ -83,7 +85,14 @@ func (c *retentionCleanup) runOnce(parent context.Context) {
 		c.log.Info("retention cleanup: deleted legacy sync operational history", "rows", legacyRows, "retention", legacySyncOperationalRetention.String())
 	}
 
-	auditRows, err := cleanupSchedulePolicyAuditHistory(ctx, c.db, time.Now().UTC().Add(-schedulePolicyAuditRetention))
+	outboxRows, err := cleanupPublishedLegacyOutbox(ctx, c.db, now.Add(-publishedLegacyOutboxRetention))
+	if err != nil {
+		c.log.Error("retention cleanup: published legacy outbox failed", "error", err)
+	} else if outboxRows > 0 {
+		c.log.Info("retention cleanup: deleted published legacy outbox", "rows", outboxRows, "retention", publishedLegacyOutboxRetention.String())
+	}
+
+	auditRows, err := cleanupSchedulePolicyAuditHistory(ctx, c.db, now.Add(-schedulePolicyAuditRetention))
 	if err != nil {
 		c.log.Error("retention cleanup: scheduling policy audit history failed", "error", err)
 	} else if auditRows > 0 {
@@ -158,6 +167,22 @@ func deleteLegacySyncRows(ctx context.Context, db legacySyncRetentionDB, stateme
 			return total, nil
 		}
 	}
+}
+
+func cleanupPublishedLegacyOutbox(ctx context.Context, db legacySyncRetentionDB, cutoff time.Time) (int64, error) {
+	return deleteLegacySyncRows(ctx, db, `
+WITH victims AS (
+    SELECT id
+    FROM legacy_sync_outbox
+    WHERE status = 'published'
+      AND created_at < $1
+    ORDER BY created_at, id
+    LIMIT $2
+)
+DELETE FROM legacy_sync_outbox AS target
+USING victims
+WHERE target.id = victims.id
+`, cutoff)
 }
 
 func cleanupSchedulePolicyAuditHistory(ctx context.Context, db legacySyncRetentionDB, cutoff time.Time) (int64, error) {

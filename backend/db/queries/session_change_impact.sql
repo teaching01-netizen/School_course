@@ -122,9 +122,9 @@ SELECT DISTINCT sa.id, sa.wcode, sa.student_name, sa.student_email, sa.student_p
        ams.session_id AS missed_session_id,
        s.id AS affected_session_id, s.version AS affected_session_version,
        s.start_at, s.end_at, s.course_id, COALESCE(targets.relation_type, '') AS impact_relation,
-       asi.session_snapshot_at_assignment AS assignment_snapshot_json,
-       asi.snapshot_quality AS assignment_snapshot_quality,
-       asi.snapshot_source AS assignment_snapshot_source
+       COALESCE(asi.session_snapshot_at_assignment, ams.session_snapshot_at_submission) AS assignment_snapshot_json,
+       COALESCE(asi.snapshot_quality, ams.snapshot_quality, 'unavailable'::text) AS assignment_snapshot_quality,
+       COALESCE(asi.snapshot_source, ams.snapshot_source) AS assignment_snapshot_source
 FROM session_changes sc
 JOIN student_absences sa ON (
   EXISTS (SELECT 1 FROM absence_sit_ins x WHERE x.absence_id = sa.id AND x.session_id = sc.session_id)
@@ -160,7 +160,7 @@ VALUES (
   sqlc.arg(details_json)::text::jsonb,
   sqlc.arg(suggested_resolution_json)::text::jsonb,
   sqlc.arg(fingerprint),
-  sqlc.arg(snapshot_json)::text::jsonb,
+  NULLIF(sqlc.arg(snapshot_json)::text, '')::jsonb,
   sqlc.arg(snapshot_quality),
   sqlc.arg(snapshot_source)
 )

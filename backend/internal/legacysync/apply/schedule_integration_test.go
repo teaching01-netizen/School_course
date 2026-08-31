@@ -12,6 +12,7 @@ import (
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/legacysync/normalize"
+	"warwick-institute/internal/sessionchangeimpact"
 )
 
 func legacyScheduleRequest(t *testing.T, pool *pgxpool.Pool, source, suffix string, realtime bool) (ScheduleApplyRequest, pgtype.UUID, string) {
@@ -108,6 +109,87 @@ func TestScheduleApply_ReusesStableLegacyScheduleIdentity(t *testing.T) {
 		t.Fatalf("external series = duration %d/mode %q, want 60/external", seriesDuration, materializationMode)
 	}
 	_ = courseID
+}
+
+func TestScheduleApply_LegacyTimeChangeTracksStudentAbsenceImpact(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	request.Aggregate.Schedules[0].Date = "2030-08-04"
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	q := sqldb.New(pool)
+	var sessionID pgtype.UUID
+	var originalStart time.Time
+	if err := pool.QueryRow(t.Context(), `SELECT id, start_at FROM sessions WHERE legacy_schedule_id=$1`, scheduleID).Scan(&sessionID, &originalStart); err != nil {
+		t.Fatal(err)
+	}
+	absence, err := q.AbsenceCreate(t.Context(), sqldb.AbsenceCreateParams{
+		Wcode: "LEGACY-IMPACT-" + suffix, CourseID: courseID,
+		DateFrom: pgtype.Date{Time: originalStart, Valid: true}, DateTo: pgtype.Date{Time: originalStart, Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.AbsenceMissedSessionsCreate(t.Context(), absence.ID, []pgtype.UUID{sessionID}); err != nil {
+		t.Fatal(err)
+	}
+
+	request.Aggregate.Schedules[0].Begin = "10:00"
+	request.Aggregate.Schedules[0].End = "11:00"
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var linkedSessionID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT session_id FROM absence_missed_sessions WHERE absence_id=$1`, absence.ID).Scan(&linkedSessionID); err != nil {
+		t.Fatal(err)
+	}
+	if linkedSessionID != sessionID {
+		t.Fatalf("absence session link = %s, want stable session %s", linkedSessionID.String(), sessionID.String())
+	}
+
+	var changeID pgtype.UUID
+	var changedFields []byte
+	if err := pool.QueryRow(t.Context(), `
+		SELECT id, changed_fields
+		FROM session_changes
+		WHERE session_id=$1 AND change_source='legacy_sync'
+		ORDER BY created_at DESC
+		LIMIT 1`, sessionID).Scan(&changeID, &changedFields); err != nil {
+		t.Fatalf("legacy session change not tracked: %v", err)
+	}
+	if !strings.Contains(string(changedFields), `"start_at"`) || !strings.Contains(string(changedFields), `"end_at"`) {
+		t.Fatalf("legacy changed fields = %s, want start_at and end_at", changedFields)
+	}
+	var pendingRunCount, eventCount int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM session_change_impact_runs WHERE session_change_id=$1 AND status='pending'`, changeID).Scan(&pendingRunCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='session.occurrence.changed.v1'`, sessionID).Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if pendingRunCount != 1 || eventCount != 1 {
+		t.Fatalf("legacy impact handoff = run %d/event %d, want 1/1", pendingRunCount, eventCount)
+	}
+
+	impact := sessionchangeimpact.New(pool, q, request.InstituteTZ, nil, nil)
+	if err := impact.Analyze(t.Context(), changeID); err != nil {
+		t.Fatal(err)
+	}
+	var issueType, issueStatus string
+	if err := pool.QueryRow(t.Context(), `
+		SELECT issue_type, status
+		FROM absence_schedule_issues
+		WHERE absence_id=$1 AND latest_session_change_id=$2`, absence.ID, changeID).Scan(&issueType, &issueStatus); err != nil {
+		t.Fatalf("absence schedule impact not created: %v", err)
+	}
+	if issueType != "missed_session_changed" || issueStatus != "open" {
+		t.Fatalf("absence schedule impact = %q/%q, want missed_session_changed/open", issueType, issueStatus)
+	}
 }
 
 func TestScheduleApply_MigratesDerivedIdentityWhenRoomAssignmentExposesSourceID(t *testing.T) {

@@ -163,10 +163,12 @@ keeps legacy-sync operational history for one day, deleting in bounded batches:
 - `legacy_sync_dead_letters` older than 24 hours
 - terminal `legacy_sync_jobs` (`completed`/`dead`) whose `updated_at` is older than 24 hours
 - non-running `legacy_sync_runs` whose completion/start time is older than 24 hours; linked progress rows cascade with the run
+- published `legacy_sync_outbox` rows whose `created_at` is older than six hours
 
-It does not delete `legacy_sync_outbox`, `legacy_sync_conflicts`,
-`legacy_entity_snapshots`, `legacy_change_events`, or domain audit tables.
-Those tables carry idempotency, reconciliation, or user-facing history rather
+It does not delete pending or publishing `legacy_sync_outbox` rows,
+`legacy_sync_conflicts`, `legacy_entity_snapshots`, `legacy_change_events`, or
+domain audit tables. Published outbox rows retain a six-hour idempotency window;
+the other retained tables carry reconciliation or user-facing history rather
 than disposable execution logs.
 
 `LEGACY_SYNC_LOG_LEVEL=warn` is the default so routine per-course worker
