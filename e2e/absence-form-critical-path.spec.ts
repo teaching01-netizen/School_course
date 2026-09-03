@@ -36,10 +36,11 @@ test("invalid student ID never calls the lookup API or advances", async ({ page 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill("not-a-wcode");
-  await page.getByRole("button", { name: /search/i }).click();
-  await expect(page.getByRole("alert").filter({ hasText: /student id/i })).toBeVisible();
+  const continueButton = page.getByRole("button", { name: "Continue" });
+  await expect(continueButton).toBeDisabled();
+  await continueButton.click({ force: true });
 
-  await expect(page.getByRole("heading", { name: "Find your profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Report an absence" })).toBeVisible();
   expect(lookupRequests).toBe(0);
 });
 
@@ -49,12 +50,12 @@ test("editing from review preserves the selected class and reason", async ({ pag
   await completeToReview(page, "Original review reason");
 
   await page.getByRole("button", { name: "Edit reason" }).click();
+  await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
   await expect(page.locator("#absence-reason")).toHaveValue("Original review reason");
-  await expect(page.locator("#subject-subject-math")).toBeChecked();
-  await expect(page.locator("#session-missed-boundary")).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Other" })).toHaveAttribute("aria-checked", "true");
 
-  await page.getByLabel(/reason for absence/i).fill("Updated review reason");
-  await page.getByRole("button", { name: "Review absence" }).click();
+  await page.locator("#absence-reason").fill("Updated review reason");
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Updated review reason")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
 });

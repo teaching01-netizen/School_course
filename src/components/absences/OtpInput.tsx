@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent } from "react";
 import clsx from "clsx";
-import { motion, useReducedMotion } from "framer-motion";
 
 type OtpInputProps = {
   value: string;
@@ -29,7 +28,6 @@ export default function OtpInput({
 }: OtpInputProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const reduceMotion = useReducedMotion();
   const digits = useMemo(() => normalizeOtp(value).padEnd(6, " "), [value]);
   const currentLength = normalizeOtp(value).length;
 
@@ -64,9 +62,7 @@ export default function OtpInput({
     <div className="space-y-4">
       <label className="block text-sm font-medium text-[var(--color-wi-text)]">
         <span className="mb-3 block text-base font-semibold text-[var(--color-wi-text)]">{label}</span>
-        <motion.div
-          animate={error && !reduceMotion ? { x: [0, -6, 6, -3, 3, 0] } : { x: 0 }}
-          transition={{ duration: 0.3 }}
+        <div
           className={clsx("absence-otp-grid relative", disabled ? "cursor-default" : "cursor-pointer")}
           onClick={() => { if (!disabled) inputRef.current?.focus(); }}
         >
@@ -117,7 +113,7 @@ export default function OtpInput({
             aria-invalid={error || undefined}
             className="absolute left-0 top-0 h-px w-px opacity-0"
           />
-        </motion.div>
+        </div>
       </label>
     </div>
   );

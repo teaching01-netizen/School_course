@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
-  boundarySitInSession,
   installAbsenceRoutes,
   studentLookup,
   type SubmittedPayload,
 } from "./fixtures/absence";
-import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { acceptResumePrompt, completeToReview } from "./helpers/absenceFlow";
 test.setTimeout(120_000);
 
 test("keeps verification capabilities out of browser URLs", async ({ page }) => {
@@ -20,10 +19,9 @@ test("keeps verification capabilities out of browser URLs", async ({ page }) => 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
-  await page.getByRole("button", { name: /send code/i }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
 
   await expect(page).toHaveURL(/\/absence$/);
   expect(new URL(page.url()).search).toBe("");
@@ -49,38 +47,16 @@ test("quota rejection keeps the reviewed absence available for correction", asyn
     });
   });
 
-  await page.goto("/absence");
-  await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
-  await page.getByRole("button", { name: /send code/i }).click();
-  await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
+  await completeToReview(page, "Quota recovery");
 
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const makeUpSelect = page.getByRole("combobox");
-  if (await makeUpSelect.isVisible()) {
-    await makeUpSelect.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
-  await page.getByLabel(/reason for absence/i).fill("Medical appointment");
-  await page.getByRole("button", { name: "Review absence" }).click();
   await page.getByRole("button", { name: "Submit absence" }).click();
 
-  await expect(
-    page.getByRole("alert").filter({ hasText: /maximum absences allowed/i }),
-  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /reached the absence limit/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
-  await expect(page.getByText("Medical appointment")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Absence submitted" })).toHaveCount(0);
+  await expect(page.getByText("Quota recovery")).toBeVisible();
   expect(submitted).toHaveLength(1);
 });
+
 test("duplicate submit taps create one logical absence request", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
@@ -89,64 +65,46 @@ test("duplicate submit taps create one logical absence request", async ({ page }
     await route.fallback();
   });
 
-  await page.goto("/absence");
-  await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
-  await page.getByRole("button", { name: /send code/i }).click();
-  await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
-
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const makeUpSelect = page.getByRole("combobox");
-  if (await makeUpSelect.isVisible()) {
-    await makeUpSelect.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await page.getByLabel(/reason for absence/i).fill("Double tap regression");
-  await page.getByRole("button", { name: "Review absence" }).click();
-  await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
+  await completeToReview(page, "Double tap regression");
 
   await page.getByRole("button", { name: "Submit absence" }).dblclick();
 
   await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);
 });
-test("missing make-up selection focuses the visible control", async ({ page }) => {
+
+test("a restored draft with a missing make-up never reaches review", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
+  await page.addInitScript((draft) => {
+    window.sessionStorage.setItem("warwick.absence.draft.v1", JSON.stringify(draft));
+  }, {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    wcode: studentLookup.wcode,
+    collectedEmail: "student@example.com",
+    step: 2,
+    selectedSubjectIds: ["subject-math"],
+    selectedSessionIds: ["missed-boundary"],
+    sitInSelections: {},
+    sitInPriorityLevels: {},
+    reason: "Saved reason",
+  });
   await installAbsenceRoutes(page, submitted);
 
   await page.goto("/absence");
-  await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
-  await page.getByRole("button", { name: /send code/i }).click();
-  await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
+  await acceptResumePrompt(page);
+  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
+  await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // The restored email means the email screen is skipped.
+  await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
 
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  await selectAbsenceCheckbox(page, "session-missed-boundary");
-  await page.getByRole("button", { name: "Review absence" }).click();
-
-  await expect(page.getByRole("alert").filter({ hasText: /pick a make-up class/i })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const active = document.activeElement;
-        if (!(active instanceof HTMLElement)) return false;
-        const styles = getComputedStyle(active);
-        return (
-          active.matches('[data-make-up-trigger], select[aria-label*="make-up" i], select') &&
-          styles.display !== "none" &&
-          styles.visibility !== "hidden" &&
-          active.getClientRects().length > 0
-        );
-      }),
-    )
-    .toBe(true);
+  // The restored selection still demands a make-up choice before review.
+  await page.getByRole("button", { name: "Review updated classes" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use this class" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
 });

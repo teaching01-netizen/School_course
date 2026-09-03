@@ -1,5 +1,20 @@
 import type { Page } from "@playwright/test";
 
+// Asia/Bangkok is the institute zone the app renders in, so fixture dates are
+// computed there and stay valid however far in the future the suite runs.
+const INSTITUTE_OFFSET_MS = 7 * 60 * 60_000;
+
+/** Institute (Bangkok) calendar date N days from today, as YYYY-MM-DD. */
+export function instituteDate(dayOffset: number): string {
+  return new Date(Date.now() + INSTITUTE_OFFSET_MS + dayOffset * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** ISO instant for a wall-clock time on an institute date. */
+export function instituteTime(dateKey: string, hour: number, minute = 0): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return new Date(`${dateKey}T${pad(hour)}:${pad(minute)}:00+07:00`).toISOString();
+}
+
 export type SubmittedPayload = {
   wcode: string;
   email?: string;
@@ -27,19 +42,22 @@ export const studentLookup = {
   subjects: [{ id: "subject-math", code: "MATH", name: "Mathematics" }],
 };
 
+/** The one reportable class (tomorrow, institute time) the fixture exposes. */
+export const fixtureMissedDate = instituteDate(1);
+
 export const boundarySitInSession = {
   id: "sit-boundary",
   course_id: "course-sitin",
-  start_at: "2026-01-15T17:30:00Z",
-  end_at: "2026-01-15T18:30:00Z",
+  start_at: instituteTime(fixtureMissedDate, 0, 30),
+  end_at: instituteTime(fixtureMissedDate, 1, 30),
   class_name: "Boundary Make-up",
 };
 
-const boundaryMissedSession = {
+export const boundaryMissedSession = {
   id: "missed-boundary",
-  start_at: "2026-01-15T17:00:00Z",
-  end_at: "2026-01-15T18:00:00Z",
-  date: "2026-01-16",
+  start_at: instituteTime(fixtureMissedDate, 0, 0),
+  end_at: instituteTime(fixtureMissedDate, 1, 0),
+  date: fixtureMissedDate,
   already_absent: false,
 };
 
@@ -116,9 +134,9 @@ const verification = {
   wcode: studentLookup.wcode,
   parent_phone: studentLookup.parent_phone,
   delivery_status: "accepted",
-  otp_last_sent_at: "2026-08-15T10:00:00Z",
-  otp_code_expires_at: "2026-08-15T10:10:00Z",
-  expires_at: "2026-08-15T11:00:00Z",
+  otp_last_sent_at: new Date(Date.now() - 60_000).toISOString(),
+  otp_code_expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+  expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
 };
 
 export async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
@@ -153,7 +171,7 @@ export async function installAbsenceRoutes(page: Page, submitted: SubmittedPaylo
       body: JSON.stringify({
         ...verification,
         status: "verified",
-        verified_at: "2026-08-15T10:02:00Z",
+        verified_at: new Date().toISOString(),
       }),
     }),
   );
@@ -168,8 +186,8 @@ export async function installAbsenceRoutes(page: Page, submitted: SubmittedPaylo
             wcode: studentLookup.wcode,
             status: "pending",
             version: 1,
-            created_at: "2026-01-15T12:00:00Z",
-            updated_at: "2026-01-15T12:00:00Z",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             student_name: studentLookup.full_name,
             subject_id: "subject-math",
             subject_code: "MATH",
@@ -177,8 +195,8 @@ export async function installAbsenceRoutes(page: Page, submitted: SubmittedPaylo
             course_id: "course-math",
             course_code: "MATH101",
             course_name: "Mathematics 101",
-            date_from: "2026-01-16",
-            date_to: "2026-01-16",
+            date_from: fixtureMissedDate,
+            date_to: fixtureMissedDate,
             reason: "Accessibility regression test",
             sit_in_method: "physical",
             sit_in_course_id: "course-sitin",

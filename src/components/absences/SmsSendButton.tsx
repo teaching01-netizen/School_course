@@ -126,7 +126,7 @@ export default function SmsSendButton({
       className={clsx(
         "relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
         isInteractive
-          ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
+          ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100"
           : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
       )}
     >
@@ -153,7 +153,7 @@ export default function SmsSendButton({
             className="inline-flex items-center gap-2"
           >
             <ProgressRing progress={progress} />
-            <span className="tabular-nums">Resend in {cooldown}s</span>
+            <span className="tabular-nums">Send another code in {cooldown}s</span>
           </motion.span>
         ) : (
           <motion.span

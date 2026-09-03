@@ -1,10 +1,15 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import AbsenceForm from "../AbsenceForm";
-import { renderWithProviders } from "./helpers";
-import type { SubjectSessions } from "@/types";
+import {
+  renderPublicAbsenceForm,
+  completeToReview,
+  completeToClasses,
+  selectClass,
+} from "./helpers/absenceFormHarness";
 import { ApiRequestError } from "@/api/client";
+import type { SessionsInRangeResponse } from "@/types";
+import { relativeDateKey, relativeISO } from "./fixtures/absenceFormFixtures";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -13,273 +18,262 @@ vi.mock("@/api/client", async () => {
   return { ...actual, apiJson: mockApiJson };
 });
 
+const mockNavigate = vi.hoisted(() => vi.fn());
 vi.mock("react-router-dom", () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
   useLocation: () => ({ pathname: "/absence" }),
 }));
 
-const MOCK_CONFIG = {
-  form: {
-    max_date_range_days: 30,
-    min_hours_before_session: 0,
-    max_hours_after_session: 0,
-    require_reason: false,
-    reason_categories: [],
-    allow_free_text_reason: true,
-    intro_text: "",
-    confirmation_text: "",
-  },
-  sit_in: {
-    auto_resolve_enabled: true,
-    zoom_description: "Zoom session.",
-    max_sessions_per_absence: 10,
-  },
-  notifications: {
-    sms_parent_enabled: true,
-    sms_parent_template: "template",
-    sms_success_template: "success template",
-  },
-  admin_contact: {
-    email: "office@example.edu",
-    phone: "+66 2123 4567",
-    hours: "Mon-Fri 08:00-16:00",
-  },
-};
-
-const MOCK_LOOKUP = {
-  wcode: "W250389",
-  lookup_token: "opaque-lookup-token",
-  email_input_required: false,
-  parent_verification_available: true,
-};
-
-const MOCK_PROFILE = {
-  wcode: "W250389",
-  display_name: "Student",
-  email_on_file: true,
+const PHYSICAL_SESSIONS: SessionsInRangeResponse = {
   subjects: [
-    { id: "subj-1", code: "MATH", name: "Mathematics" },
+    {
+      subject_id: "subject-math",
+      subject_code: "MATH",
+      subject_name: "Mathematics",
+      course_id: "course-math",
+      course_code: "MATH201",
+      course_name: "Mathematics",
+      sessions: [
+        {
+          id: "session-math-1",
+          start_at: relativeISO(17, 0, 0),
+          end_at: relativeISO(19, 0, 0),
+          date: relativeDateKey(0),
+          already_absent: false,
+        },
+      ],
+      sit_in: {
+        sit_in_method: "physical",
+        sit_in_course: {
+          id: "course-sitin",
+          code: "MATH202",
+          name: "Mathematics Make-up",
+          subject_code: "MATH",
+          subject_name: "Mathematics",
+        },
+        available_sessions: [
+          {
+            id: "sit-a",
+            start_at: "2026-08-04T02:00:00Z",
+            end_at: "2026-08-04T03:30:00Z",
+            course_id: "course-sitin",
+            class_name: "Mathematics Make-up",
+            subject_name: "Mathematics",
+            course_name: "Mathematics Make-up",
+          },
+        ],
+      },
+    },
   ],
 };
 
-function mockApiByPattern(routes: Record<string, unknown>) {
-  mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
-    for (const [pattern, data] of Object.entries(routes)) {
-      if (String(url).includes(pattern)) {
-        return typeof data === "function"
-          ? (data as (request?: RequestInit) => unknown)(init)
-          : data;
-      }
-    }
-    throw new Error(`Unmocked API call: ${url}`);
-  });
-}
-
-function createSessionsWithLimits(
-  existingMissed: number,
-  totalSessions: number,
-): SubjectSessions[] {
-  const sessions = Array.from({ length: totalSessions }, (_, i) => ({
-    id: `s${i + 1}`,
-    start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
-    end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
-    date: `2026-06-${String(i + 1).padStart(2, "0")}`,
-    already_absent: i < existingMissed,
-  }));
-
-  return [
+const SUBMISSION_RESPONSE = {
+  items: [
     {
-      subject_id: "subj-1",
+      id: "abc12345",
+      wcode: "W250389",
+      status: "pending",
+      course_id: "course-math",
+      course_code: "MATH201",
+      course_name: "Mathematics",
+      subject_id: "subject-math",
       subject_code: "MATH",
       subject_name: "Mathematics",
-      course_id: "c-math201",
-      course_code: "MATH201",
-      course_name: "Algebra II",
-      sessions,
-      absence_limit_reached: existingMissed * 5 >= totalSessions,
-      used_absence_days: existingMissed,
-      total_course_days: totalSessions,
-      maximum_absence_days: Math.round(totalSessions / 5),
-      remaining_absence_days: Math.max(0, Math.round(totalSessions / 5) - existingMissed),
-    },
-  ];
-}
-
-async function continueToVerification(user: ReturnType<typeof userEvent.setup>) {
-  const emailInput = screen.queryByRole("textbox", { name: /your email address/i });
-  if (emailInput) await user.type(emailInput, "student@example.com");
-  await user.click(screen.getByRole("button", { name: /continue to verification/i }));
-  await screen.findByRole("heading", { name: /parent verification/i });
-}
-
-async function completeVerification(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /send code/i }));
-  const codeInput = (await screen.findAllByRole("textbox", { hidden: true })).find(
-    (element) => element.getAttribute("inputMode") === "numeric",
-  );
-  if (!codeInput) throw new Error("OTP input was not rendered");
-  await user.type(codeInput, "123456");
-  await waitFor(() => expect(screen.getByText("Courses & classes")).toBeInTheDocument());
-}
-
-describe("AbsenceForm - error handling", () => {
-  beforeEach(() => {
-    mockApiJson.mockReset();
-    window.localStorage?.clear();
-    window.sessionStorage?.clear();
-  });
-
-  it("displays absence_limit_exceeded error message when backend returns 403", async () => {
-    const sessions = createSessionsWithLimits(0, 10);
-
-    mockApiByPattern({
-      "absence-form-config": MOCK_CONFIG,
-      "absence-self-service/lookup": MOCK_LOOKUP,
-      "absence-self-service/me": MOCK_PROFILE,
-      "absence-self-service/sessions": { subjects: sessions },
-      "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-      "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-      "absences/batch": () => {
-        throw new ApiRequestError("You have reached the maximum number of absences allowed for this course", { code: "absence_limit_exceeded", status: 403 });
-      },
-    });
-
-    renderWithProviders(<AbsenceForm />);
-
-    const user = userEvent.setup();
-
-    const input = await screen.findByPlaceholderText("e.g. W250389");
-    await user.clear(input);
-    await user.type(input, "W250389");
-    await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
-
-    await continueToVerification(user);
-    await completeVerification(user);
-
-    const courseCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
-    await user.click(courseCheckbox);
-
-    const sessionCheckboxes = (await screen.findAllByRole("checkbox")).filter(
-      (cb) => cb.getAttribute("id")?.startsWith("session-"),
-    );
-    if (sessionCheckboxes.length > 0) {
-      await user.click(sessionCheckboxes[0]);
-    }
-
-    await user.type(
-      screen.getByRole("textbox", { name: /reason for absence/i }),
-      "Medical appointment",
-    );
-    await user.click(screen.getByRole("button", { name: /review absence/i }));
-    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
-
-    expect(await screen.findByText(
-      "You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.",
-      { selector: "[role=\"alert\"]" },
-    )).toBeInTheDocument();
-    expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/v1/absences/batch",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
-  });
-});
-
-describe("AbsenceForm - multi-subject independent remaining counts", () => {
-  beforeEach(() => {
-    mockApiJson.mockReset();
-    window.localStorage?.clear();
-    window.sessionStorage?.clear();
-  });
-
-  it("shows independent remaining counts for different subjects", async () => {
-    const sessions: SubjectSessions[] = [
-      {
-        subject_id: "subj-1",
-        subject_code: "MATH",
-        subject_name: "Mathematics",
-        course_id: "c-math201",
-        course_code: "MATH201",
-        course_name: "Algebra II",
-        sessions: Array.from({ length: 10 }, (_, i) => ({
-          id: `s${i + 1}`,
-          start_at: `2026-06-${String(i + 1).padStart(2, "0")}T09:00:00Z`,
-          end_at: `2026-06-${String(i + 1).padStart(2, "0")}T10:30:00Z`,
-          date: `2026-06-${String(i + 1).padStart(2, "0")}`,
-          already_absent: i < 1, // 1 existing
-        })),
-        absence_limit_reached: false,
-        used_absence_days: 1,
-        total_course_days: 10,
-        maximum_absence_days: 2,
-        remaining_absence_days: 1,
-      },
-      {
-        subject_id: "subj-2",
-        subject_code: "PHYS",
-        subject_name: "Physics",
-        course_id: "c-phys101",
-        course_code: "PHYS101",
-        course_name: "Physics I",
-        sessions: Array.from({ length: 20 }, (_, i) => ({
-          id: `p${i + 1}`,
-          start_at: `2026-06-${String(i + 1).padStart(2, "0")}T14:00:00Z`,
-          end_at: `2026-06-${String(i + 1).padStart(2, "0")}T15:30:00Z`,
-          date: `2026-06-${String(i + 1).padStart(2, "0")}`,
-          already_absent: i < 3, // 3 existing
-        })),
-        absence_limit_reached: false,
-        used_absence_days: 3,
-        total_course_days: 20,
-        maximum_absence_days: 4,
-        remaining_absence_days: 1,
-      },
-    ];
-
-    const multiSubjectProfile = {
-      ...MOCK_PROFILE,
-      subjects: [
-        { id: "subj-1", code: "MATH", name: "Mathematics" },
-        { id: "subj-2", code: "PHYS", name: "Physics" },
+      student_name: "Alex Student",
+      date_from: "2026-08-03",
+      date_to: "2026-08-03",
+      reason: "Appointment",
+      sit_in_method: "physical",
+      sit_in_course_id: "course-sitin",
+      missed_sessions: [
+        {
+          id: "missed-record",
+          session_id: "session-math-1",
+          course_id: "course-math",
+          course_code: "MATH201",
+          course_name: "Mathematics",
+          subject_name: "Mathematics",
+          start_at: "2026-08-03T02:00:00Z",
+          end_at: "2026-08-03T03:30:00Z",
+        },
       ],
-    };
-    mockApiByPattern({
-      "absence-form-config": MOCK_CONFIG,
-      "absence-self-service/lookup": MOCK_LOOKUP,
-      "absence-self-service/me": multiSubjectProfile,
-      "absence-self-service/sessions": { subjects: sessions },
-      "parent-verification/send": { token: "otp-session-123", status: "pending", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-      "parent-verification/verify": { token: "otp-token-123", status: "verified", wcode: "W250389", expires_at: new Date(Date.now() + 300000).toISOString() },
-      "absences/batch": { items: [{ id: "abc12345", status: "pending" }] },
+      sit_ins: [
+        {
+          id: "sit-record",
+          session_id: "sit-a",
+          course_id: "course-sitin",
+          course_code: "MATH202",
+          course_name: "Mathematics Make-up",
+          subject_name: "Mathematics",
+          start_at: "2026-08-04T02:00:00Z",
+          end_at: "2026-08-04T03:30:00Z",
+        },
+      ],
+    },
+  ],
+};
+
+describe("AbsenceForm — recovery & errors", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+    mockNavigate.mockReset();
+    window.localStorage?.clear();
+    window.sessionStorage?.clear();
+  });
+
+  it("shows a calm not-found message next to the Student ID field", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      lookup: () => {
+        throw new ApiRequestError("Student not found", { code: "not_found", status: 404 });
+      },
     });
-
-    renderWithProviders(<AbsenceForm />);
-
     const user = userEvent.setup();
 
-    const input = await screen.findByPlaceholderText("e.g. W250389");
-    await user.clear(input);
+    const input = await screen.findByRole("textbox", { name: /student id/i });
     await user.type(input, "W250389");
-    await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
 
-    await continueToVerification(user);
-    await completeVerification(user);
+    const alerts = await screen.findAllByRole("alert");
+    const alert = alerts.find((node) => node.textContent?.includes("couldn't find that student ID"));
+    expect(alert).toBeDefined();
+    // Still on the same screen, next to the input that can fix it.
+    expect(screen.getByRole("heading", { name: /report an absence/i })).toBeInTheDocument();
+    // The primary action becomes a quiet retry.
+    expect(screen.getByRole("button", { name: /^try again$/i })).toBeEnabled();
+  });
 
-    // Select Mathematics
-    const mathCheckbox = await screen.findByRole("checkbox", { name: /mathematics/i });
-    await user.click(mathCheckbox);
-
-    // Should show 1 day remaining for Math (10 course days, 1 existing = 1 remaining)
-    await waitFor(() => {
-      expect(screen.getByText("1 day remaining")).toBeInTheDocument();
+  it("offers a direct retry when classes fail to load", async () => {
+    let calls = 0;
+    renderPublicAbsenceForm(mockApiJson, {
+      sessions: () => {
+        calls += 1;
+        if (calls === 1) throw new Error("Couldn't load your classes");
+        return { subjects: [] };
+      },
     });
+    const user = userEvent.setup();
 
-    // Verify the remaining count is correct for Math
-    const remainingText = screen.getByText("1 day remaining");
-    expect(remainingText).toBeInTheDocument();
+    await completeToClasses(user);
+    const alerts = await screen.findAllByRole("alert");
+    const alert = alerts.find((node) => node.textContent?.includes("Couldn't load your classes"));
+    expect(alert).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+    await screen.findByText(/no upcoming classes/i);
+  });
+
+  it("never claims failure when the network dies mid-submission", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      submission: () => { throw new TypeError("Failed to fetch"); },
+    });
+    const user = userEvent.setup();
+
+    await completeToReview(user);
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent(/we couldn't confirm the submission/i);
+    expect(notice).toHaveTextContent(/it's safe to try again/i);
+    expect(notice).toHaveTextContent(/you won't create a duplicate/i);
+    // The review stays intact and editable.
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+  });
+
+  it("explains an absence-limit rejection without a scary banner", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      submission: () => {
+        throw new ApiRequestError("Absence limit exceeded", { code: "absence_limit_exceeded", status: 403 });
+      },
+    });
+    const user = userEvent.setup();
+
+    await completeToReview(user);
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent(/reached the absence limit/i);
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+  });
+
+  it("recovers a stale make-up by recommending the next available option", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      sessions: PHYSICAL_SESSIONS,
+      submission: () => {
+        throw new ApiRequestError("Sit-in session already used", {
+          code: "sit_in_session_already_used",
+          status: 409,
+        });
+      },
+    });
+    const user = userEvent.setup();
+
+    await completeToClasses(user);
+    await selectClass(user, "Mathematics");
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await screen.findByRole("heading", { name: /your make-up/i });
+
+    // One clear recommendation.
+    expect(screen.getByText(/recommended/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /use this class/i }));
+
+    await screen.findByRole("heading", { name: /why will you be away/i });
+    await user.click(screen.getByRole("radio", { name: "Appointment" }));
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await screen.findByRole("heading", { name: /review your absence/i });
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    // Instead of a raw conflict error, the system presents the next option.
+    await screen.findByRole("heading", { name: /your make-up/i });
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent(/that class is no longer available/i);
+    expect(screen.getByRole("button", { name: /use this class/i })).toBeEnabled();
+  });
+
+  it("hides unavailable make-up options instead of listing them as disabled", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      sessions: PHYSICAL_SESSIONS,
+      submission: SUBMISSION_RESPONSE,
+    });
+    const user = userEvent.setup();
+
+    await completeToClasses(user);
+    await selectClass(user, "Mathematics");
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await screen.findByRole("heading", { name: /your make-up/i });
+
+    await user.click(screen.getByRole("button", { name: /choose another time/i }));
+    const dialog = await screen.findByRole("dialog", { name: /choose another time/i });
+    expect(dialog).toHaveTextContent(/mathematics/i);
+    expect(dialog).toHaveTextContent(/recommended/i);
+    expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the student on the page when verification expires before submit", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      submission: () => {
+        throw new ApiRequestError("Unauthorized", { code: "unauthorized", status: 401 });
+      },
+    });
+    const user = userEvent.setup();
+
+    await completeToReview(user);
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+
+    // Back on verification with an explanation — never a raw error.
+    await screen.findByRole("heading", { name: /enter the code|confirm with a parent/i });
+    expect(screen.getAllByText(/expired/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows a friendly empty state when there are no reportable classes", async () => {
+    renderPublicAbsenceForm(mockApiJson, { sessions: { subjects: [] } });
+    const user = userEvent.setup();
+
+    await completeToClasses(user);
+
+    expect(await screen.findByText(/no upcoming classes/i)).toBeInTheDocument();
+    expect(screen.getByText(/contact student services/i)).toBeInTheDocument();
+    // Done exits to a fresh start — nothing to report.
+    await user.click(screen.getByRole("button", { name: /^done$/i }));
+    await screen.findByRole("heading", { name: /report an absence/i });
   });
 });

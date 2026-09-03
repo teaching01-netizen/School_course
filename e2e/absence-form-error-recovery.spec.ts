@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { installAbsenceRoutes, type SubmittedPayload } from "./fixtures/absence";
-import { completeToClasses, completeToReview, selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { installAbsenceRoutes, studentLookup, type SubmittedPayload } from "./fixtures/absence";
+import { acceptResumePrompt, completeToReview } from "./helpers/absenceFlow";
 
 const verificationStorageKey = "warwick-absence-parent-verification-v1";
 
@@ -20,34 +20,44 @@ test("quota rejection keeps the reviewed request available for correction", asyn
   await completeToReview(page, "Quota recovery");
   await page.getByRole("button", { name: "Submit absence" }).click();
 
-  await expect(page.getByRole("alert").filter({ hasText: /maximum absences allowed/i })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /reached the absence limit/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
   await expect(page.getByText("Quota recovery")).toBeVisible();
   expect(requestCount).toBe(1);
 });
 
-test("missing make-up selection blocks review and focuses a visible picker", async ({ page }) => {
+test("a missing make-up cannot be skipped into review", async ({ page }) => {
   const submitted: SubmittedPayload[] = [];
+  await page.addInitScript((draft) => {
+    window.sessionStorage.setItem("warwick.absence.draft.v1", JSON.stringify(draft));
+  }, {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    wcode: studentLookup.wcode,
+    collectedEmail: "student@example.com",
+    step: 2,
+    selectedSubjectIds: ["subject-math"],
+    selectedSessionIds: ["missed-boundary"],
+    sitInSelections: {},
+    sitInPriorityLevels: {},
+    reason: "Saved reason",
+  });
   await installAbsenceRoutes(page, submitted);
-  await completeToClasses(page);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  await selectAbsenceCheckbox(page, "session-missed-boundary");
-  await page.getByRole("button", { name: "Review absence" }).click();
 
-  await expect(page.getByRole("alert").filter({ hasText: /pick a make-up class/i })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const active = document.activeElement;
-        if (!(active instanceof HTMLElement)) return false;
-        const styles = getComputedStyle(active);
-        return active.matches("[data-make-up-trigger], select[aria-label*='make-up' i], select")
-          && styles.display !== "none"
-          && styles.visibility !== "hidden"
-          && active.getClientRects().length > 0;
-      }),
-    )
-    .toBe(true);
+  await page.goto("/absence");
+  await acceptResumePrompt(page);
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
+  await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  await page.getByRole("heading", { name: "Which class will you miss?" }).waitFor();
+  // The restored draft requires reviewing the current classes first.
+  await page.getByRole("button", { name: "Review updated classes" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // The physical make-up must be chosen — review stays unreachable.
+  await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use this class" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
 });
 
 test("a server-invalid saved verification returns the student to verification", async ({ page }) => {
@@ -67,11 +77,12 @@ test("a server-invalid saved verification returns the student to verification", 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill("W250389");
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
 
-  await expect(page.getByRole("heading", { name: "Parent verification" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /send code/i })).toBeEnabled();
-  await expect(page.getByText(/verification has expired|verification phone/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+
+  // The stale token is rejected server-side and the student can simply resend.
+  await expect(page.getByRole("heading", { name: /confirm with a parent/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(send code|resend code)$/i })).toBeEnabled();
 });

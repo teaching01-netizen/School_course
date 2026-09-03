@@ -6,6 +6,21 @@ import type {
   VerifiedStudentProfile,
 } from "@/types";
 
+/** Local-time date key N days from today, e.g. relativeDateKey(0) -> "2026-09-03". */
+export function relativeDateKey(dayOffset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** ISO timestamp for a local time on a day N days from today. */
+export function relativeISO(hour: number, minute: number, dayOffset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, minute, 0, 0);
+  return d.toISOString();
+}
+
 export const PUBLIC_FORM_CONFIG = {
   form: {
     max_date_range_days: 30,
@@ -69,6 +84,8 @@ export function publicStudentLookup(
   student: StudentLookupResponse,
   lookupToken = `lookup-${student.wcode}`,
 ): PublicStudentLookupResponse {
+  const hintSource = student.nickname?.trim() || student.full_name?.trim() || "";
+  const phoneDigits = student.parent_phone?.replace(/\D/g, "") ?? "";
   return {
     wcode: student.wcode,
     lookup_token: lookupToken,
@@ -76,6 +93,8 @@ export function publicStudentLookup(
       student.email_crm?.trim() || student.email_system?.trim() || student.email?.trim(),
     ),
     parent_verification_available: Boolean(student.parent_phone?.trim()),
+    ...(hintSource ? { nickname_hint: `${Array.from(hintSource)[0]}***` } : {}),
+    ...(phoneDigits.length >= 4 ? { parent_phone_hint: `••••${phoneDigits.slice(-4)}` } : {}),
   };
 }
 
@@ -101,12 +120,13 @@ export const PUBLIC_FORM_SESSIONS: SessionsInRangeResponse = {
       course_id: "course-math",
       course_code: "MATH201",
       course_name: "Mathematics",
+      teacher_name: "Ms. Jane",
       sessions: [
         {
           id: "session-math-1",
-          start_at: "2026-08-03T02:00:00Z",
-          end_at: "2026-08-03T03:30:00Z",
-          date: "2026-08-03",
+          start_at: relativeISO(17, 0, 0),
+          end_at: relativeISO(19, 0, 0),
+          date: relativeDateKey(0),
           already_absent: false,
         },
       ],
@@ -118,12 +138,13 @@ export const PUBLIC_FORM_SESSIONS: SessionsInRangeResponse = {
       course_id: "course-physics",
       course_code: "PHYS201",
       course_name: "Physics",
+      teacher_name: "Mr. Long",
       sessions: [
         {
           id: "session-physics-1",
-          start_at: "2026-08-04T02:00:00Z",
-          end_at: "2026-08-04T03:30:00Z",
-          date: "2026-08-04",
+          start_at: relativeISO(17, 0, 1),
+          end_at: relativeISO(19, 0, 1),
+          date: relativeDateKey(1),
           already_absent: false,
         },
       ],

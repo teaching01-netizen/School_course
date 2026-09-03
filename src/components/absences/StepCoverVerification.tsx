@@ -41,6 +41,15 @@ function isRetryable(err: unknown): boolean {
   }
   return err instanceof TypeError;
 }
+
+/** Masks every digit but the last two, grouped for readability (e.g. • ••• ••• 42). */
+function maskEnrollNumber(digits: string): string {
+  if (!digits) return "";
+  const combined = "•".repeat(Math.max(0, digits.length - 2)) + digits.slice(-2);
+  const chunks: string[] = [];
+  for (let i = combined.length; i > 0; i -= 3) chunks.unshift(combined.slice(Math.max(0, i - 3), i));
+  return chunks.join(" ");
+}
 export default function StepCoverVerification({
   wcode,
   lookupToken,
@@ -242,8 +251,13 @@ export default function StepCoverVerification({
       verification.setCode("");
       onSatisfied();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Verification failed";
       const retryable = isRetryable(err);
+      // A definitive rejection from the server almost always means the code
+      // was wrong; say that plainly instead of echoing a technical message.
+      const wrongCode = err instanceof ApiRequestError && !retryable;
+      const message = wrongCode
+        ? "That code isn't right. Check the message and try again."
+        : err instanceof Error ? err.message : "Verification failed";
       setVerifyError(message);
       setVerifyRetryable(retryable);
       if (!retryable) verification.setCode("");
@@ -252,6 +266,10 @@ export default function StepCoverVerification({
     }
   }
   const parentMissing = !verificationAvailable;
+  // Enrollment: once a valid number is entered, echo it back for confirmation
+  // before any OTP goes out. The input stays mounted so typing is never cut
+  // off by the panel appearing.
+  const showEnrollConfirm = parentMissing && enrollPhoneValid && !verified;
   const canSend = online
     && smsParentEnabled
     && !isSending
@@ -262,7 +280,7 @@ export default function StepCoverVerification({
   if (verified) {
     return (
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-[var(--color-wi-green)] font-medium">✓ Verified</p>
+        <p className="text-xs font-medium text-[var(--color-wi-green-dark)]">✓ Verified</p>
         {smsParentEnabled && !parentMissing ? (
           <button
             type="button"
@@ -329,30 +347,63 @@ export default function StepCoverVerification({
       ) : null}
 
       {smsParentEnabled && parentMissing && !verified ? (
-        <div className="space-y-1.5">
-          <label htmlFor="parent-phone-input" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
-            Parent's phone number <span className="text-[var(--color-wi-red)]">*</span>
-          </label>
-          <input
-            id="parent-phone-input"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-            placeholder="e.g. 0812345678"
-            value={enrollPhone}
-            onChange={(e) => setEnrollPhone(e.target.value)}
-          />
-          <p className="text-xs text-[var(--color-wi-text-light)]">
-            We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, then save it for future absence confirmations.
-          </p>
-          {!enrollPhoneValid && enrollPhone.trim() ? (
-            <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
+        <>
+          <div className="space-y-1.5">
+            <label htmlFor="parent-phone-input" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
+              Parent's phone number <span className="text-[var(--color-wi-red)]">*</span>
+            </label>
+            <input
+              id="parent-phone-input"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+              placeholder="e.g. 0812345678"
+              value={enrollPhone}
+              onChange={(e) => setEnrollPhone(e.target.value)}
+            />
+            <p className="text-xs text-[var(--color-wi-text-light)]">
+              We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, then save it for future absence confirmations.
+            </p>
+            {!enrollPhoneValid && enrollPhone.trim() ? (
+              <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
+            ) : null}
+          </div>
+          {showEnrollConfirm ? (
+            // The number is echoed back before any OTP goes out, so a typo is
+            // recoverable with one tap instead of a failed delivery.
+            <div className="rounded-xl border border-[var(--color-wi-border)] bg-white p-4">
+              <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">Confirm this number</p>
+              <p className="mt-1 font-mono text-[20px] font-semibold tracking-widest text-[var(--color-wi-text)]">
+                {maskEnrollNumber(enrollPhoneDigits)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+                We&apos;ll send a code here.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <SmsSendButton
+                  isSending={isSending || deliveryPending}
+                  sendCount={sendCount}
+                  disabled={!canSend}
+                  onClick={() => void handleSend()}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnrollPhone("");
+                    setSendError(null);
+                  }}
+                  className="min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                >
+                  Change number
+                </button>
+              </div>
+            </div>
           ) : null}
-        </div>
+        </>
       ) : null}
 
-      {smsParentEnabled ? (
+      {smsParentEnabled && !parentMissing ? (
         <SmsSendButton
           isSending={isSending || deliveryPending}
           sendCount={sendCount}
@@ -379,7 +430,7 @@ export default function StepCoverVerification({
 
       {deliveryStatus === "expired" ? (
         <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
-          The verification code expired. Request a new code.
+          That code has expired. We&apos;ll send you a new one.
         </p>
       ) : null}
 
@@ -388,7 +439,7 @@ export default function StepCoverVerification({
           initial={reduceMotion ? false : { opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={reduceMotion ? { duration: 0 } : undefined}
-          className="flex items-center gap-1.5 text-xs text-[var(--color-wi-green)] font-medium"
+          className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-wi-green-dark)]"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -411,7 +462,7 @@ export default function StepCoverVerification({
             disabled={isSending || isVerifying}
             error={!!verifyError}
             autoFocus={sendCount > 0}
-            label="Verification code"
+            label="Confirmation code"
             describedBy={verifyError ? "verify-error" : undefined}
           />
           <p className="text-xs text-[var(--color-wi-text-light)]">Enter the 6-digit code sent to your parent's phone.</p>

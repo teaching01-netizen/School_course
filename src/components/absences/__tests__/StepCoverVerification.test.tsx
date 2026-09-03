@@ -155,8 +155,20 @@ it("reports an expired OTP without claiming delivery", async () => {
 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
-  expect(await screen.findByText(/verification code expired/i)).toBeInTheDocument();
+  expect(await screen.findByText(/that code has expired/i)).toBeInTheDocument();
   expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+});
+
+it("explains a wrong code in student language and clears it for retry", async () => {
+  mockedApiJson
+    .mockResolvedValueOnce(pendingVerification("accepted"))
+    .mockRejectedValueOnce(new ApiRequestError("Invalid code", { status: 400 }));
+  const { verification } = renderVerification({
+    verification: { code: "123456", token: "verification-token" },
+  });
+
+  expect(await screen.findByText(/that code isn't right/i)).toBeInTheDocument();
+  expect(verification.setCode).toHaveBeenCalledWith("");
 });
 
 it("automatically verifies a complete six-digit code", async () => {
@@ -289,11 +301,12 @@ it.each([
   },
   {
     // No phone on file is no longer a dead end: the enrollment input is
-    // offered and the send button appears (disabled until a valid number).
+    // offered, and the send action appears only once a valid number has been
+    // entered (inside the confirm-number panel).
     label: "SMS on, phone missing offers enrollment",
     smsParentEnabled: true,
     parentPhone: null,
-    sendVisible: true,
+    sendVisible: false,
     enrollVisible: true,
     bypassVisible: false,
     alertText: null,
@@ -353,15 +366,20 @@ it("enrolls a client-provided parent phone when none is on file", async () => {
   renderVerification({ parentPhone: null });
 
   const input = screen.getByLabelText(/parent's phone number/i);
-  const sendButton = screen.getByRole("button", { name: /^send code$/i });
-  expect(sendButton).toBeDisabled();
+  // No send action until a valid number is entered and confirmed.
+  expect(screen.queryByRole("button", { name: /^send code$/i })).not.toBeInTheDocument();
 
   await user.type(input, "08");
-  expect(sendButton).toBeDisabled();
+  expect(screen.queryByRole("button", { name: /^send code$/i })).not.toBeInTheDocument();
   await user.type(input, "99998888");
 
-  expect(sendButton).toBeEnabled();
-  await user.click(sendButton);
+  // The number is echoed back for confirmation before any code goes out.
+  expect(screen.getByText(/confirm this number/i)).toBeInTheDocument();
+  expect(screen.getByText("• ••• ••• •88")).toBeInTheDocument();
+  expect(screen.queryByText("0899998888")).not.toBeInTheDocument();
+  const confirmSend = screen.getByRole("button", { name: /^send code$/i });
+  expect(confirmSend).toBeEnabled();
+  await user.click(confirmSend);
 
   await waitFor(() =>
     expect(mockedApiJson).toHaveBeenCalledWith(
@@ -373,4 +391,33 @@ it("enrolls a client-provided parent phone when none is on file", async () => {
     ),
   );
   expect(await screen.findByText(/^code sent to ••••8888/i)).toBeInTheDocument();
+});
+
+it("lets the student change the number from the confirmation step", async () => {
+  const user = userEvent.setup();
+  renderVerification({ parentPhone: null });
+
+  const input = screen.getByLabelText(/parent's phone number/i);
+  await user.type(input, "0899998888");
+  expect(screen.getByText(/confirm this number/i)).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /change number/i }));
+
+  const inputAgain = screen.getByLabelText(/parent's phone number/i);
+  expect(inputAgain).toHaveValue("");
+  expect(screen.queryByText(/confirm this number/i)).not.toBeInTheDocument();
+});
+
+it("keeps typing working while the confirmation panel is shown", async () => {
+  const user = userEvent.setup();
+  renderVerification({ parentPhone: null });
+
+  const input = screen.getByLabelText(/parent's phone number/i);
+  await user.type(input, "0899998888");
+
+  // The panel appears once the number is valid but never steals the field.
+  expect(screen.getByText(/confirm this number/i)).toBeInTheDocument();
+  expect(input).toHaveValue("0899998888");
+  await user.type(input, "9");
+  expect(input).toHaveValue("08999988889");
 });

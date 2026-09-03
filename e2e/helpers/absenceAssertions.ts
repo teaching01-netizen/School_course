@@ -45,7 +45,7 @@ export async function expectAnimationsSettled(page: Page) {
 
 export async function expectOtpBoxesInsideViewport(page: Page) {
   const boxes = page
-    .locator('input[aria-label="Verification code"]')
+    .locator('input[aria-label="Confirmation code"]')
     .locator("xpath=..")
     .locator(':scope > div[aria-hidden="true"]');
   await expect(boxes).toHaveCount(6);
@@ -124,26 +124,10 @@ export async function expectMinimumTapTarget(page: Page, selector: string) {
   expect(bounds!.height).toBeGreaterThanOrEqual(44);
 }
 
-export async function expectCurrentStep(page: Page, step: number, label: string) {
-  const progress = page.getByRole("navigation", { name: "Progress" });
-  const currentStepButton = progress.getByRole("button", {
-    name: new RegExp(`${label}.*current`, "i"),
-  });
-  await expect(currentStepButton).toBeVisible();
-  await expect(currentStepButton).toContainText(String(step));
-}
-
-export async function expectAdaptiveTabletClassesLayout(page: Page) {
-  await expect(page.locator(".absence-classes-layout")).toBeVisible();
-  const isLandscapeTablet = await page.evaluate(
-    () => window.innerWidth >= 960 && window.innerWidth > window.innerHeight,
-  );
-  if (!isLandscapeTablet) return;
-
-  const subjects = await page.locator(".absence-classes-layout__subjects").boundingBox();
-  const work = await page.locator(".absence-classes-layout__work").boundingBox();
-  expect(subjects).not.toBeNull();
-  expect(work).not.toBeNull();
-  expect(work!.x).toBeGreaterThan(subjects!.x + 1);
-  expect(Math.abs(work!.y - subjects!.y)).toBeLessThanOrEqual(40);
+export async function expectProgress(page: Page, minPercent: number, maxPercent: number) {
+  const progress = page.getByRole("progressbar");
+  await expect(progress).toBeVisible();
+  const value = Number(await progress.getAttribute("aria-valuenow"));
+  expect(value).toBeGreaterThanOrEqual(minPercent);
+  expect(value).toBeLessThanOrEqual(maxPercent);
 }

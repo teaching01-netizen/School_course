@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installAbsenceRoutes, type SubmittedPayload } from "./fixtures/absence";
-import { completeToClasses, completeToReview, selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { acceptResumePrompt, completeToClasses, selectClass } from "./helpers/absenceFlow";
 import {
   expectFocusedElementVisible,
   expectInsideVisualViewport,
@@ -24,8 +24,8 @@ test("restored draft step cannot bypass student and parent verification", async 
     collectedEmail: "student@example.com",
     step: 3,
     selectedSubjectIds: ["subject-math"],
-    selectedSessionIds: ["session-missed-boundary"],
-    sitInSelections: { "session-missed-boundary": "sit-in-boundary" },
+    selectedSessionIds: ["missed-boundary"],
+    sitInSelections: { "missed-boundary": "sit-boundary" },
     sitInPriorityLevels: {},
     reason: "Saved reason",
   });
@@ -37,10 +37,15 @@ test("restored draft step cannot bypass student and parent verification", async 
 
   await page.goto("/absence");
 
-  await expect(page.getByRole("heading", { name: "Find your profile" })).toBeVisible();
-  await expect(page.getByText("Student ID found")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue to verification" })).toBeVisible();
+  // The draft is offered for resume, then restores identity — but classes
+  // never load before verification.
+  await acceptResumePrompt(page);
+  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
+  expect(sessionRequests).toBe(0);
+
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await expect(page.getByRole("heading", { name: /confirm with a parent/i })).toBeVisible();
   expect(sessionRequests).toBe(0);
 });
 
@@ -64,7 +69,7 @@ test("connectivity changes do not block the student form", async ({ page }) => {
   await expect(page.getByPlaceholder("e.g. W250389")).toBeVisible();
   await setConnectivity(page, false);
 
-  await expect(page.getByRole("button", { name: "Search" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
   await expect(page.getByRole("status").filter({ hasText: /offline/i })).toHaveCount(0);
 });
 
@@ -81,8 +86,12 @@ test("visual viewport resize keeps the focused reason and action bar reachable",
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
   await completeToClasses(page);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  const reason = page.getByLabel(/reason for absence/i);
+  await selectClass(page, "Mathematics");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Use this class" }).click();
+  await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
+  await page.getByRole("radio", { name: "Other" }).click();
+  const reason = page.getByLabel(/tell us a little more/i);
   await expect(reason).toBeVisible();
   await reason.focus();
 
