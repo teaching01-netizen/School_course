@@ -35,7 +35,7 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
         </div>
       ) : null}
 
-      <div className="mt-7 overflow-hidden rounded-2xl border border-[var(--color-wi-border)] bg-white">
+      <div className="wi-card mt-7 overflow-hidden rounded-2xl border border-[var(--color-wi-border)] bg-white">
         {sections.map((section, index) => (
           <div
             key={section.key}

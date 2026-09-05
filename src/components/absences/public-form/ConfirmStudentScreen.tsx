@@ -19,7 +19,7 @@ export default function ConfirmStudentScreen({
 
       </ScreenTitle>
 
-      <div className="mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white px-6 py-7">
+      <div className="wi-card mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white px-6 py-7">
         {nameHint ? (
           <p className="text-[22px] font-semibold text-[var(--color-wi-text)]">{nameHint}</p>
         ) : null}

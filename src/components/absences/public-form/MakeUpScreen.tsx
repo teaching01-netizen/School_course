@@ -304,7 +304,7 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
       ref={rootRef}
       data-makeup-row={plan.sessionKey}
       className={clsx(
-        "rounded-2xl border bg-white p-4 sm:p-5",
+        "wi-card rounded-2xl border bg-white p-4 sm:p-5",
         isFocused ? "border-[var(--color-wi-primary)] ring-2 ring-[var(--color-wi-primary)]/20" : "border-[var(--color-wi-border)]",
       )}
     >

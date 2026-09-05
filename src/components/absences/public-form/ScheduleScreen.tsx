@@ -419,7 +419,7 @@ export default function ScheduleScreen({
         Which class will you miss?
 
       </ScreenTitle>
-        <div className="mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white p-8 text-center">
+        <div className="wi-card mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white p-8 text-center">
           <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">
             {events.length > 0 ? "No more classes to report" : "No upcoming classes"}
           </p>
@@ -469,7 +469,7 @@ export default function ScheduleScreen({
           <div
             ref={gridRef}
             onKeyDown={handleGridKeyDown}
-            className="mt-6 rounded-2xl border border-[var(--color-wi-border)] bg-white p-4 sm:p-5 lg:mt-0"
+            className="wi-card mt-6 rounded-2xl border border-[var(--color-wi-border)] bg-white p-4 sm:p-5 lg:mt-0"
             role="group"
             aria-label="Your classes by day. Use the arrow keys to move between days, Home and End to jump to the start or end of the week, Enter to open a day."
           >
@@ -625,7 +625,7 @@ export default function ScheduleScreen({
             ) : null}
 
             {focusedEvents.length === 0 ? (
-              <div className="mt-3 rounded-2xl border border-[var(--color-wi-border)] bg-white p-6 text-center">
+              <div className="wi-card mt-3 rounded-2xl border border-[var(--color-wi-border)] bg-white p-6 text-center">
                 <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">No classes this day</p>
                 {nextReportableAfterFocus ? (
                   <button
@@ -748,7 +748,7 @@ export default function ScheduleScreen({
               controls is one View tap away so it never competes with the agenda. */}
           {selectedEvents.length > 0 ? (
             <div className="mt-8 space-y-2.5">
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-wi-border)] bg-white px-4 py-3">
+              <div className="wi-card flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-wi-border)] bg-white px-4 py-3">
                 <p className="min-w-0 text-[15px] font-semibold leading-snug text-[var(--color-wi-text)]">
                   {selectedEvents.length === 1 ? "1 class day selected" : `${selectedEvents.length} class days selected`}
                   <span className="block text-[13px] font-normal text-[var(--color-wi-text-light)]">

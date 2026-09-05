@@ -37,7 +37,7 @@ export default function ResumeScreen({
 
       </ScreenSubtitle>
 
-      <div className="mt-6 rounded-2xl border border-[var(--color-wi-border)] bg-white px-5 py-4">
+      <div className="wi-card mt-6 rounded-2xl border border-[var(--color-wi-border)] bg-white px-5 py-4">
         <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--color-wi-text-light)]">
           Saved report
         </p>

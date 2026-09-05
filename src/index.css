@@ -30,6 +30,11 @@
   --color-wi-amber-ink: #92400E;
   --color-wi-amber-bg: #FFFBEB;
   --color-wi-callout: #F8FAFC;
+  /* Resting card elevation for the public flow: one soft spatial layer
+     shared by decision cards (identity, resume, review, success, calendar,
+     agenda rows). Quieter than the floating undo toast, stronger than flat
+     content — the shell header/footer glass stays the topmost layer. */
+  --shadow-wi-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px -4px rgb(15 23 42 / 0.08);
   --radius-sm: 5px;
   --radius-md: 6px;
   --radius-lg: 10px;
@@ -718,6 +723,14 @@ html {
     transition: none;
     transform: none;
   }
+}
+
+/* Resting decision-card surface for the public flow. One class (not nine
+   hand-written shadow utilities) so depth stays a single calm layer:
+   `rounded-2xl border bg-white` keep their utilities per card for shape
+   and padding; only the shadow is shared. */
+.wi-card {
+  box-shadow: var(--shadow-wi-card);
 }
 
 /* Undo toasts: pinned to the bottom of the scrolling main so the action

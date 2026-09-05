@@ -49,7 +49,7 @@ export default function SuccessScreen({ groups, reference, status, onDone }: Suc
 
       <div className="mt-8 space-y-4 text-left">
         {groups.map((group) => (
-          <div key={group.key} className="rounded-2xl border border-[var(--color-wi-border)] bg-white px-5 py-4">
+          <div key={group.key} className="wi-card rounded-2xl border border-[var(--color-wi-border)] bg-white px-5 py-4">
             <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">{group.label}</p>
             <p className="mt-0.5 text-[13px] text-[var(--color-wi-text-light)]">
               Missed · {group.absence}
