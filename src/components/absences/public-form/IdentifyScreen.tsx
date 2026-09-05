@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import clsx from "clsx";
 import { LoaderCircle } from "lucide-react";
+import ScreenTitle from "./ScreenTitle";
 
 type IdentifyScreenProps = {
   value: string;
@@ -34,9 +35,10 @@ export default function IdentifyScreen({
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Report an absence
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
         Enter your student ID to begin.
       </p>

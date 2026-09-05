@@ -1,3 +1,4 @@
+import ScreenTitle from "./ScreenTitle";
 export type ReviewSection = {
   key: string;
   title: string;
@@ -20,9 +21,10 @@ type ReviewScreenProps = {
 export default function ReviewScreen({ studentName, wcode, sections, notice = null }: ReviewScreenProps) {
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Review your absence
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[15px] text-[var(--color-wi-text-light)]">
         {studentName} · <span className="font-mono">{wcode}</span>
       </p>

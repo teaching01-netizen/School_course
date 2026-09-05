@@ -1,3 +1,4 @@
+import ScreenTitle from "./ScreenTitle";
 type ConfirmStudentScreenProps = {
   nameHint?: string;
   wcode: string;
@@ -13,9 +14,10 @@ export default function ConfirmStudentScreen({
 }: ConfirmStudentScreenProps) {
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Is this you?
-      </h1>
+
+      </ScreenTitle>
 
       <div className="mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white px-6 py-7">
         {nameHint ? (

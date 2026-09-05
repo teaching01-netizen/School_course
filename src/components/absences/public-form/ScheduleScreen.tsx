@@ -6,6 +6,7 @@ import { instituteDateKey, groupByDay } from "@/features/absences/domain/session
 import type { SubjectSessions } from "@/features/absences/types";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import MobileBottomSheet from "./MobileBottomSheet";
+import ScreenTitle from "./ScreenTitle";
 
 type ScheduleScreenProps = {
   groups: SubjectSessions[];
@@ -375,9 +376,10 @@ export default function ScheduleScreen({
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-2xl lg:max-w-5xl">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
-          Which class will you miss?
-        </h1>
+        <ScreenTitle>
+        Which class will you miss?
+
+      </ScreenTitle>
         <div className="mt-8">
           <LoadingSkeleton type="table" lines={4} />
         </div>
@@ -388,9 +390,10 @@ export default function ScheduleScreen({
   if (error) {
     return (
       <div className="mx-auto w-full max-w-2xl lg:max-w-5xl">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
-          Which class will you miss?
-        </h1>
+        <ScreenTitle>
+        Which class will you miss?
+
+      </ScreenTitle>
         <div role="alert" className="mt-8 space-y-3 rounded-2xl border border-[var(--color-wi-red)]/20 bg-[var(--color-wi-danger-bg)] p-5">
           <p className="text-[15px] leading-snug text-[var(--color-wi-red)]">{error}</p>
           {onRetry ? (
@@ -412,9 +415,10 @@ export default function ScheduleScreen({
   if (nothingToShow) {
     return (
       <div className="mx-auto w-full max-w-xl">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
-          Which class will you miss?
-        </h1>
+        <ScreenTitle>
+        Which class will you miss?
+
+      </ScreenTitle>
         <div className="mt-8 rounded-2xl border border-[var(--color-wi-border)] bg-white p-8 text-center">
           <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">
             {events.length > 0 ? "No more classes to report" : "No upcoming classes"}
@@ -434,9 +438,10 @@ export default function ScheduleScreen({
 
   return (
     <div className="mx-auto w-full max-w-2xl lg:max-w-5xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Which class will you miss?
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
         Selecting a class includes all its sessions that day.
       </p>

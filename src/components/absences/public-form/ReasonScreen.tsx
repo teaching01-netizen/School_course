@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import clsx from "clsx";
 import { Check } from "lucide-react";
 import ReasonField from "./ReasonField";
+import ScreenTitle from "./ScreenTitle";
 
 export type ReasonCategory = { value: string; label: string };
 
@@ -61,9 +62,10 @@ export default function ReasonScreen({
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Why will you be away?
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
         Pick the closest match{required ? "" : " — or tell us in your own words"}.
       </p>

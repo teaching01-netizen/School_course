@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import StepCoverVerification from "@/components/absences/StepCoverVerification";
+import ScreenTitle from "./ScreenTitle";
 
 type VerificationStore = {
   code: string;
@@ -67,9 +68,9 @@ export default function ParentConfirmScreen({
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="mt-5 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+          <ScreenTitle className="mt-5">
             Confirmed
-          </h1>
+          </ScreenTitle>
           <p className="mt-2 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
             Your parent confirmed this absence. Tap Continue when you're ready.
           </p>
@@ -85,9 +86,9 @@ export default function ParentConfirmScreen({
         </div>
       ) : (
         <>
-          <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+          <ScreenTitle>
             {sessionStarted ? "Enter the code" : hasPhone ? "Confirm with a parent" : "Add a parent phone number"}
-          </h1>
+          </ScreenTitle>
 
           {blocked ? (
             <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] p-4 text-[15px] text-[var(--color-wi-amber-ink)]">

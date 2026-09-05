@@ -1,5 +1,6 @@
 import { formatDate, formatTime } from "@/utils/date";
 import { instituteDateKey } from "@/features/absences/domain/sessionGrouping";
+import ScreenTitle from "./ScreenTitle";
 
 type ResumeScreenProps = {
   /** Draft `updatedAt` timestamp (ms) when a full draft exists. */
@@ -27,9 +28,10 @@ export default function ResumeScreen({
 }: ResumeScreenProps) {
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Continue your absence report?
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
         {startedCopy(startedAt)}
       </p>

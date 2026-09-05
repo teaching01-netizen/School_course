@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Check, ChevronRight, LoaderCircle } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
+import ScreenTitle from "./ScreenTitle";
 
 export type MakeUpOption = {
   value: string;
@@ -372,9 +373,10 @@ export default function MakeUpScreen({
   if (plans.length === 0) return null;
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <ScreenTitle>
         Your make-up
-      </h1>
+
+      </ScreenTitle>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
         Here&apos;s how each class you&apos;ll miss will be made up. Suggestions are proposals — nothing is booked until you choose a time.
       </p>
