@@ -78,7 +78,7 @@ export default function MobileBottomSheet({ open, title, onClose, children, rest
         <div className="absence-mobile-sheet__handle" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4">
           <h2 id={titleId} className="text-lg font-semibold text-[var(--color-wi-text)]">{title}</h2>
-          <button type="button" onClick={() => onCloseRef.current()} aria-label="Close sheet" className="min-h-11 min-w-11 rounded-full text-2xl leading-none text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
+          <button type="button" onClick={() => onCloseRef.current()} aria-label="Close sheet" className="wi-press min-h-11 min-w-11 rounded-full text-2xl leading-none text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
             <span aria-hidden="true">×</span>
           </button>
         </div>

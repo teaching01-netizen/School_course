@@ -197,6 +197,22 @@ func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 	return settings.MaxDateRangeDays + lookbackDays
 }
 
+// maxStaffSessionsRangeDays bounds explicit staff ranges. Without it an
+// admin could request 1970-01-01 to 2100-01-01 and force a full-history
+// materialization per request; with it the pathological case fails fast
+// with 400 before any session query runs.
+const maxStaffSessionsRangeDays = 366
+
+// maxRangeDaysForLookup returns the explicit-range cap: the absence-form
+// cap for students, at least the staff cap for staff.
+func maxRangeDaysForLookup(settings absenceSettings, adminRequest bool) int {
+	cap := maxSessionsLookupRangeDays(settings.Form)
+	if adminRequest && cap < maxStaffSessionsRangeDays {
+		cap = maxStaffSessionsRangeDays
+	}
+	return cap
+}
+
 func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
 	if v == nil {
 		return false
@@ -1161,6 +1177,10 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Request, forcedWCode string, requireAdmin bool) {
+	if sessionsRangeUseV2() {
+		s.serveSessionsRangeV2(w, r, forcedWCode, requireAdmin)
+		return
+	}
 	wcode := normalizeWCode(forcedWCode)
 	if wcode == "" {
 		wcode = normalizeWCode(r.URL.Query().Get("wcode"))
@@ -1216,12 +1236,12 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	if dateRangeProvided && !adminRequest {
+	if dateRangeProvided {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
-		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
-		if days > maxLookupRangeDays {
+		maxRangeDays := maxRangeDaysForLookup(settings, adminRequest)
+		if days > maxRangeDays {
 			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
-				fmt.Sprintf("Date range must be %d days or less", maxLookupRangeDays))
+				fmt.Sprintf("Date range must be %d days or less", maxRangeDays))
 			return
 		}
 	}

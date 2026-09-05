@@ -3,6 +3,9 @@ export type ReviewSection = {
   title: string;
   lines: string[];
   onEdit?: () => void;
+  /** Optional per-line edit (parallel to lines); rendered under structured lines. */
+  onEditLine?: (lineIndex: number) => void;
+  editLineLabel?: string;
 };
 
 type ReviewScreenProps = {
@@ -23,7 +26,7 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
       </p>
 
       {notice ? (
-        <div role="status" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber)]">
+        <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber)]">
           {notice}
         </div>
       ) : null}
@@ -42,18 +45,42 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
                 <button
                   type="button"
                   onClick={section.onEdit}
-                  className="min-h-11 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  className="wi-press min-h-11 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                 >
                   Edit {section.title.toLowerCase()}
                 </button>
               ) : null}
             </div>
-            <div className="mt-2 space-y-1.5">
-              {section.lines.map((line, lineIndex) => (
-                <p key={lineIndex} className="text-[15px] leading-relaxed text-[var(--color-wi-text)]">
-                  {line}
-                </p>
-              ))}
+            <div className="mt-2 space-y-3">
+              {section.lines.map((line, lineIndex) => {
+                const makeupSplit = line.split(" — Make-up: ");
+                if (makeupSplit.length === 2) {
+                  return (
+                    <div key={lineIndex} className="rounded-xl bg-[var(--color-wi-bg)] px-3 py-2">
+                      <p className="text-[15px] font-medium leading-relaxed text-[var(--color-wi-text)]">
+                        {makeupSplit[0]}
+                      </p>
+                      <p className="mt-0.5 text-[13px] leading-relaxed text-[var(--color-wi-text-light)]">
+                        Make-up: {makeupSplit[1]}
+                      </p>
+                      {section.onEditLine ? (
+                        <button
+                          type="button"
+                          onClick={() => section.onEditLine?.(lineIndex)}
+                          className="wi-press mt-1 min-h-9 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                        >
+                          {section.editLineLabel ?? "Edit make-up"}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                }
+                return (
+                  <p key={lineIndex} className="text-[15px] leading-relaxed text-[var(--color-wi-text)]">
+                    {line}
+                  </p>
+                );
+              })}
             </div>
           </div>
         ))}

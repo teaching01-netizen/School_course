@@ -16,6 +16,13 @@ const DRAFT_DEBOUNCE_MS = 300;
 
 export function useAbsenceDraft() {
   const [draft, setDraft] = useState<AbsenceDraftV1 | null>(() => readAbsenceDraft());
+  // The draft that still waits to be restored into the form (the resume
+  // snapshot, seeded from the on-load draft and re-seeded when the same
+  // Student ID is re-identified mid-flow). While it exists, auto-save is
+  // suspended: the form's pre-restore state is cleared/empty and must never
+  // overwrite the stored draft the student is returning to.
+  const [restoreDraft, setRestoreDraft] = useState<AbsenceDraftV1 | null>(() => readAbsenceDraft());
+  const restoreRef = useRef<AbsenceDraftV1 | null>(restoreDraft);
   const pendingRef = useRef<DraftValues | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -54,18 +61,34 @@ export function useAbsenceDraft() {
   }, [flushPending]);
 
   const saveDraft = useCallback((values: DraftValues) => {
+    // While a restore snapshot is pending the stored draft is the source the
+    // form is about to restore from; refuse any auto-save that could clobber
+    // it (e.g. the empty selection state shown before the restore runs).
+    if (restoreRef.current) return;
     pendingRef.current = values;
     if (timerRef.current != null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(flushPending, DRAFT_DEBOUNCE_MS);
   }, [flushPending]);
 
+  /** Marks `snapshot` as awaiting restore (auto-save suspended). Pass null
+   *  once the restore is consumed, abandoned, or the report is discarded. */
+  const beginRestore = useCallback((snapshot: AbsenceDraftV1 | null) => {
+    cancelPending();
+    restoreRef.current = snapshot;
+    setRestoreDraft(snapshot);
+  }, [cancelPending]);
+
   const clearDraft = useCallback(() => {
     cancelPending();
     clearAbsenceDraft();
     setDraft(null);
+    // Discarding the report also ends any pending restore: nothing may
+    // resurrect it and auto-save must not stay suspended for the next report.
+    restoreRef.current = null;
+    setRestoreDraft(null);
   }, [cancelPending]);
 
-  return { draft, saveDraft, clearDraft };
+  return { draft, restoreDraft, saveDraft, clearDraft, beginRestore };
 }
 
 export type { AbsenceDraftStep, AbsenceDraftV1, DraftValues };

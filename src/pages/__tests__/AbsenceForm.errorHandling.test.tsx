@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   renderPublicAbsenceForm,
   completeToReview,
   completeToClasses,
   selectClass,
+  startReport,
+  confirmIdentity,
 } from "./helpers/absenceFormHarness";
 import { ApiRequestError } from "@/api/client";
 import type { SessionsInRangeResponse } from "@/types";
@@ -138,8 +140,8 @@ describe("AbsenceForm — recovery & errors", () => {
     expect(alert).toBeDefined();
     // Still on the same screen, next to the input that can fix it.
     expect(screen.getByRole("heading", { name: /report an absence/i })).toBeInTheDocument();
-    // The primary action becomes a quiet retry.
-    expect(screen.getByRole("button", { name: /^try again$/i })).toBeEnabled();
+    // The primary action stays a quiet Continue next to the inline error.
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
   });
 
   it("offers a direct retry when classes fail to load", async () => {
@@ -171,7 +173,8 @@ describe("AbsenceForm — recovery & errors", () => {
     await completeToReview(user);
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
-    const notice = await screen.findByRole("status");
+    const alerts = await screen.findAllByRole("alert");
+    const notice = alerts.find((node) => node.textContent?.includes("couldn't confirm the submission"));
     expect(notice).toHaveTextContent(/we couldn't confirm the submission/i);
     expect(notice).toHaveTextContent(/it's safe to try again/i);
     expect(notice).toHaveTextContent(/you won't create a duplicate/i);
@@ -190,7 +193,8 @@ describe("AbsenceForm — recovery & errors", () => {
     await completeToReview(user);
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
-    const notice = await screen.findByRole("status");
+    const alerts = await screen.findAllByRole("alert");
+    const notice = alerts.find((node) => node.textContent?.includes("absence limit"));
     expect(notice).toHaveTextContent(/reached the absence limit/i);
     expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
   });
@@ -214,7 +218,7 @@ describe("AbsenceForm — recovery & errors", () => {
 
     // One clear recommendation.
     expect(screen.getByText(/recommended/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /use this class/i }));
+    await user.click(screen.getByRole("button", { name: /continue with this make-up/i }));
 
     await screen.findByRole("heading", { name: /why will you be away/i });
     await user.click(screen.getByRole("radio", { name: "Appointment" }));
@@ -226,7 +230,7 @@ describe("AbsenceForm — recovery & errors", () => {
     await screen.findByRole("heading", { name: /your make-up/i });
     const notice = await screen.findByRole("status");
     expect(notice).toHaveTextContent(/that class is no longer available/i);
-    expect(screen.getByRole("button", { name: /use this class/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /continue with this make-up/i })).toBeEnabled();
   });
 
   it("hides unavailable make-up options instead of listing them as disabled", async () => {
@@ -275,5 +279,24 @@ describe("AbsenceForm — recovery & errors", () => {
     // Done exits to a fresh start — nothing to report.
     await user.click(screen.getByRole("button", { name: /^done$/i }));
     await screen.findByRole("heading", { name: /report an absence/i });
+  });
+
+  it("shows the offline banner on the parent screen and unblocks when connectivity returns", async () => {
+    renderPublicAbsenceForm(mockApiJson);
+    const user = userEvent.setup();
+    await startReport(user);
+    await confirmIdentity(user);
+
+    expect(screen.queryByText(/you're offline/i)).not.toBeInTheDocument();
+
+    // Connectivity is driven by real window online/offline events via the
+    // useConnectivity hook — dispatch them the way the browser would.
+    act(() => window.dispatchEvent(new Event("offline")));
+    expect(screen.getByText(/you're offline\. reconnect to send or verify the parent code/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^send code$/i })).toBeDisabled();
+
+    act(() => window.dispatchEvent(new Event("online")));
+    expect(screen.queryByText(/you're offline/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^send code$/i })).toBeEnabled();
   });
 });

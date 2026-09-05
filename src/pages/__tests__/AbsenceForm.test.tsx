@@ -111,7 +111,7 @@ describe("AbsenceForm — conversational flow", () => {
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
     await screen.findByRole("heading", { name: /absence submitted/i });
 
-    expect(screen.getByText(/we'll review your request and keep you updated/i)).toBeInTheDocument();
+    expect(screen.getByText(/we'll review your request and send updates to your email/i)).toBeInTheDocument();
     expect(screen.getByText(/ABC12345/)).toBeInTheDocument();
     await waitFor(() => expect(submittedPayloads()).toHaveLength(1));
     const payload = submittedPayloads()[0];

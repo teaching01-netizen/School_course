@@ -241,7 +241,7 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
   await expect(page.locator("main")).toContainText("00:00–01:00");
   await expect(page.locator("main")).toContainText("00:30–01:30");
-  await page.getByRole("button", { name: "Use this class" }).click();
+  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
 
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
   await page.getByRole("radio", { name: "Other" }).click();
@@ -329,7 +329,7 @@ test("mobile public absence flow resumes student details safely and completes wi
     .first();
   await classRow.click();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Use this class" }).click();
+  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
   await page.getByRole("radio", { name: "Other" }).click();
   await page.getByLabel(/tell us a little more/i).fill("Mobile resume test");
   await page.getByRole("button", { name: "Continue" }).click();

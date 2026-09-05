@@ -24,10 +24,14 @@ export default function ConfirmStudentScreen({
         <p className="mt-1 font-mono text-[17px] text-[var(--color-wi-text-light)]">{wcode}</p>
       </div>
 
+      <p className="mt-4 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
+        Next we&apos;ll confirm with a parent by text, then pick your classes.
+      </p>
+
       <button
         type="button"
         onClick={onYes}
-        className="mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
+        className="wi-press mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
       >
         Yes, continue
       </button>
@@ -35,7 +39,7 @@ export default function ConfirmStudentScreen({
       <button
         type="button"
         onClick={onNo}
-        className="mx-auto mt-4 block rounded-lg px-3 py-2 text-[15px] font-medium text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+        className="wi-press mx-auto mt-4 block rounded-lg px-3 py-2 text-[15px] font-medium text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
       >
         Not me
       </button>

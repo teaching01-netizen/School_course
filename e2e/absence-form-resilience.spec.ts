@@ -88,7 +88,7 @@ test("visual viewport resize keeps the focused reason and action bar reachable",
   await completeToClasses(page);
   await selectClass(page, "Mathematics");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Use this class" }).click();
+  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
   await page.getByRole("radio", { name: "Other" }).click();
   const reason = page.getByLabel(/tell us a little more/i);

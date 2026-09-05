@@ -20,9 +20,13 @@ type ParentConfirmScreenProps = {
   verification: VerificationStore;
   completed: boolean;
   blocked?: boolean;
+  /** Whether the device currently has connectivity; drives the offline
+   *  banner and blocked send/verify inside StepCoverVerification. */
+  online: boolean;
   onSatisfied: () => void;
   onRestart: () => void;
   onRestored: () => void;
+  onContinue?: () => void;
 };
 
 function endingDigits(hint?: string): string {
@@ -45,9 +49,11 @@ export default function ParentConfirmScreen({
   verification,
   completed,
   blocked = false,
+  online,
   onSatisfied,
   onRestart,
   onRestored,
+  onContinue,
 }: ParentConfirmScreenProps) {
   const ending = endingDigits(phoneHint);
   const sessionStarted = Boolean(verification.token);
@@ -64,6 +70,18 @@ export default function ParentConfirmScreen({
           <h1 className="mt-5 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
             Confirmed
           </h1>
+          <p className="mt-2 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
+            Your parent confirmed this absence. Continuing automatically…
+          </p>
+          {onContinue ? (
+            <button
+              type="button"
+              onClick={onContinue}
+              className="wi-press mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
+            >
+              Continue
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
@@ -74,7 +92,7 @@ export default function ParentConfirmScreen({
           {blocked ? (
             <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] p-4 text-[15px] text-[var(--color-wi-amber)]">
               Your parent&apos;s confirmation expired. Please confirm again.
-              <span className="mt-1 block">Your absence details are still saved.</span>
+              <span className="mt-1 block">Your absence details are still saved — you&apos;ll return to where you left off.</span>
             </div>
           ) : null}
 
@@ -107,6 +125,7 @@ export default function ParentConfirmScreen({
               lookupToken={lookupToken}
               wcode={wcode}
               parentVerificationAvailable={hasPhone}
+              online={online}
               smsParentEnabled={smsParentEnabled}
               adminContact={adminContact}
               verification={verification}

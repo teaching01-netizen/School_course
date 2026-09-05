@@ -105,6 +105,6 @@ test("a restored draft with a missing make-up never reaches review", async ({ pa
   await page.getByRole("button", { name: "Review updated classes" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use this class" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
 });

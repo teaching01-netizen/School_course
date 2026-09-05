@@ -17,8 +17,9 @@ import ReasonScreen from "@/components/absences/public-form/ReasonScreen";
 import ReviewScreen, { type ReviewSection } from "@/components/absences/public-form/ReviewScreen";
 import SuccessScreen, { type SuccessGroup } from "@/components/absences/public-form/SuccessScreen";
 import { useToast } from "@/hooks/useToast";
+import { useConnectivity } from "@/hooks/useConnectivity";
 import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
-import type { AbsenceDraftV1 } from "@/features/absences/storage/absenceDraftStorage";
+import { readAbsenceDraft } from "@/features/absences/storage/absenceDraftStorage";
 import { useOtp } from "@/hooks/useOtp";
 import { formatDate, formatTime } from "@/utils/date";
 import type {
@@ -93,15 +94,15 @@ type Screen =
 const SCREEN_ORDER: Screen[] = ["identify", "resume", "confirm", "verify", "email", "classes", "makeup", "reason", "review"];
 
 const SCREEN_PROGRESS: Record<Screen, number> = {
-  identify: 0.04,
+  identify: 0.05,
   resume: 0.08,
   confirm: 0.12,
-  verify: 0.28,
-  email: 0.36,
-  classes: 0.52,
-  makeup: 0.72,
-  reason: 0.86,
-  review: 0.94,
+  verify: 0.3,
+  email: 0.35,
+  classes: 0.6,
+  makeup: 0.8,
+  reason: 0.9,
+  review: 0.95,
 };
 
 const SCREEN_LABELS: Record<Screen, string> = {
@@ -131,7 +132,7 @@ function isStudentSessionUnauthorized(error: unknown): boolean {
     && error.code === "unauthorized";
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type SelectedDay = {
   key: string;
@@ -301,10 +302,13 @@ function screenToStep(screen: Screen): 0 | 1 | 2 | 3 {
 
 export default function AbsenceForm() {
   const { addToast } = useToast();
+  const { online } = useConnectivity();
   const verification = useOtp(VERIFICATION_STORAGE_KEY);
   const reduceMotion = useReducedMotion();
-  const { draft: savedDraft, saveDraft, clearDraft } = useAbsenceDraft();
-  const draftRef = useRef<AbsenceDraftV1 | null>(savedDraft);
+  // `restoreDraft` is the draft awaiting restore; while it exists the hook
+  // suspends auto-save so the stored snapshot cannot be clobbered by the
+  // (cleared) in-form state that precedes the restore.
+  const { saveDraft, clearDraft, restoreDraft, beginRestore } = useAbsenceDraft();
   const [draftNeedsReview, setDraftNeedsReview] = useState(false);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const lookupRequestId = useRef(0);
@@ -356,11 +360,13 @@ export default function AbsenceForm() {
   useEffect(() => { lookupRef.current = lookup; }, [lookup]);
   const emailRef = useRef(collectedEmail);
   useEffect(() => { emailRef.current = collectedEmail; }, [collectedEmail]);
+  // Where to return after a mid-flow expiry bounce to verify (e.g. Review → verify → Review).
+  const returnAfterVerifyRef = useRef<Screen | null>(null);
 
   const studentDisplayName = studentProfile?.display_name || lookup?.nickname_hint || "Student";
 
   const resumeSummary = useMemo(() => {
-    const draft = draftRef.current;
+    const draft = restoreDraft;
     if (!draft) return undefined;
     const classes = draft.selectedSessionIds.length === 1
       ? "1 class"
@@ -433,6 +439,10 @@ export default function AbsenceForm() {
     setSessions([]);
     setVerificationSatisfied(false);
     setVerificationBlocked(true);
+    // Remember where the student was so re-verify can return them there.
+    if (screenRef.current !== "verify" && screenRef.current !== "identify" && screenRef.current !== "confirm") {
+      returnAfterVerifyRef.current = screenRef.current;
+    }
     setPageError("Your verified session expired. Confirm with your parent again to continue. Your absence details are still saved.");
     setSubmissionError(null);
     setScreen("verify");
@@ -460,7 +470,7 @@ export default function AbsenceForm() {
         setSessions(data.subjects);
         const validSubjectIds = new Set(profile.subjects.map((subject) => subject.id));
         setSelectedSubjectIds((current) => current.filter((id) => validSubjectIds.has(id)));
-        const draft = draftRef.current;
+        const draft = restoreDraft;
         const isSameStudent = Boolean(draft && normalizeLookupWcode(draft.wcode) === lookup.wcode);
         if (!isSameStudent || !draft) return;
         const restoredSubjectIds = draft.selectedSubjectIds.filter((subjectId) => validSubjectIds.has(subjectId));
@@ -482,7 +492,9 @@ export default function AbsenceForm() {
         setSitInSelections(restoredSitIns);
         setSitInPriorityLevels(restoredPriorityLevels);
         setDraftNeedsReview((current) => current || missingSavedSessions > 0 || restoredSessionIds.length > 0);
-        draftRef.current = null;
+        // Restore consumed: allow auto-save again so the in-form state is what
+        // gets persisted from here on.
+        beginRestore(null);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -503,7 +515,7 @@ export default function AbsenceForm() {
     try {
       clearLegacyAbsenceDraft();
       const resume = readStudentResume();
-      const draft = draftRef.current;
+      const draft = restoreDraft;
       const resumeWcode = draft?.wcode ?? resume?.wcode;
       if (!resumeWcode) return () => { active = false; };
       const restoredEmail = draft?.collectedEmail ?? resume?.collectedEmail;
@@ -534,6 +546,7 @@ export default function AbsenceForm() {
   }, [lookup, collectedEmail]);
 
   useEffect(() => {
+    // The hook itself refuses to persist while a restore snapshot is pending.
     if (!lookup || finalResults) return;
     saveDraft({
       wcode: lookup.wcode,
@@ -588,6 +601,13 @@ export default function AbsenceForm() {
   }, [verification.expiresAt, verification.token]);
 
   const advanceAfterVerification = useCallback(() => {
+    const pending = returnAfterVerifyRef.current;
+    if (pending && pending !== "verify" && pending !== "identify" && pending !== "confirm") {
+      returnAfterVerifyRef.current = null;
+      setScreen(pending);
+      return;
+    }
+    returnAfterVerifyRef.current = null;
     const nextScreen: Screen = (lookupRef.current?.email_input_required && !EMAIL_PATTERN.test(emailRef.current.trim()))
       ? "email"
       : "classes";
@@ -598,6 +618,8 @@ export default function AbsenceForm() {
     setVerificationSatisfied(true);
     setVerificationBlocked(false);
     setConfirmedPulse(true);
+    // offcut: keep the 500ms auto-advance as enhancement; the Confirmed
+    // splash now also renders an explicit Continue for AT/slow devices.
     window.setTimeout(() => {
       setConfirmedPulse(false);
       if (screenRef.current === "verify") advanceAfterVerification();
@@ -621,8 +643,9 @@ export default function AbsenceForm() {
     setSubmissionError(null);
     setLimitNotice(null);
     setLimitNoticeKey(null);
+    // Scroll reset lives in the screen-change effect, which also covers
+    // direct setScreen calls (expiry bounces, auto-advance) — not here.
     setScreen(next);
-    try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { }
   }, []);
 
   const handleLookup = async () => {
@@ -633,14 +656,16 @@ export default function AbsenceForm() {
     setLookup(null);
     setStudentProfile(null);
     if (!cleaned || !isWCode(cleaned)) return;
-    const draftForStudent = draftRef.current;
+    // Consult the live draft (sessionStorage stays current thanks to auto-save,
+    // and untouched while a restore snapshot is pending). Re-identifying the
+    // same Student ID must resume the saved report, not discard it — and
+    // discarding a report (Start over / a different ID) must stay discarded.
+    const draftForStudent = restoreDraft ?? readAbsenceDraft();
     const shouldRestoreDraft = Boolean(
       draftForStudent && normalizeLookupWcode(draftForStudent.wcode) === cleaned,
     );
-    if (!shouldRestoreDraft) {
-      draftRef.current = null;
-      clearDraft();
-    }
+    beginRestore(shouldRestoreDraft ? draftForStudent : null);
+    if (!shouldRestoreDraft) clearDraft();
     try {
       setLookupLoading(true);
       const response = await lookupStudentByWcode(cleaned);
@@ -807,6 +832,7 @@ export default function AbsenceForm() {
     if (!verificationSatisfied || verificationBlocked || verificationExpired) {
       setVerificationSatisfied(false);
       setVerificationBlocked(true);
+      if (screenRef.current !== "verify") returnAfterVerifyRef.current = screenRef.current;
       goToScreen("verify");
       return;
     }
@@ -835,7 +861,7 @@ export default function AbsenceForm() {
         );
         const staleSessionIds = [...selectedSitInSessionIds].filter((id) => blockedSessionIds.has(id));
         if (staleSessionIds.length > 0) {
-          draftRef.current = null;
+          beginRestore(null);
           setSitInSelections({});
           setSitInPriorityLevels({});
           setSitInPriorityHistory({});
@@ -894,6 +920,7 @@ export default function AbsenceForm() {
       }
       setFinalResults(response.items);
       verification.setCode("");
+      // clearDraft below also releases any pending restore snapshot.
       try {
         clearLegacyAbsenceDraft();
         clearStudentResume();
@@ -905,7 +932,7 @@ export default function AbsenceForm() {
         return;
       }
       if (error instanceof ApiRequestError && error.code === "sit_in_session_already_used") {
-        draftRef.current = null;
+        beginRestore(null);
         setSitInSelections({});
         setSitInPriorityLevels({});
         setSitInPriorityHistory({});
@@ -934,6 +961,8 @@ export default function AbsenceForm() {
   useEffect(() => {
     if (!finalResults) return;
     window.requestAnimationFrame(() => {
+      const main = document.getElementById("absence-form-content");
+      if (main && main.scrollTop !== 0) main.scrollTo({ top: 0, behavior: "auto" });
       const heading = document.getElementById("success-heading");
       heading?.focus();
     });
@@ -941,13 +970,17 @@ export default function AbsenceForm() {
 
   const hasFocusedInitiallyRef = useRef(false);
   useEffect(() => {
-    if (!hasFocusedInitiallyRef.current) {
-      hasFocusedInitiallyRef.current = true;
-      return;
-    }
+    // The shell's main is the real scroll container (the window never scrolls),
+    // so every screen change must reset it — otherwise a long screen (classes)
+    // followed by a short one (reason) lands the student mid-screen.
     window.requestAnimationFrame(() => {
       const main = document.getElementById("absence-form-content");
       if (!main) return;
+      if (main.scrollTop !== 0) main.scrollTo({ top: 0, behavior: "auto" });
+      if (!hasFocusedInitiallyRef.current) {
+        hasFocusedInitiallyRef.current = true;
+        return;
+      }
       const active = document.activeElement;
       if (active instanceof HTMLElement && active !== document.body && main.contains(active)) return;
       main.focus();
@@ -982,6 +1015,8 @@ export default function AbsenceForm() {
       clearDraft();
     } catch { }
     submissionIdempotencyKey.current = newIdempotencyKey();
+    // Starting over discards the draft for good — a later lookup of the same
+    // Student ID must not resurrect it (clearDraft below releases the snapshot).
     goToScreen("identify");
   }, [verification.clearStoredToken, verification.setCode, clearDraft, goToScreen]);
 
@@ -990,9 +1025,10 @@ export default function AbsenceForm() {
     [config.form.reason_categories],
   );
   const reasonCategory = useMemo(() => {
-    return categoryOptions.find((category) => reason.startsWith(`${category.label}:`))
-      ? categoryOptions.find((category) => reason.startsWith(`${category.label}:`))!.value
-      : categoryOptions.find((category) => reason === category.label)?.value ?? null;
+    // Split on the first ": " so a detail containing colons or another
+    // label's text can't re-parse to the wrong category on revisit.
+    const head = reason.includes(": ") ? reason.slice(0, reason.indexOf(": ")) : reason;
+    return categoryOptions.find((category) => category.label === head)?.value ?? null;
   }, [categoryOptions, reason]);
 
   const handleReasonCategorySelect = useCallback((value: string | null) => {
@@ -1003,7 +1039,10 @@ export default function AbsenceForm() {
     }
     const category = categoryOptions.find((option) => option.value === value);
     if (!category) return;
-    const currentDetail = reason.startsWith(`${category.label}:`) ? reason.slice(category.label.length + 1).trim() : "";
+    const head = reason.includes(": ") ? reason.slice(0, reason.indexOf(": ")) : reason;
+    const currentDetail = head === category.label && reason.includes(": ")
+      ? reason.slice(reason.indexOf(": ") + 2).trim()
+      : "";
     setReason(currentDetail ? `${category.label}: ${currentDetail}` : category.label);
   }, [categoryOptions, reason]);
 
@@ -1028,9 +1067,12 @@ export default function AbsenceForm() {
         return;
       }
       if (selectedDays.length === 0) { setPageError("Select at least one class you'll miss."); return; }
-      setMakeupIndex(0);
+      // Preserve position when returning from Review/Edit so per-day context survives.
+      setMakeupIndex((index) => (index < selectedDays.length ? index : 0));
       setMakeupNotice(null);
       goToScreen("makeup");
+    } else if (screen === "email") {
+      if (emailSatisfied) goToScreen("classes");
     } else if (screen === "reason") {
       if (!validateReason()) return;
       goToScreen("review");
@@ -1113,6 +1155,11 @@ export default function AbsenceForm() {
         return `${classLabel(day.group)} — ${selectedDayWhen(day)} — Make-up: ${sitInLabel}`;
       }),
       onEdit: () => goToScreen("classes"),
+      onEditLine: (lineIndex: number) => {
+        setMakeupIndex(lineIndex < selectedDays.length ? lineIndex : 0);
+        goToScreen("makeup");
+      },
+      editLineLabel: "Edit make-up",
     },
     {
       key: "reason",
@@ -1122,8 +1169,12 @@ export default function AbsenceForm() {
     },
   ];
 
+  // Footer owns the primary on every screen except identify/resume/confirm/makeup,
+  // which keep their local buttons (identify predates the footer; makeup needs
+  // the recommendation context). Verify/email always show the footer so there
+  // is exactly one visible Next — disabled with a hint until it can proceed.
   const showFooterPrimary = screen === "classes" || screen === "reason" || screen === "review"
-    || (screen === "verify" && verificationSatisfied && !verificationBlocked);
+    || screen === "verify" || screen === "email";
 
   const footerPrimaryLabel =
     screen === "review" ? "Submit absence"
@@ -1143,12 +1194,13 @@ export default function AbsenceForm() {
         <AbsenceActionBar
           showBack={false}
           showPrimary={showFooterPrimary}
-          canProceed={screen === "classes" ? (showDoneOnClasses ? true : canProceedFromClasses) : screen === "reason" ? canProceedFromReason : screen === "review" ? !isSubmitting : true}
+          canProceed={screen === "classes" ? (showDoneOnClasses ? true : canProceedFromClasses) : screen === "reason" ? canProceedFromReason : screen === "review" ? !isSubmitting : screen === "verify" ? (verificationSatisfied && !verificationBlocked) : screen === "email" ? emailSatisfied : true}
           loading={isSubmitting}
           loadingLabel="Submitting…"
           onBack={handleBack}
           onPrimary={handlePrimaryAction}
           primaryLabel={footerPrimaryLabel}
+          hint={screen === "verify" && !verificationSatisfied ? "Enter the code from your parent's phone to continue." : screen === "email" && !emailSatisfied ? "Enter a valid email to continue." : undefined}
         />
       }
     >
@@ -1185,7 +1237,7 @@ export default function AbsenceForm() {
 
           {screen === "resume" && lookup && (
             <ResumeScreen
-              startedAt={draftRef.current?.updatedAt}
+              startedAt={restoreDraft?.updatedAt}
               summary={resumeSummary}
               onContinue={() => goToScreen("confirm")}
               onStartOver={handleDone}
@@ -1214,6 +1266,7 @@ export default function AbsenceForm() {
               wcode={lookup.wcode}
               lookupToken={lookup.lookup_token}
               hasPhone={lookup.parent_verification_available}
+              online={online}
               phoneHint={lookup.parent_phone_hint}
               smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
               adminContact={config.admin_contact}
@@ -1223,6 +1276,7 @@ export default function AbsenceForm() {
               onSatisfied={handleVerificationSatisfied}
               onRestart={handleVerificationRestart}
               onRestored={handleVerificationRestored}
+              onContinue={advanceAfterVerification}
             />
           )}
 

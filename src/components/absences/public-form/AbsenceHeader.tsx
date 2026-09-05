@@ -13,28 +13,28 @@ export default function AbsenceHeader({ onBack, progress, progressLabel }: Absen
         <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--color-wi-primary)]">Warwick Institute</p>
         <p className="mt-0.5 text-[15px] font-semibold text-[var(--color-wi-text)]">Report absence</p>
       </div>
-      <div className="absence-app-header__nav">
-        {onBack ? (
+      {onBack ? (
+        <div className="absence-app-header__nav">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+            className="wi-press inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Back
           </button>
-        ) : <span aria-hidden="true" className="min-h-11 min-w-16" />}
-        <div
-          className="absence-header-progress"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
-          aria-label={progressLabel}
-        >
-          <div className="absence-header-progress__track" aria-hidden="true">
-            <div className="absence-header-progress__fill" style={{ width: `${progress * 100}%` }} />
-          </div>
+        </div>
+      ) : null}
+      <div
+        className="absence-header-progress"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress * 100)}
+        aria-label={progressLabel}
+      >
+        <div className="absence-header-progress__track" aria-hidden="true">
+          <div className="absence-header-progress__fill" style={{ width: `${progress * 100}%` }} />
         </div>
       </div>
     </div>

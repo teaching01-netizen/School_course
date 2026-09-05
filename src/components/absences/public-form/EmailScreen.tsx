@@ -24,7 +24,7 @@ export default function EmailScreen({
         Where should we send updates?
       </h1>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
-        We don&apos;t have an email address for you yet.
+        Your parent is confirmed. We don&apos;t have an email for absence updates yet — add one to track this request.
       </p>
 
       <div className="mt-8">
@@ -56,24 +56,12 @@ export default function EmailScreen({
           </p>
         ) : (
           <p className="mt-2 text-[13px] text-[var(--color-wi-text-light)]">
-            We&apos;ll use this to send updates about this absence.
+            We&apos;ll use this to send updates about this absence. Use the Continue button below.
           </p>
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={!canContinue || loading}
-        className={clsx(
-          "mt-10 flex h-[52px] w-full items-center justify-center rounded-xl px-5 text-[17px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
-          canContinue && !loading
-            ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
-            : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
-        )}
-      >
-        Continue
-      </button>
+      {/* Primary lives in the sticky footer (AbsenceActionBar) so it stays visible with the keyboard open. Enter still submits via onSubmit. */}
     </div>
   );
 }

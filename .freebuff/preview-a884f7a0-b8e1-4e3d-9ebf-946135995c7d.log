@@ -1,0 +1,184 @@
+(node:36590) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+  VITE v7.3.2  ready in 520 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+5:09:09 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:09:09 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:09:10 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:09:10 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:09:11 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:09:11 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:10:02 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:21 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:22 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:22 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:25 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:25 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:17:26 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:21:53 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceHeader.tsx
+5:21:58 PM [vite] (client) hmr update /src/index.css
+5:22:07 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:22:07 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:22:28 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:22:28 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:22:28 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+5:22:28 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:36:14 PM [vite] (client) hmr update /src/index.css
+8:36:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceActionBar.tsx
+8:36:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceHeader.tsx
+8:36:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/IdentifyScreen.tsx
+8:36:51 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:36:57 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:37:26 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReasonField.tsx
+8:37:26 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReasonScreen.tsx
+8:37:37 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReviewScreen.tsx
+8:37:37 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/SuccessScreen.tsx
+8:38:27 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:38:35 PM [vite] (client) hmr update /src/index.css
+8:38:52 PM [vite] (client) hmr update /src/index.css, /src/components/absences/StepCoverVerification.tsx
+8:39:10 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+8:40:13 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:40:37 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:40:44 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:40:52 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:41:25 PM [vite] (client) hmr update /src/index.css
+8:41:32 PM [vite] (client) hmr update /src/index.css
+8:42:53 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:43:35 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:43:36 PM [vite] (client) hmr update /src/index.css
+8:43:36 PM [vite] (client) hmr update /src/index.css
+8:43:36 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:43:36 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:43:37 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:43:37 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:43:37 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+8:43:38 PM [vite] (client) hmr update /src/index.css, /src/components/absences/StepCoverVerification.tsx
+8:43:38 PM [vite] (client) hmr update /src/index.css
+8:43:38 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:43:39 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/SuccessScreen.tsx
+8:43:39 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReviewScreen.tsx
+8:43:39 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReasonScreen.tsx
+8:43:39 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReasonField.tsx
+8:43:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:43:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:43:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/IdentifyScreen.tsx
+8:43:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceHeader.tsx
+8:43:40 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceActionBar.tsx
+8:43:41 PM [vite] (client) hmr update /src/index.css
+8:49:02 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+8:49:12 PM [vite] (client) hmr update /src/index.css
+8:50:50 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:51:59 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:52:10 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ScheduleScreen.tsx
+8:52:17 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceActionBar.tsx
+8:52:35 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/MakeUpScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/SuccessScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/IdentifyScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReasonScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ConfirmStudentScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceHeader.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ResumeScreen.tsx
+8:52:55 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ReviewScreen.tsx
+8:53:19 PM [vite] (client) hmr update /src/index.css, /src/components/absences/StepCoverVerification.tsx
+8:53:19 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+8:53:19 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/MobileBottomSheet.tsx
+8:53:32 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/IdentifyScreen.tsx
+8:53:32 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/AbsenceActionBar.tsx
+9:03:27 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:18:16 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+9:19:14 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+9:22:47 PM [vite] (client) hmr update /src/index.css
+9:23:19 PM [vite] (client) hmr update /src/index.css
+9:33:05 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:33:05 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+9:33:42 PM [vite] (client) hmr update /src/index.css
+9:38:16 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:38:16 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css

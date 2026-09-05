@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -120,7 +121,7 @@ it("polls a queued delivery until SmartSMS accepts it", async () => {
   );
 });
 
-it("shows a retryable error when delivery is rejected", async () => {
+it("shows a retryable error when delivery is rejected without arming the resend cooldown", async () => {
   mockedApiJson.mockResolvedValueOnce({
     token: "verification-token",
     status: "pending",
@@ -135,6 +136,26 @@ it("shows a retryable error when delivery is rejected", async () => {
 
   expect(await screen.findByText(/couldn't send the code/i)).toBeInTheDocument();
   expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  // A failed delivery never reached the parent: the student can retry now
+  // instead of waiting out the 5-minute resend cooldown.
+  expect(screen.getByRole("button", { name: /^send code$/i })).toBeEnabled();
+});
+
+it("keeps the send action immediately retryable after a request failure", async () => {
+  mockedApiJson
+    .mockRejectedValueOnce(new TypeError("Network error"))
+    .mockResolvedValueOnce(pendingVerification("accepted"));
+  const user = userEvent.setup();
+  renderVerification();
+
+  await user.click(screen.getByRole("button", { name: /send code/i }));
+
+  expect(await screen.findByText(/network error/i)).toBeInTheDocument();
+  // No cooldown after a failure: the same action is enabled for an instant retry.
+  expect(screen.getByRole("button", { name: /^send code$/i })).toBeEnabled();
+
+  await user.click(screen.getByRole("button", { name: /^send code$/i }));
+  expect(await screen.findByText(/^code sent to ••••5678/i)).toBeInTheDocument();
 });
 
 it("confirms an accepted OTP delivery", async () => {
@@ -159,16 +180,95 @@ it("reports an expired OTP without claiming delivery", async () => {
   expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
 });
 
-it("explains a wrong code in student language and clears it for retry", async () => {
+it("explains a wrong code in student language, keeps it typed, and never auto-retries it", async () => {
   mockedApiJson
     .mockResolvedValueOnce(pendingVerification("accepted"))
     .mockRejectedValueOnce(new ApiRequestError("Invalid code", { status: 400 }));
-  const { verification } = renderVerification({
+  const { onSatisfied, verification } = renderVerification({
     verification: { code: "123456", token: "verification-token" },
   });
 
   expect(await screen.findByText(/that code isn't right/i)).toBeInTheDocument();
-  expect(verification.setCode).toHaveBeenCalledWith("");
+  // The typed code survives so one wrong digit costs one digit, not six.
+  expect(verification.setCode).not.toHaveBeenCalled();
+  // Give the auto-verify effect time to (wrongly) re-fire — it must not send
+  // the same rejected code again.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const verifyPath = "/api/v1/absences/parent-verification/verify";
+  expect(mockedApiJson.mock.calls.filter(([path]) => path === verifyPath)).toHaveLength(1);
+  expect(onSatisfied).not.toHaveBeenCalled();
+  expect(verification.clearStoredToken).not.toHaveBeenCalled();
+});
+
+it("calls verify at most once per unchanged code while the student types and corrects", async () => {
+  // Mount restore consumes one status call; each *changed* 6-digit code may
+  // trigger exactly one verify request, and an unchanged code must never
+  // re-fire (a rejected code used to loop until the code was edited).
+  mockedApiJson
+    .mockResolvedValueOnce(pendingVerification("accepted")) // saved-token restore
+    .mockRejectedValueOnce(new ApiRequestError("Invalid code", { status: 400 }))
+    .mockRejectedValueOnce(new ApiRequestError("Invalid code", { status: 400 }))
+    .mockResolvedValueOnce({ ...pendingVerification("accepted"), status: "verified" });
+
+  const onSatisfied = vi.fn();
+  const onRestart = vi.fn();
+  const onRestored = vi.fn();
+  function Harness() {
+    // A real store wired the way the page wires useOtp: typing through the
+    // OTP input is what drives verification. Callbacks are hoisted so their
+    // identities are stable, exactly as the page's useCallbacks are.
+    const [code, setCode] = useState("");
+    const verification: VerificationStore = {
+      code,
+      setCode,
+      token: "verification-token",
+      persistToken: vi.fn(),
+      clearStoredToken: vi.fn(),
+    };
+    return (
+      <StepCoverVerification
+        wcode="W250389"
+        lookupToken="lookup-token"
+        parentPhone="0812345678"
+        verification={verification}
+        completed={false}
+        onSatisfied={onSatisfied}
+        onRestart={onRestart}
+        onRestored={onRestored}
+      />
+    );
+  }
+  render(<Harness />);
+  const user = userEvent.setup();
+  const verifyPath = "/api/v1/absences/parent-verification/verify";
+  const verifyCalls = () => mockedApiJson.mock.calls.filter(([path]) => path === verifyPath);
+  const otp = (await screen.findAllByRole("textbox", { hidden: true })).find(
+    (element) => element.getAttribute("aria-label") === "Confirmation code",
+  ) as HTMLElement;
+
+  // A complete wrong code triggers exactly one rejected request…
+  await user.type(otp, "111111");
+  expect(await screen.findByText(/that code isn't right/i)).toBeInTheDocument();
+  await waitFor(() => expect(verifyCalls()).toHaveLength(1));
+  // …and the same unchanged code never re-fires while it stays on screen.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(verifyCalls()).toHaveLength(1);
+  expect(onSatisfied).not.toHaveBeenCalled();
+
+  // Fixing a digit changes the code: exactly one new request, then silence.
+  await user.clear(otp);
+  await user.type(otp, "111112");
+  await waitFor(() => expect(verifyCalls()).toHaveLength(2));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(verifyCalls()).toHaveLength(2);
+  expect(onSatisfied).not.toHaveBeenCalled();
+
+  // The corrected code verifies on its single request.
+  await user.clear(otp);
+  await user.type(otp, "123456");
+  await waitFor(() => expect(onSatisfied).toHaveBeenCalledOnce());
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(verifyCalls()).toHaveLength(3);
 });
 
 it("automatically verifies a complete six-digit code", async () => {
@@ -213,7 +313,7 @@ it("restores verification from the authenticated student session", async () => {
   );
 });
 
-it("retries the same code after a retryable verification error", async () => {
+it("retries the same code after a retryable verification error only when the student asks", async () => {
   const verifiedResponse = {
     ...pendingVerification("accepted"),
     status: "verified",

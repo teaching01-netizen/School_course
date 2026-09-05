@@ -59,10 +59,10 @@ export default function ReasonScreen({
               aria-checked={isSelected}
               onClick={() => onSelect(isSelected ? null : category.value)}
               className={clsx(
-                "flex min-h-14 w-full items-center gap-3.5 rounded-xl border px-4 py-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
+                "wi-press flex min-h-14 w-full items-center gap-3.5 rounded-xl border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
                 isSelected
                   ? "border-[var(--color-wi-primary)]/50 bg-[var(--color-wi-primary)]/5"
-                  : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)] active:scale-[0.995] motion-reduce:active:scale-100",
+                  : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)]",
               )}
             >
               <span
@@ -85,6 +85,12 @@ export default function ReasonScreen({
       {error ? (
         <p role="alert" className="mt-3 text-[15px] leading-snug text-[var(--color-wi-red)]">
           {error}
+        </p>
+      ) : null}
+
+      {selected && !showDetail ? (
+        <p className="mt-3 text-[13px] text-[var(--color-wi-text-light)]">
+          That&apos;s enough — we won&apos;t ask for more detail for this reason.
         </p>
       ) : null}
 

@@ -74,7 +74,7 @@ export async function completeToClasses(page: Page, email = "student@example.com
 
 export async function completeMakeUp(page: Page) {
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
-  await page.getByRole("button", { name: "Use this class" }).click();
+  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
 }
 

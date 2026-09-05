@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import clsx from "clsx";
 
 type SmsSendButtonProps = {
@@ -73,6 +73,7 @@ export default function SmsSendButton({
   cooldownDuration = 5 * 60,
   parentPhoneMissing = false,
 }: SmsSendButtonProps) {
+  const reduceMotion = useReducedMotion();
   const [cooldown, setCooldown] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cooldownKeyRef = useRef(0);
@@ -117,16 +118,20 @@ export default function SmsSendButton({
   const onCooldown = cooldown > 0;
   const isInteractive = !isSending && !onCooldown && !disabled;
   const progress = cooldownDuration > 0 ? cooldown / cooldownDuration : 0;
+  const cooldownLabel = onCooldown
+    ? `Send another code in ${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}`
+    : sendCount > 0 ? "Resend code" : "Send code";
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={!isInteractive}
+      aria-label={onCooldown ? cooldownLabel : undefined}
       className={clsx(
-        "relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
+        "wi-press relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
         isInteractive
-          ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100"
+          ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
           : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
       )}
     >
@@ -134,10 +139,10 @@ export default function SmsSendButton({
         {isSending ? (
           <motion.span
             key="sending"
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            exit={reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.9 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
             <Spinner />
@@ -146,22 +151,22 @@ export default function SmsSendButton({
         ) : onCooldown ? (
           <motion.span
             key="cooldown"
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            exit={reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.9 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
             <ProgressRing progress={progress} />
-            <span className="tabular-nums">Send another code in {cooldown}s</span>
+            <span className="tabular-nums" aria-hidden="true">Send another code in {Math.floor(cooldown / 60)}:{String(cooldown % 60).padStart(2, "0")}</span>
           </motion.span>
         ) : (
           <motion.span
             key={sendCount > 0 ? "resend" : "send"}
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            exit={reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.9 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
             {sendCount > 0 ? "Resend code" : "Send code"}

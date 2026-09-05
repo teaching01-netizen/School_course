@@ -85,9 +85,9 @@ export default function IdentifyScreen({
         disabled={!canContinue || loading}
         aria-busy={loading}
         className={clsx(
-          "mt-10 flex h-[52px] w-full items-center justify-center rounded-xl px-5 text-[17px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
+          "wi-press mt-10 flex h-[52px] w-full items-center justify-center rounded-xl px-5 text-[17px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
           canContinue && !loading
-            ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100"
+            ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
             : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
         )}
       >
@@ -96,8 +96,6 @@ export default function IdentifyScreen({
             <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             Finding your profile…
           </span>
-        ) : error ? (
-          "Try again"
         ) : (
           "Continue"
         )}

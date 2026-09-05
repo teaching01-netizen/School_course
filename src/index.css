@@ -623,6 +623,7 @@ html {
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
+  min-inline-size: 0;
 }
 
 .absence-app-header__nav {
@@ -632,9 +633,11 @@ html {
   min-inline-size: 0;
 }
 
+/* Full-width progress strip anchored to the bottom of the header, spanning
+   every layout column so it never floats next to the back control. */
 .absence-header-progress {
+  grid-column: 1 / -1;
   min-inline-size: 0;
-  flex: 1;
 }
 
 .absence-header-progress__track {
@@ -659,6 +662,56 @@ html {
 
 .absence-action-bar {
   padding-block: 0.625rem 0.25rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Press vocabulary — one transition + one press response for every tappable
+ * in the absence flow. Unlayered so it reliably wins over Tailwind's
+ * transition utilities; reduced motion collapses it to zero movement.
+ * ------------------------------------------------------------------------ */
+.wi-press {
+  transition:
+    transform var(--motion-instant) var(--ease-ui),
+    color var(--motion-fast) var(--ease-ui),
+    background-color var(--motion-fast) var(--ease-ui),
+    border-color var(--motion-fast) var(--ease-ui),
+    opacity var(--motion-fast) var(--ease-ui),
+    box-shadow var(--motion-fast) var(--ease-ui);
+}
+
+.wi-press:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wi-press,
+  .wi-press:active:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Undo toasts: pinned to the bottom of the scrolling main so the action
+   that caused them (a row tap deep in the agenda) never moves off-screen. */
+.absence-undo-stack {
+  position: sticky;
+  inset-block-end: 0.875rem;
+  display: grid;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+/* The global reduced-motion kill-switch zeroes animation-duration, so the
+   keyframes below land instantly at their final state under reduced motion. */
+.absence-undo-toast {
+  pointer-events: auto;
+  animation: absence-undo-in 0.18s var(--ease-ui) both;
+}
+
+@keyframes absence-undo-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .absence-action-bar__inner {

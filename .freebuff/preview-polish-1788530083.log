@@ -1,0 +1,152 @@
+(node:59313) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+  VITE v7.3.2  ready in 341 ms
+
+  ➜  Local:   http://localhost:5175/
+  ➜  Network: use --host to expose
+8:54:57 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:54:57 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:54:57 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:54:57 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:57:06 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:57:06 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:57:06 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:57:06 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:57:31 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:03:27 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:12:38 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:12:38 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:12:38 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:12:38 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:18:16 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+9:19:14 PM [vite] (client) hmr update /src/index.css, /src/components/absences/SmsSendButton.tsx
+9:22:47 PM [vite] (client) hmr update /src/index.css
+9:23:19 PM [vite] (client) hmr update /src/index.css
+9:33:05 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:33:05 PM [vite] (client) hmr update /src/index.css, /src/components/absences/public-form/ParentConfirmScreen.tsx
+9:33:42 PM [vite] (client) hmr update /src/index.css
+9:34:32 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:34:32 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:34:32 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:34:32 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+9:38:16 PM [vite] (client) hmr update /src/pages/AbsenceForm.tsx, /src/index.css
+9:38:16 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css
+9:38:27 PM [vite] (client) hmr update /src/index.css
+11:28:25 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+11:28:25 PM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+11:28:25 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+11:28:25 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+11:28:25 PM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+11:28:25 PM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:20 AM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:20 AM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:21 AM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:21 AM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:21 AM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:13:21 AM [vite] http proxy error: /api/v1/absence-self-service/lookup
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:27:05 AM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:27:05 AM [vite] http proxy error: /api/v1/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:27:05 AM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)
+8:27:05 AM [vite] http proxy error: /api/v1/absence-form-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1193:18)
+    at afterConnectMultiple (node:net:1783:7)

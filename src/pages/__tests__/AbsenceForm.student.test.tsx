@@ -196,7 +196,7 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
       expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
     });
 
-    await user.click(screen.getByRole("button", { name: /review updated classes/i }));
+    await user.click(screen.getByRole("button", { name: /i've reviewed/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled());
 
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
@@ -239,5 +239,84 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     // Back from classes goes to verify, not back into email collection.
     await screen.findByRole("heading", { name: /confirmed|enter the code|confirm with a parent/i });
     expect(screen.queryByRole("heading", { name: /where should we send updates/i })).not.toBeInTheDocument();
+  });
+
+  it("restores an in-progress report when the same Student ID is re-entered mid-flow", async () => {
+    renderPublicAbsenceForm(mockApiJson);
+    const user = userEvent.setup();
+
+    // Build an in-progress report: verified, email collected, one class picked.
+    await completeToClasses(user, { email: "student@example.edu" });
+    await selectClass(user, "Mathematics");
+    // Auto-save is debounced; wait until the selection is actually persisted.
+    await waitFor(() => {
+      const raw = window.sessionStorage.getItem(ABSENCE_DRAFT_STORAGE_KEY);
+      expect(raw).toContain("session-math-1");
+    });
+
+    // Wander back to Identify (classes -> verify -> confirm -> identify).
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+    await screen.findByRole("heading", { name: /confirmed|enter the code|confirm with a parent/i });
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+    await screen.findByRole("heading", { name: /is this you/i });
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+    await screen.findByRole("heading", { name: /report an absence/i });
+
+    // Re-enter the same Student ID — the saved report must come back.
+    await startReport(user);
+    await confirmIdentity(user);
+    await sendParentCode(user);
+    await enterCode(user);
+    await screen.findByRole("heading", { name: /which class will you miss/i });
+
+    await waitFor(() => {
+      expect(screen.getByText(/we restored your report/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+    });
+    // The restore gate holds Continue until the student reviews the classes.
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /i've reviewed/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled());
+  });
+
+  it("Start over truly discards the saved report for the same Student ID", async () => {
+    const now = Date.now();
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({
+      wcode: MANUAL_EMAIL_STUDENT.wcode,
+      collectedEmail: "student@example.edu",
+    }));
+    window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 1,
+      updatedAt: now,
+      wcode: MANUAL_EMAIL_STUDENT.wcode,
+      collectedEmail: "student@example.edu",
+      step: 1,
+      selectedSubjectIds: ["subject-math"],
+      selectedSessionIds: ["session-math-1"],
+      sitInSelections: {},
+      sitInPriorityLevels: {},
+      reason: "Appointment",
+    }));
+
+    renderPublicAbsenceForm(mockApiJson);
+    const user = userEvent.setup();
+
+    await screen.findByRole("heading", { name: /continue your absence report/i });
+    await user.click(screen.getByRole("button", { name: /start over/i }));
+    await screen.findByRole("heading", { name: /report an absence/i });
+    expect(window.sessionStorage.getItem(ABSENCE_DRAFT_STORAGE_KEY)).toBeNull();
+
+    // Re-entering the same Student ID must NOT resurrect the discarded report.
+    await startReport(user);
+    await confirmIdentity(user);
+    await sendParentCode(user);
+    await enterCode(user);
+    await screen.findByRole("heading", { name: /where should we send updates/i });
+    await fillEmailIfNeeded(user, "fresh@example.edu");
+    await screen.findByRole("heading", { name: /which class will you miss/i });
+
+    expect(screen.queryByText(/we restored your report/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remove mathematics/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
   });
 });

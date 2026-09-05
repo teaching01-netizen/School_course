@@ -110,7 +110,7 @@ describe("AbsenceForm — absence limits", () => {
     const second = screen.getByRole("checkbox", { name: /mathematics/i });
     await user.click(second);
     expect(second).not.toBeChecked();
-    const notices = screen.getAllByRole("status");
+    const notices = [...screen.queryAllByRole("status"), ...screen.queryAllByRole("alert")];
     const notice = notices.find((node) => node.textContent?.includes("can't report another absence"));
     expect(notice).toBeInTheDocument();
     expect(notice?.textContent).toMatch(/contact student services/i);

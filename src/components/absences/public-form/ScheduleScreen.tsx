@@ -293,35 +293,32 @@ export default function ScheduleScreen({
   };
 
   // ---- Removal undo -------------------------------------------------------
-  const [removed, setRemoved] = useState<CalendarEvent | null>(null);
-  const undoTimerRef = useRef<number | null>(null);
-  const clearRemoved = () => {
-    if (undoTimerRef.current !== null) {
-      window.clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-    setRemoved(null);
+  // Stacked toasts: each removal gets its own Undo + expiry so removing a
+  // second class never steals the first removal's chance to be undone.
+  type RemovedToast = { key: string; event: CalendarEvent };
+  const [removedToasts, setRemovedToasts] = useState<RemovedToast[]>([]);
+  const toastSeq = useRef(0);
+  const dismissRemovedToast = (key: string) => {
+    setRemovedToasts((current) => current.filter((toast) => toast.key !== key));
   };
-  useEffect(() => () => {
-    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
-  }, []);
 
   const removeEvent = (event: CalendarEvent) => {
     const hadMakeUp = event.sessionIds.some((id) => sitInSelections[id]);
     onToggleDay(event.group, event.sessionIds);
     if (hadMakeUp) setUpdateNotice("Changing this class will update your make-up option.");
-    setRemoved(event);
-    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
-    undoTimerRef.current = window.setTimeout(() => {
-      undoTimerRef.current = null;
-      setRemoved(null);
+    toastSeq.current += 1;
+    const key = `${event.key}:${toastSeq.current}`;
+    setRemovedToasts((current) => [...current, { key, event }].slice(-3));
+    window.setTimeout(() => {
+      dismissRemovedToast(key);
     }, 6000);
   };
 
-  const undoRemoved = () => {
-    if (!removed) return;
-    clearRemoved();
-    onToggleDay(removed.group, removed.sessionIds);
+  const undoRemovedToast = (key: string) => {
+    const toast = removedToasts.find((candidate) => candidate.key === key);
+    if (!toast) return;
+    dismissRemovedToast(key);
+    onToggleDay(toast.event.group, toast.event.sessionIds);
   };
 
   const toggleEvent = (event: CalendarEvent) => {
@@ -380,7 +377,7 @@ export default function ScheduleScreen({
             <button
               type="button"
               onClick={onRetry}
-              className="min-h-11 rounded-lg border border-[var(--color-wi-red)]/40 px-3 text-[15px] font-semibold text-[var(--color-wi-red)] transition-colors motion-reduce:transition-none hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-red)]/40"
+              className="wi-press min-h-11 rounded-lg border border-[var(--color-wi-red)]/40 px-3 text-[15px] font-semibold text-[var(--color-wi-red)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-red)]/40"
             >
               Try again
             </button>
@@ -427,31 +424,16 @@ export default function ScheduleScreen({
       {draftNeedsReview ? (
         <div role="status" aria-live="polite" className="mt-6 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] text-[var(--color-wi-amber)]">
           <p className="font-semibold">We restored your report.</p>
-          <p className="mt-0.5">Review your classes before continuing.</p>
+          <p className="mt-0.5">Check your classes below, then tap the button to continue. Continue stays disabled until then.</p>
           {onDismissDraftNotice ? (
             <button
               type="button"
               onClick={onDismissDraftNotice}
               className="mt-2 min-h-11 rounded-lg border border-[var(--color-wi-amber)] px-3 text-[15px] font-semibold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]"
             >
-              Review updated classes
+              I&apos;ve reviewed — continue
             </button>
           ) : null}
-        </div>
-      ) : null}
-
-      {removed ? (
-        <div role="status" aria-live="polite" className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-4 py-2">
-          <p className="min-w-0 truncate text-[13px] text-[var(--color-wi-text-light)]">
-            <span className="font-semibold text-[var(--color-wi-text)]">{removed.label}</span> removed
-          </p>
-          <button
-            type="button"
-            onClick={undoRemoved}
-            className="min-h-11 shrink-0 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
-          >
-            Undo
-          </button>
         </div>
       ) : null}
 
@@ -471,7 +453,7 @@ export default function ScheduleScreen({
                     type="button"
                     onClick={() => shiftMonth(-1)}
                     aria-label="Previous month"
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                    className="wi-press flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                   >
                     <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                   </button>
@@ -479,20 +461,21 @@ export default function ScheduleScreen({
                     type="button"
                     onClick={() => shiftMonth(1)}
                     aria-label="Next month"
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                    className="wi-press flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                   >
                     <ChevronRight className="h-5 w-5" aria-hidden="true" />
                   </button>
                 </div>
               ) : <span />}
-              <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">
+              <p className="text-[15px] font-semibold text-[var(--color-wi-text)]" aria-live="polite">
                 {month ? monthTitle(month.year, month.month) : ""}
+                {!isExpanded && focusedKey ? ` · ${dayLabel(focusedKey)}` : ""}
               </p>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={goToToday}
-                  className="min-h-11 rounded-lg px-2.5 text-[13px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  className="wi-press min-h-11 rounded-lg px-2.5 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                 >
                   Today
                 </button>
@@ -500,8 +483,8 @@ export default function ScheduleScreen({
                   type="button"
                   onClick={() => setExpanded((current) => !(current === true))}
                   aria-expanded={isExpanded}
-                  aria-label={isExpanded ? "Show one week" : "Show the whole month"}
-                  className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  aria-label={isExpanded ? "Show one week" : "Show the whole month — find days further out"}
+                  className="wi-press flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                 >
                   <ChevronDown
                     className={clsx("h-5 w-5 transition-transform motion-reduce:transition-none", isExpanded && "rotate-180")}
@@ -544,7 +527,7 @@ export default function ScheduleScreen({
                         tabIndex={dateKey === activeKey ? 0 : -1}
                         aria-label={labelParts.join(". ")}
                         className={clsx(
-                          "flex min-h-12 flex-col items-center justify-center rounded-xl border py-1.5 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
+                          "wi-press flex min-h-12 flex-col items-center justify-center rounded-xl border py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
                           isFocused
                             ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]/5"
                             : clsx(
@@ -615,7 +598,7 @@ export default function ScheduleScreen({
                   <button
                     type="button"
                     onClick={() => selectDate(nextReportableAfterFocus.dateKey)}
-                    className="mt-3 min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                    className="wi-press mt-3 min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                   >
                     Next class · {dayLabel(nextReportableAfterFocus.dateKey)} — see it
                   </button>
@@ -627,15 +610,15 @@ export default function ScheduleScreen({
                   if (event.alreadyAbsent) {
                     return (
                       <li key={event.key}>
-                        <div className="flex min-h-14 items-center gap-3.5 rounded-xl border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3 opacity-70">
-                          <span className="h-6 w-6 shrink-0 rounded-full border-2 border-[var(--color-wi-border)]" aria-hidden="true" />
+                        <div className="flex min-h-14 items-center gap-3.5 rounded-xl border border-dashed border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3" aria-disabled="true">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-text-light)]/15 text-[13px] font-bold text-[var(--color-wi-text-light)]" aria-hidden="true">✓</span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">{event.label}</span>
+                            <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text-light)] line-through decoration-1">{event.label}</span>
                             <span className="block truncate text-[13px] text-[var(--color-wi-text-light)]">
                               {event.timeLabel}{event.teacher ? ` · ${event.teacher}` : ""}
                             </span>
                           </span>
-                          <span className="shrink-0 text-[13px] font-medium text-[var(--color-wi-text-light)]">Already reported</span>
+                          <span className="shrink-0 rounded-full bg-[var(--color-wi-text-light)]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[var(--color-wi-text-light)]">Reported ✓</span>
                         </div>
                       </li>
                     );
@@ -647,7 +630,7 @@ export default function ScheduleScreen({
                           type="button"
                           aria-expanded={limitNoticeKey === event.key}
                           onClick={() => onLimitTap(event.group, event.key)}
-                          className="flex min-h-14 w-full items-center gap-3.5 rounded-xl border border-[var(--color-wi-border)] bg-white px-4 py-3 text-left transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                          className="wi-press flex min-h-14 w-full items-center gap-3.5 rounded-xl border border-[var(--color-wi-border)] bg-white px-4 py-3 text-left hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           <span className="h-6 w-6 shrink-0 rounded-full border-2 border-[var(--color-wi-border)]" aria-hidden="true" />
                           <span className="min-w-0 flex-1">
@@ -659,7 +642,7 @@ export default function ScheduleScreen({
                           <span className="shrink-0 text-[13px] font-medium text-[var(--color-wi-amber)]">Absence limit reached</span>
                         </button>
                         {showLimitRow(event) ? (
-                          <p role="status" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+                          <p role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
                             {limitNotice}
                           </p>
                         ) : null}
@@ -670,11 +653,11 @@ export default function ScheduleScreen({
                     <li key={event.key}>
                       <label
                         className={clsx(
-                          "relative flex min-h-14 w-full cursor-pointer items-center gap-3.5 rounded-xl border px-4 py-3 text-left transition-colors motion-reduce:transition-none",
+                          "wi-press relative flex min-h-14 w-full cursor-pointer items-center gap-3.5 rounded-xl border px-4 py-3 text-left",
                           "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-wi-primary)]",
                           event.selected
                             ? "border-[var(--color-wi-primary)]/50 bg-[var(--color-wi-primary)]/5"
-                            : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)] active:scale-[0.995] motion-reduce:active:scale-100",
+                            : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)]",
                         )}
                       >
                         <span
@@ -707,7 +690,7 @@ export default function ScheduleScreen({
                         />
                       </label>
                       {showLimitRow(event) ? (
-                        <p role="status" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+                        <p role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
                           {limitNotice}
                         </p>
                       ) : null}
@@ -743,7 +726,7 @@ export default function ScheduleScreen({
                         type="button"
                         aria-label={`Remove ${event.label}`}
                         onClick={() => removeEvent(event)}
-                        className="min-h-11 shrink-0 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                        className="wi-press min-h-11 shrink-0 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                       >
                         Remove
                       </button>
@@ -754,8 +737,11 @@ export default function ScheduleScreen({
 
               <button
                 type="button"
-                onClick={() => gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
-                className="mt-3 flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-primary)]/40 bg-white px-5 text-[17px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                onClick={() => {
+                  if (nextReportableAfterFocus) selectDate(nextReportableAfterFocus.dateKey);
+                  gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }}
+                className="wi-press mt-3 flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-primary)]/40 bg-white px-5 text-[17px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
               >
                 <Plus className="h-5 w-5" aria-hidden="true" />
                 Add another class
@@ -764,6 +750,32 @@ export default function ScheduleScreen({
           ) : null}
         </div>
       </div>
+
+      {/* Undo lives where the thumb is: pinned to the bottom of the scrolling
+          main, above the footer — never at the top of a screen you scrolled
+          away from. */}
+      {removedToasts.length > 0 ? (
+        <div className="absence-undo-stack mt-6" aria-live="polite">
+          {removedToasts.map((toast) => (
+            <div
+              key={toast.key}
+              role="status"
+              className="absence-undo-toast mx-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-2xl border border-[var(--color-wi-border)] bg-white px-4 py-3 shadow-[0_0.5rem_1.75rem_rgb(15_23_42/0.16)]"
+            >
+              <p className="min-w-0 text-[14px] leading-snug text-[var(--color-wi-text)]">
+                <span className="font-semibold">{toast.event.label}</span> removed
+              </p>
+              <button
+                type="button"
+                onClick={() => undoRemovedToast(toast.key)}
+                className="wi-press min-h-11 shrink-0 rounded-lg px-2.5 text-[14px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

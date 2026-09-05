@@ -226,9 +226,13 @@ export default function StepCoverVerification({
       } else {
         setLastSentAt(null);
       }
-      setSendCount((c) => c + 1);
+      // A delivery that definitively failed never reached the parent, so it
+      // must not start the resend cooldown — the student needs to retry now.
+      const deliveryFailed = response.delivery_status === "failed" || response.delivery_status === "expired";
+      if (!deliveryFailed) setSendCount((c) => c + 1);
     } catch (err) {
-      setSendCount((c) => c + 1);
+      // A send that errored (network/HTTP) dispatched nothing; keep the button
+      // immediately retryable instead of arming the 5-minute resend cooldown.
       setSendError(err instanceof Error ? err.message : "Could not send verification code");
     } finally {
       setIsSending(false);
@@ -260,7 +264,12 @@ export default function StepCoverVerification({
         : err instanceof Error ? err.message : "Verification failed";
       setVerifyError(message);
       setVerifyRetryable(retryable);
-      if (!retryable) verification.setCode("");
+      // Keep the typed code so one wrong digit costs one digit, not six — but
+      // leave autoVerifyCodeRef pointing at this code. The auto-verify effect
+      // re-runs when isVerifying flips back to false, and with the ref still
+      // set it declines to re-send the same unchanged code, so a rejected code
+      // never loops. Editing the code drops the ref via the effect's
+      // length !== 6 branch, which re-enables auto-verification for the fix.
     } finally {
       setIsVerifying(false);
     }
@@ -318,7 +327,7 @@ export default function StepCoverVerification({
           <button
             type="button"
             onClick={() => setValidationAttempt((attempt) => attempt + 1)}
-            className="font-semibold underline underline-offset-2"
+            className="wi-press rounded font-semibold underline underline-offset-2"
           >
             Retry verification check
           </button>
@@ -332,7 +341,7 @@ export default function StepCoverVerification({
               type="button"
               onClick={() => void handleVerify()}
               disabled={isVerifying}
-              className="font-semibold underline underline-offset-2 disabled:opacity-50"
+              className="wi-press rounded font-semibold underline underline-offset-2 disabled:opacity-50"
             >
               Retry verification
             </button>
@@ -393,7 +402,7 @@ export default function StepCoverVerification({
                     setEnrollPhone("");
                     setSendError(null);
                   }}
-                  className="min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  className="wi-press min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                 >
                   Change number
                 </button>

@@ -111,7 +111,7 @@ export default function OtpInput({
             aria-label={label}
             aria-describedby={describedBy}
             aria-invalid={error || undefined}
-            className="absolute left-0 top-0 h-px w-px opacity-0"
+            className="absolute inset-0 h-full w-full opacity-0"
           />
         </div>
       </label>

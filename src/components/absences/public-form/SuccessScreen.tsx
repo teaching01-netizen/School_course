@@ -34,7 +34,7 @@ export default function SuccessScreen({ groups, reference, onDone }: SuccessScre
         Absence submitted
       </h1>
       <p className="mx-auto mt-2 max-w-sm text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
-        We&apos;ll review your request and keep you updated.
+        We&apos;ll review your request and send updates to your email.
       </p>
 
       <div className="mt-8 space-y-4 text-left">
@@ -52,15 +52,19 @@ export default function SuccessScreen({ groups, reference, onDone }: SuccessScre
       </div>
 
       {reference ? (
-        <p className="mt-6 text-[13px] text-[var(--color-wi-text-light)]">
+        <p className="mt-6 text-[13px] leading-relaxed text-[var(--color-wi-text-light)]">
           Reference <span className="font-mono font-semibold text-[var(--color-wi-text)]">{reference}</span>
+          <span className="mt-1 block">Quote this if you contact Student Services about this absence.</span>
         </p>
       ) : null}
+      <p className="mt-3 text-[13px] text-[var(--color-wi-text-light)]">
+        Need to report another absence? Tap Done to start a new report.
+      </p>
 
       <button
         type="button"
         onClick={onDone}
-        className="mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
+        className="wi-press mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
       >
         Done
       </button>

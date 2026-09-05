@@ -320,7 +320,7 @@ describe("Absence inbox", () => {
     updatedPage.items[0].version = 2;
     mockApiJson
       .mockResolvedValueOnce(initialPage)
-      .mockResolvedValueOnce({ status: "reviewed", version: 2 })
+      .mockResolvedValueOnce({ succeeded: ["abs-1"], failed: [], total_processed: 1 })
       .mockResolvedValueOnce(updatedPage);
     renderPage();
     const user = userEvent.setup();
@@ -329,17 +329,17 @@ describe("Absence inbox", () => {
 
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
-        "/api/v1/absences/abs-1/status",
+        "/api/v1/absences/batch-status",
         expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ status: "reviewed", expected_version: 1 }),
+          method: "POST",
+          body: JSON.stringify({ ids: ["abs-1"], status: "reviewed", expected_versions: { "abs-1": 1 } }),
         }),
       );
     });
   });
 
   it("flips a row to reviewed optimistically while the review request is in flight", async () => {
-    const review = deferred<{ status: string; version: number }>();
+    const review = deferred<{ succeeded: string[]; failed: Array<{ id: string; error: string }>; total_processed: number }>();
     const initialPage = freshPage();
     const updatedPage = freshPage();
     updatedPage.items[0].status = "reviewed";
@@ -367,7 +367,7 @@ describe("Absence inbox", () => {
     });
 
     await act(async () => {
-      review.resolve({ status: "reviewed", version: 2 });
+      review.resolve({ succeeded: ["abs-1"], failed: [], total_processed: 1 });
     });
 
     await waitFor(() => {

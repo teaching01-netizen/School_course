@@ -13,6 +13,8 @@ type AbsenceActionBarProps = {
   onBack: () => void;
   onPrimary: () => void;
   primaryLabel: string;
+  /** Hint announced alongside a disabled primary (e.g. why Continue is disabled). */
+  hint?: string;
 };
 
 export default function AbsenceActionBar({
@@ -25,16 +27,27 @@ export default function AbsenceActionBar({
   onBack,
   onPrimary,
   primaryLabel,
+  hint,
 }: AbsenceActionBarProps) {
   const [slow, setSlow] = useState(false);
+  const [showSpinner, setShowSpinner] = useState(false);
   useEffect(() => {
     if (!loading) {
       setSlow(false);
+      setShowSpinner(false);
       return;
     }
-    const timer = window.setTimeout(() => setSlow(true), 4000);
-    return () => window.clearTimeout(timer);
+    // The label swap acknowledges the tap instantly; the spinner only appears
+    // once the operation is actually taking long enough to need one, so fast
+    // actions never flash a loader.
+    const spinnerTimer = window.setTimeout(() => setShowSpinner(true), 350);
+    const slowTimer = window.setTimeout(() => setSlow(true), 4000);
+    return () => {
+      window.clearTimeout(spinnerTimer);
+      window.clearTimeout(slowTimer);
+    };
   }, [loading]);
+  const hintId = hint ? "absence-action-hint" : undefined;
 
   return (
     <div className="absence-action-bar">
@@ -44,31 +57,40 @@ export default function AbsenceActionBar({
             type="button"
             onClick={onBack}
             disabled={loading}
-            className="inline-flex min-h-12 items-center gap-1 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-50"
+            className="wi-press inline-flex min-h-12 items-center gap-1 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-50"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             <span>Back</span>
           </button>
         ) : <span aria-hidden="true" className="min-w-20" />}
         {showPrimary ? (
-          <button
-            type="button"
-            onClick={onPrimary}
-            disabled={!canProceed || loading}
+          <span className="flex min-w-[10rem] flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={onPrimary}
+              disabled={!canProceed || loading}
+              aria-describedby={hint && !canProceed ? hintId : undefined}
+              title={hint && !canProceed ? hint : undefined}
             className={clsx(
-              "min-h-[52px] min-w-[10rem] rounded-xl px-5 text-[17px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
+              "wi-press min-h-[52px] min-w-[10rem] rounded-xl px-5 text-[17px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
               canProceed && !loading
-                ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100"
+                ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
                 : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",
             )}
-          >
-            {loading ? (
-              <span className="inline-flex items-center justify-center gap-2">
-                <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                {slow ? loadingSlowLabel : loadingLabel}
+            >
+              {loading ? (
+                <span role="status" className="inline-flex items-center justify-center gap-2">
+                  {showSpinner ? <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
+                  {slow ? loadingSlowLabel : loadingLabel}
+                </span>
+              ) : primaryLabel}
+            </button>
+            {hint && !canProceed && !loading ? (
+              <span id={hintId} className="max-w-[14rem] text-right text-[12px] leading-snug text-[var(--color-wi-text-light)]">
+                {hint}
               </span>
-            ) : primaryLabel}
-          </button>
+            ) : null}
+          </span>
         ) : <span aria-hidden="true" className="min-w-20" />}
       </div>
     </div>

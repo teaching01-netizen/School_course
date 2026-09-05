@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Check, ChevronRight } from "lucide-react";
+import { Check, ChevronRight, LoaderCircle } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
 
 export type MakeUpOption = {
@@ -43,20 +43,24 @@ export default function MakeUpScreen({
   onSeeMoreTimes,
 }: MakeUpScreenProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [pendingValue, setPendingValue] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     setSheetOpen(false);
+    setPendingValue(null);
   }, [index, missedName]);
 
   const recommended = options.find((option) => option.value === selectedValue) ?? options[0];
+  const pendingOption = pendingValue ? options.find((option) => option.value === pendingValue) : undefined;
+  const currentOption = pendingOption ?? options.find((option) => option.value === selectedValue) ?? recommended;
 
   const noMakeUp = method === "none";
   const staffArranged = method === "teacher_case" || (method === "physical" && options.length === 0 && !hasMoreTimes);
   const needsMoreTimes = method === "physical" && options.length === 0 && hasMoreTimes;
 
   const primaryLabel = method === "physical" && options.length > 0
-    ? "Use this class"
+    ? "Continue with this make-up"
     : noMakeUp || staffArranged
       ? "Continue"
       : needsMoreTimes
@@ -65,11 +69,18 @@ export default function MakeUpScreen({
 
   const handlePrimary = () => {
     if (method === "physical" && options.length > 0) {
-      onUse(recommended.value);
+      if (currentOption) onUse(currentOption.value);
     } else if (needsMoreTimes) {
       onSeeMoreTimes();
     } else {
       onUse("");
+    }
+  };
+
+  const handleConfirmSheetChoice = () => {
+    if (currentOption) {
+      setSheetOpen(false);
+      onUse(currentOption.value);
     }
   };
 
@@ -80,7 +91,7 @@ export default function MakeUpScreen({
           Your make-up
         </h1>
         {total > 1 ? (
-          <span className="shrink-0 rounded-full bg-[var(--color-wi-row-alt)] px-3 py-1 text-[13px] font-semibold text-[var(--color-wi-text-light)]" aria-label={`Make-up ${index + 1} of ${total}`}>
+          <span className="shrink-0 rounded-full bg-[var(--color-wi-row-alt)] px-3 py-1 text-[13px] font-semibold text-[var(--color-wi-text-light)]" role="status" aria-live="polite" aria-label={`Make-up ${index + 1} of ${total}`}>
             {index + 1} of {total}
           </span>
         ) : null}
@@ -109,14 +120,15 @@ export default function MakeUpScreen({
 
       {method === "physical" && options.length > 0 ? (
         <>
+          {currentOption ? (
           <div className="mt-4 rounded-2xl border border-[var(--color-wi-border)] bg-white px-5 py-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">{recommended.name}</p>
-                <p className="mt-0.5 text-[15px] text-[var(--color-wi-text)]">{recommended.date}</p>
-                <p className="text-[15px] text-[var(--color-wi-text)]">{recommended.time}</p>
-                {recommended.teacher ? (
-                  <p className="mt-1 text-[13px] text-[var(--color-wi-text-light)]">{recommended.teacher}</p>
+                <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">{currentOption.name}</p>
+                <p className="mt-0.5 text-[15px] text-[var(--color-wi-text)]">{currentOption.date}</p>
+                <p className="text-[15px] text-[var(--color-wi-text)]">{currentOption.time}</p>
+                {currentOption.teacher ? (
+                  <p className="mt-1 text-[13px] text-[var(--color-wi-text-light)]">{currentOption.teacher}</p>
                 ) : null}
               </div>
               <span className="shrink-0 rounded-full bg-[var(--color-wi-primary)]/10 px-3 py-1 text-[13px] font-semibold text-[var(--color-wi-primary)]">
@@ -124,6 +136,12 @@ export default function MakeUpScreen({
               </span>
             </div>
           </div>
+          ) : null}
+          {pendingOption ? (
+            <p role="status" className="mt-2 text-[13px] text-[var(--color-wi-text-light)]">
+              Selected: {pendingOption.name} · {pendingOption.date} · {pendingOption.time}. Tap Continue to keep it.
+            </p>
+          ) : null}
 
           <button
             type="button"
@@ -132,7 +150,7 @@ export default function MakeUpScreen({
             disabled={loadingTimes}
             aria-haspopup="dialog"
             aria-expanded={sheetOpen}
-            className="mt-3 flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] bg-white px-5 text-[17px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-60"
+            className="wi-press mt-3 flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] bg-white px-5 text-[17px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-60"
           >
             Choose another time
             <ChevronRight className="h-5 w-5" aria-hidden="true" />
@@ -155,21 +173,21 @@ export default function MakeUpScreen({
                 </p>
                 <ul className="space-y-2">
                   {options.map((option) => {
-                    const isRecommended = option.value === recommended.value;
-                    const isSelected = option.value === selectedValue;
+                    const isRecommended = recommended ? option.value === recommended.value : false;
+                    const isSelected = option.value === (pendingValue ?? selectedValue);
                     return (
                       <li key={option.value}>
                         <button
                           type="button"
+                          aria-pressed={isSelected}
                           onClick={() => {
-                            setSheetOpen(false);
-                            onUse(option.value);
+                            setPendingValue(option.value);
                           }}
                           className={clsx(
-                            "flex min-h-14 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
+                            "wi-press flex min-h-14 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
                             isSelected
                               ? "border-[var(--color-wi-primary)]/50 bg-[var(--color-wi-primary)]/5"
-                              : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)] active:scale-[0.995] motion-reduce:active:scale-100",
+                              : "border-[var(--color-wi-border)] bg-white hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)]",
                           )}
                         >
                           <span
@@ -203,11 +221,34 @@ export default function MakeUpScreen({
                     type="button"
                     onClick={onSeeMoreTimes}
                     disabled={loadingTimes}
-                    className="mt-3 flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] px-4 text-[15px] font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-60"
+                    className="wi-press mt-3 flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] px-4 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-60"
                   >
                     {loadingTimes ? "Loading…" : "See more times"}
                   </button>
                 ) : null}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingValue(null);
+                      setSheetOpen(false);
+                    }}
+                    className="wi-press flex min-h-12 flex-1 items-center justify-center rounded-xl border border-[var(--color-wi-border)] px-4 text-[15px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSheetChoice}
+                    disabled={!currentOption || loadingTimes}
+                    className="wi-press flex min-h-12 flex-[2] items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-4 text-[15px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-60"
+                  >
+                    Confirm make-up
+                  </button>
+                </div>
+                <p className="mt-2 text-center text-[12px] text-[var(--color-wi-text-light)]">
+                  Choosing here only selects — nothing changes until you tap Confirm.
+                </p>
               </>
             )}
           </MobileBottomSheet>
@@ -221,23 +262,25 @@ export default function MakeUpScreen({
             </>
           ) : noMakeUp ? (
             <>
-              <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">No make-up needed</p>
+              <p className="text-[17px] font-semibold text-[var(--color-wi-green-dark)]">No make-up needed ✓</p>
               <p className="mt-1 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
-                You don&apos;t need to attend another class for this absence.
+                You don&apos;t need to attend another class for this absence. Nothing further needed.
               </p>
             </>
           ) : needsMoreTimes ? (
             <>
-              <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">No make-up classes available yet</p>
+              <p className="text-[17px] font-semibold text-[var(--color-wi-primary)]">More times available</p>
               <p className="mt-1 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
-                We&apos;re checking the next available times.
+                No times at this level — tap See more times to check the next available options.
               </p>
             </>
           ) : (
             <>
-              <p className="text-[17px] font-semibold text-[var(--color-wi-text)]">We&apos;ll find a suitable class</p>
+              <p className="text-[17px] font-semibold text-[var(--color-wi-amber)]">We&apos;ll arrange it for you</p>
               <p className="mt-1 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
-                Student Services will arrange your make-up class and contact you. Nothing else is needed.
+                {method === "teacher_case"
+                  ? "Your teacher will arrange your make-up. Student Services will contact you — nothing else is needed."
+                  : "No suitable class is open right now. Student Services will contact you to arrange one — nothing else is needed."}
               </p>
             </>
           )}
@@ -248,9 +291,16 @@ export default function MakeUpScreen({
         type="button"
         onClick={handlePrimary}
         disabled={loadingTimes}
-        className="mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-60"
+        className="wi-press mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-60"
       >
-        {primaryLabel}
+        {loadingTimes ? (
+          <span role="status" className="inline-flex items-center justify-center gap-2">
+            <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            Loading times…
+          </span>
+        ) : (
+          primaryLabel
+        )}
       </button>
     </div>
   );
