@@ -3,6 +3,8 @@ export type ReviewSection = {
   title: string;
   lines: string[];
   onEdit?: () => void;
+  /** Overrides the default "Edit <title>" control label. */
+  editLabel?: string;
   /** Optional per-line edit (parallel to lines); rendered under structured lines. */
   onEditLine?: (lineIndex: number) => void;
   editLineLabel?: string;
@@ -17,7 +19,7 @@ type ReviewScreenProps = {
 
 export default function ReviewScreen({ studentName, wcode, sections, notice = null }: ReviewScreenProps) {
   return (
-    <div className="mx-auto w-full max-w-xl">
+    <div className="mx-auto w-full max-w-2xl">
       <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
         Review your absence
       </h1>
@@ -47,7 +49,7 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
                   onClick={section.onEdit}
                   className="wi-press min-h-11 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                 >
-                  Edit {section.title.toLowerCase()}
+                  {section.editLabel ?? `Edit ${section.title.toLowerCase()}`}
                 </button>
               ) : null}
             </div>

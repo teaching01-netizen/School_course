@@ -59,7 +59,7 @@ export default function ParentConfirmScreen({
   const sessionStarted = Boolean(verification.token);
 
   return (
-    <div className="mx-auto w-full max-w-xl">
+    <div className="mx-auto w-full max-w-2xl">
       {completed ? (
         <div className="flex flex-col items-center py-10 text-center" role="status" aria-live="polite">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-wi-green)]/10">

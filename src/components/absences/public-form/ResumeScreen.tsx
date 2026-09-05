@@ -26,7 +26,7 @@ export default function ResumeScreen({
   onStartOver,
 }: ResumeScreenProps) {
   return (
-    <div className="mx-auto w-full max-w-xl">
+    <div className="mx-auto w-full max-w-2xl">
       <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
         Continue your absence report?
       </h1>

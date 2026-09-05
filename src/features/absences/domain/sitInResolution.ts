@@ -450,3 +450,131 @@ export function getSitInSessionSubjectTimeLabel(
     fallbackSubjectName;
   return `${subjectName} — ${formatDate(range.date)} ${formatTime(range.start_at)}-${formatTime(range.end_at)}`;
 }
+
+export type ChosenSitInRow = {
+  /** Stable identity of the missed class-day (its first missed session id). */
+  sessionKey: string;
+  missedSessionId: string;
+  group: SubjectSessions;
+  value: string;
+};
+
+export type ChosenSitInOverlap = {
+  sessionKey: string;
+  /** Human-readable reason, ready to show on that plan row. */
+  message: string;
+};
+
+type Interval = { start: number; end: number };
+
+type ResolvedChosen = {
+  row: ChosenSitInRow;
+  records: SitInAvailableSession[];
+  range: Interval;
+};
+
+function availableSessionRecords(sitIn: SubjectSessions["sit_in"]): SitInAvailableSession[] {
+  const records: SitInAvailableSession[] = [];
+  const collect = (node: SubjectSessions["sit_in"] | undefined) => {
+    if (!node) return;
+    records.push(...(node.available_sessions ?? []));
+    for (const priority of node.priorities ?? []) records.push(...(priority.available_sessions ?? []));
+    for (const nested of Object.values(node.sit_in_by_missed_session ?? {})) collect(nested);
+  };
+  collect(sitIn);
+  return records;
+}
+
+function overlap(a: Interval, b: Interval): boolean {
+  return a.start < b.end && a.end > b.start;
+}
+
+function recordInterval(record: SitInAvailableSession): Interval | null {
+  const start = record.merged_start_at?.trim() || record.start_at;
+  const end = record.merged_end_at?.trim() || record.end_at;
+  if (!start || !end) return null;
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return null;
+  return { start: startMs, end: endMs };
+}
+
+function dayTimeLabel(record: SitInAvailableSession): string {
+  return `${formatDate(dayKey(record))} ${sessionTimeRange(record)}`;
+}
+
+/**
+ * Client-side make-up validation (the server enforces the same rules at
+ * submission): a chosen make-up must not overlap a class the student still
+ * attends, nor another chosen make-up. Returns one entry per affected row.
+ */
+export function findChosenSitInOverlaps(
+  rows: ChosenSitInRow[],
+  allSubjects: SubjectSessions[],
+  selectedSessionIds: Set<string>,
+): ChosenSitInOverlap[] {
+  const overlapsByKey = new Map<string, string[]>();
+
+  // Resolve each chosen value to its session records and union time range.
+  const resolved: ResolvedChosen[] = rows.map((row) => {
+    const sitIn = groupWithSitInForMissedSession(row.group, row.missedSessionId).sit_in;
+    const byId = new Map(availableSessionRecords(sitIn).map((record) => [record.id, record]));
+    const parts = splitMergedSessionValue(row.value)
+      .map((id) => byId.get(id))
+      .filter((record): record is SitInAvailableSession => Boolean(record));
+    if (parts.length === 0) return null;
+    const ranges = parts.map((record) => recordInterval(record)).filter((interval): interval is Interval => Boolean(interval));
+    if (ranges.length === 0) return null;
+    return {
+      row,
+      records: parts,
+      range: {
+        start: Math.min(...ranges.map((range) => range.start)),
+        end: Math.max(...ranges.map((range) => range.end)),
+      },
+    };
+  }).filter((entry): entry is ResolvedChosen => Boolean(entry));
+
+  // Attended classes: sessions the student still has on their timetable.
+  const attended: Array<{ group: SubjectSessions; session: SubjectSessions["sessions"][number] }> = [];
+  for (const group of allSubjects) {
+    for (const session of group.sessions) {
+      if (session.already_absent) continue;
+      if (selectedSessionIds.has(session.id)) continue;
+      const interval = recordInterval(session);
+      if (interval) attended.push({ group, session: { ...session, start_at: session.start_at, end_at: session.end_at } });
+    }
+  }
+
+  const pushMessage = (sessionKey: string, message: string) => {
+    const existing = overlapsByKey.get(sessionKey) ?? [];
+    if (!existing.includes(message)) existing.push(message);
+    overlapsByKey.set(sessionKey, existing);
+  };
+
+  for (const chosen of resolved) {
+    const conflicts = attended.filter(({ session }) => {
+      const interval = recordInterval(session);
+      return interval ? overlap(chosen.range, interval) : false;
+    }).map(({ group, session }) => ({ group, session }));
+    const description = formatSitInSessionConflictDescription(conflicts);
+    if (description) pushMessage(chosen.row.sessionKey, `${description}. Choose another time.`);
+  }
+
+  for (let i = 0; i < resolved.length; i += 1) {
+    for (let j = i + 1; j < resolved.length; j += 1) {
+      const a = resolved[i];
+      const b = resolved[j];
+      if (!overlap(a.range, b.range)) continue;
+      // Each row's message names the OTHER make-up it clashes with.
+      const aLabel = a.row.group.merge_group_name?.trim() || a.row.group.subject_name?.trim() || a.row.group.course_name?.trim() || a.row.group.course_code || "that class";
+      const bLabel = b.row.group.merge_group_name?.trim() || b.row.group.subject_name?.trim() || b.row.group.course_name?.trim() || b.row.group.course_code || "that class";
+      const bTime = dayTimeLabel(b.records[0]);
+      const aTime = dayTimeLabel(a.records[0]);
+      pushMessage(a.row.sessionKey, `Overlaps with your ${bLabel} make-up (${bTime}). Choose another time.`);
+      pushMessage(b.row.sessionKey, `Overlaps with your ${aLabel} make-up (${aTime}). Choose another time.`);
+    }
+  }
+
+  return [...overlapsByKey.entries()].map(([sessionKey, messages]) => ({ sessionKey, message: messages.join(" ") }));
+}

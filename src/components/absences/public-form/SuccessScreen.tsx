@@ -10,13 +10,22 @@ export type SuccessGroup = {
 type SuccessScreenProps = {
   groups: SuccessGroup[];
   reference: string;
+  /** Actual status of the created records, e.g. "pending". */
+  status?: string;
   onDone: () => void;
 };
 
-export default function SuccessScreen({ groups, reference, onDone }: SuccessScreenProps) {
+// The receipt distinguishes "your report reached us" from approval or a
+// confirmed make-up. Only statuses the system actually returns are named;
+// everything else stays a neutral "received" statement.
+const REVIEW_STATUS_TEXT: Record<string, string> = {
+  pending: "Awaiting review by Student Services.",
+};
+
+export default function SuccessScreen({ groups, reference, status, onDone }: SuccessScreenProps) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className="mx-auto w-full max-w-xl py-6 text-center">
+    <div className="mx-auto w-full max-w-2xl py-6 text-center">
       <motion.div
         initial={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -30,11 +39,11 @@ export default function SuccessScreen({ groups, reference, onDone }: SuccessScre
         </svg>
       </motion.div>
 
-      <h1 className="mt-6 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
-        Absence submitted
+      <h1 id="success-heading" className="mt-6 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+        Absence report submitted
       </h1>
       <p className="mx-auto mt-2 max-w-sm text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
-        We&apos;ll review your request and send updates to your email.
+        {status ? REVIEW_STATUS_TEXT[status] ?? `Status: ${status}.` : "Student Services will review your report."}
       </p>
 
       <div className="mt-8 space-y-4 text-left">
@@ -57,16 +66,12 @@ export default function SuccessScreen({ groups, reference, onDone }: SuccessScre
           <span className="mt-1 block">Quote this if you contact Student Services about this absence.</span>
         </p>
       ) : null}
-      <p className="mt-3 text-[13px] text-[var(--color-wi-text-light)]">
-        Need to report another absence? Tap Done to start a new report.
-      </p>
-
       <button
         type="button"
         onClick={onDone}
         className="wi-press mt-8 flex h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-wi-primary)] px-5 text-[17px] font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2"
       >
-        Done
+        Report another absence
       </button>
     </div>
   );

@@ -95,8 +95,8 @@ it("does not claim an uncertain OTP delivery was sent", async () => {
 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
-  expect(await screen.findByText(/sms may have been sent/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(await screen.findByText(/may still arrive/i)).toBeInTheDocument();
+  expect(screen.queryByText(/your code has been sent/i)).not.toBeInTheDocument();
 });
 
 it("polls a queued delivery until SmartSMS accepts it", async () => {
@@ -110,7 +110,7 @@ it("polls a queued delivery until SmartSMS accepts it", async () => {
   fireEvent.click(screen.getByRole("button", { name: /send code/i }));
   await act(async () => Promise.resolve());
 
-  expect(screen.getByText("Sending code…")).toBeInTheDocument();
+  expect(screen.getByText("Sending your code…")).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
   expect(mockedApiJson).toHaveBeenCalledWith(
     "/api/v1/absences/parent-verification/status",
@@ -135,7 +135,7 @@ it("shows a retryable error when delivery is rejected without arming the resend 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
   expect(await screen.findByText(/couldn't send the code/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/your code has been sent/i)).not.toBeInTheDocument();
   // A failed delivery never reached the parent: the student can retry now
   // instead of waiting out the 5-minute resend cooldown.
   expect(screen.getByRole("button", { name: /^send code$/i })).toBeEnabled();
@@ -155,7 +155,7 @@ it("keeps the send action immediately retryable after a request failure", async 
   expect(screen.getByRole("button", { name: /^send code$/i })).toBeEnabled();
 
   await user.click(screen.getByRole("button", { name: /^send code$/i }));
-  expect(await screen.findByText(/^code sent to ••••5678/i)).toBeInTheDocument();
+  expect(await screen.findByText(/your code has been sent to ••••5678/i)).toBeInTheDocument();
 });
 
 it("confirms an accepted OTP delivery", async () => {
@@ -165,8 +165,8 @@ it("confirms an accepted OTP delivery", async () => {
 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
-  expect(await screen.findByText(/^code sent to ••••5678/i)).toBeInTheDocument();
-  expect(screen.queryByText("Sending code…")).not.toBeInTheDocument();
+  expect(await screen.findByText(/your code has been sent to ••••5678/i)).toBeInTheDocument();
+  expect(screen.queryByText("Sending your code…")).not.toBeInTheDocument();
 });
 
 it("reports an expired OTP without claiming delivery", async () => {
@@ -177,7 +177,7 @@ it("reports an expired OTP without claiming delivery", async () => {
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
   expect(await screen.findByText(/that code has expired/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/your code has been sent/i)).not.toBeInTheDocument();
 });
 
 it("explains a wrong code in student language, keeps it typed, and never auto-retries it", async () => {
@@ -490,7 +490,7 @@ it("enrolls a client-provided parent phone when none is on file", async () => {
       }),
     ),
   );
-  expect(await screen.findByText(/^code sent to ••••8888/i)).toBeInTheDocument();
+  expect(await screen.findByText(/your code has been sent to ••••8888/i)).toBeInTheDocument();
 });
 
 it("lets the student change the number from the confirmation step", async () => {

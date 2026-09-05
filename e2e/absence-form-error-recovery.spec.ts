@@ -45,18 +45,19 @@ test("a missing make-up cannot be skipped into review", async ({ page }) => {
   await installAbsenceRoutes(page, submitted);
 
   await page.goto("/absence");
-  await acceptResumePrompt(page);
+  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
-  await page.getByRole("heading", { name: "Which class will you miss?" }).waitFor();
+  // The saved report is offered for resume only after verification.
+  await acceptResumePrompt(page);
   // The restored draft requires reviewing the current classes first.
   await page.getByRole("button", { name: /i've reviewed/i }).click();
   await page.getByRole("button", { name: "Continue" }).click();
 
   // The physical make-up must be chosen — review stays unreachable.
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /choose a time|change time/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
 });
 

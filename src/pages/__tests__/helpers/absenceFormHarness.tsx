@@ -133,6 +133,25 @@ export async function findOtpInput() {
   );
 }
 
+/**
+ * Waits until the schedule has settled into one of its terminal states:
+ * rows/calendar for a real agenda, a Done exit when there is nothing to
+ * report, or the Try again error state. Without this, page-level tests that
+ * inspect Classes right after landing can race the schedule fetch.
+ */
+async function waitForScheduleSettled() {
+  await waitFor(() => {
+    const hasAgenda = Boolean(
+      document.querySelector("[data-date-key]") || screen.queryByRole("checkbox"),
+    );
+    const nothingToReport = Boolean(screen.queryByRole("button", { name: /^done$/i }));
+    const failed = Boolean(screen.queryByRole("button", { name: /^try again$/i }));
+    if (!hasAgenda && !nothingToReport && !failed) {
+      throw new Error("classes schedule is still loading");
+    }
+  });
+}
+
 /** Types the 6-digit code; the flow verifies automatically and advances. */
 export async function enterCode(
   user: ReturnType<typeof userEvent.setup>,
@@ -150,20 +169,32 @@ export async function fillEmailIfNeeded(
   const emailInput = screen.queryByRole("textbox", { name: /^email$/i });
   if (!emailInput) return;
   await user.type(emailInput, email);
-  await user.click(screen.getByRole("button", { name: /^continue$/i }));
 }
 
 export async function completeToClasses(
   user: ReturnType<typeof userEvent.setup>,
-  options: { wcode?: string; email?: string } = {},
+  options: { wcode?: string } = {},
 ) {
   await startReport(user, options.wcode);
   await confirmIdentity(user);
   await sendParentCode(user);
   await enterCode(user);
-  await screen.findByRole("heading", { name: /where should we send updates/i });
-  await fillEmailIfNeeded(user, options.email);
   await screen.findByRole("heading", { name: /which class will you miss/i });
+  await waitForScheduleSettled();
+}
+
+/** Advances through classes and make-up to the consolidated Details stage. */
+export async function reachDetails(
+  user: ReturnType<typeof userEvent.setup>,
+  options: { wcode?: string; classes?: string[] } = {},
+) {
+  await completeToClasses(user, options);
+  for (const label of options.classes ?? ["Mathematics"]) {
+    await selectClass(user, label);
+  }
+  await user.click(screen.getByRole("button", { name: /^continue$/i }));
+  await completeMakeUps(user);
+  await screen.findByRole("heading", { name: /why will you be away/i });
 }
 
 export async function selectClass(
@@ -232,14 +263,9 @@ export async function completeToReview(
   reason = "Appointment",
   options: { wcode?: string; email?: string; classes?: string[] } = {},
 ) {
-  await completeToClasses(user, options);
-  const classes = options.classes ?? ["Mathematics"];
-  for (const label of classes) {
-    await selectClass(user, label);
-  }
-  await user.click(screen.getByRole("button", { name: /^continue$/i }));
-  await completeMakeUps(user);
+  await reachDetails(user, options);
   await pickReason(user, reason);
+  await fillEmailIfNeeded(user, options.email ?? "student@example.edu");
   await user.click(screen.getByRole("button", { name: /^continue$/i }));
   await screen.findByRole("heading", { name: /review your absence/i });
   await waitFor(() => {

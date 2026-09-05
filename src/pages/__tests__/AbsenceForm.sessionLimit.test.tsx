@@ -92,7 +92,7 @@ describe("AbsenceForm — absence limits", () => {
     await expandCalendar(user);
     await selectClass(user, "Mathematics");
     // The choice stays visible next to the calendar, in a persistent summary.
-    expect(screen.getByText(/1 class selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /add another class/i })).toBeInTheDocument();
   });
@@ -103,7 +103,7 @@ describe("AbsenceForm — absence limits", () => {
 
     await completeToClasses(user);
     await selectClass(user, "Mathematics");
-    expect(screen.getByText(/1 class selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
 
     // A second reportable class sits two days later on the calendar.
     await openDayOffset(user, 2);

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import clsx from "clsx";
 import { Check } from "lucide-react";
 import ReasonField from "./ReasonField";
@@ -13,6 +14,13 @@ export const DEFAULT_REASON_CATEGORIES: ReasonCategory[] = [
   { value: "other", label: "Other" },
 ];
 
+type ReasonScreenEmail = {
+  required: boolean;
+  value: string;
+  onChange: (next: string) => void;
+  invalid: boolean;
+};
+
 type ReasonScreenProps = {
   categories: ReasonCategory[];
   selected: string | null;
@@ -23,6 +31,10 @@ type ReasonScreenProps = {
   onSelect: (value: string | null) => void;
   onDetailChange: (value: string) => void;
   error?: string | null;
+  /** Shown inside Details when the school has no address on file for updates. */
+  email?: ReasonScreenEmail;
+  /** Focus the update-email field when the student arrives to edit it. */
+  initialFocusOnEmail?: boolean;
 };
 
 export default function ReasonScreen({
@@ -35,12 +47,20 @@ export default function ReasonScreen({
   onSelect,
   onDetailChange,
   error = null,
+  email,
+  initialFocusOnEmail = false,
 }: ReasonScreenProps) {
   const showDetail = Boolean(selected) && (allowFreeText || requireDetailFor(selected ?? ""));
+
+  useEffect(() => {
+    if (!initialFocusOnEmail || !email) return;
+    const field = document.getElementById("absence-update-email");
+    field?.focus();
+  }, [initialFocusOnEmail, email]);
   const detailRequired = Boolean(selected) && requireDetailFor(selected ?? "");
 
   return (
-    <div className="mx-auto w-full max-w-xl">
+    <div className="mx-auto w-full max-w-2xl">
       <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
         Why will you be away?
       </h1>
@@ -105,6 +125,43 @@ export default function ReasonScreen({
             counter="near-limit"
           />
         </div>
+      ) : null}
+
+      {email ? (
+        <section aria-label="Where should we send updates?" className="mt-7 border-t border-[var(--color-wi-line)] pt-6">
+          <h2 className="text-[20px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+            Where should we send updates?
+          </h2>
+          <p className="mt-1 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
+            We need an email to send updates about this absence.
+          </p>
+          <div className="mt-4">
+            <label htmlFor="absence-update-email" className="block text-[15px] font-semibold text-[var(--color-wi-text)]">
+              Email{email.required ? <span aria-hidden="true"> *</span> : null}
+            </label>
+            <input
+              id="absence-update-email"
+              type="email"
+              autoComplete="email"
+              className={clsx(
+                "mt-2 h-[52px] w-full rounded-xl border bg-white px-4 text-[17px] text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:outline-none focus:ring-2",
+                email.invalid
+                  ? "border-[var(--color-wi-red)] focus:border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20"
+                  : "border-[var(--color-wi-border)] focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20",
+              )}
+              placeholder="name@example.com"
+              value={email.value}
+              onChange={(event) => email.onChange(event.target.value)}
+              aria-invalid={email.invalid}
+              aria-describedby={email.invalid ? "absence-update-email-error" : undefined}
+            />
+            {email.invalid ? (
+              <p id="absence-update-email-error" role="alert" className="mt-2 text-[15px] leading-snug text-[var(--color-wi-red)]">
+                Enter a valid email to continue.
+              </p>
+            ) : null}
+          </div>
+        </section>
       ) : null}
     </div>
   );

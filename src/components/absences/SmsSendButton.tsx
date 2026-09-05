@@ -11,42 +11,6 @@ type SmsSendButtonProps = {
   parentPhoneMissing?: boolean;
 };
 
-function ProgressRing({ progress }: { progress: number }) {
-  const radius = 14;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - Math.min(progress, 1));
-
-  return (
-    <svg
-      className="h-8 w-8 -rotate-90"
-      viewBox="0 0 32 32"
-      aria-hidden="true"
-    >
-      <circle
-        cx="16"
-        cy="16"
-        r={radius}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        className="opacity-20"
-      />
-      <circle
-        cx="16"
-        cy="16"
-        r={radius}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        className="transition-[stroke-dashoffset] duration-500 ease-linear motion-reduce:transition-none"
-      />
-    </svg>
-  );
-}
-
 function Spinner() {
   return (
     <svg
@@ -117,17 +81,21 @@ export default function SmsSendButton({
 
   const onCooldown = cooldown > 0;
   const isInteractive = !isSending && !onCooldown && !disabled;
-  const progress = cooldownDuration > 0 ? cooldown / cooldownDuration : 0;
-  const cooldownLabel = onCooldown
-    ? `Send another code in ${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}`
-    : sendCount > 0 ? "Resend code" : "Send code";
+  const cooldownClock = onCooldown
+    ? `${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}`
+    : "";
+  // Waiting is a quiet note, not the focal action: the button shows the next
+  // available action and the countdown lives in still text beside it.
+  const cooldownLabel = onCooldown ? `You can resend in ${cooldownClock}.` : sendCount > 0 ? "Resend code" : "Send code";
+  const idleLabel = sendCount > 0 ? "Resend code" : "Send code";
 
   return (
-    <button
+    <span className="inline-flex flex-col items-start gap-1">
+      <button
       type="button"
       onClick={onClick}
       disabled={!isInteractive}
-      aria-label={onCooldown ? cooldownLabel : undefined}
+      aria-label={cooldownLabel}
       className={clsx(
         "wi-press relative inline-flex min-h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
         isInteractive
@@ -157,8 +125,7 @@ export default function SmsSendButton({
             transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
-            <ProgressRing progress={progress} />
-            <span className="tabular-nums" aria-hidden="true">Send another code in {Math.floor(cooldown / 60)}:{String(cooldown % 60).padStart(2, "0")}</span>
+            <span className="tabular-nums" aria-hidden="true">{idleLabel}</span>
           </motion.span>
         ) : (
           <motion.span
@@ -169,10 +136,16 @@ export default function SmsSendButton({
             transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
-            {sendCount > 0 ? "Resend code" : "Send code"}
+            {idleLabel}
           </motion.span>
         )}
       </AnimatePresence>
     </button>
+    {onCooldown && !isSending ? (
+      <span role="timer" className="text-xs tabular-nums text-[var(--color-wi-text-light)]">
+        You can resend in {cooldownClock}.
+      </span>
+    ) : null}
+    </span>
   );
 }

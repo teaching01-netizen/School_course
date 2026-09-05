@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   renderPublicAbsenceForm,
@@ -8,6 +8,9 @@ import {
   selectClass,
   startReport,
   confirmIdentity,
+  fillEmailIfNeeded,
+  sendParentCode,
+  enterCode,
 } from "./helpers/absenceFormHarness";
 import { ApiRequestError } from "@/api/client";
 import type { SessionsInRangeResponse } from "@/types";
@@ -199,10 +202,38 @@ describe("AbsenceForm — recovery & errors", () => {
     expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
   });
 
-  it("recovers a stale make-up by recommending the next available option", async () => {
+  it("recovers a stale make-up by invalidating only that class-day and recommending the next option", async () => {
+    const original = PHYSICAL_SESSIONS.subjects[0];
+    const nextSubject: SessionsInRangeResponse["subjects"][number] = {
+      ...original,
+      sit_in: {
+        ...original.sit_in!,
+        available_sessions: [
+          {
+            id: "sit-b",
+            start_at: "2026-08-05T02:00:00Z",
+            end_at: "2026-08-05T03:30:00Z",
+            course_id: "course-sitin",
+            class_name: "Mathematics Make-up",
+            subject_name: "Mathematics",
+            course_name: "Mathematics Make-up",
+          },
+        ],
+        unavailable_sessions: [
+          {
+            session: { id: "sit-a", start_at: "2026-08-04T02:00:00Z", end_at: "2026-08-04T03:30:00Z", course_id: "course-sitin" },
+            reason_code: "sit_in_session_already_used",
+            missed_session_id: "session-math-1",
+            reason: "already used",
+          },
+        ],
+      },
+    };
+    let stale = false;
     renderPublicAbsenceForm(mockApiJson, {
-      sessions: PHYSICAL_SESSIONS,
+      sessions: () => (stale ? { subjects: [nextSubject] } : PHYSICAL_SESSIONS),
       submission: () => {
+        stale = true;
         throw new ApiRequestError("Sit-in session already used", {
           code: "sit_in_session_already_used",
           status: 409,
@@ -216,21 +247,39 @@ describe("AbsenceForm — recovery & errors", () => {
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /your make-up/i });
 
-    // One clear recommendation.
-    expect(screen.getByText(/recommended/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /continue with this make-up/i }));
+    // One clear suggestion; the choice is explicit, never auto-booked.
+    expect(screen.getAllByText(/suggested make-up/i).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: /choose a time/i }));
+    const firstDialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
+    await user.click(within(firstDialog).getByRole("button", { name: /use this time/i }));
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
 
     await screen.findByRole("heading", { name: /why will you be away/i });
     await user.click(screen.getByRole("radio", { name: "Appointment" }));
+    // The school has no email on file, so Details also asks for one.
+    await fillEmailIfNeeded(user, "student@example.edu");
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /review your absence/i });
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
 
-    // Instead of a raw conflict error, the system presents the next option.
+    // Back on the plan: only the affected class-day asks for a new time; the
+    // taken time is gone and the next option is the new suggestion.
     await screen.findByRole("heading", { name: /your make-up/i });
-    const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent(/that class is no longer available/i);
-    expect(screen.getByRole("button", { name: /continue with this make-up/i })).toBeEnabled();
+    // The recovery notice names the affected class rather than speaking in generalities.
+    const recoveryNotices = screen.queryAllByRole("status").filter((node) =>
+      node.textContent?.includes("no longer available"),
+    );
+    expect(recoveryNotices.length).toBeGreaterThan(0);
+    const itemizedNotice = recoveryNotices.find((node) => node.textContent?.includes("Mathematics"));
+    expect(itemizedNotice?.textContent).toMatch(/mathematics/i);
+    expect(itemizedNotice?.textContent).toMatch(/choose another time/i);
+    await waitFor(() => expect(screen.getByRole("button", { name: /choose a time/i })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: /choose a time/i }));
+    const retryDialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
+    expect(within(retryDialog).getByText(/recommended/i)).toBeInTheDocument();
+    await user.click(within(retryDialog).getByRole("button", { name: /use this time/i }));
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await screen.findByRole("heading", { name: /why will you be away/i });
   });
 
   it("hides unavailable make-up options instead of listing them as disabled", async () => {
@@ -245,10 +294,10 @@ describe("AbsenceForm — recovery & errors", () => {
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /your make-up/i });
 
-    await user.click(screen.getByRole("button", { name: /choose another time/i }));
-    const dialog = await screen.findByRole("dialog", { name: /choose another time/i });
+    await user.click(screen.getByRole("button", { name: /choose a time/i }));
+    const dialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
     expect(dialog).toHaveTextContent(/mathematics/i);
-    expect(dialog).toHaveTextContent(/recommended/i);
+    expect(within(dialog).getAllByText(/recommended/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
   });
 
@@ -266,6 +315,30 @@ describe("AbsenceForm — recovery & errors", () => {
     // Back on verification with an explanation — never a raw error.
     await screen.findByRole("heading", { name: /enter the code|confirm with a parent/i });
     expect(screen.getAllByText(/expired/i).length).toBeGreaterThan(0);
+  });
+
+  it("returns the student to Review after re-verifying an expired session", async () => {
+    renderPublicAbsenceForm(mockApiJson, {
+      submission: () => {
+        throw new ApiRequestError("Unauthorized", { code: "unauthorized", status: 401 });
+      },
+    });
+    const user = userEvent.setup();
+
+    await completeToReview(user);
+    await user.click(screen.getByRole("button", { name: /submit absence/i }));
+    await screen.findByRole("heading", { name: /enter the code|confirm with a parent/i });
+
+    // Re-verify with the parent — the selections were preserved, so the
+    // student lands straight back on the Review screen they were on.
+    await sendParentCode(user);
+    await enterCode(user);
+
+    await screen.findByRole("heading", { name: /review your absence/i });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /submit absence/i })).toBeEnabled();
+    });
+    expect(screen.getByText(/mathematics/i)).toBeInTheDocument();
   });
 
   it("shows a friendly empty state when there are no reportable classes", async () => {

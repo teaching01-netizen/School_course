@@ -640,6 +640,23 @@ html {
   min-inline-size: 0;
 }
 
+/* The visible "Step N of 5 · Stage" location line. On wide screens it sits
+   under the brand identity (left column); on narrow screens it spans the
+   header below the title and back control. */
+.absence-app-header__stage {
+  grid-column: 1 / -1;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-wi-text-light);
+}
+
+@media (min-width: 768px) {
+  .absence-app-header__stage {
+    grid-column: 1;
+  }
+}
+
 .absence-header-progress__track {
   block-size: 0.25rem;
   overflow: hidden;

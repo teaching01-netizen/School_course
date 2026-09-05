@@ -27,8 +27,12 @@ beforeEach(() => {
 it("uses the backend-aligned 5 minute resend cooldown by default", async () => {
   render(<SmsSendButton isSending={false} sendCount={1} onClick={vi.fn()} />);
 
-  const button = await screen.findByRole("button", { name: "Send another code in 5:00" });
+  // The waiting state is a quiet note beside the action, not a ring inside it:
+  // the button names the next action and the caption states the wait.
+  const countdown = /you can resend in \d+:\d{2}/i;
+  const button = await screen.findByRole("button", { name: countdown });
   expect(button).toBeDisabled();
+  expect(screen.getByText(countdown)).toBeInTheDocument();
   // Motion is on by default: the state crossfade starts from opacity 0.
   expect(button.firstElementChild as HTMLElement).toHaveStyle({ opacity: "0" });
 });
@@ -41,6 +45,7 @@ it("renders state changes with zero fade under prefers-reduced-motion", () => {
 
   const button = screen.getByRole("button", { name: "Send code" });
   expect(button).toBeEnabled();
+  expect(screen.queryByText(/you can resend in/i)).not.toBeInTheDocument();
   // initial={false} means the content never fades in — same label, no motion.
   expect(button.firstElementChild as HTMLElement).not.toHaveStyle({ opacity: "0" });
 });

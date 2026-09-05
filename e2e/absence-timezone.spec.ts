@@ -205,9 +205,6 @@ async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
 async function verifyParent(page: Page) {
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
-  await expect(page.getByRole("heading", { name: "Where should we send updates?" })).toBeVisible();
-  await page.getByLabel(/^email$/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
 }
 
@@ -241,28 +238,36 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
   await expect(page.locator("main")).toContainText("00:00–01:00");
   await expect(page.locator("main")).toContainText("00:30–01:30");
-  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
+  await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("button", { name: "Use this time" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
   await page.getByRole("radio", { name: "Other" }).click();
   await page.getByLabel(/tell us a little more/i).fill("Timezone regression test");
+  // The fixture's profile has no email on file, so Details asks for one.
+  await page.getByRole("textbox", { name: /^email$/i }).fill("student@example.com");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
   const reviewText = await page.locator("main").innerText();
-  expect(reviewText).toContain("00:00–01:00");
-  expect(reviewText).toContain("Make-up:");
-  expect(reviewText).toContain("00:30-01:30");
+  // The "Saved in this tab" note is volatile UI chrome (it appears a frame
+  // after the last draft save) and carries no timezone data; strip it so the
+  // cross-timezone comparison stays about institute dates and times.
+  const normalizedReviewText = reviewText.replace(/^Saved in this tab\s*\n+/m, "");
+  expect(normalizedReviewText).toContain("00:00–01:00");
+  expect(normalizedReviewText).toContain("Make-up:");
+  expect(normalizedReviewText).toContain("00:30-01:30");
 
   await page.getByRole("button", { name: "Submit absence" }).click();
-  await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Absence report submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);
 
   const successSummary = await page.locator("main").innerText();
   await context.close();
 
   return {
-    reviewText,
+    reviewText: normalizedReviewText,
     successSummary,
     submittedPayload: submitted[0],
   };
@@ -305,23 +310,10 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
-  await expect(page.getByRole("heading", { name: "Where should we send updates?" })).toBeVisible();
-  await page.getByLabel(/^email$/i).fill("student@example.com");
-
-  await page.reload();
-  // The resume prompt explains what is saved, then re-identifies the student.
-  await acceptResumePrompt(page);
-  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
-  await expect(page.getByText("W250389")).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await page.setViewportSize({ width: 320, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-
-  await page.getByRole("button", { name: "Yes, continue" }).click();
-  await advanceThroughVerification(page);
-  // The restored email means the email screen is skipped.
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
 
+  // Pick a class and reach Details (where the email lives) before reloading,
+  // so the reload exercises a genuinely saved report.
   const classRow = page
     .locator("label")
     .filter({ hasText: "Mathematics" })
@@ -329,13 +321,41 @@ test("mobile public absence flow resumes student details safely and completes wi
     .first();
   await classRow.click();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
+  await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("button", { name: "Use this time" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("radio", { name: "Other" }).click();
+  await page.getByLabel(/tell us a little more/i).fill("Mobile resume test");
+  await page.getByRole("textbox", { name: /^email$/i }).fill("student@example.com");
+  // The draft is saved as the student works; leave the tab and come back.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await advanceThroughVerification(page);
+  // Saved-report details are offered for resume only after verification.
+  await acceptResumePrompt(page);
+  await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
+  await page.getByRole("button", { name: /i've reviewed/i }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("button", { name: "Use this time" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  // The restored report already carries the reason, so the radio is checked
+  // on arrival. Clicking it would toggle it off — only choose it when the
+  // restored draft had no reason.
+  const otherRadio = page.getByRole("radio", { name: "Other" });
+  if ((await otherRadio.getAttribute("aria-checked")) !== "true") {
+    await otherRadio.click();
+  }
   await page.getByLabel(/tell us a little more/i).fill("Mobile resume test");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
   await page.getByRole("button", { name: "Submit absence" }).click();
-  await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Absence report submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0]?.email).toBe("student@example.com");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

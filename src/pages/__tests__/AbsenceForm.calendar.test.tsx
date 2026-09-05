@@ -78,20 +78,27 @@ describe("AbsenceForm — schedule calendar keyboard", () => {
     expect(todayLabel).toMatch(/today\. 1 class$/i);
     expect(tomorrowLabel).toMatch(/1 class$/);
     expect(tomorrowLabel).not.toMatch(/today/i);
-    expect(cellForDateKey(todayKey)).toHaveAttribute("aria-pressed", "true");
+    expect(cellForDateKey(todayKey)).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("marks a picked class's day in the calendar with a check, not color alone", async () => {
+  it("marks a picked class's day as selected with a filled day and a truthful label", async () => {
     renderPublicAbsenceForm(mockApiJson);
     const user = userEvent.setup();
     await completeToClasses(user);
 
-    expect(cellForDateKey(relativeDateKey(0))?.querySelector("svg")).toBeNull();
+    const todayCell = cellForDateKey(relativeDateKey(0));
+    expect(todayCell).not.toBeNull();
+    expect(todayCell).toHaveAttribute("aria-pressed", "false");
+    expect(todayCell?.getAttribute("aria-label") ?? "").not.toMatch(/selected/i);
 
     await selectClass(user, "Mathematics");
 
-    // The chosen day carries a check glyph; the row below is marked Selected.
-    expect(cellForDateKey(relativeDateKey(0))?.querySelector("svg")).not.toBeNull();
-    expect(screen.getByText(/1 class selected/i)).toBeInTheDocument();
+    // The chosen day is announced as selected and carries a filled bubble,
+    // independent of which day is currently viewed.
+    expect(todayCell).toHaveAttribute("aria-pressed", "true");
+    expect(todayCell?.getAttribute("aria-label") ?? "").toMatch(/selected$/i);
+    const bubble = todayCell?.querySelector(".text-white");
+    expect(bubble).not.toBeNull();
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
   });
 });

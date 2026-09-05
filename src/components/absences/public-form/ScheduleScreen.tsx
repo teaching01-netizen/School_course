@@ -5,6 +5,7 @@ import { formatTime } from "@/utils/date";
 import { instituteDateKey, groupByDay } from "@/features/absences/domain/sessionGrouping";
 import type { SubjectSessions } from "@/features/absences/types";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
+import MobileBottomSheet from "./MobileBottomSheet";
 
 type ScheduleScreenProps = {
   groups: SubjectSessions[];
@@ -21,6 +22,8 @@ type ScheduleScreenProps = {
   onRetry?: () => void;
   draftNeedsReview?: boolean;
   onDismissDraftNotice?: () => void;
+  /** mailto:/tel: target for the "Contact Student Services" support action shown under inline limit notices. */
+  supportHref?: string;
 };
 
 /** One selectable "class" on a given day (a course/day grouping). */
@@ -121,6 +124,7 @@ export default function ScheduleScreen({
   onRetry,
   draftNeedsReview = false,
   onDismissDraftNotice,
+  supportHref,
 }: ScheduleScreenProps) {
   const events = useMemo(() => buildEvents(groups, selectedIds), [groups, selectedIds]);
 
@@ -296,6 +300,13 @@ export default function ScheduleScreen({
   // Stacked toasts: each removal gets its own Undo + expiry so removing a
   // second class never steals the first removal's chance to be undone.
   type RemovedToast = { key: string; event: CalendarEvent };
+  // ---- Selected-list sheet -------------------------------------------------
+  const [viewSheetOpen, setViewSheetOpen] = useState(false);
+  const viewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (viewSheetOpen && selectedEvents.length === 0) setViewSheetOpen(false);
+  }, [viewSheetOpen, selectedEvents.length]);
+
   const [removedToasts, setRemovedToasts] = useState<RemovedToast[]>([]);
   const toastSeq = useRef(0);
   const dismissRemovedToast = (key: string) => {
@@ -418,7 +429,7 @@ export default function ScheduleScreen({
         Which class will you miss?
       </h1>
       <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
-        Pick a day, then choose the class. We&apos;ve only shown days you have classes on.
+        Selecting a class includes all its sessions that day.
       </p>
 
       {draftNeedsReview ? (
@@ -516,6 +527,7 @@ export default function ScheduleScreen({
                       longDateLabel(dateKey),
                       isToday ? "Today" : null,
                       count > 0 ? `${count} ${count === 1 ? "class" : "classes"}` : "No classes",
+                      hasSelection ? "Selected" : null,
                     ].filter(Boolean);
                     return (
                       <button
@@ -523,30 +535,35 @@ export default function ScheduleScreen({
                         type="button"
                         onClick={() => selectDate(dateKey)}
                         data-date-key={dateKey}
-                        aria-pressed={isFocused}
+                        aria-pressed={hasSelection}
                         tabIndex={dateKey === activeKey ? 0 : -1}
                         aria-label={labelParts.join(". ")}
                         className={clsx(
                           "wi-press flex min-h-12 flex-col items-center justify-center rounded-xl border py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
                           isFocused
                             ? "border-[var(--color-wi-primary)] bg-[var(--color-wi-primary)]/5"
-                            : clsx(
-                                "border-transparent hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)]",
-                                !inMonth && "opacity-45",
-                              ),
+                            : "border-transparent hover:bg-[var(--color-wi-row-alt)] active:bg-[var(--color-wi-row-alt)]",
                         )}
                       >
                         <span
                           className={clsx(
-                            "text-[15px] tabular-nums",
-                            isToday ? "font-bold text-[var(--color-wi-primary)]" : isFocused ? "font-semibold text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text)]",
+                            "flex h-8 w-8 items-center justify-center rounded-full text-[15px] tabular-nums transition-colors motion-reduce:transition-none",
+                            hasSelection
+                              ? "bg-[var(--color-wi-primary)] font-bold text-white"
+                              : isToday
+                                ? "font-bold text-[var(--color-wi-primary)]"
+                                : isFocused
+                                  ? "font-semibold text-[var(--color-wi-primary)]"
+                                  : inMonth
+                                    ? "text-[var(--color-wi-text)]"
+                                    : "text-[var(--color-wi-text-light)]",
                           )}
                         >
                           {parsed.getDate()}
                         </span>
                         <span className="mt-0.5 flex h-2 items-center justify-center gap-0.5" aria-hidden="true">
                           {hasSelection ? (
-                            <Check className="h-3.5 w-3.5 text-[var(--color-wi-primary)]" strokeWidth={3.5} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-wi-primary)]" />
                           ) : count > 0 ? (
                             <>
                               {Array.from({ length: Math.min(count, 3) }, (_, index) => (
@@ -600,7 +617,7 @@ export default function ScheduleScreen({
                     onClick={() => selectDate(nextReportableAfterFocus.dateKey)}
                     className="wi-press mt-3 min-h-11 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                   >
-                    Next class · {dayLabel(nextReportableAfterFocus.dateKey)} — see it
+                    Next available class day · {dayLabel(nextReportableAfterFocus.dateKey)}
                   </button>
                 ) : null}
               </div>
@@ -611,14 +628,14 @@ export default function ScheduleScreen({
                     return (
                       <li key={event.key}>
                         <div className="flex min-h-14 items-center gap-3.5 rounded-xl border border-dashed border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3" aria-disabled="true">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-text-light)]/15 text-[13px] font-bold text-[var(--color-wi-text-light)]" aria-hidden="true">✓</span>
+                          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-wi-text-light)]/40" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text-light)] line-through decoration-1">{event.label}</span>
+                            <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">{event.label}</span>
                             <span className="block truncate text-[13px] text-[var(--color-wi-text-light)]">
                               {event.timeLabel}{event.teacher ? ` · ${event.teacher}` : ""}
                             </span>
                           </span>
-                          <span className="shrink-0 rounded-full bg-[var(--color-wi-text-light)]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[var(--color-wi-text-light)]">Reported ✓</span>
+                          <span className="shrink-0 rounded-full bg-[var(--color-wi-text-light)]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[var(--color-wi-text-light)]">Already reported</span>
                         </div>
                       </li>
                     );
@@ -672,15 +689,20 @@ export default function ScheduleScreen({
                           {event.selected ? <Check className="h-4 w-4" strokeWidth={3} /> : null}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">
-                            {event.label}
-                            {event.teacher ? <span className="font-normal text-[var(--color-wi-text-light)]"> · {event.teacher}</span> : null}
+                            <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">
+                              {event.label}
+                              {event.teacher ? <span className="font-normal text-[var(--color-wi-text-light)]"> · {event.teacher}</span> : null}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[13px] text-[var(--color-wi-text-light)]">{event.timeLabel}</span>
+                            {event.sessionIds.length > 1 ? (
+                              <span className="mt-0.5 block text-[12px] text-[var(--color-wi-text-light)]">
+                                Includes {event.sessionIds.length} sessions
+                              </span>
+                            ) : null}
                           </span>
-                          <span className="mt-0.5 block truncate text-[13px] text-[var(--color-wi-text-light)]">{event.timeLabel}</span>
-                        </span>
-                        {event.selected ? (
-                          <span className="shrink-0 text-[13px] font-semibold text-[var(--color-wi-primary)]">Selected</span>
-                        ) : null}
+                          {event.selected ? (
+                            <span className="shrink-0 text-[13px] font-semibold text-[var(--color-wi-primary)]">Selected</span>
+                          ) : null}
                         <input
                           type="checkbox"
                           name={`schedule-${event.key}`}
@@ -690,9 +712,14 @@ export default function ScheduleScreen({
                         />
                       </label>
                       {showLimitRow(event) ? (
-                        <p role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
-                          {limitNotice}
-                        </p>
+                        <div role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+                          <p>{limitNotice}</p>
+                          {supportHref ? (
+                            <a href={supportHref} className="mt-1 inline-block font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
+                              Contact Student Services
+                            </a>
+                          ) : null}
+                        </div>
                       ) : null}
                     </li>
                   );
@@ -701,47 +728,34 @@ export default function ScheduleScreen({
             )}
           </div>
 
-          {/* Persistent selection summary — picking more never erases it. */}
+          {/* Persistent selection summary — compact; the full list with removal
+              controls is one View tap away so it never competes with the agenda. */}
           {selectedEvents.length > 0 ? (
-            <div className="mt-8">
-              <div className="rounded-2xl border border-[var(--color-wi-border)] bg-white">
-                <div className="border-b border-[var(--color-wi-line)] px-4 py-3">
-                  <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">
-                    {selectedEvents.length === 1 ? "1 class selected" : `${selectedEvents.length} classes selected`}
-                  </p>
-                </div>
-                <ul className="divide-y divide-[var(--color-wi-line)]">
-                  {selectedEvents.map((event) => (
-                    <li key={event.key} className="flex items-center gap-3 px-4 py-3">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-white">
-                        <Check className="h-4 w-4" strokeWidth={3} aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">{event.label}</span>
-                        <span className="block truncate text-[13px] text-[var(--color-wi-text-light)]">
-                          {dayLabel(event.dateKey)} · {event.timeLabel}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${event.label}`}
-                        onClick={() => removeEvent(event)}
-                        className="wi-press min-h-11 shrink-0 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+            <div className="mt-8 space-y-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-wi-border)] bg-white px-4 py-3">
+                <p className="min-w-0 text-[15px] font-semibold leading-snug text-[var(--color-wi-text)]">
+                  {selectedEvents.length === 1 ? "1 class day selected" : `${selectedEvents.length} class days selected`}
+                  <span className="block text-[13px] font-normal text-[var(--color-wi-text-light)]">
+                    {selectedDateKeys.size === 1 ? "1 date" : `${selectedDateKeys.size} dates`}
+                  </span>
+                </p>
+                <button
+                  ref={viewTriggerRef}
+                  type="button"
+                  onClick={() => setViewSheetOpen(true)}
+                  className="wi-press min-h-11 shrink-0 rounded-lg px-3 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                >
+                  View
+                </button>
               </div>
-
               <button
                 type="button"
                 onClick={() => {
+                  setViewSheetOpen(false);
                   if (nextReportableAfterFocus) selectDate(nextReportableAfterFocus.dateKey);
                   gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
                 }}
-                className="wi-press mt-3 flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-primary)]/40 bg-white px-5 text-[17px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                className="wi-press flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-primary)]/40 bg-white px-5 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
               >
                 <Plus className="h-5 w-5" aria-hidden="true" />
                 Add another class
@@ -750,6 +764,60 @@ export default function ScheduleScreen({
           ) : null}
         </div>
       </div>
+
+      {/* The selected list lives behind a tap so removals stay close to the
+          agenda instead of a second long list competing with it. */}
+      <MobileBottomSheet
+        open={viewSheetOpen}
+        title="Selected classes"
+        onClose={() => setViewSheetOpen(false)}
+        restoreFocusRef={viewTriggerRef}
+      >
+        {selectedEvents.length === 0 ? (
+          <p className="py-4 text-center text-[15px] text-[var(--color-wi-text-light)]">No classes selected.</p>
+        ) : (
+          <>
+            <ul className="space-y-2">
+              {selectedEvents.map((event) => (
+                <li
+                  key={event.key}
+                  className="flex items-center gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-4 py-3"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-primary)] text-white">
+                    <Check className="h-4 w-4" strokeWidth={3} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold text-[var(--color-wi-text)]">{event.label}</span>
+                    <span className="block truncate text-[13px] text-[var(--color-wi-text-light)]">
+                      {dayLabel(event.dateKey)} · {event.timeLabel}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${event.label}`}
+                    onClick={() => removeEvent(event)}
+                    className="wi-press min-h-11 shrink-0 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] active:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => {
+                setViewSheetOpen(false);
+                if (nextReportableAfterFocus) selectDate(nextReportableAfterFocus.dateKey);
+                gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              }}
+              className="wi-press mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] px-4 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+            >
+              <Plus className="h-5 w-5" aria-hidden="true" />
+              Add another class
+            </button>
+          </>
+        )}
+      </MobileBottomSheet>
 
       {/* Undo lives where the thumb is: pinned to the bottom of the scrolling
           main, above the footer — never at the top of a screen you scrolled

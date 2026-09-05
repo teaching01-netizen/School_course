@@ -10,7 +10,7 @@ test("successful physical make-up submission shows one receipt", async ({ page }
   await expect(page.getByText("Medical appointment")).toBeVisible();
   await page.getByRole("button", { name: "Submit absence" }).click();
 
-  await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Absence report submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);
 });
 
@@ -20,7 +20,7 @@ test("student without an email can complete the flow with a valid manual email",
   await completeToReview(page, "Manual email regression", "student@example.edu");
 
   await page.getByRole("button", { name: "Submit absence" }).click();
-  await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Absence report submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0]?.email).toBe("student@example.edu");
 });

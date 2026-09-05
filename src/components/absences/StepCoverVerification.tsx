@@ -422,18 +422,18 @@ export default function StepCoverVerification({
       ) : null}
 
       {deliveryPending ? (
-        <p className="text-xs font-medium text-[var(--color-wi-primary)]">Sending code…</p>
+        <p className="text-xs font-medium text-[var(--color-wi-primary)]">Sending your code…</p>
       ) : null}
 
       {deliveryStatus === "uncertain" ? (
         <p role="status" className="text-xs font-medium text-[var(--color-wi-amber)]">
-          The SMS may have been sent. Enter the code if it arrives, or resend after the cooldown.
+          Your code may still arrive. You can request another when the timer ends.
         </p>
       ) : null}
 
       {deliveryStatus === "failed" ? (
         <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
-          We couldn't send the code. Please try again.
+          We couldn't send the code. Tap Send code to try again.
         </p>
       ) : null}
 
@@ -454,7 +454,7 @@ export default function StepCoverVerification({
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
           {/* parent_phone arrives pre-masked from the server (e.g. ••••5678) */}
-          Code sent to {session?.parent_phone || "parent"}
+          Your code has been sent to {session?.parent_phone || "your parent's phone"}. It may take a moment to arrive.
         </motion.p>
       )}
 

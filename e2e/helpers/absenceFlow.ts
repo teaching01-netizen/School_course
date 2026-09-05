@@ -14,13 +14,19 @@ export async function selectClass(page: Page, label: string) {
   await expect(page.getByRole("button", { name: /add another class/i })).toBeVisible();
 }
 
-/** Accepts the "Continue your absence report?" prompt when a saved draft exists. */
+/**
+ * Accepts the "Continue your absence report?" prompt when a saved draft
+ * exists. The prompt is offered after identity + parent verification, and
+ * Continue leads into the restored Classes agenda.
+ */
 export async function acceptResumePrompt(page: Page) {
   const resumeHeading = page.getByRole("heading", { name: "Continue your absence report?" });
   if (await resumeHeading.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
     await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
+    return true;
   }
+  return false;
 }
 
 /** Passes parent confirmation whether it is a fresh OTP or a restored session. */
@@ -31,16 +37,26 @@ export async function advanceThroughVerification(page: Page) {
     confirmed.waitFor({ state: "visible", timeout: 5000 }),
     sendCode.waitFor({ state: "visible", timeout: 5000 }),
   ]).catch(() => {});
+  // A restored verified session swaps the send form for the Confirmed block,
+  // and that swap can land right after the send form became visible. Settle
+  // on the final UI before acting so the click never races a detaching button.
+  const confirmedContinue = page.getByRole("status").getByRole("button", { name: "Continue" });
   if (await confirmed.isVisible().catch(() => false)) {
-    // A still-valid verified session was restored automatically.
-    await page.getByRole("button", { name: "Continue" }).click();
+    await confirmedContinue.click();
+    return;
+  }
+  await confirmed.waitFor({ state: "visible", timeout: 1500 }).catch(() => {});
+  if (await confirmed.isVisible().catch(() => false)) {
+    // A still-valid verified session was restored automatically. The footer's
+    // Continue is also enabled here; this targets the block's own control.
+    await confirmedContinue.click();
     return;
   }
   await sendCode.click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
 }
 
-export async function completeToClasses(page: Page, email = "student@example.com") {
+export async function completeToClasses(page: Page) {
   await page.goto("/absence");
   await acceptResumePrompt(page);
   const input = page.getByPlaceholder("e.g. W250389");
@@ -63,18 +79,27 @@ export async function completeToClasses(page: Page, email = "student@example.com
   // advanceThroughVerification handles both paths.
   await advanceThroughVerification(page);
 
-  // The email screen only appears when the school has no address on file.
-  const emailHeading = page.getByRole("heading", { name: "Where should we send updates?" });
-  if (await emailHeading.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
-    await page.getByLabel(/^email$/i).fill(email);
-    await page.getByRole("button", { name: "Continue" }).click();
-  }
+  // A saved draft is only offered for resume after verification.
+  await acceptResumePrompt(page);
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
+}
+
+/** Explicitly accepts the suggested make-up time for a physical make-up row. */
+export async function chooseMakeUp(page: Page) {
+  const action = page.getByRole("button", { name: /choose a time|change time/i });
+  await expect(action).toBeVisible();
+  await action.click();
+  await page.getByRole("button", { name: "Use this time" }).click();
 }
 
 export async function completeMakeUp(page: Page) {
   await expect(page.getByRole("heading", { name: "Your make-up" })).toBeVisible();
-  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
+  const action = page.getByRole("button", { name: /choose a time|change time/i });
+  if (await action.isVisible().catch(() => false)) {
+    await action.click();
+    await page.getByRole("button", { name: "Use this time" }).click();
+  }
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
 }
 
@@ -83,13 +108,20 @@ export async function completeToReview(
   reason = "Medical appointment",
   email = "student@example.com",
 ) {
-  await completeToClasses(page, email);
+  await completeToClasses(page);
   await selectClass(page, "Mathematics");
   await page.getByRole("button", { name: "Continue" }).click();
   await completeMakeUp(page);
   if (reason) {
     await page.getByRole("radio", { name: "Other" }).click();
     await page.getByLabel(/tell us a little more/i).fill(reason);
+  }
+  // The required update email lives in Details, next to the reason. Its
+  // accessible name is "Email" (the required marker is aria-hidden), so the
+  // role-based name lookup is engine-agnostic.
+  const emailField = page.getByRole("textbox", { name: /^email$/i });
+  if (await emailField.isVisible().catch(() => false)) {
+    await emailField.fill(email);
   }
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();

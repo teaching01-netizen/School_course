@@ -113,3 +113,82 @@ it("auto-dismisses the toast after six seconds without touching the selection", 
   // Dismissal is not a decision: the removal stays removed.
   expect(onToggleDay).toHaveBeenCalledTimes(1);
 });
+
+it("states how many sessions a class day includes so a merged grouping is never a surprise", () => {
+  const single = MATH_GROUP.sessions[0];
+  const mergedGroup: SubjectSessions = {
+    ...MATH_GROUP,
+    merge_group_id: "merge-math",
+    merge_group_name: "Mathematics",
+    sessions: [
+      single,
+      {
+        id: "session-math-2",
+        start_at: single.start_at,
+        end_at: iso(21, 0),
+        date: single.date,
+        already_absent: false,
+      },
+    ],
+  };
+  render(
+    <ScheduleScreen
+      groups={[mergedGroup]}
+      selectedIds={new Set()}
+      onToggleDay={vi.fn(() => true)}
+      onLimitTap={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText(/includes 2 sessions/i)).toBeInTheDocument();
+  // Backend session counts are never described as "classes": a merged pair is
+  // still one class day.
+  expect(screen.queryByText(/2 classes/i)).not.toBeInTheDocument();
+});
+
+it("offers an empty day a path forward to the next available class day", () => {
+  // The only class sits six days out. Its month grid always has earlier empty
+  // cells (the six-week grid starts before the class date), so the focused day
+  // can be empty while a later reportable day exists to jump to.
+  const laterOnly: SubjectSessions = {
+    ...MATH_GROUP,
+    sessions: [
+      {
+        id: "session-math-later",
+        start_at: iso(17, 6),
+        end_at: iso(19, 6),
+        date: dateKey(6),
+        already_absent: false,
+      },
+    ],
+  };
+  render(
+    <ScheduleScreen
+      groups={[laterOnly]}
+      selectedIds={new Set()}
+      onToggleDay={vi.fn(() => true)}
+      onLimitTap={vi.fn()}
+    />,
+  );
+
+  const expand = screen.getByRole("button", { name: /show the whole month/i });
+  act(() => {
+    expand.click();
+  });
+
+  const emptyCell = Array.from(document.querySelectorAll<HTMLElement>("[data-date-key]"))
+    .filter((cell) => (cell.getAttribute("aria-label") ?? "").includes("No classes"))
+    .find((cell) => (cell.getAttribute("data-date-key") ?? "") < dateKey(6));
+  expect(emptyCell).not.toBeNull();
+  act(() => {
+    emptyCell!.click();
+  });
+
+  expect(screen.getByText(/no classes this day/i)).toBeInTheDocument();
+  const jump = screen.getByRole("button", { name: /next available class day/i });
+  expect(jump).toBeInTheDocument();
+  act(() => {
+    jump.click();
+  });
+  expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeInTheDocument();
+});

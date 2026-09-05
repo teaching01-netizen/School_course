@@ -4,9 +4,11 @@ type AbsenceHeaderProps = {
   onBack?: () => void;
   progress: number;
   progressLabel: string;
+  /** Visible "where am I" line, e.g. "Step 2 of 5 · Classes". */
+  stageLabel?: string;
 };
 
-export default function AbsenceHeader({ onBack, progress, progressLabel }: AbsenceHeaderProps) {
+export default function AbsenceHeader({ onBack, progress, progressLabel, stageLabel }: AbsenceHeaderProps) {
   return (
     <div className="absence-app-header">
       <div className="absence-app-header__identity">
@@ -24,6 +26,9 @@ export default function AbsenceHeader({ onBack, progress, progressLabel }: Absen
             Back
           </button>
         </div>
+      ) : null}
+      {stageLabel ? (
+        <p className="absence-app-header__stage">{stageLabel}</p>
       ) : null}
       <div
         className="absence-header-progress"

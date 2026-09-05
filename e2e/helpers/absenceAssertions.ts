@@ -89,7 +89,22 @@ export async function expectFocusedElementVisible(page: Page) {
         const mainRect = main.getBoundingClientRect();
         const footerRect = footer?.getBoundingClientRect();
         const visibleBottom = Math.min(mainRect.bottom, footerRect?.top ?? mainRect.bottom);
-        return rect.top >= mainRect.top - 1 && rect.bottom <= visibleBottom + 1;
+        // The shell scrolls the focused control into the strip between the
+        // header and the action bar. A control shorter than the strip must be
+        // fully contained; a taller one (e.g. the reason field with the
+        // keyboard open) is anchored against an edge of the strip — its top
+        // at the strip start when there is room above it, otherwise its
+        // bottom just above the action bar — which is the most that can be
+        // brought into view.
+        const stripTop = mainRect.top;
+        const stripBottom = visibleBottom;
+        const fits = rect.height <= stripBottom - stripTop + 2;
+        const topReachable = rect.top >= stripTop - 1 && rect.top <= stripBottom + 1;
+        const bottomReachable = rect.bottom >= stripTop - 1 && rect.bottom <= stripBottom + 1;
+        const spansStrip = rect.top <= stripTop && rect.bottom >= stripBottom;
+        return fits
+          ? rect.top >= stripTop - 1 && rect.bottom <= stripBottom + 1
+          : topReachable || bottomReachable || spansStrip;
       }),
     )
     .toBe(true);

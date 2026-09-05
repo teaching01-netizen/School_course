@@ -108,11 +108,16 @@ describe("AbsenceForm — conversational flow", () => {
 
     await completeToReview(user);
 
+    // Location reads as a stage, never elapsed time.
+    expect(screen.getByText(/step 5 of 5 · review/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
-    await screen.findByRole("heading", { name: /absence submitted/i });
-
-    expect(screen.getByText(/we'll review your request and send updates to your email/i)).toBeInTheDocument();
+    // The receipt says the report reached us and names the real status — it
+    // never claims the absence is approved or the make-up confirmed.
+    await screen.findByRole("heading", { name: /absence report submitted/i });
+    expect(screen.getByText(/awaiting review by student services/i)).toBeInTheDocument();
+    expect(screen.queryByText(/approved/i)).not.toBeInTheDocument();
     expect(screen.getByText(/ABC12345/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /report another absence/i })).toBeInTheDocument();
     await waitFor(() => expect(submittedPayloads()).toHaveLength(1));
     const payload = submittedPayloads()[0];
     expect(payload.reason).toBe("Appointment");
@@ -128,7 +133,7 @@ describe("AbsenceForm — conversational flow", () => {
 
     const submit = screen.getByRole("button", { name: /submit absence/i });
     await user.dblClick(submit);
-    await screen.findByRole("heading", { name: /absence submitted/i });
+    await screen.findByRole("heading", { name: /absence report submitted/i });
     await waitFor(() => expect(submittedPayloads()).toHaveLength(1));
   });
 
@@ -148,9 +153,12 @@ describe("AbsenceForm — conversational flow", () => {
 
     await user.click(screen.getByRole("button", { name: /edit classes/i }));
     await screen.findByRole("heading", { name: /which class will you miss/i });
-    // Editing lands on the additive summary with the class still picked.
-    expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+    // Editing lands on the compact summary with the class still picked; the
+    // removal control stays one View tap away.
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add another class/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^view$/i }));
+    expect(await screen.findByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
   });
 
   it("removing a class offers a brief undo that restores the selection", async () => {
@@ -158,17 +166,21 @@ describe("AbsenceForm — conversational flow", () => {
     const user = userEvent.setup();
 
     await completeToClasses(user);
+    // The agenda's stage is announced where the student is.
+    expect(screen.getByText(/step 2 of 5 · classes/i)).toBeInTheDocument();
     await selectClass(user, "Mathematics");
-    expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^view$/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /remove mathematics/i }));
+    // Removal lives behind the summary's View sheet so the agenda stays clean.
+    await user.click(screen.getByRole("button", { name: /^view$/i }));
+    await user.click(await screen.findByRole("button", { name: /remove mathematics/i }));
     // The removal is reversible: an inline Undo appears instead of a dialog.
     await waitFor(() => expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /remove mathematics/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^undo$/i }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^view$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
     });
   });
@@ -182,11 +194,12 @@ describe("AbsenceForm — conversational flow", () => {
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /your make-up/i });
 
-    expect(screen.getByText(/no make-up needed/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/no make-up needed/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/you don't need to attend another class for this absence/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /why will you be away/i });
+    expect(screen.getByText(/step 4 of 5 · details/i)).toBeInTheDocument();
   });
 
   it("review shows the class and its make-up outcome", async () => {
@@ -207,9 +220,9 @@ describe("AbsenceForm — conversational flow", () => {
 
     await completeToReview(user);
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
-    await screen.findByRole("heading", { name: /absence submitted/i });
+    await screen.findByRole("heading", { name: /absence report submitted/i });
 
-    await user.click(screen.getByRole("button", { name: /^done$/i }));
+    await user.click(screen.getByRole("button", { name: /report another absence/i }));
     await screen.findByRole("heading", { name: /report an absence/i });
     expect(screen.getByRole("textbox", { name: /student id/i })).toHaveValue("");
   });
@@ -220,9 +233,9 @@ describe("AbsenceForm — conversational flow", () => {
 
     await completeToClasses(user);
     await selectClass(user, "Mathematics");
-    // The picker collapsed into the additive summary holding the selection.
-    expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
-    expect(screen.getByText(/1 class selected/i)).toBeInTheDocument();
+    // The selection is held in the compact additive summary.
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^view$/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^back$/i }));
     await screen.findByRole("heading", { name: /enter the code|confirm with a parent|confirmed/i });
@@ -242,7 +255,25 @@ describe("AbsenceForm — conversational flow", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /confirmed/i })).toBeInTheDocument();
     });
-    await screen.findByRole("heading", { name: /where should we send updates/i });
+    await screen.findByRole("heading", { name: /which class will you miss/i });
+  });
+
+  it("quietly notes when the report is saved in this tab", async () => {
+    renderPublicAbsenceForm(mockApiJson);
+    const user = userEvent.setup();
+
+    // Nothing claims the report is saved before the student starts one.
+    expect(screen.queryByText(/saved in this tab/i)).not.toBeInTheDocument();
+
+    await completeToClasses(user);
+    await selectClass(user, "Mathematics");
+
+    // Auto-save is debounced; the honest note appears once a real draft
+    // exists for this student. It says "this tab" — never "your account".
+    await waitFor(() => {
+      expect(screen.getByText(/saved in this tab/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/saved to your account/i)).not.toBeInTheDocument();
   });
 
   it("always loads form settings from the server", async () => {

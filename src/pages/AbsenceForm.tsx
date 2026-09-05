@@ -10,7 +10,6 @@ import IdentifyScreen from "@/components/absences/public-form/IdentifyScreen";
 import ResumeScreen from "@/components/absences/public-form/ResumeScreen";
 import ConfirmStudentScreen from "@/components/absences/public-form/ConfirmStudentScreen";
 import ParentConfirmScreen from "@/components/absences/public-form/ParentConfirmScreen";
-import EmailScreen from "@/components/absences/public-form/EmailScreen";
 import ScheduleScreen from "@/components/absences/public-form/ScheduleScreen";
 import MakeUpScreen, { type MakeUpOption } from "@/components/absences/public-form/MakeUpScreen";
 import ReasonScreen from "@/components/absences/public-form/ReasonScreen";
@@ -51,6 +50,7 @@ import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads } from "@/fea
 import {
   appendTeacher,
   blockedSitInSessionIds,
+  findChosenSitInOverlaps,
   findSitInSessionConflicts,
   firstPriorityLevel,
   formatHistoricalSitInConflictDescription,
@@ -79,26 +79,25 @@ import {
   writeStudentResume,
 } from "@/features/absences/storage/studentResumeStorage";
 import { isWCode, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
+import { daysBetween } from "@/features/absences/domain/dateRange";
 
 type Screen =
   | "identify"
   | "resume"
   | "confirm"
   | "verify"
-  | "email"
   | "classes"
   | "makeup"
   | "reason"
   | "review";
 
-const SCREEN_ORDER: Screen[] = ["identify", "resume", "confirm", "verify", "email", "classes", "makeup", "reason", "review"];
+const SCREEN_ORDER: Screen[] = ["identify", "resume", "confirm", "verify", "classes", "makeup", "reason", "review"];
 
 const SCREEN_PROGRESS: Record<Screen, number> = {
   identify: 0.05,
   resume: 0.08,
   confirm: 0.12,
   verify: 0.3,
-  email: 0.35,
   classes: 0.6,
   makeup: 0.8,
   reason: 0.9,
@@ -110,11 +109,23 @@ const SCREEN_LABELS: Record<Screen, string> = {
   resume: "Resume your report",
   confirm: "Confirm your profile",
   verify: "Parent confirmation",
-  email: "Contact email",
   classes: "Choose your classes",
-  makeup: "Make-up class",
-  reason: "Reason",
-  review: "Review & submit",
+  makeup: "Make-up",
+  reason: "Details",
+  review: "Review",
+};
+
+// The five stages the student moves through. Identity, resume, confirm and
+// the parent check all belong to the first stage; the receipt is the outcome.
+const SCREEN_STAGE: Partial<Record<Screen, { step: number; name: string }>> = {
+  identify: { step: 1, name: "Student" },
+  resume: { step: 1, name: "Student" },
+  confirm: { step: 1, name: "Student" },
+  verify: { step: 1, name: "Student" },
+  classes: { step: 2, name: "Classes" },
+  makeup: { step: 3, name: "Make-up" },
+  reason: { step: 4, name: "Details" },
+  review: { step: 5, name: "Review" },
 };
 
 const DEFAULT_REASON_CATEGORIES = [
@@ -181,6 +192,13 @@ function classLabel(group: SubjectSessions): string {
 
 function selectedDayWhen(day: SelectedDay): string {
   return `${formatDate(day.date)} · ${formatTime(day.start_at)}–${formatTime(day.end_at)}`;
+}
+
+/** Joins a small list of names into a sentence: "A", "A and B", "A, B, and C". */
+function joinWithAnd(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
 type MakeUpPlan = {
@@ -308,7 +326,7 @@ export default function AbsenceForm() {
   // `restoreDraft` is the draft awaiting restore; while it exists the hook
   // suspends auto-save so the stored snapshot cannot be clobbered by the
   // (cleared) in-form state that precedes the restore.
-  const { saveDraft, clearDraft, restoreDraft, beginRestore } = useAbsenceDraft();
+  const { draft, saveDraft, clearDraft, restoreDraft, beginRestore } = useAbsenceDraft();
   const [draftNeedsReview, setDraftNeedsReview] = useState(false);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const lookupRequestId = useRef(0);
@@ -362,6 +380,11 @@ export default function AbsenceForm() {
   useEffect(() => { emailRef.current = collectedEmail; }, [collectedEmail]);
   // Where to return after a mid-flow expiry bounce to verify (e.g. Review → verify → Review).
   const returnAfterVerifyRef = useRef<Screen | null>(null);
+  // Track the lookup + reload scope that already produced the schedule, so
+  // the agenda is loaded once verification succeeds and opening Classes does
+  // not wipe to a loading skeleton or double-request. A fresh wcode or an
+  // explicit retry still refetches.
+  const loadedScheduleRef = useRef<{ wcode: string; token: number } | null>(null);
 
   const studentDisplayName = studentProfile?.display_name || lookup?.nickname_hint || "Student";
 
@@ -399,23 +422,46 @@ export default function AbsenceForm() {
     [sessions, selectedSubjectIds, selectedSessionIds],
   );
 
-  const [makeupIndex, setMakeupIndex] = useState(0);
-  const currentMakeUpDay = selectedDays[Math.min(makeupIndex, Math.max(0, selectedDays.length - 1))];
+  const [makeupFocusKey, setMakeupFocusKey] = useState<string | null>(null);
+  // Session keys whose previously accepted make-up time became unavailable;
+  // only those rows ask for a new choice — everything else is untouched.
+  const [staleMarkedIds, setStaleMarkedIds] = useState<Set<string>>(new Set());
+  // An edit launched from Review returns the student straight to Review once
+  // the affected stage is settled — no re-walking the forward stages.
+  const reviewEditRef = useRef(false);
+  // Focus the update-email field when an "Edit email" jump opens Details.
+  const [focusReasonEmail, setFocusReasonEmail] = useState(false);
 
-  const makeupPlan = useMemo(
-    () => currentMakeUpDay
-      ? makeUpPlan(currentMakeUpDay, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory)
-      : { method: "none" as const, options: [] as MakeUpOption[], hasMoreTimes: false },
-    [currentMakeUpDay, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory],
+  const makeupPlanEntries = useMemo(
+    () => selectedDays.map((day) => ({
+      day,
+      plan: makeUpPlan(day, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory),
+    })),
+    [selectedDays, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory],
   );
 
   const missingSitIn = useMemo(
-    () => selectedDays.some((day) => {
-      const plan = makeUpPlan(day, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory);
-      return missingMakeUp(day, plan, sitInSelections);
-    }),
-    [selectedDays, sessions, selectedSubjectIds, sitInSelections, sitInPriorityLevels, sitInPriorityHistory],
+    () => makeupPlanEntries.some(({ day, plan }) => missingMakeUp(day, plan, sitInSelections)),
+    [makeupPlanEntries, sitInSelections],
   );
+
+  // Client-side overlap validation: a chosen make-up must not overlap a class
+  // the student still attends, nor another chosen make-up. Each affected row
+  // is named and must be changed before the plan can be completed.
+  const chosenSitInOverlaps = useMemo(() => {
+    const rows = makeupPlanEntries.flatMap(({ day }) => {
+      const key = day.items[0]?.id;
+      const value = key ? sitInSelections[key] : undefined;
+      if (!key || !value) return [];
+      return [{ sessionKey: key, missedSessionId: key, group: day.group, value }];
+    });
+    return findChosenSitInOverlaps(rows, sessions, selectedSessionIds);
+  }, [makeupPlanEntries, sessions, selectedSessionIds, sitInSelections]);
+  const sitInOverlapMessages = useMemo(
+    () => new Map(chosenSitInOverlaps.map((overlap) => [overlap.sessionKey, overlap.message])),
+    [chosenSitInOverlaps],
+  );
+  const hasSitInOverlap = chosenSitInOverlaps.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -437,6 +483,7 @@ export default function AbsenceForm() {
     verification.setCode("");
     setStudentProfile(null);
     setSessions([]);
+    loadedScheduleRef.current = null;
     setVerificationSatisfied(false);
     setVerificationBlocked(true);
     // Remember where the student was so re-verify can return them there.
@@ -449,7 +496,16 @@ export default function AbsenceForm() {
   }, [verification.clearStoredToken, verification.setCode]);
 
   useEffect(() => {
-    if (screen !== "classes" || !lookup) return;
+    if (!lookup) return;
+    // Load once the student is verified (they are about to open Classes), and
+    // refresh when Classes is entered with nothing loaded yet or a retry.
+    const mayFetch = screen === "classes" || (screen === "verify" && verificationSatisfied);
+    if (!mayFetch) return;
+    // One attempt per lookup + reload scope: opening Classes right after the
+    // prefetch (or after a failed load) must not fire a duplicate request that
+    // clears the error or skips the student's own retry.
+    const previous = loadedScheduleRef.current;
+    if (previous && previous.wcode === lookup.wcode && previous.token === sessionsReloadToken) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
@@ -468,33 +524,9 @@ export default function AbsenceForm() {
         }
         setStudentProfile(profile);
         setSessions(data.subjects);
+        loadedScheduleRef.current = { wcode: lookup.wcode, token: sessionsReloadToken };
         const validSubjectIds = new Set(profile.subjects.map((subject) => subject.id));
         setSelectedSubjectIds((current) => current.filter((id) => validSubjectIds.has(id)));
-        const draft = restoreDraft;
-        const isSameStudent = Boolean(draft && normalizeLookupWcode(draft.wcode) === lookup.wcode);
-        if (!isSameStudent || !draft) return;
-        const restoredSubjectIds = draft.selectedSubjectIds.filter((subjectId) => validSubjectIds.has(subjectId));
-        setSelectedSubjectIds(restoredSubjectIds);
-
-        const validSessionIds = new Set(data.subjects.flatMap((group) => group.sessions.map((session) => session.id)));
-        const restoredSessionIds = draft.selectedSessionIds.filter((sessionId) => validSessionIds.has(sessionId));
-        const restoredSessionSet = new Set(restoredSessionIds);
-        const missingSavedSessions = draft.selectedSessionIds.length - restoredSessionIds.length;
-        const restoredSitIns: Record<string, string> = {};
-        for (const [sessionId, sitInId] of Object.entries(draft.sitInSelections)) {
-          if (restoredSessionSet.has(sessionId)) restoredSitIns[sessionId] = sitInId;
-        }
-        const restoredPriorityLevels: Record<string, number> = {};
-        for (const [sessionId, priority] of Object.entries(draft.sitInPriorityLevels)) {
-          if (restoredSessionSet.has(sessionId)) restoredPriorityLevels[sessionId] = priority;
-        }
-        setSelectedSessionIds(restoredSessionSet);
-        setSitInSelections(restoredSitIns);
-        setSitInPriorityLevels(restoredPriorityLevels);
-        setDraftNeedsReview((current) => current || missingSavedSessions > 0 || restoredSessionIds.length > 0);
-        // Restore consumed: allow auto-save again so the in-form state is what
-        // gets persisted from here on.
-        beginRestore(null);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -505,10 +537,47 @@ export default function AbsenceForm() {
         setStudentProfile(null);
         setSessions([]);
         setSessionsError(error instanceof Error ? error.message : "Couldn't load your classes");
+        loadedScheduleRef.current = { wcode: lookup.wcode, token: sessionsReloadToken };
       })
       .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [screen, lookup, sessionsReloadToken, handleStudentSessionExpired]);
+    // sessions is deliberately read (not a dep): the guard dedupes by reload
+    // token, and listing sessions here would re-run the fetch on every change.
+  }, [screen, lookup, verificationSatisfied, sessionsReloadToken, handleStudentSessionExpired]);
+
+  // Apply a saved draft only once the student is actually on Classes with the
+  // schedule loaded — never during the pre-verification resume decision, so
+  // saved content is not revealed (or silently re-applied) before the student
+  // confirms who they are and a parent verifies them.
+  useEffect(() => {
+    const draft = restoreDraft;
+    if (screen !== "classes" || !lookup || !draft) return;
+    if (sessionsLoading || sessionsError || sessions.length === 0) return;
+    if (!studentProfile || studentProfile.wcode !== lookup.wcode) return;
+    if (normalizeLookupWcode(draft.wcode) !== lookup.wcode) return;
+    const validSubjectIds = new Set(studentProfile.subjects.map((subject) => subject.id));
+    const validSessionIds = new Set(sessions.flatMap((group) => group.sessions.map((session) => session.id)));
+    const restoredSubjectIds = draft.selectedSubjectIds.filter((subjectId) => validSubjectIds.has(subjectId));
+    const restoredSessionIds = draft.selectedSessionIds.filter((sessionId) => validSessionIds.has(sessionId));
+    const restoredSessionSet = new Set(restoredSessionIds);
+    const missingSavedSessions = draft.selectedSessionIds.length - restoredSessionIds.length;
+    const restoredSitIns: Record<string, string> = {};
+    for (const [sessionId, sitInId] of Object.entries(draft.sitInSelections)) {
+      if (restoredSessionSet.has(sessionId)) restoredSitIns[sessionId] = sitInId;
+    }
+    const restoredPriorityLevels: Record<string, number> = {};
+    for (const [sessionId, priority] of Object.entries(draft.sitInPriorityLevels)) {
+      if (restoredSessionSet.has(sessionId)) restoredPriorityLevels[sessionId] = priority;
+    }
+    setSelectedSubjectIds(restoredSubjectIds);
+    setSelectedSessionIds(restoredSessionSet);
+    setSitInSelections(restoredSitIns);
+    setSitInPriorityLevels(restoredPriorityLevels);
+    setDraftNeedsReview((current) => current || missingSavedSessions > 0 || restoredSessionIds.length > 0);
+    // Restore consumed: allow auto-save again so the in-form state is what
+    // gets persisted from here on.
+    beginRestore(null);
+  }, [screen, lookup, restoreDraft, studentProfile, sessions, sessionsLoading, sessionsError, beginRestore]);
 
   useEffect(() => {
     let active = true;
@@ -528,9 +597,10 @@ export default function AbsenceForm() {
           if (!active) return;
           setLookup(response);
           setStudentProfile(null);
-          // Returning students first see what is saved and choose to continue
-          // or start over — never a silent jump back into the flow.
-          setScreen("resume");
+          // A returning student confirms identity and passes the parent check
+          // before any saved-report details are revealed. The choice to resume
+          // or start over is offered right after verification.
+          setScreen("confirm");
         })
         .catch((error: unknown) => {
           if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
@@ -571,6 +641,23 @@ export default function AbsenceForm() {
     saveDraft,
   ]);
 
+  // The verified session lapsed while the student was past the verify screen.
+  // Remember exactly where they were so re-verification returns them there —
+  // their selections and the screen they were on are all preserved.
+  const bounceToVerifyAfterExpiry = useCallback(() => {
+    const current = screenRef.current;
+    setVerificationBlocked(true);
+    setVerificationSatisfied(false);
+    if (current !== "verify" && current !== "identify" && current !== "confirm") {
+      returnAfterVerifyRef.current = current;
+    }
+    setPageError("Your verified session expired. Confirm with your parent again to continue. Your absence details are still saved.");
+    setSubmissionError(null);
+    setScreen((currentScreen) =>
+      SCREEN_ORDER.indexOf(currentScreen) >= SCREEN_ORDER.indexOf("verify") ? "verify" : currentScreen,
+    );
+  }, []);
+
   useEffect(() => {
     if (!verification.token) {
       setVerificationBlocked(false);
@@ -578,27 +665,23 @@ export default function AbsenceForm() {
     }
     const expiry = verification.expiresAt;
     if (expiry && expiry < Date.now()) {
-      setVerificationBlocked(true);
-      setVerificationSatisfied(false);
-      setScreen((current) => SCREEN_ORDER.indexOf(current) >= SCREEN_ORDER.indexOf("verify") ? "verify" : current);
+      bounceToVerifyAfterExpiry();
       return;
     }
     setVerificationBlocked(false);
-  }, [verification]);
+  }, [verification, bounceToVerifyAfterExpiry]);
 
   useEffect(() => {
     if (!verification.token || !verification.expiresAt) return;
     const enforceExpiry = () => {
       if (verification.expiresAt && verification.expiresAt <= Date.now()) {
-        setVerificationBlocked(true);
-        setVerificationSatisfied(false);
-        setScreen((current) => SCREEN_ORDER.indexOf(current) >= SCREEN_ORDER.indexOf("verify") ? "verify" : current);
+        bounceToVerifyAfterExpiry();
       }
     };
     enforceExpiry();
     const timer = window.setTimeout(enforceExpiry, Math.max(0, verification.expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [verification.expiresAt, verification.token]);
+  }, [verification.expiresAt, verification.token, bounceToVerifyAfterExpiry]);
 
   const advanceAfterVerification = useCallback(() => {
     const pending = returnAfterVerifyRef.current;
@@ -608,18 +691,26 @@ export default function AbsenceForm() {
       return;
     }
     returnAfterVerifyRef.current = null;
-    const nextScreen: Screen = (lookupRef.current?.email_input_required && !EMAIL_PATTERN.test(emailRef.current.trim()))
-      ? "email"
-      : "classes";
-    setScreen(nextScreen);
-  }, []);
+    if (restoreDraft) {
+      // A saved report is waiting: the student decides here — after identity
+      // and parent verification — whether to resume it or start over. Saved
+      // details are only revealed once they are verified.
+      setScreen("resume");
+      return;
+    }
+    // Required email is collected in Details, after classes and make-up.
+    setScreen("classes");
+    // restoreDraft is read deliberately: the advance runs once per verified
+    // session and must decide on the snapshot that exists at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreDraft]);
 
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
     setVerificationBlocked(false);
     setConfirmedPulse(true);
-    // offcut: keep the 500ms auto-advance as enhancement; the Confirmed
-    // splash now also renders an explicit Continue for AT/slow devices.
+    // A brief confirmed pulse keeps the success visible, then the student
+    // advances (or the explicit Continue stays available for AT/slow use).
     window.setTimeout(() => {
       setConfirmedPulse(false);
       if (screenRef.current === "verify") advanceAfterVerification();
@@ -678,6 +769,7 @@ export default function AbsenceForm() {
       setReason(shouldRestoreDraft ? draftForStudent?.reason ?? "" : "");
       setReasonError(null);
       setSessions([]);
+      loadedScheduleRef.current = null;
       setSessionsError(null);
       setSelectedSessionIds(new Set());
       setSitInSelections({});
@@ -750,14 +842,34 @@ export default function AbsenceForm() {
       setLimitNoticeKey(rowKey);
       return false;
     }
+    // A scope's whole selection becomes one absence server-side, so a
+    // selection that would stretch past the configured maximum span must be
+    // explained here — not discovered at submission.
+    const maxSpanDays = config.form.max_date_range_days;
+    const scopedDateKeys = new Set<string>();
+    for (const scoped of scopedGroups) {
+      for (const dayGroup of groupByDay(scoped.sessions)) {
+        const activeItems = dayGroup.items.filter((session) => !session.already_absent);
+        if (activeItems.length > 0 && activeItems.every((session) => next.has(session.id))) {
+          scopedDateKeys.add(dayGroup.date);
+        }
+      }
+    }
+    const sortedDateKeys = [...scopedDateKeys].sort();
+    if (sortedDateKeys.length >= 2 && daysBetween(sortedDateKeys[0], sortedDateKeys[sortedDateKeys.length - 1]) > maxSpanDays) {
+      const label = group.merge_group_name?.trim() || group.subject_name?.trim() || group.course_name?.trim() || "this course";
+      setLimitNotice(`This class is further than ${maxSpanDays} days from your other ${label} classes in this report. Remove a class in between or report the later dates as a separate absence.`);
+      setLimitNoticeKey(rowKey);
+      return false;
+    }
     setSelectedSessionIds(next);
     setSelectedSubjectIds((current) => current.includes(group.subject_id) ? current : [...current, group.subject_id]);
     return true;
-  }, [selectedSessionIds, sessions, scopeIndex, remainingForGroup, config.sit_in.max_sessions_per_absence]);
+  }, [selectedSessionIds, sessions, scopeIndex, remainingForGroup, config.sit_in.max_sessions_per_absence, config.form.max_date_range_days]);
 
-  const handleSeeMoreTimes = useCallback(async () => {
-    if (!currentMakeUpDay) return;
-    const day = currentMakeUpDay;
+  const handleSeeMoreTimes = useCallback(async (sessionKey: string) => {
+    const day = selectedDays.find((candidate) => candidate.items[0]?.id === sessionKey);
+    if (!day) return;
     const group = day.group;
     const firstId = day.items[0]?.id;
     if (!firstId) return;
@@ -790,29 +902,63 @@ export default function AbsenceForm() {
     const nextLevel = nextPriorityLevel(sessionGroup, currentLevel);
     if (nextLevel == null) return;
     setSitInPriorityLevels((prev) => ({ ...prev, [firstId]: nextLevel }));
-  }, [currentMakeUpDay, lookup, sitInPriorityLevels, sitInPriorityHistory]);
+  }, [selectedDays, lookup, sitInPriorityLevels, sitInPriorityHistory]);
 
-  const handleUseMakeUp = useCallback((value: string) => {
-    if (!currentMakeUpDay) return;
-    const day = currentMakeUpDay;
-    if (makeupPlan.method === "physical") {
-      setSitInSelections((current) => {
-        const next = { ...current };
-        for (const sessionId of day.sessionIds) {
-          if (!value) delete next[sessionId];
-          else next[sessionId] = value;
-        }
-        return next;
-      });
-    }
+  /** Records a make-up choice for one missed class-day, keyed by its session. */
+  const handleUseMakeUpTime = useCallback((sessionKey: string, value: string) => {
+    const day = selectedDays.find((candidate) => candidate.items[0]?.id === sessionKey);
+    if (!day) return;
+    setSitInSelections((current) => {
+      const next = { ...current };
+      for (const sessionId of day.sessionIds) {
+        if (!value) delete next[sessionId];
+        else next[sessionId] = value;
+      }
+      return next;
+    });
+    setStaleMarkedIds((current) => {
+      if (!current.has(sessionKey)) return current;
+      const next = new Set(current);
+      next.delete(sessionKey);
+      return next;
+    });
     setMakeupNotice(null);
-    if (makeupIndex + 1 < selectedDays.length) {
-      setMakeupIndex((index) => index + 1);
-    } else {
-      setMakeupIndex(0);
-      goToScreen("reason");
+  }, [selectedDays]);
+
+  /** Clears only the make-up choices that are no longer available, leaving
+   *  every unaffected choice intact. Returns true when something was removed. */
+  const invalidateUnavailableSitIns = useCallback((freshSessions: SubjectSessions[]): boolean => {
+    const blocked = blockedSitInSessionIds(freshSessions);
+    const affected: string[] = [];
+    for (const [missedId, value] of Object.entries(sitInSelections)) {
+      if (value && splitMergedSessionValue(value).some((id) => blocked.has(id))) affected.push(missedId);
     }
-  }, [currentMakeUpDay, makeupPlan.method, makeupIndex, selectedDays.length, goToScreen]);
+    if (affected.length === 0) return false;
+    const affectedSet = new Set(affected);
+    const nextSelections = { ...sitInSelections };
+    for (const id of affected) delete nextSelections[id];
+    const nextLevels = { ...sitInPriorityLevels };
+    for (const id of affected) delete nextLevels[id];
+    const nextHistory = { ...sitInPriorityHistory };
+    for (const id of affected) delete nextHistory[id];
+    setSitInSelections(nextSelections);
+    setSitInPriorityLevels(nextLevels);
+    setSitInPriorityHistory(nextHistory);
+    setStaleMarkedIds(affectedSet);
+    setMakeupFocusKey(affected[0] ?? null);
+    // Name each affected class-day so the student knows exactly what changed;
+    // everything else in the plan is untouched. A class-day that no longer
+    // exists in the fresh schedule has no row to re-choose, so it is skipped.
+    const affectedDays = selectedDays.filter((day) =>
+      day.sessionIds.some((sessionId) => affectedSet.has(sessionId)),
+    );
+    const names = affectedDays.map((day) => `${classLabel(day.group)} · ${formatDate(day.date)}`);
+    const itemizedNotice = names.length <= 1
+      ? `The make-up time you chose for ${names[0] ?? "a class you'll miss"} is no longer available — choose another time for it. Nothing else in your plan changed.`
+      : `The make-up times you chose for ${joinWithAnd(names)} are no longer available — choose another time for each. Nothing else in your plan changed.`;
+    setMakeupNotice(itemizedNotice);
+    return true;
+  }, [sitInSelections, sitInPriorityLevels, sitInPriorityHistory, selectedDays]);
 
   function validateReason(): boolean {
     setReasonError(null);
@@ -838,8 +984,7 @@ export default function AbsenceForm() {
     }
     if (selectedDays.length === 0) { setPageError("Select at least one class you'll miss."); goToScreen("classes"); return; }
     if (missingSitIn) {
-      setPageError("Pick a make-up class for all selected classes before submitting.");
-      setMakeupIndex(0);
+      setPageError("Choose a make-up time for every class that needs one before submitting.");
       goToScreen("makeup");
       return;
     }
@@ -862,11 +1007,7 @@ export default function AbsenceForm() {
         const staleSessionIds = [...selectedSitInSessionIds].filter((id) => blockedSessionIds.has(id));
         if (staleSessionIds.length > 0) {
           beginRestore(null);
-          setSitInSelections({});
-          setSitInPriorityLevels({});
-          setSitInPriorityHistory({});
-          setMakeupIndex(0);
-          setMakeupNotice("That class is no longer available. We've found the next available option.");
+          invalidateUnavailableSitIns(submissionSessions);
           goToScreen("makeup");
           return;
         }
@@ -933,12 +1074,13 @@ export default function AbsenceForm() {
       }
       if (error instanceof ApiRequestError && error.code === "sit_in_session_already_used") {
         beginRestore(null);
-        setSitInSelections({});
-        setSitInPriorityLevels({});
-        setSitInPriorityHistory({});
-        setSessionsReloadToken((current) => current + 1);
-        setMakeupIndex(0);
-        setMakeupNotice("That class is no longer available. We've found the next available option.");
+        try {
+          const latest = await loadStudentSessions();
+          setSessions(latest.subjects);
+          invalidateUnavailableSitIns(latest.subjects);
+        } catch {
+          setMakeupNotice("A make-up time you chose could not be booked. Review your plan and try again.");
+        }
         goToScreen("makeup");
       } else if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("One of your classes has reached the absence limit. Go back and remove it, or contact Student Services if you need help.");
@@ -991,6 +1133,7 @@ export default function AbsenceForm() {
     setLookup(null);
     setStudentProfile(null);
     setSessions([]);
+    loadedScheduleRef.current = null;
     setSelectedSubjectIds([]);
     setSelectedSessionIds(new Set());
     setSitInSelections({});
@@ -1067,14 +1210,43 @@ export default function AbsenceForm() {
         return;
       }
       if (selectedDays.length === 0) { setPageError("Select at least one class you'll miss."); return; }
-      // Preserve position when returning from Review/Edit so per-day context survives.
-      setMakeupIndex((index) => (index < selectedDays.length ? index : 0));
+      setMakeupFocusKey(null);
       setMakeupNotice(null);
+      if (reviewEditRef.current) {
+        if (missingSitIn) {
+          // A changed class needs a new make-up decision: land on the plan
+          // focused on the first affected row; every other choice is kept.
+          const firstNeedingKey = makeupPlanEntries
+            .find(({ day, plan }) => missingMakeUp(day, plan, sitInSelections))
+            ?.day.items[0]?.id ?? null;
+          setMakeupFocusKey(firstNeedingKey);
+          goToScreen("makeup");
+          return;
+        }
+        reviewEditRef.current = false;
+        goToScreen("review");
+        return;
+      }
       goToScreen("makeup");
-    } else if (screen === "email") {
-      if (emailSatisfied) goToScreen("classes");
+    } else if (screen === "makeup") {
+      if (missingSitIn) {
+        setPageError("Choose a make-up time for every class that needs one before continuing.");
+        return;
+      }
+      if (hasSitInOverlap) {
+        setPageError("One of your make-up times overlaps another class you'll attend. Choose another time for it before continuing.");
+        return;
+      }
+      if (reviewEditRef.current) {
+        reviewEditRef.current = false;
+        goToScreen("review");
+        return;
+      }
+      goToScreen("reason");
     } else if (screen === "reason") {
       if (!validateReason()) return;
+      reviewEditRef.current = false;
+      setFocusReasonEmail(false);
       goToScreen("review");
     } else if (screen === "review") {
       void handleSubmitAbsence();
@@ -1084,10 +1256,16 @@ export default function AbsenceForm() {
   };
 
   const handleBack = () => {
+    // Back while editing from Review cancels the edit and returns to Review.
+    if (reviewEditRef.current && (screen === "classes" || screen === "makeup" || screen === "reason")) {
+      reviewEditRef.current = false;
+      setFocusReasonEmail(false);
+      goToScreen("review");
+      return;
+    }
     if (screen === "review") goToScreen("reason");
     else if (screen === "reason" || screen === "makeup") goToScreen("classes");
-    else if (screen === "classes") goToScreen(emailRequired && !emailSatisfied ? "email" : "verify");
-    else if (screen === "email") goToScreen("verify");
+    else if (screen === "classes") goToScreen("verify");
     else if (screen === "verify") goToScreen("confirm");
     else if (screen === "confirm") {
       setLookup(null);
@@ -1103,7 +1281,7 @@ export default function AbsenceForm() {
         header={<AbsenceHeader progress={0.04} progressLabel="Loading" />}
         footer={<AbsenceActionBar showBack={false} showPrimary={false} canProceed={false} onBack={() => {}} onPrimary={() => {}} primaryLabel="" />}
       >
-        <div className="mx-auto w-full max-w-xl py-6">
+        <div className="mx-auto w-full max-w-2xl py-6">
           <LoadingSkeleton type="text" lines={3} />
         </div>
       </AbsenceAppShell>
@@ -1122,18 +1300,20 @@ export default function AbsenceForm() {
       };
     });
     const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
+    const receiptStatus = finalResults[0]?.status;
     return (
       <AbsenceAppShell
-        header={<AbsenceHeader progress={1} progressLabel="Absence submitted" />}
+        header={<AbsenceHeader progress={1} progressLabel="Absence report submitted" />}
         footer={<AbsenceActionBar showBack={false} showPrimary={false} canProceed={false} onBack={() => {}} onPrimary={() => {}} primaryLabel="" />}
       >
-        <SuccessScreen groups={successGroups} reference={referenceId} onDone={handleDone} />
+        <SuccessScreen groups={successGroups} reference={referenceId} status={receiptStatus} onDone={handleDone} />
       </AbsenceAppShell>
     );
   }
 
   const canProceedFromClasses = selectedSessionIds.size > 0 && !sessionsLoading && !draftNeedsReview;
-  const canProceedFromReason = !config.form.require_reason || Boolean(reason.trim());
+  const canProceedFromReason = (!config.form.require_reason || Boolean(reason.trim()))
+    && (!emailRequired || emailSatisfied);
   // With nothing reportable, the only meaningful action is leaving the flow.
   const noReportableClasses = sessions.length === 0
     || sessions.every((group) => group.sessions.every((session) => session.already_absent));
@@ -1154,32 +1334,80 @@ export default function AbsenceForm() {
         );
         return `${classLabel(day.group)} — ${selectedDayWhen(day)} — Make-up: ${sitInLabel}`;
       }),
-      onEdit: () => goToScreen("classes"),
+      onEdit: () => {
+        reviewEditRef.current = true;
+        setMakeupFocusKey(null);
+        goToScreen("classes");
+      },
       onEditLine: (lineIndex: number) => {
-        setMakeupIndex(lineIndex < selectedDays.length ? lineIndex : 0);
+        // Keep the stable identity of the row being changed so the plan
+        // opens focused on it (Review content never shifts under the edit).
+        setMakeupFocusKey(selectedDays[lineIndex]?.items[0]?.id ?? null);
+        reviewEditRef.current = true;
         goToScreen("makeup");
       },
-      editLineLabel: "Edit make-up",
+      editLineLabel: "Change time",
     },
     {
       key: "reason",
       title: "Reason",
       lines: [reason.trim() || "No reason provided"],
-      onEdit: () => goToScreen("reason"),
+      onEdit: () => {
+        reviewEditRef.current = true;
+        goToScreen("reason");
+      },
     },
+    ...(studentProfile?.email_on_file || manualEmail ? [
+      {
+        key: "destination",
+        title: "Update destination",
+        lines: manualEmail
+          ? [`Updates go to ${manualEmail}`]
+          : ["Emails go to the address the school has on file."],
+        // The school's on-file address can't be changed here; only a manual
+        // address collected in Details is editable.
+        editLabel: emailRequired ? "Edit email" : undefined,
+        onEdit: emailRequired ? () => {
+          reviewEditRef.current = true;
+          setFocusReasonEmail(true);
+          goToScreen("reason");
+        } : undefined,
+      },
+    ] : []),
   ];
 
-  // Footer owns the primary on every screen except identify/resume/confirm/makeup,
-  // which keep their local buttons (identify predates the footer; makeup needs
-  // the recommendation context). Verify/email always show the footer so there
-  // is exactly one visible Next — disabled with a hint until it can proceed.
-  const showFooterPrimary = screen === "classes" || screen === "reason" || screen === "review"
-    || screen === "verify" || screen === "email";
+  // Footer owns the primary on every stage-level screen. Identify/confirm keep
+  // their local buttons; the make-up rows use local sheet actions for content,
+  // but advancing to Details is a footer decision. Verify/email always show
+  // the footer so there is exactly one visible Next — disabled with a hint
+  // until it can proceed.
+  const showFooterPrimary = screen === "classes" || screen === "makeup" || screen === "reason" || screen === "review"
+    || screen === "verify";
+
+  // Standard stages share one calm reading column (~640-672px). Classes alone
+  // widens on desktop so the agenda next to the calendar gets the space its
+  // two-column layout needs; the shell, notices, and footer all track the
+  // active stage's width.
+  const contentWidth = screen === "classes" ? "max-w-2xl lg:max-w-5xl" : "max-w-2xl";
 
   const footerPrimaryLabel =
     screen === "review" ? "Submit absence"
       : showDoneOnClasses ? "Done"
         : "Continue";
+
+  const currentStage = SCREEN_STAGE[screen];
+  const stageLabel = currentStage ? `Step ${currentStage.step} of 5 · ${currentStage.name}` : undefined;
+
+  // Honest, quiet "where your work lives" note: drafts are kept in this
+  // browser tab only — never a promise of cross-device or forever storage.
+  const savedInThisTab = Boolean(
+    draft
+    && lookup
+    && !restoreDraft
+    && normalizeLookupWcode(draft.wcode) === lookup.wcode
+    && (draft.selectedSessionIds.length > 0 || draft.reason?.trim() || draft.collectedEmail?.trim())
+    && (screen === "classes" || screen === "makeup" || screen === "reason" || screen === "review")
+  );
 
   return (
     <AbsenceAppShell
@@ -1187,28 +1415,35 @@ export default function AbsenceForm() {
         <AbsenceHeader
           onBack={screen !== "identify" && screen !== "resume" ? handleBack : undefined}
           progress={SCREEN_PROGRESS[screen]}
-          progressLabel={`Report absence — ${SCREEN_LABELS[screen]}`}
+          progressLabel={stageLabel ?? `Report absence — ${SCREEN_LABELS[screen]}`}
+          stageLabel={stageLabel}
         />
       }
       footer={
         <AbsenceActionBar
           showBack={false}
           showPrimary={showFooterPrimary}
-          canProceed={screen === "classes" ? (showDoneOnClasses ? true : canProceedFromClasses) : screen === "reason" ? canProceedFromReason : screen === "review" ? !isSubmitting : screen === "verify" ? (verificationSatisfied && !verificationBlocked) : screen === "email" ? emailSatisfied : true}
+          canProceed={screen === "classes" ? (showDoneOnClasses ? true : canProceedFromClasses) : screen === "makeup" ? (!missingSitIn && !hasSitInOverlap && !makeupLoadingTimes && !sessionsLoading) : screen === "reason" ? canProceedFromReason : screen === "review" ? !isSubmitting : screen === "verify" ? (verificationSatisfied && !verificationBlocked) : true}
           loading={isSubmitting}
           loadingLabel="Submitting…"
           onBack={handleBack}
           onPrimary={handlePrimaryAction}
           primaryLabel={footerPrimaryLabel}
-          hint={screen === "verify" && !verificationSatisfied ? "Enter the code from your parent's phone to continue." : screen === "email" && !emailSatisfied ? "Enter a valid email to continue." : undefined}
+          hint={screen === "verify" && !verificationSatisfied ? "Enter the code from your parent's phone to continue." : screen === "makeup" && missingSitIn ? "Choose a make-up time for every class that needs one." : screen === "makeup" && hasSitInOverlap ? "A make-up time overlaps another class — choose another time." : screen === "reason" && emailRequired && !emailSatisfied ? "Add a valid email so we can send updates." : undefined}
         />
       }
     >
       <div
-        className="mx-auto w-full max-w-3xl py-6"
+        className={`mx-auto w-full py-6 ${contentWidth}`}
         inert={isSubmitting && !finalResults ? true : undefined}
       >
         {pageError ? <FormAlert alertRef={pageAlertRef} message={pageError} /> : null}
+
+        {savedInThisTab ? (
+          <p className="mb-4 text-right text-[13px] font-medium text-[var(--color-wi-text-light)]">
+            Saved in this tab
+          </p>
+        ) : null}
 
         <p aria-live="polite" className="sr-only">
           {SCREEN_LABELS[screen]}
@@ -1239,7 +1474,16 @@ export default function AbsenceForm() {
             <ResumeScreen
               startedAt={restoreDraft?.updatedAt}
               summary={resumeSummary}
-              onContinue={() => goToScreen("confirm")}
+              onContinue={() => {
+                // The resume choice is only offered after a valid verified
+                // session; an expiry that lands here sends the student back
+                // to confirm with their parent again.
+                if (verificationBlocked || !verificationSatisfied) {
+                  goToScreen("verify");
+                  return;
+                }
+                goToScreen("classes");
+              }}
               onStartOver={handleDone}
             />
           )}
@@ -1280,15 +1524,6 @@ export default function AbsenceForm() {
             />
           )}
 
-          {screen === "email" && lookup && (
-            <EmailScreen
-              value={collectedEmail}
-              onChange={setCollectedEmail}
-              onSubmit={() => { if (emailSatisfied) goToScreen("classes"); }}
-              canContinue={emailSatisfied}
-            />
-          )}
-
           {screen === "classes" && lookup && (
             <ScheduleScreen
               groups={sessions}
@@ -1307,24 +1542,32 @@ export default function AbsenceForm() {
               onRetry={() => setSessionsReloadToken((token) => token + 1)}
               draftNeedsReview={draftNeedsReview}
               onDismissDraftNotice={() => setDraftNeedsReview(false)}
+              supportHref={config.admin_contact?.email?.trim() ? `mailto:${config.admin_contact.email.trim()}` : undefined}
             />
           )}
 
-          {screen === "makeup" && currentMakeUpDay && (
+          {screen === "makeup" && lookup && (
             <MakeUpScreen
-              index={makeupIndex}
-              total={selectedDays.length}
-              missedName={classLabel(currentMakeUpDay.group)}
-              missedWhen={selectedDayWhen(currentMakeUpDay)}
-              method={makeupPlan.method}
-              options={makeupPlan.options}
-              selectedValue={sitInSelections[currentMakeUpDay.items[0]?.id ?? ""] ?? ""}
-              hasMoreTimes={makeupPlan.hasMoreTimes}
-              loadingTimes={makeupLoadingTimes}
               notice={makeupNotice}
+              plans={makeupPlanEntries.map(({ day, plan }) => {
+                const sessionKey = day.items[0]?.id ?? "";
+                return {
+                  sessionKey,
+                  label: classLabel(day.group),
+                  when: selectedDayWhen(day),
+                  method: plan.method,
+                  options: plan.options,
+                  selectedValue: sitInSelections[sessionKey] ?? "",
+                  hasMoreTimes: plan.hasMoreTimes,
+                  needsAttention: staleMarkedIds.has(sessionKey) && !sitInSelections[sessionKey],
+                  overlapMessage: sitInOverlapMessages.get(sessionKey),
+                };
+              })}
+              focusSessionKey={makeupFocusKey}
+              loadingTimes={makeupLoadingTimes}
               zoomDescription={config.sit_in.zoom_description}
-              onUse={handleUseMakeUp}
-              onSeeMoreTimes={() => void handleSeeMoreTimes()}
+              onUseTime={handleUseMakeUpTime}
+              onSeeMoreTimes={(sessionKey: string) => void handleSeeMoreTimes(sessionKey)}
             />
           )}
 
@@ -1339,6 +1582,17 @@ export default function AbsenceForm() {
               onSelect={handleReasonCategorySelect}
               onDetailChange={handleReasonDetailChange}
               error={reasonError}
+              email={
+                emailRequired
+                  ? {
+                      required: true,
+                      value: manualEmail,
+                      onChange: setCollectedEmail,
+                      invalid: manualEmail.length > 0 && !manualEmailValid,
+                    }
+                  : undefined
+              }
+              initialFocusOnEmail={focusReasonEmail}
             />
           )}
 

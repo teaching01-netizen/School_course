@@ -9,6 +9,8 @@ import {
   enterCode,
   completeToClasses,
   completeToReview,
+  reachDetails,
+  pickReason,
   selectClass,
   fillEmailIfNeeded,
 } from "./helpers/absenceFormHarness";
@@ -97,47 +99,46 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     expect(screen.queryByText(/session-math/i)).not.toBeInTheDocument();
   });
 
-  it("skips the email screen when an email is already on file", async () => {
+  it("does not ask for an update email in Details when one is on file", async () => {
     renderPublicAbsenceForm(mockApiJson, { lookup: CRM_EMAIL_STUDENT });
     const user = userEvent.setup();
 
-    await startReport(user, CRM_EMAIL_STUDENT.wcode);
-    await confirmIdentity(user);
-    await sendParentCode(user);
-    await enterCode(user);
-
-    await screen.findByRole("heading", { name: /which class will you miss/i });
-    expect(screen.queryByRole("heading", { name: /where should we send updates/i })).not.toBeInTheDocument();
+    await reachDetails(user, { wcode: CRM_EMAIL_STUDENT.wcode });
+    expect(screen.getByRole("heading", { name: /why will you be away/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^email$/i })).not.toBeInTheDocument();
   });
 
-  it("requests an email only when the school is missing one", async () => {
+  it("requests the update email inside Details when the school is missing one", async () => {
     renderPublicAbsenceForm(mockApiJson);
     const user = userEvent.setup();
 
-    await startReport(user);
-    await confirmIdentity(user);
-    await sendParentCode(user);
-    await enterCode(user);
+    await reachDetails(user);
 
-    // The email screen appears because the school has no address on file.
-    await screen.findByRole("heading", { name: /where should we send updates/i });
-    await fillEmailIfNeeded(user);
-    await screen.findByRole("heading", { name: /which class will you miss/i });
+    // The required email lives in Details, next to the reason.
+    expect(screen.getByRole("heading", { name: /where should we send updates/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /^email$/i })).toBeInTheDocument();
+    await fillEmailIfNeeded(user, "student@example.edu");
+    await pickReason(user, "Appointment");
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    await screen.findByRole("heading", { name: /review your absence/i });
   });
 
   it("blocks continuing with an invalid email", async () => {
     renderPublicAbsenceForm(mockApiJson);
     const user = userEvent.setup();
 
-    await startReport(user);
-    await confirmIdentity(user);
-    await sendParentCode(user);
-    await enterCode(user);
-    await screen.findByRole("heading", { name: /where should we send updates/i });
+    await reachDetails(user);
+    await pickReason(user, "Appointment");
 
     const emailInput = screen.getByRole("textbox", { name: /^email$/i });
     await user.type(emailInput, "not-an-email");
+    expect(screen.getByText(/enter a valid email to continue/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
+
+    // A corrected email unlocks the report again.
+    await user.clear(emailInput);
+    await user.type(emailInput, "student@example.edu");
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
   });
 
   it("Not me keeps the ID focused and selected for one-keystroke correction", async () => {
@@ -178,20 +179,23 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     renderPublicAbsenceForm(mockApiJson, { submission: SUBMISSION_RESPONSE });
     const user = userEvent.setup();
 
-    // The app asks whether to resume the saved report before re-identifying.
-    await screen.findByRole("heading", { name: /continue your absence report/i });
-    expect(screen.getByText(/appointment/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+    // A returning student confirms who they are first — nothing about the
+    // saved report is shown before identity + parent verification.
     await screen.findByRole("heading", { name: /is this you/i });
     await confirmIdentity(user);
     await sendParentCode(user);
     await enterCode(user);
 
+    // Only after verification is the saved report offered for resume.
+    await screen.findByRole("heading", { name: /continue your absence report/i });
+    expect(screen.getByText(/appointment/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
+
     await screen.findByRole("heading", { name: /which class will you miss/i });
     await waitFor(() => {
       expect(screen.getByText(/we restored your report/i)).toBeInTheDocument();
-      // The restored selection lands on the additive summary.
-      expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+      // The restored selection lands on the compact additive summary.
+      expect(screen.getByRole("button", { name: /^view$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /add another class/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
     });
@@ -217,36 +221,34 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
 
     await completeToReview(user, "Appointment");
     await user.click(screen.getByRole("button", { name: /submit absence/i }));
-    await screen.findByRole("heading", { name: /absence submitted/i });
+    await screen.findByRole("heading", { name: /absence report submitted/i });
 
     expect(window.sessionStorage.getItem(ABSENCE_DRAFT_STORAGE_KEY)).toBeNull();
     expect(window.sessionStorage.getItem(STUDENT_RESUME_STORAGE_KEY)).toBeNull();
   });
 
-  it("collects an email once and never asks again on the same journey", async () => {
+  it("Back from classes returns to verification without re-collecting the email", async () => {
     renderPublicAbsenceForm(mockApiJson, { submission: SUBMISSION_RESPONSE });
     const user = userEvent.setup();
 
     await completeToClasses(user);
     await selectClass(user, "Mathematics");
-    await user.click(screen.getByRole("button", { name: /^continue$/i }));
-    await screen.findByRole("heading", { name: /your make-up/i });
+    expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
 
+    // Back from classes goes to verify — the required email is not gathered
+    // out of order on the way back.
     await user.click(screen.getByRole("button", { name: /^back$/i }));
-    await screen.findByRole("heading", { name: /which class will you miss/i });
-    await user.click(screen.getByRole("button", { name: /^back$/i }));
-
-    // Back from classes goes to verify, not back into email collection.
     await screen.findByRole("heading", { name: /confirmed|enter the code|confirm with a parent/i });
-    expect(screen.queryByRole("heading", { name: /where should we send updates/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^email$/i })).not.toBeInTheDocument();
   });
 
   it("restores an in-progress report when the same Student ID is re-entered mid-flow", async () => {
     renderPublicAbsenceForm(mockApiJson);
     const user = userEvent.setup();
 
-    // Build an in-progress report: verified, email collected, one class picked.
-    await completeToClasses(user, { email: "student@example.edu" });
+    // Build an in-progress report: verified, one class picked. The update
+    // email is only collected in Details, so it is not part of this draft yet.
+    await completeToClasses(user);
     await selectClass(user, "Mathematics");
     // Auto-save is debounced; wait until the selection is actually persisted.
     await waitFor(() => {
@@ -262,16 +264,19 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     await user.click(screen.getByRole("button", { name: /^back$/i }));
     await screen.findByRole("heading", { name: /report an absence/i });
 
-    // Re-enter the same Student ID — the saved report must come back.
+    // Re-enter the same Student ID — the saved report must come back, but
+    // only after identity + verification, via the resume choice.
     await startReport(user);
     await confirmIdentity(user);
     await sendParentCode(user);
     await enterCode(user);
+    await screen.findByRole("heading", { name: /continue your absence report/i });
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
     await screen.findByRole("heading", { name: /which class will you miss/i });
 
     await waitFor(() => {
       expect(screen.getByText(/we restored your report/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /remove mathematics/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^view$/i })).toBeInTheDocument();
     });
     // The restore gate holds Continue until the student reviews the classes.
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
@@ -301,6 +306,12 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     renderPublicAbsenceForm(mockApiJson);
     const user = userEvent.setup();
 
+    // Start over lives with the resume choice, which is only offered after
+    // identity + parent verification.
+    await screen.findByRole("heading", { name: /is this you/i });
+    await confirmIdentity(user);
+    await sendParentCode(user);
+    await enterCode(user);
     await screen.findByRole("heading", { name: /continue your absence report/i });
     await user.click(screen.getByRole("button", { name: /start over/i }));
     await screen.findByRole("heading", { name: /report an absence/i });
@@ -311,12 +322,10 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     await confirmIdentity(user);
     await sendParentCode(user);
     await enterCode(user);
-    await screen.findByRole("heading", { name: /where should we send updates/i });
-    await fillEmailIfNeeded(user, "fresh@example.edu");
     await screen.findByRole("heading", { name: /which class will you miss/i });
 
     expect(screen.queryByText(/we restored your report/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /remove mathematics/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^view$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
   });
 });

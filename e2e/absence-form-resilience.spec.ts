@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installAbsenceRoutes, type SubmittedPayload } from "./fixtures/absence";
-import { acceptResumePrompt, completeToClasses, selectClass } from "./helpers/absenceFlow";
+import { completeToClasses, selectClass } from "./helpers/absenceFlow";
 import {
   expectFocusedElementVisible,
   expectInsideVisualViewport,
@@ -37,16 +37,21 @@ test("restored draft step cannot bypass student and parent verification", async 
 
   await page.goto("/absence");
 
-  // The draft is offered for resume, then restores identity — but classes
-  // never load before verification.
-  await acceptResumePrompt(page);
+  // The saved report is never revealed before identity + verification — no
+  // resume prompt, no restored classes, and no schedule request.
   await expect(page.getByRole("heading", { name: "Is this you?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Continue your absence report?" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
   expect(sessionRequests).toBe(0);
 
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await expect(page.getByRole("heading", { name: /confirm with a parent/i })).toBeVisible();
   expect(sessionRequests).toBe(0);
+
+  // Only a completed verification unlocks the saved report for resume.
+  await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
+  await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  await expect(page.getByRole("heading", { name: "Continue your absence report?" })).toBeVisible();
 });
 
 test("connectivity changes do not render an offline state", async ({ page }) => {
@@ -88,7 +93,9 @@ test("visual viewport resize keeps the focused reason and action bar reachable",
   await completeToClasses(page);
   await selectClass(page, "Mathematics");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: /^(Use this class|Continue with this make-up)$/i }).click();
+  await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("button", { name: "Use this time" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();
   await page.getByRole("radio", { name: "Other" }).click();
   const reason = page.getByLabel(/tell us a little more/i);
