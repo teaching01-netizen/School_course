@@ -98,6 +98,7 @@ describe("AbsenceForm — review edits return to review", () => {
 
     // Directly back on Review — no make-up or Details stages in between.
     await screen.findByRole("heading", { name: /review your absence/i });
+    expect(await screen.findByText(/your classes are updated/i)).toBeInTheDocument();
     expect(screen.getByText(/step 5 of 5 · review/i)).toBeInTheDocument();
     const review = screen.getByRole("heading", { name: /review your absence/i }).closest("div");
     expect(review?.textContent).toMatch(/mathematics/i);
@@ -123,6 +124,9 @@ describe("AbsenceForm — review edits return to review", () => {
     expect(screen.getAllByText(/no make-up needed/i).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: /choose a time/i }));
     const dialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
+    const options = within(dialog).getAllByRole("radio");
+    expect(options.length).toBeGreaterThan(0);
+    await user.click(options[0]);
     await user.click(within(dialog).getByRole("button", { name: /use this time/i }));
 
     // Complete the plan back to Review — Details is not re-walked.

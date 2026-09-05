@@ -86,7 +86,7 @@ export default function AbsenceActionBar({
               ) : primaryLabel}
             </button>
             {hint && !canProceed && !loading ? (
-              <span id={hintId} className="max-w-[14rem] text-right text-[12px] leading-snug text-[var(--color-wi-text-light)]">
+              <span id={hintId} className="max-w-[14rem] text-right text-sm leading-snug text-[var(--color-wi-text-light)]">
                 {hint}
               </span>
             ) : null}

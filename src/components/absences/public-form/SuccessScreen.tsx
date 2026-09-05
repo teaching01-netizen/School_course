@@ -39,7 +39,7 @@ export default function SuccessScreen({ groups, reference, status, onDone }: Suc
         </svg>
       </motion.div>
 
-      <h1 id="success-heading" className="mt-6 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)]">
+      <h1 id="success-heading" tabIndex={-1} className="mt-6 text-[28px] font-bold leading-tight tracking-tight text-[var(--color-wi-text)] outline-none">
         Absence report submitted
       </h1>
       <p className="mx-auto mt-2 max-w-sm text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">

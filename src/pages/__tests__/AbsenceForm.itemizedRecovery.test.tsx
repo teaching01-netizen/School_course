@@ -112,6 +112,9 @@ async function chooseRecommendedForRow(user: ReturnType<typeof userEvent.setup>,
   const openButton = screen.getAllByRole("button", { name: /choose a time|change time/i })[rowIndex];
   await user.click(openButton);
   const dialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
+  const options = within(dialog).getAllByRole("radio");
+  expect(options.length).toBeGreaterThan(0);
+  await user.click(options[0]);
   await user.click(within(dialog).getByRole("button", { name: /use this time/i }));
 }
 

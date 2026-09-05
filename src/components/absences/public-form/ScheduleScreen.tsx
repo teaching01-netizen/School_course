@@ -253,6 +253,18 @@ export default function ScheduleScreen({
   };
 
   const handleGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // APG date-picker keys: arrows move by day/week, Home/End jump to the
+    // start/end of the focused week. PageUp/PageDown stay unbound (month
+    // jumps would fight the agenda model) — the group label names the keys
+    // that actually work so nothing is promised that isn't handled.
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const base = parseDateKey(navKey ?? focusedKey ?? todayKey);
+      // Weeks render Monday-first: back up to Monday, or forward to Sunday.
+      const mondayOffset = (base.getDay() + 6) % 7;
+      shiftNav(event.key === "Home" ? -mondayOffset : 6 - mondayOffset);
+      return;
+    }
     const deltas: Record<string, number> = {
       ArrowLeft: -1,
       ArrowRight: 1,
@@ -320,9 +332,6 @@ export default function ScheduleScreen({
     toastSeq.current += 1;
     const key = `${event.key}:${toastSeq.current}`;
     setRemovedToasts((current) => [...current, { key, event }].slice(-3));
-    window.setTimeout(() => {
-      dismissRemovedToast(key);
-    }, 6000);
   };
 
   const undoRemovedToast = (key: string) => {
@@ -433,7 +442,7 @@ export default function ScheduleScreen({
       </p>
 
       {draftNeedsReview ? (
-        <div role="status" aria-live="polite" className="mt-6 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] text-[var(--color-wi-amber)]">
+        <div role="status" aria-live="polite" className="mt-6 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] text-[var(--color-wi-amber-ink)]">
           <p className="font-semibold">We restored your report.</p>
           <p className="mt-0.5">Check your classes below, then tap the button to continue. Continue stays disabled until then.</p>
           {onDismissDraftNotice ? (
@@ -455,7 +464,8 @@ export default function ScheduleScreen({
             ref={gridRef}
             onKeyDown={handleGridKeyDown}
             className="mt-6 rounded-2xl border border-[var(--color-wi-border)] bg-white p-4 sm:p-5 lg:mt-0"
-            aria-label="Your classes by day"
+            role="group"
+            aria-label="Your classes by day. Use the arrow keys to move between days, Home and End to jump to the start or end of the week, Enter to open a day."
           >
             <div className="flex items-center justify-between gap-2">
               {isExpanded ? (
@@ -478,7 +488,7 @@ export default function ScheduleScreen({
                   </button>
                 </div>
               ) : <span />}
-              <p className="text-[15px] font-semibold text-[var(--color-wi-text)]" aria-live="polite">
+              <p className="text-[15px] font-semibold text-[var(--color-wi-text)]">
                 {month ? monthTitle(month.year, month.month) : ""}
                 {!isExpanded && focusedKey ? ` · ${dayLabel(focusedKey)}` : ""}
               </p>
@@ -535,7 +545,7 @@ export default function ScheduleScreen({
                         type="button"
                         onClick={() => selectDate(dateKey)}
                         data-date-key={dateKey}
-                        aria-pressed={hasSelection}
+                        aria-current={isFocused ? "date" : undefined}
                         tabIndex={dateKey === activeKey ? 0 : -1}
                         aria-label={labelParts.join(". ")}
                         className={clsx(
@@ -587,9 +597,9 @@ export default function ScheduleScreen({
 
         {/* WHAT? — the daily agenda holds the actual decision. */}
         <div className="lg:col-span-7">
-          <div className="mt-6 lg:mt-0" aria-live="polite">
+          <div className="mt-6 lg:mt-0">
             <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[20px] font-bold text-[var(--color-wi-text)]">
+              <h2 className="text-[20px] font-bold text-[var(--color-wi-text)]" aria-live="polite">
                 {focusedKey ? dayLabel(focusedKey) : ""}
                 <span className="font-normal text-[var(--color-wi-text-light)]">
                   {focusedKey ? ` · ${longDateLabel(focusedKey)}` : ""}
@@ -603,7 +613,7 @@ export default function ScheduleScreen({
             </div>
 
             {updateNotice ? (
-              <p role="status" className="mt-3 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-2.5 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+              <p role="status" className="mt-3 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-2.5 text-[13px] leading-snug text-[var(--color-wi-amber-ink)]">
                 {updateNotice}
               </p>
             ) : null}
@@ -656,10 +666,10 @@ export default function ScheduleScreen({
                               {event.timeLabel}{event.teacher ? ` · ${event.teacher}` : ""}
                             </span>
                           </span>
-                          <span className="shrink-0 text-[13px] font-medium text-[var(--color-wi-amber)]">Absence limit reached</span>
+                          <span className="shrink-0 text-[13px] font-medium text-[var(--color-wi-amber-ink)]">Absence limit reached</span>
                         </button>
                         {showLimitRow(event) ? (
-                          <p role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+                          <p role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber-ink)]">
                             {limitNotice}
                           </p>
                         ) : null}
@@ -712,7 +722,7 @@ export default function ScheduleScreen({
                         />
                       </label>
                       {showLimitRow(event) ? (
-                        <div role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+                        <div role="alert" className="mt-1.5 ml-11 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber-ink)]">
                           <p>{limitNotice}</p>
                           {supportHref ? (
                             <a href={supportHref} className="mt-1 inline-block font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
@@ -753,7 +763,8 @@ export default function ScheduleScreen({
                 onClick={() => {
                   setViewSheetOpen(false);
                   if (nextReportableAfterFocus) selectDate(nextReportableAfterFocus.dateKey);
-                  gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+                  gridRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
                 }}
                 className="wi-press flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-primary)]/40 bg-white px-5 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
               >
@@ -808,7 +819,8 @@ export default function ScheduleScreen({
               onClick={() => {
                 setViewSheetOpen(false);
                 if (nextReportableAfterFocus) selectDate(nextReportableAfterFocus.dateKey);
-                gridRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+                gridRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
               }}
               className="wi-press mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--color-wi-border)] px-4 text-[15px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
             >
@@ -833,13 +845,23 @@ export default function ScheduleScreen({
               <p className="min-w-0 text-[14px] leading-snug text-[var(--color-wi-text)]">
                 <span className="font-semibold">{toast.event.label}</span> removed
               </p>
-              <button
-                type="button"
-                onClick={() => undoRemovedToast(toast.key)}
-                className="wi-press min-h-11 shrink-0 rounded-lg px-2.5 text-[14px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
-              >
-                Undo
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => undoRemovedToast(toast.key)}
+                  className="wi-press min-h-11 rounded-lg px-2.5 text-[14px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 active:bg-[var(--color-wi-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismissRemovedToast(toast.key)}
+                  aria-label={`Dismiss ${toast.event.label} removal notice`}
+                  className="wi-press flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>

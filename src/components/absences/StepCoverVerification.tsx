@@ -295,7 +295,7 @@ export default function StepCoverVerification({
             type="button"
             onClick={() => void handleSend(true)}
             disabled={!online}
-            className="text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-6 px-1 text-xs font-semibold text-[var(--color-wi-primary)] hover:text-[var(--color-wi-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Send new code
           </button>
@@ -307,41 +307,41 @@ export default function StepCoverVerification({
   return (
     <div className="space-y-3">
       {!online ? (
-        <p role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs font-medium text-[var(--color-wi-amber)]">
+        <p role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-sm font-medium text-[var(--color-wi-amber-ink)]">
           You're offline. Reconnect to send or verify the parent code.
         </p>
       ) : null}
       {!smsParentEnabled ? (
-        <p role="alert" className="text-xs text-[var(--color-wi-amber)]">
+        <p role="alert" className="text-sm text-[var(--color-wi-amber-ink)]">
           Parent verification codes are currently unavailable.
           Contact admin before continuing.
         </p>
       ) : null}
 
       {sendError ? (
-        <p role="alert" className="text-xs text-[var(--color-wi-red)]">{sendError}</p>
+        <p role="alert" className="text-sm text-[var(--color-wi-red)]">{sendError}</p>
       ) : null}
       {restoreError ? (
-        <div role="alert" className="space-y-1 text-xs text-[var(--color-wi-red)]">
+        <div role="alert" className="space-y-1 text-sm text-[var(--color-wi-red)]">
           <p>{restoreError}</p>
           <button
             type="button"
             onClick={() => setValidationAttempt((attempt) => attempt + 1)}
-            className="wi-press rounded font-semibold underline underline-offset-2"
+            className="wi-press min-h-6 rounded px-1 font-semibold underline underline-offset-2"
           >
             Retry verification check
           </button>
         </div>
       ) : null}
       {verifyError ? (
-        <div id="verify-error" className="space-y-1 text-xs text-[var(--color-wi-red)]">
+        <div id="verify-error" className="space-y-1 text-sm text-[var(--color-wi-red)]">
           <p role="alert">{verifyError}</p>
           {verifyRetryable && verification.code.length === 6 ? (
             <button
               type="button"
               onClick={() => void handleVerify()}
               disabled={isVerifying}
-              className="wi-press rounded font-semibold underline underline-offset-2 disabled:opacity-50"
+              className="wi-press min-h-6 rounded px-1 font-semibold underline underline-offset-2 disabled:opacity-50"
             >
               Retry verification
             </button>
@@ -359,7 +359,7 @@ export default function StepCoverVerification({
         <>
           <div className="space-y-1.5">
             <label htmlFor="parent-phone-input" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
-              Parent's phone number <span className="text-[var(--color-wi-red)]">*</span>
+              Parent's phone number <span className="text-[var(--color-wi-red)]" aria-hidden="true">*</span>
             </label>
             <input
               id="parent-phone-input"
@@ -372,10 +372,10 @@ export default function StepCoverVerification({
               onChange={(e) => setEnrollPhone(e.target.value)}
             />
             <p className="text-xs text-[var(--color-wi-text-light)]">
-              We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, then save it for future absence confirmations.
+              We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, and keep the number so you don't have to re-enter it next time.
             </p>
             {!enrollPhoneValid && enrollPhone.trim() ? (
-              <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
+              <p className="text-sm text-[var(--color-wi-amber-ink)]">Enter a valid phone number (9–12 digits).</p>
             ) : null}
           </div>
           {showEnrollConfirm ? (
@@ -426,19 +426,19 @@ export default function StepCoverVerification({
       ) : null}
 
       {deliveryStatus === "uncertain" ? (
-        <p role="status" className="text-xs font-medium text-[var(--color-wi-amber)]">
+        <p role="status" className="text-sm font-medium text-[var(--color-wi-amber-ink)]">
           Your code may still arrive. You can request another when the timer ends.
         </p>
       ) : null}
 
       {deliveryStatus === "failed" ? (
-        <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
+        <p role="alert" className="text-sm font-medium text-[var(--color-wi-red)]">
           We couldn't send the code. Tap Send code to try again.
         </p>
       ) : null}
 
       {deliveryStatus === "expired" ? (
-        <p role="alert" className="text-xs font-medium text-[var(--color-wi-red)]">
+        <p role="alert" className="text-sm font-medium text-[var(--color-wi-red)]">
           That code has expired. We&apos;ll send you a new one.
         </p>
       ) : null}

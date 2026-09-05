@@ -27,6 +27,7 @@
   --color-wi-green-bg: #ECFDF5;
   --color-wi-blue-bg: #EFF6FF;
   --color-wi-amber: #D97706;
+  --color-wi-amber-ink: #92400E;
   --color-wi-amber-bg: #FFFBEB;
   --color-wi-callout: #F8FAFC;
   --radius-sm: 5px;
@@ -591,8 +592,14 @@ html {
   min-inline-size: 0;
   padding-block-start: max(0.75rem, env(safe-area-inset-top));
   padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
-  background: color-mix(in srgb, white 92%, var(--color-wi-bg));
+  /* Soft-spatial glass: the header floats above scrolling content with a
+     translucent blur, falling back to a near-solid wash where backdrop
+     filters are unsupported. Content never slides under low-contrast glass. */
+  background: color-mix(in srgb, white 88%, var(--color-wi-bg));
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
   border-block-end: 1px solid var(--color-wi-line);
+  box-shadow: 0 1px 12px rgba(15, 23, 42, 0.06);
 }
 
 .absence-app-shell__main {
@@ -608,8 +615,12 @@ html {
   min-inline-size: 0;
   padding-block-end: max(0.5rem, env(safe-area-inset-bottom));
   padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
-  background: color-mix(in srgb, white 96%, var(--color-wi-bg));
+  /* Mirror of the header glass: the primary action floats above content. */
+  background: color-mix(in srgb, white 88%, var(--color-wi-bg));
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
   border-block-start: 1px solid var(--color-wi-line);
+  box-shadow: 0 -1px 12px rgba(15, 23, 42, 0.06);
 }
 
 .absence-app-header {

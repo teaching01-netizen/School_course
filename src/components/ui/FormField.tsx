@@ -38,7 +38,7 @@ export default function FormField({ name, label, required, error, touched, hint,
         </p>
       )}
       {!showError && hint && (
-        <p data-testid={`field-hint-${name}`} className="mt-1 text-xs text-[var(--color-wi-faint)] flex items-center gap-1">
+        <p data-testid={`field-hint-${name}`} className="mt-1 text-xs text-[var(--color-wi-text-light)] flex items-center gap-1">
           {hint}
         </p>
       )}

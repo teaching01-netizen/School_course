@@ -11,10 +11,11 @@ import {
   fillEmailIfNeeded,
   sendParentCode,
   enterCode,
+  findOtpInput,
 } from "./helpers/absenceFormHarness";
 import { ApiRequestError } from "@/api/client";
 import type { SessionsInRangeResponse } from "@/types";
-import { relativeDateKey, relativeISO } from "./fixtures/absenceFormFixtures";
+import { MANUAL_EMAIL_STUDENT, relativeDateKey, relativeISO } from "./fixtures/absenceFormFixtures";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -315,6 +316,39 @@ describe("AbsenceForm — recovery & errors", () => {
     // Back on verification with an explanation — never a raw error.
     await screen.findByRole("heading", { name: /enter the code|confirm with a parent/i });
     expect(screen.getAllByText(/expired/i).length).toBeGreaterThan(0);
+  });
+
+  it("surfaces expiry on the verify screen without destroying the code form", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderPublicAbsenceForm(mockApiJson, {
+        send: () => ({
+          token: "opaque-verification-token",
+          status: "pending",
+          wcode: MANUAL_EMAIL_STUDENT.wcode,
+          parent_phone: "+66812345678",
+          expires_at: new Date(Date.now() + 3_000).toISOString(),
+          otp_code_expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+        }),
+      });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await startReport(user);
+      await confirmIdentity(user);
+      await sendParentCode(user);
+
+      // The 3s OTP-session TTL lapses while the student is still reading.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      // Expiry is explained in place and the code form survives — nothing the
+      // student typed or read is yanked away.
+      expect(await screen.findByText(/your verified session expired/i)).toBeInTheDocument();
+      expect(await findOtpInput()).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns the student to Review after re-verifying an expired session", async () => {

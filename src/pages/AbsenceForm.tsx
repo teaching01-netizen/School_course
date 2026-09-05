@@ -429,6 +429,10 @@ export default function AbsenceForm() {
   // An edit launched from Review returns the student straight to Review once
   // the affected stage is settled — no re-walking the forward stages.
   const reviewEditRef = useRef(false);
+  // Announced once when a review edit lands back on Review (rendered through
+  // the screen's role=alert notice slot). Cleared on the next edit-out so a
+  // stale "updated" note can never greet a fresh visit.
+  const [reviewReturnNote, setReviewReturnNote] = useState<string | null>(null);
   // Focus the update-email field when an "Edit email" jump opens Details.
   const [focusReasonEmail, setFocusReasonEmail] = useState(false);
 
@@ -486,6 +490,7 @@ export default function AbsenceForm() {
     loadedScheduleRef.current = null;
     setVerificationSatisfied(false);
     setVerificationBlocked(true);
+    setConfirmedPulse(false);
     // Remember where the student was so re-verify can return them there.
     if (screenRef.current !== "verify" && screenRef.current !== "identify" && screenRef.current !== "confirm") {
       returnAfterVerifyRef.current = screenRef.current;
@@ -674,11 +679,33 @@ export default function AbsenceForm() {
   useEffect(() => {
     if (!verification.token || !verification.expiresAt) return;
     const enforceExpiry = () => {
-      if (verification.expiresAt && verification.expiresAt <= Date.now()) {
+      if (!(verification.expiresAt && verification.expiresAt <= Date.now())) return;
+      // On the verify screen there is nothing to lose: bounce immediately so
+      // the code form (not a stale Confirmed) is showing. Past verify, warn
+      // in place instead of yanking context mid-task (WCAG 2.2.1/3.2.1) — the
+      // submit gate and the resume gate already refuse unverified progress,
+      // and the next Continue routes through re-verify with the return
+      // destination preserved.
+      if (screenRef.current === "verify") {
         bounceToVerifyAfterExpiry();
+        return;
       }
+      setVerificationBlocked(true);
+      setVerificationSatisfied(false);
+      setConfirmedPulse(false);
+      if (screenRef.current !== "identify" && screenRef.current !== "confirm") {
+        returnAfterVerifyRef.current = screenRef.current;
+      }
+      setPageError("Your verified session expired. Confirm with your parent again to continue. Your absence details are still saved.");
+      setSubmissionError(null);
     };
     enforceExpiry();
+    // One-shot is honest here: a stored OTP token only exists in the
+    // pre-verify code-entry window (handleVerify clears it on success and
+    // the verified parent session is enforced server-side at submit).
+    // Past verify there is nothing to count down — the submit gate and the
+    // primary-action gate refuse unverified progress, and the server is the
+    // source of truth for session lapse.
     const timer = window.setTimeout(enforceExpiry, Math.max(0, verification.expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
   }, [verification.expiresAt, verification.token, bounceToVerifyAfterExpiry]);
@@ -708,20 +735,25 @@ export default function AbsenceForm() {
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
     setVerificationBlocked(false);
+    // The Confirmed panel stays until the student taps Continue: a timed
+    // advance would yank context from screen-reader and slow users (WCAG 3.2.1
+    // — no change of context on input without the user's request).
     setConfirmedPulse(true);
-    // A brief confirmed pulse keeps the success visible, then the student
-    // advances (or the explicit Continue stays available for AT/slow use).
-    window.setTimeout(() => {
-      setConfirmedPulse(false);
-      if (screenRef.current === "verify") advanceAfterVerification();
-    }, 500);
-  }, [advanceAfterVerification]);
+  }, []);
+
+  // The Confirmed panel marks a *fresh* satisfaction. Back-navigation lands on
+  // verify already satisfied (the session is still valid), which must show
+  // the re-enterable code form — never a dead-end Confirmed with no way back.
+  useEffect(() => {
+    if (screen === "verify" && !verificationSatisfied) setConfirmedPulse(false);
+  }, [screen, verificationSatisfied]);
 
   const handleVerificationRestart = useCallback(() => {
     verification.clearStoredToken();
     verification.setCode("");
     setVerificationSatisfied(false);
     setVerificationBlocked(false);
+    setConfirmedPulse(false);
   }, [verification.clearStoredToken, verification.setCode]);
 
   const handleVerificationRestored = useCallback(() => {
@@ -1100,6 +1132,16 @@ export default function AbsenceForm() {
     pageAlertRef.current?.focus();
   }, [pageError, submissionError]);
 
+  // Reason failures surface on the group (the footer owns the primary, so a
+  // keyboard user never meets the inline error otherwise): move focus to it.
+  // Fires on fresh failures and after submit-time revalidation navigates here.
+  useEffect(() => {
+    if (!reasonError) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById("absence-reason-error")?.focus();
+    });
+  }, [reasonError, screen]);
+
   useEffect(() => {
     if (!finalResults) return;
     window.requestAnimationFrame(() => {
@@ -1204,6 +1246,16 @@ export default function AbsenceForm() {
   }, [categoryOptions, reasonCategory]);
 
   const handlePrimaryAction = () => {
+    // A lapse that landed while working must re-verify before any advance:
+    // the timer warns in place, and this gate routes the next Continue
+    // through verify with the return destination preserved.
+    if (screen !== "verify" && screen !== "review") {
+      const lapsed = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
+      if (lapsed || !verificationSatisfied || verificationBlocked) {
+        bounceToVerifyAfterExpiry();
+        return;
+      }
+    }
     if (screen === "classes") {
       if (showDoneOnClasses) {
         handleDone();
@@ -1224,6 +1276,7 @@ export default function AbsenceForm() {
           return;
         }
         reviewEditRef.current = false;
+        setReviewReturnNote("Your classes are updated — review the changed details below.");
         goToScreen("review");
         return;
       }
@@ -1239,14 +1292,23 @@ export default function AbsenceForm() {
       }
       if (reviewEditRef.current) {
         reviewEditRef.current = false;
+        setReviewReturnNote("Your make-up choice is updated — review the changed details below.");
         goToScreen("review");
         return;
       }
       goToScreen("reason");
     } else if (screen === "reason") {
-      if (!validateReason()) return;
+      if (!validateReason()) {
+        // State update above renders the group error; focus it on the next
+        // frame so repeat failures refocus even when the message is unchanged.
+        window.requestAnimationFrame(() => {
+          document.getElementById("absence-reason-error")?.focus();
+        });
+        return;
+      }
       reviewEditRef.current = false;
       setFocusReasonEmail(false);
+      setReviewReturnNote("Your details are updated — review the changed details below.");
       goToScreen("review");
     } else if (screen === "review") {
       void handleSubmitAbsence();
@@ -1267,6 +1329,9 @@ export default function AbsenceForm() {
     else if (screen === "reason" || screen === "makeup") goToScreen("classes");
     else if (screen === "classes") goToScreen("verify");
     else if (screen === "verify") goToScreen("confirm");
+    // Resume is a post-verify decision, not a forward stage: Back returns to
+    // the verify screen it came from (a no-op if accessed any other way).
+    else if (screen === "resume") goToScreen("verify");
     else if (screen === "confirm") {
       setLookup(null);
       // Keep the ID so a mistaken identity costs one keystroke, not a retype.
@@ -1336,6 +1401,7 @@ export default function AbsenceForm() {
       }),
       onEdit: () => {
         reviewEditRef.current = true;
+        setReviewReturnNote(null);
         setMakeupFocusKey(null);
         goToScreen("classes");
       },
@@ -1344,6 +1410,7 @@ export default function AbsenceForm() {
         // opens focused on it (Review content never shifts under the edit).
         setMakeupFocusKey(selectedDays[lineIndex]?.items[0]?.id ?? null);
         reviewEditRef.current = true;
+        setReviewReturnNote(null);
         goToScreen("makeup");
       },
       editLineLabel: "Change time",
@@ -1354,6 +1421,7 @@ export default function AbsenceForm() {
       lines: [reason.trim() || "No reason provided"],
       onEdit: () => {
         reviewEditRef.current = true;
+        setReviewReturnNote(null);
         goToScreen("reason");
       },
     },
@@ -1369,6 +1437,7 @@ export default function AbsenceForm() {
         editLabel: emailRequired ? "Edit email" : undefined,
         onEdit: emailRequired ? () => {
           reviewEditRef.current = true;
+          setReviewReturnNote(null);
           setFocusReasonEmail(true);
           goToScreen("reason");
         } : undefined,
@@ -1413,7 +1482,7 @@ export default function AbsenceForm() {
     <AbsenceAppShell
       header={
         <AbsenceHeader
-          onBack={screen !== "identify" && screen !== "resume" ? handleBack : undefined}
+          onBack={screen !== "identify" ? handleBack : undefined}
           progress={SCREEN_PROGRESS[screen]}
           progressLabel={stageLabel ?? `Report absence — ${SCREEN_LABELS[screen]}`}
           stageLabel={stageLabel}
@@ -1429,7 +1498,7 @@ export default function AbsenceForm() {
           onBack={handleBack}
           onPrimary={handlePrimaryAction}
           primaryLabel={footerPrimaryLabel}
-          hint={screen === "verify" && !verificationSatisfied ? "Enter the code from your parent's phone to continue." : screen === "makeup" && missingSitIn ? "Choose a make-up time for every class that needs one." : screen === "makeup" && hasSitInOverlap ? "A make-up time overlaps another class — choose another time." : screen === "reason" && emailRequired && !emailSatisfied ? "Add a valid email so we can send updates." : undefined}
+          hint={screen === "verify" && !verificationSatisfied ? "Enter the code from your parent's phone to continue." : screen === "classes" && !showDoneOnClasses && !canProceedFromClasses ? "Choose at least one class day to continue." : screen === "makeup" && missingSitIn ? "Choose a make-up time for every class that needs one." : screen === "makeup" && hasSitInOverlap ? "A make-up time overlaps another class — choose another time." : screen === "reason" && config.form.require_reason && !reason.trim() ? "Choose a reason to continue." : screen === "reason" && emailRequired && !emailSatisfied ? "Add a valid email so we can send updates." : undefined}
         />
       }
     >
@@ -1601,7 +1670,7 @@ export default function AbsenceForm() {
               studentName={studentDisplayName}
               wcode={lookup.wcode}
               sections={reviewSections}
-              notice={submissionError}
+              notice={submissionError ?? reviewReturnNote}
             />
           )}
         </motion.div>

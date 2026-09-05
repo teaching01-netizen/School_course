@@ -28,7 +28,7 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
       </p>
 
       {notice ? (
-        <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber)]">
+        <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber-ink)]">
           {notice}
         </div>
       ) : null}
@@ -69,7 +69,7 @@ export default function ReviewScreen({ studentName, wcode, sections, notice = nu
                         <button
                           type="button"
                           onClick={() => section.onEditLine?.(lineIndex)}
-                          className="wi-press mt-1 min-h-9 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
+                          className="wi-press mt-1 min-h-11 rounded-lg px-2 text-[13px] font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           {section.editLineLabel ?? "Edit make-up"}
                         </button>

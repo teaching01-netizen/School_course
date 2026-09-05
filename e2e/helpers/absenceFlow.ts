@@ -54,6 +54,10 @@ export async function advanceThroughVerification(page: Page) {
   }
   await sendCode.click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // Verification completes on the student's own tap (WCAG 3.2.1): the form
+  // never advances on code input alone.
+  await expect(confirmed).toBeVisible();
+  await confirmedContinue.click();
 }
 
 export async function completeToClasses(page: Page) {
@@ -89,6 +93,7 @@ export async function chooseMakeUp(page: Page) {
   const action = page.getByRole("button", { name: /choose a time|change time/i });
   await expect(action).toBeVisible();
   await action.click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
 }
 
@@ -97,6 +102,7 @@ export async function completeMakeUp(page: Page) {
   const action = page.getByRole("button", { name: /choose a time|change time/i });
   if (await action.isVisible().catch(() => false)) {
     await action.click();
+    await page.getByRole("dialog").getByRole("radio").first().click();
     await page.getByRole("button", { name: "Use this time" }).click();
   }
   await page.getByRole("button", { name: "Continue", exact: true }).click();

@@ -92,7 +92,7 @@ describe("AbsenceForm — early date-span limit", () => {
     // original date, and the report can proceed.
     expect(screen.getByText(/1 class day selected/i)).toBeInTheDocument();
     const todayCell = document.querySelector<HTMLElement>(`[data-date-key="${relativeDateKey(0)}"]`);
-    expect(todayCell).toHaveAttribute("aria-pressed", "true");
+    expect(todayCell?.getAttribute("aria-label") ?? "").toMatch(/selected$/i);
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
   });
 });

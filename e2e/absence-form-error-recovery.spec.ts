@@ -49,6 +49,9 @@ test("a missing make-up cannot be skipped into review", async ({ page }) => {
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // Verification completes on the student's own tap (WCAG 3.2.1).
+  await expect(page.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Continue" }).click();
   // The saved report is offered for resume only after verification.
   await acceptResumePrompt(page);
   // The restored draft requires reviewing the current classes first.

@@ -50,8 +50,11 @@ test("public absence form stays accessible and contained through every supported
   await expectOtpBoxesInsideViewport(page);
   await expectAccessiblePage(page);
 
-  // Verification lands on Classes — the update email is collected in Details.
+  // Verification completes on the student's own tap (WCAG 3.2.1), then lands
+  // on Classes — the update email is collected in Details.
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  await expect(page.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
   await expectProgress(page, 40, 65);
   await expectAccessiblePage(page);
@@ -67,6 +70,7 @@ test("public absence form stays accessible and contained through every supported
   await expectAccessiblePage(page);
   await expectNoHorizontalOverflow(page);
   await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 

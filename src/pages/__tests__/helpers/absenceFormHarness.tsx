@@ -152,7 +152,9 @@ async function waitForScheduleSettled() {
   });
 }
 
-/** Types the 6-digit code; the flow verifies automatically and advances. */
+/** Types the 6-digit code, then taps the Confirmed panel's Continue.
+ *  Verification completes on the user's tap (WCAG 3.2.1): the form never
+ *  advances on code input alone. */
 export async function enterCode(
   user: ReturnType<typeof userEvent.setup>,
   code = "123456",
@@ -160,6 +162,10 @@ export async function enterCode(
   const input = await findOtpInput();
   if (!input) throw new Error("OTP input was not rendered");
   await user.type(input, code);
+  const confirmed = await screen.findByRole("heading", { name: /^confirmed$/i });
+  const panel = confirmed.closest("div");
+  const advance = panel?.querySelector("button") ?? screen.getByRole("button", { name: /^continue$/i });
+  await user.click(advance as HTMLElement);
 }
 
 export async function fillEmailIfNeeded(

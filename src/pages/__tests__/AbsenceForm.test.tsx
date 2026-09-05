@@ -5,7 +5,7 @@ import {
   renderPublicAbsenceForm,
   completeToReview,
   completeToClasses,
-  enterCode,
+  findOtpInput,
   startReport,
   confirmIdentity,
   sendParentCode,
@@ -78,7 +78,7 @@ describe("AbsenceForm — conversational flow", () => {
 
     expect(await screen.findByRole("heading", { name: /report an absence/i })).toBeInTheDocument();
     expect(screen.getByText(/enter your student id to begin/i)).toBeInTheDocument();
-    expect(screen.getByText(/your information stays private/i)).toBeInTheDocument();
+    expect(screen.getByText(/your draft stays in this browser tab/i)).toBeInTheDocument();
 
     const input = screen.getByRole("textbox", { name: /student id/i });
     const continueButton = screen.getByRole("button", { name: /^continue$/i });
@@ -250,11 +250,16 @@ describe("AbsenceForm — conversational flow", () => {
     await startReport(user);
     await confirmIdentity(user);
     await sendParentCode(user);
-    await enterCode(user);
+    const input = await findOtpInput();
+    if (!input) throw new Error("OTP input was not rendered");
+    await user.type(input, "123456");
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /confirmed/i })).toBeInTheDocument();
-    });
+    // The Confirmed moment holds for the student's own tap — it never
+    // auto-advances (WCAG 3.2.1). The panel's Continue moves to classes.
+    const confirmed = await screen.findByRole("heading", { name: /confirmed/i });
+    expect(screen.queryByRole("heading", { name: /which class will you miss/i })).not.toBeInTheDocument();
+    const panel = confirmed.closest("div");
+    await user.click((panel?.querySelector("button") ?? screen.getByRole("button", { name: /^continue$/i })) as HTMLElement);
     await screen.findByRole("heading", { name: /which class will you miss/i });
   });
 

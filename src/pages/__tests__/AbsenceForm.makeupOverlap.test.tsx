@@ -123,7 +123,7 @@ async function chooseOptionFromSheet(
   const openButton = screen.getAllByRole("button", { name: /choose a time|change time/i })[rowIndex];
   await user.click(openButton);
   const dialog = await screen.findByRole("dialog", { name: /choose a make-up time/i });
-  await user.click(within(dialog).getByRole("button", { name: optionName }));
+  await user.click(within(dialog).getByRole("radio", { name: optionName }));
   await user.click(within(dialog).getByRole("button", { name: /use this time/i }));
 }
 

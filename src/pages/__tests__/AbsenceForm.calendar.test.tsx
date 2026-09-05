@@ -78,7 +78,7 @@ describe("AbsenceForm — schedule calendar keyboard", () => {
     expect(todayLabel).toMatch(/today\. 1 class$/i);
     expect(tomorrowLabel).toMatch(/1 class$/);
     expect(tomorrowLabel).not.toMatch(/today/i);
-    expect(cellForDateKey(todayKey)).toHaveAttribute("aria-pressed", "false");
+    expect(cellForDateKey(todayKey)?.getAttribute("aria-label") ?? "").not.toMatch(/selected/i);
   });
 
   it("marks a picked class's day as selected with a filled day and a truthful label", async () => {
@@ -88,14 +88,13 @@ describe("AbsenceForm — schedule calendar keyboard", () => {
 
     const todayCell = cellForDateKey(relativeDateKey(0));
     expect(todayCell).not.toBeNull();
-    expect(todayCell).toHaveAttribute("aria-pressed", "false");
     expect(todayCell?.getAttribute("aria-label") ?? "").not.toMatch(/selected/i);
+    expect(todayCell).not.toHaveAttribute("aria-pressed");
 
     await selectClass(user, "Mathematics");
 
     // The chosen day is announced as selected and carries a filled bubble,
     // independent of which day is currently viewed.
-    expect(todayCell).toHaveAttribute("aria-pressed", "true");
     expect(todayCell?.getAttribute("aria-label") ?? "").toMatch(/selected$/i);
     const bubble = todayCell?.querySelector(".text-white");
     expect(bubble).not.toBeNull();

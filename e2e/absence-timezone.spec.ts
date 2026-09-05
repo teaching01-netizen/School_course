@@ -205,6 +205,9 @@ async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
 async function verifyParent(page: Page) {
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // Verification completes on the student's own tap (WCAG 3.2.1).
+  await expect(page.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
 }
 
@@ -239,6 +242,7 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await expect(page.locator("main")).toContainText("00:00–01:00");
   await expect(page.locator("main")).toContainText("00:30–01:30");
   await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
@@ -310,6 +314,9 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // Verification completes on the student's own tap (WCAG 3.2.1).
+  await expect(page.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Which class will you miss?" })).toBeVisible();
 
   // Pick a class and reach Details (where the email lives) before reloading,
@@ -322,6 +329,7 @@ test("mobile public absence flow resumes student details safely and completes wi
   await classRow.click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("radio", { name: "Other" }).click();
@@ -342,6 +350,7 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.getByRole("button", { name: /i've reviewed/i }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   // The restored report already carries the reason, so the radio is checked

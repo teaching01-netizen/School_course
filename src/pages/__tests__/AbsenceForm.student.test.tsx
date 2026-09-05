@@ -313,6 +313,16 @@ describe("AbsenceForm — student identity, privacy & recovery", () => {
     await sendParentCode(user);
     await enterCode(user);
     await screen.findByRole("heading", { name: /continue your absence report/i });
+    // Back from the resume choice returns to the verify screen it came from —
+    // never a dead end (the session is still valid, so the Confirmed panel
+    // shows) — and the saved report survives the round trip.
+    await user.click(screen.getByRole("button", { name: /^back$/i }));
+    await screen.findByRole("heading", { name: /^confirmed$/i });
+    // The Confirmed panel owns the return: its local Continue re-enters the
+    // advance path, landing back on the resume choice with the draft intact.
+    const confirmed = screen.getByRole("heading", { name: /^confirmed$/i }).closest("div");
+    await user.click(confirmed?.querySelector("button") as HTMLElement);
+    await screen.findByRole("heading", { name: /continue your absence report/i });
     await user.click(screen.getByRole("button", { name: /start over/i }));
     await screen.findByRole("heading", { name: /report an absence/i });
     expect(window.sessionStorage.getItem(ABSENCE_DRAFT_STORAGE_KEY)).toBeNull();

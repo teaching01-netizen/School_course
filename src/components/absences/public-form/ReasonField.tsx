@@ -39,7 +39,7 @@ export default function ReasonField({
         {counter === "always" || nearLimit ? (
           <span className={clsx(
             "text-xs tabular-nums",
-            count >= 500 ? "font-semibold text-[var(--color-wi-red)]" : count > 450 ? "font-semibold text-[var(--color-wi-amber)]" : "text-[var(--color-wi-text-light)]",
+            count >= 500 ? "font-semibold text-[var(--color-wi-red)]" : count > 450 ? "font-semibold text-[var(--color-wi-amber-ink)]" : "text-[var(--color-wi-text-light)]",
           )}>
             {count}/500 characters
           </span>
@@ -71,7 +71,7 @@ export default function ReasonField({
           error ? "border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20" : "border-[var(--color-wi-border)] focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20",
         )}
       />
-      {error ? <p id={errorId} className="mt-1.5 text-xs text-[var(--color-wi-red)]">{error}</p> : null}
+      {error ? <p id={errorId} role="alert" className="mt-1.5 text-sm text-[var(--color-wi-red)]">{error}</p> : null}
     </section>
   );
 }

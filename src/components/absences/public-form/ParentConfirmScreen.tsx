@@ -71,7 +71,7 @@ export default function ParentConfirmScreen({
             Confirmed
           </h1>
           <p className="mt-2 text-[15px] leading-relaxed text-[var(--color-wi-text-light)]">
-            Your parent confirmed this absence. Continuing automatically…
+            Your parent confirmed this absence. Tap Continue when you're ready.
           </p>
           {onContinue ? (
             <button
@@ -90,7 +90,7 @@ export default function ParentConfirmScreen({
           </h1>
 
           {blocked ? (
-            <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] p-4 text-[15px] text-[var(--color-wi-amber)]">
+            <div role="alert" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] p-4 text-[15px] text-[var(--color-wi-amber-ink)]">
               Your parent&apos;s confirmation expired. Please confirm again.
               <span className="mt-1 block">Your absence details are still saved — you&apos;ll return to where you left off.</span>
             </div>

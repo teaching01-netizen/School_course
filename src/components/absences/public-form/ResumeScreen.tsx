@@ -55,7 +55,7 @@ export default function ResumeScreen({
         onClick={onStartOver}
         className="wi-press mt-3 flex h-[52px] w-full items-center justify-center rounded-xl px-5 text-[17px] font-semibold text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
       >
-        Start over
+        Discard saved report and start over
       </button>
     </div>
   );

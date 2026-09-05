@@ -51,6 +51,10 @@ test("restored draft step cannot bypass student and parent verification", async 
   // Only a completed verification unlocks the saved report for resume.
   await page.getByRole("button", { name: /^(send code|resend code)$/i }).click();
   await page.locator('input[aria-label="Confirmation code"]').fill("123456", { force: true });
+  // Verification completes on the student's own tap (WCAG 3.2.1): the form
+  // never advances on code input alone.
+  await expect(page.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Continue your absence report?" })).toBeVisible();
 });
 
@@ -94,6 +98,7 @@ test("visual viewport resize keeps the focused reason and action bar reachable",
   await selectClass(page, "Mathematics");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: /choose a time|change time/i }).click();
+  await page.getByRole("dialog").getByRole("radio").first().click();
   await page.getByRole("button", { name: "Use this time" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Why will you be away?" })).toBeVisible();

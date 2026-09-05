@@ -64,7 +64,8 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
 
   useEffect(() => {
     if (!isFocused || !rootRef.current) return;
-    rootRef.current.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    rootRef.current.scrollIntoView?.({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
   }, [isFocused]);
 
   const recommended = plan.options[0];
@@ -107,7 +108,7 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
     if (plan.method === "teacher_case" || (plan.method === "physical" && plan.options.length === 0 && !plan.hasMoreTimes)) {
       return (
         <div className="rounded-xl border border-[var(--color-wi-border)] bg-white px-4 py-4">
-          <p className="text-[15px] font-semibold text-[var(--color-wi-amber)]">We&apos;ll arrange it for you</p>
+          <p className="text-[15px] font-semibold text-[var(--color-wi-amber-ink)]">We&apos;ll arrange it for you</p>
           <p className="mt-1 text-[14px] leading-relaxed text-[var(--color-wi-text-light)]">
             {plan.method === "teacher_case"
               ? "Your teacher will arrange your make-up. Student Services will contact you — nothing else is needed."
@@ -153,7 +154,7 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
                   : "bg-[var(--color-wi-primary)]/10 text-[var(--color-wi-primary-dark)]",
               )}
             >
-              {hasChosen ? "Chosen" : "Suggested"}
+              {hasChosen ? "Your choice" : "Our suggestion"}
             </span>
           </div>
         </div>
@@ -162,7 +163,13 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
           ref={triggerRef}
           type="button"
           onClick={() => {
-            setPendingValue(null);
+            // Seed from the committed choice so reopening after an applied
+            // pick highlights it; a kept-but-unapplied highlight survives
+            // untouched (null only when neither exists).
+            const selected = plan.options.some((option) => option.value === plan.selectedValue)
+              ? plan.selectedValue
+              : pendingValue;
+            setPendingValue(selected || null);
             setSheetOpen(true);
           }}
           aria-haspopup="dialog"
@@ -174,13 +181,13 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
         </button>
 
         {plan.overlapMessage && hasChosen ? (
-          <p role="status" className="mt-2 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+          <p role="status" className="mt-2 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber-ink)]">
             {plan.overlapMessage}
           </p>
         ) : null}
 
         {plan.needsAttention && !hasChosen ? (
-          <p role="status" className="mt-2 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber)]">
+          <p role="status" className="mt-2 rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-[13px] leading-snug text-[var(--color-wi-amber-ink)]">
             The time you chose is no longer available — choose another one. Nothing else in your plan changed.
           </p>
         ) : null}
@@ -189,8 +196,10 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
           open={sheetOpen}
           title={sheetTitle}
           onClose={() => {
+            // Dismissing the sheet keeps the highlighted choice (same pending
+            // value Cancel would clear): the card preview already reflects
+            // it, and nothing commits until Use this time.
             setSheetOpen(false);
-            setPendingValue(null);
           }}
           restoreFocusRef={triggerRef}
         >
@@ -203,15 +212,16 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
             </p>
           ) : (
             <>
-              <ul className="space-y-2">
+              <div role="radiogroup" aria-label={`Choose a make-up time for ${plan.label}`} className="space-y-2">
                 {plan.options.map((option) => {
                   const isRecommended = recommended ? option.value === recommended.value : false;
                   const isSelected = option.value === (pendingValue ?? plan.selectedValue);
                   return (
-                    <li key={option.value}>
+                    <div key={option.value}>
                       <button
                         type="button"
-                        aria-pressed={isSelected}
+                        role="radio"
+                        aria-checked={isSelected}
                         onClick={() => setPendingValue(option.value)}
                         className={clsx(
                           "wi-press flex min-h-14 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
@@ -242,10 +252,10 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
                           </span>
                         ) : null}
                       </button>
-                    </li>
+                    </div>
                   );
                 })}
-              </ul>
+              </div>
               {plan.hasMoreTimes ? (
                 <button
                   type="button"
@@ -277,7 +287,7 @@ function PlanCard({ plan, isFocused, loadingTimes, zoomDescription, onUseTime, o
                 </button>
               </div>
               <p className="mt-2 text-center text-[12px] text-[var(--color-wi-text-light)]">
-                Choosing here only selects — nothing changes until you tap Use this time.
+                Your highlighted choice is kept — tap Use this time to apply it to your plan.
               </p>
             </>
           )}
@@ -369,7 +379,7 @@ export default function MakeUpScreen({
         Here&apos;s how each class you&apos;ll miss will be made up. Suggestions are proposals — nothing is booked until you choose a time.
       </p>
       {notice ? (
-        <div role="status" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber)]">
+        <div role="status" className="mt-5 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] leading-snug text-[var(--color-wi-amber-ink)]">
           {notice}
         </div>
       ) : null}

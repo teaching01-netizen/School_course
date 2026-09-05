@@ -68,7 +68,7 @@ export default function ReasonScreen({
         Pick the closest match{required ? "" : " — or tell us in your own words"}.
       </p>
 
-      <div className="mt-7 space-y-2.5" role="radiogroup" aria-label="Reason">
+      <div className="mt-7 space-y-2.5" role="radiogroup" aria-label="Reason" aria-invalid={Boolean(error)} aria-describedby={error ? "absence-reason-error" : undefined}>
         {categories.map((category) => {
           const isSelected = selected === category.value;
           return (
@@ -77,7 +77,7 @@ export default function ReasonScreen({
               type="button"
               role="radio"
               aria-checked={isSelected}
-              onClick={() => onSelect(isSelected ? null : category.value)}
+              onClick={() => onSelect(category.value)}
               className={clsx(
                 "wi-press flex min-h-14 w-full items-center gap-3.5 rounded-xl border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]",
                 isSelected
@@ -103,7 +103,7 @@ export default function ReasonScreen({
       </div>
 
       {error ? (
-        <p role="alert" className="mt-3 text-[15px] leading-snug text-[var(--color-wi-red)]">
+        <p id="absence-reason-error" role="alert" tabIndex={-1} className="mt-3 text-[15px] leading-snug text-[var(--color-wi-red)] outline-none">
           {error}
         </p>
       ) : null}

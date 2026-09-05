@@ -99,18 +99,24 @@ it("renders the removal toast inside the bottom-anchored sticky undo stack", () 
   expect(stack?.parentElement?.lastElementChild).toBe(stack);
 });
 
-it("auto-dismisses the toast after six seconds without touching the selection", () => {
+it("keeps the removal toast until dismissed without touching the selection", () => {
   const { onToggleDay } = renderSchedule();
 
   removeMathRow();
   expect(undoToast()).toBeInTheDocument();
 
   act(() => {
-    vi.advanceTimersByTime(6000);
+    vi.advanceTimersByTime(60000);
   });
 
+  // Persistence is not a decision: the toast stays, the removal stays removed.
+  expect(undoToast()).toBeInTheDocument();
+  expect(onToggleDay).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    screen.getByRole("button", { name: /dismiss .* removal notice/i }).click();
+  });
   expect(undoToast()).not.toBeInTheDocument();
-  // Dismissal is not a decision: the removal stays removed.
   expect(onToggleDay).toHaveBeenCalledTimes(1);
 });
 
@@ -191,4 +197,36 @@ it("offers an empty day a path forward to the next available class day", () => {
     jump.click();
   });
   expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeInTheDocument();
+});
+it("names the calendar keyboard contract on the day group", () => {
+  renderSchedule();
+  const group = screen.getByRole("group", { name: /your classes by day/i });
+  expect(group.getAttribute("aria-label") ?? "").toMatch(/arrow keys/i);
+  expect(group.getAttribute("aria-label") ?? "").toMatch(/home and end/i);
+});
+
+it("Home and End jump to the start and end of the focused week", () => {
+  renderSchedule();
+  const group = screen.getByRole("group", { name: /your classes by day/i });
+  // Focus the roved day cell, then jump: Home lands on Monday, End on Sunday.
+  const roved = document.querySelector<HTMLElement>("[data-date-key][tabindex=\"0\"]");
+  expect(roved).not.toBeNull();
+  act(() => {
+    roved!.focus();
+  });
+  const mondayOffset = (new Date().getDay() + 6) % 7;
+  const monday = new Date();
+  monday.setDate(monday.getDate() - mondayOffset);
+  const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const sundayKey = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
+  act(() => {
+    group.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+  });
+  expect(document.activeElement?.getAttribute("data-date-key")).toBe(mondayKey);
+  act(() => {
+    group.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  });
+  expect(document.activeElement?.getAttribute("data-date-key")).toBe(sundayKey);
 });
