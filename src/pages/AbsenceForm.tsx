@@ -1546,8 +1546,10 @@ export default function AbsenceForm() {
               onContinue={() => {
                 // The resume choice is only offered after a valid verified
                 // session; an expiry that lands here sends the student back
-                // to confirm with their parent again.
+                // to confirm with their parent again — preserving the resume
+                // decision itself so re-verify returns here, not to Classes.
                 if (verificationBlocked || !verificationSatisfied) {
+                  returnAfterVerifyRef.current = "resume";
                   goToScreen("verify");
                   return;
                 }
