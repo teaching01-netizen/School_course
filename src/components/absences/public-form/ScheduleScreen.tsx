@@ -6,7 +6,7 @@ import { instituteDateKey, groupByDay } from "@/features/absences/domain/session
 import type { SubjectSessions } from "@/features/absences/types";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import MobileBottomSheet from "./MobileBottomSheet";
-import ScreenTitle from "./ScreenTitle";
+import ScreenTitle, { ScreenSubtitle } from "./ScreenTitle";
 
 type ScheduleScreenProps = {
   groups: SubjectSessions[];
@@ -442,9 +442,10 @@ export default function ScheduleScreen({
         Which class will you miss?
 
       </ScreenTitle>
-      <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
+      <ScreenSubtitle>
         Selecting a class includes all its sessions that day.
-      </p>
+
+      </ScreenSubtitle>
 
       {draftNeedsReview ? (
         <div role="status" aria-live="polite" className="mt-6 rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-[15px] text-[var(--color-wi-amber-ink)]">

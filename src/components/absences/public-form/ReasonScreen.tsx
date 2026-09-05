@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import clsx from "clsx";
 import { Check } from "lucide-react";
 import ReasonField from "./ReasonField";
-import ScreenTitle from "./ScreenTitle";
+import ScreenTitle, { ScreenSubtitle } from "./ScreenTitle";
 
 export type ReasonCategory = { value: string; label: string };
 
@@ -66,9 +66,10 @@ export default function ReasonScreen({
         Why will you be away?
 
       </ScreenTitle>
-      <p className="mt-2 text-[17px] leading-relaxed text-[var(--color-wi-text-light)]">
+      <ScreenSubtitle>
         Pick the closest match{required ? "" : " — or tell us in your own words"}.
-      </p>
+
+      </ScreenSubtitle>
 
       <div className="mt-7 space-y-2.5" role="radiogroup" aria-label="Reason" aria-invalid={Boolean(error)} aria-describedby={error ? "absence-reason-error" : undefined}>
         {categories.map((category) => {
