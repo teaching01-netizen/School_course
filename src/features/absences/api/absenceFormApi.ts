@@ -24,6 +24,15 @@ export type StaffSessionsInRangeOptions = {
   includeAllSubjects?: boolean;
   bypassTiming?: boolean;
   satVerbalAfterPriority?: number;
+  /**
+   * Authorized lifetime lookup (staff/admin only): bypasses the 366-day
+   * range cap. Requires explicit date_from+date_to — the backend fails
+   * closed with bad_lifetime otherwise. Never send on the student path
+   * (the student endpoint rejects any lifetime presence). Prefer
+   * loadStaffLifetimeSessions() over setting this directly so the
+   * range+flag pair cannot drift apart.
+   */
+  lifetime?: boolean;
 };
 
 export type StudentSessionsOptions = {
@@ -49,6 +58,9 @@ export function sessionsInRangePath(
   }
   if (options?.bypassTiming) {
     params.set("bypass_timing", "true");
+  }
+  if (options?.lifetime) {
+    params.set("lifetime", "true");
   }
   if (options?.includeAllSubjects) {
     params.set("include_all_subjects", "true");
@@ -173,6 +185,33 @@ export function loadSessionsInRange(
   return apiJson<SessionsInRangeResponse>(
     sessionsInRangePath(wcode, dateFrom, dateTo, options),
     { method: "GET", ...init },
+  );
+}
+
+/**
+ * Explicit lifetime bounds for the authorized staff lookup. Centralized so
+ * callers cannot drift into a bare 1970->2100 window (the backend rejects
+ * that with 400 date_range_exceeded unless lifetime=true is attached).
+ */
+export const STAFF_LIFETIME_RANGE = {
+  dateFrom: "1970-01-01",
+  dateTo: "2100-01-01",
+} as const;
+
+/** Staff-only: full-history lookup for absence authoring (admin +
+ * lifetime=true + explicit range). Do not use on the student self-service
+ * path — the student endpoint rejects lifetime presence outright. */
+export function loadStaffLifetimeSessions(
+  wcode: string,
+  init?: Pick<RequestInit, "signal">,
+  options?: Omit<StaffSessionsInRangeOptions, "lifetime">,
+): Promise<SessionsInRangeResponse> {
+  return loadSessionsInRange(
+    wcode,
+    STAFF_LIFETIME_RANGE.dateFrom,
+    STAFF_LIFETIME_RANGE.dateTo,
+    init,
+    { ...options, lifetime: true },
   );
 }
 

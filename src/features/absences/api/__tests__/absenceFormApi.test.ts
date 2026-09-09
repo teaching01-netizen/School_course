@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadAbsenceFormConfig,
   loadSessionsInRange,
+  loadStaffLifetimeSessions,
   lookupStudentByWcode,
   sessionsInRangePath,
   studentSessionsPath,
@@ -157,6 +158,23 @@ describe("sessionsInRangePath", () => {
     expect(path).toContain("bypass_timing=true");
   });
 
+  it("adds lifetime=true only when the authorized lookup opts in", () => {
+    expect(
+      sessionsInRangePath("W250389", "1970-01-01", "2100-01-01", {
+        bypassTiming: true,
+        lifetime: true,
+      }),
+    ).toContain("lifetime=true");
+    expect(sessionsInRangePath("W250389", "1970-01-01", "2100-01-01", {
+      bypassTiming: true,
+    })).not.toContain("lifetime");
+    expect(
+      sessionsInRangePath("W250389", undefined, undefined, {
+        lifetime: false,
+      }),
+    ).not.toContain("lifetime");
+  });
+
   it("omits bypass_timing when bypassTiming is false", () => {
     const path = sessionsInRangePath("W250389", undefined, undefined, {
       bypassTiming: false,
@@ -229,6 +247,21 @@ describe("public absence API requests", () => {
       "/api/v1/absence-self-service/lookup",
       { method: "POST", body: JSON.stringify({ wcode: "W250389" }) },
     );
+  });
+
+  it("loads the authorized lifetime window with lifetime=true in one helper", async () => {
+    mockApiJson.mockResolvedValueOnce({ subjects: [] });
+
+    await loadStaffLifetimeSessions("W250389", undefined, {
+      bypassTiming: true,
+    });
+
+    const [path, init] = mockApiJson.mock.calls[0] as [string, RequestInit];
+    expect(path).toContain("date_from=1970-01-01");
+    expect(path).toContain("date_to=2100-01-01");
+    expect(path).toContain("bypass_timing=true");
+    expect(path).toContain("lifetime=true");
+    expect(init).toEqual({ method: "GET" });
   });
 
   it("forwards cancellation and range options when loading staff sessions", async () => {

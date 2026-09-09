@@ -3,6 +3,7 @@ import { ChevronRight, ChevronLeft, Info } from "lucide-react";
 import { ApiRequestError, apiJson } from "../../api/client";
 import {
   loadSessionsInRange,
+  loadStaffLifetimeSessions,
   lookupStaffStudentByWcode,
 } from "../../features/absences/api/absenceFormApi";
 import { useToast } from "../../hooks/useToast";
@@ -109,20 +110,16 @@ async function loadStaffSessionsForSubjects(
   );
   const enrolledRequest =
     enrolledSelectedIds.length > 0
-      ? loadSessionsInRange(
+      ? loadStaffLifetimeSessions(
           wcode,
-          "1970-01-01",
-          "2100-01-01",
           signal ? { signal } : undefined,
           { bypassTiming: true },
         )
       : Promise.resolve({ subjects: [] as SubjectSessions[] });
   const specialRequest =
     specialSelectedIds.length > 0
-      ? loadSessionsInRange(
+      ? loadStaffLifetimeSessions(
           wcode,
-          "1970-01-01",
-          "2100-01-01",
           signal ? { signal } : undefined,
           {
             bypassTiming: true,
@@ -623,10 +620,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       delete next[subjectId];
       return next;
     });
-    void loadSessionsInRange(
+    void loadStaffLifetimeSessions(
       student.wcode,
-      "1970-01-01",
-      "2100-01-01",
       { signal: controller.signal },
       {
         bypassTiming: true,
