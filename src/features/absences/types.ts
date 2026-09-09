@@ -78,6 +78,7 @@ export type AbsenceSitInSession = {
   room_name?: string | null;
   start_at: string;
   end_at: string;
+  time_changed_since_recorded?: boolean;
 };
 
 export type AbsenceTimelineEntry = {

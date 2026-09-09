@@ -2,17 +2,22 @@ import { X } from "lucide-react";
 import { issueMessage } from "../../features/scheduleImpact/format";
 import type { ScheduleImpactIssue } from "../../features/scheduleImpact/types";
 
-function formatTimeRange(start: string | null, end: string | null): string {
+function formatDateTimeRange(start: string | null, end: string | null): string {
   if (!start) return "Not set";
   const startDate = new Date(start);
+  // Date is load-bearing: a date-only move (same wall-clock time, different
+  // day) is an effective sit-in time change and must not render as "no change".
+  const date = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Bangkok",
+  }).format(startDate);
   const timeStart = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok",
   }).format(startDate);
-  if (!end) return timeStart;
+  if (!end) return `${date} · ${timeStart}`;
   const timeEnd = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok",
   }).format(new Date(end));
-  return `${timeStart}–${timeEnd}`;
+  return `${date} · ${timeStart}–${timeEnd}`;
 }
 
 function getStatusLabel(issue: ScheduleImpactIssue): string {
@@ -48,7 +53,7 @@ export default function WorkQueueComparison({ issue }: { issue: ScheduleImpactIs
     <div className="space-y-1.5" role="list" aria-label={`Schedule comparison for ${issue.student_name ?? issue.wcode}`}>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
         <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Originally</span>
-        <span className="text-[var(--color-wi-text-light)]">{formatTimeRange(originalTimeStart, originalTimeEnd)}</span>
+        <span className="text-[var(--color-wi-text-light)]">{formatDateTimeRange(originalTimeStart, originalTimeEnd)}</span>
       </div>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">
         <span className="w-20 shrink-0 text-xs font-medium text-[var(--color-wi-text-light)]">Now</span>
@@ -58,7 +63,7 @@ export default function WorkQueueComparison({ issue }: { issue: ScheduleImpactIs
             Session deleted
           </span>
         ) : (
-          <span className="text-[var(--color-wi-text-light)]">{formatTimeRange(currentTimeStart, currentTimeEnd)}</span>
+          <span className="text-[var(--color-wi-text-light)]">{formatDateTimeRange(currentTimeStart, currentTimeEnd)}</span>
         )}
       </div>
       <div className="flex items-baseline gap-3 text-sm" role="listitem">

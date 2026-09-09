@@ -191,6 +191,23 @@ test.describe("Schedule Impact — Queue", () => {
     ).toBeVisible();
   });
 
+  test("harmless change yields honest empty queue (no Review actions)", async ({
+    page,
+  }) => {
+    // Acceptance C3: when the backend correctly stays quiet (e.g. room-only
+    // edit analysed to zero issues), the queue shows the honest empty state
+    // with no per-item Review actions — never a phantom "no change" row.
+    await installScheduleImpactRoutes(page, { queueItems: [], queueTotal: 0 });
+    await page.goto("/operations/schedule-impact");
+
+    await expect(
+      page.getByText("No student arrangements need attention"),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Review" })).toHaveCount(
+      0,
+    );
+  });
+
   test("error state when API fails", async ({ page }) => {
     await installScheduleImpactRoutes(page);
     await page.route("**/api/v1/operations/schedule-impact**", (route) =>

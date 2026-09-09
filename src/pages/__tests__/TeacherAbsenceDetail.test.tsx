@@ -82,6 +82,42 @@ describe("Teacher absence detail", () => {
     expect(screen.getByRole("button", { name: /override sit-in/i })).toBeInTheDocument();
   });
 
+  it("flags a missed session whose time changed since recorded", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      ...detail,
+      missed_sessions: [
+        { ...detail.missed_sessions[0], time_changed_since_recorded: true },
+      ],
+    });
+    render(
+      <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/session time changed since recorded/i)).toBeInTheDocument();
+  });
+
+  it("shows no staleness flag when missed session time is unchanged", async () => {
+    mockApiJson.mockResolvedValueOnce(detail);
+    render(
+      <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("John")).toBeInTheDocument();
+    expect(screen.queryByText(/session time changed since recorded/i)).not.toBeInTheDocument();
+  });
+
   it("links back to /absences/dashboard when user is an Admin", async () => {
     mockUseAuth.mockReturnValue({ user: { username: "admin", role: "Admin" }, logout: vi.fn() });
     mockApiJson.mockResolvedValueOnce(detail);

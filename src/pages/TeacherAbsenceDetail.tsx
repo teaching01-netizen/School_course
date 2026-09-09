@@ -38,6 +38,11 @@ function SessionList({ title, sessions }: { title: string; sessions: TeacherAbse
               <p className="mt-1 flex items-center gap-1.5 text-sm text-[var(--color-wi-text-light)]">
                 <CalendarDays className="h-4 w-4" aria-hidden="true" />
                 {formatSession(session.start_at)}
+                {session.time_changed_since_recorded ? (
+                  <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                    Session time changed since recorded
+                  </span>
+                ) : null}
               </p>
               {session.room_name ? (
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-[var(--color-wi-text-light)]">
