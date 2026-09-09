@@ -1079,3 +1079,154 @@ func TestAbsenceSitInsCreate_BatchInsert_DuplicateConflict(t *testing.T) {
 		t.Fatalf("expected 1 sit-in after duplicate insert, got %d", len(sitIns))
 	}
 }
+
+// Step-12 idempotency matrix (HTTP level, staff absence create path):
+//
+//  1. Same key + same payload  -> replay: byte-identical body, one absence row.
+//  2. Same key + different payload -> deterministic 409 idempotency_key_reuse,
+//     no second absence row.
+//  3. Different keys + same payload -> allowed distinct operation (pins the
+//     documented no-cross-row-duplicate-guard semantic; retry-with-new-key
+//     safety rests on the caller reusing the same key per logical operation).
+//  4. Late replay of the first key -> original bytes still, no new row.
+// Key scope is (actor, scope, key): staff creates use (SystemActor, "absences-staff").
+func TestIdempotencyMatrix_StaffCreate(t *testing.T) {
+	databaseURL := requireAbsenceLimitTestDB(t)
+
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	dbpool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbpool.Close()
+
+	q := sqldb.New(dbpool)
+	// 20 sessions so the 20%-of-N limit never fires on a single absence.
+	// Seeded sessions are 2026-06-01..20 09:00Z = 16:00 Bangkok (same institute
+	// day), so the missed session must be picked from the same day as the
+	// absence dates below: sessionIDs[2] is 2026-06-03.
+	wcode, subjectIDStr, courseIDStr, seedSessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "IDEM", 20)
+
+	// Staff-create writes absence_audit_log.actor_id REFERENCES users(id): the
+	// fake admin must be a real users row, otherwise the timeline insert FKs.
+	var adminUserID pgtype.UUID
+	if err := dbpool.QueryRow(context.Background(),
+		`INSERT INTO users (username, role, password_hash) VALUES ($1, 'Admin', 'x') RETURNING id`,
+		"idem-matrix-admin-"+uuid.NewString()).Scan(&adminUserID); err != nil {
+		t.Fatal(err)
+	}
+	adminUUID, err := uuid.FromBytes(adminUserID.Bytes[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeAuth := absenceLimitFakeAuth{user: auth.AuthenticatedUser{ID: adminUUID, Role: "Admin"}}
+	s := &server{
+		deps: httpdeps.Deps{
+			Q:           q,
+			DB:          dbpool,
+			Log:         slog.Default(),
+			InstituteTZ: "Asia/Bangkok",
+			Auth:        fakeAuth,
+		},
+		a: httpadapter.New(fakeAuth, slog.Default()),
+	}
+
+	post := func(key string, body map[string]any) *httptest.ResponseRecorder {
+		t.Helper()
+		reqBody, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/staff/absences", bytes.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", key)
+		w := httptest.NewRecorder()
+		s.handleStaffCreateAbsence(w, req)
+		return w
+	}
+
+	countAbsences := func() int {
+		t.Helper()
+		var n int
+		if err := dbpool.QueryRow(context.Background(),
+			`SELECT count(*) FROM student_absences WHERE wcode = $1`, wcode).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	makeBody := func(reason string) map[string]any {
+		return map[string]any{
+			"wcode":              wcode,
+			"subject_id":         subjectIDStr,
+			"course_id":          courseIDStr,
+			"date_from":          "2026-06-03",
+			"date_to":            "2026-06-03",
+			"reason":             reason,
+			"sit_in_method":      "zoom",
+			"missed_session_ids": []string{seedSessionIDs[2]},
+		}
+	}
+
+	// 1. Same key + same payload -> replay.
+	key := "idem-matrix-" + uuid.NewString()
+	first := post(key, makeBody("matrix first"))
+	if first.Code != http.StatusCreated && first.Code != http.StatusOK {
+		t.Fatalf("first create: got %d: %s", first.Code, first.Body.String())
+	}
+	if n := countAbsences(); n != 1 {
+		t.Fatalf("after first create: %d absence rows, want 1", n)
+	}
+	second := post(key, makeBody("matrix first"))
+	if second.Code != first.Code {
+		t.Fatalf("replay status = %d, want %d (first)", second.Code, first.Code)
+	}
+	if second.Body.String() != first.Body.String() {
+		t.Fatalf("replay body differs:\n first: %s\nsecond: %s", first.Body.String(), second.Body.String())
+	}
+	if n := countAbsences(); n != 1 {
+		t.Fatalf("after replay: %d absence rows, want 1 (no duplicate)", n)
+	}
+
+	// 2. Same key + different payload -> deterministic conflict, no new row.
+	conflict := post(key, makeBody("matrix DIFFERENT payload"))
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("reuse status = %d, want 409: %s", conflict.Code, conflict.Body.String())
+	}
+	var conflictResp map[string]any
+	if err := json.Unmarshal(conflict.Body.Bytes(), &conflictResp); err != nil {
+		t.Fatal(err)
+	}
+	if conflictResp["code"] != "idempotency_key_reuse" {
+		t.Fatalf("reuse code = %v, want idempotency_key_reuse", conflictResp["code"])
+	}
+	if n := countAbsences(); n != 1 {
+		t.Fatalf("after reuse conflict: %d absence rows, want 1", n)
+	}
+
+	// 3. Different key + same logical payload -> allowed as a distinct record
+	// (documented, not a failure): the staff-create path has no logical-duplicate
+	// guard across absence rows (no UNIQUE on student/course/date), so a fresh
+	// key legitimately creates a second row. Retry-with-new-key safety therefore
+	// rests on the CALLER: only reuse the SAME key for retries of one logical
+	// operation; a new key means a new operation. This assertion pins that
+	// semantic so a future duplicate-guard can be told apart from a regression.
+	freshKey := post("idem-matrix-fresh-"+uuid.NewString(), makeBody("matrix first"))
+	if freshKey.Code != first.Code {
+		t.Fatalf("fresh-key same payload: status = %d, want %d (distinct operation succeeds)", freshKey.Code, first.Code)
+	}
+	if n := countAbsences(); n != 2 {
+		t.Fatalf("after fresh-key second operation: %d absence rows, want 2", n)
+	}
+
+	// 4. Timeout-after-commit replay: the FIRST key still replays the original
+	// committed result even after other operations committed later - no new row.
+	lateReplay := post(key, makeBody("matrix first"))
+	if lateReplay.Body.String() != first.Body.String() {
+		t.Fatalf("late replay body differs:\n first: %s\n  late: %s", first.Body.String(), lateReplay.Body.String())
+	}
+	if n := countAbsences(); n != 2 {
+		t.Fatalf("after late replay: %d absence rows, want 2 (no duplicate)", n)
+	}
+}

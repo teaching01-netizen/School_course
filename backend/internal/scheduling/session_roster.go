@@ -8,7 +8,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
-func effectiveStudentIDsForCourseTime(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, startAt pgtype.Timestamptz, filterOverridesNotInCourse bool) ([]pgtype.UUID, error) {
+func effectiveStudentIDsForCourseTime(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, startAt pgtype.Timestamptz, filterOverridesNotInCourse bool, instituteTZ string) ([]pgtype.UUID, error) {
 	rows, err := q.DBTX().Query(ctx, `
 		SELECT candidates.student_id
 		FROM (
@@ -48,9 +48,9 @@ func effectiveStudentIDsForCourseTime(ctx context.Context, q *sqldb.Queries, ses
 				)
 			)
 		) candidates
-		WHERE student_is_expected_at_course_time(candidates.student_id, $2, $3, $1)
+		WHERE student_is_expected_at_course_time_tz(candidates.student_id, $2, $3, $1, false, $5)
 		ORDER BY candidates.student_id
-	`, sessionID, courseID, startAt, filterOverridesNotInCourse)
+	`, sessionID, courseID, startAt, filterOverridesNotInCourse, instituteTZ)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +70,12 @@ func effectiveStudentIDsForCourseTime(ctx context.Context, q *sqldb.Queries, ses
 	return studentIDs, nil
 }
 
-func effectiveStudentIDsForSession(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, filterOverridesNotInCourse bool) (*[]pgtype.UUID, bool, error) {
+func effectiveStudentIDsForSession(ctx context.Context, q *sqldb.Queries, sessionID, courseID pgtype.UUID, filterOverridesNotInCourse bool, instituteTZ string) (*[]pgtype.UUID, bool, error) {
 	session, err := q.SessionGetByID(ctx, sessionID)
 	if err != nil {
 		return nil, false, err
 	}
-	studentIDs, err := effectiveStudentIDsForCourseTime(ctx, q, sessionID, courseID, session.StartAt, filterOverridesNotInCourse)
+	studentIDs, err := effectiveStudentIDsForCourseTime(ctx, q, sessionID, courseID, session.StartAt, filterOverridesNotInCourse, instituteTZ)
 	if err != nil {
 		return nil, false, err
 	}

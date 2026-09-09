@@ -135,7 +135,7 @@ func sessionsInRangeSelectSQL() string {
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
-		  AND student_is_expected_at_session(st.id, sess.id)
+		  AND student_is_expected_at_session_tz(st.id, sess.id, $4)
 		  AND c.absence_form_visible
 		  AND EXISTS (
 			SELECT 1 FROM subject_active_courses sac
@@ -150,6 +150,11 @@ func sessionsInRangeSelectSQL() string {
 // can book from the self-service form; staff reviewing a student's absence
 // options must see every enrolled course, so no active-course predicate is
 // applied. The result shape matches sessionsInRangeSelectSQL.
+
+// sessionsInRangeLifetimeSelectSQL is the Step-17 authorized lifetime view:
+// same shape and joins as the staff SQL, with the relaxed expectation gate
+// (additionally admits administratively-excluded sessions, which remain
+// scope-relevant history). Admin + lifetime=true + explicit range only.
 func sessionsInRangeStaffSelectSQL() string {
 	return `
 		SELECT sess.id, sess.start_at, sess.end_at,
@@ -166,7 +171,32 @@ func sessionsInRangeStaffSelectSQL() string {
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
-		  AND student_is_expected_at_session(st.id, sess.id)
+		  AND student_is_expected_at_session_tz(st.id, sess.id, $4)
+		ORDER BY sub.code, sess.start_at
+	`
+}
+
+func sessionsInRangeLifetimeSelectSQL() string {
+	return `
+		SELECT sess.id, sess.start_at, sess.end_at,
+		       c.id, c.code, c.name,
+		       sub.id, sub.code, sub.name,
+		       COALESCE(NULLIF(u.full_name, ''), u.username, '') AS teacher_name
+		FROM sessions sess
+		JOIN courses c ON c.id = sess.course_id
+		JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN users u ON u.id = c.teacher_id
+		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN students st ON st.id = cs.student_id
+		WHERE st.wcode = $1
+		  AND sess.start_at >= $2
+		  AND sess.start_at < $3
+		  AND sess.deleted_at IS NULL
+		  AND (student_is_expected_at_session_tz(st.id, sess.id, $4) OR EXISTS (
+			SELECT 1 FROM session_attendance sa
+			WHERE sa.session_id = sess.id AND sa.student_id = st.id
+			AND sa.status = 'excluded'
+			AND COALESCE(sa.override_source, 'manual') <> 'cross_study'))
 		ORDER BY sub.code, sess.start_at
 	`
 }
@@ -195,6 +225,22 @@ func maxSessionsLookupRangeDays(settings absenceFormSettings) int {
 		lookbackDays = (settings.MaxHoursAfterSession + 23) / 24
 	}
 	return settings.MaxDateRangeDays + lookbackDays
+}
+
+// maxStaffSessionsRangeDays bounds explicit staff ranges. Without it an
+// admin could request 1970-01-01 to 2100-01-01 and force a full-history
+// materialization per request; with it the pathological case fails fast
+// with 400 before any session query runs.
+const maxStaffSessionsRangeDays = 366
+
+// maxRangeDaysForLookup returns the explicit-range cap: the absence-form
+// cap for students, at least the staff cap for staff.
+func maxRangeDaysForLookup(settings absenceSettings, adminRequest bool) int {
+	cap := maxSessionsLookupRangeDays(settings.Form)
+	if adminRequest && cap < maxStaffSessionsRangeDays {
+		cap = maxStaffSessionsRangeDays
+	}
+	return cap
 }
 
 func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
@@ -297,17 +343,18 @@ func parseInstituteLocalDate(s string, instituteTZ string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
+// sessionDateKey renders the institute-local calendar day of a session.
+// Unparseable input is a data-integrity failure, not a date: callers must
+// surface a controlled error (decision D6). Slicing the UTC string would
+// silently return the WRONG day whenever UTC and institute days differ.
 func sessionDateKey(utcISO string, instituteTZ string) string {
 	start, err := time.Parse(time.RFC3339Nano, utcISO)
 	if err != nil {
-		if len(utcISO) >= 10 {
-			return utcISO[:10]
-		}
-		return utcISO
+		return ""
 	}
 	loc, err := instituteLocation(instituteTZ)
 	if err != nil {
-		return start.UTC().Format("2006-01-02")
+		return ""
 	}
 	return start.In(loc).Format("2006-01-02")
 }
@@ -610,6 +657,13 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
 			return 0, nil, fmt.Errorf("course %s is hidden from the absence form", course.CourseID)
 		}
+		// Step-9 F1: course-before-student (matches schedulelock global order:
+		// courses, students, ...). The course row freezes merge scope + roster
+		// membership; the student row then serializes same-student submissions.
+		if err := lockCourseForMergeScope(r.Context(), qtx, course.CourseID); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock course absence scope")
+			return 0, nil, err
+		}
 		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
 			return 0, nil, err
@@ -712,7 +766,8 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, item.ID, course.CourseID); err != nil {
+		// Step-9: course row already locked pre-student (F1); merge-group id set only.
+		if err := setAbsenceMergeGroupIDOnly(r.Context(), qtx, item.ID, course.CourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -755,9 +810,22 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				}
 				sitInInputs = append(sitInInputs, input)
 			}
+			// Step-9.4: AbsenceSitInsCreateWithSnapshot fences the session rows
+			// (FOR UPDATE, ID order) before its snapshot reads; re-check
+			// same-student conflicts AFTER fencing (the student lock held since
+			// F1 serializes same-student writers, so a concurrent same-student
+			// insert is visible here). Abort on conflict.
+			if len(sessionUUIDs) > 0 {
+				if err := lockSessionsForSubmission(r.Context(), qtx, sessionUUIDs); err != nil {
+					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
+					return 0, nil, err
+				}
+				if s.recheckSitInSessionsHeld(w, r, qtx, student.ID, sessionUUIDs) {
+					return 0, nil, err
+				}
+			}
 			if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), item.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
+				s.writeSessionSnapshotResult(w, err)
 				return 0, nil, err
 			}
 		}
@@ -1161,6 +1229,18 @@ func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Request, forcedWCode string, requireAdmin bool) {
+	// Step 24: staged rollout resolves per request (stable per student +
+	// window) so 1%/5%/25%/50%/100% stages route deterministically on
+	// every replica. Forced-wcode (student session) requests join the key
+	// so the student's own reads stay on one arm within a stage.
+	rollKey := requestRolloutKey(r)
+	if forcedWCode != "" {
+		rollKey = strings.ToLower(strings.TrimSpace(normalizeWCode(forcedWCode))) + "|" + rollKey
+	}
+	if sessionsRangeUseV2ForBucket(rollKey) {
+		s.serveSessionsRangeV2(w, r, forcedWCode, requireAdmin)
+		return
+	}
 	wcode := normalizeWCode(forcedWCode)
 	if wcode == "" {
 		wcode = normalizeWCode(r.URL.Query().Get("wcode"))
@@ -1216,12 +1296,33 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	if dateRangeProvided && !adminRequest {
+	// Step 17: explicit authorized lifetime staff lookup (mirrors
+	// finalizeSessionsRangeLookup: admin + lifetime=true + explicit range
+	// skips the cap; malformed values and non-admin use fail closed).
+	lifetime := false
+	if _, supplied := r.URL.Query()["lifetime"]; supplied {
+		raw := strings.TrimSpace(r.URL.Query().Get("lifetime"))
+		value, perr := strconv.ParseBool(raw)
+		if perr != nil || !value {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_lifetime", "lifetime must be true when supplied")
+			return
+		}
+		lifetime = true
+	}
+	if lifetime && !dateRangeProvided {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_lifetime", "lifetime requires date_from and date_to")
+		return
+	}
+	if lifetime && !adminRequest {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_lifetime", "lifetime is available to staff only")
+		return
+	}
+	if dateRangeProvided && !lifetime {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
-		maxLookupRangeDays := maxSessionsLookupRangeDays(settings.Form)
-		if days > maxLookupRangeDays {
+		maxRangeDays := maxRangeDaysForLookup(settings, adminRequest)
+		if days > maxRangeDays {
 			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
-				fmt.Sprintf("Date range must be %d days or less", maxLookupRangeDays))
+				fmt.Sprintf("Date range must be %d days or less", maxRangeDays))
 			return
 		}
 	}
@@ -1286,9 +1387,13 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	if includeAllSubjects {
 		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeAllSubjectsSelectSQL(), strings.Join(subjectIDFilter, ","), dateFrom, dateTo.AddDate(0, 0, 1))
 	} else if adminRequest {
-		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeStaffSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
+		if lifetime {
+			rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeLifetimeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
+		} else {
+			rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeStaffSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
+		}
 	} else {
-		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1))
+		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
 	}
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
@@ -1527,11 +1632,16 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		g := grouped[key]
 		sessionsResp := make([]sessionResponse, 0, len(g.Sessions))
 		for _, sess := range g.Sessions {
+			date := sessionDateKey(sess.StartAt, s.deps.InstituteTZ)
+			if date == "" {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error reading sessions")
+				return
+			}
 			sessionsResp = append(sessionsResp, sessionResponse{
 				ID:            sess.ID,
 				StartAt:       sess.StartAt,
 				EndAt:         sess.EndAt,
-				Date:          sessionDateKey(sess.StartAt, s.deps.InstituteTZ),
+				Date:          date,
 				AlreadyAbsent: absentSet[sess.ID],
 			})
 		}
@@ -1655,6 +1765,16 @@ func resolveDateRangeForSessionStarts(starts []string, fallbackFrom time.Time, f
 	return resolveDateRangeForSessionStartsInZone(starts, fallbackFrom, fallbackTo, "Asia/Bangkok")
 }
 
+// instituteDayStart returns the instant of midnight starting the institute-local
+// day containing t. The location is preserved: callers comparing instants
+// against timestamptz session bounds must use the instant, not a UTC rendering
+// of the calendar date (Step 4: the old code built midnight in time.UTC,
+// shifting every derived window by the zone offset).
+func instituteDayStart(t time.Time, loc *time.Location) time.Time {
+	local := t.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+}
+
 func resolveDateRangeForSessionStartsInZone(starts []string, fallbackFrom time.Time, fallbackTo time.Time, instituteTZ string) (time.Time, time.Time) {
 	loc, err := instituteLocation(instituteTZ)
 	if err != nil {
@@ -1667,8 +1787,7 @@ func resolveDateRangeForSessionStartsInZone(starts []string, fallbackFrom time.T
 		if err != nil {
 			continue
 		}
-		localStart := start.In(loc)
-		date := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, time.UTC)
+		date := instituteDayStart(start, loc)
 		if from.IsZero() || date.Before(from) {
 			from = date
 		}

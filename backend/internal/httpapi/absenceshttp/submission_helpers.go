@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,15 +47,69 @@ func lockCourseForMergeScope(ctx context.Context, q *sqldb.Queries, courseID pgt
 	return err
 }
 
+// lockSessionRowsForSubmission fences the session rows a submission is about
+// to validate and snapshot (Step 9, gap G2). SessionGetByIDForSnapshot takes
+// no row lock, so without this a session edit can commit between the snapshot
+// read and the assignment insert. SessionsLockOrdered takes FOR UPDATE in
+// immutable-ID order, compatible with the session editor (EditOccurrenceTimeTx
+// locks the same session row): the two writers serialize on the row.
+// Empty input is a no-op (SessionsLockOrdered on an empty set locks nothing).
+func lockSessionsForSubmission(ctx context.Context, q *sqldb.Queries, sessionIDs []pgtype.UUID) error {
+	if len(sessionIDs) == 0 {
+		return nil
+	}
+	_, err := q.SessionsLockOrdered(ctx, sessionIDs)
+	return err
+}
+
 func setAbsenceMergeGroupForCourse(ctx context.Context, q *sqldb.Queries, absenceID, courseID pgtype.UUID) error {
 	if err := lockCourseForMergeScope(ctx, q, courseID); err != nil {
 		return err
 	}
+	return setAbsenceMergeGroupIDOnly(ctx, q, absenceID, courseID)
+}
+
+// setAbsenceMergeGroupIDOnly writes the merge-group id WITHOUT locking.
+// Callers must already hold the course lock (Step-9 F1 takes it pre-student).
+// Keeping the post-create call on the locking variant would take course AFTER
+// student and reintroduce the F1 AB-BA deadlock with the session editor.
+func setAbsenceMergeGroupIDOnly(ctx context.Context, q *sqldb.Queries, absenceID, courseID pgtype.UUID) error {
 	scope, found, err := mergeGroupScopeForCourse(ctx, q, courseID)
 	if err != nil || !found {
 		return err
 	}
 	return q.AbsenceSetMergeGroupID(ctx, absenceID, scope.ID)
+}
+
+// lockBatchCourseSet collects every distinct course_id across batch items and
+// locks them in immutable-ID order BEFORE item 1 (Step-9 G1). Batch items
+// carry course_id as a raw string; unparseable entries are skipped here and
+// rejected per item later with the specific bad_course_id error - pre-locking
+// must not change validation semantics, only lock acquisition order.
+func lockBatchCourseSet(ctx context.Context, q *sqldb.Queries, items []batchAbsenceCreateItem) error {
+	seen := make(map[[16]byte]struct{}, len(items))
+	courseIDs := make([]pgtype.UUID, 0, len(items))
+	for _, item := range items {
+		raw := strings.TrimSpace(item.CourseID)
+		if raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			continue
+		}
+		pgID := pgtype.UUID{Bytes: id, Valid: true}
+		if _, ok := seen[pgID.Bytes]; ok {
+			continue
+		}
+		seen[pgID.Bytes] = struct{}{}
+		courseIDs = append(courseIDs, pgID)
+	}
+	if len(courseIDs) == 0 {
+		return nil
+	}
+	_, err := q.CourseMergeGroupLockCourses(ctx, courseIDs)
+	return err
 }
 
 func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {
@@ -108,6 +163,22 @@ func ensureSitInSessionsAvailable(ctx context.Context, q *sqldb.Queries, student
 	return &sitInSessionAlreadyUsedError{SessionIDs: conflicts, Conflicts: conflictDetails}
 }
 
+// writeSessionSnapshotResult maps snapshot-insertion outcomes to the public
+// contract (Step 7: one application error boundary for stale versions).
+// Stale versions - missed or sit-in - are 409 session_version_conflict;
+// missing sessions surface through ClassifyDBErr; anything else is internal.
+// Every absence writer (staff, public, batch, staff-tx) must use this instead
+// of ad-hoc ClassifyDBErr on snapshot errors.
+func (s *server) writeSessionSnapshotResult(w http.ResponseWriter, err error) {
+	var versionErr *sqldb.SessionVersionConflictError
+	if errors.As(err, &versionErr) {
+		s.a.WriteErr(w, http.StatusConflict, "session_version_conflict", "Session has been modified since you last loaded it. Please reload and try again.")
+		return
+	}
+	status, code, msg := s.a.ClassifyDBErr(err)
+	s.a.WriteErr(w, status, code, msg)
+}
+
 func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) bool {
 	var conflict *sitInSessionAlreadyUsedError
 	if !errors.As(err, &conflict) {
@@ -118,6 +189,29 @@ func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) boo
 		"conflicts":   conflict.Conflicts,
 	})
 	return true
+}
+
+// recheckSitInSessionsHeld re-runs the same-student conflict check AFTER the
+// session-row fence is held (Step 9.4). The pre-lock ensureSitInSessionsAvailable
+// call races with a concurrent submission: both can read "free" before either
+// inserts. Re-checking after SessionsLockOrdered (inside the snapshot fns)
+// does not fully serialize two submitters (different sessions = different rows),
+// but the student row lock held since F1 serializes same-student writers, so
+// by the time we re-check here, any concurrent same-student insert has either
+// committed (we see it and 409) or is blocked behind our student lock.
+// Returns true when the caller should abort with the conflict already written.
+func (s *server) recheckSitInSessionsHeld(w http.ResponseWriter, r *http.Request, qtx *sqldb.Queries, studentID pgtype.UUID, sessionUUIDs []pgtype.UUID) bool {
+	if len(sessionUUIDs) == 0 {
+		return false
+	}
+	if err := ensureSitInSessionsAvailable(r.Context(), qtx, studentID, sessionUUIDs); err != nil {
+		if s.writeSitInSessionConflict(w, err) {
+			return true
+		}
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not re-check sit-in session availability")
+		return true
+	}
+	return false
 }
 
 func courseAvailableToStudents(ctx context.Context, q *sqldb.Queries, courseID pgtype.UUID) (bool, error) {

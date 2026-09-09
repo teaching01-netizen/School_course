@@ -100,6 +100,7 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 			CurrentSessionID:       previousSessionID,
 			CandidateSessionID:     candidateSessionID,
 			ExpectedSessionVersion: expectedSessionVersion,
+			InstituteTZ:            "",
 		})
 		if validationErr != nil {
 			return "", validationErr
@@ -314,6 +315,7 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 			CurrentSessionID:       previousSessionID,
 			CandidateSessionID:     candidateSessionID,
 			ExpectedSessionVersion: expectedSessionVersion,
+			InstituteTZ:            timezone,
 		})
 		if validationErr != nil {
 			return "", validationErr

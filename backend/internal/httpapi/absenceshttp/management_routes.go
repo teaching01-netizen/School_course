@@ -81,6 +81,9 @@ type absenceSessionDTO struct {
 	RoomName    *string `json:"room_name"`
 	StartAt     string  `json:"start_at"`
 	EndAt       string  `json:"end_at"`
+	// TimeChangedSinceRecorded flags a missed session whose current time
+	// differs from its snapshot at submission. Informational only.
+	TimeChangedSinceRecorded bool `json:"time_changed_since_recorded"`
 }
 
 type absenceTimelineDTO struct {
@@ -577,10 +580,11 @@ func (s *server) sessionDTO(rows []sqldb.ManagedAbsenceSession) []absenceSession
 		courseID, _ := s.a.UUIDString(row.CourseID)
 		out = append(out, absenceSessionDTO{
 			ID: id, SessionID: sessionID, CourseID: courseID, CourseCode: row.CourseCode, CourseName: row.CourseName,
-			SubjectName: stringPtrIfValid(row.SubjectName),
-			RoomName:    stringPtrIfValid(row.RoomName),
-			StartAt:     row.StartAt.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:       row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			SubjectName:              stringPtrIfValid(row.SubjectName),
+			RoomName:                 stringPtrIfValid(row.RoomName),
+			StartAt:                  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:                    row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			TimeChangedSinceRecorded: row.TimeChangedSinceRecorded,
 		})
 	}
 	return out
@@ -885,6 +889,26 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 			s.writeStaleAbsence(w)
 			return 0, nil, pgx.ErrNoRows
 		}
+		// Step-10 G3: route reassign through the same protocol as the four
+		// create writers (F1 order: course lock BEFORE student lock). Without
+		// the student lock a concurrent submission for the same student can
+		// claim a replacement session between our conflict check and our
+		// replace insert; without the course lock merge scope can shift under
+		// the overlap/limit checks below.
+		if err := lockCourseForMergeScope(r.Context(), qtx, current.CourseID); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock absence course scope")
+			return 0, nil, err
+		}
+		reassignStudent, err := qtx.StudentGetByWCode(r.Context(), current.Wcode)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
+		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), reassignStudent.ID); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
+			return 0, nil, err
+		}
 		method := body.Method
 		if method == "auto" {
 			if !current.SubjectID.Valid {
@@ -942,6 +966,19 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 			if count != len(sessionIDs) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
+			}
+			// Step-10 G3: fence replacement sessions, then re-check same-student
+			// conflicts AFTER fencing (mirrors Step-9.4 on the create paths).
+			// The student lock above serializes same-student submitters, so a
+			// concurrent submission's insert is visible here.
+			if len(sessionIDs) > 0 {
+				if err := lockSessionsForSubmission(r.Context(), qtx, sessionIDs); err != nil {
+					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
+					return 0, nil, err
+				}
+				if s.recheckSitInSessionsHeld(w, r, qtx, reassignStudent.ID, sessionIDs) {
+					return 0, nil, fmt.Errorf("sit-in session conflict on reassign")
+				}
 			}
 		}
 		version, err := qtx.AbsenceSitInUpdate(r.Context(), id, method, selectedCourse, adminID, strings.TrimSpace(body.Reason), *body.ExpectedVersion)

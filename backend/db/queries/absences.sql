@@ -39,7 +39,7 @@ SELECT DISTINCT sess.id AS session_id
 FROM sessions sess
 JOIN student_absences sa ON sa.course_id = sess.course_id
 WHERE sa.wcode = $1
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN sa.date_from AND sa.date_to
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date <= $3::date
+  AND (sess.start_at AT TIME ZONE sqlc.arg(institute_tz))::date BETWEEN sa.date_from AND sa.date_to
+  AND (sess.start_at AT TIME ZONE sqlc.arg(institute_tz))::date >= ($2::timestamptz AT TIME ZONE sqlc.arg(institute_tz))::date
+  AND (sess.start_at AT TIME ZONE sqlc.arg(institute_tz))::date <= $3::date
   AND sess.deleted_at IS NULL;

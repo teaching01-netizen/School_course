@@ -26,7 +26,7 @@ func (q *Queries) ValidExpectedMissedSessionTiming(ctx context.Context, absenceI
 		  )
 		  AND sess.deleted_at IS NULL
 		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
-		  AND student_is_expected_at_session(st.id, sess.id)
+		  AND student_is_expected_at_session_tz(st.id, sess.id, $3)
 		ORDER BY sess.start_at ASC
 	`, absenceID, sessionIDs, instituteTZ)
 	if err != nil {

@@ -16,22 +16,14 @@ type SessionChangePreviewImpact struct {
 func (q *Queries) SessionChangePreviewImpact(ctx context.Context, sessionID, newCourseID pgtype.UUID, startAt, endAt pgtype.Timestamptz) (SessionChangePreviewImpact, error) {
 	var impact SessionChangePreviewImpact
 	err := q.db.QueryRow(ctx, `
-		SELECT
-			(SELECT count(*) FROM absence_sit_ins WHERE session_id = $1),
-			(SELECT count(*) FROM absence_missed_sessions WHERE session_id = $1),
-			(SELECT count(DISTINCT asi.absence_id)
-			 FROM absence_sit_ins asi
-			 JOIN sessions assigned ON assigned.id = asi.session_id
-			 WHERE asi.session_id <> $1
-			   AND assigned.deleted_at IS NULL
-			   AND $3 < assigned.end_at
-			   AND $4 > assigned.start_at),
-			(SELECT count(*)
-			 FROM absence_sit_ins asi
-			 JOIN sessions changed ON changed.id = asi.session_id
-			 WHERE asi.session_id = $1
-			   AND changed.course_id <> $2)
-	`, sessionID, newCourseID, startAt, endAt).Scan(
+        SELECT count(*), 0::bigint, 0::bigint, 0::bigint
+        FROM absence_sit_ins asi
+        JOIN sessions s ON s.id = asi.session_id
+        WHERE s.id = $1
+          AND (s.start_at IS DISTINCT FROM $2::timestamptz OR s.end_at IS DISTINCT FROM $3::timestamptz)
+          AND (COALESCE(NULLIF(asi.session_snapshot_at_assignment->>'start_at', '')::timestamptz, s.start_at) IS DISTINCT FROM $2::timestamptz
+            OR COALESCE(NULLIF(asi.session_snapshot_at_assignment->>'end_at', '')::timestamptz, s.end_at) IS DISTINCT FROM $3::timestamptz)
+	`, sessionID, startAt, endAt).Scan(
 		&impact.DirectSitInAssignments,
 		&impact.MissedSessionReferences,
 		&impact.PredictedStudentOverlaps,

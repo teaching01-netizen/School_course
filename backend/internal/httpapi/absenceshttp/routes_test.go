@@ -297,11 +297,15 @@ func TestResolveDateRangeForSessionStartsUsesInstituteTimezone(t *testing.T) {
 	fallbackFrom := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fallbackTo := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 
+	// 2026-01-15T17:00:00Z is midnight starting 2026-01-16 in Bangkok.
+	// The window must be that midnight as an instant (17:00Z), not 00:00Z:
+	// downstream consumers compare against timestamptz session bounds.
+	// (Step 4: the old assertion encoded the UTC-midnight bug.)
 	from, to := resolveDateRangeForSessionStarts([]string{"2026-01-15T17:00:00Z"}, fallbackFrom, fallbackTo)
 
-	want := time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 1, 15, 17, 0, 0, 0, time.UTC)
 	if !from.Equal(want) || !to.Equal(want) {
-		t.Fatalf("resolveDateRangeForSessionStarts = %s to %s, want Bangkok date %s", from.Format(time.RFC3339), to.Format(time.RFC3339), want.Format(time.RFC3339))
+		t.Fatalf("resolveDateRangeForSessionStarts = %s to %s, want Bangkok-midnight instant %s", from.Format(time.RFC3339), to.Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }
 

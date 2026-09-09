@@ -25,6 +25,7 @@ func (q *Queries) ScheduleImpactProcessing(ctx context.Context, limit int32) ([]
 		LEFT JOIN courses c ON c.id = sc.new_course_id
 		LEFT JOIN subjects subj ON subj.id = c.subject_id
 		WHERE run.status IN ('pending', 'processing', 'failed', 'delayed_by_batch')
+          AND EXISTS (SELECT 1 FROM session_change_affected_sit_ins eligible WHERE eligible.session_change_id = sc.id)
 		ORDER BY sc.created_at ASC
 		LIMIT $1
 	`, limit)

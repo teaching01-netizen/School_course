@@ -70,7 +70,7 @@ func TestIssueTypeForReason(t *testing.T) {
 		{[]string{}, "sit_in_session_changed"},
 		{[]string{"missed_session_overlap"}, "sit_in_overlap"},
 		{[]string{"regular_session_overlap"}, "regular_session_overlap"},
-		{[]string{"session_version_changed"}, "sit_in_ineligible"},
+		{[]string{"session_version_changed"}, "sit_in_session_changed"},
 		{[]string{"past_time"}, "past_time_change"},
 		{[]string{"unknown_reason"}, "sit_in_ineligible"},
 	}

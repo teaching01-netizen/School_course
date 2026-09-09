@@ -48,8 +48,8 @@ func (s *Service) conflictingStudentsForOverlap(ctx context.Context, db sqldb.DB
 			WHERE br.session_id = ANY($2::uuid[])
 			  AND br.deleted_at IS NULL
 			  AND br.student_id = ANY($3::uuid[])
-			  AND student_is_expected_at_session(br.student_id, effective_session.id)
-		`, courseID, sessionUUIDs, studentIDs)
+			  AND student_is_expected_at_session_tz(br.student_id, effective_session.id, $4)
+		`, courseID, sessionUUIDs, studentIDs, s.instituteTZ)
 	} else {
 		// Fallback: find via course roster.
 		rows, err = db.Query(ctx, `
@@ -60,8 +60,8 @@ func (s *Service) conflictingStudentsForOverlap(ctx context.Context, db sqldb.DB
 			JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
 			WHERE br.session_id = ANY($2::uuid[])
 			  AND br.deleted_at IS NULL
-			  AND student_is_expected_at_session(br.student_id, effective_session.id)
-		`, courseID, sessionUUIDs)
+			  AND student_is_expected_at_session_tz(br.student_id, effective_session.id, $3)
+		`, courseID, sessionUUIDs, s.instituteTZ)
 	}
 	if err != nil {
 		return nil, err
@@ -332,12 +332,12 @@ func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DB
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
-		  AND student_is_expected_at_session(br.student_id, s.id)
+		  AND student_is_expected_at_session_tz(br.student_id, s.id, $6)
 		  AND br.student_id = ANY($1::uuid[])
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
-	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries), s.instituteTZ).Scan(&totalCount); err != nil {
 		return nil, 0, false, err
 	}
 	truncated := totalCount > 25
@@ -347,14 +347,14 @@ func (s *Service) overlappingSessionsByStudents(ctx context.Context, db sqldb.DB
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
-		  AND student_is_expected_at_session(br.student_id, s.id)
+		  AND student_is_expected_at_session_tz(br.student_id, s.id, $6)
 		  AND br.student_id = ANY($1::uuid[])
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
 		ORDER BY s.start_at ASC
 		LIMIT 25
-	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
+	`, studentIDs, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries), s.instituteTZ)
 	if err != nil {
 		return nil, 0, false, err
 	}
@@ -453,12 +453,12 @@ func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db 
 		JOIN course_students cs ON cs.student_id = br.student_id AND cs.course_id = $1
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
-		  AND student_is_expected_at_session(br.student_id, s.id)
-		  AND student_is_expected_at_course_time(br.student_id, $1, $2, $4::uuid)
+		  AND student_is_expected_at_session_tz(br.student_id, s.id, $6)
+		  AND student_is_expected_at_course_time_tz(br.student_id, $1, $2, $4::uuid, false, $6)
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
-	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries)).Scan(&totalCount); err != nil {
+	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries), s.instituteTZ).Scan(&totalCount); err != nil {
 		return nil, 0, false, err
 	}
 	truncated := totalCount > 25
@@ -474,14 +474,14 @@ func (s *Service) overlappingSessionsByStudentsInCourse(ctx context.Context, db 
 		JOIN sessions s ON s.id = br.session_id
 		WHERE br.deleted_at IS NULL
 		  AND s.deleted_at IS NULL
-		  AND student_is_expected_at_session(br.student_id, s.id)
-		  AND student_is_expected_at_course_time(br.student_id, $1, $2, $4::uuid)
+		  AND student_is_expected_at_session_tz(br.student_id, s.id, $6)
+		  AND student_is_expected_at_course_time_tz(br.student_id, $1, $2, $4::uuid, false, $6)
 		  AND br.time_range && tstzrange($2, $3, '[)')
 		  AND ($4::uuid IS NULL OR s.id <> $4)
 		  AND ($5::uuid IS NULL OR s.series_id IS DISTINCT FROM $5)
 		ORDER BY s.start_at ASC
 		LIMIT 25
-	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries))
+	`, courseID, startUTC, endUTC, ignoreUUID(ignore), ignoreUUID(ignoreSeries), s.instituteTZ)
 	if err != nil {
 		return nil, 0, false, err
 	}

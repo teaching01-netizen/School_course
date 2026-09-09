@@ -89,7 +89,10 @@ func issueTypeForReason(reasons []string) string {
 	case "regular_session_overlap":
 		return "regular_session_overlap"
 	case "session_version_changed":
-		return "sit_in_ineligible"
+		// Legacy reason: ValidateAssignment no longer emits this (time-only
+		// scope — version bumps on every edit). If it ever reappears from
+		// stale data, treat it as a plain change note, never ineligibility.
+		return "sit_in_session_changed"
 	case "past_time":
 		return "past_time_change"
 	default:

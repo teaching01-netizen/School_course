@@ -170,6 +170,13 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, http.StatusBadRequest, "sit_in_sessions_required", "Physical sit-in requires at least one sit-in session")
 			return 0, nil, fmt.Errorf("physical sit-in requires sessions")
 		}
+		// Step-9 F1: course-before-student (matches schedulelock global order:
+		// courses, students, ...). The course row freezes merge scope + roster
+		// membership; the student row then serializes same-student submissions.
+		if err := lockCourseForMergeScope(r.Context(), qtx, course.CourseID); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock course absence scope")
+			return 0, nil, err
+		}
 		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
 			return 0, nil, err
@@ -209,7 +216,8 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, row.ID, course.CourseID); err != nil {
+		// Step-9: course row already locked pre-student (F1); merge-group id set only.
+		if err := setAbsenceMergeGroupIDOnly(r.Context(), qtx, row.ID, course.CourseID); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -255,9 +263,22 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 				}
 				sitInInputs = append(sitInInputs, input)
 			}
+			// Step-9.4: AbsenceSitInsCreateWithSnapshot fences the session rows
+			// (FOR UPDATE, ID order) before its snapshot reads; re-check
+			// same-student conflicts AFTER fencing (the student lock held since
+			// F1 serializes same-student writers, so a concurrent same-student
+			// insert is visible here). Abort on conflict.
+			if len(sessionUUIDs) > 0 {
+				if err := lockSessionsForSubmission(r.Context(), qtx, sessionUUIDs); err != nil {
+					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
+					return 0, nil, err
+				}
+				if s.recheckSitInSessionsHeld(w, r, qtx, student.ID, sessionUUIDs) {
+					return 0, nil, err
+				}
+			}
 			if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), row.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
+				s.writeSessionSnapshotResult(w, err)
 				return 0, nil, err
 			}
 		}

@@ -33,6 +33,9 @@ type teacherAbsenceSessionDTO struct {
 	RoomName    *string `json:"room_name"`
 	StartAt     string  `json:"start_at"`
 	EndAt       string  `json:"end_at"`
+	// TimeChangedSinceRecorded flags a missed session whose current time
+	// differs from its snapshot at submission. Informational only.
+	TimeChangedSinceRecorded bool `json:"time_changed_since_recorded"`
 }
 
 type teacherAbsenceDetailDTO struct {
@@ -147,10 +150,11 @@ func (s *server) teacherAbsenceSessionsDTO(rows []sqldb.ManagedAbsenceSession) [
 		}
 		out = append(out, teacherAbsenceSessionDTO{
 			SessionID: sessionID, CourseCode: row.CourseCode, CourseName: row.CourseName,
-			SubjectName: textPointer(row.SubjectName),
-			RoomName:    textPointer(row.RoomName),
-			StartAt:     row.StartAt.Time.UTC().Format(time.RFC3339Nano),
-			EndAt:       row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			SubjectName:              textPointer(row.SubjectName),
+			RoomName:                 textPointer(row.RoomName),
+			StartAt:                  row.StartAt.Time.UTC().Format(time.RFC3339Nano),
+			EndAt:                    row.EndAt.Time.UTC().Format(time.RFC3339Nano),
+			TimeChangedSinceRecorded: row.TimeChangedSinceRecorded,
 		})
 	}
 	return out

@@ -222,6 +222,17 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			}
 		}
 
+		// Step-9 G1: pre-lock the FULL course set across items, sorted, before
+		// processing item 1. Per-item locks in request order let two opposite-order
+		// batches AB-BA deadlock; one upfront ordered acquisition cannot.
+		// (Student row: single student for the whole batch, locked per item as
+		// before - same row, no order issue. Session rows: fenced inside the
+		// snapshot fns per item, leaf-order, no earlier-category lock follows.)
+		if err := lockBatchCourseSet(r.Context(), qtx, body.Items); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock batch course scope")
+			return 0, nil, err
+		}
+
 		created := make([]createdAbsenceRecord, 0, len(body.Items))
 		for _, item := range body.Items {
 			record, ok := s.createAbsenceRecordTx(w, r, qtx, tx, settings, body.Wcode, reasonCategory, reason, studentEmail, studentNickname, studentPhone, item)
@@ -474,9 +485,15 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
 		return createdAbsenceRecord{}, false
 	}
+	// Step-9 F1: course-before-student (matches schedulelock global order:
+	// courses, students, ...). The course row freezes merge scope + roster
+	// membership; the student row then serializes same-student submissions.
+	if err := lockCourseForMergeScope(r.Context(), qtx, course.CourseID); err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock course absence scope")
+		return createdAbsenceRecord{}, false
+	}
 	if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
-		return createdAbsenceRecord{}, false
 	}
 	if err := ensureSitInSessionsAvailable(r.Context(), qtx, student.ID, sessionUUIDs); err != nil {
 		if s.writeSitInSessionConflict(w, err) {
@@ -544,7 +561,8 @@ func (s *server) createAbsenceRecordTx(
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false
 	}
-	if err := setAbsenceMergeGroupForCourse(r.Context(), qtx, row.ID, course.CourseID); err != nil {
+	// Step-9: course row already locked pre-student (F1); merge-group id set only.
+	if err := setAbsenceMergeGroupIDOnly(r.Context(), qtx, row.ID, course.CourseID); err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
 		return createdAbsenceRecord{}, false
@@ -587,9 +605,22 @@ func (s *server) createAbsenceRecordTx(
 			}
 			sitInInputs = append(sitInInputs, input)
 		}
+		// Step-9.4: AbsenceSitInsCreateWithSnapshot fences the session rows
+		// (FOR UPDATE, ID order) before its snapshot reads; re-check
+		// same-student conflicts AFTER fencing (the student lock held since
+		// F1 serializes same-student writers, so a concurrent same-student
+		// insert is visible here). Abort on conflict.
+		if len(sessionUUIDs) > 0 {
+			if err := lockSessionsForSubmission(r.Context(), qtx, sessionUUIDs); err != nil {
+				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
+				return createdAbsenceRecord{}, false
+			}
+			if s.recheckSitInSessionsHeld(w, r, qtx, student.ID, sessionUUIDs) {
+				return createdAbsenceRecord{}, false
+			}
+		}
 		if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), row.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
-			status, code, msg := s.a.ClassifyDBErr(err)
-			s.a.WriteErr(w, status, code, msg)
+			s.writeSessionSnapshotResult(w, err)
 			return createdAbsenceRecord{}, false
 		}
 	}

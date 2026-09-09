@@ -267,7 +267,7 @@ func NewHandler(log *slog.Logger, cfg config.Config, db *pgxpool.Pool, uploadV2 
 	availabilityhttp.Register(mux, deps)
 	schedulepolicyhttp.Register(mux, deps)
 	teacherhttp.Register(mux, deps)
-	crossStudyStore := crossstudy.NewStore(db, schedulingSvc)
+	crossStudyStore := crossstudy.NewStore(db, schedulingSvc, cfg.InstituteTZ)
 	deps.CrossStudy = crossStudyStore
 	crmhttp.Register(mux, deps)
 	crmhttp.RegisterCrossStudy(mux, deps)

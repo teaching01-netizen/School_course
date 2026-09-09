@@ -63,12 +63,12 @@ func (s *Service) ValidateCandidate(ctx context.Context, absenceID, sessionID pg
 				JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
 				WHERE sa.id = $1
 				  AND normal.id <> sess.id
-				  AND student_is_expected_at_session(st.id, normal.id)
+				  AND student_is_expected_at_session_tz(st.id, normal.id, $3)
 				  AND sess.start_at < normal.end_at AND sess.end_at > normal.start_at
 			   ) AS normal_overlap
 		FROM sessions sess
 		WHERE sess.id = $2
-	`, absenceID, sessionID).Scan(&result.SessionVersion, &deletedAt, &startAt, &endAt, &missedOverlap, &normalOverlap)
+	`, absenceID, sessionID, s.instituteTZ).Scan(&result.SessionVersion, &deletedAt, &startAt, &endAt, &missedOverlap, &normalOverlap)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			result.Reasons = []string{"session_deleted"}
@@ -99,7 +99,7 @@ func New(q *sqldb.Queries, instituteTZ string) *Service {
 }
 
 func (s *Service) ValidateAssignment(ctx context.Context, absenceID pgtype.UUID, sessionID pgtype.UUID) (ValidationResult, error) {
-	facts, err := s.q.SitInAssignmentFacts(ctx, sqldb.SitInAssignmentFactsParams{AbsenceID: absenceID, SessionID: sessionID})
+	facts, err := s.q.SitInAssignmentFacts(ctx, sqldb.SitInAssignmentFactsParams{AbsenceID: absenceID, SessionID: sessionID, InstituteTz: s.instituteTZ})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ValidationResult{Valid: false, Severity: "critical", Reasons: []string{"assignment_missing"}}, nil
@@ -111,9 +111,11 @@ func (s *Service) ValidateAssignment(ctx context.Context, absenceID pgtype.UUID,
 	if facts.DeletedAt.Valid {
 		reasons = append(reasons, "session_deleted")
 	}
-	if facts.SessionVersionAtAssignment.Valid && facts.SessionVersionAtAssignment.Int32 != facts.Version {
-		reasons = append(reasons, "session_version_changed")
-	}
+	// Time-only impact scope: session version bumps on every edit (including
+	// room/teacher-only changes), so a version difference alone is not evidence
+	// the student's sit-in time changed. The session_change_affected_sit_ins
+	// view already gates eligibility on effective start/end change per student;
+	// attendability here is decided by overlap/deleted/past-time checks below.
 	if facts.MissedOverlap {
 		reasons = append(reasons, "missed_session_overlap")
 	}
@@ -185,7 +187,7 @@ func (s *Service) SuggestReplacements(ctx context.Context, absenceID pgtype.UUID
 }
 
 func (s *Service) validateCandidate(ctx context.Context, absenceID, sessionID pgtype.UUID) (ValidationResult, error) {
-	facts, err := s.q.SitInAssignmentFacts(ctx, sqldb.SitInAssignmentFactsParams{AbsenceID: absenceID, SessionID: sessionID})
+	facts, err := s.q.SitInAssignmentFacts(ctx, sqldb.SitInAssignmentFactsParams{AbsenceID: absenceID, SessionID: sessionID, InstituteTz: s.instituteTZ})
 	if err == nil {
 		return factsToValidation(facts, s.now()), nil
 	}

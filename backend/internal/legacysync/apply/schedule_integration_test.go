@@ -172,23 +172,35 @@ func TestScheduleApply_LegacyTimeChangeTracksStudentAbsenceImpact(t *testing.T) 
 	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='session.occurrence.changed.v1'`, sessionID).Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
-	if pendingRunCount != 1 || eventCount != 1 {
-		t.Fatalf("legacy impact handoff = run %d/event %d, want 1/1", pendingRunCount, eventCount)
+	if pendingRunCount != 0 || eventCount != 1 {
+		t.Fatalf("legacy impact handoff = run %d/event %d, want 0/1 (quiet queue, honest record)", pendingRunCount, eventCount)
 	}
 
+	// Time-only scope: a missed-only link is historical evidence, not an
+	// actionable arrangement, so the honest signal lives on the record.
+	missed, err := q.ManagedAbsenceMissedSessions(t.Context(), absence.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missed) != 1 {
+		t.Fatalf("missed sessions = %d, want 1", len(missed))
+	}
+	if !missed[0].TimeChangedSinceRecorded {
+		t.Error("missed session not flagged time-changed after legacy time move")
+	}
 	impact := sessionchangeimpact.New(pool, q, request.InstituteTZ, nil, nil)
 	if err := impact.Analyze(t.Context(), changeID); err != nil {
 		t.Fatal(err)
 	}
-	var issueType, issueStatus string
+	var issueCount int
 	if err := pool.QueryRow(t.Context(), `
-		SELECT issue_type, status
+		SELECT count(*)
 		FROM absence_schedule_issues
-		WHERE absence_id=$1 AND latest_session_change_id=$2`, absence.ID, changeID).Scan(&issueType, &issueStatus); err != nil {
-		t.Fatalf("absence schedule impact not created: %v", err)
+		WHERE absence_id=$1 AND latest_session_change_id=$2 AND status IN ('open','needs_review')`, absence.ID, changeID).Scan(&issueCount); err != nil {
+		t.Fatal(err)
 	}
-	if issueType != "missed_session_changed" || issueStatus != "open" {
-		t.Fatalf("absence schedule impact = %q/%q, want missed_session_changed/open", issueType, issueStatus)
+	if issueCount != 0 {
+		t.Errorf("missed-only change created %d queue issue(s), want 0", issueCount)
 	}
 }
 

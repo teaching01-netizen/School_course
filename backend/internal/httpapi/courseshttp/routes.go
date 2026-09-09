@@ -563,7 +563,7 @@ func (s *server) handleCourseStudentsList(w http.ResponseWriter, r *http.Request
 		s.a.WriteErr(w, status, code, msg)
 		return
 	}
-	conflicts, err := s.deps.Q.StudentConflictsByCourse(r.Context(), courseID)
+	conflicts, err := s.deps.Q.StudentConflictsByCourse(r.Context(), courseID, s.deps.InstituteTZ)
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)

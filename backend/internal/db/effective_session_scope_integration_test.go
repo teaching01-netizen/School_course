@@ -273,7 +273,7 @@ func TestEffectiveStudentSessionScope(t *testing.T) {
 	assertActiveBusy("edited Monday to Tuesday", aTuesday, 0)
 
 	otherSession := createSession(otherCourse.ID, otherTeacherID, otherRoom.ID, time.Date(2026, 9, 15, 2, 0, 0, 0, time.UTC))
-	conflicts, err := q.StudentConflictsByCourse(ctx, destA.ID)
+	conflicts, err := q.StudentConflictsByCourse(ctx, destA.ID, "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -266,3 +266,119 @@ func TestAbsenceDayCountsForMergeGroup(t *testing.T) {
 		t.Fatalf("merge-group counts = %+v, want total=3 used=2 candidate=2 projected=3", counts)
 	}
 }
+
+// Step-10 G3 remainder: sit-in reassignment must not change absence-day counts.
+//
+// Reassign (AbsenceSitInUpdate + AbsenceSitInsReplaceWithSnapshot) swaps only
+// sit_in_method / sit_in_course_id / sit-in assignment rows. It never touches
+// date_from/date_to or absence_missed_sessions, the only two inputs (besides
+// status) to the used-day computation. This test pins that invariant: capture
+// UsedAbsenceDays before and after a reassign that swaps the sit-in session,
+// and require them identical. If a future change makes reassign affect day
+// consumption, this test fails and routes the path through
+// projectedAbsenceDayStats instead.
+func TestReassignDoesNotChangeAbsenceDayCounts(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL to run DB integration tests")
+	}
+
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	q := New(pool)
+	suffix := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+
+	teacherID, err := q.AdminUserCreate(ctx, AdminUserCreateParams{
+		Username:     "teacher-reassign-day-" + suffix,
+		Role:         "Teacher",
+		PasswordHash: "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	course, err := q.CourseCreate(ctx, CourseCreateParams{Code: "RDAY-" + suffix, Name: "Reassign Days " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wcode := "wrday-" + suffix
+	student, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: wcode, FullName: "Reassign Day Student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: course.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	mkSession := func(day time.Time) pgtype.UUID {
+		t.Helper()
+		row, createErr := q.SessionCreate(ctx, SessionCreateParams{
+			CourseID:  course.ID,
+			TeacherID: teacherID,
+			StartAt:   pgtype.Timestamptz{Time: day, Valid: true},
+			EndAt:     pgtype.Timestamptz{Time: day.Add(90 * time.Minute), Valid: true},
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return row.ID
+	}
+	// Missed session on 2026-06-01 (Bangkok day) drives the used-day count.
+	missed := mkSession(time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC))
+	// Two distinct sit-in candidate sessions on other days.
+	sitInA := mkSession(time.Date(2026, 6, 3, 2, 0, 0, 0, time.UTC))
+	sitInB := mkSession(time.Date(2026, 6, 4, 2, 0, 0, 0, time.UTC))
+
+	dayOne := pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	absence, err := q.AbsenceCreate(ctx, AbsenceCreateParams{Wcode: wcode, CourseID: course.ID, DateFrom: dayOne, DateTo: dayOne})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.AbsenceMissedSessionsCreateWithSnapshot(ctx, absence.ID,
+		[]MissedSessionSnapshotInput{{SessionID: missed}}, "Asia/Bangkok", DefaultSnapshotBuilder); err != nil {
+		t.Fatal(err)
+	}
+
+	countsBefore, err := q.AbsenceDayCountsForCourse(ctx, AbsenceDayCountsForCourseParams{
+		Wcode: wcode, CourseID: course.ID,
+		DateFrom: dayOne, DateTo: dayOne, InstituteTZ: "Asia/Bangkok",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countsBefore.UsedAbsenceDays != 1 {
+		t.Fatalf("setup: used days = %d, want 1 (one missed-session day)", countsBefore.UsedAbsenceDays)
+	}
+
+	// Assign sit-in A via the create path, then reassign to sit-in B via the
+	// Replace path (the same function the reassign endpoint calls).
+	if err := q.AbsenceSitInsCreateWithSnapshot(ctx, absence.ID,
+		[]SitInSnapshotInput{{SessionID: sitInA}}, "Asia/Bangkok", DefaultSnapshotBuilder); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.AbsenceSitInsReplaceWithSnapshot(ctx, absence.ID,
+		[]pgtype.UUID{sitInB}, "Asia/Bangkok", DefaultSnapshotBuilder); err != nil {
+		t.Fatal(err)
+	}
+
+	countsAfter, err := q.AbsenceDayCountsForCourse(ctx, AbsenceDayCountsForCourseParams{
+		Wcode: wcode, CourseID: course.ID,
+		DateFrom: dayOne, DateTo: dayOne, InstituteTZ: "Asia/Bangkok",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countsAfter != countsBefore {
+		t.Fatalf("reassign changed day counts: before=%+v after=%+v", countsBefore, countsAfter)
+	}
+}

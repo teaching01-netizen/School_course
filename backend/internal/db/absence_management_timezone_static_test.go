@@ -44,8 +44,8 @@ func TestAbsenceOverlappingSessionsQueryUsesInstituteTimezoneDates(t *testing.T)
 			t.Fatalf("AbsenceOverlappingSessions must not compare timestamptz to date in database timezone: %q", forbidden)
 		}
 	}
-	if !strings.Contains(sql, "AT TIME ZONE 'Asia/Bangkok'") {
-		t.Fatal("AbsenceOverlappingSessions must compare session dates in the institute timezone")
+	if !strings.Contains(sql, "AT TIME ZONE sqlc.arg(institute_tz)") {
+		t.Fatal("AbsenceOverlappingSessions must compare session dates in the configured institute timezone (sqlc.arg(institute_tz)), not a hardcoded zone")
 	}
 }
 

@@ -102,7 +102,7 @@ func main() {
 	queueStore := queue.NewPostgresQueueStore(dbpool)
 	worker := queue.NewQueueWorker(log, queueStore, "crm-worker-main")
 
-	crossStudyStore := crossstudy.NewStore(dbpool, schedulingSvc)
+	crossStudyStore := crossstudy.NewStore(dbpool, schedulingSvc, cfg.InstituteTZ)
 	crossStudyProc := crossstudy.NewProcessor(dbpool, crossStudyStore, log)
 
 	// Register job handlers.

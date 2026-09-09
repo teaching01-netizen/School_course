@@ -140,6 +140,21 @@ func (s *server) handleStudentSessions(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "include_all_subjects_not_allowed", "include_all_subjects is not available to students")
 		return
 	}
+	// Decision D4: subject_ids is a staff-only capability. The enrolled-mode
+	// queries ignore it, so silent acceptance would be a drift hazard: a
+	// future change honoring it would silently upgrade student authority.
+	// Presence (even empty) is rejected, consistent with the keys above.
+	if _, supplied := r.URL.Query()["subject_ids"]; supplied {
+		s.a.WriteErr(w, http.StatusBadRequest, "subject_ids_not_allowed", "subject_ids is not available to students")
+		return
+	}
+	// Step 17: lifetime is an admin-only capability (authorized lifetime
+	// staff lookup). Presence (even empty or false) is rejected for
+	// students, consistent with the keys above.
+	if _, supplied := r.URL.Query()["lifetime"]; supplied {
+		s.a.WriteErr(w, http.StatusBadRequest, "lifetime_not_allowed", "lifetime is not available to students")
+		return
+	}
 	studentSession, ok := s.requireStudentSession(w, r)
 	if !ok {
 		return

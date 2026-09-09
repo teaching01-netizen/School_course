@@ -21,6 +21,9 @@ func (q *Queries) SessionChangeIsLatestForAnalysis(ctx context.Context, changeID
 			FROM session_changes newer
 			JOIN change_row ON newer.session_id = change_row.session_id
 			WHERE newer.session_version > change_row.session_version
+              AND (newer.old_start_at IS DISTINCT FROM newer.new_start_at
+                OR newer.old_end_at IS DISTINCT FROM newer.new_end_at
+                OR newer.changed_fields ?| ARRAY['deleted', 'restored'])
 		)
 	`, changeID).Scan(&isLatest)
 	if err != nil {

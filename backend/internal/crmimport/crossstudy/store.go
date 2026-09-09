@@ -17,8 +17,9 @@ import (
 )
 
 type Store struct {
-	db         *pgxpool.Pool
-	scheduling SchedulingWriter
+	db          *pgxpool.Pool
+	scheduling    SchedulingWriter
+	instituteTZ string
 }
 
 type SchedulingWriter interface {
@@ -36,8 +37,12 @@ func scheduleUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte(id), Valid: id != uuid.Nil}
 }
 
-func NewStore(db *pgxpool.Pool, schedulingService SchedulingWriter) *Store {
-	return &Store{db: db, scheduling: schedulingService}
+func NewStore(db *pgxpool.Pool, schedulingService SchedulingWriter, instituteTZ ...string) *Store {
+	zone := "Asia/Bangkok"
+	if len(instituteTZ) > 0 && strings.TrimSpace(instituteTZ[0]) != "" {
+		zone = strings.TrimSpace(instituteTZ[0])
+	}
+	return &Store{db: db, scheduling: schedulingService, instituteTZ: zone}
 }
 
 func normalizeWCode(wcode string) string {
@@ -179,18 +184,18 @@ func (s *Store) insertCrossStudySessionAttendanceWithWarnings(ctx context.Contex
 		  AND (
 		    (
 		      s.course_id = ANY($2::uuid[])
-		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($3::smallint[])
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE $6))::int = ANY($3::smallint[])
 		    )
 		    OR (
 		      s.course_id = ANY($4::uuid[])
-		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE 'Asia/Bangkok'))::int = ANY($5::smallint[])
+		      AND EXTRACT(ISODOW FROM (s.start_at AT TIME ZONE $6))::int = ANY($5::smallint[])
 		    )
 		  )
 		  AND NOT EXISTS (
 		    SELECT 1 FROM session_attendance sa
 		    WHERE sa.session_id = s.id AND sa.student_id = $1
 		  )
-	`, studentID, databaseUUIDs(expanded.CourseA), input.DestCourseAWeekdays, databaseUUIDs(expanded.CourseB), input.DestCourseBWeekdays)
+	`, studentID, databaseUUIDs(expanded.CourseA), input.DestCourseAWeekdays, databaseUUIDs(expanded.CourseB), input.DestCourseBWeekdays, s.instituteTZ)
 	if err != nil {
 		return nil, err
 	}

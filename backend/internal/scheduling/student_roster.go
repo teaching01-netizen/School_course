@@ -84,11 +84,11 @@ func (s *Service) AddCourseStudentWithWarningsTx(ctx context.Context, tx pgx.Tx,
 		  AND s1.course_id = $1 AND s2.course_id = $1
 		  AND s1.deleted_at IS NULL AND s2.deleted_at IS NULL
 		  AND s1.time_range && s2.time_range
-		  AND student_is_expected_at_course_time($2, s1.course_id, s1.start_at, s1.id, true)
-		  AND student_is_expected_at_course_time($2, s2.course_id, s2.start_at, s2.id, true)
+		  AND student_is_expected_at_course_time_tz($2, s1.course_id, s1.start_at, s1.id, true, $3)
+		  AND student_is_expected_at_course_time_tz($2, s2.course_id, s2.start_at, s2.id, true, $3)
 		ORDER BY s1.start_at
 		LIMIT 1
-	`, courseID, studentID).Scan(&firstOverlapID, &secondOverlapID, &overlapStart)
+	`, courseID, studentID, s.instituteTZ).Scan(&firstOverlapID, &secondOverlapID, &overlapStart)
 	if rowErr != nil && !errors.Is(rowErr, pgx.ErrNoRows) {
 		return nil, rowErr
 	}

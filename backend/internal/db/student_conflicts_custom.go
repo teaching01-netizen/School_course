@@ -30,8 +30,8 @@ JOIN sessions other_session ON other_session.course_id = other_roster.course_id
 JOIN courses other_course ON other_course.id = other_session.course_id
 WHERE current_roster.course_id = $1
   AND current_roster.status = 'enrolled'
-  AND student_is_expected_at_session(current_roster.student_id, current_session.id)
-  AND student_is_expected_at_session(current_roster.student_id, other_session.id)
+  AND student_is_expected_at_session_tz(current_roster.student_id, current_session.id, CASE WHEN $2 = '' THEN 'Asia/Bangkok' ELSE $2 END)
+  AND student_is_expected_at_session_tz(current_roster.student_id, other_session.id, CASE WHEN $2 = '' THEN 'Asia/Bangkok' ELSE $2 END)
   AND NOT EXISTS (
     SELECT 1 FROM session_attendance excluded
     WHERE excluded.session_id = current_session.id
@@ -60,8 +60,8 @@ type StudentConflictRow struct {
 	ConflictingEndAt      pgtype.Timestamptz
 }
 
-func (q *Queries) StudentConflictsByCourse(ctx context.Context, courseID pgtype.UUID) ([]StudentConflictRow, error) {
-	rows, err := q.db.Query(ctx, studentConflictsByCourseSQL, courseID)
+func (q *Queries) StudentConflictsByCourse(ctx context.Context, courseID pgtype.UUID, instituteTZ string) ([]StudentConflictRow, error) {
+	rows, err := q.db.Query(ctx, studentConflictsByCourseSQL, courseID, instituteTZ)
 	if err != nil {
 		return nil, err
 	}

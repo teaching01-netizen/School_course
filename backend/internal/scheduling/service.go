@@ -1104,7 +1104,7 @@ func (s *Service) DeleteSessionTx(ctx context.Context, qtx *sqldb.Queries, sessi
 	if err := schedulelock.LockResources(ctx, qtx, schedulelock.ResourceLocks{CourseIDs: []pgtype.UUID{discovered.CourseID}}); err != nil {
 		return sqldb.SessionGetByIDRow{}, err
 	}
-	students, _, err := effectiveStudentIDsForSession(ctx, qtx, sessionID, discovered.CourseID, false)
+	students, _, err := effectiveStudentIDsForSession(ctx, qtx, sessionID, discovered.CourseID, false, s.instituteTZ)
 	if err != nil {
 		return sqldb.SessionGetByIDRow{}, err
 	}
@@ -1200,7 +1200,7 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 			studentIDs = append(studentIDs, student.StudentID)
 		}
 	}
-	overrideStudents, _, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, proposedCourseID, discovered.CourseID != proposedCourseID)
+	overrideStudents, _, err := effectiveStudentIDsForSession(ctx, qtx, p.SessionID, proposedCourseID, discovered.CourseID != proposedCourseID, s.instituteTZ)
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
@@ -1303,7 +1303,7 @@ func (s *Service) EditOccurrenceTimeTx(ctx context.Context, tx pgx.Tx, qtx *sqld
 		},
 	}
 
-	effectiveStudentIDs, err := effectiveStudentIDsForCourseTime(ctx, qtx, p.SessionID, newCourseID, newStartAt, courseChanged)
+	effectiveStudentIDs, err := effectiveStudentIDsForCourseTime(ctx, qtx, p.SessionID, newCourseID, newStartAt, courseChanged, s.instituteTZ)
 	if err != nil {
 		return EditOccurrenceResult{}, err
 	}
@@ -1560,9 +1560,9 @@ func (s *Service) courseStudentPreflightInputs(ctx context.Context, db sqldb.DBT
 		WHERE s.course_id = $1
 		  AND s.deleted_at IS NULL
 		  AND ($2::uuid IS NULL OR s.id <> $2)
-		  AND student_is_expected_at_course_time($3, $1, s.start_at, s.id, true)
+		  AND student_is_expected_at_course_time_tz($3, $1, s.start_at, s.id, true, $4)
 		ORDER BY s.start_at ASC
-	`, courseID, ignoreUUID(ignoreSession), studentID)
+	`, courseID, ignoreUUID(ignoreSession), studentID, s.instituteTZ)
 	if err != nil {
 		return nil, err
 	}
@@ -1857,8 +1857,8 @@ JOIN student_busy_ranges br ON br.time_range && sr.r
 JOIN sessions s ON s.id = br.session_id AND s.deleted_at IS NULL
 WHERE br.student_id = ANY($1::uuid[])
   AND br.deleted_at IS NULL
-  AND student_is_expected_at_session(br.student_id, s.id)`, rangeArray)
-		rows, err := s.db.Query(ctx, q, studentIDs)
+  AND student_is_expected_at_session_tz(br.student_id, s.id, $2)`, rangeArray)
+		rows, err := s.db.Query(ctx, q, studentIDs, s.instituteTZ)
 		if err != nil {
 			return FindAvailableSlotsResult{}, fmt.Errorf("batch student overlap: %w", err)
 		}

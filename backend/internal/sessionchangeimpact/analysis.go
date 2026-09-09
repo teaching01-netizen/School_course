@@ -112,16 +112,26 @@ func (s *Service) Analyze(ctx context.Context, changeID pgtype.UUID) error {
 }
 
 func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffectedAbsencesRow, []pgtype.UUID, error) {
-	settings, err := run.q.AppSettingsGetSessionChangeSettings(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load session change settings: %w", err)
-	}
 	affected, err := run.q.SessionChangeAffectedAbsences(ctx, run.change.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load affected absences: %w", err)
 	}
+	if err := run.q.SessionChangeSupersedeUnaffectedIssues(ctx, run.change.ID); err != nil {
+		return nil, nil, fmt.Errorf("retire unaffected schedule issues: %w", err)
+	}
+	if len(affected) == 0 {
+		return affected, nil, nil
+	}
+
+	settings, err := run.q.AppSettingsGetSessionChangeSettings(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load session change settings: %w", err)
+	}
 	var createdIssueIDs []pgtype.UUID
 	activeByAbsence := make(map[pgtype.UUID][]string, len(affected))
+	// invalidByAbsence tracks absences whose assignment already failed validation
+	// (overlap/deleted/past-time): timing rows add no further action for them.
+	invalidByAbsence := make(map[pgtype.UUID]struct{}, len(affected))
 	for _, item := range affected {
 		snapshotQuality := item.AssignmentSnapshotQuality
 		if item.ImpactRelation != "" {
@@ -131,6 +141,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			}
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, pgtype.UUID{}, pgtype.UUID{})
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
+			invalidByAbsence[item.ID] = struct{}{}
 			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: []string{"session_deleted"}, fingerprint: fingerprint, deletionTarget: true, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, nil, err
@@ -143,24 +154,19 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 			if validationErr != nil {
 				return nil, nil, fmt.Errorf("validate assignment: %w", validationErr)
 			}
-			issueType := "sit_in_session_changed"
-			severity := "warning"
-			if !validation.Valid {
-				issueType = issueTypeForReason(validation.Reasons)
-				severity = "critical"
+			// Time-only impact scope: a valid assignment after an effective
+			// time move needs no action row. The editor already acknowledged
+			// the move via change preview; timing-only concerns are handled
+			// by short_notice/past_time rows below. Emitting a warning here
+			// is what fanned one harmless move out into noise per student.
+			if validation.Valid {
+				continue
 			}
+			invalidByAbsence[item.ID] = struct{}{}
+			issueType := issueTypeForReason(validation.Reasons)
 			fingerprint := issueFingerprint(item.ID, issueType, run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: severity, reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
-			if err != nil {
-				return nil, nil, err
-			}
-			createdIssueIDs = append(createdIssueIDs, issueID)
-		}
-		if item.MissedSessionID.Valid {
-			fingerprint := issueFingerprint(item.ID, "missed_session_changed", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
-			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
-			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "missed_session_changed", severity: "warning", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
+			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: issueType, severity: "critical", reasons: validation.Reasons, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: snapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -168,7 +174,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 		}
 	}
 	if run.change.ChangeSource != "session_delete" {
-		timingIDs, err := run.addTimingIssues(ctx, settings.WarningHours, settings.CriticalHours, affected, activeByAbsence)
+		timingIDs, err := run.addTimingIssues(ctx, settings.WarningHours, settings.CriticalHours, affected, activeByAbsence, invalidByAbsence)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -180,7 +186,7 @@ func (run analysisRun) analyze(ctx context.Context) ([]sqldb.SessionChangeAffect
 	return affected, createdIssueIDs, nil
 }
 
-func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, criticalHours int32, affected []sqldb.SessionChangeAffectedAbsencesRow, activeByAbsence map[pgtype.UUID][]string) ([]pgtype.UUID, error) {
+func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, criticalHours int32, affected []sqldb.SessionChangeAffectedAbsencesRow, activeByAbsence map[pgtype.UUID][]string, invalidByAbsence map[pgtype.UUID]struct{}) ([]pgtype.UUID, error) {
 	var issueIDs []pgtype.UUID
 	if !run.change.NewStartAt.Valid {
 		return nil, nil
@@ -192,6 +198,15 @@ func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, critic
 			severity = "critical"
 		}
 		for _, item := range affected {
+			if item.ImpactRelation != "" {
+				continue
+			}
+			// Timing is the only concern for still-valid assignments. When
+			// the assignment is already invalid, the primary issue row
+			// carries the action; a second short_notice row is pure noise.
+			if _, invalid := invalidByAbsence[item.ID]; invalid {
+				continue
+			}
 			fingerprint := issueFingerprint(item.ID, "short_notice_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
 			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "short_notice_change", severity: severity, fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
@@ -203,6 +218,12 @@ func (run analysisRun) addTimingIssues(ctx context.Context, warningHours, critic
 	}
 	if !run.change.NewStartAt.Time.After(run.now()) {
 		for _, item := range affected {
+			if item.ImpactRelation != "" {
+				continue
+			}
+			if _, invalid := invalidByAbsence[item.ID]; invalid {
+				continue
+			}
 			fingerprint := issueFingerprint(item.ID, "past_time_change", run.change.SessionID, item.SitInSessionID, item.MissedSessionID)
 			activeByAbsence[item.ID] = append(activeByAbsence[item.ID], fingerprint)
 			issueID, err := run.upsertIssue(ctx, issueInput{item: item, issueType: "past_time_change", severity: "critical", fingerprint: fingerprint, snapshotJSON: item.AssignmentSnapshotJson, snapshotQuality: item.AssignmentSnapshotQuality, snapshotSource: item.AssignmentSnapshotSource})
@@ -222,7 +243,15 @@ func (run analysisRun) resolveSuperseded(ctx context.Context, affected []sqldb.S
 			continue
 		}
 		seen[item.ID] = struct{}{}
-		if err := run.q.AbsenceScheduleIssuesSupersede(ctx, item.ID, activeByAbsence[item.ID]); err != nil {
+		// A valid assignment after an effective move emits no row, so
+		// activeByAbsence has no entry: pass an explicit empty array (not
+		// NULL) so <> ALL('{}') is true and stale rows retire. NULL would
+		// make the comparison NULL and the stale row would linger open.
+		fingerprints := activeByAbsence[item.ID]
+		if fingerprints == nil {
+			fingerprints = []string{}
+		}
+		if err := run.q.AbsenceScheduleIssuesSupersede(ctx, item.ID, run.change.SessionID, fingerprints); err != nil {
 			return fmt.Errorf("resolve superseded schedule issues: %w", err)
 		}
 	}

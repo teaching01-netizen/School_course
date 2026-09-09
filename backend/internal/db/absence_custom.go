@@ -419,6 +419,18 @@ func (q *Queries) AbsenceSitInsCreateWithSnapshot(
 	if len(inputs) == 0 {
 		return nil
 	}
+	// Step-9 G2: fence the rows this tx is about to validate+snapshot.
+	// The snapshot read itself takes no lock; locking first serializes us
+	// against the session editor (which locks the session row), so a session
+	// edit either precedes our version check or follows our insert - it
+	// cannot land in the gap between read and insert.
+	sessionIDs := make([]pgtype.UUID, 0, len(inputs))
+	for _, input := range inputs {
+		sessionIDs = append(sessionIDs, input.SessionID)
+	}
+	if _, err := q.SessionsLockOrdered(ctx, sessionIDs); err != nil {
+		return fmt.Errorf("lock sessions for snapshot: %w", err)
+	}
 	capturedAt := time.Now().UTC()
 
 	for _, input := range inputs {
@@ -987,7 +999,7 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 			CROSS JOIN student_scope st
 			WHERE s.course_id = $2
 			  AND s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 		), explicit_absence_days AS (
 			SELECT DISTINCT (s.start_at AT TIME ZONE $6)::date AS day
 			FROM student_absences sa
@@ -998,7 +1010,7 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 			  AND sa.course_id = $2
 			  AND s.course_id = $2
 			  AND s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 			  AND sa.status NOT IN ('cancelled', 'special_approved')
 		), legacy_absence_days AS (
 			SELECT DISTINCT cd.day
@@ -1020,7 +1032,7 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 			CROSS JOIN student_scope st
 			WHERE s.course_id = $2
 			  AND s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 			  AND (
 				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
 				OR
@@ -1036,7 +1048,7 @@ func (q *Queries) AbsenceDayCountsForCourse(ctx context.Context, arg AbsenceDayC
 			(SELECT count(*) FROM used_days)::int4,
 			(SELECT count(*) FROM candidate_days)::int4,
 			(SELECT count(*) FROM projected_days)::int4
-	`, arg.Wcode, arg.CourseID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone).Scan(
+	`, arg.Wcode, arg.CourseID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone, timezone).Scan(
 		&counts.TotalCourseDays,
 		&counts.UsedAbsenceDays,
 		&counts.CandidateAbsenceDays,
@@ -1080,7 +1092,7 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			JOIN merge_courses mc ON mc.course_id = s.course_id
 			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 		), scoped_absences AS (
 			SELECT sa.*
 			FROM student_absences sa
@@ -1105,7 +1117,7 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			JOIN merge_courses mc ON mc.course_id = s.course_id
 			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 		), legacy_absence_days AS (
 			SELECT DISTINCT cd.day
 			FROM scoped_absences sa
@@ -1123,7 +1135,7 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			JOIN merge_courses mc ON mc.course_id = s.course_id
 			CROSS JOIN student_scope st
 			WHERE s.deleted_at IS NULL
-			  AND student_is_expected_at_session(st.id, s.id)
+			  AND student_is_expected_at_session_tz(st.id, s.id, $7)
 			  AND (
 				(cardinality($3::uuid[]) > 0 AND s.id = ANY($3::uuid[]))
 				OR
@@ -1139,7 +1151,7 @@ func (q *Queries) AbsenceDayCountsForMergeGroup(ctx context.Context, arg Absence
 			(SELECT count(*) FROM used_days)::int4,
 			(SELECT count(*) FROM candidate_days)::int4,
 			(SELECT count(*) FROM projected_days)::int4
-	`, arg.Wcode, arg.MergeGroupID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone).Scan(
+	`, arg.Wcode, arg.MergeGroupID, candidateSessionIDs, arg.DateFrom, arg.DateTo, timezone, timezone).Scan(
 		&counts.TotalCourseDays,
 		&counts.UsedAbsenceDays,
 		&counts.CandidateAbsenceDays,

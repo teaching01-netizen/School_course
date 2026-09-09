@@ -476,12 +476,12 @@ func (s *server) handleChangePreview(w http.ResponseWriter, r *http.Request) {
 		s.writeDBError(w, err)
 		return
 	}
-	noticeHours := endAt.Time.Sub(time.Now()).Hours()
-	shortNotice := noticeHours <= float64(settings.WarningHours)
+	noticeHours := startAt.Time.Sub(time.Now()).Hours()
+	shortNotice := impact.DirectSitInAssignments > 0 && noticeHours <= float64(settings.WarningHours)
 	if !settings.AllowMoveIntoPast && !startAt.Time.After(time.Now()) {
 		hardConflicts = append(hardConflicts, map[string]any{"code": "past_time_change", "message": "Moving a session into the past is not permitted"})
 	}
-	requiresAcknowledgement := impact.DirectSitInAssignments > 0 || impact.MissedSessionReferences > 0 || impact.PredictedStudentOverlaps > 0 || impact.PotentialEligibilityChanges > 0 || shortNotice
+	requiresAcknowledgement := impact.DirectSitInAssignments > 0
 	s.a.WriteJSON(w, http.StatusOK, map[string]any{
 		"hard_conflicts": hardConflicts,
 		"impact_summary": map[string]any{

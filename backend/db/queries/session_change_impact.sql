@@ -107,6 +107,11 @@ LEFT JOIN courses old_course ON old_course.id = sc.old_course_id
 LEFT JOIN courses new_course ON new_course.id = sc.new_course_id
 LEFT JOIN subjects new_subject ON new_subject.id = new_course.subject_id
 LEFT JOIN absence_schedule_issues i ON i.latest_session_change_id = sc.id
+WHERE (sc.old_start_at IS DISTINCT FROM sc.new_start_at
+    OR sc.old_end_at IS DISTINCT FROM sc.new_end_at
+    OR EXISTS (SELECT 1 FROM session_change_impact_targets target WHERE target.session_change_id = sc.id))
+  AND (EXISTS (SELECT 1 FROM session_change_affected_sit_ins eligible WHERE eligible.session_change_id = sc.id)
+    OR EXISTS (SELECT 1 FROM absence_schedule_issues history WHERE history.latest_session_change_id = sc.id AND history.status <> 'superseded'))
 GROUP BY sc.id, old_course.code, old_course.name, new_course.code, new_course.name, new_subject.name
 ORDER BY sc.created_at DESC
 LIMIT $1 OFFSET $2;
@@ -126,14 +131,8 @@ SELECT DISTINCT sa.id, sa.wcode, sa.student_name, sa.student_email, sa.student_p
        COALESCE(asi.snapshot_quality, ams.snapshot_quality, 'unavailable'::text) AS assignment_snapshot_quality,
        COALESCE(asi.snapshot_source, ams.snapshot_source) AS assignment_snapshot_source
 FROM session_changes sc
-JOIN student_absences sa ON (
-  EXISTS (SELECT 1 FROM absence_sit_ins x WHERE x.absence_id = sa.id AND x.session_id = sc.session_id)
-  OR EXISTS (SELECT 1 FROM absence_missed_sessions x WHERE x.absence_id = sa.id AND x.session_id = sc.session_id)
-  OR EXISTS (SELECT 1 FROM absence_sit_ins x JOIN sessions x_session ON x_session.id = x.session_id WHERE x.absence_id = sa.id AND x_session.course_id IN (sc.old_course_id, sc.new_course_id))
-  OR EXISTS (SELECT 1 FROM absence_schedule_issues x WHERE x.absence_id = sa.id AND x.status IN ('open', 'needs_review') AND (x.source_session_id = sc.session_id OR x.sit_in_session_id = sc.session_id OR x.missed_session_id = sc.session_id))
-  OR EXISTS (SELECT 1 FROM course_students cs WHERE cs.student_id = (SELECT st.id FROM students st WHERE st.wcode = sa.wcode LIMIT 1) AND cs.course_id IN (sc.old_course_id, sc.new_course_id))
-  OR EXISTS (SELECT 1 FROM targets target WHERE target.absence_id = sa.id)
-)
+JOIN session_change_affected_sit_ins eligible ON eligible.session_change_id = sc.id
+JOIN student_absences sa ON sa.id = eligible.absence_id
 LEFT JOIN targets ON targets.absence_id = sa.id
 LEFT JOIN absence_sit_ins asi ON asi.absence_id = sa.id AND asi.session_id = sc.session_id
 LEFT JOIN absence_missed_sessions ams ON ams.absence_id = sa.id AND ams.session_id = sc.session_id
@@ -292,7 +291,7 @@ SELECT asi.id, asi.absence_id, asi.session_id,
          JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
          WHERE sa.id = asi.absence_id
            AND normal.id <> sit.id
-           AND student_is_expected_at_session(st.id, normal.id)
+           AND student_is_expected_at_session_tz(st.id, normal.id, sqlc.arg(institute_tz))
            AND sit.start_at < normal.end_at
            AND sit.end_at > normal.start_at
        ) AS normal_overlap,

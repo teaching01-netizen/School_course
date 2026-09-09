@@ -125,20 +125,26 @@ SELECT DISTINCT sess.id AS session_id
 FROM sessions sess
 JOIN student_absences sa ON sa.course_id = sess.course_id
 WHERE sa.wcode = $1
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN sa.date_from AND sa.date_to
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date
-  AND (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date <= $3::date
+  AND (sess.start_at AT TIME ZONE $4)::date BETWEEN sa.date_from AND sa.date_to
+  AND (sess.start_at AT TIME ZONE $4)::date >= ($2::timestamptz AT TIME ZONE $4)::date
+  AND (sess.start_at AT TIME ZONE $4)::date <= $3::date
   AND sess.deleted_at IS NULL
 `
 
 type AbsenceOverlappingSessionsParams struct {
-	Wcode   string             `json:"wcode"`
-	Column2 pgtype.Timestamptz `json:"column_2"`
-	Column3 pgtype.Date        `json:"column_3"`
+	Wcode       string             `json:"wcode"`
+	Column2     pgtype.Timestamptz `json:"column_2"`
+	Column3     pgtype.Date        `json:"column_3"`
+	InstituteTz pgtype.Interval    `json:"institute_tz"`
 }
 
 func (q *Queries) AbsenceOverlappingSessions(ctx context.Context, arg AbsenceOverlappingSessionsParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, absenceOverlappingSessions, arg.Wcode, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, absenceOverlappingSessions,
+		arg.Wcode,
+		arg.Column2,
+		arg.Column3,
+		arg.InstituteTz,
+	)
 	if err != nil {
 		return nil, err
 	}

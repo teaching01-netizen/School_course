@@ -515,8 +515,8 @@ func (s *server) handleSessionEditOccurrence(w http.ResponseWriter, r *http.Requ
 		if settingsErr != nil {
 			return 0, nil, settingsErr
 		}
-		shortNotice := newStartAt.Time.Sub(time.Now()).Hours() <= float64(settings.WarningHours)
-		requiresAcknowledgement := impact.DirectSitInAssignments > 0 || impact.MissedSessionReferences > 0 || impact.PredictedStudentOverlaps > 0 || impact.PotentialEligibilityChanges > 0 || shortNotice
+		shortNotice := impact.DirectSitInAssignments > 0 && newStartAt.Time.Sub(time.Now()).Hours() <= float64(settings.WarningHours)
+		requiresAcknowledgement := impact.DirectSitInAssignments > 0
 		if !settings.AllowMoveIntoPast && !newStartAt.Time.After(time.Now()) {
 			return http.StatusConflict, map[string]any{"code": "past_time_change", "message": "Moving a session into the past is not permitted"}, fmt.Errorf("past time change")
 		}

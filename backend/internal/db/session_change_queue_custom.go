@@ -60,7 +60,8 @@ type ScheduleImpactSummary struct {
 func (q *Queries) SessionChangeImpactRunCreate(ctx context.Context, changeID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO session_change_impact_runs (session_change_id, status)
-		VALUES ($1, 'pending')
+		SELECT $1, 'pending'
+		WHERE EXISTS (SELECT 1 FROM session_change_affected_sit_ins WHERE session_change_id = $1)
 		ON CONFLICT (session_change_id) DO NOTHING
 	`, changeID)
 	return err

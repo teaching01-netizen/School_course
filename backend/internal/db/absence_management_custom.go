@@ -292,11 +292,19 @@ type ManagedAbsenceSession struct {
 	EndAt         pgtype.Timestamptz
 	MergedStartAt pgtype.Timestamptz
 	MergedEndAt   pgtype.Timestamptz
+	// TimeChangedSinceRecorded is true when a missed session's current time
+	// differs from its snapshot at submission: the evidence now points at a
+	// different time than the student was absent. Read-only staleness flag;
+	// it never creates queue rows or notifications.
+	TimeChangedSinceRecorded bool
 }
 
 func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at
+		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
+		       (ams.session_snapshot_at_submission IS NOT NULL
+		         AND (NULLIF(ams.session_snapshot_at_submission->>'start_at', '')::timestamptz IS DISTINCT FROM sess.start_at
+		           OR NULLIF(ams.session_snapshot_at_submission->>'end_at', '')::timestamptz IS DISTINCT FROM sess.end_at)) AS time_changed
 		FROM absence_missed_sessions ams
 		JOIN sessions sess ON sess.id = ams.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
@@ -312,7 +320,7 @@ func (q *Queries) ManagedAbsenceMissedSessions(ctx context.Context, absenceID pg
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt, &session.TimeChangedSinceRecorded); err != nil {
 			return nil, err
 		}
 		out = append(out, session)
@@ -325,7 +333,10 @@ func (q *Queries) ManagedAbsenceMissedSessionsByAbsenceIDs(ctx context.Context, 
 		return nil, nil
 	}
 	rows, err := q.db.Query(ctx, `
-		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at
+		SELECT ams.absence_id, ams.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
+		       (ams.session_snapshot_at_submission IS NOT NULL
+		         AND (NULLIF(ams.session_snapshot_at_submission->>'start_at', '')::timestamptz IS DISTINCT FROM sess.start_at
+		           OR NULLIF(ams.session_snapshot_at_submission->>'end_at', '')::timestamptz IS DISTINCT FROM sess.end_at)) AS time_changed
 		FROM absence_missed_sessions ams
 		JOIN sessions sess ON sess.id = ams.session_id AND sess.deleted_at IS NULL
 		JOIN courses c ON c.id = sess.course_id
@@ -341,7 +352,7 @@ func (q *Queries) ManagedAbsenceMissedSessionsByAbsenceIDs(ctx context.Context, 
 	var out []ManagedAbsenceSession
 	for rows.Next() {
 		var session ManagedAbsenceSession
-		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt); err != nil {
+		if err := rows.Scan(&session.AbsenceID, &session.ID, &session.SessionID, &session.CourseID, &session.CourseCode, &session.CourseName, &session.SubjectName, &session.RoomName, &session.StartAt, &session.EndAt, &session.TimeChangedSinceRecorded); err != nil {
 			return nil, err
 		}
 		out = append(out, session)
@@ -349,7 +360,11 @@ func (q *Queries) ManagedAbsenceMissedSessionsByAbsenceIDs(ctx context.Context, 
 	return out, rows.Err()
 }
 
-func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.UUID) ([]ManagedAbsenceSession, error) {
+func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.UUID, instituteTZ ...string) ([]ManagedAbsenceSession, error) {
+	zone := "Asia/Bangkok"
+	if len(instituteTZ) > 0 && strings.TrimSpace(instituteTZ[0]) != "" {
+		zone = strings.TrimSpace(instituteTZ[0])
+	}
 	rows, err := q.db.Query(ctx, `
 		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
 		       merged.start_at, merged.end_at
@@ -364,11 +379,11 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 			JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source_member.group_id
 			JOIN sessions sibling ON sibling.course_id = sibling_member.course_id AND sibling.deleted_at IS NULL
 			WHERE source_member.course_id = sess.course_id
-			  AND (sibling.start_at AT TIME ZONE 'Asia/Bangkok')::date = (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date
+			  AND (sibling.start_at AT TIME ZONE $2)::date = (sess.start_at AT TIME ZONE $2)::date
 		) merged ON true
 		WHERE asi.absence_id = $1
 		ORDER BY sess.start_at ASC
-	`, absenceID)
+	`, absenceID, zone)
 	if err != nil {
 		return nil, err
 	}
@@ -384,9 +399,13 @@ func (q *Queries) ManagedAbsenceSessions(ctx context.Context, absenceID pgtype.U
 	return out, rows.Err()
 }
 
-func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenceIDs []pgtype.UUID) ([]ManagedAbsenceSession, error) {
+func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenceIDs []pgtype.UUID, instituteTZ ...string) ([]ManagedAbsenceSession, error) {
 	if len(absenceIDs) == 0 {
 		return nil, nil
+	}
+	zone := "Asia/Bangkok"
+	if len(instituteTZ) > 0 && strings.TrimSpace(instituteTZ[0]) != "" {
+		zone = strings.TrimSpace(instituteTZ[0])
 	}
 	rows, err := q.db.Query(ctx, `
 		SELECT asi.absence_id, asi.id, sess.id, sess.course_id, c.code, c.name, subj.name, room.name, sess.start_at, sess.end_at,
@@ -402,11 +421,11 @@ func (q *Queries) ManagedAbsenceSessionsByAbsenceIDs(ctx context.Context, absenc
 			JOIN course_merge_group_members sibling_member ON sibling_member.group_id = source_member.group_id
 			JOIN sessions sibling ON sibling.course_id = sibling_member.course_id AND sibling.deleted_at IS NULL
 			WHERE source_member.course_id = sess.course_id
-			  AND (sibling.start_at AT TIME ZONE 'Asia/Bangkok')::date = (sess.start_at AT TIME ZONE 'Asia/Bangkok')::date
+			  AND (sibling.start_at AT TIME ZONE $2)::date = (sess.start_at AT TIME ZONE $2)::date
 		) merged ON true
 		WHERE asi.absence_id = ANY($1::uuid[])
 		ORDER BY asi.absence_id, sess.start_at ASC, asi.id ASC
-	`, absenceIDs)
+	`, absenceIDs, zone)
 	if err != nil {
 		return nil, err
 	}
@@ -776,6 +795,19 @@ func (q *Queries) AbsenceSitInsReplaceWithSnapshot(ctx context.Context, absenceI
 		work = New(tx)
 	}
 
+	// Step-9 G2: lock NEW session rows BEFORE deleting old assignments, so a
+	// concurrent session edit on a replacement session serializes against this
+	// tx instead of landing between our snapshot read and our insert.
+	// (Ordering vs the assignment-row lock below: session rows are leaf rows in
+	// the global order; the session editor locks them after course/student, so
+	// taking them first here cannot AB-BA with it - the editor never holds an
+	// assignment row while waiting on a session row.)
+	if len(sessionIDs) > 0 {
+		if _, err := work.SessionsLockOrdered(ctx, sessionIDs); err != nil {
+			return fmt.Errorf("lock replacement sessions: %w", err)
+		}
+	}
+
 	// 1. Lock existing assignment rows.
 	rows, err := work.db.Query(ctx, `SELECT session_id FROM absence_sit_ins WHERE absence_id = $1 FOR UPDATE`, absenceID)
 	if err != nil {
@@ -837,7 +869,7 @@ func (q *Queries) AbsenceSitInsReplaceWithSnapshot(ctx context.Context, absenceI
 			FROM sessions
 			WHERE id = $2
 			ON CONFLICT DO NOTHING
-		`, absenceID, sid, snapshotJSON, schemaVersion, capturedAtPg); err != nil {
+		`, absenceID, sid, string(snapshotJSON), schemaVersion, capturedAtPg); err != nil {
 			return fmt.Errorf("insert sit-in with snapshot: %w", err)
 		}
 	}
@@ -991,6 +1023,16 @@ func (q *Queries) AbsenceMissedSessionsCreateWithSnapshot(
 	timezone string,
 	snapshotFunc func(courseCode, courseName, teacherName string, roomName *string, sessionID pgtype.UUID, seriesID pgtype.UUID, courseID pgtype.UUID, roomID pgtype.UUID, teacherID pgtype.UUID, startAt, endAt pgtype.Timestamptz, version int32, capturedAt time.Time, tz string) ([]byte, int16, error),
 ) ([]MissedSessionSnapshotData, error) {
+	// Step-9 G2: same fencing as the sit-in path (see AbsenceSitInsCreateWithSnapshot).
+	if len(inputs) > 0 {
+		sessionIDs := make([]pgtype.UUID, 0, len(inputs))
+		for _, input := range inputs {
+			sessionIDs = append(sessionIDs, input.SessionID)
+		}
+		if _, err := q.SessionsLockOrdered(ctx, sessionIDs); err != nil {
+			return nil, fmt.Errorf("lock sessions for snapshot: %w", err)
+		}
+	}
 	capturedAt := time.Now().UTC()
 	results := make([]MissedSessionSnapshotData, 0, len(inputs))
 
@@ -1080,7 +1122,7 @@ func (q *Queries) ValidMissedSessionCount(ctx context.Context, absenceID pgtype.
 		  )
 		  AND sess.deleted_at IS NULL
 		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
-		  AND student_is_expected_at_session(st.id, sess.id)
+		  AND student_is_expected_at_session_tz(st.id, sess.id, $3)
 	`, absenceID, sessionIDs, instituteTZ).Scan(&count)
 	return count, err
 }
@@ -1111,7 +1153,7 @@ func (q *Queries) ValidMissedSessionTiming(ctx context.Context, absenceID pgtype
 		  )
 		  AND sess.deleted_at IS NULL
 		  AND (sess.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
-		  AND student_is_expected_at_session(st.id, sess.id)
+		  AND student_is_expected_at_session_tz(st.id, sess.id, $3)
 		ORDER BY sess.start_at ASC
 	`, absenceID, sessionIDs, instituteTZ)
 	if err != nil {
@@ -1153,7 +1195,7 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 		    FROM sessions missed
 		    WHERE missed.course_id = sa.course_id
 		      AND missed.deleted_at IS NULL
-		      AND student_is_expected_at_session(st.id, missed.id)
+		      AND student_is_expected_at_session_tz(st.id, missed.id, $4)
 		      AND (missed.start_at AT TIME ZONE $4)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
@@ -1194,7 +1236,7 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 			)
 		    WHERE sa.id = $1
 		      AND missed.deleted_at IS NULL
-		      AND student_is_expected_at_session(st.id, missed.id)
+		      AND student_is_expected_at_session_tz(st.id, missed.id, $3)
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
@@ -1239,7 +1281,7 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		    FROM sessions missed
 		    WHERE missed.course_id = sa.course_id
 		      AND missed.deleted_at IS NULL
-		      AND student_is_expected_at_session(st.id, missed.id)
+		      AND student_is_expected_at_session_tz(st.id, missed.id, $3)
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
@@ -1284,7 +1326,7 @@ func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, 
 				SELECT 1 FROM absence_missed_sessions ams
 				JOIN sessions missed ON missed.id = ams.session_id
 				WHERE ams.absence_id = $1 AND missed.deleted_at IS NULL
-				  AND student_is_expected_at_session(st.id, missed.id)
+				  AND student_is_expected_at_session_tz(st.id, missed.id, $3)
 				  AND sess.start_at < missed.end_at AND sess.end_at > missed.start_at
 		       ) AS missed_overlap,
 		       EXISTS (
@@ -1295,7 +1337,7 @@ func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, 
 				JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
 				WHERE sa.id = $1
 				  AND normal.id <> sess.id
-				  AND student_is_expected_at_session(st.id, normal.id)
+				  AND student_is_expected_at_session_tz(st.id, normal.id, $3)
 				  AND sess.start_at < normal.end_at AND sess.end_at > normal.start_at
 		       ) AS normal_overlap,
 		       EXISTS (
@@ -1319,7 +1361,7 @@ func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, 
 		    SELECT 1 FROM sessions missed
 		    WHERE missed.course_id = sa.course_id
 		      AND missed.deleted_at IS NULL
-		      AND student_is_expected_at_session(st.id, missed.id)
+		      AND student_is_expected_at_session_tz(st.id, missed.id, $3)
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at

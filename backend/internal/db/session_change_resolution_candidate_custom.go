@@ -13,6 +13,9 @@ type resolutionCandidateInput struct {
 	CurrentSessionID       pgtype.UUID
 	CandidateSessionID     pgtype.UUID
 	ExpectedSessionVersion int32
+	// InstituteTZ selects the cross-study weekday interpretation. Empty
+	// defaults to Asia/Bangkok (pre-00123 behavior).
+	InstituteTZ string
 }
 
 func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolutionCandidateInput) (int32, error) {
@@ -65,7 +68,7 @@ func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolut
 			JOIN sessions candidate ON candidate.id = $2
 			WHERE sa.id = $1
 			  AND normal.id <> candidate.id
-			  AND student_is_expected_at_session(st.id, normal.id)
+			  AND student_is_expected_at_session_tz(st.id, normal.id, CASE WHEN $4 = '' THEN 'Asia/Bangkok' ELSE $4 END)
 			  AND candidate.start_at < normal.end_at
 			  AND candidate.end_at > normal.start_at
 		) OR EXISTS (
@@ -79,7 +82,7 @@ func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolut
 			  AND candidate.start_at < other_session.end_at
 			  AND candidate.end_at > other_session.start_at
 		)
-	`, input.AbsenceID, input.CandidateSessionID, input.AssignmentID).Scan(&overlapsExistingObligation); err != nil {
+	`, input.AbsenceID, input.CandidateSessionID, input.AssignmentID, input.InstituteTZ).Scan(&overlapsExistingObligation); err != nil {
 		return 0, err
 	}
 	if overlapsExistingObligation {
