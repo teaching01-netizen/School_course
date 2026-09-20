@@ -38,6 +38,8 @@ import {
   blockedSitInSessionIds,
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
+  getSitInCourseDisplayName,
+  getSitInSessionLabel,
   getSitInSessionGroupLabel,
   getSitInSessionSubjectTimeLabel,
   getReviewSitInLabel,
@@ -2091,13 +2093,12 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                 sessionIds,
                                               ),
                                             );
-                                          const unavailable =
-                                            currentPriorities.flatMap((p) =>
-                                              unavailableSessionsForMissedSessions(
-                                                p,
-                                                sessionIds,
-                                              ),
-                                            );
+                                          const unavailable = currentPriorities.flatMap((p) =>
+                                            unavailableSessionsForMissedSessions(p, sessionIds).map((u) => ({
+                                              ...u,
+                                              sitInCourse: p.sit_in_course,
+                                            })),
+                                          );
                                           const hasBlockedUnavailable = unavailable.some(
                                             (item) => item.reason_code === "sit_in_session_already_used",
                                           );
@@ -2204,15 +2205,18 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                                                           key={`${u.reason_code}-${idx}`}
                                                         >
                                                           <span className="font-medium">
-                                                            {getSitInSessionGroupLabel(
-                                                              u.session
-                                                                ? [u.session]
-                                                                : [],
-                                                              currentPriorities[0]
-                                                                ?.sit_in_course,
-                                                              groupLabel,
-                                                              sessions,
-                                                            )}
+                                                            {u.session
+                                                              ? getSitInSessionLabel(
+                                                                  u.session,
+                                                                  u.sitInCourse,
+                                                                  groupLabel,
+                                                                  sessions,
+                                                                )
+                                                              : `${getSitInCourseDisplayName(
+                                                                  u.sitInCourse,
+                                                                  groupLabel,
+                                                                  sessions,
+                                                                ) || "Target section"} class #${u.occurrence_number ?? "?"}`}
                                                           </span>
                                                           <span className="text-amber-600">
                                                             {" "}

@@ -41,15 +41,13 @@ import (
 //  2. Relevant merged display siblings: derived from the fact window
 //     (bundleWindowSiblings) or MergeSiblingsInRange (all-subjects mode).
 //     NOT loaded here.
-//  3. Eligible sit-in candidate discovery: THIS bundle. Missed-history
-//     sessions (MissedCount inputs, occurrence slots) load window-bounded
-//     [WindowFromUTC, WindowToExclUTC); candidate sessions load
-//     start_at >= WindowFromUTC AND (no cutoff OR start_at <= CutoffUTC),
-//     where CutoffUTC = now + widest sit_in_window_weeks in the request.
+//  3. Eligible sit-in candidate discovery: THIS bundle. SAT Verbal mapped
+//     courses load their complete schedules because same-occurrence slots are
+//     positional; ordinary courses load the request-window/cutoff range.
 //     Rule scope comes from the actual scope universe (root/merge sibling
 //     courses + missed courses + out-of-scope SAT mapped members — never a
 //     guessed lookback, never a LIMIT). Dedupe happens before fetch via the
-//     shared course-ID list (one ANY array, overlapping scopes fetched once).
+//     disjoint full-history/bounded course lists.
 //  4. Historical counters: SessionsRangeDayCounts (all-history by
 //     definition). NOT loaded here.
 //  5. Scope/rule metadata: sets 1-5 above (rule pools, mappings, members,
@@ -104,13 +102,15 @@ type SitInBundleV2 struct {
 	Sessions         map[string][]SessionInRange
 }
 
-// SitInDiscoveryBounds carries the instant bounds for candidate discovery
-// (set 3 below). Window instants are the half-open request window
-// [FromUTC, ToExclusiveUTC); Cutoff bounds the future sit-in search per the
-// scope window-weeks policy. Zero CutoffUTC at load time means "no policy
-// anywhere": the loader clamps to WindowToExclUTC (nothing beyond the
-// request window is ever offered without a make-up window — verified
-// against the resolver filter chain, see loadBundleSessionsBounded).
+// SitInDiscoveryBounds carries the instant bounds for ordinary-course
+// candidate discovery (set 3 below). Window instants are the half-open
+// request window [FromUTC, ToExclusiveUTC); Cutoff bounds the future sit-in
+// search per the scope window-weeks policy. SAT Verbal mapped courses bypass
+// these bounds and load their complete schedules for occurrence matching.
+// Zero CutoffUTC at load time means "no policy anywhere": the loader clamps
+// ordinary courses to WindowToExclUTC (nothing beyond the request window is
+// ever offered without a make-up window — verified against the resolver
+// filter chain, see loadBundleSessionsBounded).
 type SitInDiscoveryBounds struct {
 	WindowFromUTC    time.Time
 	WindowToExclUTC  time.Time
@@ -137,7 +137,7 @@ type SitInDiscoveryBounds struct {
 // probe IDs — the drain tracks flags, same pattern as the tail batch's
 // queueBlocked.
 func (q *Queries) loadBundleSessionsRulesVisibleTail(ctx context.Context, out *SitInBundleV2, discovery SitInDiscoveryBounds) error {
-	ids := bundleSessionCourseIDs(out)
+	ids, fullHistoryIDs, boundedIDs := bundleSessionCourseIDsForDiscovery(out)
 	sessQueued := len(ids) > 0
 	var sessSQL string
 	var sessArgs []any
@@ -150,21 +150,13 @@ func (q *Queries) loadBundleSessionsRulesVisibleTail(ctx context.Context, out *S
 			if !discovery.CutoffUTC.IsZero() {
 				cutoff = pgtype.Timestamptz{Time: discovery.CutoffUTC, Valid: true}
 			}
-			sessSQL = `SELECT 0 AS arm, id, course_id, room_id, start_at, end_at
-		FROM sessions
-		WHERE course_id = ANY($1::uuid[])
-		  AND deleted_at IS NULL
-		  AND start_at >= $2::timestamptz
-		  AND start_at < $3::timestamptz
-		UNION ALL
-		SELECT 1 AS arm, id, course_id, room_id, start_at, end_at
-		FROM sessions
-		WHERE course_id = ANY($4::uuid[])
-		  AND deleted_at IS NULL
-		  AND start_at >= $2::timestamptz
-		  AND ($5::timestamptz IS NULL OR start_at <= $5::timestamptz)
-		ORDER BY course_id, start_at ASC`
-			sessArgs = []any{ids, pgtype.Timestamptz{Time: discovery.WindowFromUTC, Valid: true}, pgtype.Timestamptz{Time: discovery.WindowToExclUTC, Valid: true}, ids, cutoff}
+			sessSQL, sessArgs = bundleSessionsBoundedQuery(
+				fullHistoryIDs,
+				boundedIDs,
+				pgtype.Timestamptz{Time: discovery.WindowFromUTC, Valid: true},
+				pgtype.Timestamptz{Time: discovery.WindowToExclUTC, Valid: true},
+				cutoff,
+			)
 		}
 	}
 	var b pgx.Batch
@@ -318,10 +310,10 @@ func (q *Queries) SessionsRangeSitInBundleV2(ctx context.Context, arg SitInBundl
 	}
 	out.Priorities = bundle.Priorities
 	// One sessions round trip for scope courses AND out-of-scope SAT mapped
-	// members (legacy SessionsByCourse per target, unbounded). Bounded when
-	// the caller passes Discovery window bounds (set-3 proportional to the
-	// request window + widest scope cutoff, derived below from the SAME
-	// policy rows the resolvers use); unbounded legacy shape otherwise.
+	// members. With Discovery window bounds, ordinary courses use the
+	// request-window/cutoff predicate while SAT mapped courses remain full
+	// history for same-occurrence matching; the unbounded shape is retained
+	// for callers without a request window.
 	// The cutoff needs the scope universe (loaded above) + policies; the
 	// policies row is the one extra round trip the bounded shape costs.
 	// Failure here degrades exactly like the legacy per-course resolve
@@ -714,8 +706,60 @@ func (q *Queries) loadBundleSatMembers(ctx context.Context, out *SitInBundleV2) 
 
 const bundleSessionsSelectSQLText = `SELECT id, course_id, room_id, start_at, end_at FROM sessions WHERE course_id = ANY($1::uuid[]) AND deleted_at IS NULL ORDER BY course_id, start_at ASC`
 
+const bundleSessionsBoundedSelectSQLText = `
+	SELECT id, course_id, room_id, start_at, end_at
+	FROM sessions
+	WHERE course_id = ANY($1::uuid[])
+	  AND deleted_at IS NULL
+	UNION ALL
+	SELECT id, course_id, room_id, start_at, end_at
+	FROM sessions
+	WHERE course_id = ANY($2::uuid[])
+	  AND deleted_at IS NULL
+	  AND start_at >= $3::timestamptz
+	  AND (
+		start_at < $4::timestamptz
+		OR $5::timestamptz IS NULL
+		OR start_at <= $5::timestamptz
+	  )
+	ORDER BY course_id, start_at ASC`
+
+const bundleSessionsOrdinaryBoundedSelectSQLText = `
+	SELECT id, course_id, room_id, start_at, end_at
+	FROM sessions
+	WHERE course_id = ANY($1::uuid[])
+	  AND deleted_at IS NULL
+	  AND start_at >= $2::timestamptz
+	  AND (
+		start_at < $3::timestamptz
+		OR $4::timestamptz IS NULL
+		OR start_at <= $4::timestamptz
+	  )
+	ORDER BY course_id, start_at ASC`
+
 func bundleSessionsSelectSQL() string {
 	return bundleSessionsSelectSQLText
+}
+
+func bundleSessionsBoundedSelectSQL() string {
+	return bundleSessionsBoundedSelectSQLText
+}
+
+func bundleSessionsBoundedQuery(
+	fullHistoryIDs, boundedIDs []pgtype.UUID,
+	windowFrom, windowTo, cutoff pgtype.Timestamptz,
+) (string, []any) {
+	// Keep empty UUID arrays out of the simple-protocol path. pgx cannot
+	// infer an element OID for an empty []pgtype.UUID, while the non-empty
+	// course lists are already type-inferred by their uuid[] casts.
+	switch {
+	case len(fullHistoryIDs) == 0:
+		return bundleSessionsOrdinaryBoundedSelectSQLText, []any{boundedIDs, windowFrom, windowTo, cutoff}
+	case len(boundedIDs) == 0:
+		return bundleSessionsSelectSQL(), []any{fullHistoryIDs}
+	default:
+		return bundleSessionsBoundedSelectSQLText, []any{fullHistoryIDs, boundedIDs, windowFrom, windowTo, cutoff}
+	}
 }
 
 func loadBundleSatMembersSQL() string {
@@ -739,58 +783,40 @@ func (q *Queries) loadBundleSessionsAll(ctx context.Context, out *SitInBundleV2)
 	return q.loadBundleSessionsUnbounded(ctx, out, nil)
 }
 
-// loadBundleSessionsBounded implements set 3: missed-history sessions
-// (start_at in [WindowFromUTC, WindowToExclUTC), the legacy
-// SessionsByCourseInRange predicate, so MissedCount matches the old
-// per-course lookup exactly) UNION ALL candidate sessions (start_at >=
-// WindowFromUTC AND (no CutoffUTC OR start_at <= CutoffUTC) — the upper
-// display bound is dropped because candidates beyond the window are
-// legitimate inside the make-up window; the lower bound holds because
-// nothing starting before the window opens is ever offered; the cutoff
-// holds because nothing past the make-up window is offered). One round
-// trip over the deduped course universe. Zero/empty bounds fall back to
-// the unbounded shape (legacy callers, degraded paths).
+// loadBundleSessionsBounded implements set 3. SAT Verbal mapped courses use
+// their complete schedules so same-occurrence indexes remain stable across
+// sections with different historical prefixes. Ordinary courses use the
+// request-window/cutoff predicate. The two course sets are disjoint, so the
+// missed-history and candidate arms cannot duplicate an in-window row.
+// Zero/empty bounds fall back to the unbounded shape (legacy callers,
+// degraded paths).
 func (q *Queries) loadBundleSessionsBounded(ctx context.Context, out *SitInBundleV2, bounds SitInDiscoveryBounds) error {
-	ids := bundleSessionCourseIDs(out)
+	ids, fullHistoryIDs, boundedIDs := bundleSessionCourseIDsForDiscovery(out)
 	if len(ids) == 0 {
 		return nil
 	}
 	if bounds.IncludeUnbounded || bounds.WindowFromUTC.IsZero() || bounds.WindowToExclUTC.IsZero() {
 		return q.loadBundleSessionsUnbounded(ctx, out, ids)
 	}
-	// Set-1 (missed history) covers the same course universe as set-3: the
-	// missed course for any resolve below is always a scope/SAT-member
-	// course, and legacy loaded its history through the identical
-	// SessionsByCourseInRange predicate. One shared ID list, one trip.
-	missedIDs := ids
 	cutoff := pgtype.Timestamptz{}
 	if !bounds.CutoffUTC.IsZero() {
 		cutoff = pgtype.Timestamptz{Time: bounds.CutoffUTC, Valid: true}
 	}
-	rows, err := q.db.Query(ctx, `
-		SELECT 0 AS arm, id, course_id, room_id, start_at, end_at
-		FROM sessions
-		WHERE course_id = ANY($1::uuid[])
-		  AND deleted_at IS NULL
-		  AND start_at >= $2::timestamptz
-		  AND start_at < $3::timestamptz
-		UNION ALL
-		SELECT 1 AS arm, id, course_id, room_id, start_at, end_at
-		FROM sessions
-		WHERE course_id = ANY($4::uuid[])
-		  AND deleted_at IS NULL
-		  AND start_at >= $2::timestamptz
-		  AND ($5::timestamptz IS NULL OR start_at <= $5::timestamptz)
-		ORDER BY course_id, start_at ASC
-	`, missedIDs, pgtype.Timestamptz{Time: bounds.WindowFromUTC, Valid: true}, pgtype.Timestamptz{Time: bounds.WindowToExclUTC, Valid: true}, ids, cutoff)
+	sessSQL, sessArgs := bundleSessionsBoundedQuery(
+		fullHistoryIDs,
+		boundedIDs,
+		pgtype.Timestamptz{Time: bounds.WindowFromUTC, Valid: true},
+		pgtype.Timestamptz{Time: bounds.WindowToExclUTC, Valid: true},
+		cutoff,
+	)
+	rows, err := q.db.Query(ctx, sessSQL, sessArgs...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var arm int
 		var r SessionInRange
-		if err := rows.Scan(&arm, &r.ID, &r.CourseID, &r.RoomID, &r.StartAt, &r.EndAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.CourseID, &r.RoomID, &r.StartAt, &r.EndAt); err != nil {
 			return err
 		}
 		out.Sessions[uuidBytesString(r.CourseID)] = append(out.Sessions[uuidBytesString(r.CourseID)], r)
@@ -902,9 +928,62 @@ func bundleSessionCourseIDs(out *SitInBundleV2) []pgtype.UUID {
 	return ids
 }
 
+// bundleSessionCourseIDsForDiscovery keeps the ordinary course universe
+// bounded while giving every course participating in an active SAT Verbal
+// mapping its complete schedule. Same-occurrence matching is positional, so
+// loading only the request window for one mapped section can shift its lesson
+// numbers relative to another section with a different historical prefix.
+func bundleSessionCourseIDsForDiscovery(out *SitInBundleV2) (all, fullHistory, bounded []pgtype.UUID) {
+	fullHistory = make([]pgtype.UUID, 0)
+	fullSeen := make(map[string]struct{})
+	addFull := func(id pgtype.UUID) {
+		if !id.Valid {
+			return
+		}
+		key := uuidBytesString(id)
+		if _, ok := fullSeen[key]; ok {
+			return
+		}
+		fullSeen[key] = struct{}{}
+		fullHistory = append(fullHistory, id)
+	}
+	for i := range out.SatMappings {
+		mapping := &out.SatMappings[i]
+		addFull(mapping.CourseID)
+		if !mapping.MergeGroupID.Valid {
+			continue
+		}
+		for _, id := range out.MergeMembers[uuidBytesString(mapping.MergeGroupID)] {
+			addFull(id)
+		}
+	}
+
+	all = bundleSessionCourseIDs(out)
+	allSeen := make(map[string]struct{}, len(all)+len(fullHistory))
+	for _, id := range all {
+		allSeen[uuidBytesString(id)] = struct{}{}
+	}
+	for _, id := range fullHistory {
+		key := uuidBytesString(id)
+		if _, ok := allSeen[key]; ok {
+			continue
+		}
+		allSeen[key] = struct{}{}
+		all = append(all, id)
+	}
+	bounded = make([]pgtype.UUID, 0, len(all)-len(fullHistory))
+	for _, id := range all {
+		if _, ok := fullSeen[uuidBytesString(id)]; ok {
+			continue
+		}
+		bounded = append(bounded, id)
+	}
+	return all, fullHistory, bounded
+}
+
 func (q *Queries) loadBundleSessionsUnbounded(ctx context.Context, out *SitInBundleV2, ids []pgtype.UUID) error {
 	if ids == nil {
-		ids = bundleSessionCourseIDs(out)
+		ids, _, _ = bundleSessionCourseIDsForDiscovery(out)
 	}
 	if len(ids) == 0 {
 		return nil

@@ -224,6 +224,33 @@ function staffSatVerbalSessionsForPriority(
   };
 }
 
+function staffSatVerbalUnavailableSessionsForPriority() {
+  const base = staffSatVerbalSessionsForPriority(
+    1,
+    "unused-reading",
+    "unused-writing",
+    true,
+  );
+  return {
+    subjects: base.subjects.map((subject, index) => ({
+      ...subject,
+      sit_in: {
+        ...subject.sit_in,
+        priorities: [{
+          ...subject.sit_in.priorities[0],
+          available_sessions: [],
+          unavailable_sessions: [{
+            missed_session_id: index === 0 ? "missed-reading" : "missed-writing",
+            occurrence_number: 12,
+            reason_code: "same_occurrence_missing",
+            reason: "Same class #12 does not exist in this section.",
+          }],
+        }],
+      },
+    })),
+  };
+}
+
 const MOCK_SPECIAL_SESSIONS = {
   subjects: [
     {
@@ -1008,6 +1035,47 @@ describe("Staff SAT Verbal priority parity", () => {
       expect(sendBody).toEqual({ ids: ["staff-absence-1"] });
       expect(onCreated).toHaveBeenCalled();
     });
+  });
+
+  it("does not crash when an unavailable SAT slot has no session payload", async () => {
+    const user = userEvent.setup();
+    mockApiJson.mockImplementation(async (url: unknown) => {
+      const requestURL = String(url);
+      if (requestURL.includes("student-lookup")) {
+        return MOCK_STAFF_SAT_VERBAL_STUDENT;
+      }
+      if (requestURL === "/api/v1/subjects") {
+        return MOCK_STAFF_SAT_VERBAL_STUDENT.subjects;
+      }
+      if (requestURL.includes("absence-form-config")) return MOCK_FORM_CONFIG;
+      if (requestURL.includes("sessions-in-range")) {
+        return staffSatVerbalUnavailableSessionsForPriority();
+      }
+      throw new Error(`Unexpected staff test request: ${requestURL}`);
+    });
+
+    renderModal();
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await user.type(screen.getByLabelText(/w-code/i), "W001");
+    await user.click(screen.getByRole("button", { name: /look up/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Test Student")).toBeInTheDocument();
+    });
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /SAT Verbal Rank 3 Section 1 C3/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 class day/)).toBeInTheDocument();
+    });
+    await user.click(await screen.findByRole("checkbox"));
+
+    expect(
+      screen.getAllByText(/Same class #12 does not exist in this section/).length,
+    ).toBeGreaterThan(0);
   });
 });
 

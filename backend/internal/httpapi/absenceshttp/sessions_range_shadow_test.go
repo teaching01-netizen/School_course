@@ -549,6 +549,10 @@ func TestSessionsRangeV2_QueryCountGate(t *testing.T) {
 		if err := rows.Err(); err != nil {
 			t.Fatal(err)
 		}
+		seedCourseKeys := make(map[string]struct{}, len(factCourseIDs))
+		for _, id := range factCourseIDs {
+			seedCourseKeys[uuidStringOrZero(id)] = struct{}{}
+		}
 		wf, _ := time.Parse("2006-01-02", dateFrom)
 		wt, _ := time.Parse("2006-01-02", dateTo)
 		q := sqldb.New(basepool)
@@ -557,8 +561,10 @@ func TestSessionsRangeV2_QueryCountGate(t *testing.T) {
 			t.Fatal(err)
 		}
 		un := 0
-		for _, ss := range unbounded.Sessions {
-			un += len(ss)
+		for courseID, ss := range unbounded.Sessions {
+			if _, ok := seedCourseKeys[courseID]; ok {
+				un += len(ss)
+			}
 		}
 		bounded, err := q.SessionsRangeSitInBundleV2(context.Background(), sqldb.SitInBundleV2Params{StudentID: studentID, MissedCourseIDs: factCourseIDs, Discovery: sqldb.SitInDiscoveryBounds{WindowFromUTC: wf, WindowToExclUTC: wt.AddDate(0, 0, 1)}})
 		if err != nil {
@@ -568,9 +574,17 @@ func TestSessionsRangeV2_QueryCountGate(t *testing.T) {
 			t.Fatal("bounded bundle degraded")
 		}
 		n := 0
-		for _, ss := range bounded.Sessions {
-			n += len(ss)
+		seenSessionIDs := make(map[string]struct{})
+		for courseID, ss := range bounded.Sessions {
+			if _, ok := seedCourseKeys[courseID]; ok {
+				n += len(ss)
+			}
 			for _, sn := range ss {
+				id := uuidStringOrZero(sn.ID)
+				if _, ok := seenSessionIDs[id]; ok {
+					t.Fatalf("bounded session %s was loaded more than once", id)
+				}
+				seenSessionIDs[id] = struct{}{}
 				if !sn.StartAt.Valid {
 					continue
 				}
@@ -581,15 +595,14 @@ func TestSessionsRangeV2_QueryCountGate(t *testing.T) {
 		}
 		t.Logf("set-3 rows unbounded=%d bounded=%d", un, n)
 		// The bounded shape must exclude the unrelated-history probe
-		// (150 rows: 2y-past + 3y-future x 3 courses). Strict gate:
-		// bounded must load FEWER rows than unbounded, and stay at the
-		// in-window volume (3 seed sessions; generous ceiling <= 10
-		// keeps the gate robust to seed drift).
+		// (150 rows: 2y-past + 3y-future x 3 courses) and must not
+		// duplicate the three in-window seed sessions across the missed
+		// history and candidate predicates.
 		if n >= un {
 			t.Fatalf("bounded set-3 (%d rows) did not exclude history vs unbounded (%d rows)", n, un)
 		}
-		if n > 10 {
-			t.Fatalf("bounded set-3 row volume = %d, want <= 10 (unrelated history leaked)", n)
+		if n != 3 {
+			t.Fatalf("bounded set-3 row volume = %d, want exactly 3 non-duplicated in-window sessions", n)
 		}
 	})
 }
