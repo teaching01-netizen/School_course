@@ -176,7 +176,10 @@ func (f *publicAbsenceContractFixture) validItem(index int) batchAbsenceCreateIt
 
 func (f *publicAbsenceContractFixture) requestBody(t *testing.T, items ...batchAbsenceCreateItem) []byte {
 	t.Helper()
-	body, err := json.Marshal(batchAbsenceCreateRequest{Items: items})
+	body, err := json.Marshal(batchAbsenceCreateRequest{
+		Reason: contractStringPtr("Reason provided for testing"),
+		Items:  items,
+	})
 	if err != nil {
 		t.Fatalf("marshal batch request: %v", err)
 	}
@@ -256,6 +259,58 @@ func TestPublicBatchRejectsEmptyMissedSessionIDs(t *testing.T) {
 	recorder := fixture.submitBatch(fixture.requestBody(t, item), uuid.NewString())
 
 	assertRejectedBatchContract(t, fixture, recorder)
+}
+
+func TestPublicBatchRequiresNonBlankReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason *string
+	}{
+		{name: "missing", reason: nil},
+		{name: "whitespace", reason: contractStringPtr(" \t ")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newPublicAbsenceContractFixture(t)
+			body, err := json.Marshal(batchAbsenceCreateRequest{
+				Reason: tt.reason,
+				Items:  []batchAbsenceCreateItem{fixture.validItem(0)},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			recorder := fixture.submitBatch(body, uuid.NewString())
+			assertPublicContractError(t, recorder, http.StatusBadRequest, "reason_required")
+			if got := decodePublicContractError(t, recorder); got.Message != "Please tell us why you'll be away." {
+				t.Fatalf("error message = %q, want student reason message", got.Message)
+			}
+			if count := fixture.absenceCount(t); count != 0 {
+				t.Fatalf("missing reason persisted %d absences, want 0", count)
+			}
+		})
+	}
+}
+
+func TestPublicBatchAcceptsTextReasonWhenLegacyReasonPoliciesAreEnabled(t *testing.T) {
+	fixture := newPublicAbsenceContractFixture(t)
+	settings := defaultAbsenceSettings()
+	settings.Form.RequireReason = true
+	settings.Form.AllowFreeTextReason = false
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := sqldb.New(fixture.pool).AppSettingsUpdateAbsencePolicies(ctx, settingsJSON); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := fixture.submitBatch(fixture.requestBody(t, fixture.validItem(0)), uuid.NewString())
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body = %s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestPublicBatchAllowsSitInCourseOutsideSelectedSubject(t *testing.T) {

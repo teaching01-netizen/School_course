@@ -650,7 +650,7 @@ describe("AbsenceForm", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: /reason for absence/i })));
   });
 
-  it("allows review without a reason when the form configuration makes it optional", async () => {
+  it.each(["", "   "])("requires a non-blank reason even when the form configuration makes it optional (%j)", async (reasonValue) => {
     const user = userEvent.setup();
     renderAbsenceForm();
     await lookupStudent(user);
@@ -659,10 +659,13 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(screen.getByRole("textbox", { name: /reason for absence/i })).not.toBeRequired();
+    const reason = screen.getByRole("textbox", { name: /reason for absence/i });
+    expect(reason).toBeRequired();
+    if (reasonValue) await user.type(reason, reasonValue);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
 
-    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+    expect(await screen.findByText("Please tell us why you'll be away.", { selector: '[role="alert"]' })).toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(reason));
   });
   it("preserves selected classes and reason when editing from review", async () => {
     const user = userEvent.setup();
@@ -1345,6 +1348,7 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
     await user.selectOptions(screen.getByRole("combobox"), "available-day-session");
+    await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 

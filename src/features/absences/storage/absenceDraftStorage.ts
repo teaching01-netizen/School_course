@@ -76,15 +76,15 @@ function toStoredDraft(draft: AbsenceDraftV1): AbsenceDraftV1 {
   };
 }
 
-export function readAbsenceDraft(storage?: StorageLike): AbsenceDraftV1 | null {
+export function readAbsenceDraft(storage?: StorageLike, storageKey = ABSENCE_DRAFT_STORAGE_KEY): AbsenceDraftV1 | null {
   const target = getSessionStorage(storage);
   if (!target) return null;
   try {
-    const raw = target.getItem(ABSENCE_DRAFT_STORAGE_KEY);
+    const raw = target.getItem(storageKey);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!isDraft(parsed)) {
-      target.removeItem(ABSENCE_DRAFT_STORAGE_KEY);
+      target.removeItem(storageKey);
       return null;
     }
     return {
@@ -96,23 +96,23 @@ export function readAbsenceDraft(storage?: StorageLike): AbsenceDraftV1 | null {
       sitInPriorityLevels: { ...parsed.sitInPriorityLevels },
     };
   } catch {
-    try { target.removeItem(ABSENCE_DRAFT_STORAGE_KEY); } catch { }
+    try { target.removeItem(storageKey); } catch { }
     return null;
   }
 }
 
-export function writeAbsenceDraft(draft: AbsenceDraftV1, storage?: StorageLike): void {
+export function writeAbsenceDraft(draft: AbsenceDraftV1, storage?: StorageLike, storageKey = ABSENCE_DRAFT_STORAGE_KEY): void {
   const target = getSessionStorage(storage);
   if (!target) return;
   try {
-    target.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(toStoredDraft(draft)));
+    target.setItem(storageKey, JSON.stringify(toStoredDraft(draft)));
   } catch {
     // Storage is an optional recovery enhancement; form behavior remains in memory.
   }
 }
 
-export function clearAbsenceDraft(storage?: StorageLike): void {
+export function clearAbsenceDraft(storage?: StorageLike, storageKey = ABSENCE_DRAFT_STORAGE_KEY): void {
   const target = getSessionStorage(storage);
   if (!target) return;
-  try { target.removeItem(ABSENCE_DRAFT_STORAGE_KEY); } catch { }
+  try { target.removeItem(storageKey); } catch { }
 }

@@ -32,40 +32,42 @@ function writeStoredOtp(storageKey: string, value: StoredOtpState | null) {
   }
 }
 
-export function useOtp(storageKey: string) {
+export function useOtp(storageKey: string, enabled = true) {
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const stored = readStoredOtp(storageKey);
     if (stored) {
       setToken(stored.token);
       setExpiresAt(stored.expiresAt);
     }
-  }, [storageKey]);
+  }, [enabled, storageKey]);
 
   // No clock polling here: the consumer enforces expiry with a one-shot
   // timeout, so re-rendering the page every second would be pure waste.
   const persistToken = useCallback((nextToken: string, nextExpiresAt?: number | null) => {
+    if (!enabled) return;
     setToken(nextToken);
     const next = nextExpiresAt ?? expiresAt;
     setExpiresAt(next ?? null);
     writeStoredOtp(storageKey, { token: nextToken, expiresAt: next ?? null });
-  }, [expiresAt, storageKey]);
+  }, [enabled, expiresAt, storageKey]);
 
   const clearStoredToken = useCallback(() => {
     setToken(null);
     setExpiresAt(null);
-    writeStoredOtp(storageKey, null);
-  }, [storageKey]);
+    if (enabled) writeStoredOtp(storageKey, null);
+  }, [enabled, storageKey]);
 
   const setAndPersistExpiresAt = useCallback((nextExpiresAt: number | null) => {
     setExpiresAt(nextExpiresAt);
-    if (token) {
+    if (enabled && token) {
       writeStoredOtp(storageKey, { token, expiresAt: nextExpiresAt });
     }
-  }, [storageKey, token]);
+  }, [enabled, storageKey, token]);
 
   return useMemo(() => ({
     code,

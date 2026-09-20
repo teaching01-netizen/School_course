@@ -15,6 +15,11 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
+type staffAbsenceCreationOptions struct {
+	publicForm        bool
+	includeSmsPreview bool
+}
+
 func (s *server) createStaffAbsenceTx(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -22,6 +27,7 @@ func (s *server) createStaffAbsenceTx(
 	qtx *sqldb.Queries,
 	user auth.AuthenticatedUser,
 	body staffCreateAbsenceRequest,
+	options staffAbsenceCreationOptions,
 ) (string, any, error) {
 	createdID := ""
 	body.Wcode = normalizeWCode(body.Wcode)
@@ -38,7 +44,15 @@ func (s *server) createStaffAbsenceTx(
 		return "", nil, fmt.Errorf("missed sessions required")
 	}
 	requestedStatus := absences.StatusPending
-	if body.Status != nil {
+	if options.publicForm {
+		if body.Status != nil {
+			statusVal := strings.TrimSpace(*body.Status)
+			if statusVal != "" && absences.Status(statusVal) != absences.StatusPending {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_status", "staff absence form submissions must be pending")
+				return "", nil, fmt.Errorf("staff form status must be pending")
+			}
+		}
+	} else if body.Status != nil {
 		statusVal := strings.TrimSpace(*body.Status)
 		switch absences.Status(statusVal) {
 		case absences.StatusPending:
@@ -66,30 +80,40 @@ func (s *server) createStaffAbsenceTx(
 		}
 	}
 	var reasonCategory pgtype.Text
-	if body.ReasonCategory != nil {
-		value := strings.TrimSpace(*body.ReasonCategory)
-		if value != "" {
-			validCategory := false
-			for _, category := range settings.Form.ReasonCategories {
-				if category.Value == value {
-					validCategory = true
-					break
-				}
-			}
-			if !validCategory {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_reason_category", "Select a configured reason category")
-				return "", nil, fmt.Errorf("bad reason category")
-			}
-			reasonCategory = pgtype.Text{String: value, Valid: true}
+	if options.publicForm {
+		if body.ReasonCategory != nil && strings.TrimSpace(*body.ReasonCategory) != "" {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_reason_category", "Reason categories are not available on the staff absence form")
+			return "", nil, fmt.Errorf("staff form reason category is not allowed")
 		}
-	}
-	if settings.Form.RequireReason && !reasonCategory.Valid {
-		s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Select a reason category")
-		return "", nil, fmt.Errorf("reason required")
-	}
-	if !settings.Form.AllowFreeTextReason && reason.Valid {
-		s.a.WriteErr(w, http.StatusBadRequest, "free_text_not_allowed", "Free-text reason is disabled")
-		return "", nil, fmt.Errorf("free text disabled")
+		if err := s.requireStudentReason(w, reason); err != nil {
+			return "", nil, err
+		}
+	} else {
+		if body.ReasonCategory != nil {
+			value := strings.TrimSpace(*body.ReasonCategory)
+			if value != "" {
+				validCategory := false
+				for _, category := range settings.Form.ReasonCategories {
+					if category.Value == value {
+						validCategory = true
+						break
+					}
+				}
+				if !validCategory {
+					s.a.WriteErr(w, http.StatusBadRequest, "bad_reason_category", "Select a configured reason category")
+					return "", nil, fmt.Errorf("bad reason category")
+				}
+				reasonCategory = pgtype.Text{String: value, Valid: true}
+			}
+		}
+		if settings.Form.RequireReason && !reasonCategory.Valid {
+			s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Select a reason category")
+			return "", nil, fmt.Errorf("reason required")
+		}
+		if !settings.Form.AllowFreeTextReason && reason.Valid {
+			s.a.WriteErr(w, http.StatusBadRequest, "free_text_not_allowed", "Free-text reason is disabled")
+			return "", nil, fmt.Errorf("free text disabled")
+		}
 	}
 
 	student, subjectID, course, err := s.resolveStaffAbsenceSelection(r.Context(), qtx, tx, body.Wcode, body.SubjectID, body.CourseID)
@@ -270,6 +294,22 @@ func (s *server) createStaffAbsenceTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
 			return "", nil, fmt.Errorf("invalid missed sessions")
 		}
+		if options.publicForm {
+			timingRows, err := qtx.ValidExpectedMissedSessionTiming(r.Context(), row.ID, missedUUIDs, s.deps.InstituteTZ)
+			if err != nil {
+				status, code, msg := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, msg)
+				return "", nil, err
+			}
+			if len(timingRows) != len(missedUUIDs) {
+				s.a.WriteErr(w, http.StatusBadRequest, "invalid_missed_sessions", "Missed sessions must be in the selected class and absence dates")
+				return "", nil, fmt.Errorf("invalid missed sessions")
+			}
+			if timingErr := validateSessionTiming(settings.Form, time.Now(), sessionTimingInfos(timingRows)); timingErr != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, timingErr.code, timingErr.message)
+				return "", nil, timingErr
+			}
+		}
 		snapshotInputs := make([]sqldb.MissedSessionSnapshotInput, 0, len(missedUUIDs))
 		for _, sid := range missedUUIDs {
 			input := sqldb.MissedSessionSnapshotInput{SessionID: sid}
@@ -349,19 +389,21 @@ func (s *server) createStaffAbsenceTx(
 		createdID = id
 	}
 
-	smsTemplate := successSMSTemplateForItems(settings, managed.Status, []successSMSItem{{row: managed, sessions: sessions, missed: missed}})
-	if smsTemplate != "" {
-		if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
-			phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
-			if len(phones) > 0 {
-				sess, _ := qtx.ManagedAbsenceSessions(r.Context(), row.ID)
-				mis, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), row.ID)
-				loc, _ := time.LoadLocation(s.deps.InstituteTZ)
-				if loc == nil {
-					loc = time.UTC
+	if options.includeSmsPreview {
+		smsTemplate := successSMSTemplateForItems(settings, managed.Status, []successSMSItem{{row: managed, sessions: sessions, missed: missed}})
+		if smsTemplate != "" {
+			if contactRows, contactErr := qtx.StudentSubjectByWCode(r.Context(), body.Wcode); contactErr == nil && len(contactRows) > 0 {
+				phones := successSMSPhones(contactRows[0].ParentPhone, contactRows[0].StudentPhone)
+				if len(phones) > 0 {
+					sess, _ := qtx.ManagedAbsenceSessions(r.Context(), row.ID)
+					mis, _ := qtx.ManagedAbsenceMissedSessions(r.Context(), row.ID)
+					loc, _ := time.LoadLocation(s.deps.InstituteTZ)
+					if loc == nil {
+						loc = time.UTC
+					}
+					rendered := renderSuccessSMSTemplate(smsTemplate, managed, sess, mis, loc)
+					dto.SmsPreview = &smsPreviewDTO{Phones: phones, Message: rendered}
 				}
-				rendered := renderSuccessSMSTemplate(smsTemplate, managed, sess, mis, loc)
-				dto.SmsPreview = &smsPreviewDTO{Phones: phones, Message: rendered}
 			}
 		}
 	}

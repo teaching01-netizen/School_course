@@ -671,6 +671,17 @@ func (q *Queries) AbsenceNotesUpdate(ctx context.Context, id pgtype.UUID, notes 
 	return version, err
 }
 
+func (q *Queries) AbsenceReasonUpdate(ctx context.Context, id pgtype.UUID, reason string, expectedVersion int32) (int32, error) {
+	var version int32
+	err := q.db.QueryRow(ctx, `
+		UPDATE student_absences
+		SET reason = NULLIF($2, ''), updated_at = now(), version = version + 1
+		WHERE id = $1 AND version = $3
+		RETURNING version
+	`, id, reason, expectedVersion).Scan(&version)
+	return version, err
+}
+
 func (q *Queries) AbsenceSitInUpdate(ctx context.Context, id pgtype.UUID, method string, courseID pgtype.UUID, actorID pgtype.UUID, reason string, expectedVersion int32) (int32, error) {
 	var version int32
 	err := q.db.QueryRow(ctx, `

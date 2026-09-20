@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ABSENCE_DRAFT_STORAGE_KEY,
   ABSENCE_DRAFT_SCHEMA_VERSION,
   clearAbsenceDraft,
   readAbsenceDraft,
@@ -14,8 +15,8 @@ type DraftValues = Omit<AbsenceDraftV1, "schemaVersion" | "updatedAt">;
 // typing (and the re-render it triggers) off the synchronous localStorage path.
 const DRAFT_DEBOUNCE_MS = 300;
 
-export function useAbsenceDraft() {
-  const [draft, setDraft] = useState<AbsenceDraftV1 | null>(() => readAbsenceDraft());
+export function useAbsenceDraft(storageKey = ABSENCE_DRAFT_STORAGE_KEY) {
+  const [draft, setDraft] = useState<AbsenceDraftV1 | null>(() => readAbsenceDraft(undefined, storageKey));
   const pendingRef = useRef<DraftValues | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -36,9 +37,9 @@ export function useAbsenceDraft() {
       schemaVersion: ABSENCE_DRAFT_SCHEMA_VERSION,
       updatedAt: Date.now(),
     };
-    writeAbsenceDraft(nextDraft);
+    writeAbsenceDraft(nextDraft, undefined, storageKey);
     setDraft(nextDraft);
-  }, [cancelPending]);
+  }, [cancelPending, storageKey]);
 
   // Persist whatever is pending before the page is unloaded or hidden so a
   // debounced write can never lose the tail end of the user's input.
@@ -61,9 +62,9 @@ export function useAbsenceDraft() {
 
   const clearDraft = useCallback(() => {
     cancelPending();
-    clearAbsenceDraft();
+    clearAbsenceDraft(undefined, storageKey);
     setDraft(null);
-  }, [cancelPending]);
+  }, [cancelPending, storageKey]);
 
   return { draft, saveDraft, clearDraft };
 }

@@ -128,6 +128,63 @@ describe("Absence detail", () => {
     );
   });
 
+  it("lets Admin staff edit the free-text reason and shows the audit history", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(DETAIL)
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES)
+      .mockResolvedValueOnce({ version: 2, reason: "Updated reason" })
+      .mockResolvedValueOnce({
+        ...DETAIL,
+        reason: "Updated reason",
+        version: 2,
+        timeline: [
+          ...DETAIL.timeline,
+          {
+            id: "tl-2",
+            action: "reason_updated",
+            actor_role: "admin",
+            actor_name: "admin",
+            details: { previous_reason: "Appointment", new_reason: "Updated reason" },
+            created_at: "2026-05-28T09:00:00Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce(NO_IMPACT_ISSUES);
+    renderDetail();
+    const user = userEvent.setup();
+
+    const reason = await screen.findByLabelText(/reason details/i);
+    expect(reason).toHaveValue("Appointment");
+    await user.clear(reason);
+    await user.type(reason, "Updated reason");
+    await user.click(screen.getByRole("button", { name: /save reason/i }));
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/abs-1/reason",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ reason: "Updated reason", expected_version: 1 }),
+      }),
+    );
+    expect(await screen.findByText("Previous:")).toBeInTheDocument();
+    expect(screen.getAllByText("Updated reason").length).toBeGreaterThan(0);
+  });
+
+  it("can cancel an unsaved reason edit without writing", async () => {
+    mockApiJson.mockResolvedValueOnce(DETAIL).mockResolvedValueOnce(NO_IMPACT_ISSUES);
+    renderDetail();
+    const user = userEvent.setup();
+
+    const reason = await screen.findByLabelText(/reason details/i);
+    await user.clear(reason);
+    await user.type(reason, "Temporary edit");
+    const summary = screen.getByRole("heading", { name: /absence summary/i }).closest("section");
+    await user.click(within(summary as HTMLElement).getByRole("button", { name: /^cancel$/i }));
+
+    expect(reason).toHaveValue("Appointment");
+    expect(mockApiJson.mock.calls.some(([url]) => url === "/api/v1/absences/abs-1/reason")).toBe(false);
+  });
+
   it("shows absence date range in summary and does not replace it with sit-in session day", async () => {
     mockApiJson.mockResolvedValueOnce({
       ...DETAIL,

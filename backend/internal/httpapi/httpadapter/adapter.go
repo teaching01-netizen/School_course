@@ -97,6 +97,18 @@ func (a Adapter) MustAdmin(w http.ResponseWriter, r *http.Request) (auth.Authent
 	return u, true
 }
 
+func (a Adapter) MustStaff(w http.ResponseWriter, r *http.Request) (auth.AuthenticatedUser, bool) {
+	u, ok := a.MustUser(w, r)
+	if !ok {
+		return auth.AuthenticatedUser{}, false
+	}
+	if u.Role != "Admin" && u.Role != "Teacher" {
+		a.WriteErr(w, http.StatusForbidden, "forbidden", "Staff only")
+		return auth.AuthenticatedUser{}, false
+	}
+	return u, true
+}
+
 func (Adapter) UUIDString(u pgtype.UUID) (string, error) {
 	if !u.Valid {
 		return "", fmt.Errorf("invalid uuid")

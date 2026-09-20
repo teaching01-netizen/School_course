@@ -78,6 +78,13 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 		}
 		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
 		return
+	case "staff-form-batch":
+		if r.Method == http.MethodPost {
+			s.handleStaffAbsenceFormBatch(w, r)
+			return
+		}
+		s.a.WriteErr(w, http.StatusNotFound, "not_found", "Not found")
+		return
 	case "staff-create-batch":
 		if r.Method == http.MethodPost {
 			s.handleStaffCreateAbsenceBatch(w, r)
@@ -124,6 +131,9 @@ func (s *server) handleAbsencesDispatch(w http.ResponseWriter, r *http.Request) 
 			return
 		case len(parts) == 2 && r.Method == http.MethodPut && parts[1] == "status":
 			s.handleAbsenceStatusUpdate(w, r)
+			return
+		case len(parts) == 2 && r.Method == http.MethodPut && parts[1] == "reason":
+			s.handleAbsenceReasonUpdate(w, r)
 			return
 		case len(parts) == 2 && r.Method == http.MethodPut && parts[1] == "notes":
 			s.handleAbsenceNotesUpdate(w, r)

@@ -6,6 +6,7 @@ import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 import Button from "../components/ui/Button";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
+import { useRealtime } from "../hooks/useRealtime";
 import type { TeacherAbsenceDetail as TeacherAbsenceDetailData, TeacherAbsenceSession } from "../types";
 import OverrideSitInModal from "../components/absences/OverrideSitInModal";
 import { formatUTCToZone, formatZoneDateKey } from "../utils/timezone";
@@ -80,6 +81,14 @@ export default function TeacherAbsenceDetail() {
   }, [addToast, id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useRealtime(
+    ["absent:all"],
+    (event) => {
+      if (event.id === id) void load();
+    },
+    { debounceMs: 500, onReconnect: () => { void load(); } },
+  );
 
   if (loading) return <LoadingSkeleton lines={6} />;
   if (!detail) {

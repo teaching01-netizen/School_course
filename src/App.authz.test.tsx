@@ -126,4 +126,28 @@ describe("App route authz", () => {
 
     expect(await screen.findByText("Absence Form Page")).toBeInTheDocument();
   });
+
+  it("redirects anonymous users away from the staff absence form", async () => {
+    setAnonymous();
+    setPath("/staff/absence");
+    render(<App />);
+
+    expect(await screen.findByText("Login Page")).toBeInTheDocument();
+  });
+
+  it("allows teachers to open the staff absence form", async () => {
+    setTeacher();
+    setPath("/staff/absence");
+    render(<App />);
+
+    expect(await screen.findByText("Absence Form Page")).toBeInTheDocument();
+  });
+
+  it("allows administrators to open the staff absence form", async () => {
+    setAdmin();
+    setPath("/staff/absence");
+    render(<App />);
+
+    expect(await screen.findByText("Absence Form Page")).toBeInTheDocument();
+  });
 });

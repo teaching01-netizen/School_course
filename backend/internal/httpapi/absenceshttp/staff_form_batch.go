@@ -9,19 +9,15 @@ import (
 	"warwick-institute/internal/idempotency"
 )
 
-type staffBatchCreateAbsenceRequest struct {
-	Items []staffCreateAbsenceRequest `json:"items"`
-}
-
-func (s *server) handleStaffCreateAbsenceBatch(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.a.MustAdmin(w, r)
+func (s *server) handleStaffAbsenceFormBatch(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustStaff(w, r)
 	if !ok {
 		return
 	}
 
 	createdIDs := make([]string, 0)
 	createdItems := make([]managedAbsenceDTO, 0)
-	if s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-staff-batch", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	if s.a.WithIdempotentTx(w, r, idempotency.SystemActorUUID, "absences-staff-form-batch", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		var body staffBatchCreateAbsenceRequest
 		if err := s.a.DecodeJSON(w, r, &body); err != nil {
@@ -30,7 +26,7 @@ func (s *server) handleStaffCreateAbsenceBatch(w http.ResponseWriter, r *http.Re
 		}
 		if len(body.Items) == 0 {
 			s.a.WriteErr(w, http.StatusBadRequest, "bad_items", "At least one absence is required")
-			return 0, nil, fmt.Errorf("no staff absence items")
+			return 0, nil, fmt.Errorf("no staff absence form items")
 		}
 
 		studentWcode := ""
@@ -43,21 +39,27 @@ func (s *server) handleStaffCreateAbsenceBatch(w http.ResponseWriter, r *http.Re
 			if studentWcode == "" {
 				studentWcode = body.Items[index].Wcode
 			} else if studentWcode != body.Items[index].Wcode {
-				s.a.WriteErr(w, http.StatusBadRequest, "mixed_students", "All staff-created absences must belong to one student")
-				return 0, nil, fmt.Errorf("mixed students in staff batch")
+				s.a.WriteErr(w, http.StatusBadRequest, "mixed_students", "All staff absence form items must belong to one student")
+				return 0, nil, fmt.Errorf("mixed students in staff absence form")
 			}
 		}
 
 		for _, item := range body.Items {
-			createdID, rawDTO, err := s.createStaffAbsenceTx(w, r, tx, qtx, user, item, staffAbsenceCreationOptions{includeSmsPreview: true})
+			createdID, rawDTO, err := s.createStaffAbsenceTx(w, r, tx, qtx, user, item, staffAbsenceCreationOptions{
+				publicForm:        true,
+				includeSmsPreview: false,
+			})
 			if err != nil {
 				return 0, nil, err
 			}
 			dto, ok := rawDTO.(managedAbsenceDTO)
 			if !ok {
 				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not build created absence response")
-				return 0, nil, fmt.Errorf("staff absence response type mismatch")
+				return 0, nil, fmt.Errorf("staff absence form response type mismatch")
 			}
+			// Keep the endpoint silent even if the shared transaction helper is
+			// changed later to populate notification metadata by default.
+			dto.SmsPreview = nil
 			createdIDs = append(createdIDs, createdID)
 			createdItems = append(createdItems, dto)
 		}

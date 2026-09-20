@@ -746,6 +746,92 @@ func (s *server) handleAbsenceStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func (s *server) handleAbsenceReasonUpdate(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.a.MustAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.a.ParseUUID(r.PathValue("id"))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_id", "Invalid absence ID")
+		return
+	}
+	var body struct {
+		Reason          string `json:"reason"`
+		ExpectedVersion *int32 `json:"expected_version"`
+	}
+	if err := s.a.DecodeJSON(w, r, &body); err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
+		return
+	}
+	if body.ExpectedVersion == nil || *body.ExpectedVersion < 1 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_expected_version", "expected_version is required")
+		return
+	}
+
+	reason := strings.TrimSpace(body.Reason)
+	var storedReason any
+	if reason != "" {
+		storedReason = reason
+	}
+	adminID := actorID(user.ID)
+	absenceID := r.PathValue("id")
+	if s.a.WithIdempotentTx(w, r, user.ID, "absences", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		qtx := s.deps.Q.WithTx(tx)
+		current, err := qtx.ManagedAbsenceGet(r.Context(), id)
+		if err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
+		if current.Version != *body.ExpectedVersion {
+			s.writeStaleAbsence(w)
+			return 0, nil, pgx.ErrNoRows
+		}
+
+		version, err := qtx.AbsenceReasonUpdate(r.Context(), id, reason, *body.ExpectedVersion)
+		if err != nil {
+			if sqldb.IsNoRows(err) {
+				s.writeStaleAbsence(w)
+			} else {
+				status, code, message := s.a.ClassifyDBErr(err)
+				s.a.WriteErr(w, status, code, message)
+			}
+			return 0, nil, err
+		}
+
+		var previousReason any
+		if current.Reason.Valid {
+			previousReason = current.Reason.String
+		}
+		details := map[string]any{
+			"previous_reason": previousReason,
+			"new_reason":      storedReason,
+		}
+		if err := qtx.AbsenceAuditInsert(r.Context(), sqldb.AbsenceAuditInsertParams{
+			AbsenceID: id,
+			Action:    "reason_updated",
+			ActorID:   adminID,
+			Details:   details,
+		}); err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write absence timeline")
+			return 0, nil, err
+		}
+		_, err = qtx.AuditInsert(r.Context(), sqldb.AuditInsertParams{
+			ActorUserID: adminID,
+			Action:      "absence.reason_updated",
+			Payload:     map[string]any{"absence_id": absenceID},
+		})
+		if err != nil {
+			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not write audit log")
+			return 0, nil, err
+		}
+		return http.StatusOK, map[string]any{"version": version, "reason": storedReason}, nil
+	}) {
+		s.publishAbsenceChanged(absenceID)
+	}
+}
+
 func (s *server) handleAbsenceNotesUpdate(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {

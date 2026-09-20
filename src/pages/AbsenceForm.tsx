@@ -26,16 +26,25 @@ import type {
   AbsenceFormConfig,
   ManagedAbsence,
   PublicStudentLookupResponse,
+  StudentLookupResponse,
   SubjectSessions,
   VerifiedStudentProfile,
 } from "@/types";
-import { DEFAULT_CONFIG, VERIFICATION_STORAGE_KEY } from "@/features/absences/constants";
+import {
+  DEFAULT_CONFIG,
+  STAFF_ABSENCE_DRAFT_STORAGE_KEY,
+  VERIFICATION_STORAGE_KEY,
+} from "@/features/absences/constants";
 import {
   loadAbsenceFormConfig,
+  loadSessionsInRange,
   loadStudentProfile,
   loadStudentSessions,
+  lookupStaffStudentByWcode,
   lookupStudentByWcode,
   submitAbsenceBatch,
+  submitStaffAbsenceFormBatch,
+  type StaffSessionsInRangeOptions,
 } from "@/features/absences/api/absenceFormApi";
 import {
   absenceScopeKey,
@@ -94,6 +103,29 @@ import {
 import { isWCode, maskNickname, normalizeLookupWcode } from "@/features/absences/domain/studentIdentity";
 
 type StepIndex = 0 | 1 | 2 | 3;
+type AbsenceFormMode = "public" | "staff";
+type AbsenceLookupResponse = PublicStudentLookupResponse | StudentLookupResponse;
+
+function isStaffLookupResponse(value: AbsenceLookupResponse): value is StudentLookupResponse {
+  return "full_name" in value;
+}
+
+function profileFromStaffLookup(student: StudentLookupResponse): VerifiedStudentProfile {
+  return {
+    wcode: student.wcode,
+    display_name: student.display_name?.trim() || student.full_name,
+    email_on_file: Boolean(student.email?.trim() || student.email_crm?.trim() || student.email_system?.trim()),
+    nickname_set: Boolean(student.nickname?.trim()),
+    subjects: student.subjects.map(({ id, code, name, teacher_name, merge_group_id, merge_group_name }) => ({
+      id,
+      code,
+      name,
+      teacher_name,
+      merge_group_id,
+      merge_group_name,
+    })),
+  };
+}
 
 function isStudentSessionUnauthorized(error: unknown): boolean {
   return error instanceof ApiRequestError
@@ -158,28 +190,39 @@ function makeUpPickerOptions(
   });
 }
 
-export default function AbsenceForm() {
+export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMode }) {
+  const isStaff = mode === "staff";
   const { addToast } = useToast();
-  const verification = useOtp(VERIFICATION_STORAGE_KEY);
+  const verification = useOtp(VERIFICATION_STORAGE_KEY, !isStaff);
   const reduceMotion = useReducedMotion();
-  const { draft: savedDraft, saveDraft, clearDraft } = useAbsenceDraft();
+  const { draft: savedDraft, saveDraft, clearDraft } = useAbsenceDraft(
+    isStaff ? STAFF_ABSENCE_DRAFT_STORAGE_KEY : undefined,
+  );
   const draftRef = useRef<AbsenceDraftV1 | null>(savedDraft);
   const [draftNeedsReview, setDraftNeedsReview] = useState(false);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const lookupRequestId = useRef(0);
 
-  const STEP_LABELS = [
-    { label: "Student", description: "Confirm your profile" },
-    { label: "Verify", description: "Parent confirmation" },
-    { label: "Classes", description: "Select classes & make-up" },
-    { label: "Review", description: "Confirm and submit" },
-  ];
+  const STEP_LABELS = isStaff
+    ? [
+      { label: "Student", description: "Select a student" },
+      { label: "Classes", description: "Select classes & make-up" },
+      { label: "Review", description: "Confirm and submit" },
+    ]
+    : [
+      { label: "Student", description: "Confirm your profile" },
+      { label: "Verify", description: "Parent confirmation" },
+      { label: "Classes", description: "Select classes & make-up" },
+      { label: "Review", description: "Confirm and submit" },
+    ];
 
   const [step, setStep] = useState<StepIndex>(0);
+  const classesStep: StepIndex = isStaff ? 1 : 2;
+  const reviewStep: StepIndex = isStaff ? 2 : 3;
   const [config, setConfig] = useState<AbsenceFormConfig>(DEFAULT_CONFIG);
   const [configLoading, setConfigLoading] = useState(true);
   const [lookupInput, setLookupInput] = useState("");
-  const [lookup, setLookup] = useState<PublicStudentLookupResponse | null>(null);
+  const [lookup, setLookup] = useState<AbsenceLookupResponse | null>(null);
   const [studentProfile, setStudentProfile] = useState<VerifiedStudentProfile | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
@@ -270,11 +313,17 @@ export default function AbsenceForm() {
   }, [remainingForGroup, selectedSubjectIdSet, sessions]);
   const manualEmail = collectedEmail.trim();
   const manualEmailValid = /^[^\s@]+@[^\s@]+$/.test(manualEmail);
-  const emailSatisfied = !!lookup && (!lookup.email_input_required || manualEmailValid);
-  const canProceedFromStudent = !!lookup && emailSatisfied;
-  // Pre-verification the profile is not loaded, so the masked lookup hint
-  // stands in for the name; after verification the real display name shows.
-  const studentDisplayName = studentProfile?.display_name || lookup?.nickname_hint || "Student";
+  const publicLookup = lookup && !isStaffLookupResponse(lookup) ? lookup : null;
+  const staffLookup = lookup && isStaffLookupResponse(lookup) ? lookup : null;
+  const emailSatisfied = !!publicLookup && (!publicLookup.email_input_required || manualEmailValid);
+  const canProceedFromStudent = isStaff ? Boolean(staffLookup) : Boolean(publicLookup && emailSatisfied);
+  // Pre-verification the public profile is not loaded, so the masked lookup
+  // hint stands in for the name; staff lookup returns the full identity.
+  const studentDisplayName = studentProfile?.display_name
+    || staffLookup?.display_name
+    || staffLookup?.full_name
+    || publicLookup?.nickname_hint
+    || "Student";
   const verifiedSubjects = studentProfile?.subjects ?? [];
   // One picker entry per absence scope: a merged course appears as one entry
   // even though it spans two subjects, and selecting it selects both.
@@ -305,35 +354,52 @@ export default function AbsenceForm() {
       .finally(() => { if (active) setConfigLoading(false); });
     return () => { active = false; };
   }, [addToast]);
+
+  const loadFormSessions = useCallback(
+    (
+      wcode: string,
+      init?: Pick<RequestInit, "signal">,
+      options?: Pick<StaffSessionsInRangeOptions, "courseIds" | "subjectIds" | "satVerbalAfterPriority">,
+    ) => isStaff
+      ? loadSessionsInRange(wcode, undefined, undefined, init, options)
+      : loadStudentSessions(undefined, undefined, init, options),
+    [isStaff],
+  );
+
   const handleStudentSessionExpired = useCallback(() => {
-    clearStudentSessionHint();
-    verification.clearStoredToken();
-    verification.setCode("");
+    if (!isStaff) {
+      clearStudentSessionHint();
+      verification.clearStoredToken();
+      verification.setCode("");
+    }
     setStudentProfile(null);
     setSessions([]);
     setVerificationSatisfied(false);
-    setVerificationBlocked(true);
-    setPageError("Your verified session expired. Verify again to continue.");
+    setVerificationBlocked(!isStaff);
+    setPageError(isStaff ? "Your staff session expired. Sign in again to continue." : "Your verified session expired. Verify again to continue.");
     setSubmissionError(null);
-    setStep(1);
-  }, [verification.clearStoredToken, verification.setCode]);
+    setStep(isStaff ? 0 : 1);
+  }, [isStaff, verification.clearStoredToken, verification.setCode]);
 
   useEffect(() => {
-    if (step !== 2 || !lookup) return;
+    if (step !== classesStep || !lookup) return;
     const controller = new AbortController();
     setSessionsLoading(true);
     setSessionsError(null);
+    const profileRequest = isStaff && isStaffLookupResponse(lookup)
+      ? Promise.resolve(profileFromStaffLookup(lookup))
+      : loadStudentProfile();
     void Promise.all([
-      loadStudentProfile(),
-      loadStudentSessions(undefined, undefined, { signal: controller.signal }),
+      profileRequest,
+      loadFormSessions(lookup.wcode, { signal: controller.signal }),
     ])
       .then(([profile, data]) => {
         if (controller.signal.aborted) return;
         if (profile.wcode !== lookup.wcode) {
           setStudentProfile(null);
           setSessions([]);
-          setSessionsError("Verification belongs to a different Student ID. Verify this Student ID again.");
-          setStep(1);
+          setSessionsError(isStaff ? "The selected student changed. Search again before continuing." : "Verification belongs to a different Student ID. Verify this Student ID again.");
+          setStep(isStaff ? 0 : 1);
           return;
         }
         setStudentProfile(profile);
@@ -367,19 +433,20 @@ export default function AbsenceForm() {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        if (isStudentSessionUnauthorized(error)) {
+        if (!isStaff && isStudentSessionUnauthorized(error)) {
           handleStudentSessionExpired();
           return;
         }
         setStudentProfile(null);
         setSessions([]);
         setSessionsError(error instanceof Error ? error.message : "Couldn't load your classes");
-      })
-      .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
+    })
+    .finally(() => { if (!controller.signal.aborted) setSessionsLoading(false); });
     return () => controller.abort();
-  }, [step, lookup, sessionsReloadToken, handleStudentSessionExpired]);
+  }, [classesStep, handleStudentSessionExpired, isStaff, loadFormSessions, lookup, sessionsReloadToken, step]);
 
   useEffect(() => {
+    if (isStaff) return;
     let active = true;
     try {
       clearLegacyAbsenceDraft();
@@ -411,18 +478,18 @@ export default function AbsenceForm() {
         .finally(() => { if (active) setLookupLoading(false); });
     } catch { }
     return () => { active = false; };
-  }, []);
+  }, [isStaff]);
 
   useEffect(() => {
-    if (!lookup) return;
-    try { writeStudentResume({ wcode: lookup.wcode, collectedEmail }); } catch { }
-  }, [lookup, collectedEmail]);
+    if (isStaff || !publicLookup) return;
+    try { writeStudentResume({ wcode: publicLookup.wcode, collectedEmail }); } catch { }
+  }, [collectedEmail, isStaff, publicLookup]);
 
   useEffect(() => {
     if (!lookup || finalResults) return;
     saveDraft({
       wcode: lookup.wcode,
-      collectedEmail: collectedEmail || undefined,
+      collectedEmail: isStaff ? undefined : collectedEmail || undefined,
       step,
       selectedSubjectIds: [...selectedSubjectIds],
       selectedSessionIds: [...selectedSessionIds],
@@ -434,6 +501,7 @@ export default function AbsenceForm() {
     lookup,
     finalResults,
     collectedEmail,
+    isStaff,
     step,
     selectedSubjectIds,
     selectedSessionIds,
@@ -444,6 +512,7 @@ export default function AbsenceForm() {
   ]);
 
   useEffect(() => {
+    if (isStaff) return;
     if (!verification.token) {
       setVerificationBlocked(false);
       return;
@@ -456,9 +525,10 @@ export default function AbsenceForm() {
       return;
     }
     setVerificationBlocked(false);
-  }, [verification]);
+  }, [isStaff, verification]);
 
   useEffect(() => {
+    if (isStaff) return;
     if (!verification.token || !verification.expiresAt) return;
     const enforceExpiry = () => {
       if (verification.expiresAt && verification.expiresAt <= Date.now()) {
@@ -471,12 +541,12 @@ export default function AbsenceForm() {
     // One timeout at the expiry instant instead of polling a clock check.
     const timer = window.setTimeout(enforceExpiry, Math.max(0, verification.expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [verification.expiresAt, verification.token]);
+  }, [isStaff, verification.expiresAt, verification.token]);
 
   const handleVerificationSatisfied = useCallback(() => {
     setVerificationSatisfied(true);
-    setStep(2);
-  }, []);
+    setStep(classesStep);
+  }, [classesStep]);
 
   const handleVerificationRestart = useCallback(() => {
     verification.clearStoredToken();
@@ -495,7 +565,7 @@ export default function AbsenceForm() {
     const requestId = ++lookupRequestId.current;
     const cleaned = normalizeLookupWcode(lookupInput);
     setLookupError(null);
-    clearStudentSessionHint();
+    if (!isStaff) clearStudentSessionHint();
     setLookup(null);
     setStudentProfile(null);
     if (!cleaned || !isWCode(cleaned)) {
@@ -513,10 +583,12 @@ export default function AbsenceForm() {
     }
     try {
       setLookupLoading(true);
-      const response = await lookupStudentByWcode(cleaned);
+      const response = isStaff
+        ? await lookupStaffStudentByWcode(cleaned)
+        : await lookupStudentByWcode(cleaned);
       if (requestId !== lookupRequestId.current) return;
       setLookup(response);
-      setStudentProfile(null);
+      setStudentProfile(isStaff && isStaffLookupResponse(response) ? profileFromStaffLookup(response) : null);
       setLookupInput(cleaned);
       setSelectedSubjectIds([]);
       setExpandedSubjectId(null);
@@ -534,8 +606,10 @@ export default function AbsenceForm() {
       setDraftNeedsReview(Boolean(shouldRestoreDraft && draftForStudent && draftForStudent.selectedSubjectIds.length > 0));
       setSubmissionError(null);
       submissionIdempotencyKey.current = newIdempotencyKey();
-      verification.clearStoredToken();
-      verification.setCode("");
+      if (!isStaff) {
+        verification.clearStoredToken();
+        verification.setCode("");
+      }
       setVerificationSatisfied(false);
       setVerificationBlocked(false);
     } catch (error) {
@@ -609,9 +683,8 @@ export default function AbsenceForm() {
       setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
-        const data = await loadStudentSessions(
-          undefined,
-          undefined,
+        const data = await loadFormSessions(
+          lookup.wcode,
           undefined,
           { courseIds: [group.course_id], satVerbalAfterPriority: currentLevel },
         );
@@ -740,7 +813,7 @@ export default function AbsenceForm() {
       focusFirstInvalid('[data-make-up-trigger], select[aria-label*="make-up" i], select');
       return false;
     }
-    if (config.form.require_reason && !reason.trim()) {
+    if (!reason.trim()) {
       setPageError("Please tell us why you'll be away.");
       setReasonError("Please tell us why you'll be away.");
       focusFirstInvalid("#absence-reason");
@@ -751,12 +824,14 @@ export default function AbsenceForm() {
   async function handleSubmitAbsence() {
     setSubmissionError(null);
     setPageError(null);
-    const verificationExpired = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
-    if (!verificationSatisfied || verificationBlocked || verificationExpired) {
-      setVerificationSatisfied(false);
-      setVerificationBlocked(true);
-      goToStep(1);
-      return;
+    if (!isStaff) {
+      const verificationExpired = Boolean(verification.token && verification.expiresAt && verification.expiresAt < Date.now());
+      if (!verificationSatisfied || verificationBlocked || verificationExpired) {
+        setVerificationSatisfied(false);
+        setVerificationBlocked(true);
+        goToStep(1);
+        return;
+      }
     }
     if (!validateClasses()) return;
     if (!lookup) { setPageError("Search for your profile first."); return; }
@@ -764,7 +839,7 @@ export default function AbsenceForm() {
       setIsSubmitting(true);
       let submissionSessions: SubjectSessions[];
       try {
-        const latest = await loadStudentSessions();
+        const latest = await loadFormSessions(lookup.wcode);
         submissionSessions = latest.subjects;
         setSessions(submissionSessions);
         const blockedSessionIds = blockedSitInSessionIds(submissionSessions);
@@ -777,12 +852,12 @@ export default function AbsenceForm() {
           setSitInSelections({});
           setSitInPriorityLevels({});
           setSitInPriorityHistory({});
-          setStep(2);
+          setStep(classesStep);
           setSubmissionError("A selected sit-in session is no longer available. We refreshed the available sessions; choose another session and submit again.");
           return;
         }
       } catch (error) {
-        if (isStudentSessionUnauthorized(error)) {
+        if (!isStaff && isStudentSessionUnauthorized(error)) {
           handleStudentSessionExpired();
           return;
         }
@@ -806,43 +881,52 @@ export default function AbsenceForm() {
       }
       const payloads = payloadResult.payloads;
       if (payloads.length === 0) { setPageError("Select at least one class to submit."); return; }
-      const nicknameForSubmission = studentProfile?.nickname_set === false && nickname.trim()
-        ? nickname.trim()
-        : undefined;
-      let response: Awaited<ReturnType<typeof submitAbsenceBatch>>;
-      try {
-        response = await submitAbsenceBatch({
+      if (isStaff) {
+        const response = await submitStaffAbsenceFormBatch({
           idempotencyKey: submissionIdempotencyKey.current,
-          email: collectedEmail.trim() || undefined,
-          nickname: nicknameForSubmission,
-          reason: reason.trim(),
+          wcode: lookup.wcode,
           items: payloads,
         });
-      } catch (error) {
-        if (error instanceof ApiRequestError && error.code === "bad_nickname") {
-          // Optional enrichment must never block the absence itself: a
-          // nickname landed on file after the profile was loaded, so drop
-          // it and submit once more under a fresh idempotency key.
-          submissionIdempotencyKey.current = newIdempotencyKey();
+        setFinalResults(response.items);
+      } else {
+        const nicknameForSubmission = studentProfile?.nickname_set === false && nickname.trim()
+          ? nickname.trim()
+          : undefined;
+        let response: Awaited<ReturnType<typeof submitAbsenceBatch>>;
+        try {
           response = await submitAbsenceBatch({
             idempotencyKey: submissionIdempotencyKey.current,
             email: collectedEmail.trim() || undefined,
+            nickname: nicknameForSubmission,
             reason: reason.trim(),
             items: payloads,
           });
-        } else {
-          throw error;
+        } catch (error) {
+          if (error instanceof ApiRequestError && error.code === "bad_nickname") {
+            // Optional enrichment must never block the absence itself: a
+            // nickname landed on file after the profile was loaded, so drop
+            // it and submit once more under a fresh idempotency key.
+            submissionIdempotencyKey.current = newIdempotencyKey();
+            response = await submitAbsenceBatch({
+              idempotencyKey: submissionIdempotencyKey.current,
+              email: collectedEmail.trim() || undefined,
+              reason: reason.trim(),
+              items: payloads,
+            });
+          } else {
+            throw error;
+          }
         }
+        setFinalResults(response.items);
       }
-      setFinalResults(response.items);
-      verification.setCode("");
+      if (!isStaff) verification.setCode("");
       try {
-        clearLegacyAbsenceDraft();
-        clearStudentResume();
+        if (!isStaff) clearLegacyAbsenceDraft();
+        if (!isStaff) clearStudentResume();
         clearDraft();
       } catch { }
     } catch (error) {
-      if (isStudentSessionUnauthorized(error)) {
+      if (!isStaff && isStudentSessionUnauthorized(error)) {
         handleStudentSessionExpired();
         return;
       }
@@ -852,7 +936,7 @@ export default function AbsenceForm() {
         setSitInPriorityLevels({});
         setSitInPriorityHistory({});
         setSessionsReloadToken((current) => current + 1);
-        setStep(2);
+        setStep(classesStep);
         setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session was just used for this student. We refreshed the available sessions; choose another session and submit again.");
       } else if (error instanceof ApiRequestError && error.code === "absence_limit_exceeded") {
         setSubmissionError("You have reached the maximum absences allowed for one or more courses. Please go back and remove those courses.");
@@ -899,9 +983,13 @@ export default function AbsenceForm() {
   if (finalResults) {
     const submittedGroups = groupSubmittedAbsences(finalResults, sessions);
     const submittedCount = submittedGroups.length;
-    const successMessage = submittedCount === 1
-      ? "Your absence request has been sent and is waiting for review."
-      : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
+    const successMessage = isStaff
+      ? submittedCount === 1
+        ? "Your absence request has been recorded and is waiting for review."
+        : `Your ${submittedCount} absence requests have been recorded and are waiting for review.`
+      : submittedCount === 1
+        ? "Your absence request has been sent and is waiting for review."
+        : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
     const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
     return (
       <div className="min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
@@ -915,7 +1003,9 @@ export default function AbsenceForm() {
               </div>
               <div>
                 <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-bold tracking-tight text-[var(--color-wi-text)]">
-                  {submittedCount === 1 ? "Absence submitted" : `${submittedCount} absences submitted`}
+                  {isStaff
+                    ? submittedCount === 1 ? "Absence recorded" : `${submittedCount} absences recorded`
+                    : submittedCount === 1 ? "Absence submitted" : `${submittedCount} absences submitted`}
                 </h2>
                 {referenceId && (
                   <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Reference: #{referenceId}</p>
@@ -953,23 +1043,43 @@ export default function AbsenceForm() {
   
   const actionCanProceed =
     step === 0 ? canProceedFromStudent :
-    step === 1 ? verificationSatisfied :
-    step === 2 ? !sessionsLoading && !draftNeedsReview :
-    step === 3 ? verificationSatisfied && !verificationBlocked : false;
+    !isStaff && step === 1 ? verificationSatisfied :
+    step === classesStep ? !sessionsLoading && !draftNeedsReview :
+    step === reviewStep ? (isStaff || (verificationSatisfied && !verificationBlocked)) : false;
 
   const primaryActionLabel =
-    step === 0 ? "Continue to verification" :
-    step === 1 ? "Continue to classes" :
-    step === 2 ? "Review absence" :
+    step === 0 ? (isStaff ? "Continue to classes" : "Continue to verification") :
+    !isStaff && step === 1 ? "Continue to classes" :
+    step === classesStep ? "Review absence" :
     "Submit absence";
 
+  const visibleStep = isStaff
+    ? step === classesStep ? 1 : step === reviewStep ? 2 : 0
+    : step;
+
+  const handleBack = () => {
+    if (isStaff) {
+      if (step === reviewStep) goToStep(classesStep);
+      else if (step === classesStep) goToStep(0);
+      return;
+    }
+    goToStep(Math.max(0, step - 1) as StepIndex);
+  };
+
+  const handleStepClick = (next: number) => {
+    const target = isStaff
+      ? [0, classesStep, reviewStep][next]
+      : next;
+    if (target !== undefined && target < step) goToStep(target as StepIndex);
+  };
+
   const handlePrimaryAction = () => {
-    if (step === 0) goToStep(1);
-    else if (step === 1) goToStep(2);
-    else if (step === 2) {
+    if (step === 0) goToStep(isStaff ? classesStep : 1);
+    else if (!isStaff && step === 1) goToStep(classesStep);
+    else if (step === classesStep) {
       if (!validateClasses()) return;
-      goToStep(3);
-    } else {
+      goToStep(reviewStep);
+    } else if (step === reviewStep) {
       void handleSubmitAbsence();
     }
   };
@@ -980,11 +1090,11 @@ export default function AbsenceForm() {
         header={<AbsenceAppHeader steps={STEP_LABELS} currentStep={0} />}
         footer={
           <AbsenceActionBar
-            currentStep={0}
+            currentStep={visibleStep}
             canProceed={false}
             onBack={() => {}}
             onPrimary={() => {}}
-            primaryLabel="Continue to verification"
+            primaryLabel={primaryActionLabel}
           />
         }
       >
@@ -1000,16 +1110,16 @@ export default function AbsenceForm() {
       header={
         <AbsenceAppHeader
           steps={STEP_LABELS}
-          currentStep={step}
-          onStepClick={(next) => { if (next < step) goToStep(next as StepIndex); }}
+          currentStep={visibleStep}
+          onStepClick={handleStepClick}
         />
       }
       footer={
-        <AbsenceActionBar
-          currentStep={step}
-          canProceed={actionCanProceed}
-          loading={isSubmitting}
-          onBack={() => goToStep(Math.max(0, step - 1) as StepIndex)}
+          <AbsenceActionBar
+            currentStep={visibleStep}
+            canProceed={actionCanProceed}
+            loading={isSubmitting}
+            onBack={handleBack}
           onPrimary={handlePrimaryAction}
           primaryLabel={primaryActionLabel}
         />
@@ -1019,7 +1129,7 @@ export default function AbsenceForm() {
         {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
 
         <p aria-live="polite" className="sr-only">
-          Step {step + 1} of {STEP_LABELS.length}: {STEP_LABELS[step].label} — {STEP_LABELS[step].description}
+          Step {visibleStep + 1} of {STEP_LABELS.length}: {STEP_LABELS[visibleStep].label} — {STEP_LABELS[visibleStep].description}
         </p>
 
         <motion.div
@@ -1074,20 +1184,21 @@ export default function AbsenceForm() {
                           <div>
                             <p className="text-sm font-semibold text-[var(--color-wi-text)]">Student ID found</p>
                             <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
-                            {lookup.nickname_hint ? (
+                            {!isStaff && publicLookup?.nickname_hint ? (
                               <p className="text-xs text-[var(--color-wi-text-light)] mt-1" data-testid="lookup-nickname-hint">
-                                Nickname: {lookup.nickname_hint}
+                                Nickname: {publicLookup.nickname_hint}
                               </p>
                             ) : null}
                           </div>
                           <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
-                            Ready to verify
+                            {isStaff ? "Ready to continue" : "Ready to verify"}
                           </span>
                         </div>
-                        <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">
-                          Parent verification is available. Your student details will appear after verification.
-                        </p>
-                        {lookup.email_input_required ? (
+                        {isStaff ? (
+                          <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">
+                            {studentDisplayName} is ready for class selection.
+                          </p>
+                        ) : publicLookup?.email_input_required ? (
                           <div className="mt-4 space-y-1.5">
                             <label htmlFor="student-email" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
                               Your email address <span className="text-[var(--color-wi-red)]">*</span>
@@ -1121,22 +1232,22 @@ export default function AbsenceForm() {
               </StudentStep>
             )}
 
-            {step === 1 && (
-              lookup ? (
+            {!isStaff && step === 1 && (
+              publicLookup ? (
                 <VerificationStep
                   studentName={studentDisplayName}
-                  wcode={lookup.wcode}
-                  hasPhone={lookup.parent_verification_available}
-                  phoneLabel={lookup.parent_verification_available
-                    ? lookup.parent_phone_hint
-                      ? `Parent phone: ${lookup.parent_phone_hint}`
+                  wcode={publicLookup.wcode}
+                  hasPhone={publicLookup.parent_verification_available}
+                  phoneLabel={publicLookup.parent_verification_available
+                    ? publicLookup.parent_phone_hint
+                      ? `Parent phone: ${publicLookup.parent_phone_hint}`
                       : "Verification phone available"
                     : "No parent phone yet — you'll add it below"}
                 >
                   <StepCoverVerification
-                    lookupToken={lookup.lookup_token}
-                    wcode={lookup.wcode}
-                    parentVerificationAvailable={lookup.parent_verification_available}
+                    lookupToken={publicLookup.lookup_token}
+                    wcode={publicLookup.wcode}
+                    parentVerificationAvailable={publicLookup.parent_verification_available}
                     smsParentEnabled={config.notifications?.sms_parent_enabled ?? true}
                     adminContact={config.admin_contact}
                     verification={verification}
@@ -1154,7 +1265,7 @@ export default function AbsenceForm() {
               ) : null
             )}
 
-            {step === 2 && (
+            {step === classesStep && (
               <ClassesStep>
 
                 {lookup ? (
@@ -1346,7 +1457,9 @@ export default function AbsenceForm() {
                                                       return (
                                                         <div className="text-sm text-[var(--color-wi-text-light)]">
                                                           <p className="font-medium">No more options available</p>
-                                                          <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to arrange a make-up class.</p>
+                                                          {!isStaff ? (
+                                                            <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to arrange a make-up class.</p>
+                                                          ) : null}
                                                         </div>
                                                       );
                                                     }
@@ -1453,7 +1566,7 @@ export default function AbsenceForm() {
                                                     <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-wi-primary)]/10 text-[10px] font-bold text-[var(--color-wi-primary)]">Z</span>
                                                     <span className="font-medium">Online make-up (Zoom)</span>
                                                   </div>
-                                                  <p className="text-xs text-[var(--color-wi-text-light)] ml-7">Staff will send a Zoom link — no need to pick a class</p>
+                                                  <p className="text-xs text-[var(--color-wi-text-light)] ml-7">{isStaff ? "No need to pick a class" : "Staff will send a Zoom link — no need to pick a class"}</p>
                                                 </div>
                                               ) : sitIn && sitIn.sit_in_method === "teacher_case" ? (
                                                 <div className="flex items-center gap-2 text-sm text-[var(--color-wi-amber)]">
@@ -1462,7 +1575,9 @@ export default function AbsenceForm() {
                                               ) : (
                                                 <div className="text-sm text-[var(--color-wi-text-light)]">
                                                   <p className="font-medium">To arrange</p>
-                                                  <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to set up a make-up class.</p>
+                                                  {!isStaff ? (
+                                                    <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to set up a make-up class.</p>
+                                                  ) : null}
                                                 </div>
                                               )}
                                         </SessionDayCard>
@@ -1485,7 +1600,7 @@ export default function AbsenceForm() {
                         setReasonError(null);
                       }}
                       error={reasonError}
-                      required={config.form.require_reason}
+                      required
                     />
                     </div>
                   </div>
@@ -1495,7 +1610,7 @@ export default function AbsenceForm() {
               </ClassesStep>
             )}
 
-            {step === 3 && (
+            {step === reviewStep && (
               <ReviewStep>
                 {lookup ? (
                   <div className="space-y-4">
@@ -1503,7 +1618,7 @@ export default function AbsenceForm() {
                       <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName}</span> — {lookup.wcode}
                     </p>
 
-                    {studentProfile?.nickname_set === false ? (
+                    {!isStaff && studentProfile?.nickname_set === false ? (
                       <div className="rounded-lg border border-[var(--color-wi-border)] bg-white px-5 py-4 space-y-2">
                         <label htmlFor="student-nickname" className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
                           Nickname <span className="normal-case tracking-normal font-medium">(optional)</span>
@@ -1530,7 +1645,7 @@ export default function AbsenceForm() {
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Classes</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(2)}
+                          onClick={() => goToStep(classesStep)}
                           className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           Edit classes
@@ -1565,7 +1680,7 @@ export default function AbsenceForm() {
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(2)}
+                          onClick={() => goToStep(classesStep)}
                           className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           Edit reason

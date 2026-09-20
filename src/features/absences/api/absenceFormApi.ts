@@ -4,6 +4,8 @@ import type {
   ManagedAbsence,
   PublicStudentLookupResponse,
   SessionsInRangeResponse,
+  StaffCreateAbsenceBatchResponse,
+  StaffCreateAbsenceRequest,
   StudentLookupResponse,
   VerifiedStudentProfile,
 } from "../types";
@@ -242,6 +244,36 @@ export async function submitAbsenceBatch(input: {
     if (!(error instanceof TypeError)) throw error;
     return apiJson<AbsenceBatchCreateResponse>(
       "/api/v1/absences/batch",
+      request,
+    );
+  }
+}
+
+export async function submitStaffAbsenceFormBatch(input: {
+  idempotencyKey: string;
+  wcode: string;
+  items: AbsenceBatchCreateItem[];
+}): Promise<StaffCreateAbsenceBatchResponse> {
+  const items: StaffCreateAbsenceRequest[] = input.items.map((item) => ({
+    ...item,
+    wcode: input.wcode,
+    status: "pending",
+  }));
+  const request: RequestInit = {
+    method: "POST",
+    headers: { "Idempotency-Key": input.idempotencyKey },
+    body: JSON.stringify({ items }),
+  };
+
+  try {
+    return await apiJson<StaffCreateAbsenceBatchResponse>(
+      "/api/v1/absences/staff-form-batch",
+      request,
+    );
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return apiJson<StaffCreateAbsenceBatchResponse>(
+      "/api/v1/absences/staff-form-batch",
       request,
     );
   }

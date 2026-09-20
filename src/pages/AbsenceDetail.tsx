@@ -106,13 +106,8 @@ function displaySitInPlanLabel(absence: ManagedAbsence): string {
   return formatSitInLabel(absence);
 }
 
-function displayAbsenceReason(absence: ManagedAbsence): string {
-  const category = absence.reason_category ? titleCase(absence.reason_category) : "";
-  const reason = absence.reason?.trim() ?? "";
-  if (category && reason) {
-    return `${category} - ${reason}`;
-  }
-  return category || reason || "-";
+function displayReasonHistoryValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : "Not provided";
 }
 
 function TimelineIcon({ action }: { action: string }) {
@@ -128,6 +123,8 @@ function TimelineIcon({ action }: { action: string }) {
       return <XCircle className="h-4 w-4 text-red-500" />;
     case "overridden":
       return <RotateCcw className="h-4 w-4 text-amber-500" />;
+    case "reason_updated":
+      return <PenLine className="h-4 w-4 text-[var(--color-wi-primary)]" />;
     default:
       return <Clock className="h-4 w-4 text-[var(--color-wi-text-light)]" />;
   }
@@ -141,6 +138,8 @@ export default function AbsenceDetail() {
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
+  const [reasonDraft, setReasonDraft] = useState("");
+  const [reasonDirty, setReasonDirty] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReasonCategory, setCancelReasonCategory] = useState("");
   const [cancelReasonDetail, setCancelReasonDetail] = useState("");
@@ -155,6 +154,8 @@ export default function AbsenceDetail() {
       setAbsence(result);
       setNotes(result.admin_notes ?? "");
       setNotesDirty(false);
+      setReasonDraft(result.reason ?? "");
+      setReasonDirty(false);
       try {
         const impactResult = await apiJson<{ items: ScheduleImpactIssue[] }>(
           `/api/v1/operations/schedule-issues?absence_id=${encodeURIComponent(id ?? "")}`,
@@ -216,6 +217,29 @@ export default function AbsenceDetail() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveReason() {
+    if (!absence) return;
+    setSaving(true);
+    try {
+      await apiJson(`/api/v1/absences/${absence.id}/reason`, {
+        method: "PUT",
+        body: JSON.stringify({ reason: reasonDraft.trim(), expected_version: absence.version }),
+      });
+      addToast("success", "Reason saved");
+      setReasonDirty(false);
+      await load();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Reason update failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetReason() {
+    setReasonDraft(absence?.reason ?? "");
+    setReasonDirty(false);
   }
 
   function openOverride() {
@@ -295,8 +319,33 @@ export default function AbsenceDetail() {
               <dd>{absence.student_nickname ?? "-"}</dd>
               <dt className="text-[var(--color-wi-text-light)]">Dates</dt>
               <dd className="whitespace-pre-line">{displayAbsenceDates(absence)}</dd>
-              <dt className="text-[var(--color-wi-text-light)]">Reason</dt>
-              <dd>{displayAbsenceReason(absence)}</dd>
+              <dt className="text-[var(--color-wi-text-light)]">Reason category</dt>
+              <dd>{absence.reason_category ? titleCase(absence.reason_category) : "-"}</dd>
+              <dt className="text-[var(--color-wi-text-light)]">Reason details</dt>
+              <dd>
+                <label className="sr-only" htmlFor="detail-reason">Reason details</label>
+                <textarea
+                  id="detail-reason"
+                  value={reasonDraft}
+                  onChange={(e) => {
+                    const nextReason = e.target.value;
+                    setReasonDraft(nextReason);
+                    setReasonDirty(nextReason.trim() !== (absence.reason ?? "").trim());
+                  }}
+                  rows={3}
+                  className="w-full rounded-sm border border-wi-line p-2 text-sm"
+                  placeholder="No additional details provided"
+                />
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  {reasonDirty ? <span className="text-xs text-amber-600">Unsaved changes</span> : <span />}
+                  <div className="flex items-center gap-2">
+                    {reasonDirty ? <Button size="sm" variant="secondary" disabled={saving} onClick={resetReason}>Cancel</Button> : null}
+                    <Button size="sm" disabled={!reasonDirty} loading={saving} onClick={() => void saveReason()}>
+                      <PenLine className="mr-1 h-3.5 w-3.5" /> Save Reason
+                    </Button>
+                  </div>
+                </div>
+              </dd>
               <dt className="text-[var(--color-wi-text-light)]">Submitted</dt>
               <dd>{displayDateTime(absence.created_at)}</dd>
             </dl>
@@ -378,6 +427,12 @@ export default function AbsenceDetail() {
                     <div>
                       <p className="text-sm font-medium text-[var(--color-wi-text)]">{titleCase(entry.action)}</p>
                       <p className="text-xs text-[var(--color-wi-text-light)]">{displayDateTime(entry.created_at)} &mdash; {entry.actor_name ?? entry.actor_role}</p>
+                      {entry.action === "reason_updated" ? (
+                        <div className="mt-2 space-y-1 rounded-sm border border-wi-line-soft bg-[var(--color-wi-row-alt)] p-2 text-xs text-[var(--color-wi-text-light)]">
+                          <p><span className="font-medium text-[var(--color-wi-text)]">Previous:</span> <span className="whitespace-pre-wrap break-words">{displayReasonHistoryValue(entry.details.previous_reason)}</span></p>
+                          <p><span className="font-medium text-[var(--color-wi-text)]">New:</span> <span className="whitespace-pre-wrap break-words">{displayReasonHistoryValue(entry.details.new_reason)}</span></p>
+                        </div>
+                      ) : null}
                     </div>
                   </li>
                 ))}

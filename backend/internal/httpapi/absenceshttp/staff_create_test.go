@@ -19,6 +19,26 @@ func TestDispatchStaffCreate_RouteRegistered(t *testing.T) {
 	}
 }
 
+func TestDispatchStaffAbsenceFormBatch_RouteRegistered(t *testing.T) {
+	server := &server{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/staff-form-batch", nil)
+	w := httptest.NewRecorder()
+	server.handleAbsencesDispatch(w, req)
+	if w.Code == http.StatusNotFound {
+		t.Fatal("POST /absences/staff-form-batch should route to a handler, got 404")
+	}
+}
+
+func TestDispatchStaffAbsenceFormBatch_GetMethodReturns404(t *testing.T) {
+	server := &server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/absences/staff-form-batch", nil)
+	w := httptest.NewRecorder()
+	server.handleAbsencesDispatch(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("GET /absences/staff-form-batch should return 404, got %d", w.Code)
+	}
+}
+
 func TestDispatchStaffCreate_GetMethodReturns404(t *testing.T) {
 	server := &server{}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/absences/staff-create", nil)

@@ -9,6 +9,7 @@ export const LEGACY_VERIFICATION_STORAGE_KEY = `${LEGACY_SESSION_STORAGE_KEY}:pa
 export const STUDENT_RESUME_STORAGE_KEY = "warwick-absence-form-student-v1";
 export const VERIFICATION_STORAGE_KEY = "warwick-absence-parent-verification-v1";
 export const STUDENT_SESSION_HINT_STORAGE_KEY = "warwick-absence-student-session-hint-v1";
+export const STAFF_ABSENCE_DRAFT_STORAGE_KEY = "warwick.absence.staff-draft.v1";
 
 export const DEFAULT_NOTIFICATIONS: AbsenceNotificationsSettings = {
   sms_parent_enabled: true,

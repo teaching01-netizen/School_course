@@ -19,7 +19,7 @@ export function invalidationKeysForEvent(event: RealtimeEventLike): readonly (re
     case "absent:all":
       return [
         queryKeys.absences.all,
-        ...(event.id ? [queryKeys.absences.detail(event.id)] : []),
+        ...(event.id ? [queryKeys.absences.detail(event.id), queryKeys.absences.teacherDetail(event.id)] : []),
         queryKeys.absenceStats,
         queryKeys.operationsCalendar.all,
         queryKeys.teacherDashboards.all,

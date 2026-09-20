@@ -23,6 +23,14 @@ func normalizeSubmissionSitInMethod(raw *string) (pgtype.Text, error) {
 	return absences.NormalizeSubmissionSitInMethod(raw)
 }
 
+func (s *server) requireStudentReason(w http.ResponseWriter, reason pgtype.Text) error {
+	if reason.Valid {
+		return nil
+	}
+	s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Please tell us why you'll be away.")
+	return errors.New("student reason required")
+}
+
 func absenceDayLimitLockKey(wcode, courseID string) string {
 	return "absence-limit:" + normalizeWCode(wcode) + ":" + courseID
 }

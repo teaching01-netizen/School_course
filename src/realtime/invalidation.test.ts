@@ -15,6 +15,7 @@ describe("invalidationKeysForEvent", () => {
     expect(invalidationKeysForEvent({ type: "absence.updated", channel: "absent:all", id: "absence-1" })).toEqual([
       ["absences"],
       ["absences", "detail", "absence-1"],
+      ["absences", "teacher-detail", "absence-1"],
       ["absence-stats"],
       ["operations-calendar"],
       ["teacher-dashboards"],

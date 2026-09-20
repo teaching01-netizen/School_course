@@ -171,6 +171,82 @@ func assertStudentSessionRevoked(t *testing.T, dbpool *pgxpool.Pool, wcode strin
 	}
 }
 
+func TestSelfServiceSubmitRequiresNonBlankReason(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	mux := selfServiceMux(t, dbpool)
+	tests := []struct {
+		name   string
+		batch  bool
+		reason *string
+	}{
+		{name: "batch missing", batch: true},
+		{name: "batch whitespace", batch: true, reason: contractStringPtr(" \t ")},
+		{name: "single missing", reason: nil},
+		{name: "single whitespace", reason: contractStringPtr(" \t ")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seed := seedActiveCourseFixture(t, dbpool)
+			setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
+			ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"])
+			sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
+			rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+
+			body := map[string]any{}
+			if tt.reason != nil {
+				body["reason"] = *tt.reason
+			}
+			if tt.batch {
+				body["items"] = []map[string]any{{
+					"subject_id":         seed.subjID.String(),
+					"course_id":          seed.courses["current"].String(),
+					"date_from":          localDate,
+					"date_to":            localDate,
+					"missed_session_ids": []string{sessionID},
+				}}
+			} else {
+				body["subject_id"] = seed.subjID.String()
+				body["course_id"] = seed.courses["current"].String()
+				body["date_from"] = localDate
+				body["date_to"] = localDate
+				body["missed_session_ids"] = []string{sessionID}
+			}
+
+			path := "/api/v1/absences"
+			if tt.batch {
+				path = "/api/v1/absences/batch"
+			}
+			recorder := postSelfService(t, mux, path, rawToken, body)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
+			}
+			var response struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != "reason_required" {
+				t.Fatalf("error code = %q, want reason_required; body = %s", response.Code, recorder.Body.String())
+			}
+			var absenceCount int
+			if err := dbpool.QueryRow(context.Background(), `
+				SELECT count(*) FROM student_absences WHERE wcode = $1
+			`, seed.wcode).Scan(&absenceCount); err != nil {
+				t.Fatal(err)
+			}
+			if absenceCount != 0 {
+				t.Fatalf("missing reason persisted %d absences, want 0", absenceCount)
+			}
+		})
+	}
+}
+
 // H4: submitting an absence consumes the parent OTP verification session and
 // revokes the student's session, so a single verification cannot fuel an
 // unlimited number of submissions.
@@ -190,6 +266,7 @@ func TestSelfServiceSubmitConsumesOtpAndRevokesSession(t *testing.T) {
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["sibling"], "Asia/Bangkok")
 
 		recorder := postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+			"reason": "Medical appointment",
 			"items": []map[string]any{{
 				"subject_id":         seed.subjID.String(),
 				"course_id":          seed.courses["sibling"].String(),
@@ -235,6 +312,7 @@ func TestSelfServiceSubmitConsumesOtpAndRevokesSession(t *testing.T) {
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 
 		recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
+			"reason":             "Medical appointment",
 			"subject_id":         seed.subjID.String(),
 			"course_id":          seed.courses["current"].String(),
 			"date_from":          localDate,

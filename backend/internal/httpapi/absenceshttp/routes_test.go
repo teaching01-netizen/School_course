@@ -457,3 +457,22 @@ func TestIsAdminRequest_UnauthenticatedReturnsFalse(t *testing.T) {
 		t.Fatal("isAdminRequest should return false for unauthenticated request")
 	}
 }
+
+func TestIsStaffRequest_AdminAndTeacherReturnTrue(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, role := range []string{"Admin", "Teacher"} {
+		if !isStaffRequest(mockSessionValidator{user: auth.AuthenticatedUser{Role: role}}, req) {
+			t.Fatalf("isStaffRequest should return true for %s user", role)
+		}
+	}
+}
+
+func TestIsStaffRequest_NonStaffAndUnauthenticatedReturnFalse(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if isStaffRequest(mockSessionValidator{user: auth.AuthenticatedUser{Role: "User"}}, req) {
+		t.Fatal("isStaffRequest should return false for non-staff user")
+	}
+	if isStaffRequest(mockSessionValidator{err: errors.New("no session")}, req) {
+		t.Fatal("isStaffRequest should return false for unauthenticated request")
+	}
+}

@@ -166,7 +166,8 @@ func parseSessionsRangePrelim(
 	}
 
 	adminRequest := isAdminRequest(s.deps.Auth, r)
-	if requireAdmin && !adminRequest {
+	staffRequest := isStaffRequest(s.deps.Auth, r)
+	if requireAdmin && !staffRequest {
 		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
 		return zero, false
 	}

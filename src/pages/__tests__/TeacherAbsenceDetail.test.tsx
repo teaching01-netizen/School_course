@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import TeacherAbsenceDetail from "../TeacherAbsenceDetail";
 import { ToastProvider } from "../../hooks/useToast";
@@ -14,6 +14,11 @@ vi.mock("@/api/client", async () => {
 const mockUseAuth = vi.hoisted(() => vi.fn());
 vi.mock("../../hooks/useAuth", () => ({
   useAuth: mockUseAuth,
+}));
+
+const mockUseRealtime = vi.hoisted(() => vi.fn());
+vi.mock("../../hooks/useRealtime", () => ({
+  useRealtime: mockUseRealtime,
 }));
 
 const detail = {
@@ -38,6 +43,7 @@ describe("Teacher absence detail", () => {
   beforeEach(() => {
     mockApiJson.mockReset();
     mockUseAuth.mockReturnValue({ user: { username: "teacher", role: "Teacher" }, logout: vi.fn() });
+    mockUseRealtime.mockReset();
   });
 
   it("loads the teacher-scoped endpoint and renders teaching-relevant data read-only", async () => {
@@ -80,6 +86,31 @@ describe("Teacher absence detail", () => {
 
     expect(await screen.findByText("John")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /override sit-in/i })).toBeInTheDocument();
+  });
+
+  it("reloads the current detail when its absence is updated in realtime", async () => {
+    mockApiJson
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValueOnce({ ...detail, reason: "Updated reason" });
+    render(
+      <MemoryRouter initialEntries={["/teacher-dashboard/absences/abs-1"]}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/teacher-dashboard/absences/:id" element={<TeacherAbsenceDetail />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("John")).toBeInTheDocument();
+    const onEvent = mockUseRealtime.mock.calls[0]?.[1] as ((event: { id?: string }) => void) | undefined;
+    expect(onEvent).toBeTypeOf("function");
+    await act(async () => onEvent?.({ id: "abs-1" }));
+
+    await waitFor(() => {
+      expect(mockApiJson).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("Updated reason")).toBeInTheDocument();
+    });
   });
 
   it("flags a missed session whose time changed since recorded", async () => {

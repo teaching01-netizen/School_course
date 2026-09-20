@@ -225,6 +225,7 @@ func TestBatchSubmissionNicknameFillsEmptyRecordAndSnapshots(t *testing.T) {
 
 	request := batchAbsenceCreateRequest{
 		Nickname: contractStringPtr("Bird"),
+		Reason:   contractStringPtr("Medical appointment"),
 		Items:    []batchAbsenceCreateItem{fixture.validItem(0)},
 	}
 	body, err := json.Marshal(request)
@@ -259,6 +260,7 @@ func TestBatchSubmissionNicknameFillsEmptyRecordAndSnapshots(t *testing.T) {
 	fixture.reverify(t)
 	second, err := json.Marshal(batchAbsenceCreateRequest{
 		Nickname: contractStringPtr("Hacker"),
+		Reason:   contractStringPtr("Travel delay"),
 		Items:    []batchAbsenceCreateItem{fixture.validItem(1)},
 	})
 	if err != nil {

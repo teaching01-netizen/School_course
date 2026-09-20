@@ -251,6 +251,14 @@ func isAdminRequest(v httpadapter.SessionValidator, r *http.Request) bool {
 	return err == nil && user.Role == "Admin"
 }
 
+func isStaffRequest(v httpadapter.SessionValidator, r *http.Request) bool {
+	if v == nil {
+		return false
+	}
+	user, err := v.RequireUser(r.Context(), r)
+	return err == nil && (user.Role == "Admin" || user.Role == "Teacher")
+}
+
 func parseSubjectIDFilter(adapter httpadapter.Adapter, raw string) ([]string, error) {
 	var ids []string
 	seen := map[string]bool{}
@@ -309,6 +317,7 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	mux.HandleFunc("GET /api/v1/absences/{id}/timeline", s.handleAbsenceTimeline)
 	mux.HandleFunc("GET /api/v1/absences/{id}/sit-in-candidates", s.handleSitInCandidates)
 	mux.HandleFunc("PUT /api/v1/absences/{id}/status", s.handleAbsenceStatusUpdate)
+	mux.HandleFunc("PUT /api/v1/absences/{id}/reason", s.handleAbsenceReasonUpdate)
 	mux.HandleFunc("PUT /api/v1/absences/{id}/notes", s.handleAbsenceNotesUpdate)
 	mux.HandleFunc("PUT /api/v1/absences/{id}/sit-in", s.handleSitInOverride)
 
@@ -607,13 +616,17 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				reasonCategory = pgtype.Text{String: value, Valid: true}
 			}
 		}
-		if settings.Form.RequireReason && !reasonCategory.Valid {
-			s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Select a reason category")
-			return 0, nil, fmt.Errorf("reason required")
-		}
-		if !settings.Form.AllowFreeTextReason && reason.Valid {
-			s.a.WriteErr(w, http.StatusBadRequest, "free_text_not_allowed", "Free-text reason is disabled")
-			return 0, nil, fmt.Errorf("free text disabled")
+		if adminRequest {
+			if settings.Form.RequireReason && !reasonCategory.Valid {
+				s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Select a reason category")
+				return 0, nil, fmt.Errorf("reason category required")
+			}
+			if !settings.Form.AllowFreeTextReason && reason.Valid {
+				s.a.WriteErr(w, http.StatusBadRequest, "free_text_not_allowed", "Free-text reason is disabled")
+				return 0, nil, fmt.Errorf("free text disabled")
+			}
+		} else if err := s.requireStudentReason(w, reason); err != nil {
+			return 0, nil, err
 		}
 
 		sitInMethod, err := normalizeSubmissionSitInMethod(body.SitInMethod)
@@ -1058,9 +1071,10 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 
 // handleStaffStudentLookup is the staff-only counterpart to the minimal
 // self-service lookup. W-Code is an identifier here, but the authenticated
-// admin session is the authorization boundary for returning student details.
+// authenticated staff session is the authorization boundary for returning
+// student details.
 func (s *server) handleStaffStudentLookup(w http.ResponseWriter, r *http.Request) {
-	if !isAdminRequest(s.deps.Auth, r) {
+	if !isStaffRequest(s.deps.Auth, r) {
 		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
 		return
 	}
@@ -1223,7 +1237,7 @@ func (s *server) handleSitInOptions(w http.ResponseWriter, r *http.Request) {
 
 // handleSessionsInRange serves the staff compatibility endpoint. A student
 // W-Code is not an authorization credential, so valid requests require an
-// authenticated admin session.
+// authenticated Admin or Teacher session.
 func (s *server) handleSessionsInRange(w http.ResponseWriter, r *http.Request) {
 	s.handleSessionsInRangeForWCode(w, r, "", true)
 }
@@ -1284,8 +1298,9 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 		dateTo = now.AddDate(0, 0, 90)
 	}
 
+	staffRequest := isStaffRequest(s.deps.Auth, r)
 	adminRequest := isAdminRequest(s.deps.Auth, r)
-	if requireAdmin && !adminRequest {
+	if requireAdmin && !staffRequest {
 		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
 		return
 	}
@@ -1386,7 +1401,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	var rows pgx.Rows
 	if includeAllSubjects {
 		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeAllSubjectsSelectSQL(), strings.Join(subjectIDFilter, ","), dateFrom, dateTo.AddDate(0, 0, 1))
-	} else if adminRequest {
+	} else if staffRequest {
 		if lifetime {
 			rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeLifetimeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
 		} else {

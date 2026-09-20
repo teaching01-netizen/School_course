@@ -141,6 +141,9 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/absence" element={<AbsenceForm />} />
+            <Route element={<RequireTeacherOrAdmin />}>
+              <Route path="/staff/absence" element={<AbsenceForm mode="staff" />} />
+            </Route>
             <Route element={<RequireAuth />}>
               <Route path="/" element={<IndexRoute />} />
               <Route element={<RequireTeacherOrAdmin />}>

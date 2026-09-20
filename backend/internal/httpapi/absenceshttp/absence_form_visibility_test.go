@@ -143,6 +143,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	t.Run("student_single_submit_rejected", func(t *testing.T) {
 		_, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
+			"reason":     "Medical appointment",
 			"subject_id": seed.subjID.String(),
 			"course_id":  seed.courses["current"].String(),
 			"date_from":  localDate,
@@ -165,6 +166,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	t.Run("student_batch_submit_rejected", func(t *testing.T) {
 		_, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+			"reason": "Medical appointment",
 			"items": []map[string]any{{
 				"subject_id": seed.subjID.String(),
 				"course_id":  seed.courses["current"].String(),
@@ -191,6 +193,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"], 15)
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+			"reason": "Medical appointment",
 			"items": []map[string]any{{
 				"subject_id":         seed.subjID.String(),
 				"course_id":          seed.courses["current"].String(),
@@ -219,6 +222,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["current"])
 		sessionID, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 		recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
+			"reason":             "Medical appointment",
 			"subject_id":         seed.subjID.String(),
 			"course_id":          seed.courses["current"].String(),
 			"date_from":          localDate,
@@ -251,6 +255,7 @@ func TestInactiveCourseCannotPassStudentGatesWhenVisibilityIsStale(t *testing.T)
 
 	_, localDate := pickCourseSessionDate(t, dbpool, seed.courses["current"], "Asia/Bangkok")
 	recorder := postSelfService(t, mux, "/api/v1/absences", rawToken, map[string]any{
+		"reason":     "Medical appointment",
 		"subject_id": seed.subjID.String(),
 		"course_id":  seed.courses["current"].String(),
 		"date_from":  localDate,
@@ -272,6 +277,7 @@ func TestInactiveCourseCannotPassStudentGatesWhenVisibilityIsStale(t *testing.T)
 	ensureCourseAbsenceHeadroom(t, dbpool, seed.courses["old"], 15)
 	sessionID, oldDate := pickCourseSessionDate(t, dbpool, seed.courses["old"], "Asia/Bangkok")
 	recorder = postSelfService(t, mux, "/api/v1/absences/batch", rawToken, map[string]any{
+		"reason": "Medical appointment",
 		"items": []map[string]any{{
 			"subject_id":         seed.subjID.String(),
 			"course_id":          seed.courses["old"].String(),

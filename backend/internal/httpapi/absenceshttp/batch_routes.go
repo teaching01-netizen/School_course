@@ -166,13 +166,8 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 				reasonCategory = pgtype.Text{String: value, Valid: true}
 			}
 		}
-		if settings.Form.RequireReason && !reasonCategory.Valid {
-			s.a.WriteErr(w, http.StatusBadRequest, "reason_required", "Select a reason category")
-			return 0, nil, fmt.Errorf("reason required")
-		}
-		if !settings.Form.AllowFreeTextReason && reason.Valid {
-			s.a.WriteErr(w, http.StatusBadRequest, "free_text_not_allowed", "Free-text reason is disabled")
-			return 0, nil, fmt.Errorf("free text disabled")
+		if err := s.requireStudentReason(w, reason); err != nil {
+			return 0, nil, err
 		}
 
 		var studentPhone pgtype.Text

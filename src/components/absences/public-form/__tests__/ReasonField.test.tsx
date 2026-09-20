@@ -16,6 +16,7 @@ describe("ReasonField", () => {
 
     const reason = screen.getByRole("textbox", { name: /reason for absence/i });
     expect(reason).toHaveAttribute("maxLength", "500");
+    expect(reason).toBeRequired();
     await user.type(reason, "Medical appointment");
     expect(screen.getByText("19/500 characters")).toBeInTheDocument();
   });
