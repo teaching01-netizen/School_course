@@ -177,7 +177,7 @@ describe("AbsenceForm - 20% session limit", () => {
       });
     });
 
-    it("shows 'Limit reached' when absence_limit_reached is true", async () => {
+    it("shows the absence-limit label when absence_limit_reached is true", async () => {
       const sessions = createSessionsWithLimits(2, 10);
       const user = await setupForm(sessions);
 
@@ -185,8 +185,9 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(courseCheckbox);
 
       await waitFor(() => {
-        expect(screen.getByText("Limit reached")).toBeInTheDocument();
+        expect(screen.getByText("Absence limit reached")).toBeInTheDocument();
       });
+      expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
     });
 
     it("shows correct max count in limit message (10-session course → max 2)", async () => {
@@ -197,7 +198,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(courseCheckbox);
 
       await waitFor(() => {
-        expect(screen.getByText(/max 2/)).toBeInTheDocument();
+        expect(screen.getAllByText(/max 2/).length).toBeGreaterThan(0);
       });
     });
 
@@ -209,7 +210,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(courseCheckbox);
 
       await waitFor(() => {
-        expect(screen.getByText(/max 4/)).toBeInTheDocument();
+        expect(screen.getAllByText(/max 4/).length).toBeGreaterThan(0);
       });
     });
 
@@ -323,12 +324,12 @@ describe("AbsenceForm - 20% session limit", () => {
       if (firstAvailableSession) {
         await user.click(firstAvailableSession);
         await waitFor(() => {
-          expect(screen.getByText("Limit reached")).toBeInTheDocument();
+          expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0);
         });
       }
     });
 
-    it("hides session checkboxes when already at limit", async () => {
+    it("keeps session dates visible with an inline limit reason when already at limit", async () => {
       const sessions = createSessionsWithLimits(2, 10);
       const user = await setupForm(sessions);
 
@@ -336,13 +337,17 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(courseCheckbox);
 
       await waitFor(() => {
-        expect(screen.getByText("Limit reached")).toBeInTheDocument();
+        expect(screen.getByText("Absence limit reached")).toBeInTheDocument();
       });
+      expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
 
       const sessionCheckboxes = (screen.getAllByRole("checkbox")).filter(
         (cb) => cb.getAttribute("id")?.startsWith("session-"),
       );
-      expect(sessionCheckboxes.length).toBe(0);
+      expect(sessionCheckboxes.length).toBeGreaterThan(0);
+      expect(sessionCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
+      expect(screen.getAllByText("Can't select — absence limit reached").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/absence days used, max 2/).length).toBeGreaterThan(0);
     });
   });
 
@@ -363,8 +368,10 @@ describe("AbsenceForm - 20% session limit", () => {
       }
 
       await waitFor(() => {
-        expect(screen.getByText("Limit reached")).toBeInTheDocument();
+        expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0);
       });
+      expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
     it("blocks selecting more than 20% of sessions in one request (20-session course)", async () => {
@@ -383,8 +390,10 @@ describe("AbsenceForm - 20% session limit", () => {
       }
 
       await waitFor(() => {
-        expect(screen.getByText("Limit reached")).toBeInTheDocument();
+        expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0);
       });
+      expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
 
@@ -486,7 +495,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(mathSessions[0]);
       await user.click(mathSessions[1]);
 
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       const phyCheckbox = await screen.findByRole("checkbox", { name: /physics/i });
       await user.click(phyCheckbox);
@@ -508,7 +517,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(mathSessions[0]);
       await user.click(mathSessions[1]);
 
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       await user.click(mathSessions[2]);
       const mathAfter = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m") && cb.getAttribute("id")?.startsWith("session-"));
@@ -526,7 +535,7 @@ describe("AbsenceForm - 20% session limit", () => {
       const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
       await user.click(mathSessions[0]);
       await user.click(mathSessions[1]);
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       await user.click(mathSessions[0]);
       await waitFor(() => expect(screen.getByText("1 day remaining")).toBeInTheDocument());
@@ -623,7 +632,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(mathSessions[0]);
       await user.click(mathSessions[1]);
 
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       await user.click(mathSessions[2]);
       const mathChecked = sessionCbs()
@@ -727,7 +736,7 @@ describe("AbsenceForm - 20% session limit", () => {
       await user.click(mathSessions[0]);
       await user.click(mathSessions[1]);
 
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       const mathUnchecked = mathSessions.filter((cb) => !(cb as HTMLInputElement).checked);
       for (const cb of mathUnchecked) {
@@ -800,7 +809,7 @@ describe("AbsenceForm - 20% session limit", () => {
       const mathSessions = sessionCbs().filter((cb) => cb.getAttribute("id")?.includes("m"));
       const availableMathSessions = mathSessions.filter((cb) => !cb.hasAttribute("disabled"));
       await user.click(availableMathSessions[0]);
-      await waitFor(() => expect(screen.getByText("Limit reached")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0));
 
       await user.click(availableMathSessions[1]);
       const mathChecked = sessionCbs()

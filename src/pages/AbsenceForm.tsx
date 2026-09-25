@@ -60,19 +60,17 @@ import {
   type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
+import { getAbsenceMessageCopy } from "@/features/absences/domain/absenceMessageCopy";
 import {
   availableSessionsForMissedSession,
   availableSessionsForMissedSessions,
   firstPriorityLevel,
-  getCurrentSitInDisplayName,
   getReviewSitInLabel,
   appendTeacher,
-  getSitInCourseDisplayName,
-  getSitInSessionSubjectTimeLabel,
-  getSitInSessionLabel,
+  normalizeSitInDisplayModel,
+  formatSitInDisplayDetails,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
-  formatHistoricalSitInConflictDescription,
   formatSitInSubmissionConflictDetails,
   blockedSitInSessionIds,
   sitInOptionGroupsBySession,
@@ -207,18 +205,34 @@ function makeUpPickerOptions(
   const currentIds = new Set(splitMergedSessionValue(currentValue));
   return optionGroups.map((optionGroup) => {
     const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
-    const conflictDescription = formatSitInSessionConflictDescription(conflicts);
-    const historicalDescription = optionGroup.items.map(formatHistoricalSitInConflictDescription).find(Boolean);
+    const conflictDetails = formatSitInSessionConflictDescription(conflicts)?.replace(/^Overlaps with\s*/, "");
+    const historicalUnavailable = optionGroup.items.some((item) => Boolean(item.conflict));
     const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
     const duplicateOwner = optionGroup.items.map((item) => currentOwners.get(item.id)).find(Boolean);
-    const duplicateDescription = duplicateSelection
-      ? `${getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions)} is already assigned to an absence for ${duplicateOwner?.subjectName ?? groupLabel} on ${duplicateOwner?.date ?? "another day"}. Submission will be blocked.`
+    const message = conflicts.length > 0
+      ? "You already have another class at this time."
+      : historicalUnavailable
+        ? getAbsenceMessageCopy("sit_in_session_already_used")
+        : duplicateSelection
+          ? "You already chose this make-up class for another absence. Choose a different time."
+          : undefined;
+    const duplicateDetails = duplicateSelection
+      ? `Already chosen for ${duplicateOwner?.subjectName ?? groupLabel} on ${duplicateOwner?.date ?? "another day"}.`
       : undefined;
+    const display = normalizeSitInDisplayModel(
+      optionGroup.items,
+      optionGroup.sitInCourse ?? defaultSitInCourse,
+      groupLabel,
+      sessions,
+      message ? { status: "unavailable", message } : undefined,
+    );
     return {
       value: mergedSessionValue(optionGroup.items),
-      label: getSitInSessionSubjectTimeLabel(optionGroup.items, optionGroup.sitInCourse ?? defaultSitInCourse, groupLabel, sessions),
-      disabled: conflicts.length > 0 || Boolean(historicalDescription) || duplicateSelection,
-      description: [conflictDescription, historicalDescription, duplicateDescription].filter(Boolean).join(" ") || undefined,
+      label: display.className,
+      details: formatSitInDisplayDetails(display),
+      disabled: conflicts.length > 0 || historicalUnavailable || duplicateSelection,
+      description: message,
+      conflictDetails: conflictDetails ?? duplicateDetails,
     };
   });
 }
@@ -700,8 +714,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     const projectedDays = countSelectedAbsenceDaysForScope(scopedGroups, next, scopeKey);
     const remaining = Math.max(0, ...scopedGroups.map(remainingForGroup));
     if (projectedDays > remaining || projectedDays > maxSessions) {
-      const label = group.merge_group_name?.trim() || group.course_name?.trim() || "this course";
-      setPageError(`You can report ${remaining > 0 ? `only ${Math.min(remaining, maxSessions)} more absence day${Math.min(remaining, maxSessions) !== 1 ? "s" : ""} for ${label}` : `no more absences for ${label}`}. Remove a selected day first if you need to change your selection.`);
+      setPageError(null);
       return;
     }
     setPageError(null);
@@ -1393,6 +1406,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               const selectedDaysInGroup = selectedDaysByScope.get(scopeKey) ?? 0;
                               const effectiveRemaining = Math.max(0, groupRemaining - selectedDaysInGroup);
                               const quotaGroup = block.groups[0];
+                              const quotaExhausted = block.groups.every((group) => group.absence_limit_reached) || groupRemaining === 0;
+                              const displayedRemaining = quotaExhausted ? 0 : effectiveRemaining;
                               return (
                                 <div
                                   key={block.key}
@@ -1405,29 +1420,14 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                   <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
-                                      {block.groups.every((g) => g.absence_limit_reached)
-                                        ? "Limit reached"
+                                      {quotaExhausted
+                                        ? "Absence limit reached"
                                         : effectiveRemaining === 0
-                                          ? "Limit reached"
-                                          : `${effectiveRemaining} day${effectiveRemaining !== 1 ? "s" : ""} remaining`}
+                                          ? "All remaining days selected"
+                                          : `${displayedRemaining} day${displayedRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
                                   </div>
-                                  {block.groups.every((g) => g.absence_limit_reached) ? (
-                                    <div className="p-4">
-                                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
-                                        <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                                        </svg>
-                                        <span>
-                                          You have reached the maximum absences allowed for {block.isMerged ? "this merged course" : "this course"}.
-                                          {quotaGroup.used_absence_days != null && (quotaGroup.maximum_absence_days != null || quotaGroup.total_course_days != null)
-                                            ? ` (${quotaGroup.used_absence_days} absence day${quotaGroup.used_absence_days !== 1 ? "s" : ""} used, max ${quotaGroup.maximum_absence_days ?? Math.round((quotaGroup.total_course_days ?? 0) / 5)})`
-                                            : ""}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2 p-4">
+                                  <div className="space-y-2 p-4">
                                       {sessionGroups.map((dayGroup) => {
                                         const session = dayGroup.items[0];
                                         const ownerGroup = ownerGroupBySessionId.get(session.id) ?? quotaGroup;
@@ -1437,6 +1437,17 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                         const alreadyAbsent = sessionIds.length === 0;
                                         const selected = !alreadyAbsent
                                           && sessionIds.every((sessionId) => selectedSessionIds.has(sessionId));
+                                        const selectionDisabled = !selected && (quotaExhausted || effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions);
+                                        const disabledReason = quotaExhausted
+                                          ? "absence_limit_reached"
+                                          : selectionDisabled
+                                            ? "remaining_days_selected"
+                                            : undefined;
+                                        const disabledDetail = quotaExhausted
+                                          && quotaGroup.used_absence_days != null
+                                          && (quotaGroup.maximum_absence_days != null || quotaGroup.total_course_days != null)
+                                          ? `${quotaGroup.used_absence_days} absence day${quotaGroup.used_absence_days !== 1 ? "s" : ""} used, max ${quotaGroup.maximum_absence_days ?? Math.round((quotaGroup.total_course_days ?? 0) / 5)}`
+                                          : undefined;
                                         const currentSitIn = sitInSelections[session.id] || "";
                                         const sessionGroup = groupWithSitInForMissedSession(ownerGroup, session.id);
                                       const baseSitIn = sessionGroup.sit_in;
@@ -1450,10 +1461,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                       const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
                                       const sitIn = priorityGroup.sit_in;
                                       const sitInAvailable = rootAvailableSessionsForMissedSessions(sitIn, sessionIds);
-                                      const sitInUnavailable = sitIn?.unavailable_sessions ?? [];
                                       const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
                                       const currentPriorities = hasPriorities ? prioritiesForLevel(priorityGroup, currentLevel) : [];
-                                      const sitInClassLabel = getCurrentSitInDisplayName(sitIn, currentPriorities, groupLabel, sessions);
 
                                       return (
                                         <SessionDayCard
@@ -1461,7 +1470,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                           dayGroup={dayGroup}
                                           selected={selected}
                                           alreadyAbsent={alreadyAbsent}
-                                          disabled={!selected && (effectiveRemaining === 0 || selectedDaysInGroup >= maxSessions)}
+                                          disabled={selectionDisabled}
+                                          disabledReason={disabledReason}
+                                          disabledDetail={disabledDetail}
                                           onToggle={() => handleSessionGroupToggle(ownerGroup, sessionIds)}
                                           reduceMotion={reduceMotion}
                                         >
@@ -1480,114 +1491,111 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                       availableSessionsForMissedSessions(p, sessionIds));
                                                     const currentPriorityUnavailable = currentPriorities.flatMap(p =>
                                                       unavailableSessionsForMissedSession(p, session.id).map((u) => ({ ...u, sitInCourse: p.sit_in_course })));
-                                                    const hasBlockedPriorityUnavailable = currentPriorityUnavailable.some((u) => u.reason_code === "sit_in_session_already_used");
+                                                    const unavailableForCard = currentPriorityUnavailable.find((item) => item.session) ?? currentPriorityUnavailable[0];
+                                                    const unavailableDisplay = unavailableForCard
+                                                      ? normalizeSitInDisplayModel(
+                                                        unavailableForCard.session ? [unavailableForCard.session] : [],
+                                                        unavailableForCard.sitInCourse,
+                                                        block.label,
+                                                        sessions,
+                                                        { status: "unavailable", reasonCode: unavailableForCard.reason_code },
+                                                      )
+                                                      : undefined;
+                                                    const previousTimesAction = hasPreviousPriority ? (
+                                                      <button
+                                                        type="button"
+                                                        disabled={revealingPriority}
+                                                        onClick={() => handlePreviousPriority(priorityGroup, session.id)}
+                                                        aria-label="See previous times"
+                                                        className="inline-flex h-8 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50"
+                                                      >
+                                                        <ChevronLeft className="h-3.5 w-3.5" />
+                                                        <span>Previous times</span>
+                                                      </button>
+                                                    ) : null;
+                                                    const otherTimesAction = hasMorePriorities ? (
+                                                      <button
+                                                        type="button"
+                                                        disabled={revealingPriority}
+                                                        onClick={() => void handleNotAvailable(priorityGroup, session.id)}
+                                                        className="inline-flex h-8 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50"
+                                                      >
+                                                        <span>{revealingPriority ? "Loading..." : "See other times"}</span>
+                                                        {!revealingPriority && (
+                                                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                          </svg>
+                                                        )}
+                                                      </button>
+                                                    ) : null;
 
                                                     if (!currentPriority) {
                                                       return (
-                                                        <div className="text-sm text-[var(--color-wi-text-light)]">
-                                                          <p className="font-medium">No more options available</p>
-                                                          {!isStaff ? (
-                                                            <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Staff will contact you to arrange a make-up class.</p>
+                                                        <div role="status" className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3 text-sm text-[var(--color-wi-text-light)]">
+                                                          <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
+                                                          {!isStaff && !hasMorePriorities ? (
+                                                            <p className="mt-0.5 text-xs">Staff will help arrange the next step.</p>
                                                           ) : null}
+                                                          <div className="mt-2 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
                                                         </div>
                                                       );
                                                     }
 
                                                     return (
                                                       <div className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
-                                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-
-                                                          {(hasPreviousPriority || hasMorePriorities) && (
-                                                            <div className="inline-flex w-full shrink-0 overflow-hidden rounded-full border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-0.5 sm:w-fit">
-                                                              {hasPreviousPriority && (
-                                                                <button
-                                                                  type="button"
-                                                                  disabled={revealingPriority}
-                                                                  onClick={() => handlePreviousPriority(priorityGroup, session.id)}
-                                                                  aria-label="See previous times"
-                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
-                                                                >
-                                                                  <ChevronLeft className="h-3.5 w-3.5" />
-                                                                  <span>Back</span>
-                                                                </button>
-                                                              )}
-                                                              {hasMorePriorities && (
-                                                                <button
-                                                                  type="button"
-                                                                  disabled={revealingPriority}
-                                                                  onClick={() => void handleNotAvailable(priorityGroup, session.id)}
-                                                                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50 sm:flex-none"
-                                                                >
-                                                                  <span>{revealingPriority ? "Loading..." : "See other times"}</span>
-                                                                  {!revealingPriority && (
-                                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                                                    </svg>
-                                                                  )}
-                                                                </button>
-                                                              )}
-                                                            </div>
-                                                          )}
-                                                        </div>
                                                         {currentPriorityAvailable.length === 0 ? (
-                                                          <div className="mt-1.5 space-y-2">
-                                                            <p className="rounded-md border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-3 py-2 text-sm text-[var(--color-wi-text-light)]">
-                                                              No available make-up class for this priority.
-                                                            </p>
-                                                            {currentPriorityUnavailable.length > 0 ? (
-                                                              <div className="rounded-md border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs text-[var(--color-wi-amber)]">
-                                                                <p className="font-semibold">{hasBlockedPriorityUnavailable ? "This sit-in session is already used:" : "Unavailable make-up class:"}</p>
-                                                                <ul className="mt-1 space-y-1">
-                                                                  {currentPriorityUnavailable.map((unavailable, index) => {
-                                                                    const checkedSession = unavailable.session;
-                                                                    const unavailableReason = unavailable.reason_code === "before_request_date"
-                                                                      ? "This make-up class has already passed."
-                                                                      : unavailable.reason;
-                                                                    const slotLabel = checkedSession
-                                                                      ? getSitInSessionLabel(checkedSession, unavailable.sitInCourse, groupLabel, sessions)
-                                                                      : `${getSitInCourseDisplayName(unavailable.sitInCourse, groupLabel, sessions) || "Target section"} class #${unavailable.occurrence_number ?? "?"}`;
-                                                                    return (
-                                                                      <li key={`${unavailable.reason_code}-${checkedSession?.id ?? index}`}>
-                                                                        <span className="font-medium">{slotLabel}</span>
-                                                                        <span className="text-[var(--color-wi-amber)]"> — {unavailableReason}</span>
-                                                                      </li>
-                                                                    );
-                                                                  })}
-                                                                </ul>
-                                                              </div>
-                                                            ) : null}
+                                                          <div role="status" className="space-y-1.5 text-sm">
+                                                            {hasMorePriorities && unavailableDisplay?.message ? (
+                                                              <>
+                                                                <p className="font-semibold text-[var(--color-wi-text)]">{unavailableDisplay.message}</p>
+                                                                <p className="font-medium text-[var(--color-wi-text)]">{unavailableDisplay.className}</p>
+                                                                {formatSitInDisplayDetails(unavailableDisplay) ? (
+                                                                  <p className="text-xs text-[var(--color-wi-text-light)]">{formatSitInDisplayDetails(unavailableDisplay)}</p>
+                                                                ) : null}
+                                                              </>
+                                                            ) : (
+                                                              <>
+                                                                <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
+                                                                {!isStaff ? <p className="text-xs text-[var(--color-wi-text-light)]">Staff will help arrange the next step.</p> : null}
+                                                              </>
+                                                            )}
+                                                            <div className="flex flex-wrap gap-2 pt-1">{previousTimesAction}{otherTimesAction}</div>
                                                           </div>
                                                         ) : (
-                                                          <MakeUpPicker
-                                                            id={`sit-in-${session.id}`}
-                                                            label="Make-up class"
-                                                            value={currentSitIn}
-                                                            options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
-                                                            onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
-                                                          />
+                                                          <>
+                                                            {(hasPreviousPriority || hasMorePriorities) && (
+                                                              <div className="mb-3 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
+                                                            )}
+                                                            <MakeUpPicker
+                                                              id={`sit-in-${session.id}`}
+                                                              label="Make-up class"
+                                                              value={currentSitIn}
+                                                              options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
+                                                              onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
+                                                            />
+                                                          </>
                                                         )}
                                                       </div>
                                                     );
                                                   }
                                                   return (
                                                     <div>
-                                                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)] mb-2">
-                                                        Pick a make-up class
-                                                      </div>
-                                                      <p className="text-xs text-[var(--color-wi-text-light)] mb-2 truncate">Sit-in class: {sitInClassLabel}</p>
-                                                      {sitInUnavailable.some((u) => u.reason_code === "sit_in_session_already_used") && sitInAvailable.length === 0 ? (
-                                                        <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                                          <p className="font-semibold">This sit-in session is already used.</p>
-                                                          <p className="mt-0.5 text-xs">Choose another sit-in session.</p>
+                                                      {sitInAvailable.length === 0 ? (
+                                                        <div role="status" className="rounded-md border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-3 py-2 text-sm">
+                                                          <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
+                                                          {!isStaff ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Staff will help arrange the next step.</p> : null}
                                                         </div>
                                                       ) : (
-                                                        <MakeUpPicker
-                                                          id={`sit-in-${session.id}`}
-                                                          label="Make-up class"
-                                                          value={currentSitIn}
-                                                          options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, groupLabel, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
-                                                          onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
-                                                        />
+                                                        <>
+                                                          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)]">Pick a make-up class</div>
+                                                          <MakeUpPicker
+                                                            id={`sit-in-${session.id}`}
+                                                            label="Make-up class"
+                                                            value={currentSitIn}
+                                                            options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
+                                                            onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
+                                                          />
+                                                        </>
                                                       )}
                                                     </div>
                                                   );
@@ -1616,7 +1624,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                       );
                                     })}
                                   </div>
-                                )}
                                 </div>
                               );
                             })}

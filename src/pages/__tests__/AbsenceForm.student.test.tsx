@@ -357,7 +357,8 @@ describe("AbsenceForm Student step", () => {
     expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     await continueThroughVerification(user);
 
-    expect(await screen.findByText(/no available make-up class for this priority/i)).toBeInTheDocument();
+    expect(await screen.findByText("No make-up times available")).toBeInTheDocument();
+    expect(screen.getByText("Staff will help arrange the next step.")).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).toBeChecked();

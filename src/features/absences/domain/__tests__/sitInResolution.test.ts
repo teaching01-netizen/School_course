@@ -19,6 +19,8 @@ import {
   getReviewSitInLabel,
   getSitInSessionLabel,
   getSitInSessionGroupLabel,
+  normalizeSitInDisplayModel,
+  formatSitInDisplayDetails,
   findSitInSessionConflicts,
   formatSitInSessionConflictDescription,
   sitInOptionsByTargetAndSession,
@@ -420,6 +422,52 @@ describe("getSitInSessionLabel", () => {
     );
   });
 
+  it("normalizes real course and session fields without duplicating subject and course names", () => {
+    const session = {
+      id: "sat-r3s1-sep23",
+      start_at: "2026-09-23T10:00:00Z",
+      end_at: "2026-09-23T13:20:00Z",
+      class_name: "SAT Verbal Reading : Rank 3 (Section 1) C3",
+      subject_name: "SAT Verbal Reading",
+      course_name: "SAT Verbal Rank 3 Section 1 C3",
+      teacher_name: "AJ. NICE",
+    };
+    const model = normalizeSitInDisplayModel([session], undefined, "SAT Verbal Reading", []);
+
+    expect(model).toMatchObject({
+      className: "SAT Verbal Rank 3 Section 1 C3",
+      subjectName: "SAT Verbal Reading",
+      teacherName: "AJ. NICE",
+      date: "Wed, 23 Sep",
+      startTime: "17:00",
+      endTime: "20:20",
+      status: "available",
+      message: undefined,
+    });
+    expect(formatSitInDisplayDetails(model)).toBe("AJ. NICE · Wed, 23 Sep · 17:00–20:20");
+    expect(getSitInSessionLabel(session, undefined, "SAT Verbal Reading", [])).toBe(
+      "SAT Verbal Rank 3 Section 1 C3 (AJ. NICE) — Wed, 23 Sept 2026 17:00-20:20",
+    );
+  });
+
+  it("prefers the merged course name for a merged sit-in target", () => {
+    const session = {
+      id: "merged-sit-in",
+      start_at: "2026-09-23T10:00:00Z",
+      end_at: "2026-09-23T13:20:00Z",
+      subject_name: "SAT Verbal Reading",
+      course_name: "SAT Verbal Reading Rank 3 Section 1",
+    };
+    const model = normalizeSitInDisplayModel(
+      [session],
+      { id: "merged", code: "SATV", name: "SAT Verbal Reading Rank 3 Section 1", merge_group_name: "SAT Verbal Rank 3 Section 1 C3" },
+      "SAT Verbal",
+      [],
+    );
+
+    expect(model.className).toBe("SAT Verbal Rank 3 Section 1 C3");
+  });
+
   it("falls back through subject_name, course_name when names available", () => {
     const session = { id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", subject_name: "Algebra" };
     const result = getSitInSessionLabel(session, undefined, "Fallback", []);
@@ -650,7 +698,8 @@ describe("teacher names in sit-in labels", () => {
   it("appends the sit-in course's teacher from the loaded subjects", () => {
     const sessions = [{ id: "s1", start_at: "2026-06-03T09:00:00+07:00", end_at: "2026-06-03T10:00:00+07:00", date: "2026-06-03" }];
     const result = getSitInSessionGroupLabel(sessions, { id: "c1", code: "MATH301", name: "Calc III" }, "Fallback", allSubjects as never);
-    expect(result).toMatch(/Mathematics.*Calc III \(Ajarn Somchai\) —/);
+    expect(result).toMatch(/Calc III \(Ajarn Somchai\) —/);
+    expect(result).not.toContain("Mathematics");
   });
 
   it("falls back to the session's own teacher_name", () => {

@@ -68,6 +68,18 @@ func TestBundleVisibilityIncludesDirectMappedCoursesAndKeepsVisibilityGates(t *t
 	if err := q.loadBundleRulesAndVisible(ctx, out); err != nil {
 		t.Fatal(err)
 	}
+	standaloneVisible, err := q.LoadBundleVisible(ctx, out.ScopeCourses, out.SatMemberCourses, out.SatMappings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(standaloneVisible) != len(out.Visible) {
+		t.Fatalf("standalone visibility = %#v, batched visibility = %#v", standaloneVisible, out.Visible)
+	}
+	for id := range out.Visible {
+		if _, ok := standaloneVisible[id]; !ok {
+			t.Errorf("standalone visibility omitted batched-visible course %s", id)
+		}
+	}
 
 	for _, course := range []CourseCreateRow{scope, visibleTarget} {
 		if _, ok := out.Visible[uuidBytesString(course.ID)]; !ok {

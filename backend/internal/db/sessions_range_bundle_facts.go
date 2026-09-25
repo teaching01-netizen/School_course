@@ -354,19 +354,13 @@ func scanBundleVisibleResult(rows pgx.Rows, ids []string) map[string]struct{} {
 	return out
 }
 
-// LoadBundleVisible resolves student-form visibility for scope + SAT member
-// courses in one query. A visibility-probe failure degrades to all-visible
-// (legacy per-course resolve would log-and-skip only that course; a shared
-// probe cannot express that, and a failing trivial PK query implies wider
-// DB trouble that surfaces on the next query anyway).
-func (q *Queries) LoadBundleVisible(ctx context.Context, scopeCourses, satMembers []SubjectCourseV2) (map[string]struct{}, error) {
-	ids := make([]string, 0, len(scopeCourses)+len(satMembers))
-	for _, c := range scopeCourses {
-		ids = append(ids, uuidBytesString(c.ID))
-	}
-	for _, c := range satMembers {
-		ids = append(ids, uuidBytesString(c.ID))
-	}
+// LoadBundleVisible resolves student-form visibility for scope, SAT-member,
+// and directly mapped SAT courses in one query. A visibility-probe failure
+// degrades to all-visible (legacy per-course resolve would log-and-skip only
+// that course; a shared probe cannot express that, and a failing trivial PK
+// query implies wider DB trouble that surfaces on the next query anyway).
+func (q *Queries) LoadBundleVisible(ctx context.Context, scopeCourses, satMembers []SubjectCourseV2, mappings []SatVerbalPolicyCourseMapping) (map[string]struct{}, error) {
+	ids := bundleVisibleCourseIDs(scopeCourses, satMembers, mappings)
 	if len(ids) == 0 {
 		return map[string]struct{}{}, nil
 	}

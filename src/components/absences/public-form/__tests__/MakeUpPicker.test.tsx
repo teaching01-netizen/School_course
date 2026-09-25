@@ -67,18 +67,24 @@ describe("MakeUpPicker", () => {
         value=""
         options={[{
           value: "sit-in-conflict",
-          label: "Saturday 29 Aug · 13:00-14:40",
+          label: "SAT Verbal Reading Rank 4 C3",
+          details: "AJ. NICE · Sun, 27 Sep · 09:00–12:20",
           disabled: true,
-          description: "Overlaps with SAT Math : Beginner C3 — Sat, 29 Aug 2026 13:00-16:20",
+          description: "You already have another class at this time.",
+          conflictDetails: "Chemistry Lab C3 · Sun, 27 Sep · 10:00–11:30",
         }]}
         onChange={onChange}
       />,
     );
 
-    expect(screen.getByRole("option", { name: /saturday 29 aug/i })).toBeDisabled();
+    const nativeOption = screen.getByRole("option", { name: /sat verbal reading rank 4 c3.*aj\. nice.*sun, 27 sep/i });
+    expect(nativeOption).toBeDisabled();
+    expect(nativeOption).toHaveTextContent(/You already have another class at this time/);
     await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
-    expect(screen.getByText(/overlaps with sat math : beginner c3/i)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /sat math : beginner c3/i })).toBeDisabled();
+    expect(screen.getByText("You already have another class at this time.")).toBeInTheDocument();
+    expect(screen.getByText("Chemistry Lab C3 · Sun, 27 Sep · 10:00–11:30")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /sat verbal reading rank 4 c3/i })).toBeDisabled();
+    expect(screen.queryByText(/submission will be blocked/i)).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
 });

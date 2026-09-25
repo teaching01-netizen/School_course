@@ -32,4 +32,33 @@ describe("SessionDayCard", () => {
 
     expect(screen.getByText("Choose a make-up class")).toBeInTheDocument();
   });
+
+  it("explains when an absence has already been submitted beside its disabled control", () => {
+    render(
+      <SessionDayCard
+        dayGroup={{ ...day, items: day.items.map((item) => ({ ...item, already_absent: true })) }}
+        selected={false}
+        alreadyAbsent
+        disabled={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByText("Absence already submitted")).toBeInTheDocument();
+  });
+
+  it("explains when the course absence limit is exhausted", () => {
+    render(<SessionDayCard dayGroup={day} selected={false} alreadyAbsent={false} disabled disabledReason="absence_limit_reached" onToggle={vi.fn()} />);
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByText("Can't select — absence limit reached")).toBeInTheDocument();
+  });
+
+  it("explains when all remaining days are already selected", () => {
+    render(<SessionDayCard dayGroup={day} selected={false} alreadyAbsent={false} disabled disabledReason="remaining_days_selected" onToggle={vi.fn()} />);
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByText("All remaining days selected")).toBeInTheDocument();
+  });
 });

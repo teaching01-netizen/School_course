@@ -6,8 +6,10 @@ import MobileBottomSheet from "./MobileBottomSheet";
 export type MakeUpOption = {
   value: string;
   label: string;
+  details?: string;
   disabled?: boolean;
   description?: string;
+  conflictDetails?: string;
 };
 
 type MakeUpPickerProps = {
@@ -26,7 +28,13 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedOption = options.find((option) => option.value === value);
-  const selectOptions = [{ value: "", label: "Not yet selected" }, ...options];
+  const selectOptions = [
+    { value: "", label: "Not yet selected" },
+    ...options.map((option) => ({
+      ...option,
+      label: [option.label, option.details, option.description, option.conflictDetails].filter(Boolean).join(" — "),
+    })),
+  ];
 
   useEffect(() => {
     if (value && selectedOption?.disabled) onChange("");
@@ -59,14 +67,23 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         }}
         className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
       >
-        <span className={selectedOption ? "font-medium" : "text-[var(--color-wi-text-light)]"}>{selectedOption?.label ?? "Choose a make-up class"}</span>
+        <span className={selectedOption ? "min-w-0 font-medium" : "text-[var(--color-wi-text-light)]"}>
+          <span className="block">{selectedOption?.label ?? "Choose a make-up class"}</span>
+          {selectedOption?.details ? <span className="block text-xs font-normal text-[var(--color-wi-text-light)]">{selectedOption.details}</span> : null}
+        </span>
         <ChevronRight className="h-5 w-5 shrink-0 text-[var(--color-wi-text-light)]" aria-hidden="true" />
       </button>
 
+      {selectedOption?.details ? (
+        <p className="hidden text-xs text-[var(--color-wi-text-light)] sm:block">{selectedOption.details}</p>
+      ) : null}
       {selectedOption?.description ? (
         <p role="status" className="text-xs text-amber-700">
           {selectedOption.description}
         </p>
+      ) : null}
+      {selectedOption?.conflictDetails ? (
+        <p className="text-xs text-[var(--color-wi-text-light)]">{selectedOption.conflictDetails}</p>
       ) : null}
 
       <MobileBottomSheet
@@ -86,7 +103,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
           <legend className="sr-only">{label}</legend>
           {(() => {
             const needle = query.trim().toLowerCase();
-            const filteredOptions = options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(needle));
+            const filteredOptions = options.filter((option) => `${option.label} ${option.details ?? ""} ${option.description ?? ""} ${option.conflictDetails ?? ""} ${option.value}`.toLowerCase().includes(needle));
             if (filteredOptions.length === 0) {
               return (
                 <p className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">
@@ -120,7 +137,9 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
                     />
                     <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">
                       <span className="block">{option.label}</span>
+                      {option.details ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.details}</span> : null}
                       {option.description ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.description}</span> : null}
+                      {option.conflictDetails ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.conflictDetails}</span> : null}
                     </span>
                   </label>
                 ))}

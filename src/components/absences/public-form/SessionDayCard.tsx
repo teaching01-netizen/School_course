@@ -17,12 +17,14 @@ type SessionDayCardProps = {
   selected: boolean;
   alreadyAbsent: boolean;
   disabled: boolean;
+  disabledReason?: "absence_limit_reached" | "remaining_days_selected";
+  disabledDetail?: string;
   onToggle: () => void;
   reduceMotion?: boolean | null;
   children?: ReactNode;
 };
 
-export default function SessionDayCard({ dayGroup, selected, alreadyAbsent, disabled, onToggle, reduceMotion = false, children }: SessionDayCardProps) {
+export default function SessionDayCard({ dayGroup, selected, alreadyAbsent, disabled, disabledReason, disabledDetail, onToggle, reduceMotion = false, children }: SessionDayCardProps) {
   return (
     <div className={clsx(
       "rounded-xl border px-4 py-3 transition-colors motion-reduce:transition-none",
@@ -43,8 +45,16 @@ export default function SessionDayCard({ dayGroup, selected, alreadyAbsent, disa
           <span className="block break-words text-sm font-semibold leading-5 text-[var(--color-wi-text)]">
             {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}-{formatTime(dayGroup.end_at)}
           </span>
-          {alreadyAbsent ? <span className="mt-0.5 block text-xs font-medium text-[var(--color-wi-text-light)]">Already reported</span> : null}
-          {disabled && !alreadyAbsent && !selected ? <span className="mt-0.5 block text-xs text-[var(--color-wi-text-light)]">No more days available</span> : null}
+          {alreadyAbsent ? <span className="mt-0.5 block text-xs font-medium text-[var(--color-wi-text-light)]">Absence already submitted</span> : null}
+          {disabled && !alreadyAbsent && !selected && disabledReason === "absence_limit_reached" ? (
+            <span className="mt-0.5 block text-xs text-[var(--color-wi-text-light)]">Can't select — absence limit reached</span>
+          ) : null}
+          {disabled && !alreadyAbsent && !selected && disabledReason === "remaining_days_selected" ? (
+            <span className="mt-0.5 block text-xs text-[var(--color-wi-text-light)]">All remaining days selected</span>
+          ) : null}
+          {disabled && !alreadyAbsent && !selected && disabledDetail ? (
+            <span className="mt-0.5 block text-xs text-[var(--color-wi-text-light)]">{disabledDetail}</span>
+          ) : null}
         </label>
       </div>
       {selected && children ? (
