@@ -1084,7 +1084,17 @@ func (s *server) handleStaffStudentLookup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rows, err := s.deps.Q.StudentSubjectByWCode(r.Context(), wcode)
+	studentView, ok := parseStudentViewFlag(s, w, r)
+	if !ok {
+		return
+	}
+	var rows []sqldb.StudentSubjectRow
+	var err error
+	if studentView {
+		rows, err = s.deps.Q.StudentSubjectByWCodeForAbsenceForm(r.Context(), wcode)
+	} else {
+		rows, err = s.deps.Q.StudentSubjectByWCode(r.Context(), wcode)
+	}
 	if err != nil {
 		status, code, msg := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, msg)
@@ -1300,8 +1310,24 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 
 	staffRequest := isStaffRequest(s.deps.Auth, r)
 	adminRequest := isAdminRequest(s.deps.Auth, r)
+	if !requireAdmin {
+		// The verified self-service route always uses the student projection,
+		// even when this browser also has an authenticated staff session.
+		adminRequest = false
+	}
 	if requireAdmin && !staffRequest {
 		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
+		return
+	}
+	studentView, ok := parseStudentViewFlag(s, w, r)
+	if !ok {
+		return
+	}
+	if studentView && !requireAdmin {
+		s.a.WriteErr(w, http.StatusBadRequest, "student_view_not_allowed", "student_view is only available to staff")
+		return
+	}
+	if !validateStudentViewOptions(s, w, r, studentView) {
 		return
 	}
 
@@ -1334,7 +1360,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	}
 	if dateRangeProvided && !lifetime {
 		days := int(dateTo.Sub(dateFrom).Hours() / 24)
-		maxRangeDays := maxRangeDaysForLookup(settings, adminRequest)
+		maxRangeDays := maxRangeDaysForLookup(settings, adminRequest && !studentView)
 		if days > maxRangeDays {
 			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
 				fmt.Sprintf("Date range must be %d days or less", maxRangeDays))
@@ -1401,6 +1427,8 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 	var rows pgx.Rows
 	if includeAllSubjects {
 		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeAllSubjectsSelectSQL(), strings.Join(subjectIDFilter, ","), dateFrom, dateTo.AddDate(0, 0, 1))
+	} else if studentView || !requireAdmin {
+		rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
 	} else if staffRequest {
 		if lifetime {
 			rows, err = s.deps.DB.Query(r.Context(), sessionsInRangeLifetimeSelectSQL(), wcode, dateFrom, dateTo.AddDate(0, 0, 1), s.deps.InstituteTZ)
@@ -1674,7 +1702,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			subjectID, sErr := s.a.ParseUUID(g.SubjectID)
 			if sErr == nil {
 				resolveFrom, resolveTo := resolveDateRangeForSessionStartsInZone(sessionStartAtValues(g.Sessions), dateFrom, dateTo, s.deps.InstituteTZ)
-				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, s.deps.InstituteTZ, satVerbalAfterPriority, !adminRequest)
+				result, resolveErr := resolveSitInForCourse(r.Context(), s.deps.Q, wcode, courseID, subjectID, resolveFrom, resolveTo, s.deps.InstituteTZ, satVerbalAfterPriority, studentView || !adminRequest)
 				if resolveErr != nil {
 					s.deps.Log.Error("sit-in resolution failed", "course_id", g.CourseID, "error", resolveErr)
 				} else if result != nil && result.SitInMethod != SitInMethodNone {

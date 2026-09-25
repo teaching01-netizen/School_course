@@ -3,6 +3,7 @@ package absenceshttp
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"warwick-institute/internal/auth"
+	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/studentauth"
 )
 
@@ -36,6 +40,141 @@ func setAbsenceFormVisible(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 		UPDATE courses SET absence_form_visible = $2 WHERE id = $1
 	`, courseID, visible); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type studentViewParityAuth struct{}
+
+func (studentViewParityAuth) RequireUser(_ context.Context, _ *http.Request) (auth.AuthenticatedUser, error) {
+	return auth.AuthenticatedUser{Role: "Admin"}, nil
+}
+
+func (studentViewParityAuth) HandleLogin(http.ResponseWriter, *http.Request) error  { return nil }
+func (studentViewParityAuth) HandleLogout(http.ResponseWriter, *http.Request) error { return nil }
+
+func studentViewParityMux(t *testing.T, dbpool *pgxpool.Pool) *http.ServeMux {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, httpdeps.Deps{
+		Q:                  sqldb.New(dbpool),
+		DB:                 dbpool,
+		Log:                slog.Default(),
+		Auth:               studentViewParityAuth{},
+		InstituteTZ:        "Asia/Bangkok",
+		StudentSelfService: studentauth.NewService(dbpool),
+	})
+	return mux
+}
+
+func getAbsenceFormResponse(t *testing.T, mux *http.ServeMux, path, rawToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if rawToken != "" {
+		req.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: rawToken})
+	}
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func formSubjectIDs(t *testing.T, body []byte) []string {
+	t.Helper()
+	var response struct {
+		Subjects []struct {
+			ID string `json:"id"`
+		} `json:"subjects"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode subject response: %v; body=%s", err, body)
+	}
+	ids := make([]string, 0, len(response.Subjects))
+	for _, subject := range response.Subjects {
+		ids = append(ids, subject.ID)
+	}
+	return ids
+}
+
+func formCourseCodes(t *testing.T, body []byte) map[string]bool {
+	t.Helper()
+	var response struct {
+		Subjects []struct {
+			CourseCode string `json:"course_code"`
+		} `json:"subjects"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode sessions response: %v; body=%s", err, body)
+	}
+	codes := make(map[string]bool, len(response.Subjects))
+	for _, subject := range response.Subjects {
+		codes[subject.CourseCode] = true
+	}
+	return codes
+}
+
+func TestStaffAbsenceStudentViewMatchesPublicVisibility(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+
+	seed := seedActiveCourseFixture(t, dbpool)
+	setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["current"])
+	t.Cleanup(func() { clearActiveCourseRow(t, dbpool, seed.subjID) })
+	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
+	mux := studentViewParityMux(t, dbpool)
+
+	for _, visible := range []bool{true, false} {
+		label := "visible_active_course"
+		if !visible {
+			label = "hidden_active_course"
+		}
+		t.Run(label, func(t *testing.T) {
+			setAbsenceFormVisible(t, dbpool, seed.courses["current"], visible)
+
+			publicProfile := getAbsenceFormResponse(t, mux, "/api/v1/absence-self-service/me", rawToken)
+			staffLookup := getAbsenceFormResponse(t, mux, "/api/v1/admin/absences/student-lookup?wcode="+seed.wcode+"&student_view=true", "")
+			if publicProfile.Code != http.StatusOK || staffLookup.Code != http.StatusOK {
+				t.Fatalf("lookup statuses public=%d staff=%d; public=%s staff=%s", publicProfile.Code, staffLookup.Code, publicProfile.Body.String(), staffLookup.Body.String())
+			}
+			publicSubjects := formSubjectIDs(t, publicProfile.Body.Bytes())
+			staffSubjects := formSubjectIDs(t, staffLookup.Body.Bytes())
+			if strings.Join(publicSubjects, ",") != strings.Join(staffSubjects, ",") {
+				t.Fatalf("subject IDs diverged public=%v staff=%v", publicSubjects, staffSubjects)
+			}
+			var staffIdentity struct {
+				WCode string `json:"wcode"`
+			}
+			if err := json.Unmarshal(staffLookup.Body.Bytes(), &staffIdentity); err != nil {
+				t.Fatal(err)
+			}
+			if staffIdentity.WCode == "" {
+				t.Fatalf("staff student-view lookup lost student identity: %s", staffLookup.Body.String())
+			}
+
+			publicSessions := getAbsenceFormResponse(t, mux, "/api/v1/absence-self-service/sessions", rawToken)
+			staffSessions := getAbsenceFormResponse(t, mux, "/api/v1/absences/sessions-in-range?wcode="+seed.wcode+"&student_view=true", "")
+			if publicSessions.Code != http.StatusOK || staffSessions.Code != http.StatusOK {
+				t.Fatalf("session statuses public=%d staff=%d; public=%s staff=%s", publicSessions.Code, staffSessions.Code, publicSessions.Body.String(), staffSessions.Body.String())
+			}
+			if shadowNormalize(publicSessions.Body.String()) != shadowNormalize(staffSessions.Body.String()) {
+				t.Fatalf("student-visible sessions diverged public=%s staff=%s", publicSessions.Body.String(), staffSessions.Body.String())
+			}
+			codes := formCourseCodes(t, staffSessions.Body.Bytes())
+			if visible {
+				if !codes[seed.code("current")] || codes[seed.code("old")] || codes[seed.code("sibling")] {
+					t.Fatalf("student view must contain only the active course; codes=%v", codes)
+				}
+			} else if len(codes) != 0 || len(staffSubjects) != 0 {
+				t.Fatalf("hidden active course leaked through student view: courses=%v subjects=%v", codes, staffSubjects)
+			}
+
+			// The ordinary staff projection stays broad for operational tools.
+			broadStaff := getAbsenceFormResponse(t, mux, "/api/v1/absences/sessions-in-range?wcode="+seed.wcode, "")
+			broadCodes := formCourseCodes(t, broadStaff.Body.Bytes())
+			if broadStaff.Code != http.StatusOK || len(broadCodes) != 3 {
+				t.Fatalf("ordinary staff session lookup should remain broad, status=%d courses=%v", broadStaff.Code, broadCodes)
+			}
+		})
 	}
 }
 

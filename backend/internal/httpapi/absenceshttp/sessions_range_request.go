@@ -27,7 +27,8 @@ type sessionsRangeLookup interface {
 	courseAllowList() map[string]bool
 	bypassTiming() bool
 	satAfterPriority() int
-	isStudent() bool
+	studentProjection() bool
+	studentFacing() bool
 	isAllSubjects() bool
 	// Step 17: explicit authorized lifetime lookup (admin + lifetime=true
 	// + explicit range). Gates the relaxed set-1/2 query predicate; false
@@ -42,13 +43,16 @@ type StaffSessionLookup struct {
 	BypassTiming     bool
 	SatAfterPriority int
 	Lifetime         bool
+	StudentView      bool
+	StudentFacing    bool
 }
 
 func (l StaffSessionLookup) studentWCode() string             { return l.WCode }
 func (l StaffSessionLookup) courseAllowList() map[string]bool { return l.CourseIDs }
 func (l StaffSessionLookup) bypassTiming() bool               { return l.BypassTiming }
 func (l StaffSessionLookup) satAfterPriority() int            { return l.SatAfterPriority }
-func (l StaffSessionLookup) isStudent() bool                  { return false }
+func (l StaffSessionLookup) studentProjection() bool          { return l.StudentView }
+func (l StaffSessionLookup) studentFacing() bool              { return l.StudentFacing }
 func (l StaffSessionLookup) isAllSubjects() bool              { return false }
 func (l StaffSessionLookup) isLifetime() bool                 { return l.Lifetime }
 
@@ -65,7 +69,8 @@ func (l StudentSessionLookup) studentWCode() string             { return l.WCode
 func (l StudentSessionLookup) courseAllowList() map[string]bool { return l.CourseIDs }
 func (l StudentSessionLookup) bypassTiming() bool               { return false }
 func (l StudentSessionLookup) satAfterPriority() int            { return l.SatAfterPriority }
-func (l StudentSessionLookup) isStudent() bool                  { return true }
+func (l StudentSessionLookup) studentProjection() bool          { return true }
+func (l StudentSessionLookup) studentFacing() bool              { return true }
 func (l StudentSessionLookup) isAllSubjects() bool              { return false }
 
 // A student lookup can never be a lifetime lookup: the type cannot
@@ -88,7 +93,8 @@ func (l StaffAllSubjectsLookup) studentWCode() string             { return l.WCo
 func (l StaffAllSubjectsLookup) courseAllowList() map[string]bool { return l.CourseIDs }
 func (l StaffAllSubjectsLookup) bypassTiming() bool               { return l.BypassTiming }
 func (l StaffAllSubjectsLookup) satAfterPriority() int            { return l.SatAfterPriority }
-func (l StaffAllSubjectsLookup) isStudent() bool                  { return false }
+func (l StaffAllSubjectsLookup) studentProjection() bool          { return false }
+func (l StaffAllSubjectsLookup) studentFacing() bool              { return false }
 func (l StaffAllSubjectsLookup) isAllSubjects() bool              { return true }
 func (l StaffAllSubjectsLookup) isLifetime() bool                 { return l.Lifetime }
 
@@ -111,6 +117,37 @@ type sessionsRangePrelim struct {
 	window        sessionsRangeWindow
 	adminRequest  bool
 	studentCall   bool
+	studentView   bool
+}
+
+func parseStudentViewFlag(s *server, w http.ResponseWriter, r *http.Request) (bool, bool) {
+	values, supplied := r.URL.Query()["student_view"]
+	if !supplied {
+		return false, true
+	}
+	if len(values) != 1 {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_student_view", "student_view must be supplied once")
+		return false, false
+	}
+	value, err := strconv.ParseBool(strings.TrimSpace(values[0]))
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_student_view", "student_view must be true or false")
+		return false, false
+	}
+	return value, true
+}
+
+func validateStudentViewOptions(s *server, w http.ResponseWriter, r *http.Request, studentView bool) bool {
+	if !studentView {
+		return true
+	}
+	for _, key := range []string{"bypass_timing", "include_all_subjects", "subject_ids", "lifetime"} {
+		if _, supplied := r.URL.Query()[key]; supplied {
+			s.a.WriteErr(w, http.StatusBadRequest, "student_view_parameter_not_allowed", key+" is not available in student_view mode")
+			return false
+		}
+	}
+	return true
 }
 
 // parseSessionsRangePrelim validates identity/dates/authority with zero data
@@ -124,6 +161,17 @@ func parseSessionsRangePrelim(
 	requireAdmin bool,
 ) (sessionsRangePrelim, bool) {
 	var zero sessionsRangePrelim
+	studentView, ok := parseStudentViewFlag(s, w, r)
+	if !ok {
+		return zero, false
+	}
+	if studentView && !requireAdmin {
+		s.a.WriteErr(w, http.StatusBadRequest, "student_view_not_allowed", "student_view is only available to staff")
+		return zero, false
+	}
+	if !validateStudentViewOptions(s, w, r, studentView) {
+		return zero, false
+	}
 	wcode := normalizeWCode(forcedWCode)
 	studentCall := forcedWCode != "" || !requireAdmin
 	if wcode == "" {
@@ -166,13 +214,18 @@ func parseSessionsRangePrelim(
 	}
 
 	adminRequest := isAdminRequest(s.deps.Auth, r)
+	if !requireAdmin {
+		// The verified self-service route always uses the student projection,
+		// even when this browser also has an authenticated staff session.
+		adminRequest = false
+	}
 	staffRequest := isStaffRequest(s.deps.Auth, r)
 	if requireAdmin && !staffRequest {
 		s.a.WriteErr(w, http.StatusUnauthorized, "unauthorized", "Staff authorization is required")
 		return zero, false
 	}
 	window := sessionsRangeWindow{from: dateFrom, toExclusive: dateTo.AddDate(0, 0, 1)}
-	return sessionsRangePrelim{wcode: wcode, dateFrom: dateFrom, dateTo: dateTo, rangeProvided: dateRangeProvided, window: window, adminRequest: adminRequest, studentCall: studentCall}, true
+	return sessionsRangePrelim{wcode: wcode, dateFrom: dateFrom, dateTo: dateTo, rangeProvided: dateRangeProvided, window: window, adminRequest: adminRequest, studentCall: studentCall, studentView: studentView}, true
 }
 
 // finalizeSessionsRangeLookup applies the range cap (needs settings) and
@@ -211,7 +264,7 @@ func finalizeSessionsRangeLookup(
 	}
 	if pre.rangeProvided && !lifetime {
 		days := int(pre.dateTo.Sub(pre.dateFrom).Hours() / 24)
-		maxRangeDays := maxRangeDaysForLookup(settings, pre.adminRequest)
+		maxRangeDays := maxRangeDaysForLookup(settings, pre.adminRequest && !pre.studentView)
 		if days > maxRangeDays {
 			s.a.WriteErr(w, http.StatusBadRequest, "date_range_exceeded",
 				"Date range must be "+strconv.Itoa(maxRangeDays)+" days or less")
@@ -277,7 +330,7 @@ func finalizeSessionsRangeLookup(
 	if pre.studentCall && !pre.adminRequest {
 		return StudentSessionLookup{WCode: pre.wcode, CourseIDs: allowedCourseIDs, SatAfterPriority: satVerbalAfterPriority}, true
 	}
-	return StaffSessionLookup{WCode: pre.wcode, CourseIDs: allowedCourseIDs, BypassTiming: bypassTiming, SatAfterPriority: satVerbalAfterPriority, Lifetime: lifetimeOK}, true
+	return StaffSessionLookup{WCode: pre.wcode, CourseIDs: allowedCourseIDs, BypassTiming: bypassTiming, SatAfterPriority: satVerbalAfterPriority, Lifetime: lifetimeOK, StudentView: pre.studentView, StudentFacing: pre.studentView || !pre.adminRequest}, true
 }
 
 // parseSessionsRangeLookup validates the full parameter set with

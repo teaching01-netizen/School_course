@@ -61,6 +61,7 @@ func TestStudentSessionsRejectsIdentityAndTimingOverrides(t *testing.T) {
 		{name: "wcode", path: "/api/v1/absence-self-service/sessions?wcode=w999999", code: "identity_parameter_not_allowed"},
 		{name: "bypass timing", path: "/api/v1/absence-self-service/sessions?bypass_timing=true", code: "bypass_not_allowed"},
 		{name: "all subjects", path: "/api/v1/absence-self-service/sessions?include_all_subjects=true", code: "include_all_subjects_not_allowed"},
+		{name: "staff student view flag", path: "/api/v1/absence-self-service/sessions?student_view=true", code: "student_view_not_allowed"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

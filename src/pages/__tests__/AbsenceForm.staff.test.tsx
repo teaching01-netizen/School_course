@@ -108,6 +108,8 @@ describe("AbsenceForm staff mode", () => {
     );
     expect(calls.some(([url]) => url.includes("/admin/absences/student-lookup"))).toBe(true);
     expect(calls.some(([url]) => url.includes("/absences/sessions-in-range"))).toBe(true);
+    expect(calls.find(([url]) => url.includes("/admin/absences/student-lookup"))?.[0]).toContain("student_view=true");
+    expect(calls.find(([url]) => url.includes("/absences/sessions-in-range"))?.[0]).toContain("student_view=true");
     expect(calls.some(([url]) => url.endsWith("/absences/staff-form-batch"))).toBe(true);
     expect(calls.some(([url]) => url.endsWith("/absences/batch"))).toBe(false);
     expect(calls.some(([url]) => url.includes("parent-verification") || /sms|email/i.test(url))).toBe(false);

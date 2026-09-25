@@ -361,7 +361,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       init?: Pick<RequestInit, "signal">,
       options?: Pick<StaffSessionsInRangeOptions, "courseIds" | "subjectIds" | "satVerbalAfterPriority">,
     ) => isStaff
-      ? loadSessionsInRange(wcode, undefined, undefined, init, options)
+      ? loadSessionsInRange(wcode, undefined, undefined, init, { ...options, studentView: true })
       : loadStudentSessions(undefined, undefined, init, options),
     [isStaff],
   );
@@ -584,7 +584,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     try {
       setLookupLoading(true);
       const response = isStaff
-        ? await lookupStaffStudentByWcode(cleaned)
+        ? await lookupStaffStudentByWcode(cleaned, { studentView: true })
         : await lookupStudentByWcode(cleaned);
       if (requestId !== lookupRequestId.current) return;
       setLookup(response);

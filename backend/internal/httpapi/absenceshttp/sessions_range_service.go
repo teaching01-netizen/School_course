@@ -206,7 +206,7 @@ func (s *server) serveSessionsRangeV2(w http.ResponseWriter, r *http.Request, fo
 			return
 		}
 		factRows, headStudent, headStudentMissing = head.Facts, head.Student, head.StudentMissing
-	} else if lookup.isStudent() {
+	} else if lookup.studentProjection() {
 		head, herr := s.deps.Q.SessionsRangeFactsStudentBatch(ctx, sqldb.SessionsRangeFactsParams{Wcode: wcode, FromUTC: window.from, ToExclusiveUTC: window.toExclusive, Mode: sqldb.SessionsRangeFactsStudent, InstituteTZ: s.deps.InstituteTZ}, wcode)
 		if herr != nil {
 			status, code, msg := s.a.ClassifyDBErr(herr)
@@ -234,15 +234,15 @@ func (s *server) serveSessionsRangeV2(w http.ResponseWriter, r *http.Request, fo
 
 	domainMS := time.Since(domainStart).Milliseconds()
 	tele := sessionsRangeTelemetry{
-		Mode: sessionsRangeMode(lookup.isAllSubjects(), pre.adminRequest),
-		ImplVersion: "v2",
-		StaffFacing: pre.adminRequest,
-		AllSubjects: lookup.isAllSubjects(),
-		Lifetime: lookup.isLifetime(),
+		Mode:         sessionsRangeMode(lookup.isAllSubjects(), pre.adminRequest),
+		ImplVersion:  "v2",
+		StaffFacing:  pre.adminRequest,
+		AllSubjects:  lookup.isAllSubjects(),
+		Lifetime:     lookup.isLifetime(),
 		BypassTiming: lookup.bypassTiming(),
-		SettingsMS: settingsMS,
-		FactsMS: factsMS,
-		DomainMS: domainMS,
+		SettingsMS:   settingsMS,
+		FactsMS:      factsMS,
+		DomainMS:     domainMS,
 	}
 	if lookup.isAllSubjects() {
 		s.serveSessionsRangeV2AllSubjectsHead(w, r, lookup.(StaffAllSubjectsLookup), settings, preFilter, facts, window, headStudent, headStudentMissing, now, tele, totalStart)
@@ -259,7 +259,6 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 	ctx := r.Context()
 	wcode := lookup.studentWCode()
 	window := pre.window
-	adminRequest := pre.adminRequest
 
 	// Legacy resolves the student per course and swallows lookup failures
 	// into nil sit-ins (request stays 200 with day counts). A missing student
@@ -342,7 +341,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 		blocked[k] = struct{}{}
 		conflicts[k] = sitInConflictInfo(row)
 	}
-	studentFacing := !adminRequest
+	studentFacing := lookup.studentFacing()
 	sitInForCourse := func(g *courseGroupView) *courseSitInJSON {
 		return s.resolveEnrolledCourseSitInV2(g, bundle, policies, blocked, conflicts, studentFacing, pre, lookup, wcode, student.ID, now)
 	}

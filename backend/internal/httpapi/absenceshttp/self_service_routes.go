@@ -155,6 +155,10 @@ func (s *server) handleStudentSessions(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "lifetime_not_allowed", "lifetime is not available to students")
 		return
 	}
+	if _, supplied := r.URL.Query()["student_view"]; supplied {
+		s.a.WriteErr(w, http.StatusBadRequest, "student_view_not_allowed", "student_view is only available to staff")
+		return
+	}
 	studentSession, ok := s.requireStudentSession(w, r)
 	if !ok {
 		return

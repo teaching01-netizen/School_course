@@ -3,6 +3,7 @@ import {
   loadAbsenceFormConfig,
   loadSessionsInRange,
   loadStaffLifetimeSessions,
+  lookupStaffStudentByWcode,
   lookupStudentByWcode,
   sessionsInRangePath,
   studentSessionsPath,
@@ -135,6 +136,20 @@ describe("sessionsInRangePath", () => {
     expect(path).toContain("course_ids=c1%2Cc2");
   });
 
+  it("opts into the student-visible projection only when requested", async () => {
+    mockApiJson.mockReset();
+    mockApiJson.mockResolvedValueOnce({ subjects: [] });
+    const path = sessionsInRangePath("W250389", undefined, undefined, {
+      studentView: true,
+    });
+    expect(path).toContain("student_view=true");
+
+    await loadSessionsInRange("W250389", undefined, undefined, undefined, {
+      studentView: true,
+    });
+    expect(mockApiJson.mock.calls[0][0]).toContain("student_view=true");
+  });
+
   it("adds subject-wide staff options when provided", () => {
     const path = sessionsInRangePath("W250389", undefined, undefined, {
       subjectIds: ["sub1", "sub2"],
@@ -194,6 +209,34 @@ describe("sessionsInRangePath", () => {
         satVerbalAfterPriority: 0,
       }),
     ).toContain("sat_verbal_after_priority=0");
+  });
+});
+
+describe("lookupStaffStudentByWcode", () => {
+  beforeEach(() => {
+    mockApiJson.mockReset();
+  });
+
+  it("requests the student-visible subject list when opted in", async () => {
+    mockApiJson.mockResolvedValueOnce({ subjects: [] });
+
+    await lookupStaffStudentByWcode("W250389", { studentView: true });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/absences/student-lookup?wcode=W250389&student_view=true",
+      { method: "GET" },
+    );
+  });
+
+  it("keeps broad staff lookup as the default for other staff tools", async () => {
+    mockApiJson.mockResolvedValueOnce({ subjects: [] });
+
+    await lookupStaffStudentByWcode("W250389");
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/admin/absences/student-lookup?wcode=W250389",
+      { method: "GET" },
+    );
   });
 });
 

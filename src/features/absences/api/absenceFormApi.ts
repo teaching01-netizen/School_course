@@ -23,6 +23,8 @@ export type AbsenceBatchCreateResponse = {
 export type StaffSessionsInRangeOptions = {
   courseIds?: string[];
   subjectIds?: string[];
+  /** Return the same bookable session projection used by student self-service. */
+  studentView?: boolean;
   includeAllSubjects?: boolean;
   bypassTiming?: boolean;
   satVerbalAfterPriority?: number;
@@ -57,6 +59,9 @@ export function sessionsInRangePath(
   }
   if (options?.subjectIds && options.subjectIds.length > 0) {
     params.set("subject_ids", options.subjectIds.join(","));
+  }
+  if (options?.studentView) {
+    params.set("student_view", "true");
   }
   if (options?.bypassTiming) {
     params.set("bypass_timing", "true");
@@ -158,9 +163,14 @@ export function loadStudentProfile(): Promise<VerifiedStudentProfile> {
   });
 }
 
-export function lookupStaffStudentByWcode(wcode: string): Promise<StudentLookupResponse> {
+export function lookupStaffStudentByWcode(
+  wcode: string,
+  options?: { studentView?: boolean },
+): Promise<StudentLookupResponse> {
+  const params = new URLSearchParams({ wcode });
+  if (options?.studentView) params.set("student_view", "true");
   return apiJson<StudentLookupResponse>(
-    `/api/v1/admin/absences/student-lookup?wcode=${encodeURIComponent(wcode)}`,
+    `/api/v1/admin/absences/student-lookup?${params.toString()}`,
     { method: "GET" },
   );
 }

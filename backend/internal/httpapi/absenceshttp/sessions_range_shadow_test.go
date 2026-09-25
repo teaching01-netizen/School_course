@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,9 +59,11 @@ func (t batchCountingTracer) TraceBatchEnd(context.Context, *pgx.Conn, pgx.Trace
 }
 
 type shadowWorld struct {
-	wcode      string
-	subjectIDs []string
-	courseID   string
+	wcode              string
+	subjectIDs         []string
+	courseID           string
+	candidateCourseID  string
+	candidateSessionID string
 }
 
 // seedShadowWorld builds a determinism-safe world: two subjects, a merged
@@ -148,7 +151,7 @@ func seedShadowWorld(t *testing.T, dbpool *pgxpool.Pool) shadowWorld {
 		return id
 	}
 	s1 := mkSession(cA1, day)
-	_ = mkSession(cA2, day.Add(2*time.Hour))
+	s2 := mkSession(cA2, day.Add(2*time.Hour))
 	s3 := mkSession(cB1, day.AddDate(0, 0, 1))
 	if _, err := dbpool.Exec(ctx, `INSERT INTO student_absences (wcode, course_id, subject_id, date_from, date_to, status) VALUES ($1, $2, $3, $4, $4, 'actioned')`, wcode, cB1, subjB, day.AddDate(0, 0, 1).Format("2006-01-02")); err != nil {
 		t.Fatal(err)
@@ -179,7 +182,13 @@ func seedShadowWorld(t *testing.T, dbpool *pgxpool.Pool) shadowWorld {
 			mkSession(course, farFuture.Add(time.Duration(i*50+j)*time.Hour))
 		}
 	}
-	return shadowWorld{wcode: wcode, subjectIDs: []string{subjA.String(), subjB.String()}, courseID: cA1.String()}
+	return shadowWorld{
+		wcode:              wcode,
+		subjectIDs:         []string{subjA.String(), subjB.String()},
+		courseID:           cA1.String(),
+		candidateCourseID:  cA2.String(),
+		candidateSessionID: s2.String(),
+	}
 } // Shadow equivalence + query-count gate for the O(1) sessions-range path.
 // The same seeded world is served by the legacy per-course pipeline and
 // the V2 O(1) pipeline; responses must be identical across staff,
@@ -310,6 +319,75 @@ func TestSessionsRangeV2_ShadowEquivalence(t *testing.T) {
 			})
 		}
 	})
+}
+
+func assertStaffStudentViewMatchesStudent(t *testing.T, dbpool *pgxpool.Pool, world shadowWorld, dateFrom, dateTo string) string {
+	t.Helper()
+	studentTarget := fmt.Sprintf("/api/v1/absence-self-service/sessions?date_from=%s&date_to=%s", dateFrom, dateTo)
+	staffTarget := fmt.Sprintf("/api/v1/absences/sessions-in-range?wcode=%s&date_from=%s&date_to=%s&student_view=true", world.wcode, dateFrom, dateTo)
+	var v2Body string
+	for _, version := range []string{"0", "1"} {
+		name := "legacy"
+		if version == "1" {
+			name = "v2"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("WARWICK_SESSIONS_RANGE_V2", version)
+			studentCode, studentBody := shadowGetForWCode(t, shadowTestServer(t, dbpool, false), studentTarget, world.wcode)
+			staffCode, staffBody := shadowGet(t, shadowTestServer(t, dbpool, true), staffTarget)
+			if studentCode != http.StatusOK || staffCode != http.StatusOK {
+				t.Fatalf("statuses differ or failed: public=%d staff=%d public=%s staff=%s", studentCode, staffCode, studentBody, staffBody)
+			}
+			if shadowNormalize(studentBody) != shadowNormalize(staffBody) {
+				t.Fatalf("student-visible projection diverged: public=%s staff=%s", studentBody, staffBody)
+			}
+			if version == "1" {
+				v2Body = staffBody
+			}
+		})
+	}
+	return v2Body
+}
+
+func TestStaffStudentViewMatchesPublicStepThreeProjection(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	world := seedShadowWorld(t, dbpool)
+	dateFrom := time.Now().UTC().AddDate(0, 0, 6).Format("2006-01-02")
+	dateTo := time.Now().UTC().AddDate(0, 0, 9).Format("2006-01-02")
+	body := assertStaffStudentViewMatchesStudent(t, dbpool, world, dateFrom, dateTo)
+
+	var response struct {
+		Subjects []json.RawMessage `json:"subjects"`
+	}
+	if err := json.Unmarshal([]byte(body), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Subjects) == 0 {
+		t.Fatal("fixture returned no sessions to compare")
+	}
+	// The full response comparison above covers course/session membership,
+	// sit-in methods and priorities, candidate availability, merge groups,
+	// and absence limits on both implementations.
+}
+
+func TestStaffStudentViewFiltersInactiveSitInCandidatesLikePublic(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	dbpool := newPoolPending(t, databaseURL)
+	t.Cleanup(dbpool.Close)
+	world := seedShadowWorld(t, dbpool)
+	if _, err := dbpool.Exec(context.Background(), `DELETE FROM subject_active_courses WHERE course_id = $1`, world.candidateCourseID); err != nil {
+		t.Fatal(err)
+	}
+	dateFrom := time.Now().UTC().AddDate(0, 0, 6).Format("2006-01-02")
+	dateTo := time.Now().UTC().AddDate(0, 0, 9).Format("2006-01-02")
+	body := assertStaffStudentViewMatchesStudent(t, dbpool, world, dateFrom, dateTo)
+	if strings.Contains(body, world.candidateCourseID) || strings.Contains(body, world.candidateSessionID) {
+		t.Fatalf("inactive sit-in course or session leaked into the student-visible projection: %s", body)
+	}
 }
 
 // Concurrent staff reads must be mutually non-interfering: same status and
