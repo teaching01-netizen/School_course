@@ -19,6 +19,7 @@ import {
   getReviewSitInLabel,
   getSitInSessionLabel,
   getSitInSessionGroupLabel,
+  getSitInSessionSubjectTimeLabel,
   normalizeSitInDisplayModel,
   formatSitInDisplayDetails,
   findSitInSessionConflicts,
@@ -328,6 +329,31 @@ describe("getPriorityTargetDisplayName", () => {
     const priority = { level: 1, label: "P1", available_sessions: [{ id: "s1", start_at: "", end_at: "", course_code: "MATH101" }] };
     expect(getPriorityTargetDisplayName(priority, "Generic Class", [])).toBe("Generic Class");
   });
+
+  it("uses the subject name when a priority course name is an opaque numeric ID", () => {
+    const session = {
+      id: "sit-in-r4",
+      course_id: "sat-verbal-r4",
+      start_at: "2026-09-27T02:00:00Z",
+      end_at: "2026-09-27T05:20:00Z",
+      class_name: "2657713001",
+      course_name: "2657713001",
+      subject_name: "SAT Verbal Reading",
+      teacher_name: "AJ. NICE",
+    };
+    const priority = {
+      level: 2,
+      label: "2nd Priority",
+      sit_in_course: { id: "sat-verbal-r4", code: "2657713001", name: "2657713001", subject_name: "SAT Verbal Reading" },
+      available_sessions: [session],
+    };
+
+    expect(getPriorityTargetDisplayName(priority, "SAT Verbal", [])).toBe("SAT Verbal Reading");
+    expect(getSitInSessionLabel(session, priority.sit_in_course, "SAT Verbal", [])).toContain("SAT Verbal Reading (AJ. NICE)");
+    expect(getSitInSessionLabel(session, priority.sit_in_course, "SAT Verbal", [])).not.toContain("2657713001");
+    expect(getSitInSessionSubjectTimeLabel([session], priority.sit_in_course, "SAT Verbal", [])).toContain("SAT Verbal Reading —");
+    expect(getSitInSessionSubjectTimeLabel([session], priority.sit_in_course, "SAT Verbal", [])).not.toContain("2657713001");
+  });
 });
 
 describe("getCurrentSitInDisplayName", () => {
@@ -448,6 +474,23 @@ describe("getSitInSessionLabel", () => {
     expect(getSitInSessionLabel(session, undefined, "SAT Verbal Reading", [])).toBe(
       "SAT Verbal Rank 3 Section 1 C3 (AJ. NICE) — Wed, 23 Sept 2026 17:00-20:20",
     );
+  });
+
+  it("resolves the subject name from loaded real course data when the session only has a numeric course ID", () => {
+    const session = {
+      id: "sat-r4-sep27",
+      course_id: "sat-r4",
+      start_at: "2026-09-27T02:00:00Z",
+      end_at: "2026-09-27T05:20:00Z",
+      course_name: "2657713001",
+      teacher_name: "AJ. NICE",
+    };
+    const allSubjects = [{ ...baseGroup, course_id: "sat-r4", subject_name: "SAT Verbal Reading", teacher_name: "AJ. NICE" }];
+    const model = normalizeSitInDisplayModel([session], undefined, "Generic", allSubjects);
+
+    expect(model.className).toBe("SAT Verbal Reading");
+    expect(formatSitInDisplayDetails(model)).toContain("AJ. NICE");
+    expect(model.className).not.toContain("2657713001");
   });
 
   it("prefers the merged course name for a merged sit-in target", () => {

@@ -2096,7 +2096,30 @@ describe("AbsenceForm", () => {
     const nextSessions = createMockSessionsInRange([
       {
         ...initialSessions.subjects[0],
-        sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false, priorities: [{ level: 2, label: "2nd Priority", sit_in_course: { id: "c-writing-3", code: "W3", name: "SAT Verbal Writing Beginner Section 3 C2/26" }, available_sessions: [{ id: "sit-writing-3", start_at: "2026-06-15T10:00:00Z", end_at: "2026-06-15T13:20:00Z", course_name: "SAT Verbal Writing Beginner Section 3 C2/26" }] }] },
+        sit_in: {
+          sit_in_method: "physical",
+          current_priority_level: 2,
+          has_next_priority: false,
+          priorities: [{
+            level: 2,
+            label: "2nd Priority",
+            sit_in_course: {
+              id: "c-writing-3",
+              code: "2657713001",
+              name: "2657713001",
+              subject_name: "SAT Verbal Reading",
+            },
+            available_sessions: [{
+              id: "sit-writing-3",
+              course_id: "c-writing-3",
+              start_at: "2026-06-15T10:00:00Z",
+              end_at: "2026-06-15T13:20:00Z",
+              course_name: "2657713001",
+              subject_name: "SAT Verbal Reading",
+              teacher_name: "AJ. NICE",
+            }],
+          }],
+        },
       },
     ]);
     mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -2122,7 +2145,9 @@ describe("AbsenceForm", () => {
 
     expect(screen.getByRole("option", { name: /14 Jun/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /see other times/i }));
-    expect(await screen.findByRole("option", { name: /15 Jun/ })).toBeInTheDocument();
+    const secondPriorityOption = await screen.findByRole("option", { name: /SAT Verbal Reading.*15 Jun/ });
+    expect(secondPriorityOption).toBeInTheDocument();
+    expect(secondPriorityOption).not.toHaveTextContent("2657713001");
   }, 30000);
 
   it("offers parent phone enrollment instead of a dead end when no phone is on file", async () => {
