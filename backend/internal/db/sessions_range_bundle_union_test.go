@@ -381,7 +381,7 @@ func TestSessionsRangeBundleMidBatchMatchesStandalone(t *testing.T) {
 	if err := q.loadBundleSessionsBounded(ctx, outS2, disc); err != nil {
 		t.Fatal(err)
 	}
-	outS2.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(outS2.ScopeCourses, outS2.SatMemberCourses))
+	outS2.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(outS2.ScopeCourses, outS2.SatMemberCourses, outS2.SatMappings))
 	if err := q.loadBundleRulesAndVisible(ctx, outS2); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestSessionsRangeBundleMidBatchMatchesStandalone(t *testing.T) {
 	for k, v := range bundleB.MergeNames {
 		outB.MergeNames[k] = v
 	}
-	outB.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(outB.ScopeCourses, outB.SatMemberCourses))
+	outB.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(outB.ScopeCourses, outB.SatMemberCourses, outB.SatMappings))
 	if err := q.loadBundleSessionsRulesVisibleTail(ctx, outB, disc); err != nil {
 		t.Fatal(err)
 	}

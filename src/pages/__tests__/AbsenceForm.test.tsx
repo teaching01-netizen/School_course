@@ -1516,6 +1516,24 @@ describe("AbsenceForm", () => {
           sit_in_method: "physical",
           current_priority_level: 1,
           has_next_priority: true,
+          sit_in_by_missed_session: {
+            "missed-writing-1": {
+              sit_in_method: "physical",
+              current_priority_level: 1,
+              has_next_priority: true,
+              priorities: [{
+                level: 1,
+                label: "1st Priority: Same Writing Beginner lesson in another section",
+                available_sessions: [],
+                unavailable_sessions: [{
+                  missed_session_id: "missed-writing-1",
+                  occurrence_number: 3,
+                  reason_code: "before_request_date",
+                  reason: "This same-number sit-in slot is before today/request date.",
+                }],
+              }],
+            },
+          },
           priorities: [{
             level: 1,
             label: "1st Priority: Same Writing Beginner lesson in another section",
@@ -1537,11 +1555,31 @@ describe("AbsenceForm", () => {
           sit_in_method: "physical",
           current_priority_level: 2,
           has_next_priority: false,
+          sit_in_by_missed_session: {
+            "missed-writing-1": {
+              sit_in_method: "physical",
+              current_priority_level: 2,
+              has_next_priority: false,
+              priorities: [{
+                level: 2,
+                label: "2nd Priority: SAT Verbal Writing Rank 5",
+                sit_in_course: { id: "c-writing-rank5", code: "WR5", name: "SAT Verbal Writing Rank 5 C2/26" },
+                available_sessions: [{
+                  id: "sit-writing-rank5",
+                  start_at: "2026-06-17T17:00:00Z",
+                  end_at: "2026-06-17T20:20:00Z",
+                  course_id: "c-writing-rank5",
+                  subject_name: "SAT Verbal Writing Rank 5",
+                  course_name: "SAT Verbal Writing Rank 5 C2/26",
+                }],
+              }],
+            },
+          },
           priorities: [{
             level: 2,
             label: "2nd Priority: SAT Verbal Writing Rank 5",
             sit_in_course: { id: "c-writing-rank5", code: "WR5", name: "SAT Verbal Writing Rank 5 C2/26" },
-            available_sessions: [{ id: "sit-writing-rank5", start_at: "2026-06-17T17:00:00Z", end_at: "2026-06-17T20:20:00Z", course_name: "SAT Verbal Writing Rank 5 C2/26" }],
+            available_sessions: [{ id: "sit-writing-rank5", start_at: "2026-06-17T17:00:00Z", end_at: "2026-06-17T20:20:00Z", course_id: "c-writing-rank5", subject_name: "SAT Verbal Writing Rank 5", course_name: "SAT Verbal Writing Rank 5 C2/26" }],
           }],
         },
       },
@@ -1575,7 +1613,9 @@ describe("AbsenceForm", () => {
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
     expect(await screen.findByRole("button", { name: /see previous times/i })).toBeInTheDocument();
-    expect(await screen.findByRole("combobox")).toBeEnabled();
+    const revealedPicker = await screen.findByRole("combobox");
+    expect(revealedPicker).toBeEnabled();
+    expect(within(revealedPicker).getByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {

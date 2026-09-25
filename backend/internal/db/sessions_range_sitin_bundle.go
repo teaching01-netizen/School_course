@@ -121,9 +121,9 @@ type SitInDiscoveryBounds struct {
 // SessionsRangeSitInBundleV2 loads the universe. See contract above.
 // loadBundleSessionsRulesVisibleTail runs the post-sessions tail:
 // sessions (bounded by Discovery; needs SAT-member IDs) + rules + visible
-// (need enrolled+scope+SAT-member IDs) in ONE trip via pgx.Batch, followed
-// by the pure-Go cutoff derivation ONLY when the sessions arm actually
-// needs it. Queue order is sessions, rules, visibility; the drain scans in
+// (need enrolled+scope+SAT-member+direct-mapping IDs) in ONE trip via
+// pgx.Batch, followed by the pure-Go cutoff derivation ONLY when the sessions
+// arm actually needs it. Queue order is sessions, rules, visibility; the drain scans in
 // that order (pgx poison semantics: each statement fully scanned before
 // the next is touched). Failure contract mirrors the standalone sequence
 // exactly: a sessions statement/scan failure sets ResolveFailed (like the
@@ -164,7 +164,7 @@ func (q *Queries) loadBundleSessionsRulesVisibleTail(ctx context.Context, out *S
 		b.Queue(sessSQL, sessArgs...)
 	}
 	_, _, rulesQueued := q.loadBundleRulesQuery(ctx, out, &b)
-	visIDs := bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses)
+	visIDs := bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses, out.SatMappings)
 	visQueued := len(visIDs) > 0
 	if visQueued {
 		b.Queue(bundleVisibleSelectSQL(), visIDs)
@@ -285,8 +285,8 @@ func (q *Queries) SessionsRangeSitInBundleV2(ctx context.Context, arg SitInBundl
 	// scope have-set; missing merge-name IDs from scope MergeNames +
 	// SatMappings) — none reads another's rows. Sessions canNOT join
 	// this batch: it needs SAT-member IDs produced by the SAT-members
-	// query. Rules+visible stays last (needs enrolled+scope+SAT-member
-	// IDs).
+	// query. Rules+visible stays last (needs enrolled+scope+SAT-member and
+	// direct SAT-mapping IDs).
 	//
 	// Drain discipline (pgx poison semantics: a failed statement poisons
 	// LATER drains, so each statement is fully scanned before the next is
@@ -343,7 +343,7 @@ func (q *Queries) SessionsRangeSitInBundleV2(ctx context.Context, arg SitInBundl
 			}
 		}
 	}
-	out.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses))
+	out.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses, out.SatMappings))
 	if err := q.loadBundleSessionsRulesVisibleTail(ctx, out, discovery); err != nil {
 		out.ResolveFailed = true
 	}
@@ -364,7 +364,7 @@ func arrayToVisibleSet(ids []string) map[string]struct{} {
 func (q *Queries) loadBundleRulesAndVisible(ctx context.Context, out *SitInBundleV2) error {
 	var b pgx.Batch
 	_, _, rulesQueued := q.loadBundleRulesQuery(ctx, out, &b)
-	visIDs := bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses)
+	visIDs := bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses, out.SatMappings)
 	visQueued := len(visIDs) > 0
 	if visQueued {
 		b.Queue(bundleVisibleSelectSQL(), visIDs)

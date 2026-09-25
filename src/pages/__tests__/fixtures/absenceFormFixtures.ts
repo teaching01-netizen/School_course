@@ -145,6 +145,36 @@ export function parentVerification(
   };
 }
 
+// A physical make-up rule whose only offered sit-in is `sit-math-2`; passing an
+// empty list models the same rule once the server stops offering that slot.
+export function sessionsWithMakeUpSitIn(
+  availableSitInIds: string[] = ["sit-math-2"],
+): SessionsInRangeResponse {
+  return {
+    subjects: [{
+      ...PUBLIC_FORM_SESSIONS.subjects[0],
+      sit_in: {
+        sit_in_method: "physical",
+        current_priority_level: 1,
+        has_next_priority: false,
+        priorities: [{
+          level: 1,
+          label: "1st Priority: Same Mathematics lesson in another section",
+          available_sessions: availableSitInIds.map((id) => ({
+            id,
+            start_at: "2026-08-05T02:00:00Z",
+            end_at: "2026-08-05T03:30:00Z",
+            course_id: "course-math",
+            course_name: "Mathematics",
+            subject_name: "Mathematics",
+            missed_session_id: "session-math-1",
+          })),
+        }],
+      },
+    }],
+  };
+}
+
 export function sessionsWithAlreadyAbsent(): SessionsInRangeResponse {
   return {
     subjects: [{

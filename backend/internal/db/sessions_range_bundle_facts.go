@@ -281,15 +281,32 @@ func loadBundleSatMappingNamesStandalone(ctx context.Context, db DBTX, out *SitI
 	return rows.Err()
 }
 
-// bundleVisibleCourseIDs collects the scope + SAT-member course ID strings
-// the visibility probe covers. Empty = probe not needed (all-visible vacuous).
-func bundleVisibleCourseIDs(scopeCourses, satMembers []SubjectCourseV2) []string {
-	ids := make([]string, 0, len(scopeCourses)+len(satMembers))
+// bundleVisibleCourseIDs collects scope, SAT-member, and directly mapped SAT
+// course IDs for the visibility probe. Empty = probe not needed (all-visible
+// vacuous). Mapping rows with a NULL course ID represent merge-group targets;
+// their members are covered by satMembers.
+func bundleVisibleCourseIDs(scopeCourses, satMembers []SubjectCourseV2, mappings []SatVerbalPolicyCourseMapping) []string {
+	ids := make([]string, 0, len(scopeCourses)+len(satMembers)+len(mappings))
+	seen := make(map[string]struct{}, cap(ids))
+	appendID := func(id pgtype.UUID) {
+		if !id.Valid {
+			return
+		}
+		key := uuidBytesString(id)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		ids = append(ids, key)
+	}
 	for _, c := range scopeCourses {
-		ids = append(ids, uuidBytesString(c.ID))
+		appendID(c.ID)
 	}
 	for _, c := range satMembers {
-		ids = append(ids, uuidBytesString(c.ID))
+		appendID(c.ID)
+	}
+	for _, mapping := range mappings {
+		appendID(mapping.CourseID)
 	}
 	return ids
 }

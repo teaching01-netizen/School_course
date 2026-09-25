@@ -49,3 +49,35 @@ func TestBundleSessionCourseIDsForDiscoverySeparatesSATHistory(t *testing.T) {
 		seen[key] = struct{}{}
 	}
 }
+
+func TestBundleVisibleCourseIDsIncludesDirectSATMappings(t *testing.T) {
+	scopeID := testBundleUUID(11)
+	satMemberID := testBundleUUID(12)
+	directMappedID := testBundleUUID(13)
+	duplicateID := testBundleUUID(14)
+
+	got := bundleVisibleCourseIDs(
+		[]SubjectCourseV2{{ID: scopeID}, {ID: duplicateID}},
+		[]SubjectCourseV2{{ID: satMemberID}, {ID: duplicateID}},
+		[]SatVerbalPolicyCourseMapping{
+			{CourseID: directMappedID, Active: true},
+			{CourseID: duplicateID, Active: true},
+			{CourseID: pgtype.UUID{}, Active: true}, // merge-group mappings have no direct course ID
+		},
+	)
+
+	want := []string{
+		uuidBytesString(scopeID),
+		uuidBytesString(duplicateID),
+		uuidBytesString(satMemberID),
+		uuidBytesString(directMappedID),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("visibility IDs = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("visibility IDs = %#v, want %#v", got, want)
+		}
+	}
+}

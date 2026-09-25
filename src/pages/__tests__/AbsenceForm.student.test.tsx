@@ -9,6 +9,7 @@ import {
   SECOND_STUDENT,
   SYSTEM_EMAIL_STUDENT,
   sessionsWithAlreadyAbsent,
+  sessionsWithMakeUpSitIn,
 } from "./fixtures/absenceFormFixtures";
 import {
   ABSENCE_DRAFT_STORAGE_KEY,
@@ -252,9 +253,11 @@ describe("AbsenceForm Student step", () => {
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).toBeChecked();
     expect(screen.getByRole("textbox", { name: /reason for absence/i })).toHaveValue("Saved medical appointment");
+    expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review absence" })).toBeEnabled();
   });
 
-  it("discards unavailable saved sessions and blocks review until the change is acknowledged", async () => {
+  it("drops unavailable saved sessions automatically so the student can continue", async () => {
     const user = userEvent.setup();
     const draft: AbsenceDraftV1 = {
       schemaVersion: 1,
@@ -273,13 +276,14 @@ describe("AbsenceForm Student step", () => {
     expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     await continueThroughVerification(user);
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/available classes changed/i);
-    expect(screen.getByRole("button", { name: "Review absence" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Review updated classes" }));
+    expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).not.toBeChecked();
+    expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review updated classes" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review absence" })).toBeEnabled();
   });
 
-  it("flags saved subjects that are no longer authoritative", async () => {
+  it("drops saved subjects that are no longer authoritative and leaves the rest to normal validation", async () => {
     const user = userEvent.setup();
     const draft: AbsenceDraftV1 = {
       schemaVersion: 1,
@@ -298,8 +302,74 @@ describe("AbsenceForm Student step", () => {
     expect(await screen.findByText("Student ID found")).toBeInTheDocument();
     await continueThroughVerification(user);
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/available classes changed/i);
-    expect(screen.getByRole("button", { name: "Review absence" })).toBeDisabled();
+    expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /mathematics/i })).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Review absence" }));
+
+    expect(screen.getByText("Select at least one course.", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /review your absence/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps a saved make-up selection while the server still offers it", async () => {
+    const user = userEvent.setup();
+    const draft: AbsenceDraftV1 = {
+      schemaVersion: 1,
+      updatedAt: Date.now(),
+      wcode: MANUAL_EMAIL_STUDENT.wcode,
+      step: 2,
+      selectedSubjectIds: ["subject-math"],
+      selectedSessionIds: ["session-math-1"],
+      sitInSelections: { "session-math-1": "sit-math-2" },
+      sitInPriorityLevels: {},
+      reason: "Saved appointment",
+    };
+    window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+
+    renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithMakeUpSitIn() });
+    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    await continueThroughVerification(user);
+
+    expect(await screen.findByRole("combobox")).toHaveValue("sit-math-2");
+    expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Review absence" }));
+
+    expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument();
+  });
+
+  it("clears a saved make-up selection that is no longer offered while keeping the rest of the draft", async () => {
+    const user = userEvent.setup();
+    const draft: AbsenceDraftV1 = {
+      schemaVersion: 1,
+      updatedAt: Date.now(),
+      wcode: MANUAL_EMAIL_STUDENT.wcode,
+      step: 2,
+      selectedSubjectIds: ["subject-math"],
+      selectedSessionIds: ["session-math-1"],
+      sitInSelections: { "session-math-1": "sit-math-2" },
+      sitInPriorityLevels: {},
+      reason: "Saved appointment",
+    };
+    window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+
+    renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithMakeUpSitIn([]) });
+    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    await continueThroughVerification(user);
+
+    expect(await screen.findByText(/no available make-up class for this priority/i)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: /reason for absence/i })).toHaveValue("Saved appointment");
+    expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
+
+    // The dropped make-up leaves the day incomplete, so the ordinary class
+    // validation asks for a new one instead of submitting the stale choice.
+    await user.click(screen.getByRole("button", { name: "Review absence" }));
+
+    expect(screen.getByText("Pick a make-up class for all selected sessions before submitting.", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /review your absence/i })).not.toBeInTheDocument();
   });
 
   it("keeps Student B authoritative and clears Student A selections and reason", async () => {

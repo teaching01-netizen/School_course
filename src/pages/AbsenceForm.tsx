@@ -61,6 +61,7 @@ import {
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
 import {
+  availableSessionsForMissedSession,
   availableSessionsForMissedSessions,
   firstPriorityLevel,
   getCurrentSitInDisplayName,
@@ -159,6 +160,38 @@ function currentSitInOwners(
   return owners;
 }
 
+// Mirror of the make-up picker's option source: the sit-ins the server still
+// offers for a missed session at the level the form will display. Restoring a
+// draft keeps a saved make-up only while its saved sit-ins are still offered,
+// so a resumed form never shows a selection the picker cannot render.
+function offeredSitInSessionIds(
+  group: SubjectSessions,
+  missedSessionId: string,
+  savedPriorityLevel?: number,
+): Set<string> {
+  const sessionGroup = groupWithSitInForMissedSession(group, missedSessionId);
+  const sitIn = sessionGroup.sit_in;
+  const offered = new Set<string>();
+  if (!sitIn || sitIn.sit_in_method !== "physical") return offered;
+  const baseLevel = sitIn.current_priority_level ?? firstPriorityLevel(sessionGroup);
+  const level = savedPriorityLevel !== undefined && hasPriorityLevel(sessionGroup, savedPriorityLevel)
+    ? savedPriorityLevel
+    : baseLevel;
+  const priorities = prioritiesForLevel(sessionGroup, level);
+  if (priorities.length > 0) {
+    for (const priority of priorities) {
+      for (const session of availableSessionsForMissedSession(priority, missedSessionId)) {
+        offered.add(session.id);
+      }
+    }
+    return offered;
+  }
+  for (const session of rootAvailableSessionsForMissedSessions(sitIn, [missedSessionId])) {
+    offered.add(session.id);
+  }
+  return offered;
+}
+
 function makeUpPickerOptions(
   optionGroups: SitInOptionGroup[],
   sessions: SubjectSessions[],
@@ -199,7 +232,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     isStaff ? STAFF_ABSENCE_DRAFT_STORAGE_KEY : undefined,
   );
   const draftRef = useRef<AbsenceDraftV1 | null>(savedDraft);
-  const [draftNeedsReview, setDraftNeedsReview] = useState(false);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const lookupRequestId = useRef(0);
 
@@ -412,23 +444,38 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         const restoredSubjectIds = draft.selectedSubjectIds.filter((subjectId) => validSubjectIds.has(subjectId));
         setSelectedSubjectIds(restoredSubjectIds);
 
-        const validSessionIds = new Set(data.subjects.flatMap((group) => group.sessions.map((session) => session.id)));
+        // The fresh response is the source of truth: saved selections that the
+        // server still offers are restored as-is, and anything that expired or
+        // was removed is dropped here instead of behind a review gate.
+        const groupBySessionId = new Map<string, SubjectSessions>();
+        const validSessionIds = new Set<string>();
+        for (const group of data.subjects) {
+          for (const session of group.sessions) {
+            validSessionIds.add(session.id);
+            groupBySessionId.set(session.id, group);
+          }
+        }
         const restoredSessionIds = draft.selectedSessionIds.filter((sessionId) => validSessionIds.has(sessionId));
         const restoredSessionSet = new Set(restoredSessionIds);
-        const missingSavedSessions = draft.selectedSessionIds.length - restoredSessionIds.length;
-        const restoredSitIns: Record<string, string> = {};
-        for (const [sessionId, sitInId] of Object.entries(draft.sitInSelections)) {
-          if (restoredSessionSet.has(sessionId)) restoredSitIns[sessionId] = sitInId;
-        }
         const restoredPriorityLevels: Record<string, number> = {};
         for (const [sessionId, priority] of Object.entries(draft.sitInPriorityLevels)) {
           if (restoredSessionSet.has(sessionId)) restoredPriorityLevels[sessionId] = priority;
+        }
+        const blockedSitInIds = blockedSitInSessionIds(data.subjects);
+        const restoredSitIns: Record<string, string> = {};
+        for (const [sessionId, sitInValue] of Object.entries(draft.sitInSelections)) {
+          const ownerGroup = restoredSessionSet.has(sessionId) ? groupBySessionId.get(sessionId) : undefined;
+          const savedSitInIds = ownerGroup && sitInValue ? splitMergedSessionValue(sitInValue) : [];
+          if (!ownerGroup || savedSitInIds.length === 0) continue;
+          const offered = offeredSitInSessionIds(ownerGroup, sessionId, restoredPriorityLevels[sessionId]);
+          if (savedSitInIds.every((sitInId) => offered.has(sitInId) && !blockedSitInIds.has(sitInId))) {
+            restoredSitIns[sessionId] = sitInValue;
+          }
         }
         setSelectedSessionIds(restoredSessionSet);
         setSitInSelections(restoredSitIns);
         setSitInPriorityLevels(restoredPriorityLevels);
         setExpandedSubjectId(restoredSubjectIds[0] ?? null);
-        setDraftNeedsReview((current) => current || missingSavedSessions > 0);
         draftRef.current = null;
       })
       .catch((error: unknown) => {
@@ -467,10 +514,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           const restoreDraft = draftRef.current;
           const isSameStudent = Boolean(restoreDraft && normalizeLookupWcode(restoreDraft.wcode) === response.wcode);
           setSelectedSubjectIds([]);
-          if (isSameStudent && restoreDraft) {
-            setReason(restoreDraft.reason);
-            setDraftNeedsReview(restoreDraft.selectedSubjectIds.length > 0);
-          }
+          if (isSameStudent && restoreDraft) setReason(restoreDraft.reason);
         })
         .catch((error: unknown) => {
           if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
@@ -603,7 +647,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       setSitInPriorityLevels({});
       setSitInPriorityHistory({});
       setRevealingPrioritySessionIds(new Set());
-      setDraftNeedsReview(Boolean(shouldRestoreDraft && draftForStudent && draftForStudent.selectedSubjectIds.length > 0));
       setSubmissionError(null);
       submissionIdempotencyKey.current = newIdempotencyKey();
       if (!isStaff) {
@@ -1044,7 +1087,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   const actionCanProceed =
     step === 0 ? canProceedFromStudent :
     !isStaff && step === 1 ? verificationSatisfied :
-    step === classesStep ? !sessionsLoading && !draftNeedsReview :
+    step === classesStep ? !sessionsLoading :
     step === reviewStep ? (isStaff || (verificationSatisfied && !verificationBlocked)) : false;
 
   const primaryActionLabel =
@@ -1291,20 +1334,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     </section>
                     </div>
                     <div className="absence-classes-layout__work space-y-6">
-                    {draftNeedsReview ? (
-                      <div role="status" aria-live="polite" className="rounded-xl border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-4 py-3 text-sm text-[var(--color-wi-amber)]">
-                        <p className="font-semibold">Your available classes changed.</p>
-                        <p className="mt-1">Review the current classes before continuing.</p>
-                        <button
-                          type="button"
-                          onClick={() => setDraftNeedsReview(false)}
-                          className="mt-3 min-h-11 rounded-lg border border-[var(--color-wi-amber)] px-3 text-sm font-semibold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]"
-                        >
-                          Review updated classes
-                        </button>
-                      </div>
-                    ) : null}
-
                     {selectedSubjectIds.length > 0 ? (
                       <section>
                         <div className="flex items-center justify-between mb-3">
