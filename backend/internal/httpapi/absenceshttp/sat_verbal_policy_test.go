@@ -1020,7 +1020,7 @@ func TestResolveSatVerbalPolicy_BeginnerSection1UsesFutureSameOccurrenceBeforeLe
 	}
 }
 
-func TestResolveSatVerbalPolicy_BeginnerExpiredSameOccurrenceAutoRevealsRank5(t *testing.T) {
+func TestResolveSatVerbalPolicy_BeginnerExpiredSameOccurrenceKeepsPriorityAndRevealsRank5(t *testing.T) {
 	section1ID := "61100000-0000-0000-0000-000000000001"
 	section2ID := "62200000-0000-0000-0000-000000000002"
 	section3ID := "63300000-0000-0000-0000-000000000003"
@@ -1110,17 +1110,228 @@ func TestResolveSatVerbalPolicy_BeginnerExpiredSameOccurrenceAutoRevealsRank5(t 
 	}
 
 	initial := resolve(0)
-	if initial.CurrentPriorityLevel != 2 || initial.Priorities[0].Level != 2 {
-		t.Fatalf("initial level = current %d priority %d, want level 2", initial.CurrentPriorityLevel, initial.Priorities[0].Level)
+	if initial.CurrentPriorityLevel != 1 || initial.Priorities[0].Level != 1 {
+		t.Fatalf("initial level = current %d priority %d, want level 1", initial.CurrentPriorityLevel, initial.Priorities[0].Level)
 	}
-	if initial.HasNextPriority {
-		t.Fatal("expected no hidden priority after auto-revealed Rank 5")
+	if !initial.HasNextPriority {
+		t.Fatal("expected later configured priority to remain available for navigation")
 	}
-	if initial.Priorities[0].SitInCourse == nil || initial.Priorities[0].SitInCourse.Name != "SAT Verbal Writing Rank 5" {
-		t.Fatalf("initial sit-in course = %#v, want Writing Rank 5", initial.Priorities[0].SitInCourse)
+	if len(initial.Priorities) != 2 {
+		t.Fatalf("priority 1 entries = %#v, want both configured beginner sections", initial.Priorities)
 	}
-	if got := initial.Priorities[0].Available; len(got) != 1 || got[0].ID != "c6550000-0000-0000-0000-000000000001" {
+	for _, priority := range initial.Priorities {
+		if priority.SitInCourse == nil {
+			t.Fatalf("priority 1 is missing its target course: %#v", priority)
+		}
+		if len(priority.Available) != 0 {
+			t.Fatalf("expired priority option must not be selectable: %#v", priority.Available)
+		}
+		if got := priority.Unavailable; len(got) != 1 || got[0].ReasonCode != "before_request_date" || got[0].Session == nil {
+			t.Fatalf("priority 1 unavailable = %#v, want before_request_date diagnostic", got)
+		}
+	}
+
+	next := resolve(1)
+	if next.CurrentPriorityLevel != 2 || next.Priorities[0].Level != 2 {
+		t.Fatalf("next level = current %d priority %d, want level 2", next.CurrentPriorityLevel, next.Priorities[0].Level)
+	}
+	if next.HasNextPriority {
+		t.Fatal("expected no further priority after Rank 5")
+	}
+	if next.Priorities[0].SitInCourse == nil || next.Priorities[0].SitInCourse.Name != "SAT Verbal Writing Rank 5" {
+		t.Fatalf("next sit-in course = %#v, want Writing Rank 5", next.Priorities[0].SitInCourse)
+	}
+	if got := next.Priorities[0].Available; len(got) != 1 || got[0].ID != "c6550000-0000-0000-0000-000000000001" {
 		t.Fatalf("next available = %#v, want first non-final Rank 5 session", got)
+	}
+}
+
+func TestResolveSatVerbalPolicy_Rank3Section2C3ExpiredSameOccurrenceKeepsPriority(t *testing.T) {
+	missedID := "a7110000-0000-0000-0000-000000000001"
+	section1ID := "a7110000-0000-0000-0000-000000000002"
+	rank4ID := "a7110000-0000-0000-0000-000000000003"
+
+	rules := mustDecodeSatVerbalPolicy(t, `[
+		{
+			"id": "rank3-sec2",
+			"courseName": "SAT Verbal Rank 3-Section 2",
+			"lastClassExcluded": true,
+			"priorities": [
+				{
+					"level": 1,
+					"ruleType": "cross_section",
+					"label": "1st Priority: Another Rank 3 section (same lesson #)",
+					"makeupTargets": [{ "section": "Section 1", "subject": "Reading" }]
+				},
+				{
+					"level": 3,
+					"ruleType": "rank_chain",
+					"label": "3rd Priority: Rank 4 Reading or Writing",
+					"eligibleTargets": ["SAT Verbal Reading Rank 4"]
+				}
+			]
+		},
+		{ "id": "rank3-sec1", "courseName": "SAT Verbal Rank 3-Section 1" },
+		{ "id": "reading-rank4", "courseName": "SAT Verbal Reading Rank 4" }
+	]`)
+
+	missedCourse := satCourse(missedID, "SAT Verbal Rank 3 Section 2 C3")
+	section1 := satCourse(section1ID, "SAT Verbal Rank 3 Section 1 C3")
+	section1.SubjectName = "SAT Verbal Reading"
+	rank4 := satCourse(rank4ID, "SAT Verbal Reading Rank 4 C3")
+	rank4.SubjectName = "SAT Verbal Reading"
+	missed := session("a7220000-0000-0000-0000-000000000003", missedID, "2026-09-26T09:00:00Z", "2026-09-26T10:00:00Z")
+	missedCourseSessions := []sqldb.SessionInRange{
+		session("a7220000-0000-0000-0000-000000000001", missedID, "2026-09-12T09:00:00Z", "2026-09-12T10:00:00Z"),
+		session("a7220000-0000-0000-0000-000000000002", missedID, "2026-09-19T09:00:00Z", "2026-09-19T10:00:00Z"),
+		missed,
+	}
+	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
+		makeUUID(missedID): missedCourseSessions,
+		makeUUID(section1ID): {
+			session("a7330000-0000-0000-0000-000000000001", section1ID, "2026-09-06T09:00:00Z", "2026-09-06T10:00:00Z"),
+			session("a7330000-0000-0000-0000-000000000002", section1ID, "2026-09-13T09:00:00Z", "2026-09-13T10:00:00Z"),
+			session("a7330000-0000-0000-0000-000000000003", section1ID, "2026-09-20T09:00:00Z", "2026-09-20T10:00:00Z"),
+			session("a7330000-0000-0000-0000-000000000004", section1ID, "2026-09-27T09:00:00Z", "2026-09-27T10:00:00Z"),
+		},
+		makeUUID(rank4ID): {
+			session("a7440000-0000-0000-0000-000000000001", rank4ID, "2026-09-28T09:00:00Z", "2026-09-28T10:00:00Z"),
+			session("a7440000-0000-0000-0000-000000000002", rank4ID, "2026-10-05T09:00:00Z", "2026-10-05T10:00:00Z"),
+		},
+	}
+
+	resolve := func(afterLevel int) *SitInResult {
+		t.Helper()
+		result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
+			Rule: &rules[0],
+			MappedCourses: []satVerbalMappedCourse{
+				{Rule: rules[0], Course: missedCourse},
+				{Rule: rules[1], Course: section1},
+				{Rule: rules[2], Course: rank4},
+			},
+			MissedCourse:       missedCourse,
+			Enrolled:           []sqldb.StudentEnrolledCourseV2{satEnrolled(missedID, missedCourse.Name)},
+			MissedSessions:     []sqldb.SessionInRange{missed},
+			Cutoff:             time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
+			RequestTime:        time.Date(2026, 9, 24, 17, 30, 0, 0, time.UTC), // Sep 25 in Bangkok.
+			InstituteTZ:        "Asia/Bangkok",
+			AfterPriorityLevel: afterLevel,
+			LoadSessions: func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
+				return sessionsByCourse[courseID], nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("resolve after level %d: %v", afterLevel, err)
+		}
+		if result == nil || len(result.Priorities) == 0 {
+			t.Fatalf("result after level %d = %#v, want visible priority", afterLevel, result)
+		}
+		return result
+	}
+
+	initial := resolve(0)
+	if initial.CurrentPriorityLevel != 1 || initial.Priorities[0].Level != 1 {
+		t.Fatalf("initial level = current %d priority %d, want level 1", initial.CurrentPriorityLevel, initial.Priorities[0].Level)
+	}
+	if !initial.HasNextPriority {
+		t.Fatal("expected later configured priority to remain available for navigation")
+	}
+	priority1 := initial.Priorities[0]
+	if len(priority1.Available) != 0 {
+		t.Fatalf("expired same-occurrence class must not be selectable: %#v", priority1.Available)
+	}
+	if got := priority1.Unavailable; len(got) != 1 || got[0].ReasonCode != "before_request_date" || got[0].Session == nil || got[0].Session.ID != "a7330000-0000-0000-0000-000000000003" {
+		t.Fatalf("priority 1 unavailable = %#v, want the expired Sep 20 same-occurrence class", got)
+	}
+	perMissed, ok := initial.SitInByMissedSession["a7220000-0000-0000-0000-000000000003"]
+	if !ok {
+		t.Fatal("expected per-missed-session priority result")
+	}
+	if perMissed.CurrentPriorityLevel != 1 || !perMissed.HasNextPriority || perMissed.MissedOccurrenceNumber != 3 {
+		t.Fatalf("per-missed result = %#v, want occurrence 3 at level 1 with a later priority", perMissed)
+	}
+	if len(perMissed.Priorities) != 1 || len(perMissed.Priorities[0].Available) != 0 {
+		t.Fatalf("per-missed priority = %#v, want disabled level 1", perMissed.Priorities)
+	}
+	if got := perMissed.Priorities[0].Unavailable; len(got) != 1 || got[0].ReasonCode != "before_request_date" || got[0].Session == nil || got[0].Session.ID != "a7330000-0000-0000-0000-000000000003" {
+		t.Fatalf("per-missed unavailable = %#v, want the expired Sep 20 same-occurrence class", got)
+	}
+
+	next := resolve(1)
+	if next.CurrentPriorityLevel != 3 || next.Priorities[0].Level != 3 {
+		t.Fatalf("next level = current %d priority %d, want configured level 3", next.CurrentPriorityLevel, next.Priorities[0].Level)
+	}
+	if next.HasNextPriority {
+		t.Fatal("expected no further configured priority")
+	}
+	if got := next.Priorities[0].Available; len(got) != 1 || got[0].ID != "a7440000-0000-0000-0000-000000000001" {
+		t.Fatalf("next priority available = %#v, want first Rank 4 session", got)
+	}
+	nextPerMissed, ok := next.SitInByMissedSession["a7220000-0000-0000-0000-000000000003"]
+	if !ok || nextPerMissed.CurrentPriorityLevel != 3 || nextPerMissed.HasNextPriority {
+		t.Fatalf("next per-missed result = %#v, want configured level 3 with no later priority", nextPerMissed)
+	}
+	if got := nextPerMissed.Priorities; len(got) != 1 || got[0].Level != 3 || len(got[0].Available) != 1 || got[0].Available[0].ID != "a7440000-0000-0000-0000-000000000001" {
+		t.Fatalf("next per-missed priorities = %#v, want the first Rank 4 session", got)
+	}
+}
+
+func TestSatVerbalSessionOptionsForRankChainPreservesBlockedReasonsAsUnavailable(t *testing.T) {
+	targetID := "b7110000-0000-0000-0000-000000000001"
+	beforeDate := session("b7220000-0000-0000-0000-000000000001", targetID, "2026-09-20T09:00:00Z", "2026-09-20T10:00:00Z")
+	used := session("b7220000-0000-0000-0000-000000000002", targetID, "2026-09-21T09:00:00Z", "2026-09-21T10:00:00Z")
+	overlap := session("b7220000-0000-0000-0000-000000000003", targetID, "2026-09-22T09:00:00Z", "2026-09-22T10:00:00Z")
+	outsideCutoff := session("b7220000-0000-0000-0000-000000000004", targetID, "2026-09-29T09:00:00Z", "2026-09-29T10:00:00Z")
+	finalClass := session("b7220000-0000-0000-0000-000000000005", targetID, "2026-09-30T09:00:00Z", "2026-09-30T10:00:00Z")
+	missed := session("b7330000-0000-0000-0000-000000000001", "b7330000-0000-0000-0000-000000000002", "2026-09-22T09:00:00Z", "2026-09-22T10:00:00Z")
+	instituteLoc, err := instituteLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	options := satVerbalSessionOptionsForTargetWithBlockedSessions(
+		[]sqldb.SessionInRange{beforeDate, used, overlap, outsideCutoff, finalClass},
+		[]sqldb.SessionInRange{missed},
+		nil,
+		false,
+		true,
+		time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC),
+		instituteLoc,
+		nil,
+		map[string]struct{}{uuidStringOrZero(used.ID): {}},
+	)
+	if len(options.Available) != 0 {
+		t.Fatalf("blocked rank-chain classes must not be selectable: %#v", options.Available)
+	}
+	wantReasons := map[string]bool{
+		"before_request_date":         false,
+		"sit_in_session_already_used": false,
+		"overlaps_missed_class":       false,
+		"outside_cutoff":              false,
+		"target_final_class":          false,
+	}
+	for _, unavailable := range options.Unavailable {
+		if _, expected := wantReasons[unavailable.ReasonCode]; expected {
+			wantReasons[unavailable.ReasonCode] = true
+		}
+	}
+	for reason, found := range wantReasons {
+		if !found {
+			t.Errorf("missing rank-chain unavailable reason %q in %#v", reason, options.Unavailable)
+		}
+	}
+}
+
+func TestRequestDateLowerBoundUsesInstituteTimezone(t *testing.T) {
+	instituteLoc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestTime := time.Date(2026, 9, 24, 17, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 9, 25, 0, 0, 0, 0, instituteLoc)
+	if got := requestDateLowerBound(requestTime, instituteLoc); !got.Equal(want) {
+		t.Fatalf("request date lower bound = %s, want Bangkok midnight %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }
 

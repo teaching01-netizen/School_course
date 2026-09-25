@@ -1507,17 +1507,20 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                             </p>
                                                             {currentPriorityUnavailable.length > 0 ? (
                                                               <div className="rounded-md border border-[var(--color-wi-amber)]/30 bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs text-[var(--color-wi-amber)]">
-                                                                <p className="font-semibold">{hasBlockedPriorityUnavailable ? "This sit-in session is already used:" : "Checked same-number slot:"}</p>
+                                                                <p className="font-semibold">{hasBlockedPriorityUnavailable ? "This sit-in session is already used:" : "Unavailable make-up class:"}</p>
                                                                 <ul className="mt-1 space-y-1">
                                                                   {currentPriorityUnavailable.map((unavailable, index) => {
                                                                     const checkedSession = unavailable.session;
+                                                                    const unavailableReason = unavailable.reason_code === "before_request_date"
+                                                                      ? "This make-up class has already passed."
+                                                                      : unavailable.reason;
                                                                     const slotLabel = checkedSession
                                                                       ? getSitInSessionLabel(checkedSession, unavailable.sitInCourse, groupLabel, sessions)
                                                                       : `${getSitInCourseDisplayName(unavailable.sitInCourse, groupLabel, sessions) || "Target section"} class #${unavailable.occurrence_number ?? "?"}`;
                                                                     return (
                                                                       <li key={`${unavailable.reason_code}-${checkedSession?.id ?? index}`}>
                                                                         <span className="font-medium">{slotLabel}</span>
-                                                                        <span className="text-[var(--color-wi-amber)]"> — {unavailable.reason}</span>
+                                                                        <span className="text-[var(--color-wi-amber)]"> — {unavailableReason}</span>
                                                                       </li>
                                                                     );
                                                                   })}

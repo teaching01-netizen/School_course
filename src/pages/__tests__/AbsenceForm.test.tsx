@@ -1568,12 +1568,14 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     expect(screen.getByText("No available make-up class for this priority.")).toBeInTheDocument();
-    expect(screen.getByText("Checked same-number slot:")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable make-up class:")).toBeInTheDocument();
     expect(screen.getByText(/class #3/)).toBeInTheDocument();
-    expect(screen.getByText(/before today\/request date/)).toBeInTheDocument();
+    expect(screen.getByText(/This make-up class has already passed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /see other times/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /see other times/i }));
     expect(await screen.findByRole("button", { name: /see previous times/i })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox")).toBeEnabled();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {

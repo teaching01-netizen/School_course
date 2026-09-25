@@ -108,7 +108,7 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 		return nil, fmt.Errorf("missed course sessions lookup: %w", err)
 	}
 	missedLessonSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, input.MissedSessions)
-	notBefore := requestDateLowerBound(input.RequestTime)
+	notBefore := requestDateLowerBound(input.RequestTime, instituteLoc)
 	priorities, err := satVerbalResolvePriorities(ctx, input, *rule, input.MissedSessions, missedLessonSlots, notBefore, instituteLoc)
 	if err != nil {
 		return nil, err
@@ -266,9 +266,6 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 		if priority.Level <= afterLevel {
 			continue
 		}
-		if satVerbalPriorityLevelOnlyExpiredSameOccurrence(priorities, priority.Level) {
-			continue
-		}
 		if _, ok := seen[priority.Level]; ok {
 			continue
 		}
@@ -287,30 +284,6 @@ func satVerbalVisiblePriority(priorities []SitInPriorityResult, afterLevel int) 
 		}
 	}
 	return visible, currentLevel, len(levels) > 1
-}
-
-func satVerbalPriorityLevelOnlyExpiredSameOccurrence(priorities []SitInPriorityResult, level int) bool {
-	var sawPriority bool
-	var sawUnavailable bool
-	for _, priority := range priorities {
-		if priority.Level != level {
-			continue
-		}
-		sawPriority = true
-		if len(priority.Available) > 0 {
-			return false
-		}
-		if len(priority.Unavailable) == 0 {
-			return false
-		}
-		for _, unavailable := range priority.Unavailable {
-			if unavailable.ReasonCode != "before_request_date" {
-				return false
-			}
-			sawUnavailable = true
-		}
-	}
-	return sawPriority && sawUnavailable
 }
 
 func satVerbalPriorityResult(level int, label string, target *sqldb.SubjectCourseV2, options satVerbalSessionOptions, missedCount int, mergeGroupNames map[string]string) SitInPriorityResult {
@@ -689,13 +662,12 @@ func satVerbalSessionOptionsForTargetWithBlockedSessions(
 	for _, session := range sessions {
 		if reason, code := satVerbalSessionBlockReasonWithBlockedSession(session, finalDay, excludeFinal, missedSessions, notBefore, cutoff, instituteLoc, offered, blockedSessionIDs); reason == "" {
 			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
-		} else if code == "sit_in_session_already_used" {
+		} else {
 			out.Unavailable = append(out.Unavailable, satVerbalUnavailableSession{
 				Session:    &session,
 				Reason:     reason,
 				ReasonCode: code,
 			})
-			out.Available = append(out.Available, satVerbalAvailableSession{Session: session})
 		}
 	}
 	return out
@@ -763,10 +735,13 @@ func missedLessonSlotsForMissedSessions(allCourseSessions []sqldb.SessionInRange
 	return slots
 }
 
-func requestDateLowerBound(requestTime time.Time) time.Time {
+func requestDateLowerBound(requestTime time.Time, instituteLoc *time.Location) time.Time {
 	start := requestTime
 	if start.IsZero() {
 		return time.Time{}
+	}
+	if instituteLoc != nil {
+		start = start.In(instituteLoc)
 	}
 	return time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 }
