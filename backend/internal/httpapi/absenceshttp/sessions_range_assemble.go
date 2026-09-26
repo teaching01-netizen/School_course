@@ -39,6 +39,7 @@ func assembleCourseResponses(
 	merged map[string][2]string,
 	absent map[string]bool,
 	tz string,
+	limitPercent int,
 	sitInForCourse func(g *courseGroupView) *courseSitInJSON,
 ) []courseJSON {
 	out := make([]courseJSON, 0, len(order))
@@ -63,7 +64,7 @@ func assembleCourseResponses(
 			}
 			dayCounts = counts[scope.Key.String()]
 		}
-		stats := limitStatsForScope(dayCounts)
+		stats := limitStatsForScope(dayCounts, limitPercent)
 		out = append(out, courseJSON{
 			SubjectID:            g.subjectID,
 			SubjectCode:          g.subjectCode,

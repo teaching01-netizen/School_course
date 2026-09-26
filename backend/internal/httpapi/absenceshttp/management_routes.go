@@ -1329,6 +1329,7 @@ type reasonCategory struct {
 
 type absenceFormSettings struct {
 	MaxDateRangeDays      int              `json:"max_date_range_days"`
+	AbsenceLimitPercent   int              `json:"absence_limit_percent"`
 	MinHoursBeforeSession int              `json:"min_hours_before_session"`
 	MaxHoursAfterSession  int              `json:"max_hours_after_session"`
 	RequireReason         bool             `json:"require_reason"`
@@ -1376,7 +1377,7 @@ type absenceSettings struct {
 func defaultAbsenceSettings() absenceSettings {
 	return absenceSettings{
 		Form: absenceFormSettings{
-			MaxDateRangeDays: 30, MinHoursBeforeSession: 0, MaxHoursAfterSession: 0, RequireReason: false, AllowFreeTextReason: true,
+			MaxDateRangeDays: 30, AbsenceLimitPercent: 20, MinHoursBeforeSession: 0, MaxHoursAfterSession: 0, RequireReason: false, AllowFreeTextReason: true,
 			ReasonCategories: []reasonCategory{{Value: "medical", Label: "Medical"}, {Value: "family", Label: "Family"}, {Value: "transport", Label: "Transport"}, {Value: "other", Label: "Other"}},
 		},
 		SitIn: absenceSitInSettings{AutoResolveEnabled: true, ZoomDescription: "Zoom session - no physical class attendance required.", MaxSessionsPerAbsence: 10},
@@ -1420,6 +1421,9 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 	}
 	if policies.Form != nil {
 		settings.Form = *policies.Form
+	}
+	if settings.Form.AbsenceLimitPercent == 0 {
+		settings.Form.AbsenceLimitPercent = 20
 	}
 	if policies.SitIn != nil {
 		settings.SitIn = *policies.SitIn
@@ -1465,6 +1469,9 @@ func parseAbsenceSettings(raw []byte) absenceSettings {
 func validateAbsenceSettings(settings absenceSettings) error {
 	if settings.Form.MaxDateRangeDays < 1 || settings.Form.MaxDateRangeDays > 365 {
 		return fmt.Errorf("max_date_range_days must be between 1 and 365")
+	}
+	if settings.Form.AbsenceLimitPercent < 1 || settings.Form.AbsenceLimitPercent > 100 {
+		return fmt.Errorf("absence_limit_percent must be between 1 and 100")
 	}
 	if settings.Form.MinHoursBeforeSession < 0 || settings.Form.MinHoursBeforeSession > 168 {
 		return fmt.Errorf("min_hours_before_session must be between 0 and 168")

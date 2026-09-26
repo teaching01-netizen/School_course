@@ -114,7 +114,18 @@ func sessionsAlreadyAbsentSelectSQL() string {
 		  AND sa.status <> 'cancelled'
 		  AND sess.start_at >= $3
 		  AND sess.start_at < $4
-		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
+		  AND (
+			EXISTS (
+				SELECT 1 FROM absence_missed_sessions ams
+				WHERE ams.absence_id = sa.id AND ams.session_id = sess.id
+			)
+			OR (
+				NOT EXISTS (
+					SELECT 1 FROM absence_missed_sessions ams WHERE ams.absence_id = sa.id
+				)
+				AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
+			)
+		  )
 		  AND sess.deleted_at IS NULL
 	`
 }
@@ -694,7 +705,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			return 0, nil, err
 		}
 		limitStats, candidateAbsenceDays, err := projectedAbsenceDayStats(
-			r.Context(), qtx, body.Wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, s.deps.InstituteTZ,
+			r.Context(), qtx, body.Wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, settings.Form.AbsenceLimitPercent, s.deps.InstituteTZ,
 		)
 		if err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
@@ -1763,7 +1774,7 @@ func (s *server) handleSessionsInRangeForWCode(w http.ResponseWriter, r *http.Re
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")
 			return
 		}
-		limitStats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays)
+		limitStats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays, settings.Form.AbsenceLimitPercent)
 		mergeGroupID := ""
 		if hasMergeScope {
 			mergeGroupID, dayCountErr = sUUIDString(mergeScope.ID)

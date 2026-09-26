@@ -13,6 +13,7 @@ vi.mock("@/api/client", async () => {
 const SETTINGS = {
   form: {
     max_date_range_days: 30,
+    absence_limit_percent: 20,
     min_hours_before_session: 0,
     max_hours_after_session: 0,
     require_reason: true,
@@ -34,6 +35,32 @@ describe("Absence settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockReset();
+  });
+
+  it("saves the configured absence limit percentage", async () => {
+    mockApiJson.mockResolvedValueOnce(SETTINGS).mockResolvedValueOnce({
+      ...SETTINGS,
+      form: { ...SETTINGS.form, absence_limit_percent: 25 },
+    });
+    render(<ToastProvider><AbsenceSettings /></ToastProvider>);
+    const user = userEvent.setup();
+
+    const absenceLimit = await screen.findByLabelText(/absence limit/i);
+    expect(absenceLimit).toHaveValue(20);
+    await user.clear(absenceLimit);
+    await user.type(absenceLimit, "25");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await waitFor(() => {
+      const putCall = mockApiJson.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/v1/admin/absence-settings" && (call[1] as RequestInit).method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse((putCall![1] as RequestInit).body as string);
+      expect(body).toEqual(expect.objectContaining({
+        form: expect.objectContaining({ absence_limit_percent: 25 }),
+      }));
+    });
   });
 
   it("loads and saves public form rules without deployment", async () => {

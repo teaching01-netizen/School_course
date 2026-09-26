@@ -230,8 +230,8 @@ func groupFactsByCourse(facts []sessionFact) []*courseGroupView {
 // limitStatsForScope converts batched day counts to the legacy limit stats,
 // using the same constructor as the old per-course path, so the
 // remaining = max(maximum - used, 0) invariant is shared, not duplicated.
-func limitStatsForScope(counts sqldb.AbsenceDayCounts) absences.AbsenceDayLimitStats {
-	return absences.NewAbsenceDayLimitStats(counts.TotalCourseDays, counts.UsedAbsenceDays, counts.UsedAbsenceDays)
+func limitStatsForScope(counts sqldb.AbsenceDayCounts, limitPercent int) absences.AbsenceDayLimitStats {
+	return absences.NewAbsenceDayLimitStats(counts.TotalCourseDays, counts.UsedAbsenceDays, counts.UsedAbsenceDays, limitPercent)
 }
 
 // scopeRefForCourse maps a course to its absence-scope key using the batched

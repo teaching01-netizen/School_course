@@ -507,7 +507,7 @@ func (s *server) createAbsenceRecordTx(
 		return createdAbsenceRecord{}, false
 	}
 	limitStats, candidateAbsenceDays, err := projectedAbsenceDayStats(
-		r.Context(), qtx, wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, s.deps.InstituteTZ,
+		r.Context(), qtx, wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, settings.Form.AbsenceLimitPercent, s.deps.InstituteTZ,
 	)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking absence days")

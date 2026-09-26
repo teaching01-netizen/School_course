@@ -12,24 +12,28 @@ func TestAbsenceDayLimitStats(t *testing.T) {
 		total         int32
 		used          int32
 		projected     int32
+		limitPercent  int
 		wantMax       int32
 		wantRemaining int32
 		wantReached   bool
 		wantExceeded  bool
 	}{
-		{name: "below half rounds down", total: 12, used: 1, projected: 2, wantMax: 2, wantRemaining: 1},
-		{name: "above half rounds up", total: 13, used: 2, projected: 3, wantMax: 3, wantRemaining: 1},
-		{name: "exact boundary reached", total: 10, used: 2, projected: 2, wantMax: 2, wantRemaining: 0, wantReached: true},
-		{name: "projected over boundary", total: 10, used: 1, projected: 3, wantMax: 2, wantRemaining: 1, wantExceeded: true},
-		{name: "zero total guarded", total: 0, used: 0, projected: 1},
+		{name: "default twenty percent rounds down", total: 12, used: 1, projected: 2, limitPercent: 20, wantMax: 2, wantRemaining: 1},
+		{name: "default twenty percent rounds up", total: 13, used: 2, projected: 3, limitPercent: 20, wantMax: 3, wantRemaining: 1},
+		{name: "20 days at 20 percent", total: 20, limitPercent: 20, wantMax: 4, wantRemaining: 4},
+		{name: "20 days at 25 percent", total: 20, limitPercent: 25, wantMax: 5, wantRemaining: 5},
+		{name: "10 days at 25 percent rounds half up", total: 10, limitPercent: 25, wantMax: 3, wantRemaining: 3},
+		{name: "custom percentage limit reached", total: 20, used: 5, projected: 5, limitPercent: 25, wantMax: 5, wantReached: true},
+		{name: "custom percentage projected over boundary", total: 20, used: 5, projected: 6, limitPercent: 25, wantMax: 5, wantRemaining: 0, wantExceeded: true, wantReached: true},
+		{name: "zero total guarded", total: 0, used: 0, projected: 1, limitPercent: 20},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewAbsenceDayLimitStats(tt.total, tt.used, tt.projected)
+			got := NewAbsenceDayLimitStats(tt.total, tt.used, tt.projected, tt.limitPercent)
 			if got.MaximumAbsenceDays != tt.wantMax || got.RemainingAbsenceDays != tt.wantRemaining ||
 				got.LimitReached != tt.wantReached || got.ProjectedLimitExceeded != tt.wantExceeded {
-				t.Fatalf("NewAbsenceDayLimitStats(%d, %d, %d) = %+v", tt.total, tt.used, tt.projected, got)
+				t.Fatalf("NewAbsenceDayLimitStats(%d, %d, %d, %d) = %+v", tt.total, tt.used, tt.projected, tt.limitPercent, got)
 			}
 		})
 	}

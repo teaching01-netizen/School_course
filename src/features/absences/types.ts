@@ -163,6 +163,7 @@ export type AdminContactSettings = {
 export type AbsenceSettings = {
   form: {
     max_date_range_days: number;
+    absence_limit_percent: number;
     min_hours_before_session: number;
     max_hours_after_session: number;
     require_reason: boolean;

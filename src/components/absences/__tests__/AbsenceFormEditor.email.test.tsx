@@ -6,6 +6,7 @@ import type { AbsenceSettings } from "../../../types";
 const baseSettings: AbsenceSettings = {
   form: {
     max_date_range_days: 30,
+    absence_limit_percent: 20,
     min_hours_before_session: 0,
     max_hours_after_session: 0,
     require_reason: false,

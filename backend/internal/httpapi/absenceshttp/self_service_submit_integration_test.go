@@ -48,7 +48,7 @@ func pickCourseSessionDate(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 }
 
 // ensureCourseAbsenceHeadroom gives a course enough distinct session dates
-// that the absence-day limit (total days / 5, rounded down) allows a single
+// that the absence-day limit (20% of total course days, rounded with math.Round) allows a single
 // absence day to be booked.
 // The optional hour offset lets parallel subtests for different courses of
 // the same student avoid the student_busy_ranges overlap exclusion.

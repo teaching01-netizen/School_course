@@ -247,7 +247,7 @@ func TestRegression_AssemblyDeterministicOnSameInputs(t *testing.T) {
 		facts := mkFacts()
 		order := groupFactsByCourse(facts)
 		merged := mergedRangesFromFacts(facts, "Asia/Bangkok")
-		out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, merged, map[string]bool{}, "Asia/Bangkok", stub)
+		out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, merged, map[string]bool{}, "Asia/Bangkok", 20, stub)
 		body, err := json.Marshal(map[string]any{"subjects": out, "now": now.UTC().Format(time.RFC3339Nano)})
 		if err != nil {
 			t.Fatal(err)

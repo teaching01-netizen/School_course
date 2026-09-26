@@ -67,6 +67,24 @@ export function AbsenceFormEditor({
               />
             </label>
             <label className="text-sm text-[var(--color-wi-text-light)]">
+              Absence limit
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  aria-label="Absence limit"
+                  className="block w-32 rounded-sm border border-wi-line p-2 text-sm"
+                  min={1}
+                  max={100}
+                  type="number"
+                  value={settings.form.absence_limit_percent}
+                  onChange={(e) =>
+                    onChange({ ...settings, form: { ...settings.form, absence_limit_percent: Number(e.target.value) } })
+                  }
+                />
+                <span>%</span>
+              </div>
+              <span className="mt-2 block text-xs">Maximum absence days are calculated from the total number of course days.</span>
+            </label>
+            <label className="text-sm text-[var(--color-wi-text-light)]">
               Minimum hours before session
               <input
                 aria-label="Minimum hours before session"

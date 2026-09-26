@@ -28,7 +28,7 @@ func TestGolden_SubjectsContractShape(t *testing.T) {
     row: sqldb.SessionsRangeFactRow{CourseCode: "C1", CourseName: "Course 1", SubjectCode: "S1", SubjectName: "Subj 1", TeacherName: "T1"},
   }}
   order := groupFactsByCourse(facts)
-  out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, map[string][2]string{}, map[string]bool{"sess-1": true}, "Asia/Bangkok", stub)
+  out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, map[string][2]string{}, map[string]bool{"sess-1": true}, "Asia/Bangkok", 20, stub)
   body, err := json.Marshal(map[string]any{"subjects": out})
   if err != nil {
     t.Fatal(err)
@@ -100,7 +100,7 @@ func TestGolden_SubjectsContractMergeAndSitIn(t *testing.T) {
     return &courseSitInJSON{SitInMethod: SitInMethodZoom, RuleName: "R", RuleType: RuleTypeLevelLadder}
   }
   byCourse := scopeRefMap(scopes)
-  out := assembleCourseResponses(order, byCourse, sqldb.ScopeDayCounts{}, map[string][2]string{}, map[string]bool{}, "Asia/Bangkok", stub)
+  out := assembleCourseResponses(order, byCourse, sqldb.ScopeDayCounts{}, map[string][2]string{}, map[string]bool{}, "Asia/Bangkok", 20, stub)
   body, err := json.Marshal(map[string]any{"subjects": out})
   if err != nil {
     t.Fatal(err)
@@ -117,6 +117,33 @@ func TestGolden_SubjectsContractMergeAndSitIn(t *testing.T) {
   }
 }
 
+func TestAssembleCourseResponses_MergedCoursesShareConfiguredLimit(t *testing.T) {
+	mergeGroup := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+	courseOne := uuid.New()
+	courseTwo := uuid.New()
+	scopes := []sqldb.SessionsRangeScopeFactsRow{{
+		Key:       sqldb.AbsenceScopeKey{MergeGroup: true, MergeGroupID: mergeGroup},
+		CourseIDs: []pgtype.UUID{{Bytes: courseOne, Valid: true}, {Bytes: courseTwo, Valid: true}},
+	}}
+	scope := scopes[0]
+	counts := sqldb.ScopeDayCounts{
+		scope.Key.String(): {TotalCourseDays: 20, UsedAbsenceDays: 5},
+	}
+	order := []*courseGroupView{
+		{courseID: courseOne.String(), courseName: "Course A"},
+		{courseID: courseTwo.String(), courseName: "Course B"},
+	}
+	out := assembleCourseResponses(order, scopeRefMap(scopes), counts, map[string][2]string{}, map[string]bool{}, "Asia/Bangkok", 25, func(*courseGroupView) *courseSitInJSON { return nil })
+	if len(out) != 2 {
+		t.Fatalf("assembled %d courses, want both merge-group members", len(out))
+	}
+	for _, course := range out {
+		if course.TotalCourseDays != 20 || course.UsedAbsenceDays != 5 || course.MaximumAbsenceDays != 5 || course.RemainingAbsenceDays != 0 || !course.AbsenceLimitReached {
+			t.Errorf("course %q has inconsistent merged limit stats: %+v", course.CourseName, course)
+		}
+	}
+}
+
 // TestGolden_SessionDateMatchesInstituteDay: date field is institute-local day.
 func TestGolden_SessionDateMatchesInstituteDay(t *testing.T) {
   loc, _ := time.LoadLocation("Asia/Bangkok")
@@ -129,7 +156,7 @@ func TestGolden_SessionDateMatchesInstituteDay(t *testing.T) {
   out := assembleCourseResponses(
     []*courseGroupView{{courseID: "c", sessions: []sessionFact{f}}},
     map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{},
-    map[string][2]string{}, map[string]bool{}, "Asia/Bangkok",
+    map[string][2]string{}, map[string]bool{}, "Asia/Bangkok", 20,
     func(g *courseGroupView) *courseSitInJSON { return nil },
   )
   body, _ := json.Marshal(out)
@@ -246,7 +273,7 @@ func genSessionFacts(t *testing.T, cfg genWorldConfig) []sessionFact {
 func assembleWorld(facts []sessionFact, tz string) string {
   order := groupFactsByCourse(facts)
   merged := mergedRangesFromSiblings(facts, nil, tz)
-  out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, merged, map[string]bool{}, tz, func(g *courseGroupView) *courseSitInJSON { return nil })
+  out := assembleCourseResponses(order, map[string]*sqldb.SessionsRangeScopeFactsRow{}, sqldb.ScopeDayCounts{}, merged, map[string]bool{}, tz, 20, func(g *courseGroupView) *courseSitInJSON { return nil })
   body, _ := json.Marshal(map[string]any{"subjects": out})
   return string(body)
 }

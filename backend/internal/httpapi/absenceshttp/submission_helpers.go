@@ -243,6 +243,7 @@ func projectedAbsenceDayStats(
 	missedSessionIDs []pgtype.UUID,
 	dateFrom pgtype.Date,
 	dateTo pgtype.Date,
+	limitPercent int,
 	instituteTZ string,
 ) (absences.AbsenceDayLimitStats, int32, error) {
 	courseIDString, err := sUUIDString(courseID)
@@ -294,6 +295,7 @@ func projectedAbsenceDayStats(
 		counts.TotalCourseDays,
 		counts.UsedAbsenceDays,
 		counts.ProjectedAbsenceDays,
+		limitPercent,
 	), counts.CandidateAbsenceDays, nil
 }
 

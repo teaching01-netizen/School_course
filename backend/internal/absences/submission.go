@@ -35,7 +35,7 @@ type AbsenceDayLimitStats struct {
 	ProjectedLimitExceeded bool
 }
 
-func NewAbsenceDayLimitStats(totalCourseDays, usedAbsenceDays, projectedAbsenceDays int32) AbsenceDayLimitStats {
+func NewAbsenceDayLimitStats(totalCourseDays, usedAbsenceDays, projectedAbsenceDays int32, limitPercent int) AbsenceDayLimitStats {
 	stats := AbsenceDayLimitStats{
 		TotalCourseDays:      totalCourseDays,
 		UsedAbsenceDays:      usedAbsenceDays,
@@ -45,7 +45,7 @@ func NewAbsenceDayLimitStats(totalCourseDays, usedAbsenceDays, projectedAbsenceD
 		return stats
 	}
 
-	stats.MaximumAbsenceDays = int32(math.Round(float64(totalCourseDays) / 5.0))
+	stats.MaximumAbsenceDays = int32(math.Round(float64(totalCourseDays) * float64(limitPercent) / 100.0))
 	stats.RemainingAbsenceDays = stats.MaximumAbsenceDays - usedAbsenceDays
 	if stats.RemainingAbsenceDays < 0 {
 		stats.RemainingAbsenceDays = 0

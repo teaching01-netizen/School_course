@@ -345,7 +345,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 	sitInForCourse := func(g *courseGroupView) *courseSitInJSON {
 		return s.resolveEnrolledCourseSitInV2(g, bundle, policies, blocked, conflicts, studentFacing, pre, lookup, wcode, student.ID, now)
 	}
-	courses := assembleCourseResponses(order, scopeByCourse, counts, merged, absent, s.deps.InstituteTZ, sitInForCourse)
+	courses := assembleCourseResponses(order, scopeByCourse, counts, merged, absent, s.deps.InstituteTZ, settings.Form.AbsenceLimitPercent, sitInForCourse)
 	serializeStart := time.Now()
 	payload := map[string]any{"subjects": courses}
 	rawPayload, _ := json.Marshal(payload)
@@ -479,7 +479,7 @@ func (s *server) serveSessionsRangeV2AllSubjectsHead(w http.ResponseWriter, r *h
 			}
 			dayCounts = counts[scope.Key.String()]
 		}
-		stats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays)
+		stats := absences.NewAbsenceDayLimitStats(dayCounts.TotalCourseDays, dayCounts.UsedAbsenceDays, dayCounts.UsedAbsenceDays, settings.Form.AbsenceLimitPercent)
 		courses = append(courses, courseJSON{SubjectID: g.subjectID, SubjectCode: g.subjectCode, SubjectName: g.subjectName, TeacherName: g.teacherName, CourseID: g.courseID, CourseCode: g.courseCode, CourseName: g.courseName, MergeGroupID: mergeID, MergeGroupName: mergeName, Sessions: sessions, SitIn: &courseSitInJSON{SitInMethod: SitInMethodPhysical, AvailableSessions: available[g.subjectID], UnavailableSessions: unavailable[g.subjectID]}, TotalCourseDays: stats.TotalCourseDays, UsedAbsenceDays: stats.UsedAbsenceDays, MaximumAbsenceDays: stats.MaximumAbsenceDays, RemainingAbsenceDays: stats.RemainingAbsenceDays, AbsenceLimitReached: stats.LimitReached})
 	}
 	if courses == nil {

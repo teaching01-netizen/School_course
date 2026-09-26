@@ -12,10 +12,9 @@ import (
 // The window is the half-open instant range [FromUTC, ToExclusiveUTC),
 // converted by the caller from inclusive institute days.
 //
-// already_absent(session) = true iff a non-cancelled absence covers the
-// session institute day under merge-group equivalence. Cancelled absences
-// never mark sessions. This preserves sessionsAlreadyAbsentSelectSQL
-// exactly (which excludes only status = cancelled).
+// already_absent(session) uses explicit missed session IDs when present;
+// only legacy absences without them cover the institute-day range.
+// Cancelled absences never mark sessions.
 type SessionsRangeAbsentParams struct {
 	Wcode          string
 	InstituteTZ    string
@@ -44,7 +43,18 @@ func sessionsRangeAbsentSQLText() string {
 		  AND sa.status <> 'cancelled'
 		  AND sess.start_at >= $3
 		  AND sess.start_at < $4
-		  AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
+		  AND (
+			EXISTS (
+				SELECT 1 FROM absence_missed_sessions ams
+				WHERE ams.absence_id = sa.id AND ams.session_id = sess.id
+			)
+			OR (
+				NOT EXISTS (
+					SELECT 1 FROM absence_missed_sessions ams WHERE ams.absence_id = sa.id
+				)
+				AND (sess.start_at AT TIME ZONE $2)::date BETWEEN sa.date_from AND sa.date_to
+			)
+		  )
 		  AND sess.deleted_at IS NULL
 	`
 }

@@ -127,6 +127,32 @@ func seedAbsenceLimitTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Po
 	return studentWcode, subjectID, courseID, sessionIDs
 }
 
+func configureAbsenceLimitPercentForTest(t *testing.T, q *sqldb.Queries, percent int) func() {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	previous, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultAbsenceSettings()
+	settings.Form.AbsenceLimitPercent = percent
+	policies, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.AppSettingsUpdateAbsencePolicies(ctx, policies); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer restoreCancel()
+		if err := q.AppSettingsUpdateAbsencePolicies(restoreCtx, previous.AbsencePolicies); err != nil {
+			t.Errorf("restore absence policies: %v", err)
+		}
+	}
+}
+
 func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 	databaseURL := requireAbsenceLimitTestDB(t)
 
@@ -142,7 +168,8 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "LMT", 10)
+	defer configureAbsenceLimitPercentForTest(t, q, 25)()
+	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "LMT", 20)
 
 	// Parse subject and course IDs
 	var subjectID pgtype.UUID
@@ -154,9 +181,9 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create 2 existing absence records (20% limit reached)
+	// Create 5 existing absence records (25% of 20 course days).
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 5; i++ {
 		absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
 			Wcode:    wcode,
 			CourseID: courseID,
@@ -187,9 +214,9 @@ func TestAbsenceLimit_SingleCreate_403WhenLimitExceeded(t *testing.T) {
 		"wcode":              wcode,
 		"subject_id":         subjectIDStr,
 		"course_id":          courseIDStr,
-		"date_from":          "2026-06-03",
-		"date_to":            "2026-06-03",
-		"missed_session_ids": []string{sessionIDs[2]},
+		"date_from":          "2026-06-06",
+		"date_to":            "2026-06-06",
+		"missed_session_ids": []string{sessionIDs[5]},
 	}
 	reqBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/absences", bytes.NewReader(reqBody))
@@ -228,7 +255,8 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, _ := seedAbsenceLimitTestData(t, q, dbpool, "RTE", 10)
+	defer configureAbsenceLimitPercentForTest(t, q, 25)()
+	wcode, subjectIDStr, courseIDStr, _ := seedAbsenceLimitTestData(t, q, dbpool, "RTE", 20)
 
 	// Parse subject and course IDs
 	var subjectID pgtype.UUID
@@ -240,9 +268,9 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create 2 existing absence records (20% limit reached)
+	// Create 5 existing absence records (25% of 20 course days).
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 5; i++ {
 		absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
 			Wcode:    wcode,
 			CourseID: courseID,
@@ -302,14 +330,14 @@ func TestAbsenceLimit_SessionsInRange_AbsenceRateExceededFlag(t *testing.T) {
 	if !subject.AbsenceLimitReached {
 		t.Fatal("expected absence_limit_reached to be true")
 	}
-	if subject.UsedAbsenceDays != 2 {
-		t.Fatalf("expected used_absence_days 2, got %d", subject.UsedAbsenceDays)
+	if subject.UsedAbsenceDays != 5 {
+		t.Fatalf("expected used_absence_days 5, got %d", subject.UsedAbsenceDays)
 	}
-	if subject.TotalCourseDays != 10 {
-		t.Fatalf("expected total_course_days 10, got %d", subject.TotalCourseDays)
+	if subject.TotalCourseDays != 20 {
+		t.Fatalf("expected total_course_days 20, got %d", subject.TotalCourseDays)
 	}
-	if subject.MaximumAbsenceDays != 2 || subject.RemainingAbsenceDays != 0 {
-		t.Fatalf("expected max=2 remaining=0, got max=%d remaining=%d", subject.MaximumAbsenceDays, subject.RemainingAbsenceDays)
+	if subject.MaximumAbsenceDays != 5 || subject.RemainingAbsenceDays != 0 {
+		t.Fatalf("expected max=5 remaining=0, got max=%d remaining=%d", subject.MaximumAbsenceDays, subject.RemainingAbsenceDays)
 	}
 }
 
@@ -328,7 +356,8 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 	defer dbpool.Close()
 
 	q := sqldb.New(dbpool)
-	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "BAT", 10)
+	defer configureAbsenceLimitPercentForTest(t, q, 25)()
+	wcode, subjectIDStr, courseIDStr, sessionIDs := seedAbsenceLimitTestData(t, q, dbpool, "BAT", 20)
 
 	// Parse subject and course IDs
 	var subjectID pgtype.UUID
@@ -340,9 +369,9 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create 2 existing absence records (20% limit reached)
+	// Create 5 existing absence records (25% of 20 course days).
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 5; i++ {
 		absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
 			Wcode:    wcode,
 			CourseID: courseID,
@@ -377,9 +406,9 @@ func TestAbsenceLimit_BatchCreate_403WhenLimitExceeded(t *testing.T) {
 			{
 				"subject_id":         subjectIDStr,
 				"course_id":          courseIDStr,
-				"date_from":          "2026-06-03",
-				"date_to":            "2026-06-03",
-				"missed_session_ids": []string{sessionIDs[2]},
+				"date_from":          "2026-06-06",
+				"date_to":            "2026-06-06",
+				"missed_session_ids": []string{sessionIDs[5]},
 			},
 		},
 	}
@@ -452,7 +481,7 @@ func TestAbsenceLimit_ConcurrentDifferentDaysCannotExceedLimit(t *testing.T) {
 			return
 		}
 		date := pgtype.Date{Time: time.Date(2026, 6, day, 0, 0, 0, 0, time.UTC), Valid: true}
-		stats, _, statsErr := projectedAbsenceDayStats(ctx, q.WithTx(tx), wcode, courseID, missedIDs, date, date, "Asia/Bangkok")
+		stats, _, statsErr := projectedAbsenceDayStats(ctx, q.WithTx(tx), wcode, courseID, missedIDs, date, date, 20, "Asia/Bangkok")
 		if statsErr != nil {
 			results <- result{err: statsErr}
 			return
@@ -1089,6 +1118,7 @@ func TestAbsenceSitInsCreate_BatchInsert_DuplicateConflict(t *testing.T) {
 //     documented no-cross-row-duplicate-guard semantic; retry-with-new-key
 //     safety rests on the caller reusing the same key per logical operation).
 //  4. Late replay of the first key -> original bytes still, no new row.
+//
 // Key scope is (actor, scope, key): staff creates use (SystemActor, "absences-staff").
 func TestIdempotencyMatrix_StaffCreate(t *testing.T) {
 	databaseURL := requireAbsenceLimitTestDB(t)

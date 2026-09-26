@@ -329,6 +329,26 @@ func TestParseAbsenceSettings_EmptyJSON(t *testing.T) {
 	}
 }
 
+func TestParseAbsenceSettings_AbsenceLimitPercentCompatibility(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want int
+	}{
+		{name: "legacy settings without the field", raw: `{"form":{"max_date_range_days":30}}`, want: 20},
+		{name: "stored zero falls back to default", raw: `{"form":{"absence_limit_percent":0}}`, want: 20},
+		{name: "configured percentage is retained", raw: `{"form":{"absence_limit_percent":25}}`, want: 25},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := parseAbsenceSettings([]byte(tt.raw))
+			if settings.Form.AbsenceLimitPercent != tt.want {
+				t.Fatalf("absence_limit_percent = %d, want %d", settings.Form.AbsenceLimitPercent, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseAbsenceSettings_PartialJSON(t *testing.T) {
 	raw := []byte(`{"notifications":{"sms_success_template":"Custom normal"}}`)
 	settings := parseAbsenceSettings(raw)
@@ -391,6 +411,25 @@ func TestValidateAbsenceSettings_SpecialTemplateLength(t *testing.T) {
 				t.Errorf("validateAbsenceSettings() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateAbsenceSettings_AbsenceLimitPercent(t *testing.T) {
+	for _, tt := range []struct {
+		percent int
+		wantErr bool
+	}{
+		{percent: 0, wantErr: true},
+		{percent: 1},
+		{percent: 100},
+		{percent: 101, wantErr: true},
+	} {
+		settings := defaultAbsenceSettings()
+		settings.Form.AbsenceLimitPercent = tt.percent
+		err := validateAbsenceSettings(settings)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateAbsenceSettings(absence_limit_percent=%d) error = %v, wantErr %v", tt.percent, err, tt.wantErr)
+		}
 	}
 }
 
