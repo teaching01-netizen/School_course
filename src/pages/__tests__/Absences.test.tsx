@@ -443,7 +443,7 @@ describe("Absence inbox", () => {
     expect(within(screen.getByRole("dialog")).getByText("Special Approve 3 selected absences?")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm Special Approve" }));
 
-    await waitFor(() => expect(screen.getAllByText("Special Approved")).toHaveLength(3));
+    await waitFor(() => expect(within(screen.getByRole("table", { name: "Absence inbox" })).getAllByText("Special Approved")).toHaveLength(3));
     const batchCalls = mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-status");
     expect(batchCalls).toHaveLength(1);
     expect(JSON.parse((batchCalls[0][1] as RequestInit).body as string)).toEqual({
@@ -577,6 +577,10 @@ describe("Absence inbox", () => {
     const user = userEvent.setup();
 
     await screen.findByText("All caught up! No active absences match these filters.");
+    const statusLabels = ["Pending", "Reviewed", "Actioned", "Cancelled", "Special Approved"];
+    for (const label of statusLabels) {
+      expect(within(screen.getByRole("combobox", { name: "Status" })).getByRole("option", { name: label })).toBeInTheDocument();
+    }
     await user.click(screen.getByRole("button", { name: /archived table/i }));
 
     await waitFor(() => {
@@ -585,9 +589,62 @@ describe("Absence inbox", () => {
         expect.objectContaining({ method: "GET" }),
       );
     });
-    expect(screen.getByRole("option", { name: "Actioned" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Cancelled" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Pending" })).not.toBeInTheDocument();
+    for (const label of statusLabels) {
+      expect(within(screen.getByRole("combobox", { name: "Status" })).getByRole("option", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    ["Actioned", "actioned", "active", "archived"],
+    ["Cancelled", "cancelled", "active", "archived"],
+    ["Special Approved", "special_approved", "active", "archived"],
+    ["Pending", "pending", "archived", "active"],
+    ["Reviewed", "reviewed", "archived", "active"],
+  ])("selecting %s switches tables and clearing the status keeps that table", async (label, status, initialBucket, expectedBucket) => {
+    mockApiJson.mockResolvedValue({ ...PAGE, items: [], total_count: 0 });
+    renderPage(`/absences?bucket=${initialBucket}&subject_id=subj-1&date_from=2026-06-01&offset=25`);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("combobox", { name: "Status" }));
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: label }));
+
+    await waitFor(() => {
+      const request = mockApiJson.mock.calls.at(-1)?.[0] as string;
+      const params = new URL(request, "http://localhost").searchParams;
+      expect(params.get("status")).toBe(status);
+      expect(params.get("bucket")).toBe(expectedBucket);
+      expect(params.get("offset")).toBe("0");
+      expect(params.get("subject_id")).toBe("subj-1");
+      expect(params.get("date_from")).toBe("2026-06-01");
+    });
+    expect(screen.getByRole("button", { name: `${expectedBucket === "active" ? "Active" : "Archived"} table` })).toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("combobox", { name: "Status" }));
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "All statuses" }));
+
+    await waitFor(() => {
+      const request = mockApiJson.mock.calls.at(-1)?.[0] as string;
+      const params = new URL(request, "http://localhost").searchParams;
+      expect(params.has("status")).toBe(false);
+      expect(params.get("bucket")).toBe(expectedBucket);
+    });
+  });
+
+  it("keeps the inferred Archived table when clearing a shareable status filter", async () => {
+    mockApiJson.mockResolvedValue({ ...PAGE, items: [], total_count: 0 });
+    renderPage("/absences?status=special_approved");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("combobox", { name: "Status" }));
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "All statuses" }));
+
+    await waitFor(() => {
+      const request = mockApiJson.mock.calls.at(-1)?.[0] as string;
+      const params = new URL(request, "http://localhost").searchParams;
+      expect(params.has("status")).toBe(false);
+      expect(params.get("bucket")).toBe("archived");
+    });
+    expect(screen.getByRole("button", { name: "Archived table" })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders missed session dates in the board view", async () => {
@@ -1057,7 +1114,8 @@ describe("Absence inbox", () => {
     mockApiJson.mockResolvedValueOnce(specialApprovedPage);
     renderPage("/absences?status=pending");
 
-    const badge = await screen.findByText("Special Approved");
+    const table = await screen.findByRole("table", { name: "Absence inbox" });
+    const badge = within(table).getByText("Special Approved");
     expect(badge).toHaveClass("bg-purple-50");
     expect(badge).toHaveClass("text-purple-700");
   });
@@ -1231,10 +1289,19 @@ describe("Absence inbox", () => {
   it("handles SMS preview failure gracefully", async () => {
     const updatedPage = freshPage();
     updatedPage.items[0].status = "special_approved";
-    mockApiJson
-      .mockResolvedValueOnce(PAGE)
-      .mockResolvedValueOnce({ status: "special_approved", version: 2 })
-      .mockRejectedValueOnce(new Error("SMS preview failed"));
+    let approved = false;
+    mockApiJson.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/absences/abs-1/status") {
+        approved = true;
+        return { status: "special_approved", version: 2 };
+      }
+      if (url === "/api/v1/absences/batch-send-success-sms") {
+        const body = JSON.parse(init?.body as string);
+        if (body.dry_run) throw new Error("SMS preview failed");
+        return { email_sent: true };
+      }
+      return approved ? updatedPage : PAGE;
+    });
     renderPage();
     const user = userEvent.setup();
 

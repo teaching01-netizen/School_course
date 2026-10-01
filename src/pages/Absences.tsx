@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, TriangleAlert, UserPlus } from "lucide-react";
 import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
-import type { AbsencePage, AbsenceStatus, ManagedAbsence, SmsPreview } from "../types";
+import { ABSENCE_STATUSES, type AbsencePage, type AbsenceStatus, type ManagedAbsence, type SmsPreview } from "../types";
 import PageHeading from "../components/ui/PageHeading";
 import SearchInput from "../components/ui/SearchInput";
 import EmptyState from "../components/ui/EmptyState";
@@ -39,6 +39,10 @@ function removeAbsence(data: unknown, id: string): unknown {
 const inboxDateTimeFormatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const inboxTimeFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 type AbsenceBucket = "active" | "archived";
+
+function bucketForStatus(status: string): AbsenceBucket {
+  return status === "actioned" || status === "cancelled" || status === "special_approved" ? "archived" : "active";
+}
 
 function submittedAgo(value: string): string {
   const elapsed = Date.now() - new Date(value).getTime();
@@ -290,7 +294,7 @@ export default function Absences() {
   const viewMode = searchParams.get("view") === "board" ? "board" : "table";
   const statusParam = searchParams.get("status") ?? "";
   const bucketParam = searchParams.get("bucket");
-  const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && (statusParam === "actioned" || statusParam === "cancelled" || statusParam === "special_approved")) ? "archived" : "active";
+  const bucket: AbsenceBucket = bucketParam === "archived" || (!bucketParam && bucketForStatus(statusParam) === "archived") ? "archived" : "active";
   const impactOnly = searchParams.get("schedule_impact") === "open";
 
   const filters = {
@@ -396,6 +400,11 @@ export default function Absences() {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
     else params.delete(key);
+    if (key === "status") {
+      const nextBucket = value ? bucketForStatus(value) : filters.bucket;
+      if (nextBucket === "archived") params.set("bucket", "archived");
+      else params.delete("bucket");
+    }
     if (key !== "view" && key !== "offset") params.delete("offset");
     setSearchParams(params);
   }
@@ -780,16 +789,6 @@ export default function Absences() {
   const hasNext = filters.offset + PAGE_SIZE < (page?.total_count ?? 0);
   const totalPages = Math.ceil((page?.total_count ?? 0) / PAGE_SIZE);
   const currentPage = Math.floor(filters.offset / PAGE_SIZE) + 1;
-  const statusOptions = filters.bucket === "archived"
-    ? [
-        { value: "actioned", label: "Actioned" },
-        { value: "cancelled", label: "Cancelled" },
-        { value: "special_approved", label: "Special Approved" },
-      ]
-    : [
-        { value: "pending", label: "Pending" },
-        { value: "reviewed", label: "Reviewed" },
-      ];
   const emptyMessage = filters.bucket === "archived"
     ? "No archived absences match these filters."
     : "All caught up! No active absences match these filters.";
@@ -877,7 +876,7 @@ export default function Absences() {
           {filters.impactOnly
             ? "Only absences with unresolved session-change impact."
             : filters.bucket === "archived"
-              ? "Final records: actioned and cancelled."
+              ? "Final records: actioned, cancelled and special approved."
               : "Working queue: pending and reviewed."}
         </p>
       </div>
@@ -896,7 +895,7 @@ export default function Absences() {
           <FilterField label="Status">
             <SearchableSelect className="w-full" aria-label="Status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
               <option value="">All statuses</option>
-              {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {ABSENCE_STATUSES.map((status) => <option key={status} value={status}>{statusPresentation[status].label}</option>)}
             </SearchableSelect>
           </FilterField>
           <FilterField label="From">
