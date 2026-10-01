@@ -274,11 +274,14 @@ export default function Absences() {
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchFailed, setBatchFailed] = useState<Array<{ id: string; error: string }>>([]);
+  const [batchFailedAction, setBatchFailedAction] = useState<"reviewed" | "special_approved">("reviewed");
   const [deleteTarget, setDeleteTarget] = useState<ManagedAbsence | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState<ManagedAbsence | null>(null);
   const [creating, setCreating] = useState(false);
   const [specialApprovedTarget, setSpecialApprovedTarget] = useState<ManagedAbsence | null>(null);
+  const [specialApproveTargets, setSpecialApproveTargets] = useState<ManagedAbsence[]>([]);
+  const [specialApproveConfirmOpen, setSpecialApproveConfirmOpen] = useState(false);
   const [specialApproving, setSpecialApproving] = useState(false);
   const [specialApprovedSmsPreview, setSpecialApprovedSmsPreview] = useState<SmsPreview | null>(null);
   const [specialApprovedSendingSms, setSpecialApprovedSendingSms] = useState(false);
@@ -509,40 +512,7 @@ export default function Absences() {
         expectedVersion: specialApprovedTarget.version,
       });
       addToast("success", "Absence marked as special approved");
-      setSpecialApprovedCreatedIds([specialApprovedTarget.id]);
-
-      try {
-        const preview = await apiJson<{ preview?: SmsPreview }>(
-          "/api/v1/absences/batch-send-success-sms",
-          {
-            method: "POST",
-            body: JSON.stringify({ ids: [specialApprovedTarget.id], dry_run: true }),
-          },
-        );
-        if (preview.preview && preview.preview.phones.length > 0) {
-          setSpecialApprovedSmsPreview(preview.preview);
-          setSpecialApprovedTarget(null);
-          return;
-        }
-      } catch {
-        // fall through to email auto-send
-      }
-
-      try {
-        const res = await apiJson<{ email_sent: boolean; queued?: boolean }>(
-          "/api/v1/absences/batch-send-success-sms",
-          { method: "POST", body: JSON.stringify({ ids: [specialApprovedTarget.id] }) },
-        );
-        const parts: string[] = [];
-        if (res.queued) parts.push("SMS queued");
-        if (res.email_sent) parts.push("email notification sent");
-        if (parts.length > 0) {
-          addToast("success", `Absence marked as special approved · ${parts.join(" · ")}`);
-        }
-      } catch {
-        // email send is best-effort
-      }
-
+      await notifySpecialApproved([specialApprovedTarget.id]);
       setSpecialApprovedTarget(null);
     } catch (err) {
       const msg = err instanceof ApiRequestError && err.code === "stale_edit"
@@ -551,6 +521,73 @@ export default function Absences() {
       addToast("error", msg);
     } finally {
       setSpecialApproving(false);
+    }
+  }
+
+  async function notifySpecialApproved(ids: string[]) {
+    if (ids.length === 0) return;
+    setSpecialApprovedCreatedIds(ids);
+    try {
+      const preview = await apiJson<{ preview?: SmsPreview }>(
+        "/api/v1/absences/batch-send-success-sms",
+        { method: "POST", body: JSON.stringify({ ids, dry_run: true }) },
+      );
+      if (preview.preview && preview.preview.phones.length > 0) {
+        setSpecialApprovedSmsPreview(preview.preview);
+        return;
+      }
+    } catch {
+      // Keep the existing best-effort email fallback when preview is unavailable.
+    }
+
+    try {
+      const res = await apiJson<{ email_sent: boolean; queued?: boolean }>(
+        "/api/v1/absences/batch-send-success-sms",
+        { method: "POST", body: JSON.stringify({ ids }) },
+      );
+      const parts: string[] = [];
+      if (res.queued) parts.push("SMS queued");
+      if (res.email_sent) parts.push("email notification sent");
+      if (parts.length > 0) addToast("success", `Absence marked as special approved · ${parts.join(" · ")}`);
+    } catch {
+      // Notification send is best-effort after the status update succeeds.
+    }
+    setSpecialApprovedCreatedIds([]);
+  }
+
+  async function specialApproveSelected(recordsOverride?: ManagedAbsence[]) {
+    const records = (recordsOverride ?? specialApproveTargets)
+      .filter((item) => item.status === "pending" || item.status === "reviewed" || item.status === "actioned");
+    if (records.length === 0) return;
+    setBatchProcessing(true);
+    setBatchFailed([]);
+    setBatchFailedAction("special_approved");
+    setBatchProgress({ done: 0, total: records.length });
+    try {
+      const result = await batchStatusMutation.mutateAsync({
+        ids: records.map((item) => item.id),
+        status: "special_approved",
+        expectedVersions: Object.fromEntries(records.map((item) => [item.id, item.version])),
+      });
+      setBatchProgress({ done: result.succeeded.length, total: result.total_processed });
+      setBatchFailed(result.failed);
+      addToast(result.failed.length > 0 ? "error" : "success", `${result.succeeded.length} special approved${result.failed.length > 0 ? ` · ${result.failed.length} failed` : ""}`);
+      setSelected((current) => {
+        const next = new Set(current);
+        for (const id of result.succeeded) next.delete(id);
+        return next;
+      });
+      setSpecialApproveTargets([]);
+      setSpecialApproveConfirmOpen(false);
+      await notifySpecialApproved(result.succeeded);
+    } catch (err) {
+      const msg = err instanceof ApiRequestError && err.code === "stale_edit"
+        ? "One or more absences were changed by another user. Reload and try again."
+        : err instanceof Error ? err.message : "Special approve failed";
+      addToast("error", msg);
+    } finally {
+      setBatchProcessing(false);
+      setBatchProgress({ done: 0, total: 0 });
     }
   }
 
@@ -621,6 +658,7 @@ export default function Absences() {
     if (records.length === 0) return;
     setBatchProcessing(true);
     setBatchFailed([]);
+    setBatchFailedAction("reviewed");
     setBatchProgress({ done: 0, total: records.length });
     const expectedVersions: Record<string, number> = {};
     for (const item of records) {
@@ -656,7 +694,9 @@ export default function Absences() {
   async function retryFailed() {
     if (batchFailed.length === 0) return;
     const failedIDs = new Set(batchFailed.map((failure) => failure.id));
-    await markSelectedReviewed((page?.items ?? []).filter((item) => failedIDs.has(item.id)));
+    const records = (page?.items ?? []).filter((item) => failedIDs.has(item.id));
+    if (batchFailedAction === "special_approved") await specialApproveSelected(records);
+    else await markSelectedReviewed(records);
   }
 
   const subjects = useMemo(() => {
@@ -875,6 +915,10 @@ export default function Absences() {
             <Button size="sm" onClick={() => void markSelectedReviewed()} loading={batchProcessing}>
               {batchProcessing ? `Processing ${batchProgress.done}/${batchProgress.total}…` : "Mark Reviewed"}
             </Button>
+            <Button size="sm" variant="secondary" className="border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100" disabled={batchProcessing} onClick={() => {
+              setSpecialApproveTargets(items.filter((item) => selected.has(item.id) && (item.status === "pending" || item.status === "reviewed" || item.status === "actioned")));
+              setSpecialApproveConfirmOpen(true);
+            }}>Special Approve</Button>
             <Button size="sm" variant="secondary" onClick={() => void exportSelected()}>Export Selected</Button>
             <Button size="sm" variant="danger" onClick={() => {
               setCancelTargets(items.filter((item) => selected.has(item.id) && item.status !== "cancelled"));
@@ -896,7 +940,7 @@ export default function Absences() {
 
       {!batchProcessing && batchFailed.length > 0 ? (
         <div className="mb-3 flex items-center gap-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
-          <span className="text-amber-700">{batchFailed.length} failed</span>
+          <span className="text-amber-700">{batchFailed.length} failed{batchFailed[0]?.error ? ` · ${batchFailed[0].error}` : ""}</span>
           <Button size="sm" variant="secondary" onClick={() => void retryFailed()}>Retry failed</Button>
         </div>
       ) : null}
@@ -1080,6 +1124,25 @@ export default function Absences() {
             <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Subject:</span><span className="font-medium">{specialApprovedTarget.subject_code ?? "-"}</span></div>
             <div className="mt-1 flex justify-between"><span className="text-[var(--color-wi-text-light)]">Dates:</span><span className="font-medium">{specialApprovedTarget.date_from === specialApprovedTarget.date_to ? specialApprovedTarget.date_from : `${specialApprovedTarget.date_from} – ${specialApprovedTarget.date_to}`}</span></div>
           </div>
+        </Modal>
+      ) : null}
+
+      {specialApproveConfirmOpen ? (
+        <Modal
+          title={`Special Approve ${selectedGroupCount} selected absence${selectedGroupCount === 1 ? "" : "s"}?`}
+          onClose={() => setSpecialApproveConfirmOpen(false)}
+          footer={(
+            <>
+              <Button variant="secondary" onClick={() => setSpecialApproveConfirmOpen(false)}>Back</Button>
+              <Button className="border-purple-700 bg-purple-700 hover:bg-purple-800" loading={batchProcessing} disabled={specialApproveTargets.length === 0} onClick={() => void specialApproveSelected()}>Confirm Special Approve</Button>
+            </>
+          )}
+        >
+          <p className="text-sm text-[var(--color-wi-text-light)]">Special-approved absences will not count toward the students' absence-rate limits.</p>
+          <p className="mt-2 text-sm font-medium text-purple-700">
+            {specialApproveTargets.length} will be approved
+            {selected.size > specialApproveTargets.length ? ` · ${selected.size - specialApproveTargets.length} skipped (already special approved/cancelled)` : ""}
+          </p>
         </Modal>
       ) : null}
 

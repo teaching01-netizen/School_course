@@ -320,7 +320,7 @@ describe("Absence inbox", () => {
     updatedPage.items[0].version = 2;
     mockApiJson
       .mockResolvedValueOnce(initialPage)
-      .mockResolvedValueOnce({ status: "reviewed", version: 2 })
+      .mockResolvedValueOnce({ succeeded: ["abs-1"], failed: [], total_processed: 1 })
       .mockResolvedValueOnce(updatedPage);
     renderPage();
     const user = userEvent.setup();
@@ -329,10 +329,10 @@ describe("Absence inbox", () => {
 
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
-        "/api/v1/absences/abs-1/status",
+        "/api/v1/absences/batch-status",
         expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ status: "reviewed", expected_version: 1 }),
+          method: "POST",
+          body: JSON.stringify({ ids: ["abs-1"], status: "reviewed", expected_versions: { "abs-1": 1 } }),
         }),
       );
     });
@@ -412,6 +412,131 @@ describe("Absence inbox", () => {
     await waitFor(() => {
       expect(statusCell).toHaveTextContent("Reviewed");
     });
+  });
+
+  it("special approves selected rows with their versions and previews notifications", async () => {
+    const initial = freshPage();
+    initial.items = [
+      { ...PAGE.items[0], id: "abs-1", wcode: "W1", version: 1 },
+      { ...PAGE.items[0], id: "abs-2", wcode: "W2", student_name: "Jane Doe", status: "reviewed", version: 3 },
+      { ...PAGE.items[0], id: "abs-3", wcode: "W3", student_name: "Sam Doe", status: "actioned", version: 5 },
+    ];
+    initial.total_count = 3;
+    const updated = structuredClone(initial);
+    updated.items.forEach((item) => { item.status = "special_approved"; item.version += 1; });
+    let approved = false;
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/absences/batch-status") {
+        approved = true;
+        return { succeeded: ["abs-1", "abs-2", "abs-3"], failed: [], total_processed: 3 };
+      }
+      if (url === "/api/v1/absences/batch-send-success-sms") return { preview: { phones: ["+66812345678"], message: "Preview" } };
+      return structuredClone(approved ? updated : initial);
+    });
+    renderPage("/absences");
+    const user = userEvent.setup();
+
+    await screen.findByText("Sam Doe");
+    await user.click(screen.getByRole("checkbox", { name: "Select all absences" }));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Special Approve" }));
+    expect(within(screen.getByRole("dialog")).getByText("Special Approve 3 selected absences?")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm Special Approve" }));
+
+    await waitFor(() => expect(screen.getAllByText("Special Approved")).toHaveLength(3));
+    const batchCalls = mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-status");
+    expect(batchCalls).toHaveLength(1);
+    expect(JSON.parse((batchCalls[0][1] as RequestInit).body as string)).toEqual({
+      ids: ["abs-1", "abs-2", "abs-3"],
+      status: "special_approved",
+      expected_versions: { "abs-1": 1, "abs-2": 3, "abs-3": 5 },
+    });
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/batch-send-success-sms",
+      expect.objectContaining({ body: JSON.stringify({ ids: ["abs-1", "abs-2", "abs-3"], dry_run: true }) }),
+    ));
+  });
+
+  it("reports skipped records and sends every eligible ID in a merged group", async () => {
+    const page = structuredClone(PAGE_WITH_MERGED_COURSE);
+    page.items.push(
+      { ...page.items[0], id: "abs-cancelled", wcode: "W4", merge_group_id: "", merge_group_name: "", status: "cancelled" },
+      { ...page.items[0], id: "abs-special", wcode: "W5", merge_group_id: "", merge_group_name: "", status: "special_approved" },
+    );
+    page.total_count = 4;
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/absences/batch-status") return { succeeded: ["abs-writing", "abs-reading"], failed: [], total_processed: 2 };
+      if (url === "/api/v1/absences/batch-send-success-sms") return { preview: { phones: ["+66812345678"], message: "Preview" } };
+      return structuredClone(page);
+    });
+    renderPage("/absences");
+    const user = userEvent.setup();
+
+    await screen.findByText("SAT Verbal Rank 3 Section 1 C3");
+    await user.click(screen.getByRole("checkbox", { name: "Select all absences" }));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Special Approve" }));
+    expect(within(screen.getByRole("dialog")).getByText(/2 will be approved · 2 skipped \(already special approved\/cancelled\)/)).toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm Special Approve" }));
+
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/batch-status",
+      expect.objectContaining({ body: JSON.stringify({ ids: ["abs-writing", "abs-reading"], status: "special_approved", expected_versions: { "abs-writing": 1, "abs-reading": 1 } }) }),
+    ));
+  });
+
+  it("keeps failed special approvals selected and never notifies them before retry succeeds", async () => {
+    const initial = freshPage();
+    initial.items = [
+      { ...PAGE.items[0], id: "abs-1", wcode: "W1" },
+      { ...PAGE.items[0], id: "abs-2", wcode: "W2", student_name: "Jane Doe" },
+    ];
+    initial.total_count = 2;
+    let attempts = 0;
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/absences/batch-status") {
+        attempts += 1;
+        return attempts === 1
+          ? { succeeded: ["abs-1"], failed: [{ id: "abs-2", error: "stale edit" }], total_processed: 2 }
+          : { succeeded: ["abs-2"], failed: [], total_processed: 1 };
+      }
+      if (url === "/api/v1/absences/batch-send-success-sms") return { preview: { phones: ["+66812345678"], message: "Preview" } };
+      const page = structuredClone(initial);
+      if (attempts > 0) { page.items[0].status = "special_approved"; page.items[0].version = 2; }
+      if (attempts > 1) { page.items[1].status = "special_approved"; page.items[1].version = 2; }
+      return page;
+    });
+    renderPage("/absences");
+    const user = userEvent.setup();
+
+    await screen.findByText("Jane Doe");
+    await user.click(screen.getByRole("checkbox", { name: "Select all absences" }));
+    await user.click(screen.getByRole("button", { name: "Special Approve" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm Special Approve" }));
+
+    await waitFor(() => expect(screen.getByText("1 special approved · 1 failed")).toBeInTheDocument());
+    expect(screen.getByRole("checkbox", { name: "Select W2" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select W1" })).not.toBeChecked();
+    await waitFor(() => expect(screen.getByText("Preview")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+    await waitFor(() => expect(screen.queryByText("Preview")).not.toBeInTheDocument());
+    expect(mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-send-success-sms")
+      .map((call: unknown[]) => JSON.parse((call[1] as RequestInit).body as string).ids)).toEqual([["abs-1"], ["abs-1"]]);
+
+    await user.click(screen.getByRole("button", { name: "Retry failed" }));
+    await waitFor(() => expect(mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-status")).toHaveLength(2));
+    const retryCall = mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-status")[1];
+    expect(JSON.parse((retryCall[1] as RequestInit).body as string).ids).toEqual(["abs-2"]);
+    await waitFor(() => expect(mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-send-success-sms")).toHaveLength(3));
+    expect(JSON.parse((mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-send-success-sms")[2][1] as RequestInit).body as string).ids).toEqual(["abs-2"]);
+    await user.click(screen.getByRole("button", { name: /send sms/i }));
+    await waitFor(() => expect(mockApiJson.mock.calls.filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-send-success-sms")).toHaveLength(4));
+    const sentIds = mockApiJson.mock.calls
+      .filter((call: unknown[]) => call[0] === "/api/v1/absences/batch-send-success-sms")
+      .map((call: unknown[]) => JSON.parse((call[1] as RequestInit).body as string))
+      .filter((body: { dry_run?: boolean }) => !body.dry_run)
+      .map((body: { ids: string[] }) => body.ids);
+    expect(sentIds).toEqual([["abs-1"], ["abs-2"]]);
   });
 
   it("exports the active filtered report", async () => {
@@ -585,7 +710,7 @@ describe("Absence inbox", () => {
     await user.click(within(batchBar).getByRole("button", { name: /mark reviewed/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("1 failed")).toBeInTheDocument();
+      expect(screen.getByText("1 failed · version mismatch")).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /retry failed/i })).toBeInTheDocument();
 
