@@ -425,7 +425,7 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok")
+	rows, err := q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,5 +444,18 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	}
 	if got[earlierFinalDayCandidate] {
 		t.Fatal("expected candidate list to exclude every session on the final sit-in day")
+	}
+	rows, err = q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = map[pgtype.UUID]bool{}
+	for _, row := range rows {
+		got[row.ID] = true
+	}
+	for _, id := range []pgtype.UUID{beforeAbsence, moreThanThirtyDaysAfter, earlierFinalDayCandidate, finalCandidate} {
+		if !got[id] {
+			t.Fatalf("expected unrestricted candidate list to include session %v", id)
+		}
 	}
 }

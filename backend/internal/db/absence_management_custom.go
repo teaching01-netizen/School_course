@@ -1267,7 +1267,7 @@ type SitInCandidateSession struct {
 	Occupancy    int64
 }
 
-func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseID pgtype.UUID, instituteTZ string) ([]SitInCandidateSession, error) {
+func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseID pgtype.UUID, instituteTZ string, excludeFinal bool) ([]SitInCandidateSession, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT sess.id, sess.course_id, sess.room_id, sess.start_at, sess.end_at,
 		       room.name, room.capacity,
@@ -1279,14 +1279,14 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		LEFT JOIN rooms room ON room.id = sess.room_id
 		WHERE sess.course_id = $2
 		  AND sess.deleted_at IS NULL
-		  AND EXISTS (
+		  AND (NOT $4 OR EXISTS (
 		    SELECT 1
 		    FROM sessions later
 		    WHERE later.course_id = sess.course_id
 		      AND later.deleted_at IS NULL
 		      AND (later.start_at AT TIME ZONE $3)::date >
 		          (sess.start_at AT TIME ZONE $3)::date
-		  )
+		  ))
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed
@@ -1298,7 +1298,7 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		      AND sess.end_at > missed.start_at
 		  )
 		ORDER BY sess.start_at ASC
-	`, absenceID, courseID, instituteTZ)
+	`, absenceID, courseID, instituteTZ, excludeFinal)
 	if err != nil {
 		return nil, err
 	}

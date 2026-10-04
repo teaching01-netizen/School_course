@@ -14,6 +14,42 @@ vi.mock("@/api/client", async () => {
 describe("OverrideSitInModal", () => {
   beforeEach(() => { mockApiJson.mockReset(); });
 
+  it("offers earlier and final sessions for a different sit-in subject and saves the final session", async () => {
+    mockApiJson.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/courses/public") {
+        return [
+          { id: "absence-course", subject_name: "SAT Verbal" },
+          { id: "target-course", subject_name: "Mathematics" },
+        ];
+      }
+      if (path.includes("sit-in-candidates?course_id=target-course")) {
+        return [
+          { id: "earlier", start_at: "2027-01-11T03:00:00Z", end_at: "2027-01-11T04:00:00Z" },
+          { id: "final", start_at: "2027-01-18T03:00:00Z", end_at: "2027-01-18T04:00:00Z" },
+        ];
+      }
+      return [];
+    });
+    render(
+      <ToastProvider>
+        <OverrideSitInModal absenceId="abs-1" version={2} currentMethod="physical"
+          currentCourseId="absence-course" onClose={vi.fn()} onSaved={vi.fn()} />
+      </ToastProvider>,
+    );
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole("combobox"), "target-course");
+    expect(await screen.findByRole("button", { name: /11 Jan/ })).toBeEnabled();
+    await user.click(await screen.findByRole("button", { name: /18 Jan/ }));
+    await user.click(screen.getByRole("button", { name: "Save Override" }));
+    await waitFor(() => expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/abs-1/sit-in", expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ method: "physical", expected_version: 2, reason: "Override by admin",
+          sit_in_course_id: "target-course", sit_in_session_ids: ["final"] }),
+      }),
+    ));
+  });
+
   it("shows subject_name in course dropdown options when provided", async () => {
     mockApiJson
       .mockResolvedValueOnce([

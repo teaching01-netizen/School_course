@@ -1049,7 +1049,11 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_required", "Select a sit-in course")
 				return 0, nil, fmt.Errorf("sit-in course required")
 			}
-			excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, current.CourseID)
+			policyCourse := selectedCourse
+			if body.Method == "auto" {
+				policyCourse = current.CourseID
+			}
+			excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, policyCourse)
 			if err != nil {
 				status, code, message := s.a.ClassifyDBErr(err)
 				s.a.WriteErr(w, status, code, message)
@@ -1124,7 +1128,13 @@ func (s *server) handleSitInCandidates(w http.ResponseWriter, r *http.Request) {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course ID")
 		return
 	}
-	rows, err := s.deps.Q.SitInCandidateSessions(r.Context(), absenceID, courseID, s.deps.InstituteTZ)
+	excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), s.deps.Q, courseID)
+	if err != nil {
+		status, code, message := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, message)
+		return
+	}
+	rows, err := s.deps.Q.SitInCandidateSessions(r.Context(), absenceID, courseID, s.deps.InstituteTZ, excludeFinal)
 	if err != nil {
 		status, code, message := s.a.ClassifyDBErr(err)
 		s.a.WriteErr(w, status, code, message)

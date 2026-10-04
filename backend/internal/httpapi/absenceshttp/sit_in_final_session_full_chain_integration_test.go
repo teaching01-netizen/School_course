@@ -198,6 +198,98 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	}
 }
 
+func TestFullChain_ManualSitInUsesTargetSubjectPolicy(t *testing.T) {
+	for _, mapping := range []string{"unmapped", "inactive", "allowed", "excluded", "merge_excluded"} {
+		t.Run(mapping, func(t *testing.T) {
+			f := seedFinalSessionFixture(t)
+			ctx := context.Background()
+			staff := f.staffServer(t)
+			body := f.requestBody()
+			body["sit_in_session_ids"] = []string{f.earlierID}
+			response := staffDoRequest(t, staff.URL, http.MethodPost, "/api/v1/absences", body)
+			finalSessionResponseBody(t, response, http.StatusCreated)
+			absenceID := f.assertPersisted(t, f.earlierID)
+
+			targetSubject, err := f.q.SubjectCreate(ctx, sqldb.SubjectCreateParams{
+				Code: "TARGET-" + f.targetCourseID, Name: "Different sit-in subject",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", targetSubject.ID, f.targetCourseID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, "UPDATE subject_active_courses SET subject_id = $1 WHERE course_id = $2", targetSubject.ID, f.targetCourseID); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_, err := f.pool.Exec(ctx, "DELETE FROM sat_verbal_policy_mappings WHERE rule_id IN ($1, $2)", "manual-source-"+f.courseID, "manual-target-"+f.targetCourseID)
+				if err != nil {
+					t.Error(err)
+				}
+			})
+			excluded := mapping == "excluded" || mapping == "merge_excluded"
+			if _, err := f.pool.Exec(ctx, `INSERT INTO sat_verbal_policy_mappings
+				(rule_id, course_id, policy_rule, policy_hash, active)
+				VALUES ($1, $2, jsonb_build_object('lastClassExcluded', $3::boolean), '', true)`, "manual-source-"+f.courseID, f.courseID, !excluded); err != nil {
+				t.Fatal(err)
+			}
+			if mapping != "unmapped" {
+				var targetID any = f.targetCourseID
+				var mergeID any
+				if mapping == "merge_excluded" {
+					group, err := f.q.CourseMergeGroupCreate(ctx, "Manual target "+f.targetCourseID, f.teacherID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := f.q.CourseMergeGroupAssignCourse(ctx, group.ID, makeUUID(f.targetCourseID), 1); err != nil {
+						t.Fatal(err)
+					}
+					targetID, mergeID = nil, group.ID
+				}
+				raw, err := json.Marshal(satverbalpolicy.CourseRule{LastClassExcluded: excluded || mapping == "inactive"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.pool.Exec(ctx, `INSERT INTO sat_verbal_policy_mappings
+					(rule_id, course_id, merge_group_id, policy_rule, policy_hash, active)
+					VALUES ($1, $2, $3, $4, '', $5)`, "manual-target-"+f.targetCourseID, targetID, mergeID, string(raw), mapping != "inactive"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response = staffDoRequest(t, staff.URL, http.MethodGet,
+				"/api/v1/absences/"+absenceID+"/sit-in-candidates?course_id="+f.targetCourseID, nil)
+			var candidates []struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(finalSessionResponseBody(t, response, http.StatusOK), &candidates); err != nil {
+				t.Fatal(err)
+			}
+			seen := make(map[string]bool)
+			for _, candidate := range candidates {
+				seen[candidate.ID] = true
+			}
+			if !seen[f.earlierID] || seen[f.finalID] == excluded {
+				t.Errorf("manual candidates = %v; want earlier=true final=%v", seen, !excluded)
+			}
+			var version int32
+			if err := f.pool.QueryRow(ctx, "SELECT version FROM student_absences WHERE id = $1", absenceID).Scan(&version); err != nil {
+				t.Fatal(err)
+			}
+			response = staffDoRequest(t, staff.URL, http.MethodPut, "/api/v1/absences/"+absenceID+"/sit-in", map[string]any{
+				"method": "physical", "sit_in_course_id": f.targetCourseID, "sit_in_session_ids": []string{f.finalID},
+				"expected_version": version, "reason": "Different subject final session",
+			})
+			wantStatus, assignedID := http.StatusOK, f.finalID
+			if excluded {
+				wantStatus, assignedID = http.StatusBadRequest, f.earlierID
+			}
+			finalSessionResponseBody(t, response, wantStatus)
+			f.assertPersisted(t, assignedID)
+		})
+	}
+}
+
 func TestFullChain_FinalSitInRespectsConfiguredWindow(t *testing.T) {
 	f := seedFinalSessionFixture(t)
 	ctx := context.Background()
@@ -398,7 +490,7 @@ func TestFullChain_FinalSitInFollowsActiveSatVerbalMapping(t *testing.T) {
 					course, merge any
 				}{
 					{rule, courseID, mergeID},
-					{satverbalpolicy.CourseRule{ID: "target-" + f.targetCourseID, CourseName: targetName}, f.targetCourseID, nil},
+					{satverbalpolicy.CourseRule{ID: "target-" + f.targetCourseID, CourseName: targetName, LastClassExcluded: excluded}, f.targetCourseID, nil},
 				} {
 					raw, err := json.Marshal(mapping.rule)
 					if err != nil {
