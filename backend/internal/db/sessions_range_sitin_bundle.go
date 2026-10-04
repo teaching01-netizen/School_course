@@ -107,10 +107,8 @@ type SitInBundleV2 struct {
 // request window [FromUTC, ToExclusiveUTC); Cutoff bounds the future sit-in
 // search per the scope window-weeks policy. SAT Verbal mapped courses bypass
 // these bounds and load their complete schedules for occurrence matching.
-// Zero CutoffUTC at load time means "no policy anywhere": the loader clamps
-// ordinary courses to WindowToExclUTC (nothing beyond the request window is
-// ever offered without a make-up window — verified against the resolver
-// filter chain, see loadBundleSessionsBounded).
+// Zero CutoffUTC means no configured future cutoff. Ordinary candidates may
+// extend beyond the leave date range, as in the legacy per-target resolver.
 type SitInDiscoveryBounds struct {
 	WindowFromUTC    time.Time
 	WindowToExclUTC  time.Time
@@ -327,20 +325,8 @@ func (q *Queries) SessionsRangeSitInBundleV2(ctx context.Context, arg SitInBundl
 	discovery := arg.Discovery
 	if !discovery.IncludeUnbounded && !discovery.WindowFromUTC.IsZero() && !discovery.WindowToExclUTC.IsZero() && discovery.CutoffUTC.IsZero() {
 		discovery.CutoffUTC = widestScopeCutoffFromPoliciesAt(arg.PoliciesJSON, out, arg.NowUTC)
-		// No policy anywhere in this request: zero cutoff would leave
-		// candidates unbounded-future (legacy shape, history leaks back
-		// in). Clamp to the request ceiling instead — the resolvers use
-		// zero cutoff to mean "no future filtering", but nothing beyond
-		// the request window is ever offered without a make-up window,
-		// and missed-history never extends past it either. Explicit,
-		// documented, and shadow-pinned (not a guessed LIMIT).
-		if discovery.CutoffUTC.IsZero() {
-			if arg.PoliciesJSON == nil {
-				discovery.CutoffUTC = q.loadWidestScopeCutoff(ctx, out)
-			}
-			if discovery.CutoffUTC.IsZero() {
-				discovery.CutoffUTC = discovery.WindowToExclUTC
-			}
+		if discovery.CutoffUTC.IsZero() && arg.PoliciesJSON == nil {
+			discovery.CutoffUTC = q.loadWidestScopeCutoff(ctx, out)
 		}
 	}
 	out.Visible = arrayToVisibleSet(bundleVisibleCourseIDs(out.ScopeCourses, out.SatMemberCourses, out.SatMappings))
@@ -829,8 +815,9 @@ func (q *Queries) loadBundleSessionsBounded(ctx context.Context, out *SitInBundl
 // every distinct merge group in the scope universe, root-group policies for
 // every distinct root group, and subject-level policies for every distinct
 // SAT-mapped subject (SAT windows are subject-scoped with merge override).
-// Zero time = no policy anywhere: candidates stay unbounded-future, exactly
-// like the legacy per-target lookup. A settings failure returns zero time
+// Zero time = a scope has no future cutoff: candidates stay unbounded-future,
+// and each resolver still applies its own scope's configured window.
+// A settings failure returns zero time
 // (the resolvers degrade the same way: win=0 -> zero cutoff -> no filtering).
 func (q *Queries) loadWidestScopeCutoff(ctx context.Context, out *SitInBundleV2) time.Time {
 	settings, err := q.AppSettingsGetWithPolicies(ctx)
@@ -865,6 +852,17 @@ func widestScopeCutoffFromPoliciesAt(policiesJSON []byte, out *SitInBundleV2, no
 	seenMerge := make(map[string]struct{})
 	seenRoot := make(map[string]struct{})
 	for _, c := range out.ScopeCourses {
+		if c.RootCourseGroupID.Valid || c.MergeGroupID.Valid {
+			weeks := p.RootCourseGroups[uuidBytesString(c.RootCourseGroupID)].SitInWindowWeeks
+			if c.MergeGroupID.Valid {
+				if policy, ok := p.MergeGroups[uuidBytesString(c.MergeGroupID)]; ok {
+					weeks = policy.SitInWindowWeeks
+				}
+			}
+			if weeks <= 0 {
+				return time.Time{}
+			}
+		}
 		if c.MergeGroupID.Valid {
 			k := uuidBytesString(c.MergeGroupID)
 			if _, ok := seenMerge[k]; !ok {
