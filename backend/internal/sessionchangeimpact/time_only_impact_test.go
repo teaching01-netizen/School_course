@@ -123,83 +123,87 @@ func TestAnalyze_harmlessTimeMoveCreatesNoCriticalOrNoiseWarning(t *testing.T) {
 	}
 }
 
-// Acceptance A1: a room-only change (identical start/end) creates nothing.
+// Acceptance A1: room/teacher-only changes (identical start/end) create nothing.
 // The student can still attend; any queue row would be an unnecessary warning.
-func TestAnalyze_roomOnlyChangeCreatesNoIssues(t *testing.T) {
-	databaseURL := autoTestDB(t)
-	autoMigrateUpOnce(t, databaseURL)
-	pool := autoPool(t, databaseURL)
-	t.Cleanup(pool.Close)
-	q := sqldb.New(pool)
+func TestAnalyze_metadataOnlyChangeCreatesNoIssues(t *testing.T) {
+	for _, fields := range []string{`{"room_id":true}`, `{"teacher_id":true}`, `{"room_id":true,"teacher_id":true}`} {
+		t.Run(fields, func(t *testing.T) {
+			databaseURL := autoTestDB(t)
+			autoMigrateUpOnce(t, databaseURL)
+			pool := autoPool(t, databaseURL)
+			t.Cleanup(pool.Close)
+			q := sqldb.New(pool)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	suffix := time.Now().UTC().Format("20060102150405.000000000")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			suffix := time.Now().UTC().Format("20060102150405.000000000")
 
-	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "room-teacher-" + suffix, Role: "Admin", PasswordHash: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "room-old-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "ROOM-" + suffix, Name: "Room " + suffix})
-	if err != nil {
-		t.Fatal(err)
-	}
-	session, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-		CourseID: course.ID, RoomID: room.ID, TeacherID: teacherID,
-		StartAt: pgtype.Timestamptz{Time: time.Date(2031, 5, 4, 9, 0, 0, 0, time.UTC), Valid: true},
-		EndAt:   pgtype.Timestamptz{Time: time.Date(2031, 5, 4, 10, 0, 0, 0, time.UTC), Valid: true},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
-		Wcode: "ROOM-" + suffix, CourseID: course.ID,
-		DateFrom:      pgtype.Date{Time: session.StartAt.Time, Valid: true},
-		DateTo:        pgtype.Date{Time: session.StartAt.Time, Valid: true},
-		SitInCourseID: course.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO absence_sit_ins (absence_id, session_id, session_version_at_assignment, session_snapshot_at_assignment, snapshot_schema_version, snapshot_captured_at, snapshot_quality, snapshot_source) VALUES ($1, $2, $3, '{"schema_version":1}'::jsonb, 1, now(), 'exact', 'captured_at_assignment')`, absence.ID, session.ID, session.Version); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if _, err := pool.Exec(cleanupCtx, `DELETE FROM student_absences WHERE id = $1`, absence.ID); err != nil {
-			t.Logf("cleanup absence: %v", err)
-		}
-	})
+			teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "room-teacher-" + suffix, Role: "Admin", PasswordHash: "x"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			room, err := q.RoomCreate(ctx, sqldb.RoomCreateParams{Name: "room-old-" + suffix, Capacity: pgtype.Int4{Int32: 10, Valid: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			course, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: "ROOM-" + suffix, Name: "Room " + suffix})
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+				CourseID: course.ID, RoomID: room.ID, TeacherID: teacherID,
+				StartAt: pgtype.Timestamptz{Time: time.Date(2031, 5, 4, 9, 0, 0, 0, time.UTC), Valid: true},
+				EndAt:   pgtype.Timestamptz{Time: time.Date(2031, 5, 4, 10, 0, 0, 0, time.UTC), Valid: true},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			absence, err := q.AbsenceCreate(ctx, sqldb.AbsenceCreateParams{
+				Wcode: "ROOM-" + suffix, CourseID: course.ID,
+				DateFrom:      pgtype.Date{Time: session.StartAt.Time, Valid: true},
+				DateTo:        pgtype.Date{Time: session.StartAt.Time, Valid: true},
+				SitInCourseID: course.ID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO absence_sit_ins (absence_id, session_id, session_version_at_assignment, session_snapshot_at_assignment, snapshot_schema_version, snapshot_captured_at, snapshot_quality, snapshot_source) VALUES ($1, $2, $3, '{"schema_version":1}'::jsonb, 1, now(), 'exact', 'captured_at_assignment')`, absence.ID, session.ID, session.Version); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cleanupCancel()
+				if _, err := pool.Exec(cleanupCtx, `DELETE FROM student_absences WHERE id = $1`, absence.ID); err != nil {
+					t.Logf("cleanup absence: %v", err)
+				}
+			})
 
-	// Room-only change: identical times, so the sit-in time did not change.
-	var changeID pgtype.UUID
-	if err := pool.QueryRow(ctx, `INSERT INTO session_changes (session_id, session_version, changed_fields, before_snapshot, after_snapshot, old_start_at, old_end_at, new_start_at, new_end_at, old_course_id, new_course_id, old_teacher_id, new_teacher_id) SELECT id, version + 1, '{"room_id":true}'::jsonb, '{}'::jsonb, '{}'::jsonb, start_at, end_at, start_at, end_at, course_id, course_id, teacher_id, teacher_id FROM sessions WHERE id = $1 RETURNING id`, session.ID).Scan(&changeID); err != nil {
-		t.Fatal(err)
-	}
+			// Metadata-only change: identical times, so the sit-in time did not change.
+			var changeID pgtype.UUID
+			if err := pool.QueryRow(ctx, `INSERT INTO session_changes (session_id, session_version, changed_fields, before_snapshot, after_snapshot, old_start_at, old_end_at, new_start_at, new_end_at, old_course_id, new_course_id, old_teacher_id, new_teacher_id) SELECT id, version + 1, $2::jsonb, '{}'::jsonb, '{}'::jsonb, start_at, end_at, start_at, end_at, course_id, course_id, teacher_id, teacher_id FROM sessions WHERE id = $1 RETURNING id`, session.ID, fields).Scan(&changeID); err != nil {
+				t.Fatal(err)
+			}
 
-	service := New(pool, q, "Asia/Bangkok", nil, slog.Default())
-	if err := service.Analyze(ctx, changeID); err != nil {
-		t.Fatal(err)
-	}
+			service := New(pool, q, "Asia/Bangkok", nil, slog.Default())
+			if err := service.Analyze(ctx, changeID); err != nil {
+				t.Fatal(err)
+			}
 
-	var total int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM absence_schedule_issues WHERE latest_session_change_id = $1 AND status IN ('open','needs_review')`, changeID).Scan(&total); err != nil {
-		t.Fatal(err)
-	}
-	if total != 0 {
-		t.Errorf("room-only change created %d issue(s), want 0", total)
-	}
-	var runStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM session_change_impact_runs WHERE session_change_id = $1`, changeID).Scan(&runStatus); err != nil {
-		t.Fatal(err)
-	}
-	if runStatus != "completed" {
-		t.Errorf("impact run status = %q, want completed", runStatus)
+			var total int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM absence_schedule_issues WHERE latest_session_change_id = $1 AND status IN ('open','needs_review')`, changeID).Scan(&total); err != nil {
+				t.Fatal(err)
+			}
+			if total != 0 {
+				t.Errorf("metadata-only change created %d issue(s), want 0", total)
+			}
+			var runStatus string
+			if err := pool.QueryRow(ctx, `SELECT status FROM session_change_impact_runs WHERE session_change_id = $1`, changeID).Scan(&runStatus); err != nil {
+				t.Fatal(err)
+			}
+			if runStatus != "completed" {
+				t.Errorf("impact run status = %q, want completed", runStatus)
+			}
+		})
 	}
 }
 
