@@ -321,13 +321,13 @@ describe("Absence inbox", () => {
     occurrence_status: "active", captured_at: "2026-05-27T09:00:00Z",
   };
   const movedSession = {
-    ...PAGE_WITH_MISSED_SESSIONS.items[0].sit_ins[0], course_name: "Moved class",
+    ...PAGE_WITH_MISSED_SESSIONS.items[0].sit_ins[0], course_name: "Moved class", subject_name: null,
     start_at: "2026-06-05T13:00:00+07:00", end_at: "2026-06-05T14:30:00+07:00",
   };
   const impact = { session_id: "sit-session-1", original_snapshot: originalSnapshot, snapshot_quality: "exact", current_session: movedSession };
 
   async function renderSitInCell(item: object) {
-    mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [{ ...PAGE.items[0], ...item }] });
+    mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [{ ...PAGE.items[0], sit_in_subject_name: null, ...item }] });
     renderPage();
     const row = (await screen.findByRole("link", { name: /view john smith absence/i })).closest("tr")!;
     return row.querySelector('[data-label="Sit-in"]') as HTMLElement;
@@ -345,6 +345,24 @@ describe("Absence inbox", () => {
     expect(cell).toHaveTextContent("Original class");
     expect(cell).toHaveTextContent("Moved class");
     expect(cell).not.toHaveTextContent("No session selected");
+  });
+
+  it("shows the sit-in subject instead of a numeric course label for a removed session", async () => {
+    const cell = await renderSitInCell({ sit_in_subject_name: "SAT Math : Rank 2 C3", sit_in_impacts: [{
+      ...impact, original_snapshot: { ...originalSnapshot, course: { ...originalSnapshot.course, name: "26453383001", code: "26453383001" } },
+      current_session: null,
+    }] });
+    expect(cell).toHaveTextContent("SAT Math : Rank 2 C3");
+    expect(cell).not.toHaveTextContent("26453383001");
+    expect(cell).toHaveTextContent("Session removed");
+  });
+
+  it("uses subject labels for original and current sessions", async () => {
+    const cell = await renderSitInCell({ sit_in_subject_name: "Original subject", sit_in_impacts: [{
+      ...impact, current_session: { ...movedSession, subject_name: "Current subject" },
+    }] });
+    expect(cell.textContent).toMatch(/Original session.*Original subject.*Current session.*Current subject/);
+    expect(cell).not.toHaveTextContent("Moved class");
   });
 
   it("keeps the original session visible after removal", async () => {
@@ -375,8 +393,8 @@ describe("Absence inbox", () => {
 
   it("preserves impact context from a second merged-course absence", async () => {
     mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [
-      { ...PAGE.items[0], merge_group_id: "merge-1" },
-      { ...PAGE.items[0], id: "abs-2", merge_group_id: "merge-1", sit_in_impacts: [impact] },
+      { ...PAGE.items[0], sit_in_subject_name: null, merge_group_id: "merge-1" },
+      { ...PAGE.items[0], sit_in_subject_name: null, id: "abs-2", merge_group_id: "merge-1", sit_in_impacts: [impact] },
     ] });
     renderPage();
     await screen.findByText("Original session");

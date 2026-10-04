@@ -244,7 +244,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
             {impact.original_snapshot ? (
               <div>
                 <div className="text-xs font-semibold">Original session</div>
-                <div className="break-words font-medium text-[var(--color-wi-text)]">{impact.original_snapshot.course.name || impact.original_snapshot.course.code || "Sit-in"}</div>
+                <div className="break-words font-medium text-[var(--color-wi-text)]">{absence.sit_in_merge_group_name?.trim() || absence.sit_in_subject_name?.trim() || impact.current_session?.subject_name?.trim() || impact.original_snapshot.course.name || "Sit-in"}</div>
                 <div className="text-xs">{formatSitInWindow(impact.original_snapshot.start_at, impact.original_snapshot.end_at)}</div>
                 {impact.snapshot_quality === "reconstructed" ? <div className="text-xs">Reconstructed record</div> : null}
               </div>
@@ -252,7 +252,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
             {impact.current_session ? (
               <div>
                 <div className="text-xs font-semibold">Current session</div>
-                <div className="break-words font-medium text-[var(--color-wi-text)]">{impact.current_session.course_name || impact.current_session.subject_name || impact.current_session.course_code || "Sit-in"}</div>
+                <div className="break-words font-medium text-[var(--color-wi-text)]">{absence.sit_in_merge_group_name?.trim() || impact.current_session.subject_name?.trim() || absence.sit_in_subject_name?.trim() || impact.current_session.course_name || "Sit-in"}</div>
                 <div className="text-xs">{formatSitInWindow(impact.current_session.start_at, impact.current_session.end_at)}</div>
               </div>
             ) : <div className="text-xs">Session removed</div>}
