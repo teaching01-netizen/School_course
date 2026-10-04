@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRight, Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, TriangleAlert, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowRight, Download, Eye, LayoutGrid, RefreshCcw, Settings, Table2, TriangleAlert, UserPlus } from "lucide-react";
 import { apiJson, ApiRequestError, downloadApiFile } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { ABSENCE_STATUSES, type AbsencePage, type AbsenceStatus, type ManagedAbsence, type SmsPreview } from "../types";
@@ -240,7 +240,7 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
     return (
       <div className="min-w-0 space-y-2 text-sm leading-snug text-[var(--color-wi-text-light)]">
         {impacts.map((impact) => (
-          <div key={impact.session_id} className="space-y-1">
+          <div key={impact.session_id} role="group" aria-label="Sit-in session change" className="rounded-sm border border-wi-line bg-white/70 p-2">
             {impact.original_snapshot ? (
               <div>
                 <div className="text-xs font-semibold">Original session</div>
@@ -249,17 +249,25 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
                 {impact.snapshot_quality === "reconstructed" ? <div className="text-xs">Reconstructed record</div> : null}
               </div>
             ) : <div className="text-xs">Original session unavailable</div>}
+            <div className="my-1 flex items-center text-[var(--color-wi-text-light)]" aria-hidden="true">
+              <ArrowDown className="h-3.5 w-3.5" />
+            </div>
             {impact.current_session ? (
               <div>
                 <div className="text-xs font-semibold">Current session</div>
                 <div className="break-words font-medium text-[var(--color-wi-text)]">{absence.sit_in_merge_group_name?.trim() || impact.current_session.subject_name?.trim() || absence.sit_in_subject_name?.trim() || impact.current_session.course_name || "Sit-in"}</div>
                 <div className="text-xs">{formatSitInWindow(impact.current_session.start_at, impact.current_session.end_at)}</div>
               </div>
-            ) : <div className="text-xs">Session removed</div>}
+            ) : (
+              <div className="inline-flex items-center gap-1 rounded-sm bg-red-50 px-1.5 py-0.5 text-xs font-semibold text-red-700">
+                <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden="true" /> Session removed
+              </div>
+            )}
           </div>
         ))}
         {sessions.filter((session) => !affectedIds.has(session.session_id)).map((session) => (
-          <div key={session.id}>
+          <div key={session.id} role="group" aria-label="Assigned sit-in session" className="rounded-sm border border-wi-line bg-white/70 p-2">
+            <div className="text-xs font-semibold">Assigned session</div>
             <div className="break-words font-medium text-[var(--color-wi-text)]">{absence.sit_in_merge_group_name ?? session.subject_name ?? session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}</div>
             <div className="text-xs">{formatSitInWindow(session.start_at, session.end_at)}</div>
           </div>
@@ -992,7 +1000,7 @@ export default function Absences() {
               <th scope="col" className="w-24 px-3 py-2">Status</th>
               <th scope="col" className="w-44 px-3 py-2">Student</th>
               <th scope="col" className="px-3 py-2">Subject</th>
-              <th scope="col" className="w-36 px-3 py-2">Sit-in</th>
+              <th scope="col" className="w-56 min-w-[220px] px-3 py-2">Sit-in</th>
               <th scope="col" className="w-20 px-3 py-2">Submitted</th>
               <th scope="col" className="w-44 px-3 py-2 text-right">Actions</th>
             </tr>

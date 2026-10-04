@@ -391,6 +391,27 @@ describe("Absence inbox", () => {
     expect(cell).toHaveTextContent("Unaffected class");
   });
 
+  it("groups the original session with its outcome and separates other assignments", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [{ ...impact, current_session: null }], sit_ins: [
+      { ...movedSession, id: "sit-2", session_id: "other", subject_name: "Unaffected class" },
+    ] });
+    const changed = within(cell).getByRole("group", { name: "Sit-in session change" });
+    expect(changed).toHaveTextContent("Original session");
+    expect(changed).toHaveTextContent("Original class");
+    expect(changed).toHaveTextContent("Session removed");
+    expect(changed).not.toHaveTextContent("Unaffected class");
+    const assigned = within(cell).getByRole("group", { name: "Assigned sit-in session" });
+    expect(assigned).toHaveTextContent("Assigned session");
+    expect(assigned).toHaveTextContent("Unaffected class");
+    expect(assigned).not.toHaveTextContent("Session removed");
+  });
+
+  it("keeps the original and current sessions within the same change group", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [impact] });
+    const changed = within(cell).getByRole("group", { name: "Sit-in session change" });
+    expect(changed.textContent).toMatch(/Original session.*Original class.*Current session.*Moved class/);
+  });
+
   it("preserves impact context from a second merged-course absence", async () => {
     mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [
       { ...PAGE.items[0], sit_in_subject_name: null, merge_group_id: "merge-1" },
