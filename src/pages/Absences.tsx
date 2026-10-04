@@ -177,10 +177,12 @@ function groupInboxAbsences(items: ManagedAbsence[]): InboxAbsenceGroup[] {
 
     const mergeName = groupItems.find((item) => item.merge_group_name?.trim())?.merge_group_name?.trim();
     const missedSessions = new Map<string, NonNullable<ManagedAbsence["missed_sessions"]>[number]>();
+    const sitInImpacts = new Map<string, NonNullable<ManagedAbsence["sit_in_impacts"]>[number]>();
     const sitInSessions = new Map<string, NonNullable<ManagedAbsence["sit_ins"]>[number]>();
     for (const item of groupItems) {
       for (const session of item.missed_sessions ?? []) missedSessions.set(session.id, session);
       for (const session of item.sit_ins ?? []) sitInSessions.set(session.id, session);
+      for (const impact of item.sit_in_impacts ?? []) sitInImpacts.set(impact.session_id, impact);
     }
 
     return {
@@ -192,6 +194,7 @@ function groupInboxAbsences(items: ManagedAbsence[]): InboxAbsenceGroup[] {
         merge_group_name: mergeName || first.merge_group_name,
         missed_sessions: [...missedSessions.values()],
         sit_ins: [...sitInSessions.values()],
+        sit_in_impacts: [...sitInImpacts.values()],
       },
       items: groupItems,
     };
@@ -230,6 +233,40 @@ function SitInSummary({ absence }: { absence: ManagedAbsence }) {
   const sessions = (absence.sit_ins ?? [])
     .slice()
     .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+
+  const impacts = [...new Map((absence.sit_in_impacts ?? []).map((impact) => [impact.session_id, impact])).values()];
+  if (impacts.length > 0) {
+    const affectedIds = new Set(impacts.map((impact) => impact.session_id));
+    return (
+      <div className="min-w-0 space-y-2 text-sm leading-snug text-[var(--color-wi-text-light)]">
+        {impacts.map((impact) => (
+          <div key={impact.session_id} className="space-y-1">
+            {impact.original_snapshot ? (
+              <div>
+                <div className="text-xs font-semibold">Original session</div>
+                <div className="break-words font-medium text-[var(--color-wi-text)]">{impact.original_snapshot.course.name || impact.original_snapshot.course.code || "Sit-in"}</div>
+                <div className="text-xs">{formatSitInWindow(impact.original_snapshot.start_at, impact.original_snapshot.end_at)}</div>
+                {impact.snapshot_quality === "reconstructed" ? <div className="text-xs">Reconstructed record</div> : null}
+              </div>
+            ) : <div className="text-xs">Original session unavailable</div>}
+            {impact.current_session ? (
+              <div>
+                <div className="text-xs font-semibold">Current session</div>
+                <div className="break-words font-medium text-[var(--color-wi-text)]">{impact.current_session.course_name || impact.current_session.subject_name || impact.current_session.course_code || "Sit-in"}</div>
+                <div className="text-xs">{formatSitInWindow(impact.current_session.start_at, impact.current_session.end_at)}</div>
+              </div>
+            ) : <div className="text-xs">Session removed</div>}
+          </div>
+        ))}
+        {sessions.filter((session) => !affectedIds.has(session.session_id)).map((session) => (
+          <div key={session.id}>
+            <div className="break-words font-medium text-[var(--color-wi-text)]">{absence.sit_in_merge_group_name ?? session.subject_name ?? session.course_name ?? session.course_code ?? fallbackLabel ?? "Sit-in"}</div>
+            <div className="text-xs">{formatSitInWindow(session.start_at, session.end_at)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (sessions.length === 0) {
     if (!fallbackLabel) {

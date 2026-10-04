@@ -313,6 +313,83 @@ describe("Absence inbox", () => {
     expect(row).not.toHaveTextContent("Not assigned");
   });
 
+  const originalSnapshot = {
+    schema_version: 1, session_id: "sit-session-1", session_version: 1,
+    start_at: "2026-06-03T10:00:00+07:00", end_at: "2026-06-03T11:30:00+07:00",
+    timezone: "Asia/Bangkok", course: { id: "sit-course-1", code: "MATH-301", name: "Original class" },
+    room: { id: null, name: null }, teacher: { id: null, name: null }, series_id: null,
+    occurrence_status: "active", captured_at: "2026-05-27T09:00:00Z",
+  };
+  const movedSession = {
+    ...PAGE_WITH_MISSED_SESSIONS.items[0].sit_ins[0], course_name: "Moved class",
+    start_at: "2026-06-05T13:00:00+07:00", end_at: "2026-06-05T14:30:00+07:00",
+  };
+  const impact = { session_id: "sit-session-1", original_snapshot: originalSnapshot, snapshot_quality: "exact", current_session: movedSession };
+
+  async function renderSitInCell(item: object) {
+    mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [{ ...PAGE.items[0], ...item }] });
+    renderPage();
+    const row = (await screen.findByRole("link", { name: /view john smith absence/i })).closest("tr")!;
+    return row.querySelector('[data-label="Sit-in"]') as HTMLElement;
+  }
+
+  it("shows original then current session without duplicating the live assignment", async () => {
+    const cell = await renderSitInCell({ sit_ins: [movedSession], sit_in_impacts: [impact, impact] });
+    expect(cell.textContent).toMatch(/Original session.*Original class.*3 Jun.*10:00.*Current session.*Moved class.*5 Jun.*13:00/);
+    expect(within(cell).getAllByText("Current session")).toHaveLength(1);
+    expect(cell).not.toHaveTextContent("No session selected");
+  });
+
+  it("shows preserved context when the assignment is missing", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [impact] });
+    expect(cell).toHaveTextContent("Original class");
+    expect(cell).toHaveTextContent("Moved class");
+    expect(cell).not.toHaveTextContent("No session selected");
+  });
+
+  it("keeps the original session visible after removal", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [{ ...impact, current_session: null }] });
+    expect(cell).toHaveTextContent("Original class");
+    expect(cell).toHaveTextContent("Session removed");
+    expect(cell).not.toHaveTextContent("Current session");
+  });
+
+  it("labels unavailable and reconstructed historical evidence", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [
+      { ...impact, original_snapshot: null, snapshot_quality: "unavailable" },
+      { ...impact, session_id: "other", snapshot_quality: "reconstructed" },
+    ] });
+    expect(cell).toHaveTextContent("Original session unavailable");
+    expect(cell).toHaveTextContent("Reconstructed record");
+    expect(cell).toHaveTextContent("Moved class");
+  });
+
+  it("retains unaffected sessions alongside changed sessions", async () => {
+    const cell = await renderSitInCell({ sit_in_impacts: [impact], sit_ins: [movedSession,
+      { ...movedSession, id: "sit-2", session_id: "other", subject_name: "Unaffected class" },
+    ] });
+    expect(cell).toHaveTextContent("Original class");
+    expect(within(cell).getAllByText("Moved class")).toHaveLength(1);
+    expect(cell).toHaveTextContent("Unaffected class");
+  });
+
+  it("preserves impact context from a second merged-course absence", async () => {
+    mockApiJson.mockResolvedValueOnce({ ...PAGE, items: [
+      { ...PAGE.items[0], merge_group_id: "merge-1" },
+      { ...PAGE.items[0], id: "abs-2", merge_group_id: "merge-1", sit_in_impacts: [impact] },
+    ] });
+    renderPage();
+    await screen.findByText("Original session");
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByText("Original class")).toBeInTheDocument();
+  });
+
+  it("keeps Zoom display unchanged even with stale impact context", async () => {
+    const cell = await renderSitInCell({ sit_in_method: "zoom", sit_in_impacts: [impact] });
+    expect(cell).toHaveTextContent("Zoom");
+    expect(cell).not.toHaveTextContent("Original session");
+  });
+
   it("marks an absence reviewed using its current version and reloads results", async () => {
     const initialPage = freshPage();
     const updatedPage = freshPage();

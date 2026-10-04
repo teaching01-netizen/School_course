@@ -1,3 +1,5 @@
+import type { SessionSnapshotV1 } from "@/types/snapshot";
+
 export type SitInRuleType =
   | "level_ladder"
   | "cross_section"
@@ -91,9 +93,17 @@ export type AbsenceTimelineEntry = {
   created_at: string;
 };
 
+export type AbsenceSitInImpact = {
+  session_id: string;
+  original_snapshot: SessionSnapshotV1 | null;
+  snapshot_quality: "exact" | "reconstructed" | "unavailable";
+  current_session: AbsenceSitInSession | null;
+};
+
 export type ManagedAbsence = Omit<StudentAbsence, "sit_ins"> & {
   missed_sessions?: AbsenceSitInSession[];
   sit_ins?: AbsenceSitInSession[];
+  sit_in_impacts?: AbsenceSitInImpact[];
   timeline?: AbsenceTimelineEntry[];
 };
 
