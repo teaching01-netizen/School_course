@@ -56,7 +56,9 @@ func (s *SnapshotService) PopulateRows(ctx context.Context, snapshotID pgtype.UU
 			"parent_name", "parent_phone", "parent_email", "order_quote_updated_at",
 			"extra_note",
 		},
-		pgx.CopyFromRows(rowCopies(snapshotID, rows)),
+		pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
+			return snapshotRowCopy(snapshotID, i, rows[i]), nil
+		}),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("copy from: %w", err)
@@ -65,43 +67,38 @@ func (s *SnapshotService) PopulateRows(ctx context.Context, snapshotID pgtype.UU
 	return int(copyCount), nil
 }
 
-// rowCopies converts rows to [][]any for pgx.CopyFromRows with snapshot_id and xlsx_row_number.
-func rowCopies(snapshotID pgtype.UUID, rows []xlsx.Row) [][]any {
-	sources := make([][]any, len(rows))
-	for i, r := range rows {
-		var hours pgtype.Int4
-		if r.Hours != nil {
-			hours = pgtype.Int4{Int32: *r.Hours, Valid: true}
-		}
-		var updated pgtype.Timestamptz
-		if r.OrderQuoteUpdatedAt != nil {
-			updated = pgtype.Timestamptz{Time: *r.OrderQuoteUpdatedAt, Valid: true}
-		}
-
-		sources[i] = []any{
-			snapshotID,
-			int32(i + 1),
-			r.Hash(),
-			r.CycleLabel,
-			r.CourseName,
-			r.WCode,
-			nullIfEmpty(r.FirstName),
-			nullIfEmpty(r.LastName),
-			nullIfEmpty(r.Nickname),
-			nullIfEmpty(r.SecondarySchool),
-			nullIfEmpty(r.AcademicLevel),
-			nullIfEmpty(r.MobilePhone),
-			hours,
-			nullIfEmpty(r.TeachersRaw),
-			nullIfEmpty(r.PrimaryEmail),
-			nullIfEmpty(r.ParentName),
-			nullIfEmpty(r.ParentPhone),
-			nullIfEmpty(r.ParentEmail),
-			updated,
-			r.ExtraNote,
-		}
+// snapshotRowCopy converts one row to a CopyFrom record with snapshot_id and xlsx_row_number.
+func snapshotRowCopy(snapshotID pgtype.UUID, i int, r xlsx.Row) []any {
+	var hours pgtype.Int4
+	if r.Hours != nil {
+		hours = pgtype.Int4{Int32: *r.Hours, Valid: true}
 	}
-	return sources
+	var updated pgtype.Timestamptz
+	if r.OrderQuoteUpdatedAt != nil {
+		updated = pgtype.Timestamptz{Time: *r.OrderQuoteUpdatedAt, Valid: true}
+	}
+	return []any{
+		snapshotID,
+		int32(i + 1),
+		r.Hash(),
+		r.CycleLabel,
+		r.CourseName,
+		r.WCode,
+		nullIfEmpty(r.FirstName),
+		nullIfEmpty(r.LastName),
+		nullIfEmpty(r.Nickname),
+		nullIfEmpty(r.SecondarySchool),
+		nullIfEmpty(r.AcademicLevel),
+		nullIfEmpty(r.MobilePhone),
+		hours,
+		nullIfEmpty(r.TeachersRaw),
+		nullIfEmpty(r.PrimaryEmail),
+		nullIfEmpty(r.ParentName),
+		nullIfEmpty(r.ParentPhone),
+		nullIfEmpty(r.ParentEmail),
+		updated,
+		r.ExtraNote,
+	}
 }
 
 func nullIfEmpty(v string) *string {

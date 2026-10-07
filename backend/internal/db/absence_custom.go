@@ -76,13 +76,9 @@ func (q *Queries) studentSubjectByWCode(ctx context.Context, wcode string, requi
 		LEFT JOIN course_merge_group_members mm ON mm.course_id = sac.course_id
 		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
 		WHERE lower(s.wcode) = lower($1)
-		  AND ($2 = false OR (
-			c.absence_form_visible
-			AND EXISTS (
-				SELECT 1 FROM subject_active_courses sac_visible
-				WHERE sac_visible.subject_id = c.subject_id
-				  AND sac_visible.course_id = c.id
-			)
+		  AND ($2 = false OR EXISTS (
+			SELECT 1 FROM course_rule_configs cfg
+			WHERE cfg.course_id = c.id AND cfg.absence_form_active
 		  ))
 		GROUP BY s.id, s.wcode, s.full_name, s.email_crm, s.email_system, s.school, sub.id, sub.code, sub.name
 		ORDER BY sub.code ASC
@@ -341,7 +337,15 @@ func (q *Queries) SessionsByCourse(ctx context.Context, courseID pgtype.UUID) ([
 	rows, err := q.db.Query(ctx, `
 		SELECT id, course_id, room_id, start_at, end_at
 		FROM sessions
-		WHERE course_id = $1
+		WHERE course_id IN (
+		  SELECT $1::uuid
+		  UNION
+		  SELECT sib.course_id
+		  FROM course_merge_group_members m
+		  JOIN course_merge_groups g ON g.id = m.group_id AND g.rule_source_course_id IS NOT NULL
+		  JOIN course_merge_group_members sib ON sib.group_id = m.group_id
+		  WHERE m.course_id = $1
+		)
 		  AND deleted_at IS NULL
 		ORDER BY start_at ASC
 	`, courseID)
@@ -650,15 +654,13 @@ type StudentEnrolledCourseV2 struct {
 
 func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, studentID pgtype.UUID, subjectID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id, c.absence_form_visible
-		FROM course_students cs
+		SELECT c.id, c.code, c.name, c.subject_id, cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id, cfg.absence_form_visible
+		FROM effective_course_students cs
 		JOIN courses c ON c.id = cs.course_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE cs.student_id = $1 AND c.subject_id = $2 AND cs.status = 'enrolled'
-		ORDER BY COALESCE(mgg.level, c.level) ASC NULLS LAST
+		ORDER BY cfg.level ASC NULLS LAST
 	`, studentID, subjectID)
 	if err != nil {
 		return nil, err
@@ -681,17 +683,15 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 
 func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, studentID pgtype.UUID, rootCourseGroupID pgtype.UUID) ([]StudentEnrolledCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id, c.absence_form_visible
-		FROM course_students cs
+		SELECT c.id, c.code, c.name, c.subject_id, cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id, cfg.absence_form_visible
+		FROM effective_course_students cs
 		JOIN courses c ON c.id = cs.course_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE cs.student_id = $1
-		  AND c.root_course_group_id = $2
+		  AND cfg.root_course_group_id = $2
 		  AND cs.status = 'enrolled'
-		ORDER BY COALESCE(mgg.level, c.level) ASC NULLS LAST
+		ORDER BY cfg.level ASC NULLS LAST
 	`, studentID, rootCourseGroupID)
 	if err != nil {
 		return nil, err
@@ -729,15 +729,13 @@ type SubjectCourseV2 struct {
 func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype.UUID, cycleID pgtype.Text) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
+		       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
-		WHERE c.subject_id = $1 AND c.cycle_id = $2 AND COALESCE(mgg.level, c.level) IS NOT NULL
-		ORDER BY COALESCE(mgg.level, c.level) ASC
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
+		WHERE c.subject_id = $1 AND cfg.cycle_id = $2 AND cfg.level IS NOT NULL
+		ORDER BY cfg.level ASC
 	`, subjectID, cycleID)
 	if err != nil {
 		return nil, err
@@ -761,16 +759,14 @@ func (q *Queries) CoursesBySubjectAndCycle(ctx context.Context, subjectID pgtype
 func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupID pgtype.UUID) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
+		       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
-		WHERE c.root_course_group_id = $1
-		  AND COALESCE(mgg.level, c.level) IS NOT NULL
-		ORDER BY COALESCE(mgg.level, c.level) ASC
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
+		WHERE cfg.root_course_group_id = $1
+		  AND cfg.level IS NOT NULL
+		ORDER BY cfg.level ASC
 	`, rootCourseGroupID)
 	if err != nil {
 		return nil, err
@@ -797,31 +793,27 @@ func (q *Queries) CoursesByRootCourseGroupAndCycle(ctx context.Context, rootCour
 	if cycleID.Valid {
 		rows, err = q.db.Query(ctx, `
 			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-			       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-			       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
+			       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+			       cfg.sit_in_rule_id, cfg.merge_group_id
 			FROM courses c
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
-			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-			LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-			LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
-			WHERE c.root_course_group_id = $1
-			  AND COALESCE(mgg.level, c.level) IS NOT NULL
-			  AND c.cycle_id = $2
-			ORDER BY COALESCE(mgg.level, c.level) ASC
+			JOIN course_rule_configs cfg ON cfg.course_id = c.id
+			WHERE cfg.root_course_group_id = $1
+			  AND cfg.level IS NOT NULL
+			  AND cfg.cycle_id = $2
+			ORDER BY cfg.level ASC
 		`, rootCourseGroupID, cycleID.String)
 	} else {
 		rows, err = q.db.Query(ctx, `
 			SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-			       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-			       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
+			       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+			       cfg.sit_in_rule_id, cfg.merge_group_id
 			FROM courses c
 			LEFT JOIN subjects sub ON sub.id = c.subject_id
-			LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-			LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-			LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
-			WHERE c.root_course_group_id = $1
-			  AND COALESCE(mgg.level, c.level) IS NOT NULL
-			ORDER BY COALESCE(mgg.level, c.level) ASC
+			JOIN course_rule_configs cfg ON cfg.course_id = c.id
+			WHERE cfg.root_course_group_id = $1
+			  AND cfg.level IS NOT NULL
+			ORDER BY cfg.level ASC
 		`, rootCourseGroupID)
 	}
 	if err != nil {

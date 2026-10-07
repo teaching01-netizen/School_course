@@ -36,6 +36,12 @@ type SatVerbalPolicyMappingReplaceParam struct {
 	PolicyHash   string
 }
 
+type CourseContinuationSatVerbalPolicyError struct{}
+
+func (CourseContinuationSatVerbalPolicyError) Error() string {
+	return "SAT Verbal policy courses cannot be linked as continuation courses"
+}
+
 func (q *Queries) SatVerbalPolicyMappingsList(ctx context.Context) ([]SatVerbalPolicyCourseMapping, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT m.id, m.rule_id, m.course_id, m.merge_group_id,
@@ -106,6 +112,41 @@ func (q *Queries) SatVerbalPolicyMappingGetActiveByCourse(ctx context.Context, c
 }
 
 func (q *Queries) SatVerbalPolicyMappingsReplace(ctx context.Context, params []SatVerbalPolicyMappingReplaceParam) ([]SatVerbalPolicyMapping, error) {
+	if err := q.AdvisoryLockForText(ctx, "sat-verbal-policy:course-rules"); err != nil {
+		return nil, err
+	}
+	for _, param := range params {
+		if param.CourseID.Valid {
+			var continuation bool
+			if err := q.db.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM course_merge_group_members m
+					JOIN course_merge_groups g ON g.id = m.group_id
+					WHERE m.course_id = $1 AND g.rule_source_course_id IS NOT NULL
+				)
+			`, param.CourseID).Scan(&continuation); err != nil {
+				return nil, err
+			}
+			if continuation {
+				return nil, CourseContinuationSatVerbalPolicyError{}
+			}
+		}
+		if param.MergeGroupID.Valid {
+			var continuation bool
+			if err := q.db.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM course_merge_groups
+					WHERE id = $1 AND rule_source_course_id IS NOT NULL
+				)
+			`, param.MergeGroupID).Scan(&continuation); err != nil {
+				return nil, err
+			}
+			if continuation {
+				return nil, CourseContinuationSatVerbalPolicyError{}
+			}
+		}
+	}
 	if _, err := q.db.Exec(ctx, `DELETE FROM sat_verbal_policy_mappings`); err != nil {
 		return nil, err
 	}

@@ -77,6 +77,58 @@ export type CourseMergeCandidate = {
   subject_name: string;
   teacher_name: string;
   legacy_course_id?: string | null;
+  cycle_label?: string;
+};
+
+export type CourseGroupKind = "merge" | "continuation";
+
+export type CourseLinkSuggestionCourse = {
+  id: string;
+  code: string;
+  name: string;
+  subject_id: string;
+  subject_code: string;
+  subject_name: string;
+  level: number | null;
+  cycle_id: string | null;
+  cycle_label: string | null;
+  cycle_start_date: string | null;
+  cycle_end_date: string | null;
+  root_course_group_id: string | null;
+  root_course_group_name: string | null;
+  sit_in_rule_id?: string | null;
+  sit_in_rule_name?: string | null;
+  sit_in_rule_type?: string | null;
+  sit_in_rule_description?: string | null;
+  absence_form_visible?: boolean | null;
+  absence_form_active?: boolean | null;
+  session_count: number;
+  session_date_from: string | null;
+  session_date_to: string | null;
+  slots: string[];
+  teachers: string[];
+};
+
+export type CourseLinkSuggestion = {
+  configured_source: CourseLinkSuggestionCourse;
+  unconfigured_course: CourseLinkSuggestionCourse;
+  confidence: "high" | "review";
+  reason_codes: string[];
+  ambiguity_count: number;
+  evidence_fingerprint: string;
+};
+
+export type CourseLinkSuggestionsResponse = {
+  enabled: boolean;
+  mode: "disabled" | "discovery" | "confirmation";
+  confirmation_enabled?: boolean;
+  items: CourseLinkSuggestion[];
+  has_more: boolean;
+  next_cursor: string | null;
+  limit?: number;
+  evaluated_at: string;
+  detector_version: string;
+  institute_timezone: string;
 };
 
 export type CourseGroupTeacher = {
@@ -101,6 +153,8 @@ export type CourseGroupMember = CourseMergeCandidate & {
 export type CourseGroup = {
   id: string;
   name: string;
+  kind: CourseGroupKind;
+  rule_source_course_id: string | null;
   members: CourseGroupMember[];
   teachers: CourseGroupTeacher[];
 };
@@ -110,4 +164,6 @@ export type CourseGroupSummary = {
   name: string;
   member_count: number;
   course_codes: string[];
+  kind: CourseGroupKind;
+  rule_source_course_id: string | null;
 };

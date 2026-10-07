@@ -24,6 +24,8 @@ func Register(mux *http.ServeMux, deps httpdeps.Deps) {
 	s := &server{deps: deps, a: httpadapter.New(deps.Auth, deps.Log)}
 
 	mux.HandleFunc("GET /api/v1/admin/course-levels", s.handleList)
+	mux.HandleFunc("GET /api/v1/admin/course-link-suggestions", s.handleCourseLinkSuggestions)
+	mux.HandleFunc("POST /api/v1/admin/course-link-suggestions/dismiss", s.handleCourseLinkSuggestionDismiss)
 	mux.HandleFunc("PUT /api/v1/admin/courses/{id}/level", s.handleUpdateLevel)
 	mux.HandleFunc("GET /api/v1/admin/course-merge-groups", s.handleListCourseMergeGroups)
 	mux.HandleFunc("PUT /api/v1/admin/course-merge-groups/{id}/level", s.handleUpdateCourseMergeGroupLevel)
@@ -65,6 +67,9 @@ type courseMergeGroupDTO struct {
 	SitInRuleID *string  `json:"sit_in_rule_id"`
 	CourseCodes []string `json:"course_codes"`
 	CourseNames []string `json:"course_names"`
+	// RuleSourceCourseCode is set for a continuation link: its level, cycle and
+	// sit-in rule are read from this course unless overridden here.
+	RuleSourceCourseCode *string `json:"rule_source_course_code"`
 }
 
 func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +155,10 @@ func (s *server) courseMergeGroupDTO(row sqldb.CourseMergeGroupConfigRow) (cours
 			return courseMergeGroupDTO{}, err
 		}
 		dto.SitInRuleID = &value
+	}
+	if row.RuleSourceCode.Valid {
+		value := row.RuleSourceCode.String
+		dto.RuleSourceCourseCode = &value
 	}
 	return dto, nil
 }

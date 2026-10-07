@@ -89,7 +89,27 @@ func (s *server) courseGroupResponse(ctx context.Context, q *sqldb.Queries, grou
 	for _, teacher := range mergedTeachers {
 		merged = append(merged, teacher)
 	}
-	return map[string]any{"id": group.ID.String(), "name": group.Name, "members": memberDTOs, "teachers": merged}, nil
+	return map[string]any{
+		"id":                    group.ID.String(),
+		"name":                  group.Name,
+		"kind":                  groupKind(group.RuleSourceCourseID),
+		"rule_source_course_id": nullableUUID(s.a, group.RuleSourceCourseID),
+		"members":               memberDTOs,
+		"teachers":              merged,
+	}, nil
+}
+
+const (
+	groupKindMerge        = "merge"
+	groupKindContinuation = "continuation"
+)
+
+// groupKind derives the API kind: a rule source is what makes a continuation.
+func groupKind(ruleSourceCourseID pgtype.UUID) string {
+	if ruleSourceCourseID.Valid {
+		return groupKindContinuation
+	}
+	return groupKindMerge
 }
 
 func nullableInt16(value pgtype.Int2) any {

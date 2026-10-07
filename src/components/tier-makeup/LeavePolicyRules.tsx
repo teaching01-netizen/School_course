@@ -241,7 +241,7 @@ export default function LeavePolicyRules() {
                             <optgroup label="Merged courses">
                               {mergeGroups.map((group) => (
                                 <option key={group.id} value={`merge:${group.id}`}>
-                                  {group.name} - {group.course_codes.join(" + ")} (merged course)
+                                  {group.name} - {group.course_codes.join(" + ")} {group.rule_source_course_code ? `(same course, follows ${group.rule_source_course_code})` : "(merged course)"}
                                 </option>
                               ))}
                             </optgroup>

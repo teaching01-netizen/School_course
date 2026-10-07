@@ -1212,7 +1212,9 @@ func toSessionBrief(s sqldb.SessionInRange) sessionBrief {
 func toSessionBriefForCourse(s sqldb.SessionInRange, c *sqldb.SubjectCourseV2) sessionBrief {
 	brief := toSessionBrief(s)
 	if c != nil {
-		brief.CourseID = uuidStringOrZero(c.ID)
+		if !s.CourseID.Valid {
+			brief.CourseID = uuidStringOrZero(c.ID)
+		}
 		brief.ClassName = c.Name
 		brief.CourseName = c.Name
 		brief.CourseCode = c.Code

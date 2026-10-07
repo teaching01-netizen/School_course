@@ -9,17 +9,18 @@ import (
 )
 
 type Config struct {
-	Addr                string
-	DatabaseURL         string
-	RealtimeDatabaseURL string
-	AuthPepper          string
-	CookieSecure        bool
-	TrustedProxyCIDRs   string
-	StaticDir           string
-	LogLevel            string
-	LegacySyncLogLevel  string
-	InstituteTZ         string
-	InstituteName       string
+	Addr                      string
+	DatabaseURL               string
+	RealtimeDatabaseURL       string
+	AuthPepper                string
+	CookieSecure              bool
+	TrustedProxyCIDRs         string
+	StaticDir                 string
+	LogLevel                  string
+	LegacySyncLogLevel        string
+	InstituteTZ               string
+	InstituteName             string
+	CourseLinkSuggestionsMode string
 
 	CRMBaseURL  string
 	CRMUsername string
@@ -57,6 +58,12 @@ func FromEnv() (Config, error) {
 	cfg.LegacySyncLogLevel = envOr("LEGACY_SYNC_LOG_LEVEL", "warn")
 	cfg.InstituteTZ = envOr("INSTITUTE_TZ", "Asia/Bangkok")
 	cfg.InstituteName = envOr("INSTITUTE_NAME", "Warwick Institute")
+	cfg.CourseLinkSuggestionsMode = strings.ToLower(strings.TrimSpace(envOr("COURSE_LINK_SUGGESTIONS_MODE", "discovery")))
+	switch cfg.CourseLinkSuggestionsMode {
+	case "disabled", "discovery", "confirmation":
+	default:
+		return Config{}, errors.New("COURSE_LINK_SUGGESTIONS_MODE must be disabled, discovery, or confirmation")
+	}
 	cfg.CRMBaseURL = envOr("CRM_BASE_URL", "")
 	cfg.CRMUsername = os.Getenv("CRM_USERNAME")
 	cfg.CRMPassword = os.Getenv("CRM_PASSWORD")

@@ -140,18 +140,14 @@ func sessionsInRangeSelectSQL() string {
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN users u ON u.id = c.teacher_id
-		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN effective_course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1
 		  AND sess.start_at >= $2
 		  AND sess.start_at < $3
 		  AND sess.deleted_at IS NULL
 		  AND student_is_expected_at_session_tz(st.id, sess.id, $4)
-		  AND c.absence_form_visible
-		  AND EXISTS (
-			SELECT 1 FROM subject_active_courses sac
-			WHERE sac.subject_id = sub.id AND sac.course_id = c.id
-		  )
+		  AND EXISTS (SELECT 1 FROM course_rule_configs cfg WHERE cfg.course_id = c.id AND cfg.absence_form_active)
 		ORDER BY sub.code, sess.start_at
 	`
 }
@@ -176,7 +172,7 @@ func sessionsInRangeStaffSelectSQL() string {
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN users u ON u.id = c.teacher_id
-		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN effective_course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1
 		  AND sess.start_at >= $2
@@ -197,7 +193,7 @@ func sessionsInRangeLifetimeSelectSQL() string {
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN users u ON u.id = c.teacher_id
-		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN effective_course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		WHERE st.wcode = $1
 		  AND sess.start_at >= $2

@@ -1,6 +1,7 @@
 package coursegroups
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -28,6 +29,33 @@ func TestValidateCreate(t *testing.T) {
 				t.Fatalf("expected error code %q, got %v", test.code, err)
 			}
 		})
+	}
+}
+
+func TestValidateCreateRuleSource(t *testing.T) {
+	ids := []pgtype.UUID{{Valid: true, Bytes: [16]byte{1}}, {Valid: true, Bytes: [16]byte{2}}}
+	outside := pgtype.UUID{Valid: true, Bytes: [16]byte{3}}
+	for _, source := range ids {
+		if err := ValidateCreate(CreateCommand{Name: "Math", CourseIDs: ids, RuleSourceCourseID: source}); err != nil {
+			t.Fatalf("source in the pair must be accepted, got %v", err)
+		}
+	}
+	err := ValidateCreate(CreateCommand{Name: "Math", CourseIDs: ids, RuleSourceCourseID: outside})
+	if domainErr, ok := err.(*Error); !ok || domainErr.Code != "invalid_rule_source" {
+		t.Fatalf("source outside the pair: got %v, want invalid_rule_source", err)
+	}
+}
+
+func TestHTTPStatusForContinuationErrors(t *testing.T) {
+	for code, want := range map[string]int{
+		"invalid_rule_source": http.StatusBadRequest,
+		"invalid_kind":        http.StatusBadRequest,
+		"sat_verbal_course":   http.StatusBadRequest,
+		"continuation_in_use": http.StatusConflict,
+	} {
+		if got := HTTPStatusForError(&Error{Code: code}); got != want {
+			t.Errorf("%s: status %d, want %d", code, got, want)
+		}
 	}
 }
 

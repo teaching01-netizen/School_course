@@ -441,12 +441,10 @@ func (s *server) resolveStaffAbsenceSelection(ctx context.Context, q *sqldb.Quer
 
 	var course sqldb.StudentEnrolledCourseV2
 	if err := db.QueryRow(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id
+		SELECT c.id, c.code, c.name, c.subject_id, cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id
 		FROM courses c
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE c.id = $1
 	`, selectedCourseID).Scan(
 		&course.CourseID,

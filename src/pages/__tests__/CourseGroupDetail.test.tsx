@@ -75,6 +75,23 @@ describe("CourseGroupDetail", () => {
     expect(screen.getAllByRole("link", { name: "Open source course" })[0]).toHaveAttribute("href", "/courses/course-reading");
   });
 
+  it("marks a continuation, its rule source and links to the source course", async () => {
+    const base = mockApiJson.getMockImplementation()!;
+    mockApiJson.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/course-groups/group-1" && (!init?.method || init.method === "GET")) {
+        return base(path, init).then((group: Record<string, unknown>) => ({ ...group, kind: "continuation", rule_source_course_id: "course-writing" }));
+      }
+      return base(path, init);
+    });
+    renderGroupDetail();
+
+    expect(await screen.findByText("Same course / continuation")).toBeInTheDocument();
+    expect(screen.queryByText("Merged course")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Rule source")).toHaveLength(1);
+    expect(screen.getByText(/Both IDs are one course/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "SAT-W" })[0]).toHaveAttribute("href", "/courses/course-writing");
+  });
+
   it("confirms and submits an unmerge without touching source links", async () => {
     const user = userEvent.setup();
     renderGroupDetail();

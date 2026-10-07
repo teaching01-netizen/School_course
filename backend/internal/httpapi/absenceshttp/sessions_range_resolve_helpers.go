@@ -321,7 +321,7 @@ func resolvePrioritiesFromBundle(b *sqldb.SitInBundleV2, priorities []sqldb.SitI
 			label:     p.Label,
 			target:    target,
 			missed:    missed,
-			available: b.Sessions[uuidStringOrZero(*evalOutput.TargetCourseID)],
+			available: bundleTargetSessions(b, target),
 		})
 	}
 	if len(inputs) == 0 {
@@ -376,4 +376,18 @@ func enrichResultConflicts(conflicts map[string]*sitInSessionConflictInfo, resul
 		}
 		result.SitInByMissedSession[key] = item
 	}
+}
+
+// bundleTargetSessions returns the target's sessions plus, for a continuation
+// pair, its sibling's, so a split course is offered as one.
+func bundleTargetSessions(b *sqldb.SitInBundleV2, target *sqldb.SubjectCourseV2) []sqldb.SessionInRange {
+	if _, ok := b.Continuations[uuidStringOrZero(target.MergeGroupID)]; !ok {
+		return b.Sessions[uuidStringOrZero(target.ID)]
+	}
+	var out []sqldb.SessionInRange
+	for _, id := range b.MergeMembers[uuidStringOrZero(target.MergeGroupID)] {
+		out = append(out, b.Sessions[uuidStringOrZero(id)]...)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartAt.Time.Before(out[j].StartAt.Time) })
+	return out
 }

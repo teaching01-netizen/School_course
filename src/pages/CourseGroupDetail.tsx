@@ -148,6 +148,9 @@ export default function CourseGroupDetail() {
     return <EmptyState message="Merged course not found." action={<Link className="text-sm text-[var(--color-wi-primary)] underline" to="/courses">Return to courses</Link>} />;
   }
 
+  const continuation = group.kind === "continuation";
+  const ruleSource = group.members.find((member) => member.id === group.rule_source_course_id);
+
   return (
     <div className="w-full space-y-8">
       <Link to="/courses" className="inline-flex items-center gap-2 text-sm text-[var(--color-wi-text-light)] hover:text-[var(--color-wi-text)]">
@@ -158,11 +161,15 @@ export default function CourseGroupDetail() {
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--color-wi-line)] pb-6">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-sm bg-[var(--color-wi-selected)] px-2 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Merged course</span>
+            <span className="rounded-sm bg-[var(--color-wi-selected)] px-2 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">{continuation ? "Same course / continuation" : "Merged course"}</span>
             <span className="text-sm text-[var(--color-wi-faint)]">{group.members.length} source courses</span>
           </div>
           <PageHeading className="mb-0">{group.name}</PageHeading>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-wi-text-light)]">One schedule view for both source courses. Attendance, absence rules, legacy sync, students, and source-course edits remain attached to their original course.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-wi-text-light)]">
+            {continuation
+              ? <>Both IDs are one course. Level, course family, cycle and sit-in rule follow {ruleSource ? <Link to={`/courses/${ruleSource.id}`} className="font-mono text-[var(--color-wi-primary)] hover:underline">{ruleSource.code}</Link> : "the rule source"}; edit them there. Enrollment in either ID counts for both, and absence counts are shared. Original records, attendance and legacy sync stay on each ID.</>
+              : "One schedule view for both source courses. Attendance, absence rules, legacy sync, students, and source-course edits remain attached to their original course."}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onClick={openEditName}>Edit name</Button>
@@ -185,7 +192,10 @@ export default function CourseGroupDetail() {
                   <h3 className="mt-1 text-base font-semibold text-[var(--color-wi-text)]">{member.name || member.subject_name || "Unnamed course"}</h3>
                   <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">{member.subject_code} · {member.subject_name}</p>
                 </div>
-                {member.legacy_course_id ? <span className="rounded-sm border border-[var(--color-wi-blue-soft)] bg-[var(--color-wi-blue-soft)] px-2 py-1 text-xs text-[var(--color-wi-primary)]">Legacy sync</span> : null}
+                <div className="flex flex-wrap justify-end gap-1">
+                  {member.id === group.rule_source_course_id ? <span className="rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-selected)] px-2 py-1 text-xs text-[var(--color-wi-text)]">Rule source</span> : null}
+                  {member.legacy_course_id ? <span className="rounded-sm border border-[var(--color-wi-blue-soft)] bg-[var(--color-wi-blue-soft)] px-2 py-1 text-xs text-[var(--color-wi-primary)]">Legacy sync</span> : null}
+                </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {member.teachers.map((teacher) => <span key={teacher.id} className="rounded-sm border border-[var(--color-wi-line)] bg-[var(--color-wi-row-alt)] px-2 py-1 text-xs text-[var(--color-wi-text-light)]">{displayTeacherName(teacher.full_name ?? null, teacher.username)}</span>)}

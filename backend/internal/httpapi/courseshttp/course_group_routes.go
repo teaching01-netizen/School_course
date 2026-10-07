@@ -3,6 +3,7 @@ package courseshttp
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -39,10 +40,12 @@ func (s *server) handleCourseGroupList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, map[string]any{
-			"id":           id,
-			"name":         item.Name,
-			"member_count": item.MemberCount,
-			"course_codes": item.CourseCodes,
+			"id":                    id,
+			"name":                  item.Name,
+			"member_count":          item.MemberCount,
+			"course_codes":          item.CourseCodes,
+			"kind":                  groupKind(item.RuleSourceCourseID),
+			"rule_source_course_id": nullableUUID(s.a, item.RuleSourceCourseID),
 		})
 	}
 	s.a.WriteJSON(w, http.StatusOK, out)
@@ -64,8 +67,16 @@ func (s *server) handleCourseGroupCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body struct {
-		Name      string   `json:"name"`
-		CourseIDs []string `json:"course_ids"`
+		Name                   string   `json:"name"`
+		CourseIDs              []string `json:"course_ids"`
+		Kind                   string   `json:"kind"`
+		RuleSourceCourseID     string   `json:"rule_source_course_id"`
+		SuggestionPrecondition *struct {
+			ConfiguredCourseID   string `json:"configured_course_id"`
+			UnconfiguredCourseID string `json:"unconfigured_course_id"`
+			EvidenceFingerprint  string `json:"evidence_fingerprint"`
+			DetectorVersion      string `json:"detector_version"`
+		} `json:"suggestion_precondition"`
 	}
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
@@ -84,14 +95,57 @@ func (s *server) handleCourseGroupCreate(w http.ResponseWriter, r *http.Request)
 		}
 		courseIDs = append(courseIDs, id)
 	}
+	var suggestionPrecondition *coursegroups.SuggestionPrecondition
+	if body.SuggestionPrecondition != nil {
+		if !strings.EqualFold(strings.TrimSpace(s.deps.CourseLinkSuggestionsMode), "confirmation") {
+			s.a.WriteErr(w, http.StatusConflict, "suggestions_read_only", "Course link suggestions are currently read only.")
+			return
+		}
+		configuredID, err := s.a.ParseUUID(body.SuggestionPrecondition.ConfiguredCourseID)
+		if err != nil {
+			writeCourseGroupError(w, s.a, &coursegroups.Error{Code: "suggestion_changed", Message: "This suggestion changed. Refresh it and make a new decision."})
+			return
+		}
+		unconfiguredID, err := s.a.ParseUUID(body.SuggestionPrecondition.UnconfiguredCourseID)
+		if err != nil {
+			writeCourseGroupError(w, s.a, &coursegroups.Error{Code: "suggestion_changed", Message: "This suggestion changed. Refresh it and make a new decision."})
+			return
+		}
+		suggestionPrecondition = &coursegroups.SuggestionPrecondition{
+			SourceCourseID: configuredID, PartialCourseID: unconfiguredID,
+			EvidenceFingerprint: body.SuggestionPrecondition.EvidenceFingerprint,
+			DetectorVersion:     body.SuggestionPrecondition.DetectorVersion,
+			InstituteTZ:         courseGroupInstituteTZ(s.deps.InstituteTZ),
+		}
+	}
+	var ruleSourceCourseID pgtype.UUID
+	switch body.Kind {
+	case "", groupKindMerge:
+		if body.RuleSourceCourseID != "" {
+			writeCourseGroupError(w, s.a, &coursegroups.Error{Code: "invalid_rule_source", Message: "Only a continuation link takes a rule source."})
+			return
+		}
+	case groupKindContinuation:
+		id, err := s.a.ParseUUID(body.RuleSourceCourseID)
+		if err != nil {
+			writeCourseGroupError(w, s.a, &coursegroups.Error{Code: "invalid_rule_source", Message: "Choose which course's settings to keep."})
+			return
+		}
+		ruleSourceCourseID = id
+	default:
+		writeCourseGroupError(w, s.a, &coursegroups.Error{Code: "invalid_kind", Message: "kind must be merge or continuation."})
+		return
+	}
 
 	var groupID string
 	completed := s.a.WithIdempotentTx(w, r, user.ID, "course-groups", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		result, err := coursegroups.NewService().CreateTx(r.Context(), qtx, coursegroups.CreateCommand{
-			ActorID:   pgtype.UUID{Bytes: user.ID, Valid: true},
-			Name:      body.Name,
-			CourseIDs: courseIDs,
+			ActorID:            pgtype.UUID{Bytes: user.ID, Valid: true},
+			Name:               body.Name,
+			CourseIDs:          courseIDs,
+			RuleSourceCourseID: ruleSourceCourseID,
+			Suggestion:         suggestionPrecondition,
 		})
 		if err != nil {
 			writeCourseGroupError(w, s.a, err)
@@ -99,14 +153,23 @@ func (s *server) handleCourseGroupCreate(w http.ResponseWriter, r *http.Request)
 		}
 		groupID = result.GroupID.String()
 		return http.StatusCreated, map[string]any{
-			"id":         groupID,
-			"name":       body.Name,
-			"course_ids": body.CourseIDs,
+			"id":                    groupID,
+			"name":                  body.Name,
+			"course_ids":            body.CourseIDs,
+			"kind":                  groupKind(ruleSourceCourseID),
+			"rule_source_course_id": nullableUUID(s.a, ruleSourceCourseID),
 		}, nil
 	})
 	if completed {
 		s.publishCourseUpdates(body.CourseIDs)
 	}
+}
+
+func courseGroupInstituteTZ(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "Asia/Bangkok"
+	}
+	return value
 }
 
 func (s *server) handleCourseGroupGet(w http.ResponseWriter, r *http.Request) {

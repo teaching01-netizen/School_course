@@ -414,9 +414,10 @@ export function SitInRulesSection() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-[var(--color-wi-text)]">{group.name}</span>
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">Merged scope</span>
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">{group.rule_source_course_code ? "Same course" : "Merged scope"}</span>
                       </div>
                       <p className="mt-1 font-mono text-xs text-[var(--color-wi-text-light)]">{group.course_codes.join(" + ")}</p>
+                      {group.rule_source_course_code ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Follows {group.rule_source_course_code}'s level, cycle and course-family rule. A rule set here applies to both IDs.</p> : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <label className="flex items-center gap-1.5 text-xs text-[var(--color-wi-text-light)]">

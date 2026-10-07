@@ -131,6 +131,11 @@ func (q *Queries) SessionsRangeFacts(ctx context.Context, arg SessionsRangeFacts
 // administratively-excluded sessions (attendance override
 // status='excluded' with a manual override_source), which remain
 // scope-relevant history for the authorized lifetime view.
+// sessionsRangeStudentVisibilitySQL limits student-facing rows to courses whose
+// effective (continuation-source) course is visible and active.
+const sessionsRangeStudentVisibilitySQL = " AND EXISTS (SELECT 1 FROM course_rule_configs cfg" +
+	" WHERE cfg.course_id = c.id AND cfg.absence_form_active)"
+
 const sessionsRangeFactsEnrolledSQLText = `
 		SELECT sess.id, sess.start_at, sess.end_at,
 		       c.id, c.code, c.name,
@@ -141,7 +146,7 @@ const sessionsRangeFactsEnrolledSQLText = `
 		JOIN courses c ON c.id = sess.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
 		LEFT JOIN users u ON u.id = c.teacher_id
-		JOIN course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
+		JOIN effective_course_students cs ON cs.course_id = c.id AND cs.status = 'enrolled'
 		JOIN students st ON st.id = cs.student_id
 		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
 		WHERE st.wcode = $1
@@ -171,9 +176,7 @@ func sessionsRangeExpectationGate(lifetime bool) string {
 func (q *Queries) sessionsRangeFactsEnrolled(ctx context.Context, arg SessionsRangeFactsParams, studentFacing bool) ([]SessionsRangeFactRow, error) {
 	visibilityPredicate := ""
 	if studentFacing {
-		visibilityPredicate = " AND c.absence_form_visible" +
-			" AND EXISTS (SELECT 1 FROM subject_active_courses sac" +
-			" WHERE sac.subject_id = sub.id AND sac.course_id = c.id)"
+		visibilityPredicate = sessionsRangeStudentVisibilitySQL
 	}
 	// Step 5: cross-study weekday scope follows the configured institute zone
 	// (student_is_expected_at_session_tz), not a hardcoded Bangkok offset.

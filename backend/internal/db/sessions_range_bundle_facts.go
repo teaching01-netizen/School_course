@@ -105,13 +105,11 @@ func (q *Queries) SessionsRangeSitInBundle(ctx context.Context, arg SitInBundleF
 
 func (q *Queries) loadBundleEnrolled(ctx context.Context, studentID pgtype.UUID, out *SitInBundleFacts) error {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.code, c.name, c.subject_id, c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id, c.absence_form_visible
-		FROM course_students cs
+		SELECT c.id, c.code, c.name, c.subject_id, cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id, cfg.absence_form_visible
+		FROM effective_course_students cs
 		JOIN courses c ON c.id = cs.course_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE cs.student_id = $1 AND cs.status = 'enrolled'
 		ORDER BY c.code ASC
 	`, studentID)
@@ -141,9 +139,10 @@ func (q *Queries) loadBundleScopeCourses(ctx context.Context, arg SitInBundleFac
 	// courses. One query, no per-course loop.
 	rows, err := q.db.Query(ctx, `
 		WITH enrolled AS (
-			SELECT c.id, c.root_course_group_id
-			FROM course_students cs
+			SELECT c.id, cfg.root_course_group_id
+			FROM effective_course_students cs
 			JOIN courses c ON c.id = cs.course_id
+			JOIN course_rule_configs cfg ON cfg.course_id = c.id
 			WHERE cs.student_id = $1 AND cs.status = 'enrolled'
 		), missed AS (
 			SELECT unnest($2::uuid[]) AS id
@@ -152,8 +151,8 @@ func (q *Queries) loadBundleScopeCourses(ctx context.Context, arg SitInBundleFac
 			JOIN enrolled e ON e.root_course_group_id = c.root_course_group_id
 			WHERE c.root_course_group_id IS NOT NULL
 			UNION
-			SELECT DISTINCT c.root_course_group_id FROM courses c
-			JOIN missed m ON m.id = c.id
+			SELECT DISTINCT c.root_course_group_id FROM course_rule_configs c
+			JOIN missed m ON m.id = c.course_id
 			WHERE c.root_course_group_id IS NOT NULL
 		), merge_scopes AS (
 			SELECT DISTINCT mgm.group_id AS id
@@ -165,17 +164,15 @@ func (q *Queries) loadBundleScopeCourses(ctx context.Context, arg SitInBundleFac
 			JOIN missed m ON m.id = mgm.course_id
 		)
 		SELECT DISTINCT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, COALESCE(mgg.level, c.level), c.root_course_group_id,
-		       COALESCE(mgg.sit_in_rule_id, rcg.sit_in_rule_id), mgm.group_id,
+		       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, cfg.merge_group_id,
 		       COALESCE(g.name, '') AS merge_group_name
 		FROM courses c
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		LEFT JOIN course_merge_group_members mgm ON mgm.course_id = c.id
-		LEFT JOIN course_merge_groups mgg ON mgg.id = mgm.group_id
-		LEFT JOIN course_merge_groups g ON g.id = mgm.group_id
-		WHERE (c.root_course_group_id IN (SELECT id FROM root_scopes))
-		   OR (mgm.group_id IN (SELECT id FROM merge_scopes))
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
+		LEFT JOIN course_merge_groups g ON g.id = cfg.merge_group_id
+		WHERE (cfg.root_course_group_id IN (SELECT id FROM root_scopes))
+		   OR (cfg.merge_group_id IN (SELECT id FROM merge_scopes))
 		   OR (c.id IN (SELECT id FROM missed))
 		ORDER BY c.code ASC
 	`, arg.StudentID, arg.MissedCourseIDs)
@@ -317,10 +314,9 @@ func bundleVisibleSelectSQL() string {
 	return `SELECT c.id::text
 		 FROM courses c
 		 WHERE c.id = ANY($1::uuid[])
-		   AND c.absence_form_visible
 		   AND EXISTS (
-			 SELECT 1 FROM subject_active_courses sac
-			 WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
+			 SELECT 1 FROM course_rule_configs cfg
+			 WHERE cfg.course_id = c.id AND cfg.absence_form_active
 		   )`
 }
 

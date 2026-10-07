@@ -73,9 +73,7 @@ func (q *Queries) SessionsRangeFactsStudentBatch(ctx context.Context, factsArg S
 		if tz == "" {
 			tz = "Asia/Bangkok"
 		}
-		b.Queue(fmt.Sprintf(sessionsRangeFactsEnrolledSQLText, sessionsRangeExpectationGate(factsArg.Lifetime), " AND c.absence_form_visible"+
-			" AND EXISTS (SELECT 1 FROM subject_active_courses sac"+
-			" WHERE sac.subject_id = sub.id AND sac.course_id = c.id)"), factsArg.Wcode, factsArg.FromUTC, factsArg.ToExclusiveUTC, tz)
+		b.Queue(fmt.Sprintf(sessionsRangeFactsEnrolledSQLText, sessionsRangeExpectationGate(factsArg.Lifetime), sessionsRangeStudentVisibilitySQL), factsArg.Wcode, factsArg.FromUTC, factsArg.ToExclusiveUTC, tz)
 	case SessionsRangeFactsAllSubjects:
 		b.Queue(sessionsRangeFactsAllSubjectsSQLText, strings.Join(factsArg.SubjectIDs, ","), factsArg.FromUTC, factsArg.ToExclusiveUTC)
 	default:

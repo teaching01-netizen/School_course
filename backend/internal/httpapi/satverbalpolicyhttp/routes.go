@@ -83,6 +83,8 @@ func (s *server) handleApply(w http.ResponseWriter, r *http.Request) {
 
 	s.a.WithIdempotentTx(w, r, user.ID, "sat-verbal-policy", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		// Take the policy lock before buildReplaceParams updates course rows:
+		// continuation creation takes this lock before course row locks.
 		if err := qtx.AdvisoryLockForText(r.Context(), "sat-verbal-policy:course-rules"); err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
@@ -90,11 +92,17 @@ func (s *server) handleApply(w http.ResponseWriter, r *http.Request) {
 		}
 		params, report, err := s.buildReplaceParams(r.Context(), qtx, rules, rulesByID, body.Mappings)
 		if err != nil {
+			if s.writeContinuationPolicyError(w, err) {
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
 		if _, err := qtx.SatVerbalPolicyMappingsReplace(r.Context(), params); err != nil {
+			if s.writeContinuationPolicyError(w, err) {
+				return 0, nil, err
+			}
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
@@ -111,6 +119,15 @@ func (s *server) handleApply(w http.ResponseWriter, r *http.Request) {
 		response["unmatched_policy_rows"] = report.UnmatchedPolicyRows
 		return http.StatusOK, response, nil
 	})
+}
+
+func (s *server) writeContinuationPolicyError(w http.ResponseWriter, err error) bool {
+	var continuationErr sqldb.CourseContinuationSatVerbalPolicyError
+	if !errors.As(err, &continuationErr) {
+		return false
+	}
+	s.a.WriteErr(w, http.StatusConflict, "continuation_sat_verbal_policy", continuationErr.Error())
+	return true
 }
 
 func (s *server) buildReplaceParams(
@@ -159,6 +176,15 @@ func (s *server) buildReplaceParams(
 			course, err := q.CourseSubjectByID(ctx, courseID)
 			if err != nil {
 				return nil, report, err
+			}
+			if course.MergeGroupID.Valid {
+				group, err := q.CourseMergeGroupGet(ctx, course.MergeGroupID)
+				if err != nil {
+					return nil, report, err
+				}
+				if group.RuleSourceCourseID.Valid {
+					return nil, report, sqldb.CourseContinuationSatVerbalPolicyError{}
+				}
 			}
 			if err := ensureRootGroup(ctx, q, rule, course); err != nil {
 				return nil, report, err

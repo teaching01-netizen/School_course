@@ -23,6 +23,8 @@ export type CourseMergeGroupConfig = {
   sit_in_rule_id: string | null;
   course_codes: string[];
   course_names: string[];
+  /** Set for a continuation link: level, cycle and sit-in rule follow this course. */
+  rule_source_course_code: string | null;
 };
 
 export type SubjectPolicy = {

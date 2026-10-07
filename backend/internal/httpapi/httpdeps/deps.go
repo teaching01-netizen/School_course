@@ -31,22 +31,23 @@ import (
 //
 // Keep this small and stable: it is the interface (test surface) for httpapi route modules.
 type Deps struct {
-	Log                 *slog.Logger
-	Auth                httpadapter.AuthService
-	Q                   *sqldb.Queries
-	DB                  *pgxpool.Pool
-	Scheduling          *scheduling.Service
-	CourseAdmin         *courseadmin.Service
-	SessionChangeImpact *sessionchangeimpact.Service
-	AdminUsers          *users.AdminProvisioningService
-	SitInResolver       *sitinresolver.Service
-	ClientIP            *clientip.Resolver
-	InstituteTZ         string
-	StudentCookieSecure bool
-	CRMUploadV2         *crmimport.UploadV2Service
-	CRMReconcileV2      *reconcile.ReconcileV2Service
-	CRMWorker           *queue.QueueWorker
-	CrossStudy          *crossstudy.Store
+	Log                       *slog.Logger
+	Auth                      httpadapter.AuthService
+	Q                         *sqldb.Queries
+	DB                        *pgxpool.Pool
+	Scheduling                *scheduling.Service
+	CourseAdmin               *courseadmin.Service
+	SessionChangeImpact       *sessionchangeimpact.Service
+	AdminUsers                *users.AdminProvisioningService
+	SitInResolver             *sitinresolver.Service
+	ClientIP                  *clientip.Resolver
+	InstituteTZ               string
+	CourseLinkSuggestionsMode string
+	StudentCookieSecure       bool
+	CRMUploadV2               *crmimport.UploadV2Service
+	CRMReconcileV2            *reconcile.ReconcileV2Service
+	CRMWorker                 *queue.QueueWorker
+	CrossStudy                *crossstudy.Store
 
 	SMS                smartsms.SMSProvider
 	OTP                *otp.Service

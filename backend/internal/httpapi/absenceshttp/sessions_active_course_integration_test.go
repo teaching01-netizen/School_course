@@ -22,8 +22,10 @@ import (
 func TestSessionsInRangeQueryRestrictsToActiveCourse(t *testing.T) {
 	sql := sessionsInRangeSelectSQL()
 
-	if !strings.Contains(sql, "EXISTS (\n\t\t\tSELECT 1 FROM subject_active_courses sac\n\t\t\tWHERE sac.subject_id = sub.id AND sac.course_id = c.id") {
-		t.Fatalf("sessions-in-range query must require direct active-course membership, SQL: %s", sql)
+	// Active-course membership is resolved per course (or its continuation rule
+	// source) by course_rule_configs.absence_form_active.
+	if !strings.Contains(sql, "cfg.absence_form_active") {
+		t.Fatalf("sessions-in-range query must require active-course membership, SQL: %s", sql)
 	}
 	for _, fragment := range []string{"NOT EXISTS (", "ac.cycle_id IS NOT NULL", "cs2.student_id = st.id"} {
 		if strings.Contains(sql, fragment) {
@@ -150,7 +152,7 @@ func querySessionCourseCodes(t *testing.T, dbpool *pgxpool.Pool, wcode string) (
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rows, err := dbpool.Query(ctx, sessionsInRangeSelectSQL(), wcode, time.Now().UTC().AddDate(0, 0, -30), time.Now().UTC().AddDate(0, 0, 90))
+	rows, err := dbpool.Query(ctx, sessionsInRangeSelectSQL(), wcode, time.Now().UTC().AddDate(0, 0, -30), time.Now().UTC().AddDate(0, 0, 90), "Asia/Bangkok")
 	if err != nil {
 		t.Fatal(err)
 	}

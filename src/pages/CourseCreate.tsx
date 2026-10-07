@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import { useFormValidation } from "../hooks/useFormValidation";
@@ -30,7 +30,11 @@ export default function CourseCreate() {
   const navigate = useNavigate();
   const { addToast } = useToast();
 
-  const [creationMode, setCreationMode] = useState<"single" | "merge">("single");
+  // Prefill from course-link suggestions: ?mode=merge&continuation=1&courses=a,b&source=a
+  const [searchParams] = useSearchParams();
+  const prefillCourseIDs = (searchParams.get("courses") ?? "").split(",").filter(Boolean).slice(0, 2);
+  const prefillSource = searchParams.get("source") ?? "";
+  const [creationMode, setCreationMode] = useState<"single" | "merge">(searchParams.get("mode") === "merge" ? "merge" : "single");
   const [year, setYear] = useState(() => String(new Date().getFullYear() % 100));
   const [teacherIDs, setTeacherIDs] = useState<string[]>([]);
   const [subjectID, setSubjectID] = useState("");
@@ -44,8 +48,10 @@ export default function CourseCreate() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [cycles, setCycles] = useState<{ id: string; label: string; display_name?: string | null }[]>([]);
   const [mergeCourses, setMergeCourses] = useState<CourseMergeCandidate[]>([]);
-  const [mergeName, setMergeName] = useState("");
-  const [mergeCourseIDs, setMergeCourseIDs] = useState<string[]>([]);
+  const [mergeName, setMergeName] = useState(() => searchParams.get("name") ?? "");
+  const [mergeCourseIDs, setMergeCourseIDs] = useState<string[]>(prefillCourseIDs);
+  const [mergeContinuation, setMergeContinuation] = useState(searchParams.get("continuation") === "1");
+  const [ruleSourceID, setRuleSourceID] = useState(prefillCourseIDs.includes(prefillSource) ? prefillSource : "");
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -67,7 +73,10 @@ export default function CourseCreate() {
         setCycles(c);
         try {
           const merge = await getCourseMergeCandidates();
-          setMergeCourses(merge.items);
+          // Prefilled courses may fall outside the first candidate page; load them so the selects show them.
+          const missing = prefillCourseIDs.filter((id) => !merge.items.some((course) => course.id === id));
+          const extra = await Promise.all(missing.map((id) => apiJson<CourseMergeCandidate>(`/api/v1/courses/${encodeURIComponent(id)}`, { method: "GET" }).catch(() => null)));
+          setMergeCourses([...merge.items, ...extra.filter((course): course is CourseMergeCandidate => course !== null)]);
         } catch {
           setMergeCourses([]);
         }
@@ -77,6 +86,7 @@ export default function CourseCreate() {
         setLoadingOptions(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- prefill is read once on mount
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -86,10 +96,19 @@ export default function CourseCreate() {
       addToast("error", mergeName.trim() === "" ? "Enter a name for the merged course" : "Select exactly two courses to merge");
       return;
     }
+    const continuationSource = mergeCourseIDs.includes(ruleSourceID) ? ruleSourceID : "";
+    if (creationMode === "merge" && mergeContinuation && continuationSource === "") {
+      addToast("error", "Choose which course's settings to keep");
+      return;
+    }
     try {
       setSubmitting(true);
       if (creationMode === "merge") {
-        const group = await createCourseGroup({ name: mergeName.trim(), course_ids: mergeCourseIDs });
+        const group = await createCourseGroup({
+          name: mergeName.trim(),
+          course_ids: mergeCourseIDs,
+          ...(mergeContinuation ? { kind: "continuation" as const, rule_source_course_id: continuationSource } : {}),
+        });
         await queryClient.invalidateQueries({ queryKey: ["api", "/api/v1/course-groups"] });
         addToast("success", "Merged course created");
         navigate(`/course-groups/${group.id}`);
@@ -153,6 +172,10 @@ export default function CourseCreate() {
             onCourseIDsChange={setMergeCourseIDs}
             courses={mergeCourses}
             loading={loadingOptions}
+            continuation={mergeContinuation}
+            onContinuationChange={setMergeContinuation}
+            ruleSourceID={ruleSourceID}
+            onRuleSourceIDChange={setRuleSourceID}
           />
         ) : null}
 

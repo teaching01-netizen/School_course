@@ -138,18 +138,25 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 	headerRowIdx := -1
 	var headerCells []string
 
-	allRows, err := f.GetRows(sheet, excelize.Options{RawCellValue: true})
+	worksheetRows, err := f.Rows(sheet)
 	if err != nil {
 		return ParsedXLSX{}, fmt.Errorf("read rows: %w", err)
 	}
+	defer func() { _ = worksheetRows.Close() }()
 
-	for i := 0; i < len(allRows) && i < scanRows; i++ {
-		cells := allRows[i]
+	for i := 0; i < scanRows && worksheetRows.Next(); i++ {
+		cells, err := worksheetRows.Columns(excelize.Options{RawCellValue: true})
+		if err != nil {
+			return ParsedXLSX{}, fmt.Errorf("read header row: %w", err)
+		}
 		if looksLikeHeaderRow(cells) {
 			headerRowIdx = i
 			headerCells = cells
 			break
 		}
+	}
+	if err := worksheetRows.Error(); err != nil {
+		return ParsedXLSX{}, fmt.Errorf("scan header rows: %w", err)
 	}
 	if headerRowIdx == -1 {
 		return ParsedXLSX{}, fmt.Errorf("header row not found in first %d rows", scanRows)
@@ -170,8 +177,11 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 	}
 
 	var out []Row
-	for i := headerRowIdx + 1; i < len(allRows); i++ {
-		cells := allRows[i]
+	for worksheetRows.Next() {
+		cells, err := worksheetRows.Columns(excelize.Options{RawCellValue: true})
+		if err != nil {
+			return ParsedXLSX{}, fmt.Errorf("read data row: %w", err)
+		}
 
 		get := func(header string) string {
 			idx, ok := colByHeader[header]
@@ -231,6 +241,9 @@ func ParseXLSX(xlsxBytes []byte, instituteLoc *time.Location) (ParsedXLSX, error
 			ExtraNote:           get("Extra note"),
 		}
 		out = append(out, r)
+	}
+	if err := worksheetRows.Error(); err != nil {
+		return ParsedXLSX{}, fmt.Errorf("scan data rows: %w", err)
 	}
 
 	if len(out) == 0 {

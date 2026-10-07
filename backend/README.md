@@ -27,7 +27,12 @@ Environment:
 - `OTP_HMAC_KEY` (required for direct `go run`; `make dev` provides a local fallback)
 - `COOKIE_SECURE` (optional; defaults to `true`; production rejects `false`; set `false` only for local http; local mode uses a non-`__Host-` cookie name)
 - `INSTITUTE_TZ` (optional; default `Asia/Bangkok`)
+- `COURSE_LINK_SUGGESTIONS_MODE` (optional; `disabled`, `discovery`, or `confirmation`; defaults to read-only `discovery`)
 - `TRUSTED_PROXY_CIDRS` (optional; comma-separated proxy CIDRs; forwarded headers are ignored when the direct peer is outside these networks)
+
+Keep course link suggestions in `discovery` until the confirmation concurrency
+and wrong-link recovery release gates in `COURSE_LINK_SUGGESTIONS_PLAN.md` are
+cleared. Discovery does not create links or dismiss suggestions.
 
 ## Trusted proxy configuration
 
@@ -148,6 +153,16 @@ circuit breaker and the per-request timeout still protect the legacy site):
 | `LEGACY_SYNC_RECONCILE_WORKERS` | `min(MaxConcurrent, 16)` | Worker pool for the full-reconcile DB phases; `0`/`1` force the exact serial path |
 | `LEGACY_SYNC_POOL_MAX_CONNS` | worker-derived budget (`max(64, 2×workers)`) | pgx pool connection cap; wins over a `pool_max_conns` URL parameter, which is otherwise preserved |
 | `LEGACY_SYNC_HTTP_TIMEOUT` | `120s` | Per-request budget including redirects and body download |
+
+Idle worker connections are released after one minute (health check every 30 s;
+no minimum idle connections). The worker's leadership and realtime `LISTEN`
+connections stay acquired. Connections are tagged via `application_name`
+(`warwick-legacy-sync`, `warwick-api`, `warwick-realtime-api`) for diagnosis.
+
+Lower-memory profile (validate on staging for freshness before production):
+`LEGACY_SYNC_MAX_CONCURRENT=4`, `LEGACY_SYNC_WORKERS=2`,
+`LEGACY_SYNC_RECONCILE_WORKERS=2`, then `LEGACY_SYNC_POOL_MAX_CONNS=8`
+(use `12` with four workers). Restore by unsetting these variables.
 
 Two request-reduction behaviors are always on: the search-form antiforgery
 token (students directory and archived course list) is cached per session, so

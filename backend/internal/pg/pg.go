@@ -42,6 +42,11 @@ func newPool(ctx context.Context, databaseURL string, defaultMaxConns int32, hon
 			cfg.MaxConns = int32(n)
 		}
 	}
+	applicationName := "warwick-api"
+	if !honorPoolMaxConns {
+		applicationName = "warwick-realtime-api"
+	}
+	cfg.ConnConfig.RuntimeParams["application_name"] = applicationName
 	cfg.MinConns = 0
 	cfg.MaxConnLifetime = 5 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute

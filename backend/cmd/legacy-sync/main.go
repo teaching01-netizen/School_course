@@ -132,6 +132,11 @@ func main() {
 		// tuned pool_max_conns gets the worker-derived budget instead.
 		poolConfig.MaxConns = int32(maxPoolConns(0, workers))
 	}
+	poolConfig.MinConns = 0
+	poolConfig.MinIdleConns = 0
+	poolConfig.MaxConnIdleTime = time.Minute
+	poolConfig.HealthCheckPeriod = 30 * time.Second
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "warwick-legacy-sync"
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Error("database connection", "error", err)

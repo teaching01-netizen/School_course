@@ -1344,7 +1344,7 @@ func (q *Queries) SitInCandidateValidationBatch(ctx context.Context, absenceID, 
 				SELECT 1
 				FROM student_absences sa
 				JOIN students st ON st.wcode = sa.wcode
-				JOIN course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
+				JOIN effective_course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
 				JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
 				WHERE sa.id = $1
 				  AND normal.id <> sess.id

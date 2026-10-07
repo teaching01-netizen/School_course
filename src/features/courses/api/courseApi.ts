@@ -1,7 +1,7 @@
 import { apiJson } from "@/api/client";
 import type { Room, Session } from "@/features/scheduling/types";
 import type { Student, User, Subject } from "@/types/shared";
-import type { Course, CourseGroup, CourseMergeCandidate, EditableTeacher, LegacyCourseConflict } from "../types";
+import type { Course, CourseGroup, CourseGroupKind, CourseLinkSuggestionsResponse, CourseMergeCandidate, EditableTeacher, LegacyCourseConflict } from "../types";
 
 export type CourseCrmFilter = {
   enabled: boolean;
@@ -134,9 +134,41 @@ export type CourseGroupSessions = {
   version: number;
 };
 
-export function createCourseGroup(body: { name: string; course_ids: string[] }): Promise<{ id: string; name: string; course_ids: string[] }> {
+export function createCourseGroup(body: {
+  name: string;
+  course_ids: string[];
+  kind?: CourseGroupKind;
+  rule_source_course_id?: string;
+  suggestion_precondition?: {
+    configured_course_id: string;
+    unconfigured_course_id: string;
+    evidence_fingerprint: string;
+    detector_version: string;
+  };
+}, idempotencyKey?: string): Promise<{ id: string; name: string; course_ids: string[] }> {
   return apiJson<{ id: string; name: string; course_ids: string[] }>("/api/v1/course-groups", {
     method: "POST",
+    ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+    body: JSON.stringify(body),
+  });
+}
+
+export function getCourseLinkSuggestions(params: { includeReview: boolean; search?: string; cursor?: string | null }): Promise<CourseLinkSuggestionsResponse> {
+  const query = new URLSearchParams({ include_review: String(params.includeReview), limit: "50" });
+  if (params.search) query.set("q", params.search);
+  if (params.cursor) query.set("cursor", params.cursor);
+  return apiJson<CourseLinkSuggestionsResponse>(`/api/v1/admin/course-link-suggestions?${query.toString()}`, { method: "GET" });
+}
+
+export function dismissCourseLinkSuggestion(body: {
+  configured_course_id: string;
+  unconfigured_course_id: string;
+  evidence_fingerprint: string;
+  detector_version: string;
+}, idempotencyKey?: string): Promise<{ dismissed: boolean; already_dismissed: boolean }> {
+  return apiJson<{ dismissed: boolean; already_dismissed: boolean }>("/api/v1/admin/course-link-suggestions/dismiss", {
+    method: "POST",
+    ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     body: JSON.stringify(body),
   });
 }

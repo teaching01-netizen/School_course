@@ -63,7 +63,7 @@ func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolut
 			SELECT 1
 			FROM student_absences sa
 			JOIN students st ON st.wcode = sa.wcode
-			JOIN course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
+			JOIN effective_course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
 			JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
 			JOIN sessions candidate ON candidate.id = $2
 			WHERE sa.id = $1

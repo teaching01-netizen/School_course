@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Modal from "../components/Modal";
 import CourseLevelManagerPanel from "../components/CourseLevelManagerPanel";
+import CourseLinkSuggestionsPanel from "../components/CourseLinkSuggestionsPanel";
 import { apiJson } from "../api/client";
 import { useToast } from "../hooks/useToast";
 import PageHeading from "../components/ui/PageHeading";
@@ -46,7 +47,7 @@ export default function CourseLevels() {
   const [groups, setGroups] = useState<RootCourseGroupInfo[]>([]);
   const [rules, setRules] = useState<SitInRule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [managerOpen, setManagerOpen] = useState(true);
+  const [managerOpen, setManagerOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,9 +85,11 @@ export default function CourseLevels() {
         {!managerOpen ? <Button onClick={() => setManagerOpen(true)}>Manage levels</Button> : null}
       </div>
 
+      <CourseLinkSuggestionsPanel />
+
       <div className="mt-8 rounded-md border border-dashed border-wi-line bg-[var(--color-wi-callout)] px-5 py-10 text-center">
-        <p className="text-sm font-medium text-[var(--color-wi-text)]">Course level management is open in the manager.</p>
-        <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Select a course group to add, edit, or review levels.</p>
+        <p className="text-sm font-medium text-[var(--color-wi-text)]">Course level management is available in the manager.</p>
+        <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Open the manager to add, edit, or review course levels.</p>
       </div>
 
       {managerOpen ? (

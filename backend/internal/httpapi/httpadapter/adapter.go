@@ -683,6 +683,9 @@ func (a Adapter) ClassifyDBErr(err error) (status int, code string, message stri
 			}
 			return http.StatusConflict, "constraint_failed", "Constraint failed"
 		case "23503":
+			if pgErr.ConstraintName == "course_merge_groups_rule_source_member_fk" {
+				return http.StatusConflict, "continuation_rule_source", "This course is the rule source of a linked course. Unlink it first."
+			}
 			return http.StatusBadRequest, "invalid_reference", "Invalid reference"
 		default:
 			if a.log != nil {

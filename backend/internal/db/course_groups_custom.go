@@ -13,19 +13,21 @@ type CourseMergeGroupCourseLockRow struct {
 }
 
 type CourseMergeGroupRow struct {
-	ID   pgtype.UUID
-	Name string
+	ID                 pgtype.UUID
+	Name               string
+	RuleSourceCourseID pgtype.UUID
 }
 
 type CourseMergeGroupConfigRow struct {
-	ID          pgtype.UUID
-	Name        string
-	Level       pgtype.Int2
-	CycleID     pgtype.Text
-	CycleLabel  pgtype.Text
-	SitInRuleID pgtype.UUID
-	CourseCodes []string
-	CourseNames []string
+	ID             pgtype.UUID
+	Name           string
+	Level          pgtype.Int2
+	CycleID        pgtype.Text
+	CycleLabel     pgtype.Text
+	SitInRuleID    pgtype.UUID
+	CourseCodes    []string
+	CourseNames    []string
+	RuleSourceCode pgtype.Text
 }
 
 type CourseMergeGroupScopeForCourseRow struct {
@@ -78,10 +80,11 @@ func (q *Queries) CourseMergeGroupScopeForCourse(ctx context.Context, courseID p
 }
 
 type CourseMergeGroupListRow struct {
-	ID          pgtype.UUID
-	Name        string
-	MemberCount int64
-	CourseCodes []string
+	ID                 pgtype.UUID
+	Name               string
+	MemberCount        int64
+	CourseCodes        []string
+	RuleSourceCourseID pgtype.UUID
 }
 
 type CourseMergeGroupMemberRow struct {
@@ -138,13 +141,36 @@ func (q *Queries) CourseMergeGroupLockCourses(ctx context.Context, ids []pgtype.
 	return items, rows.Err()
 }
 
+func (q *Queries) CourseMergeGroupMembershipsForCourses(ctx context.Context, ids []pgtype.UUID) ([]CourseMergeGroupCourseLockRow, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT c.id, m.group_id
+		FROM courses c
+	JOIN course_merge_group_members m ON m.course_id = c.id
+	WHERE c.id = ANY($1::uuid[])
+	ORDER BY c.id
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]CourseMergeGroupCourseLockRow, 0, len(ids))
+	for rows.Next() {
+		var item CourseMergeGroupCourseLockRow
+		if err := rows.Scan(&item.ID, &item.MergeGroupID); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (q *Queries) CourseMergeGroupCreate(ctx context.Context, name string, actorID pgtype.UUID) (CourseMergeGroupRow, error) {
 	var item CourseMergeGroupRow
 	err := q.db.QueryRow(ctx, `
 		INSERT INTO course_merge_groups (name, created_by)
 		VALUES ($1, $2)
-		RETURNING id, name
-	`, name, actorID).Scan(&item.ID, &item.Name)
+		RETURNING id, name, rule_source_course_id
+	`, name, actorID).Scan(&item.ID, &item.Name, &item.RuleSourceCourseID)
 	return item, err
 }
 
@@ -159,10 +185,10 @@ func (q *Queries) CourseMergeGroupAssignCourse(ctx context.Context, groupID, cou
 func (q *Queries) CourseMergeGroupGet(ctx context.Context, id pgtype.UUID) (CourseMergeGroupRow, error) {
 	var item CourseMergeGroupRow
 	err := q.db.QueryRow(ctx, `
-		SELECT id, name
+		SELECT id, name, rule_source_course_id
 		FROM course_merge_groups
 		WHERE id = $1
-	`, id).Scan(&item.ID, &item.Name)
+	`, id).Scan(&item.ID, &item.Name, &item.RuleSourceCourseID)
 	return item, err
 }
 
@@ -192,11 +218,11 @@ func (q *Queries) CourseMergeGroupCourseIDs(ctx context.Context, mergeGroupID pg
 func (q *Queries) CourseMergeGroupGetForUpdate(ctx context.Context, id pgtype.UUID) (CourseMergeGroupRow, error) {
 	var item CourseMergeGroupRow
 	err := q.db.QueryRow(ctx, `
-		SELECT id, name
+		SELECT id, name, rule_source_course_id
 		FROM course_merge_groups
 		WHERE id = $1
 		FOR UPDATE
-	`, id).Scan(&item.ID, &item.Name)
+	`, id).Scan(&item.ID, &item.Name, &item.RuleSourceCourseID)
 	return item, err
 }
 
@@ -220,11 +246,12 @@ func (q *Queries) CourseMergeGroupDelete(ctx context.Context, id pgtype.UUID) er
 func (q *Queries) CourseMergeGroupList(ctx context.Context) ([]CourseMergeGroupListRow, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT g.id, g.name, COUNT(m.course_id),
-		       COALESCE(array_agg(c.code ORDER BY m.position) FILTER (WHERE c.id IS NOT NULL), ARRAY[]::text[])
+		       COALESCE(array_agg(c.code ORDER BY m.position) FILTER (WHERE c.id IS NOT NULL), ARRAY[]::text[]),
+		       g.rule_source_course_id
 		FROM course_merge_groups g
 		LEFT JOIN course_merge_group_members m ON m.group_id = g.id
 		LEFT JOIN courses c ON c.id = m.course_id
-		GROUP BY g.id, g.name
+		GROUP BY g.id, g.name, g.rule_source_course_id
 		ORDER BY g.name ASC, g.id ASC
 	`)
 	if err != nil {
@@ -234,7 +261,7 @@ func (q *Queries) CourseMergeGroupList(ctx context.Context) ([]CourseMergeGroupL
 	items := make([]CourseMergeGroupListRow, 0)
 	for rows.Next() {
 		var item CourseMergeGroupListRow
-		if err := rows.Scan(&item.ID, &item.Name, &item.MemberCount, &item.CourseCodes); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.MemberCount, &item.CourseCodes, &item.RuleSourceCourseID); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -324,10 +351,15 @@ func (q *Queries) CourseMergeGroupConfigsList(ctx context.Context) ([]CourseMerg
 			GROUP BY id, name, level, sit_in_rule_id
 			HAVING COUNT(*) = 2
 		)
-		SELECT d.id, d.name, d.level, d.effective_cycle_id, cy.label, d.sit_in_rule_id,
-		       d.course_codes, d.course_names
+		SELECT d.id, d.name, COALESCE(src.level, d.level),
+		       CASE WHEN g.rule_source_course_id IS NULL THEN d.effective_cycle_id ELSE src.cycle_id END,
+		       cy.label, COALESCE(src.sit_in_rule_id, d.sit_in_rule_id),
+		       d.course_codes, d.course_names, rs.code
 		FROM group_data d
-		LEFT JOIN crm_cycles cy ON cy.id = d.effective_cycle_id
+		JOIN course_merge_groups g ON g.id = d.id
+		LEFT JOIN course_rule_configs src ON src.course_id = g.rule_source_course_id
+		LEFT JOIN courses rs ON rs.id = g.rule_source_course_id
+		LEFT JOIN crm_cycles cy ON cy.id = CASE WHEN g.rule_source_course_id IS NULL THEN d.effective_cycle_id ELSE src.cycle_id END
 		ORDER BY d.name ASC, d.id ASC
 	`)
 	if err != nil {
@@ -339,7 +371,7 @@ func (q *Queries) CourseMergeGroupConfigsList(ctx context.Context) ([]CourseMerg
 		var item CourseMergeGroupConfigRow
 		if err := rows.Scan(
 			&item.ID, &item.Name, &item.Level, &item.CycleID, &item.CycleLabel,
-			&item.SitInRuleID, &item.CourseCodes, &item.CourseNames,
+			&item.SitInRuleID, &item.CourseCodes, &item.CourseNames, &item.RuleSourceCode,
 		); err != nil {
 			return nil, err
 		}
@@ -369,16 +401,15 @@ func (q *Queries) CourseMergeGroupSitInRuleUpdate(ctx context.Context, id pgtype
 func (q *Queries) CoursesByMergeGroup(ctx context.Context, mergeGroupID pgtype.UUID) ([]SubjectCourseV2, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT c.id, c.code, c.name, c.subject_id, COALESCE(sub.code, ''), COALESCE(sub.name, ''),
-		       c.cycle_id, COALESCE(g.level, c.level), c.root_course_group_id,
-		       COALESCE(g.sit_in_rule_id, rcg.sit_in_rule_id), m.group_id
+		       cfg.cycle_id, cfg.level, cfg.root_course_group_id,
+		       cfg.sit_in_rule_id, m.group_id
 		FROM course_merge_group_members m
 		JOIN courses c ON c.id = m.course_id
 		LEFT JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
-		JOIN course_merge_groups g ON g.id = m.group_id
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE m.group_id = $1
-		  AND COALESCE(g.level, c.level) IS NOT NULL
-		ORDER BY COALESCE(g.level, c.level) ASC, m.position ASC
+		  AND cfg.level IS NOT NULL
+		ORDER BY cfg.level ASC, m.position ASC
 	`, mergeGroupID)
 	if err != nil {
 		return nil, err
@@ -394,4 +425,23 @@ func (q *Queries) CoursesByMergeGroup(ctx context.Context, mergeGroupID pgtype.U
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+func (q *Queries) CourseMergeGroupSetRuleSource(ctx context.Context, id, courseID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE course_merge_groups
+		SET rule_source_course_id = $2, updated_at = now()
+		WHERE id = $1
+	`, id, courseID)
+	return err
+}
+
+// CourseMergeGroupHasAbsences reports whether any absence was recorded
+// against the group, so unlinking a continuation would change its history.
+func (q *Queries) CourseMergeGroupHasAbsences(ctx context.Context, id pgtype.UUID) (bool, error) {
+	var exists bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM student_absences WHERE merge_group_id = $1)
+	`, id).Scan(&exists)
+	return exists, err
 }

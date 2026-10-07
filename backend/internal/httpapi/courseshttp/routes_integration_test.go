@@ -26,6 +26,7 @@ import (
 	"warwick-institute/internal/auth"
 	"warwick-institute/internal/courseadmin"
 	sqldb "warwick-institute/internal/db"
+	courselevelsroute "warwick-institute/internal/httpapi/courselevelshttp"
 	"warwick-institute/internal/httpapi/httpdeps"
 	sessionsroutes "warwick-institute/internal/httpapi/sessionshttp"
 	"warwick-institute/internal/scheduling"
@@ -138,6 +139,10 @@ type testFixture struct {
 }
 
 func setupTestServer(t *testing.T) *testFixture {
+	return setupTestServerWithCourseLinkSuggestionsMode(t, "confirmation")
+}
+
+func setupTestServerWithCourseLinkSuggestionsMode(t *testing.T, mode string) *testFixture {
 	t.Helper()
 
 	databaseURL := requireTestDB(t)
@@ -182,17 +187,19 @@ func setupTestServer(t *testing.T) *testFixture {
 	}
 
 	deps := httpdeps.Deps{
-		Log:         slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		Auth:        fa,
-		Q:           q,
-		DB:          dbpool,
-		Scheduling:  schedulingSvc,
-		CourseAdmin: courseadmin.NewService(),
-		InstituteTZ: "Asia/Bangkok",
+		Log:                       slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Auth:                      fa,
+		Q:                         q,
+		DB:                        dbpool,
+		Scheduling:                schedulingSvc,
+		CourseAdmin:               courseadmin.NewService(),
+		InstituteTZ:               "Asia/Bangkok",
+		CourseLinkSuggestionsMode: mode,
 	}
 
 	mux := http.NewServeMux()
 	Register(mux, deps)
+	courselevelsroute.Register(mux, deps)
 	sessionsroutes.Register(mux, deps)
 
 	server := httptest.NewServer(mux)

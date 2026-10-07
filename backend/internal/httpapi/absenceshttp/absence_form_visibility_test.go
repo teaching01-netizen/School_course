@@ -23,7 +23,7 @@ import (
 // listing SQL must filter on it, the staff listing SQL must not.
 func TestSessionsInRangeQueryAbsenceFormVisibleSplit(t *testing.T) {
 	studentSQL := sessionsInRangeSelectSQL()
-	if !strings.Contains(studentSQL, "c.absence_form_visible") {
+	if !strings.Contains(studentSQL, "cfg.absence_form_active") {
 		t.Fatalf("student sessions-in-range query must filter hidden courses, SQL: %s", studentSQL)
 	}
 	staffSQL := sessionsInRangeStaffSelectSQL()

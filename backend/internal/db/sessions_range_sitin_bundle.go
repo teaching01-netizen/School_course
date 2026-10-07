@@ -98,8 +98,10 @@ type SitInBundleV2 struct {
 	SatMemberCourses []SubjectCourseV2
 	MergeNames       map[string]string
 	MergeMembers     map[string][]pgtype.UUID
-	Visible          map[string]struct{}
-	Sessions         map[string][]SessionInRange
+	// Continuations marks merge groups that are one course split across IDs.
+	Continuations map[string]struct{}
+	Visible       map[string]struct{}
+	Sessions      map[string][]SessionInRange
 }
 
 // SitInDiscoveryBounds carries the instant bounds for ordinary-course
@@ -241,6 +243,7 @@ func (q *Queries) SessionsRangeSitInBundleV2(ctx context.Context, arg SitInBundl
 		SatMapByCourse: make(map[string]*SatVerbalPolicyCourseMapping),
 		MergeNames:     make(map[string]string),
 		MergeMembers:   make(map[string][]pgtype.UUID),
+		Continuations:  make(map[string]struct{}),
 		Visible:        make(map[string]struct{}),
 		Sessions:       make(map[string][]SessionInRange),
 	}
@@ -536,7 +539,7 @@ func scanBundlePriorities(rows pgx.Rows, bundle *SitInBundleFacts) error {
 // bundleMergeMembersSQL is the merge-members SELECT shared by the
 // standalone loader and the trip-A mid-batch.
 func bundleMergeMembersSQL() string {
-	return "SELECT group_id, course_id FROM course_merge_group_members WHERE group_id = ANY($1::uuid[]) ORDER BY group_id, position ASC"
+	return "SELECT m.group_id, m.course_id, g.rule_source_course_id IS NOT NULL FROM course_merge_group_members m JOIN course_merge_groups g ON g.id = m.group_id WHERE m.group_id = ANY($1::uuid[]) ORDER BY m.group_id, m.position ASC"
 }
 
 // bundleMergeMemberGroups derives the distinct merge-group input from
@@ -569,10 +572,14 @@ func scanBundleMergeMembers(rows pgx.Rows, out *SitInBundleV2) error {
 	defer rows.Close()
 	for rows.Next() {
 		var gid, cid pgtype.UUID
-		if err := rows.Scan(&gid, &cid); err != nil {
+		var continuation bool
+		if err := rows.Scan(&gid, &cid, &continuation); err != nil {
 			return err
 		}
 		k := uuidBytesString(gid)
+		if continuation {
+			out.Continuations[k] = struct{}{}
+		}
 		out.MergeMembers[k] = append(out.MergeMembers[k], cid)
 	}
 	return rows.Err()

@@ -287,7 +287,7 @@ SELECT asi.id, asi.absence_id, asi.session_id,
          SELECT 1
          FROM student_absences sa
          JOIN students st ON st.wcode = sa.wcode
-         JOIN course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
+         JOIN effective_course_students cs ON cs.student_id = st.id AND cs.status = 'enrolled'
          JOIN sessions normal ON normal.course_id = cs.course_id AND normal.deleted_at IS NULL
          WHERE sa.id = asi.absence_id
            AND normal.id <> sit.id

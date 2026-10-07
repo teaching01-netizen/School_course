@@ -129,7 +129,7 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 		if targetCourse == nil {
 			return nil, errors.New("target course not found in course group")
 		}
-		avail := b.Sessions[uuidStringOrZero(*evalOutput.TargetCourseID)]
+		avail := bundleTargetSessions(b, targetCourse)
 		result := buildPhysicalSitInResultWithBlockedSessions(targetCourse, missedSessions, avail, cutoff, in.blocked)
 		result.RuleName = rule.Name
 		result.RuleType = rule.Type
