@@ -346,11 +346,9 @@ export function selectedSitInCourseIDForScope(
 
 function collectAttendingSessions(
   sessions: SubjectSessions[],
-  selectedSubjectIds: string[],
 ): Map<string, SessionTime[]> {
   const byDate = new Map<string, SessionTime[]>();
   for (const group of sessions) {
-    if (selectedSubjectIds.includes(group.subject_id)) continue;
     for (const session of group.sessions) {
       if (session.already_absent) continue;
       const date = session.date ?? instituteDateKey(session.start_at);
@@ -367,10 +365,7 @@ export function buildSubmissionPayloads(
 ): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
   const payloadEntries: Array<{ scopeKey: string; item: AbsenceBatchCreateItem }> = [];
-  const attendingByDate = collectAttendingSessions(
-    input.sessions,
-    input.selectedSubjectIds,
-  );
+  const attendingByDate = collectAttendingSessions(input.sessions);
   for (const group of input.sessions) {
     if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
     if (group.absence_limit_reached) continue;

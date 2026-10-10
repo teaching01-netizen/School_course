@@ -25,15 +25,17 @@ var (
 )
 
 type ScheduleApplyRequest struct {
-	CourseID        pgtype.UUID
-	LegacyCourseID  string
-	TeacherID       pgtype.UUID
-	Aggregate       normalize.LegacyCourseAggregate
-	ObservedAt      time.Time
-	InstituteTZ     string
-	ShadowMode      bool
-	RealtimeEnabled bool
-	allowConflicts  bool
+	CourseID                 pgtype.UUID
+	LegacyCourseID           string
+	TeacherID                pgtype.UUID
+	Aggregate                normalize.LegacyCourseAggregate
+	ObservedAt               time.Time
+	ObservationGeneration    int64
+	ScheduleSnapshotComplete bool
+	InstituteTZ              string
+	ShadowMode               bool
+	RealtimeEnabled          bool
+	allowConflicts           bool
 }
 
 type ScheduleApplyResult struct {
@@ -97,6 +99,9 @@ func ScheduleHash(schedule normalize.LegacySchedule) (string, error) {
 }
 
 func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyRequest) (ScheduleApplyResult, error) {
+	if err := validateScheduleObservation(request.ScheduleSnapshotComplete, request.ObservationGeneration); err != nil {
+		return ScheduleApplyResult{}, err
+	}
 	if err := ValidateScheduleAggregate(request.Aggregate); err != nil {
 		return ScheduleApplyResult{}, err
 	}
@@ -134,6 +139,11 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, legacyCourseLockKey(a.source, lockKey)); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("lock legacy course: %w", err)
 	}
+	if !request.ShadowMode {
+		if err := checkCourseObservationGeneration(ctx, tx, a.source, externalCourseID, request.ObservationGeneration); err != nil {
+			return ScheduleApplyResult{}, err
+		}
+	}
 	var currentTeacherID pgtype.UUID
 	if err := tx.QueryRow(ctx, `SELECT teacher_id FROM courses WHERE id=$1`, request.CourseID).Scan(&currentTeacherID); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("load current legacy course teacher: %w", err)
@@ -170,12 +180,26 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 			if err != nil {
 				return ScheduleApplyResult{}, err
 			}
+			if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
+				return ScheduleApplyResult{}, err
+			}
+			if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
+				return ScheduleApplyResult{}, err
+			}
 		}
 		if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
 			return ScheduleApplyResult{}, fmt.Errorf("update unchanged schedule metadata: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE external_refs SET last_seen_at=$1 WHERE source=$2 AND entity_type='course' AND external_id=$3`, request.ObservedAt, a.source, externalCourseID); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("update unchanged schedule mapping: %w", err)
+		if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{
+			Source: a.source, EntityType: "course", ExternalID: externalCourseID,
+			InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true},
+		}); err != nil {
+			return ScheduleApplyResult{}, fmt.Errorf("upsert unchanged schedule mapping: %w", err)
+		}
+		if !request.ShadowMode {
+			if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+				return ScheduleApplyResult{}, err
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return ScheduleApplyResult{}, fmt.Errorf("commit unchanged schedule: %w", err)
@@ -205,6 +229,9 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	if !request.ShadowMode {
 		if _, err := qtx.SnapshotUpsert(ctx, sqldb.SnapshotUpsertParams{Source: a.source, EntityType: "course", ExternalID: externalCourseID, CanonicalData: string(canonical), SourceHash: sourceHash, ParserVersion: 1, ObservedAt: timestamp(request.ObservedAt), Quality: quality}); err != nil {
 			return ScheduleApplyResult{}, fmt.Errorf("store course snapshot: %w", err)
+		}
+		if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+			return ScheduleApplyResult{}, err
 		}
 	}
 	if request.RealtimeEnabled && !request.ShadowMode {
@@ -411,9 +438,11 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 			}
 		}
 	}
-	// The source set is authoritative: sessions for schedule rows that no
-	// longer exist upstream are soft-deleted here (history preserved), never
-	// left active locally.
+	if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
+		return skipped, err
+	}
+	// A missing row requires repeated complete observations separated by the
+	// configured grace period before its local session is soft-deleted.
 	if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
 		return skipped, err
 	}
@@ -554,30 +583,7 @@ func (a *ScheduleApplier) restoreSourcePresentSessions(ctx context.Context, tx p
 		  AND (deleted_at IS NOT NULL OR NOT legacy_conflict_override)`, request.CourseID, allowed); err != nil {
 		return 0, fmt.Errorf("restore allowed legacy conflicts: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE external_refs SET state='active'
-		WHERE source=$1 AND entity_type='schedule' AND external_id = ANY($2::text[])
-		  AND state IN ('tombstoned','suspected_missing','confirmed_missing')`, a.source, appendWithoutSkipped(incoming, skipped)); err != nil {
-		return 0, fmt.Errorf("reactivate restored schedule mappings: %w", err)
-	}
 	return len(skipped), nil
-}
-
-func appendWithoutSkipped(incoming, skipped []string) []string {
-	if len(skipped) == 0 {
-		return incoming
-	}
-	skippedSet := make(map[string]struct{}, len(skipped))
-	for _, id := range skipped {
-		skippedSet[id] = struct{}{}
-	}
-	result := make([]string, 0, len(incoming)-len(skipped))
-	for _, id := range incoming {
-		if _, ok := skippedSet[id]; !ok {
-			result = append(result, id)
-		}
-	}
-	return result
 }
 
 func (a *ScheduleApplier) findCanonicalNativeSession(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, courseID, teacherID pgtype.UUID, scheduleID string, roomID pgtype.UUID, start, end time.Time) (pgtype.UUID, error) {
@@ -865,41 +871,70 @@ func (a *ScheduleApplier) strictScheduleConflict(ctx context.Context, qtx *sqldb
 	return nil, nil
 }
 
-// deactivateMissingSchedules soft-deletes this course's local legacy sessions
-// whose schedule rows disappeared from the source aggregate and tombstones
-// their external mappings. With an empty incoming set every legacy session of
-// the course is removed.
+func (a *ScheduleApplier) markSourcePresentSchedules(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest) error {
+	incoming := make([]string, 0, len(request.Aggregate.Schedules))
+	for _, schedule := range request.Aggregate.Schedules {
+		incoming = append(incoming, schedule.LegacyScheduleID)
+	}
+	if len(incoming) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE external_refs
+		SET state='active', missing_generations=0, missing_since=NULL,
+		    last_generation=GREATEST(COALESCE(last_generation, 0), $1),
+		    last_seen_at=$2, last_applied_at=$2
+		WHERE source=$3 AND entity_type='schedule' AND external_id=ANY($4::text[])
+	`, request.ObservationGeneration, request.ObservedAt, a.source, incoming); err != nil {
+		return fmt.Errorf("mark source-present schedule mappings: %w", err)
+	}
+	return nil
+}
+
+// deactivateMissingSchedules records one complete source observation for each
+// mapped schedule omitted from the aggregate. It only soft-deletes the local
+// session after at least two distinct generations and the missing grace period.
 func (a *ScheduleApplier) deactivateMissingSchedules(ctx context.Context, tx pgx.Tx, request ScheduleApplyRequest) error {
 	incoming := make([]string, 0, len(request.Aggregate.Schedules))
 	for _, schedule := range request.Aggregate.Schedules {
 		incoming = append(incoming, schedule.LegacyScheduleID)
 	}
-	rows, err := tx.Query(ctx, `
-		UPDATE sessions SET deleted_at = now(), updated_at = now(), version = sessions.version + 1
-		WHERE course_id = $1 AND source_kind = 'legacy' AND legacy_schedule_id IS NOT NULL
-		  AND deleted_at IS NULL
-		  AND legacy_schedule_id <> ALL($2::text[])
-		RETURNING legacy_schedule_id`, request.CourseID, incoming)
+	_, err := tx.Exec(ctx, `
+		WITH source_absent AS MATERIALIZED (
+			SELECT ref.source, ref.entity_type, ref.external_id, ref.internal_id,
+			       COALESCE(ref.missing_generations, 0) AS missing_generations,
+			       ref.missing_since
+			FROM external_refs ref
+			JOIN sessions sess ON sess.id=ref.internal_id
+			WHERE ref.source=$1 AND ref.entity_type='schedule'
+			  AND sess.course_id=$2 AND sess.source_kind='legacy'
+			  AND sess.legacy_schedule_id=ref.external_id AND sess.deleted_at IS NULL
+			  AND ref.external_id <> ALL($3::text[])
+			  AND COALESCE(ref.last_generation, 0) < $4
+			FOR UPDATE OF ref, sess
+		), observed_missing AS (
+			UPDATE external_refs ref
+			SET missing_generations=source_absent.missing_generations+1,
+			    missing_since=COALESCE(source_absent.missing_since, $5),
+			    last_generation=$4,
+			    state=CASE
+			      WHEN source_absent.missing_generations+1 >= 2
+			       AND COALESCE(source_absent.missing_since, $5) + $6::interval <= $5 THEN 'tombstoned'
+			      WHEN source_absent.missing_generations+1 >= 2 THEN 'confirmed_missing'
+			      ELSE 'suspected_missing'
+			    END
+			FROM source_absent
+			WHERE ref.source=source_absent.source AND ref.entity_type=source_absent.entity_type
+			  AND ref.external_id=source_absent.external_id
+			RETURNING ref.internal_id, ref.state
+		)
+		UPDATE sessions sess
+		SET deleted_at=now(), updated_at=now(), version=sess.version+1
+		FROM observed_missing missing
+		WHERE sess.id=missing.internal_id AND missing.state='tombstoned' AND sess.deleted_at IS NULL
+	`, a.source, request.CourseID, incoming, request.ObservationGeneration, request.ObservedAt, legacyScheduleMissingGrace.String())
 	if err != nil {
-		return fmt.Errorf("deactivate removed legacy schedules: %w", err)
-	}
-	defer rows.Close()
-	var removed []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("collect removed legacy schedule: %w", err)
-		}
-		removed = append(removed, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("collect removed legacy schedules: %w", err)
-	}
-	if len(removed) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec(ctx, `UPDATE external_refs SET state='tombstoned' WHERE source=$1 AND entity_type='schedule' AND external_id = ANY($2::text[])`, a.source, removed); err != nil {
-		return fmt.Errorf("tombstone removed schedule mappings: %w", err)
+		return fmt.Errorf("record missing legacy schedule observations: %w", err)
 	}
 	return nil
 }

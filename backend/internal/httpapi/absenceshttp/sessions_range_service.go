@@ -343,7 +343,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 	}
 	studentFacing := lookup.studentFacing()
 	sitInForCourse := func(g *courseGroupView) *courseSitInJSON {
-		return s.resolveEnrolledCourseSitInV2(g, bundle, policies, blocked, conflicts, studentFacing, pre, lookup, wcode, student.ID, now)
+		return s.resolveEnrolledCourseSitInV2(g, facts, bundle, policies, blocked, conflicts, studentFacing, pre, lookup, wcode, student.ID, now)
 	}
 	courses := assembleCourseResponses(order, scopeByCourse, counts, merged, absent, s.deps.InstituteTZ, settings.Form.AbsenceLimitPercent, sitInForCourse)
 	serializeStart := time.Now()
@@ -365,7 +365,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 // resolveEnrolledCourseSitInV2 mirrors the legacy per-course resolve block:
 // derived resolve window, swallow-and-log errors, none-gate, len-guarded
 // session lists.
-func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, bundle *sqldb.SitInBundleV2, policies []byte, blocked map[string]struct{}, conflicts map[string]*sitInSessionConflictInfo, studentFacing bool, pre sessionsRangePrelim, lookup sessionsRangeLookup, wcode string, studentID pgtype.UUID, now time.Time) *courseSitInJSON {
+func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, facts []sessionFact, bundle *sqldb.SitInBundleV2, policies []byte, blocked map[string]struct{}, conflicts map[string]*sitInSessionConflictInfo, studentFacing bool, pre sessionsRangePrelim, lookup sessionsRangeLookup, wcode string, studentID pgtype.UUID, now time.Time) *courseSitInJSON {
 	if bundle.ResolveFailed {
 		return nil
 	}
@@ -388,6 +388,7 @@ func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, bundle *sqldb.
 	if result == nil || result.SitInMethod == SitInMethodNone {
 		return nil
 	}
+	filterSitInResultByExpectedSessions(result, expectedSitInConflictSessionsFromFacts(facts, g.courseID, resolveFrom, resolveTo.AddDate(0, 0, 1)))
 	sitIn := &courseSitInJSON{RuleName: result.RuleName, RuleType: result.RuleType, SitInMethod: result.SitInMethod, SitInCourse: result.SitInCourse, Priorities: result.Priorities, CurrentPriorityLevel: result.CurrentPriorityLevel, HasNextPriority: result.HasNextPriority, SitInByMissedSession: result.SitInByMissedSession}
 	if len(result.Available) > 0 {
 		sitIn.AvailableSessions = result.Available

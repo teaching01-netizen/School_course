@@ -25,14 +25,16 @@ var (
 )
 
 type CourseApplyRequest struct {
-	CourseID        pgtype.UUID
-	LegacyCourseID  string
-	Aggregate       normalize.LegacyCourseAggregate
-	ObservedAt      time.Time
-	InstituteTZ     string
-	ShadowMode      bool
-	RealtimeEnabled bool
-	allowConflicts  bool
+	CourseID                 pgtype.UUID
+	LegacyCourseID           string
+	Aggregate                normalize.LegacyCourseAggregate
+	ObservedAt               time.Time
+	ObservationGeneration    int64
+	ScheduleSnapshotComplete bool
+	InstituteTZ              string
+	ShadowMode               bool
+	RealtimeEnabled          bool
+	allowConflicts           bool
 }
 
 // FaultPoint is an injectable failure boundary used by deterministic integration tests.
@@ -80,6 +82,9 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if err := ValidateCourseAggregate(request); err != nil {
 		return ScheduleApplyResult{}, err
 	}
+	if err := validateScheduleObservation(request.ScheduleSnapshotComplete, request.ObservationGeneration); err != nil {
+		return ScheduleApplyResult{}, err
+	}
 	if a.pool == nil || a.q == nil {
 		return ScheduleApplyResult{}, errors.New("legacy course: pool and queries are required")
 	}
@@ -109,6 +114,11 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 		}
 	}
 	qtx := a.q.WithTx(tx)
+	if !request.ShadowMode {
+		if err := checkCourseObservationGeneration(ctx, tx, a.source, request.LegacyCourseID, request.ObservationGeneration); err != nil {
+			return ScheduleApplyResult{}, err
+		}
+	}
 	if a.policy == nil {
 		return ScheduleApplyResult{}, errors.New("legacy course: policy reader is required")
 	}
@@ -129,8 +139,10 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course metadata: %w", err)
 			}
-			if _, err := tx.Exec(ctx, `UPDATE external_refs SET last_seen_at=$1 WHERE source=$2 AND entity_type='course' AND external_id=$3`, request.ObservedAt, a.source, request.LegacyCourseID); err != nil {
-				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course mapping: %w", err)
+			if !request.ShadowMode {
+				if err := markCourseObservationApplied(ctx, tx, a.source, request.LegacyCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+					return ScheduleApplyResult{}, err
+				}
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("commit unchanged legacy course: %w", err)
@@ -258,13 +270,15 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	scheduleApplier := &ScheduleApplier{source: a.source, policy: a.policy, fault: a.fault}
 	scheduleRequest := ScheduleApplyRequest{
-		CourseID:       request.CourseID,
-		LegacyCourseID: request.LegacyCourseID,
-		TeacherID:      teacherID,
-		Aggregate:      request.Aggregate,
-		ObservedAt:     request.ObservedAt,
-		InstituteTZ:    loc.String(),
-		allowConflicts: request.allowConflicts,
+		CourseID:                 request.CourseID,
+		LegacyCourseID:           request.LegacyCourseID,
+		TeacherID:                teacherID,
+		Aggregate:                request.Aggregate,
+		ObservedAt:               request.ObservedAt,
+		ObservationGeneration:    request.ObservationGeneration,
+		ScheduleSnapshotComplete: request.ScheduleSnapshotComplete,
+		InstituteTZ:              loc.String(),
+		allowConflicts:           request.allowConflicts,
 	}
 	skipped, err = scheduleApplier.applyDomain(ctx, tx, qtx, scheduleRequest, loc, sourceHash)
 	if err != nil {
@@ -272,6 +286,9 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	}
 	if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID, InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true}}); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("upsert legacy course mapping: %w", err)
+	}
+	if err := markCourseObservationApplied(ctx, tx, a.source, request.LegacyCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+		return ScheduleApplyResult{}, err
 	}
 	if err := a.hitFault("after_external_ref_upsert"); err != nil {
 		return ScheduleApplyResult{}, err

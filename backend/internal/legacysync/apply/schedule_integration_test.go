@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -48,9 +49,11 @@ func legacyScheduleRequest(t *testing.T, pool *pgxpool.Pool, source, suffix stri
 				ConfirmedBy:       "teacher",
 			}},
 		},
-		ObservedAt:      time.Date(2026, time.August, 4, 0, 0, 0, 0, time.UTC),
-		InstituteTZ:     "Asia/Bangkok",
-		RealtimeEnabled: realtime,
+		ObservedAt:               time.Date(2026, time.August, 4, 0, 0, 0, 0, time.UTC),
+		ObservationGeneration:    1,
+		ScheduleSnapshotComplete: true,
+		InstituteTZ:              "Asia/Bangkok",
+		RealtimeEnabled:          realtime,
 	}, courseID, "schedule-" + suffix
 }
 
@@ -866,8 +869,10 @@ func TestScheduleApply_OverlappingScheduleSkippedAndRecorded(t *testing.T) {
 				},
 			},
 		},
-		ObservedAt:  first.ObservedAt,
-		InstituteTZ: "Asia/Bangkok",
+		ObservedAt:               first.ObservedAt,
+		ObservationGeneration:    1,
+		ScheduleSnapshotComplete: true,
+		InstituteTZ:              "Asia/Bangkok",
 	}
 	result, err := applier.Apply(t.Context(), second)
 	if err != nil {
@@ -968,11 +973,10 @@ func TestScheduleApply_AvailabilityConflictSkipsOnlyOneRow(t *testing.T) {
 	}
 }
 
-// TestScheduleApply_RemovedSchedulesAreDeactivated pins CB-02: schedule rows
-// that disappear from the source must be soft-deleted locally (never hard
-// deleted — attendance history stays attached), their external mappings
-// tombstoned, and rows still present must remain active.
-func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
+// TestScheduleApply_RemovedSchedulesRequireRepeatedCompleteObservations pins
+// the missing-schedule safety rule: one omission leaves a session active;
+// two distinct complete observations plus the grace period tombstone it.
+func TestScheduleApply_RemovedSchedulesRequireRepeatedCompleteObservations(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID, _ := legacyScheduleRequest(t, pool, master.source, suffix, false)
 	keepID := request.Aggregate.Schedules[0].LegacyScheduleID
@@ -1001,6 +1005,7 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 	// Source removes the second schedule row.
 	request.Aggregate.Schedules = request.Aggregate.Schedules[:1]
 	request.ObservedAt = request.ObservedAt.Add(time.Hour)
+	request.ObservationGeneration++
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -1008,8 +1013,8 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), `SELECT deleted_at FROM sessions WHERE legacy_schedule_id=$1`, dropID).Scan(&dropDeletedAt); err != nil {
 		t.Fatal(err)
 	}
-	if dropDeletedAt == nil {
-		t.Fatal("removed schedule still active locally: deleted_at is NULL")
+	if dropDeletedAt != nil {
+		t.Fatal("one missing observation deleted the schedule too early")
 	}
 	if err := pool.QueryRow(t.Context(), `SELECT deleted_at FROM sessions WHERE legacy_schedule_id=$1`, keepID).Scan(&keepDeletedAt); err != nil {
 		t.Fatal(err)
@@ -1021,13 +1026,43 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), `SELECT state FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, dropID).Scan(&dropState); err != nil {
 		t.Fatal(err)
 	}
+	if dropState != "suspected_missing" {
+		t.Fatalf("removed schedule mapping state = %q, want suspected_missing", dropState)
+	}
+
+	request.ObservedAt = request.ObservedAt.Add(24 * time.Hour)
+	request.ObservationGeneration++
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT deleted_at FROM sessions WHERE legacy_schedule_id=$1`, dropID).Scan(&dropDeletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if dropDeletedAt == nil {
+		t.Fatal("schedule was not soft-deleted after two missing observations and grace period")
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT state FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, dropID).Scan(&dropState); err != nil {
+		t.Fatal(err)
+	}
 	if dropState != "tombstoned" {
-		t.Fatalf("removed schedule mapping state = %q, want tombstoned", dropState)
+		t.Fatalf("confirmed removed schedule state = %q, want tombstoned", dropState)
 	}
 
 	// A fully empty source schedule removes everything but keeps the rows.
 	request.Aggregate.Schedules = nil
 	request.ObservedAt = request.ObservedAt.Add(time.Hour)
+	request.ObservationGeneration++
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND deleted_at IS NULL`, courseID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("active sessions after first empty-source observation = %d, want 1", activeCount)
+	}
+	request.ObservedAt = request.ObservedAt.Add(24 * time.Hour)
+	request.ObservationGeneration++
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -1035,7 +1070,7 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 		t.Fatal(err)
 	}
 	if activeCount != 0 {
-		t.Fatalf("active sessions after empty source = %d, want 0", activeCount)
+		t.Fatalf("active sessions after confirmed empty source = %d, want 0", activeCount)
 	}
 	var remainingRows int
 	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND deleted_at IS NOT NULL`, courseID).Scan(&remainingRows); err != nil {
@@ -1043,6 +1078,37 @@ func TestScheduleApply_RemovedSchedulesAreDeactivated(t *testing.T) {
 	}
 	if remainingRows != 2 {
 		t.Fatalf("soft-deleted session rows = %d, want 2 (history preserved)", remainingRows)
+	}
+}
+
+func TestScheduleApply_RejectsStaleObservationGeneration(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	request.ObservationGeneration = 2
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	stale := request
+	stale.ObservationGeneration = 1
+	stale.Aggregate.Schedules[0].Begin = "10:00"
+	stale.Aggregate.Schedules[0].End = "11:00"
+	stale.ObservedAt = stale.ObservedAt.Add(time.Hour)
+	if _, err := applier.Apply(t.Context(), stale); !errors.Is(err, ErrStaleObservation) {
+		t.Fatalf("stale apply error = %v, want ErrStaleObservation", err)
+	}
+
+	var begin string
+	if err := pool.QueryRow(t.Context(), `SELECT to_char(start_at AT TIME ZONE 'Asia/Bangkok', 'HH24:MI') FROM sessions WHERE legacy_schedule_id=$1`, scheduleID).Scan(&begin); err != nil {
+		t.Fatal(err)
+	}
+	if begin != "09:00" {
+		t.Fatalf("stale observation changed schedule begin to %s, want 09:00", begin)
 	}
 }
 
@@ -1089,8 +1155,10 @@ func TestScheduleApply_PartialApplyRetriesAfterConflictResolution(t *testing.T) 
 				},
 			},
 		},
-		ObservedAt:  blocker.ObservedAt.Add(time.Minute),
-		InstituteTZ: "Asia/Bangkok",
+		ObservedAt:               blocker.ObservedAt.Add(time.Minute),
+		ObservationGeneration:    1,
+		ScheduleSnapshotComplete: true,
+		InstituteTZ:              "Asia/Bangkok",
 	}
 	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
 	result, err := applier.Apply(t.Context(), request)

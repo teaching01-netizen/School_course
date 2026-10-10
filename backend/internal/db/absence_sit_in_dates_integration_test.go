@@ -350,11 +350,23 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	conflictTeacherID, err := q.AdminUserCreate(ctx, AdminUserCreateParams{Username: "candidate-sitin-conflict-" + suffix, Role: "Teacher", PasswordHash: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	room, err := q.RoomCreate(ctx, RoomCreateParams{Name: "CandidateRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	conflictRoom, err := q.RoomCreate(ctx, RoomCreateParams{Name: "CandidateConflictRoom-" + suffix, Capacity: pgtype.Int4{Int32: 20, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	missedCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "CMISS-" + suffix, Name: "Candidate Missed " + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	siblingMissedCourse, err := q.CourseCreate(ctx, CourseCreateParams{Code: "CMISSMERGE-" + suffix, Name: "Candidate Merged Missed " + suffix})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,14 +382,36 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: missedCourse.ID, StudentID: student.ID}); err != nil {
 		t.Fatal(err)
 	}
+	if err := q.CourseStudentAdd(ctx, CourseStudentAddParams{CourseID: siblingMissedCourse.ID, StudentID: student.ID}); err != nil {
+		t.Fatal(err)
+	}
+	mergeGroup, err := q.CourseMergeGroupCreate(ctx, "Candidate merged absence "+suffix, teacherID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseMergeGroupAssignCourse(ctx, mergeGroup.ID, missedCourse.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CourseMergeGroupAssignCourse(ctx, mergeGroup.ID, siblingMissedCourse.ID, 2); err != nil {
+		t.Fatal(err)
+	}
 
-	createSession := func(courseID pgtype.UUID, start, end time.Time) pgtype.UUID {
+	// Optional resources override the room first, then teacher.
+	createSession := func(courseID pgtype.UUID, start, end time.Time, resourceIDs ...pgtype.UUID) pgtype.UUID {
 		t.Helper()
+		sessionRoomID := room.ID
+		sessionTeacherID := teacherID
+		if len(resourceIDs) > 0 {
+			sessionRoomID = resourceIDs[0]
+		}
+		if len(resourceIDs) > 1 {
+			sessionTeacherID = resourceIDs[1]
+		}
 		session, err := q.SessionCreate(ctx, SessionCreateParams{
 			SeriesID:  pgtype.UUID{},
 			CourseID:  courseID,
-			RoomID:    room.ID,
-			TeacherID: teacherID,
+			RoomID:    sessionRoomID,
+			TeacherID: sessionTeacherID,
 			StartAt:   pgtype.Timestamptz{Time: start, Valid: true},
 			EndAt:     pgtype.Timestamptz{Time: end, Valid: true},
 		})
@@ -391,6 +425,18 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 		missedCourse.ID,
 		time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC),
 		time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC),
+	)
+	createSession(
+		siblingMissedCourse.ID,
+		time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC),
+		time.Date(2026, 6, 13, 13, 30, 0, 0, time.UTC),
+		conflictRoom.ID,
+		conflictTeacherID,
+	)
+	mergedCourseConflictCandidate := createSession(
+		sitInCourse.ID,
+		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 13, 14, 0, 0, 0, time.UTC),
 	)
 	beforeAbsence := createSession(
 		sitInCourse.ID,
@@ -424,6 +470,24 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	conflictSessions, err := q.SitInConflictSessionsForStudent(
+		ctx,
+		student.ID,
+		missedCourse.ID,
+		time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC),
+		"Asia/Bangkok",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictIDs := map[pgtype.UUID]bool{}
+	for _, row := range conflictSessions {
+		conflictIDs[row.ID] = true
+	}
+	if len(conflictIDs) != 2 {
+		t.Fatalf("expected missed and merge-member expected sessions in conflict scope, got %d", len(conflictIDs))
+	}
 
 	rows, err := q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok", true)
 	if err != nil {
@@ -445,6 +509,16 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 	if got[earlierFinalDayCandidate] {
 		t.Fatal("expected candidate list to exclude every session on the final sit-in day")
 	}
+	if got[mergedCourseConflictCandidate] {
+		t.Fatal("expected candidate list to exclude overlap with an expected class in the missed course's merge group")
+	}
+	validCount, err := q.ValidSitInSessionOverlap(ctx, absence.ID, []pgtype.UUID{mergedCourseConflictCandidate}, "Asia/Bangkok", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validCount != 0 {
+		t.Fatalf("final overlap validation accepted a candidate that overlaps an expected merged-course class: %d", validCount)
+	}
 	rows, err = q.SitInCandidateSessions(ctx, absence.ID, sitInCourse.ID, "Asia/Bangkok", false)
 	if err != nil {
 		t.Fatal(err)
@@ -457,5 +531,8 @@ func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {
 		if !got[id] {
 			t.Fatalf("expected unrestricted candidate list to include session %v", id)
 		}
+	}
+	if got[mergedCourseConflictCandidate] {
+		t.Fatal("expected unrestricted candidate list to keep excluding merge-group conflicts")
 	}
 }

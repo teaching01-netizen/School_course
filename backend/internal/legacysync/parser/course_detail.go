@@ -32,6 +32,8 @@ var CourseDetailContract = PageContract{
 
 const maxCourseDetailRows = 10_000
 
+var courseHoursValueRe = regexp.MustCompile(`^[0-9]{1,4}:[0-9]{2}$`)
+
 // ParseCourseDetail parses the schedule table of a course detail page.
 // Course-level fields (ID/code/name) are NOT on this page; the caller
 // supplies them later. It returns a *DriftError on any contract mismatch
@@ -39,8 +41,9 @@ const maxCourseDetailRows = 10_000
 //
 // The page may contain other tables besides the schedule table; parsing
 // is restricted to the table whose header row matches the contract.
-// An empty <tbody> (headers present, zero rows) is VALID and yields an
-// aggregate with no schedules.
+// An explicit "No schedules yet." marker is the only valid empty schedule
+// representation. An empty tbody can also mean the source page failed to
+// render its rows, so it is treated as drift.
 func ParseCourseDetail(pageHTML string) (*normalize.LegacyCourseAggregate, error) {
 	table, err := validateAndFindTable(CourseDetailContract, pageHTML)
 	if err != nil {
@@ -62,21 +65,27 @@ func ParseCourseDetail(pageHTML string) (*normalize.LegacyCourseAggregate, error
 
 	schedules := make([]normalize.LegacySchedule, 0, len(rows))
 	seenIDs := make(map[string]struct{}, len(rows))
+	explicitlyEmpty := false
 	for _, tr := range rows {
 		tds := tdChildren(tr)
-		// The page renders a single colspan cell ("No schedules yet.")
-		// when the course has no schedule rows.
-		if len(tds) == 1 && hasAttr(tds[0], "colspan") {
+		if len(tds) == 1 && hasAttr(tds[0], "colspan") && normalize.NormalizeText(textOf(tds[0])) == "No schedules yet." {
+			if explicitlyEmpty || len(schedules) > 0 {
+				return nil, drift(CourseDetailContract, "empty-schedule marker mixed with schedule rows")
+			}
+			explicitlyEmpty = true
 			continue
 		}
 		if len(tds) != len(headers) {
 			return nil, drift(CourseDetailContract, fmt.Sprintf("row has %d cells, want %d", len(tds), len(headers)))
 		}
-		// Every table ends with summary footer rows (Confirmed hours / Booked
-		// hours / Time remaining) that share the schedule columns but carry
-		// no date; real schedule rows always have a date.
 		if normalize.NormalizeText(textOf(tds[columns["Date"]])) == "" {
-			continue
+			if isCourseDetailSummaryRow(tds, columns) {
+				continue
+			}
+			return nil, drift(CourseDetailContract, "blank-date row is not a recognized summary footer")
+		}
+		if explicitlyEmpty {
+			return nil, drift(CourseDetailContract, "schedule row found after empty-schedule marker")
 		}
 
 		date, err := parseDateCell(CourseDetailContract, tds[columns["Date"]])
@@ -150,9 +159,38 @@ func ParseCourseDetail(pageHTML string) (*normalize.LegacyCourseAggregate, error
 			ConfirmedBy:       by,
 		})
 	}
+	if len(schedules) == 0 && !explicitlyEmpty {
+		return nil, drift(CourseDetailContract, "schedule rows are absent without explicit no-schedules marker")
+	}
 
 	agg := normalize.NewLegacyCourseAggregate(normalize.LegacyCourse{}, schedules, nil)
 	return &agg, nil
+}
+
+func isCourseDetailSummaryRow(tds []*html.Node, columns map[string]int) bool {
+	dateColumn, ok := columns["Date"]
+	if len(tds) == 0 || !ok || dateColumn >= len(tds) || normalize.NormalizeText(textOf(tds[dateColumn])) != "" {
+		return false
+	}
+	labelFound := false
+	for _, td := range tds {
+		text := normalize.NormalizeText(textOf(td))
+		if text == "" {
+			continue
+		}
+		switch text {
+		case "Confirmed hours:", "Booked hours:", "Time remaining:":
+			if labelFound {
+				return false
+			}
+			labelFound = true
+		default:
+			if !courseHoursValueRe.MatchString(text) {
+				return false
+			}
+		}
+	}
+	return labelFound
 }
 
 // courseScheduleLinkRe matches the stable schedule identity embedded in the

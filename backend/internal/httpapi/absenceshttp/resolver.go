@@ -519,9 +519,14 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
+	conflictSessions, err := q.SitInConflictSessionsForStudent(ctx, student.ID, courseID, dateFrom, dateTo, instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("expected class conflict lookup: %w", err)
+	}
 	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
+		filterSitInResultByExpectedSessions(mapped, conflictSessions)
 		if err := enrichSitInResultConflicts(ctx, q, student.ID, mapped); err != nil {
 			return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
 		}
@@ -674,6 +679,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
+	filterSitInResultByExpectedSessions(result, conflictSessions)
 	if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
 		return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
 	}

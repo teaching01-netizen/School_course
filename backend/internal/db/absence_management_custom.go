@@ -1256,6 +1256,52 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 	return count, err
 }
 
+// SitInConflictSessionsForStudent returns the expected sessions in the exact
+// absence conflict scope: the missed course and its merge-group members, over
+// the inclusive institute-local date window. It is used to keep legacy
+// candidate resolution aligned with ValidSitInSessionOverlap.
+func (q *Queries) SitInConflictSessionsForStudent(ctx context.Context, studentID, courseID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string) ([]SessionInRange, error) {
+	if instituteTZ == "" {
+		instituteTZ = "Asia/Bangkok"
+	}
+	loc, err := time.LoadLocation(instituteTZ)
+	if err != nil {
+		return nil, fmt.Errorf("load institute timezone: %w", err)
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT DISTINCT sess.id, sess.course_id, sess.room_id, sess.start_at, sess.end_at
+		FROM sessions sess
+		WHERE sess.deleted_at IS NULL
+		  AND (sess.start_at AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date
+		  AND student_is_expected_at_session_tz($1, sess.id, $4)
+		  AND (
+		    sess.course_id = $5
+		    OR EXISTS (
+		      SELECT 1
+		      FROM course_merge_group_members missed_member
+		      JOIN course_merge_group_members absence_member
+		        ON absence_member.group_id = missed_member.group_id
+		      WHERE missed_member.course_id = $5
+		        AND absence_member.course_id = sess.course_id
+		    )
+		  )
+		ORDER BY sess.start_at, sess.id
+	`, studentID, dateFrom.In(loc).Format("2006-01-02"), dateTo.In(loc).Format("2006-01-02"), instituteTZ, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SessionInRange
+	for rows.Next() {
+		var item SessionInRange
+		if err := rows.Scan(&item.ID, &item.CourseID, &item.RoomID, &item.StartAt, &item.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 type SitInCandidateSession struct {
 	ID           pgtype.UUID
 	CourseID     pgtype.UUID
@@ -1290,7 +1336,17 @@ func (q *Queries) SitInCandidateSessions(ctx context.Context, absenceID, courseI
 		  AND NOT EXISTS (
 		    SELECT 1
 		    FROM sessions missed
-		    WHERE missed.course_id = sa.course_id
+		    WHERE (
+		        missed.course_id = sa.course_id
+		        OR EXISTS (
+		          SELECT 1
+		          FROM course_merge_group_members missed_member
+		          JOIN course_merge_group_members absence_member
+		            ON absence_member.group_id = missed_member.group_id
+		          WHERE missed_member.course_id = missed.course_id
+		            AND absence_member.course_id = sa.course_id
+		        )
+		    )
 		      AND missed.deleted_at IS NULL
 		      AND student_is_expected_at_session_tz(st.id, missed.id, $3)
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to

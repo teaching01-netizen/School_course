@@ -89,19 +89,33 @@ func TestCourseDetailParser_ParsesUnassignedRoom(t *testing.T) {
 	checkGolden(t, "course_detail_notset.golden.json", got)
 }
 
-func TestCourseDetailParser_EmptyScheduleIsValid(t *testing.T) {
-	agg, err := ParseCourseDetail(readFixture(t, "course_detail_empty.html"))
-	if err != nil {
-		t.Fatalf("ParseCourseDetail(empty): %v", err)
+func TestCourseDetailParser_RejectsEmptyScheduleWithoutExplicitMarker(t *testing.T) {
+	_, err := ParseCourseDetail(readFixture(t, "course_detail_empty.html"))
+	if err == nil {
+		t.Fatal("expected drift for empty schedule tbody without explicit marker")
 	}
-	if len(agg.Schedules) != 0 {
-		t.Errorf("got %d schedules, want 0", len(agg.Schedules))
+	if _, ok := AsDrift(err); !ok {
+		t.Fatalf("expected *DriftError, got %T: %v", err, err)
 	}
-	got, err := normalize.CanonicalJSON(agg)
-	if err != nil {
-		t.Fatalf("CanonicalJSON: %v", err)
+}
+
+func TestCourseDetailParser_RejectsUnknownEmptyAndFooterRows(t *testing.T) {
+	for name, page := range map[string]string{
+		"unknown placeholder": detailPage(`<tr><td colspan="7">No classes</td></tr>`),
+		"unknown footer":      detailPage(`<tr><td></td><td></td><td>Schedule status:</td><td>Pending</td><td></td><td></td><td></td></tr>`),
+		"marker mixed with schedule": detailPage(
+			`<tr><td colspan="7">No schedules yet.</td></tr>` +
+				`<tr><td>Sat 23 May 26</td><td>13:00</td><td>16:20</td><td>03:20</td><td>Room</td><td>Yes</td><td>Teacher</td></tr>`,
+		),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseCourseDetail(page); err == nil {
+				t.Fatal("expected parser drift")
+			} else if _, ok := AsDrift(err); !ok {
+				t.Fatalf("expected *DriftError, got %T: %v", err, err)
+			}
+		})
 	}
-	checkGolden(t, "course_detail_empty.golden.json", got)
 }
 
 func TestCourseDetailParser_RejectsMalformedHeaders(t *testing.T) {

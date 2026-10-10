@@ -249,6 +249,10 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 			return nil
 		}
 	}
+	var observationGeneration int64
+	if err := s.pool.QueryRow(ctx, `SELECT nextval('legacy_sync_observation_generation_seq')`).Scan(&observationGeneration); err != nil {
+		return fmt.Errorf("allocate legacy observation generation: %w", err)
+	}
 	page, err := s.client.FetchSchedulePageContext(ctx, legacyID)
 	if err != nil {
 		return err
@@ -293,25 +297,29 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 		return err
 	}
 	if _, err := s.courseApp.Apply(ctx, apply.CourseApplyRequest{
-		CourseID:        linked.courseID,
-		LegacyCourseID:  legacyID,
-		Aggregate:       *aggregate,
-		ObservedAt:      observedAt,
-		InstituteTZ:     s.instituteTZ,
-		ShadowMode:      control.ShadowMode,
-		RealtimeEnabled: control.RealtimeEnabled,
+		CourseID:                 linked.courseID,
+		LegacyCourseID:           legacyID,
+		Aggregate:                *aggregate,
+		ObservedAt:               observedAt,
+		ObservationGeneration:    observationGeneration,
+		ScheduleSnapshotComplete: true,
+		InstituteTZ:              s.instituteTZ,
+		ShadowMode:               control.ShadowMode,
+		RealtimeEnabled:          control.RealtimeEnabled,
 	}); err != nil {
 		return err
 	}
 	_, err = s.scheduleApp.Apply(ctx, apply.ScheduleApplyRequest{
-		CourseID:        linked.courseID,
-		LegacyCourseID:  legacyID,
-		TeacherID:       linked.teacherID,
-		Aggregate:       *aggregate,
-		ObservedAt:      observedAt,
-		InstituteTZ:     s.instituteTZ,
-		ShadowMode:      control.ShadowMode,
-		RealtimeEnabled: control.RealtimeEnabled,
+		CourseID:                 linked.courseID,
+		LegacyCourseID:           legacyID,
+		TeacherID:                linked.teacherID,
+		Aggregate:                *aggregate,
+		ObservedAt:               observedAt,
+		ObservationGeneration:    observationGeneration,
+		ScheduleSnapshotComplete: true,
+		InstituteTZ:              s.instituteTZ,
+		ShadowMode:               control.ShadowMode,
+		RealtimeEnabled:          control.RealtimeEnabled,
 	})
 	return err
 }

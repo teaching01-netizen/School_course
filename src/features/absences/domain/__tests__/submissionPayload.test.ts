@@ -696,6 +696,62 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("rejects a sit-in that overlaps another expected class in the selected absence scope", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          sessions: [
+            {
+              ...baseGroup.sessions[0],
+              id: "missed-1",
+              start_at: "2026-10-10T13:00:00+07:00",
+              end_at: "2026-10-10T16:20:00+07:00",
+              date: "2026-10-10",
+            },
+            {
+              id: "missed-2",
+              start_at: "2026-10-17T13:00:00+07:00",
+              end_at: "2026-10-17T16:20:00+07:00",
+              date: "2026-10-17",
+              already_absent: false,
+            },
+            {
+              id: "expected-merge-class",
+              start_at: "2026-10-13T13:00:00+07:00",
+              end_at: "2026-10-13T16:20:00+07:00",
+              date: "2026-10-13",
+              already_absent: false,
+            },
+          ],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-1", code: "MATH301", name: "Calculus III" },
+            available_sessions: [
+              {
+                id: "sit-overlap",
+                start_at: "2026-10-13T13:00:00+07:00",
+                end_at: "2026-10-13T16:20:00+07:00",
+              },
+            ],
+          },
+        },
+      ],
+      selectedSubjectIds: ["subj-1"],
+      selectedSessionIds: new Set(["missed-1", "missed-2"]),
+      sitInSelections: { "missed-1": "sit-overlap", "missed-2": "sit-overlap" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
+    });
+  });
+
   it("allows sit-in when adjacent (touching) to an enrolled session on the same day", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",

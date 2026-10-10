@@ -68,8 +68,10 @@ func legacyCourseRequest(t *testing.T, pool *pgxpool.Pool, source, suffix string
 			},
 			Attendees: []string{"student-1", "student-2"},
 		},
-		ObservedAt:      time.Date(2026, time.August, 4, 0, 0, 0, 0, time.UTC),
-		RealtimeEnabled: realtime,
+		ObservedAt:               time.Date(2026, time.August, 4, 0, 0, 0, 0, time.UTC),
+		ObservationGeneration:    1,
+		ScheduleSnapshotComplete: true,
+		RealtimeEnabled:          realtime,
 	}, courseID
 }
 
@@ -519,11 +521,9 @@ func TestLegacySyncEndToEndCompletesWithinOneSecond(t *testing.T) {
 	hub.Close()
 }
 
-// TestCourseApply_EmptySourceScheduleDeactivatesLocalSessions pins CB-02 at
-// the course-applier entry: a valid source detail page with no schedule rows
-// must converge the local course to zero active legacy sessions instead of
-// leaving stale rows active.
-func TestCourseApply_EmptySourceScheduleDeactivatesLocalSessions(t *testing.T) {
+// TestCourseApply_EmptySourceScheduleRequiresConfirmationAndGrace verifies
+// that empty source observations do not immediately remove a local session.
+func TestCourseApply_EmptySourceScheduleRequiresConfirmationAndGrace(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
 	if _, err := master.ApplyRoom(t.Context(), RoomApplyRequest{
@@ -541,21 +541,52 @@ func TestCourseApply_EmptySourceScheduleDeactivatesLocalSessions(t *testing.T) {
 		Confirmed:         true,
 	}}
 	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
-	if _, err := applier.Apply(t.Context(), request); err != nil {
-		t.Fatal(err)
+	scheduleApplier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	applyObservation := func() {
+		t.Helper()
+		if _, err := applier.Apply(t.Context(), request); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scheduleApplier.Apply(t.Context(), ScheduleApplyRequest{
+			CourseID:                 request.CourseID,
+			LegacyCourseID:           request.LegacyCourseID,
+			Aggregate:                request.Aggregate,
+			ObservedAt:               request.ObservedAt,
+			ObservationGeneration:    request.ObservationGeneration,
+			ScheduleSnapshotComplete: request.ScheduleSnapshotComplete,
+			InstituteTZ:              "Asia/Bangkok",
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	applyObservation()
 
 	request.Aggregate.Schedules = nil
 	request.ObservedAt = request.ObservedAt.Add(time.Hour)
-	if _, err := applier.Apply(t.Context(), request); err != nil {
-		t.Fatal(err)
-	}
+	request.ObservationGeneration++
+	applyObservation()
 	var activeCount int
 	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND deleted_at IS NULL`, courseID).Scan(&activeCount); err != nil {
 		t.Fatal(err)
 	}
+	if activeCount != 1 {
+		t.Fatalf("active sessions after first empty-source observation = %d, want 1", activeCount)
+	}
+	var scheduleState string
+	if err := pool.QueryRow(t.Context(), `SELECT state FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, "schedule-"+suffix).Scan(&scheduleState); err != nil {
+		t.Fatal(err)
+	}
+	if scheduleState != "suspected_missing" {
+		t.Fatalf("schedule mapping state after one omission = %q, want suspected_missing", scheduleState)
+	}
+	request.ObservedAt = request.ObservedAt.Add(24 * time.Hour)
+	request.ObservationGeneration++
+	applyObservation()
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions WHERE course_id=$1 AND deleted_at IS NULL`, courseID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
 	if activeCount != 0 {
-		t.Fatalf("active sessions after empty source schedule = %d, want 0", activeCount)
+		t.Fatalf("active sessions after confirmed empty-source schedule = %d, want 0", activeCount)
 	}
 	var sessionID pgtype.UUID
 	var deletedAt *time.Time
