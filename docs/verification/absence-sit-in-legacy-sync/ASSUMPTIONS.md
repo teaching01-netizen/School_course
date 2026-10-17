@@ -13,3 +13,13 @@
 | Schedule `113373` remains available in the source. | User's source check | Reconfirm from a fresh parsed response before targeted production refresh; no current response payload is retained here. | Repair evidence |
 
 Unknown production worker count, source response body, replica topology, deployed schema/code version, and production write paths remain unknown; this report does not infer them.
+
+## Broader policy audit assumption failures
+
+- A complete expected-session blocker list was an unverified refinement obligation in the shared-filter proof. The V2 implementation violates it after timing/course/visibility projection; local integration counterexamples confirm the violation.
+- Absence-scope overlap validation is not the complete submission contract: `sitinresolver.ValidateCandidate` also rejects global regular-class overlaps on make-up dates outside the absence window.
+- An exact session-ID deduplication check does not establish interval safety between different make-ups. Sequential transaction-handler tests accept overlapping distinct IDs.
+- The local policy snapshot contains fixture data and no active mapped SAT policies. Actual deployed subject/root/merge configurations require separate authorized read-only evidence.
+- The meaning of final-class exclusion differs between preview and backend. A domain owner must choose the intended meaning before a single specification can be enforced.
+
+See `POLICY_AUDIT.md` for separate formal, correspondence, and production statuses.

@@ -221,9 +221,13 @@ func (q *Queries) ActiveSitInSessionIDsForStudent(ctx context.Context, studentID
 	return out, nil
 }
 
-func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID) ([]pgtype.UUID, error) {
+func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID, excludeAbsenceID ...pgtype.UUID) ([]pgtype.UUID, error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil
+	}
+	var excluded pgtype.UUID
+	if len(excludeAbsenceID) > 0 {
+		excluded = excludeAbsenceID[0]
 	}
 	rows, err := q.db.Query(ctx, `
 		SELECT DISTINCT asi.session_id
@@ -233,8 +237,9 @@ func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context,
 		WHERE st.id = $1
 		  AND asi.session_id = ANY($2::uuid[])
 		  AND sa.status <> 'cancelled'
+		  AND (NOT $3::boolean OR sa.id <> $4::uuid)
 		ORDER BY asi.session_id
-	`, studentID, sessionIDs)
+	`, studentID, sessionIDs, excluded.Valid, excluded)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +252,107 @@ func (q *Queries) ActiveSitInSessionIDsForStudentCandidates(ctx context.Context,
 			return nil, err
 		}
 		out = append(out, sessionID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type ActiveSitInSessionCandidateConflict struct {
+	CandidateSessionID pgtype.UUID
+	Existing           ActiveSitInSessionConflict
+}
+
+type SitInCandidateSessionInterval struct {
+	ID           pgtype.UUID
+	StartAt      pgtype.Timestamptz
+	EndAt        pgtype.Timestamptz
+	MergeGroupID pgtype.UUID
+}
+
+func (q *Queries) ActiveSitInSessionCandidateConflictsForStudent(ctx context.Context, studentID pgtype.UUID, sessionIDs []pgtype.UUID, excludeAbsenceID ...pgtype.UUID) ([]ActiveSitInSessionCandidateConflict, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	var excluded pgtype.UUID
+	if len(excludeAbsenceID) > 0 {
+		excluded = excludeAbsenceID[0]
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT candidate.id, assigned.id, sa.id,
+		       COALESCE(abs_subj.name, ''), sa.date_from, sa.date_to,
+		       COALESCE(sit_subj.name, ''), COALESCE(sit_course.name, ''),
+	       assigned.start_at, assigned.end_at
+		FROM sessions candidate
+		JOIN absence_sit_ins asi ON TRUE
+		JOIN sessions assigned ON assigned.id = asi.session_id
+		JOIN student_absences sa ON sa.id = asi.absence_id
+		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
+		JOIN courses sit_course ON sit_course.id = assigned.course_id
+		LEFT JOIN subjects sit_subj ON sit_subj.id = sit_course.subject_id
+		LEFT JOIN subjects abs_subj ON abs_subj.id = sa.subject_id
+		WHERE st.id = $1
+		  AND candidate.id = ANY($2::uuid[])
+		  AND candidate.deleted_at IS NULL
+		  AND sa.status <> 'cancelled'
+		  AND (NOT $3::boolean OR sa.id <> $4::uuid)
+		  AND candidate.start_at < assigned.end_at
+		  AND candidate.end_at > assigned.start_at
+		ORDER BY candidate.id, assigned.id, sa.created_at DESC
+	`, studentID, sessionIDs, excluded.Valid, excluded)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ActiveSitInSessionCandidateConflict
+	for rows.Next() {
+		var item ActiveSitInSessionCandidateConflict
+		if err := rows.Scan(
+			&item.CandidateSessionID,
+			&item.Existing.SessionID,
+			&item.Existing.AbsenceID,
+			&item.Existing.AbsenceSubjectName,
+			&item.Existing.AbsenceDateFrom,
+			&item.Existing.AbsenceDateTo,
+			&item.Existing.SitInSubjectName,
+			&item.Existing.SitInCourseName,
+			&item.Existing.SitInStartAt,
+			&item.Existing.SitInEndAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (q *Queries) SitInCandidateSessionIntervals(ctx context.Context, sessionIDs []pgtype.UUID) ([]SitInCandidateSessionInterval, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT sess.id, sess.start_at, sess.end_at, member.group_id
+		FROM sessions sess
+		LEFT JOIN course_merge_group_members member ON member.course_id = sess.course_id
+		WHERE sess.id = ANY($1::uuid[]) AND sess.deleted_at IS NULL
+		ORDER BY sess.start_at, sess.id
+	`, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SitInCandidateSessionInterval
+	for rows.Next() {
+		var item SitInCandidateSessionInterval
+		if err := rows.Scan(&item.ID, &item.StartAt, &item.EndAt, &item.MergeGroupID); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -1,0 +1,6 @@
+=== RUN   TestPolicyAuditCrossSectionChoosesAnotherCourse
+    zz_policy_audit_test.go:288: cross-section policy selects the missed course itself instead of the sibling course
+--- FAIL: TestPolicyAuditCrossSectionChoosesAnotherCourse (0.00s)
+FAIL
+FAIL	warwick-institute/internal/httpapi/absenceshttp	1.041s
+FAIL

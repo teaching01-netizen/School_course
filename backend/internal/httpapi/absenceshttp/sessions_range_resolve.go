@@ -24,14 +24,15 @@ import (
 // now is the request clock (Step 18: captured once at dispatch; cutoffs
 // and SAT RequestTime derive from it, never time.Now).
 type bundleSitInInputs struct {
-	bundle        *sqldb.SitInBundleV2
-	policies      []byte
-	blocked       map[string]struct{}
-	conflicts     map[string]*sitInSessionConflictInfo
-	instituteTZ   string
-	afterPriority int
-	studentFacing bool
-	now           time.Time
+	bundle          *sqldb.SitInBundleV2
+	policies        []byte
+	blocked         map[string]struct{}
+	conflicts       map[string]*sitInSessionConflictInfo
+	instituteTZ     string
+	afterPriority   int
+	studentFacing   bool
+	now             time.Time
+	finalSessionIDs map[string]struct{}
 }
 
 // resolveSitInForCourseFromBundle mirrors resolveSitInForCourse using only
@@ -43,6 +44,26 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 		return nil, nil
 	}
 	enrolled = expandEnrolledByRootForCourse(b, enrolled, courseID)
+	var rootCourseGroupID, mergeGroupID pgtype.UUID
+	for _, enrolledCourse := range enrolled {
+		if enrolledCourse.CourseID == courseID {
+			rootCourseGroupID = enrolledCourse.RootCourseGroupID
+			mergeGroupID = enrolledCourse.MergeGroupID
+			break
+		}
+	}
+	if !mergeGroupID.Valid {
+		if mergeScope, ok := mergeScopeForCourseFromBundle(b, courseID); ok {
+			mergeGroupID = mergeScope.ID
+		}
+	}
+	autoEnabled, err := automaticSitInEnabledFromJSON(in.policies, subjectID, rootCourseGroupID, mergeGroupID)
+	if err != nil {
+		return nil, err
+	}
+	if !autoEnabled {
+		return nil, nil
+	}
 	missedSessions := sessionsInWindow(b.Sessions[uuidStringOrZero(courseID)], dateFrom, dateTo)
 	// SAT-verbal mapped path first (mirrors old order). The bundle carries
 	// only mappings touching this student universe; resolution itself is
@@ -57,6 +78,7 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 		return nil, errors.New("no enrolled course has a level")
 	}
 	mergeScope, hasMergeScope := mergeScopeForCourseFromBundle(b, courseID)
+	_, missedCourseIsContinuation := b.Continuations[uuidStringOrZero(mergeScope.ID)]
 	if !missedCourse.RootCourseGroupID.Valid && !hasMergeScope {
 		return nil, nil
 	}
@@ -78,7 +100,7 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 	if missedCourse.RootCourseGroupID.Valid && (!hasMergeScope || !mergeScope.SitInRuleID.Valid) {
 		priorities := prioritiesForRoot(b, missedCourse.RootCourseGroupID)
 		if len(priorities) > 0 {
-			result, err := resolvePrioritiesFromBundle(b, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, in.blocked)
+			result, err := resolvePrioritiesFromBundle(b, priorities, allCourses, missedSessions, missedCourse.CourseID, mergeScope.ID, missedCourseIsContinuation, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, in.blocked, in.finalSessionIDs)
 			if err != nil {
 				return nil, err
 			}
@@ -99,12 +121,15 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 		return nil, fmt.Errorf("rule predicate parse: %w", err)
 	}
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
-		RuleType:       rule.Type,
-		Predicate:      predicate,
-		StudentLevel:   missedCourse.Level.Int16,
-		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
-		AllCourses:     allCourses,
-		MissedCount:    len(missedSessions),
+		RuleType:                   rule.Type,
+		Predicate:                  predicate,
+		StudentLevel:               missedCourse.Level.Int16,
+		MissedCourseID:             missedCourse.CourseID,
+		MissedCourseMergeGroupID:   mergeScope.ID,
+		MissedCourseIsContinuation: missedCourseIsContinuation,
+		EnrolledLevels:             enrolledLevelsFromCourses(enrolled),
+		AllCourses:                 allCourses,
+		MissedCount:                len(missedSessions),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rule evaluation: %w", err)
@@ -131,6 +156,9 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 		}
 		avail := bundleTargetSessions(b, targetCourse)
 		result := buildPhysicalSitInResultWithBlockedSessions(targetCourse, missedSessions, avail, cutoff, in.blocked)
+		if predicate.LastClassExcluded {
+			filterSitInResultByFinalSessions(result, in.finalSessionIDs)
+		}
 		result.RuleName = rule.Name
 		result.RuleType = rule.Type
 		enrichResultConflicts(in.conflicts, result)

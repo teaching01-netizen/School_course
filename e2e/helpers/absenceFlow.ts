@@ -5,7 +5,7 @@ import {
 } from "../fixtures/absence";
 
 export async function selectAbsenceCheckbox(page: Page, id: string) {
-  const checkbox = page.locator(`#${id}`);
+  const checkbox = page.locator(`[id="${id}"]`);
   if (await checkbox.isChecked()) return;
 
   const ancestorLabel = checkbox.locator("xpath=ancestor::label[1]");
@@ -24,7 +24,7 @@ export async function chooseMakeUpClass(page: Page) {
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await dialog.getByRole("radio").first().check();
+    await dialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
@@ -43,7 +43,7 @@ export async function completeToClasses(page: Page, email = "student@example.com
 
 export async function completeToReview(page: Page, reason = "Medical appointment", email = "student@example.com") {
   await completeToClasses(page, email);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill(reason);

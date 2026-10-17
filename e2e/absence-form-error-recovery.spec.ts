@@ -30,7 +30,7 @@ test("missing make-up selection blocks review and focuses a visible picker", asy
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
   await completeToClasses(page);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   await page.getByRole("button", { name: "Review absence" }).click();
 

@@ -1,0 +1,11 @@
+(node:47344) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.7 /Users/rd-cream/Downloads/warwick-institute-ux-documentation copy 2
+
+
+ Test Files  3 passed (3)
+      Tests  115 passed (115)
+   Start at  12:31:22
+   Duration  2.06s (transform 458ms, setup 522ms, import 350ms, tests 329ms, environment 4.15s)
+

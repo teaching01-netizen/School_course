@@ -23,11 +23,12 @@ export default function AbsenceActionBar({ currentStep, canProceed, loading = fa
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             <span>Back</span>
           </button>
-        ) : <span aria-hidden="true" className="min-w-20" />}
+        ) : <span aria-hidden="true" className="absence-action-bar__spacer min-w-20" />}
         <button
           type="button"
           onClick={onPrimary}
           disabled={!canProceed || loading}
+          aria-busy={loading}
           className={clsx(
             "min-h-12 min-w-[9.5rem] rounded-xl px-5 text-base font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
             canProceed && !loading

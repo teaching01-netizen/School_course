@@ -3,4 +3,6 @@ open Lake DSL
 
 package absenceSitInLegacySync where
 
-lean_lib AbsenceSitInLegacySync
+@[default_target]
+lean_lib AbsenceSitInLegacySync where
+  roots := #[`AbsenceSitInLegacySync, `proof.Model, `proof.PolicyAudit]

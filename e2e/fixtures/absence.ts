@@ -30,8 +30,8 @@ export const studentLookup = {
 export const boundarySitInSession = {
   id: "sit-boundary",
   course_id: "course-sitin",
-  start_at: "2026-01-15T17:30:00Z",
-  end_at: "2026-01-15T18:30:00Z",
+  start_at: "2026-01-16T17:30:00Z",
+  end_at: "2026-01-16T18:30:00Z",
   class_name: "Boundary Make-up",
 };
 
@@ -77,14 +77,14 @@ const publicLookup = {
   parent_verification_available: true,
 };
 
-const studentProfile = {
+export const studentProfile = {
   wcode: studentLookup.wcode,
   display_name: "John",
   email_on_file: true,
   subjects: studentLookup.subjects,
 };
 
-const sessionsInRange = {
+export const sessionsInRange = {
   subjects: [
     {
       subject_id: "subject-math",
@@ -122,6 +122,11 @@ const verification = {
 };
 
 export async function installAbsenceRoutes(page: Page, submitted: SubmittedPayload[]) {
+  const currentVerification = {
+    ...verification,
+    expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    otp_code_expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+  };
   await page.route("**/api/v1/me", (route) =>
     route.fulfill({
       status: 401,
@@ -142,16 +147,16 @@ export async function installAbsenceRoutes(page: Page, submitted: SubmittedPaylo
     route.fulfill({ contentType: "application/json", body: JSON.stringify(sessionsInRange) }),
   );
   await page.route("**/api/v1/absences/parent-verification/send", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(verification) }),
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(currentVerification) }),
   );
   await page.route("**/api/v1/absences/parent-verification/status", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(verification) }),
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(currentVerification) }),
   );
   await page.route("**/api/v1/absences/parent-verification/verify", (route) =>
     route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        ...verification,
+        ...currentVerification,
         status: "verified",
         verified_at: "2026-08-15T10:02:00Z",
       }),

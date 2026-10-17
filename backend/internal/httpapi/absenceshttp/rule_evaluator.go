@@ -30,12 +30,15 @@ type RankChain struct {
 }
 
 type EvaluateRuleInput struct {
-	RuleType       string
-	Predicate      RulePredicate
-	StudentLevel   int16
-	EnrolledLevels []int16
-	AllCourses     []sqldb.SubjectCourseV2
-	MissedCount    int
+	RuleType                   string
+	Predicate                  RulePredicate
+	StudentLevel               int16
+	MissedCourseID             pgtype.UUID
+	MissedCourseMergeGroupID   pgtype.UUID
+	MissedCourseIsContinuation bool
+	EnrolledLevels             []int16
+	AllCourses                 []sqldb.SubjectCourseV2
+	MissedCount                int
 }
 
 type EvaluateRuleOutput struct {
@@ -191,17 +194,25 @@ func evaluateLevelLadderLower(input EvaluateRuleInput, enrolledLevels map[int16]
 }
 
 func evaluateCrossSection(input EvaluateRuleInput) (*EvaluateRuleOutput, error) {
-	if len(input.AllCourses) < 2 {
+	if !input.MissedCourseID.Valid {
 		return &EvaluateRuleOutput{
 			Eligible: false,
 			Method:   SitInMethodNone,
-			Reason:   "no sibling courses for cross-section sit-in",
+			Reason:   "missed course is required for cross-section sit-in",
 		}, nil
 	}
 
 	var target *sqldb.SubjectCourseV2
+	foundMissedCourse := false
 	for i := range input.AllCourses {
 		c := &input.AllCourses[i]
+		if c.ID == input.MissedCourseID {
+			foundMissedCourse = true
+			continue
+		}
+		if input.MissedCourseIsContinuation && input.MissedCourseMergeGroupID.Valid && c.MergeGroupID == input.MissedCourseMergeGroupID {
+			continue
+		}
 		if c.Level.Valid && c.Level.Int16 == input.StudentLevel {
 			if target == nil {
 				target = c
@@ -209,7 +220,7 @@ func evaluateCrossSection(input EvaluateRuleInput) (*EvaluateRuleOutput, error) 
 		}
 	}
 
-	if target == nil {
+	if !foundMissedCourse || target == nil {
 		return &EvaluateRuleOutput{
 			Eligible: false,
 			Method:   SitInMethodNone,

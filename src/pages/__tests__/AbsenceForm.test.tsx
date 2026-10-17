@@ -319,7 +319,7 @@ describe("AbsenceForm", () => {
       "Classes",
       "Review",
     ]);
-    expect(screen.getByText("Step 1 of 4: Student")).toBeInTheDocument();
+    expect(within(progress).getByRole("button", { name: "Student - current" })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Continue to verification" })).toBeInTheDocument();
 
     await lookupStudent(user);
@@ -329,13 +329,13 @@ describe("AbsenceForm", () => {
     await user.type(screen.getByRole("textbox", { name: /your email address/i }), "student@example.com");
     await user.click(screen.getByRole("button", { name: /continue to verification/i }));
     expect(await screen.findByText(/parent verification/i)).toBeInTheDocument();
-    expect(screen.getByText("Step 2 of 4: Verify")).toBeInTheDocument();
+    expect(within(progress).getByRole("button", { name: "Verify - current" })).toHaveTextContent("2");
     expect(screen.getByRole("button", { name: "Continue to classes" })).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(false);
 
     await verifyParent(user);
     expect(await screen.findByText("Courses & classes")).toBeInTheDocument();
-    expect(screen.getByText("Step 3 of 4: Classes")).toBeInTheDocument();
+    expect(within(progress).getByRole("button", { name: "Classes - current" })).toHaveTextContent("3");
     expect(screen.getByRole("button", { name: "Review absence" })).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("/absence-self-service/sessions"))).toBe(true);
   });
@@ -682,6 +682,7 @@ describe("AbsenceForm", () => {
 
     const reason = screen.getByRole("textbox", { name: /reason for absence/i });
     expect(reason).toHaveValue("Initial reason");
+    await waitFor(() => expect(reason).toHaveFocus());
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
     expect(screen.getByRole("button", { name: /review absence/i })).toBeEnabled();
 
@@ -1025,7 +1026,7 @@ describe("AbsenceForm", () => {
       (cb) => cb.getAttribute("id")?.startsWith("session-"),
     );
     expect(sessionCheckboxes).toHaveLength(1);
-    expect(screen.getByText(/2 Jun 2026 09:00-12:00/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /2 Jun 2026 09:00-12:00/ })).toBeInTheDocument();
 
     await user.click(sessionCheckboxes[0]);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
@@ -1781,7 +1782,8 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
     const rankFourChoice = screen.getByRole("radio", { name: /SAT Verbal Reading Rank 4 C3/ });
     expect(rankFourChoice).toBeDisabled();
-    expect(screen.getByText("AJ. NICE · Sun, 27 Sep · 09:00–12:20")).toBeInTheDocument();
+    expect(rankFourChoice).toHaveAccessibleName(/Sun, 27 Sep · 09:00–12:20/);
+    expect(rankFourChoice).toHaveAccessibleName(/AJ\. NICE/);
     expect(screen.getByText("You already have another class at this time.")).toBeInTheDocument();
     expect(screen.getByText("Chemistry (AJ. RYU) — Sun, 27 Sept 2026 10:00-11:30")).toBeInTheDocument();
     expect(screen.queryByText(/submission will be blocked/i)).not.toBeInTheDocument();

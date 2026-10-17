@@ -875,7 +875,8 @@ describe("AbsenceForm - 20% session limit", () => {
       // single shared quota, never the summed per-course quota.
       await waitFor(() => {
         expect(screen.queryByText(/One merged course — absences share a single quota/)).not.toBeInTheDocument();
-        expect(screen.getByText("SAT Verbal Rank 2 C3 (5 class days)")).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "SAT Verbal Rank 2 C3" })).toBeInTheDocument();
+        expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.id.startsWith("session-"))).toHaveLength(5);
         expect(screen.queryByText("4 days remaining")).not.toBeInTheDocument();
       });
 

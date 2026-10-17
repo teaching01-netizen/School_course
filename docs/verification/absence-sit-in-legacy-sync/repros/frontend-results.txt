@@ -1,0 +1,50 @@
+(node:81246) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.7 /Users/rd-cream/Downloads/warwick-institute-ux-documentation copy 2
+
+ ❯ src/features/absences/domain/__tests__/zz_policy_audit.test.ts (2 tests | 2 failed) 151ms
+     × checks an expected class even when its subject is selected 27ms
+     × rejects two distinct make-up IDs that overlap each other 120ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/absences/domain/__tests__/zz_policy_audit.test.ts > policy audit safety assertions > checks an expected class even when its subject is selected
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/features/absences/domain/__tests__/zz_policy_audit.test.ts:17:99
+     15|     const source = group("selected", "candidate");
+     16|     source.sessions[0] = { ...source.sessions[0], start_at: "2026-10-1…
+     17|     expect(findSitInSessionConflicts(source.sit_in!.available_sessions…
+       |                                                                                                   ^
+     18|   });
+     19|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/features/absences/domain/__tests__/zz_policy_audit.test.ts > policy audit safety assertions > rejects two distinct make-up IDs that overlap each other
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/features/absences/domain/__tests__/zz_policy_audit.test.ts:22:23
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  16:04:31
+   Duration  12.01s (transform 855ms, setup 795ms, import 651ms, tests 151ms, environment 7.90s)
+

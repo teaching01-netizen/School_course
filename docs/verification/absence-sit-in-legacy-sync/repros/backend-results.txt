@@ -1,0 +1,38 @@
+=== RUN   TestPolicyAuditV2KeepsAuthoritativeBlockers
+=== RUN   TestPolicyAuditV2KeepsAuthoritativeBlockers/course_allow_list
+2026/10/11 12:30:28 goose: no migrations to run. current version: 130
+    zz_policy_audit_test.go:151: V2 offers overlapping choice after course_allow_list hides the blocker
+=== RUN   TestPolicyAuditV2KeepsAuthoritativeBlockers/timing_policy
+    zz_policy_audit_test.go:151: V2 offers overlapping choice after timing_policy hides the blocker
+=== RUN   TestPolicyAuditV2KeepsAuthoritativeBlockers/hidden_expected_class
+    zz_policy_audit_test.go:151: V2 offers overlapping choice after hidden_expected_class hides the blocker
+--- FAIL: TestPolicyAuditV2KeepsAuthoritativeBlockers (5.19s)
+    --- FAIL: TestPolicyAuditV2KeepsAuthoritativeBlockers/course_allow_list (4.71s)
+    --- FAIL: TestPolicyAuditV2KeepsAuthoritativeBlockers/timing_policy (0.25s)
+    --- FAIL: TestPolicyAuditV2KeepsAuthoritativeBlockers/hidden_expected_class (0.24s)
+=== RUN   TestPolicyAuditAutomaticPolicyDisabled
+=== RUN   TestPolicyAuditAutomaticPolicyDisabled/global
+    zz_policy_audit_test.go:171: automatic policy global is disabled but resolver still returns make-up options
+=== RUN   TestPolicyAuditAutomaticPolicyDisabled/root_group
+    zz_policy_audit_test.go:171: automatic policy root_group is disabled but resolver still returns make-up options
+=== RUN   TestPolicyAuditAutomaticPolicyDisabled/merge_group
+    zz_policy_audit_test.go:171: automatic policy merge_group is disabled but resolver still returns make-up options
+--- FAIL: TestPolicyAuditAutomaticPolicyDisabled (0.16s)
+    --- FAIL: TestPolicyAuditAutomaticPolicyDisabled/global (0.05s)
+    --- FAIL: TestPolicyAuditAutomaticPolicyDisabled/root_group (0.05s)
+    --- FAIL: TestPolicyAuditAutomaticPolicyDisabled/merge_group (0.05s)
+=== RUN   TestPolicyAuditPickerChecksClassesOnMakeUpDate
+    zz_policy_audit_test.go:200: picker offers a make-up overlapping an expected class outside the absence date window; final validator rejects it
+--- FAIL: TestPolicyAuditPickerChecksClassesOnMakeUpDate (0.08s)
+=== RUN   TestPolicyAuditGenericFinalDayExcluded
+    zz_policy_audit_test.go:237: any_day_except_last offers a session on the target's final day
+--- FAIL: TestPolicyAuditGenericFinalDayExcluded (0.26s)
+=== RUN   TestPolicyAuditDifferentMakeUpsCannotOverlap
+    zz_policy_audit_test.go:263: two different overlapping make-up sessions accepted for the same student
+--- FAIL: TestPolicyAuditDifferentMakeUpsCannotOverlap (0.12s)
+=== RUN   TestPolicyAuditSessionMustMatchAllowedTarget
+    zz_policy_audit_test.go:270: submission accepted a session from an unrelated class outside the declared policy target
+--- FAIL: TestPolicyAuditSessionMustMatchAllowedTarget (0.06s)
+FAIL
+FAIL	warwick-institute/internal/httpapi/absenceshttp	6.488s
+FAIL

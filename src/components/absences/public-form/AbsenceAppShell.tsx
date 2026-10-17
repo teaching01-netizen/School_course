@@ -5,9 +5,10 @@ type AbsenceAppShellProps = {
   children: ReactNode;
   header: ReactNode;
   footer: ReactNode;
+  mode?: "public" | "staff";
 };
 
-export default function AbsenceAppShell({ children, header, footer }: AbsenceAppShellProps) {
+export default function AbsenceAppShell({ children, header, footer, mode = "staff" }: AbsenceAppShellProps) {
   const viewport = useVisualViewport();
   const mainRef = useRef<HTMLElement | null>(null);
   const style = {
@@ -58,6 +59,7 @@ export default function AbsenceAppShell({ children, header, footer }: AbsenceApp
   return (
     <div
       className="absence-app-shell"
+      data-form-mode={mode}
       data-keyboard-open={viewport.keyboardLikelyOpen ? "true" : "false"}
       style={style}
     >

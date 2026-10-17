@@ -1078,7 +1078,7 @@ func (s *server) handleSitInOverride(w http.ResponseWriter, r *http.Request) {
 					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
 					return 0, nil, err
 				}
-				if s.recheckSitInSessionsHeld(w, r, qtx, reassignStudent.ID, sessionIDs) {
+				if s.recheckSitInSessionsHeld(w, r, qtx, reassignStudent.ID, sessionIDs, id) {
 					return 0, nil, fmt.Errorf("sit-in session conflict on reassign")
 				}
 			}

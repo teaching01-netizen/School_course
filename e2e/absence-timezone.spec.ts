@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { expectCurrentStep } from "./helpers/absenceAssertions";
 
 type SubmittedPayload = {
   wcode: string;
@@ -36,8 +37,8 @@ const boundaryMissedSession = {
 const boundarySitInSession = {
   id: "sit-boundary",
   course_id: "course-sitin",
-  start_at: "2026-01-15T17:30:00Z",
-  end_at: "2026-01-15T18:30:00Z",
+  start_at: "2026-01-16T17:30:00Z",
+  end_at: "2026-01-16T18:30:00Z",
   class_name: "Boundary Make-up",
 };
 
@@ -125,7 +126,7 @@ const verificationSend = {
   delivery_status: "accepted",
   otp_last_sent_at: "2026-08-15T10:00:00Z",
   otp_code_expires_at: "2026-08-15T10:10:00Z",
-  expires_at: "2026-08-15T11:00:00Z",
+  expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
 };
 
 const verificationVerified = {
@@ -248,17 +249,18 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
   await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
-  await selectAbsenceCheckbox(page, "subject-subject-math");
-  await expect(page.getByText("Fri, 16 Jan 2026 00:00-01:00")).toBeVisible();
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
+  const absenceLabel = await page.locator('label[for="session-missed-boundary"]').innerText();
+  expect(absenceLabel.replace(/\s+/g, " ")).toContain("Fri, 16 Jan 2026 00:00-01:00");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   const sitInSelect = page.getByRole("combobox");
   if (await sitInSelect.isVisible()) {
     await sitInSelect.selectOption(boundarySitInSession.id);
-    await expect(sitInSelect).toContainText("16 Jan 2026 00:30-01:30");
+    await expect(sitInSelect).toContainText(/Sat, 17 Jan.*00:30–01:30/);
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
@@ -266,9 +268,10 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await page.getByRole("button", { name: "Review absence" }).click();
 
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();
-  const reviewText = await page.getByText(/Fri, 16 Jan 2026 00:00.01:00/).innerText();
+  const reviewText = await page.locator(".absence-review-day").first().innerText();
+  expect(reviewText).toContain("Fri, 16 Jan 2026 00:00–01:00");
   expect(reviewText).toContain("Make-up:");
-  expect(reviewText).toContain("16 Jan 2026 00:30-01:30");
+  expect(reviewText).toContain("17 Jan 2026 00:30-01:30");
 
   await page.getByRole("button", { name: "Submit absence" }).click();
   await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
@@ -278,7 +281,7 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await context.close();
 
   return {
-    absenceLabel: "Fri, 16 Jan 2026 00:00-01:00",
+    absenceLabel,
     sitInReviewLabel: reviewText,
     successSummary,
     submittedPayload: submitted[0],
@@ -297,7 +300,7 @@ test("absence flow keeps session dates and times in Bangkok across browser timez
     sit_in_session_ids: ["sit-boundary"],
   });
   expect(bangkok.successSummary).toContain("16 Jan 2026");
-  expect(bangkok.successSummary).toContain("Fri, 16 Jan 2026 00:30-01:30");
+  expect(bangkok.successSummary).toContain("Sat, 17 Jan 2026 00:30-01:30");
 });
 
 test("mobile public absence flow resumes student details safely and completes without horizontal overflow", async ({ browser }) => {
@@ -319,7 +322,7 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.getByLabel(/your email address/i).fill("student@example.com");
 
   await page.reload();
-  await expect(page.getByText("Step 1 of 4: Student")).toBeVisible();
+  await expectCurrentStep(page, 1, "Student");
   await expect(page.getByPlaceholder("e.g. W250389")).toHaveValue(studentLookup.wcode);
   await expect(page.getByLabel(/your email address/i)).toHaveValue("student@example.com");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -327,11 +330,11 @@ test("mobile public absence flow resumes student details safely and completes wi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
   await page.getByRole("button", { name: "Continue to verification" }).click();
-  await expect(page.getByText("Step 2 of 4: Verify")).toBeVisible();
+  await expectCurrentStep(page, 2, "Verify");
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
-  await expect(page.getByText("Step 3 of 4: Classes")).toBeVisible();
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await expectCurrentStep(page, 3, "Classes");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await expect(page.getByRole("button", { name: /mathematics.*open/i })).toHaveAttribute("aria-expanded", "true");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   const mobileSitInSelect = page.getByRole("combobox");
@@ -340,13 +343,13 @@ test("mobile public absence flow resumes student details safely and completes wi
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
   await page.getByLabel(/reason for absence/i).fill("Mobile resume test");
   await page.getByRole("button", { name: "Review absence" }).click();
-  await expect(page.getByText("Step 4 of 4: Review")).toBeVisible();
+  await expectCurrentStep(page, 4, "Review");
   await page.getByRole("button", { name: "Submit absence" }).click();
   await expect(page.getByRole("heading", { name: "Absence submitted" })).toBeVisible();
   await expect.poll(() => submitted.length).toBe(1);

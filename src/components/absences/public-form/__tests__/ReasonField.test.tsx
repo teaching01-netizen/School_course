@@ -28,4 +28,14 @@ describe("ReasonField", () => {
     const error = screen.getByText("Please tell us why you'll be away.");
     expect(reason).toHaveAttribute("aria-describedby", error.id);
   });
+
+  it("gives quiet public limit guidance and does not mark a full valid reason as invalid", () => {
+    const { rerender } = render(<ReasonField publicForm value={"a".repeat(450)} onChange={() => {}} />);
+    expect(screen.getByText("500 characters maximum")).toBeInTheDocument();
+    rerender(<ReasonField publicForm value={"a".repeat(451)} onChange={() => {}} />);
+    expect(screen.getByText("49 characters remaining")).toBeInTheDocument();
+    rerender(<ReasonField publicForm value={"a".repeat(500)} onChange={() => {}} />);
+    expect(screen.getByText("Character limit reached")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).not.toBeInvalid();
+  });
 });

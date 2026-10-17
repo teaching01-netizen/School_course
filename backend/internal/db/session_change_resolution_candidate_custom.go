@@ -81,6 +81,20 @@ func (q *Queries) validateResolutionCandidate(ctx context.Context, input resolut
 			  AND other_session.deleted_at IS NULL
 			  AND candidate.start_at < other_session.end_at
 			  AND candidate.end_at > other_session.start_at
+		) OR EXISTS (
+			SELECT 1
+			FROM student_absences current_absence
+			JOIN students st ON lower(st.wcode) = lower(current_absence.wcode)
+			JOIN student_absences other_absence ON lower(other_absence.wcode) = lower(st.wcode)
+			JOIN absence_sit_ins other_assignment ON other_assignment.absence_id = other_absence.id
+			JOIN sessions other_session ON other_session.id = other_assignment.session_id
+			JOIN sessions candidate ON candidate.id = $2
+			WHERE current_absence.id = $1
+			  AND other_absence.status <> 'cancelled'
+			  AND other_assignment.id <> $3
+			  AND other_session.deleted_at IS NULL
+			  AND candidate.start_at < other_session.end_at
+			  AND candidate.end_at > other_session.start_at
 		)
 	`, input.AbsenceID, input.CandidateSessionID, input.AssignmentID, input.InstituteTZ).Scan(&overlapsExistingObligation); err != nil {
 		return 0, err

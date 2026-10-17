@@ -50,7 +50,7 @@ test("editing from review preserves the selected class and reason", async ({ pag
 
   await page.getByRole("button", { name: "Edit reason" }).click();
   await expect(page.locator("#absence-reason")).toHaveValue("Original review reason");
-  await expect(page.locator("#subject-subject-math")).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
   await expect(page.locator("#session-missed-boundary")).toBeChecked();
 
   await page.getByLabel(/reason for absence/i).fill("Updated review reason");

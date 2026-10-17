@@ -25,6 +25,11 @@ func (q *Queries) ResolveScheduleIssue(ctx context.Context, issueID, candidateSe
 	if expectedIssueVersion < 1 {
 		return "", fmt.Errorf("expected_issue_version is required")
 	}
+	if action == "reassign" {
+		if err := q.lockStudentForSitInReassignment(ctx, issueID); err != nil {
+			return "", err
+		}
+	}
 
 	var absenceID, sitInSessionID, latestChangeID pgtype.UUID
 	var status string
@@ -239,6 +244,11 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 	}
 	if expectedIssueVersion < 1 {
 		return "", fmt.Errorf("expected_issue_version is required")
+	}
+	if action == "reassign" {
+		if err := q.lockStudentForSitInReassignment(ctx, issueID); err != nil {
+			return "", err
+		}
 	}
 
 	var absenceID, sitInSessionID, latestChangeID pgtype.UUID
@@ -467,6 +477,18 @@ func (q *Queries) ResolveScheduleIssueWithSnapshot(ctx context.Context, issueID,
 		return "", pgx.ErrNoRows
 	}
 	return notificationStatus, nil
+}
+
+func (q *Queries) lockStudentForSitInReassignment(ctx context.Context, issueID pgtype.UUID) error {
+	var studentID pgtype.UUID
+	return q.db.QueryRow(ctx, `
+		SELECT st.id
+		FROM absence_schedule_issues issue
+		JOIN student_absences sa ON sa.id = issue.absence_id
+		JOIN students st ON lower(st.wcode) = lower(sa.wcode)
+		WHERE issue.id = $1
+		FOR UPDATE OF st
+	`, issueID).Scan(&studentID)
 }
 
 func scheduleIssueIsResolvable(status string) bool {

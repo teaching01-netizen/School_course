@@ -1,0 +1,78 @@
+ℹ [2/5] Replayed proof.Model
+info: ././././proof/Model.lean:282:0: true
+info: ././././proof/Model.lean:283:0: false
+info: ././././proof/Model.lean:284:0: { topLevel := [],
+  priorities := [[{ startMinute := 5300, endMinute := 5340 }]],
+  perMissedSession := [[]],
+  nestedPriorities := [[]] }
+info: ././././proof/Model.lean:285:0: true
+info: ././././proof/Model.lean:286:0: true
+info: ././././proof/Model.lean:288:0: 'AbsenceSitInLegacySync.currentPickerAndFormMissTheConflict' does not depend on any axioms
+info: ././././proof/Model.lean:289:0: 'AbsenceSitInLegacySync.sharedPolicyRejectsAnyScopedOverlap' does not depend on any axioms
+info: ././././proof/Model.lean:290:0: 'AbsenceSitInLegacySync.candidatePickerRejectsAnyScopedOverlap' does not depend on any axioms
+info: ././././proof/Model.lean:291:0: 'AbsenceSitInLegacySync.formPrecheckRejectsAnyScopedOverlap' does not depend on any axioms
+info: ././././proof/Model.lean:292:0: 'AbsenceSitInLegacySync.sharedFilterMakesEveryPolicyAndPriorityChoiceSafe' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Model.lean:293:0: 'AbsenceSitInLegacySync.sharedFilterRemovesConcreteOverlapAcrossPolicyAndPriorityPaths' does not depend on any axioms
+info: ././././proof/Model.lean:294:0: 'AbsenceSitInLegacySync.oneOmissionCanDeleteInCurrentRule' does not depend on any axioms
+info: ././././proof/Model.lean:295:0: 'AbsenceSitInLegacySync.oneCompleteMissingObservationDoesNotTombstone' does not depend on any axioms
+info: ././././proof/Model.lean:296:0: 'AbsenceSitInLegacySync.duplicateGenerationDoesNotAdvanceMissingCount' does not depend on any axioms
+info: ././././proof/Model.lean:297:0: 'AbsenceSitInLegacySync.incompleteObservationDoesNotAdvanceState' does not depend on any axioms
+info: ././././proof/Model.lean:298:0: 'AbsenceSitInLegacySync.twoMissingObservationsAfterGraceMayTombstone' does not depend on any axioms
+info: ././././proof/Model.lean:299:0: 'AbsenceSitInLegacySync.twoMissingObservationsBeforeGraceDoNotTombstone' does not depend on any axioms
+info: ././././proof/Model.lean:300:0: 'AbsenceSitInLegacySync.newerPresentObservationClearsMissingAndTombstone' does not depend on any axioms
+info: ././././proof/Model.lean:301:0: 'AbsenceSitInLegacySync.staleMissingObservationCannotUndoNewerPresent' does not depend on any axioms
+ℹ [3/5] Built proof.PolicyAudit
+info: ././././proof/PolicyAudit.lean:128:0: theorem AbsencePolicyAudit.incompleteBlockerProjectionBreaksEveryPolicyShape : policyOptionsAreSafe []
+      (filterPolicyOptions [] conflictWitness) =
+    true ∧
+  policyOptionsAreSafe [oct13ExpectedA] (filterPolicyOptions [] conflictWitness) = false :=
+of_decide_eq_true (id (Eq.refl true))
+info: ././././proof/PolicyAudit.lean:129:0: theorem AbsencePolicyAudit.differentIDsDoNotPreventOverlappingMakeUps : exactIDAvailable otherOverlappingMakeUp
+      [firstMakeUp] =
+    true ∧
+  bookingTimeAvailable otherOverlappingMakeUp [firstMakeUp] = false :=
+of_decide_eq_true (id (Eq.refl true))
+info: ././././proof/PolicyAudit.lean:130:0: theorem AbsencePolicyAudit.activeNonOverlappingSessionNeedNotBePolicyEligible : genericPhysicalAllows true true true
+      unrelatedTarget.slot [oct10Missed] =
+    true ∧
+  targetEligible [2] unrelatedTarget = false ∧ declaredCourseMatches 2 unrelatedTarget = false :=
+of_decide_eq_true (id (Eq.refl true))
+info: ././././proof/PolicyAudit.lean:131:0: 'AbsencePolicyAudit.incompleteBlockerProjectionBreaksEveryPolicyShape' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:132:0: 'AbsencePolicyAudit.selectedSubjectStillHidesPickerConflict' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:133:0: 'AbsencePolicyAudit.absenceWindowScopeIsWeakerThanGlobalAttendance' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:134:0: 'AbsencePolicyAudit.differentIDsDoNotPreventOverlappingMakeUps' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:135:0: 'AbsencePolicyAudit.omissionOfEnableGateStillOffersChoice' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:136:0: 'AbsencePolicyAudit.disabledPolicyMustOfferNoPhysicalChoice' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:137:0: 'AbsencePolicyAudit.omittedFinalDayGateAllowsForbiddenTarget' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:138:0: 'AbsencePolicyAudit.activeNonOverlappingSessionNeedNotBePolicyEligible' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:139:0: 'AbsencePolicyAudit.missedFinalAndTargetFinalRulesAreDifferent' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:140:0: 'AbsencePolicyAudit.gapInRank3PrioritiesStillRevealsLevel3' does not depend on any axioms
+info: ././././proof/PolicyAudit.lean:141:0: 'AbsencePolicyAudit.crossSectionCanSelectMissedCourseItself' does not depend on any axioms
+✔ [4/5] Built AbsenceSitInLegacySync
+Build completed successfully.
+theorem AbsencePolicyAudit.incompleteBlockerProjectionBreaksEveryPolicyShape : policyOptionsAreSafe []
+      (filterPolicyOptions [] conflictWitness) =
+    true ∧
+  policyOptionsAreSafe [oct13ExpectedA] (filterPolicyOptions [] conflictWitness) = false :=
+of_decide_eq_true (id (Eq.refl true))
+theorem AbsencePolicyAudit.differentIDsDoNotPreventOverlappingMakeUps : exactIDAvailable otherOverlappingMakeUp
+      [firstMakeUp] =
+    true ∧
+  bookingTimeAvailable otherOverlappingMakeUp [firstMakeUp] = false :=
+of_decide_eq_true (id (Eq.refl true))
+theorem AbsencePolicyAudit.activeNonOverlappingSessionNeedNotBePolicyEligible : genericPhysicalAllows true true true
+      unrelatedTarget.slot [oct10Missed] =
+    true ∧
+  targetEligible [2] unrelatedTarget = false ∧ declaredCourseMatches 2 unrelatedTarget = false :=
+of_decide_eq_true (id (Eq.refl true))
+'AbsencePolicyAudit.incompleteBlockerProjectionBreaksEveryPolicyShape' does not depend on any axioms
+'AbsencePolicyAudit.selectedSubjectStillHidesPickerConflict' does not depend on any axioms
+'AbsencePolicyAudit.absenceWindowScopeIsWeakerThanGlobalAttendance' does not depend on any axioms
+'AbsencePolicyAudit.differentIDsDoNotPreventOverlappingMakeUps' does not depend on any axioms
+'AbsencePolicyAudit.omissionOfEnableGateStillOffersChoice' does not depend on any axioms
+'AbsencePolicyAudit.disabledPolicyMustOfferNoPhysicalChoice' does not depend on any axioms
+'AbsencePolicyAudit.omittedFinalDayGateAllowsForbiddenTarget' does not depend on any axioms
+'AbsencePolicyAudit.activeNonOverlappingSessionNeedNotBePolicyEligible' does not depend on any axioms
+'AbsencePolicyAudit.missedFinalAndTargetFinalRulesAreDifferent' does not depend on any axioms
+'AbsencePolicyAudit.gapInRank3PrioritiesStillRevealsLevel3' does not depend on any axioms
+'AbsencePolicyAudit.crossSectionCanSelectMissedCourseItself' does not depend on any axioms

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installAbsenceRoutes, type SubmittedPayload } from "./fixtures/absence";
-import { completeToClasses, completeToReview, selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { completeToClasses, selectAbsenceCheckbox } from "./helpers/absenceFlow";
 import {
   expectFocusedElementVisible,
   expectInsideVisualViewport,
@@ -81,7 +81,7 @@ test("visual viewport resize keeps the focused reason and action bar reachable",
   const submitted: SubmittedPayload[] = [];
   await installAbsenceRoutes(page, submitted);
   await completeToClasses(page);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   const reason = page.getByLabel(/reason for absence/i);
   await expect(reason).toBeVisible();
   await reason.focus();

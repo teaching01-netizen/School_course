@@ -291,7 +291,7 @@ func findCourse(courses []sqldb.SubjectCourseV2, id pgtype.UUID) *sqldb.SubjectC
 
 // resolvePrioritiesFromBundle mirrors resolveSitInWithPrioritiesAndBlockedSessions
 // but reads target sessions from the bundle map (zero queries).
-func resolvePrioritiesFromBundle(b *sqldb.SitInBundleV2, priorities []sqldb.SitInPriorityWithRule, allCourses []sqldb.SubjectCourseV2, missed []sqldb.SessionInRange, level int16, enrolledLevels []int16, cutoff time.Time, blocked map[string]struct{}) (*SitInResult, error) {
+func resolvePrioritiesFromBundle(b *sqldb.SitInBundleV2, priorities []sqldb.SitInPriorityWithRule, allCourses []sqldb.SubjectCourseV2, missed []sqldb.SessionInRange, missedCourseID, missedCourseMergeGroupID pgtype.UUID, missedCourseIsContinuation bool, level int16, enrolledLevels []int16, cutoff time.Time, blocked, finalSessionIDs map[string]struct{}) (*SitInResult, error) {
 	var inputs []priorityInput
 	for _, p := range priorities {
 		rulePredicate, err := parsePredicate(p.RulePredicate)
@@ -299,12 +299,15 @@ func resolvePrioritiesFromBundle(b *sqldb.SitInBundleV2, priorities []sqldb.SitI
 			return nil, fmt.Errorf("priority %d predicate parse: %w", p.PriorityLevel, err)
 		}
 		evalOutput, err := EvaluateRule(EvaluateRuleInput{
-			RuleType:       p.RuleType,
-			Predicate:      rulePredicate,
-			StudentLevel:   level,
-			EnrolledLevels: enrolledLevels,
-			AllCourses:     allCourses,
-			MissedCount:    len(missed),
+			RuleType:                   p.RuleType,
+			Predicate:                  rulePredicate,
+			StudentLevel:               level,
+			MissedCourseID:             missedCourseID,
+			MissedCourseMergeGroupID:   missedCourseMergeGroupID,
+			MissedCourseIsContinuation: missedCourseIsContinuation,
+			EnrolledLevels:             enrolledLevels,
+			AllCourses:                 allCourses,
+			MissedCount:                len(missed),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("priority %d rule evaluation: %w", p.PriorityLevel, err)
@@ -317,11 +320,13 @@ func resolvePrioritiesFromBundle(b *sqldb.SitInBundleV2, priorities []sqldb.SitI
 			continue
 		}
 		inputs = append(inputs, priorityInput{
-			level:     int(p.PriorityLevel),
-			label:     p.Label,
-			target:    target,
-			missed:    missed,
-			available: bundleTargetSessions(b, target),
+			level:             int(p.PriorityLevel),
+			label:             p.Label,
+			target:            target,
+			missed:            missed,
+			available:         bundleTargetSessions(b, target),
+			lastClassExcluded: rulePredicate.LastClassExcluded,
+			finalSessionIDs:   finalSessionIDs,
 		})
 	}
 	if len(inputs) == 0 {

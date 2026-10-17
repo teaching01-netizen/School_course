@@ -663,14 +663,38 @@ describe("findSitInSessionConflicts", () => {
     });
   });
 
-  it("does not treat a selected merged source member as another class", () => {
+  it("ignores selected missed lessons only when the session is marked absent", () => {
     const conflicts = findSitInSessionConflicts(
       [{ start_at: "2026-08-29T06:00:00Z", end_at: "2026-08-29T07:40:00Z" }],
-      [{ ...baseGroup, subject_id: "selected-reading" }, { ...baseGroup, subject_id: "selected-writing" }],
+      [
+        { ...baseGroup, subject_id: "selected-reading", sessions: [{ id: "reading-session", start_at: "2026-08-29T06:20:00Z", end_at: "2026-08-29T07:00:00Z", date: "2026-08-29", already_absent: true }] },
+        { ...baseGroup, subject_id: "selected-writing", sessions: [{ id: "writing-session", start_at: "2026-08-29T06:20:00Z", end_at: "2026-08-29T07:00:00Z", date: "2026-08-29", already_absent: true }] },
+      ],
       ["selected-reading", "selected-writing"],
     );
 
     expect(conflicts).toEqual([]);
+  });
+
+  it("keeps an overlapping expected session visible even in a selected subject", () => {
+    const conflicts = findSitInSessionConflicts(
+      [{ start_at: "2026-08-29T06:00:00Z", end_at: "2026-08-29T07:40:00Z" }],
+      [{
+        ...baseGroup,
+        subject_id: "selected-subject",
+        sessions: [{
+          id: "expected-session",
+          start_at: "2026-08-29T06:30:00Z",
+          end_at: "2026-08-29T07:10:00Z",
+          date: "2026-08-29",
+          already_absent: false,
+        }],
+      }],
+      ["selected-subject"],
+    );
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].session.start_at).toBe("2026-08-29T06:30:00Z");
   });
 
   it("describes overlapping merged members as one merged course", () => {

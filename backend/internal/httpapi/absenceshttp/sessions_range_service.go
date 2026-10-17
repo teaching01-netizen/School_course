@@ -298,6 +298,35 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 	if bundle.ResolveFailed && s.deps.Log != nil {
 		s.deps.Log.Error("sit-in bundle degraded", "wcode", wcode)
 	}
+	var expectedBlockers []sqldb.SessionInRange
+	var finalSessionIDs map[string]struct{}
+	if !bundle.ResolveFailed && !studentMissing {
+		candidateIDs := bundleSitInCandidateSessionIDs(bundle)
+		blockers, blockerErr := s.deps.Q.ExpectedSessionConflictsForStudentCandidates(ctx, student.ID, candidateIDs, s.deps.InstituteTZ)
+		if blockerErr != nil {
+			if s.deps.Log != nil {
+				s.deps.Log.Error("sessions-range expected-class conflicts degraded", "error", blockerErr)
+			}
+			bundle.ResolveFailed = true
+			expectedBlockers = nil
+		} else {
+			expectedBlockers = blockers
+		}
+		if !bundle.ResolveFailed && bundleHasLastClassExclusion(bundle) && len(candidateIDs) > 0 {
+			finalIDs, finalErr := s.deps.Q.FinalSitInSessionIDs(ctx, candidateIDs, s.deps.InstituteTZ)
+			if finalErr != nil {
+				if s.deps.Log != nil {
+					s.deps.Log.Error("sessions-range final-class policy degraded", "error", finalErr)
+				}
+				bundle.ResolveFailed = true
+			} else {
+				finalSessionIDs = make(map[string]struct{}, len(finalIDs))
+				for _, id := range finalIDs {
+					finalSessionIDs[uuidStringOrZero(id)] = struct{}{}
+				}
+			}
+		}
+	}
 
 	merged := mergedRangesFromSiblings(facts, append(preFilter, bundleWindowSiblings(bundle, facts, window)...), s.deps.InstituteTZ)
 
@@ -343,7 +372,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 	}
 	studentFacing := lookup.studentFacing()
 	sitInForCourse := func(g *courseGroupView) *courseSitInJSON {
-		return s.resolveEnrolledCourseSitInV2(g, facts, bundle, policies, blocked, conflicts, studentFacing, pre, lookup, wcode, student.ID, now)
+		return s.resolveEnrolledCourseSitInV2(g, bundle, policies, blocked, conflicts, expectedBlockers, finalSessionIDs, studentFacing, pre, lookup, wcode, student.ID, now)
 	}
 	courses := assembleCourseResponses(order, scopeByCourse, counts, merged, absent, s.deps.InstituteTZ, settings.Form.AbsenceLimitPercent, sitInForCourse)
 	serializeStart := time.Now()
@@ -365,7 +394,7 @@ func (s *server) serveSessionsRangeV2EnrolledHead(w http.ResponseWriter, r *http
 // resolveEnrolledCourseSitInV2 mirrors the legacy per-course resolve block:
 // derived resolve window, swallow-and-log errors, none-gate, len-guarded
 // session lists.
-func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, facts []sessionFact, bundle *sqldb.SitInBundleV2, policies []byte, blocked map[string]struct{}, conflicts map[string]*sitInSessionConflictInfo, studentFacing bool, pre sessionsRangePrelim, lookup sessionsRangeLookup, wcode string, studentID pgtype.UUID, now time.Time) *courseSitInJSON {
+func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, bundle *sqldb.SitInBundleV2, policies []byte, blocked map[string]struct{}, conflicts map[string]*sitInSessionConflictInfo, expectedBlockers []sqldb.SessionInRange, finalSessionIDs map[string]struct{}, studentFacing bool, pre sessionsRangePrelim, lookup sessionsRangeLookup, wcode string, studentID pgtype.UUID, now time.Time) *courseSitInJSON {
 	if bundle.ResolveFailed {
 		return nil
 	}
@@ -378,7 +407,7 @@ func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, facts []sessio
 		return nil
 	}
 	resolveFrom, resolveTo := resolveDateRangeForSessionStartsInZone(sessionFactStartAts(g.sessions), pre.dateFrom, pre.dateTo, s.deps.InstituteTZ)
-	result, resolveErr := resolveSitInForCourseFromBundle(bundleSitInInputs{bundle: bundle, policies: policies, blocked: blocked, conflicts: conflicts, instituteTZ: s.deps.InstituteTZ, afterPriority: lookup.satAfterPriority(), studentFacing: studentFacing, now: now}, wcode, studentID, courseID, subjectID, resolveFrom, resolveTo.AddDate(0, 0, 1))
+	result, resolveErr := resolveSitInForCourseFromBundle(bundleSitInInputs{bundle: bundle, policies: policies, blocked: blocked, conflicts: conflicts, instituteTZ: s.deps.InstituteTZ, afterPriority: lookup.satAfterPriority(), studentFacing: studentFacing, now: now, finalSessionIDs: finalSessionIDs}, wcode, studentID, courseID, subjectID, resolveFrom, resolveTo.AddDate(0, 0, 1))
 	if resolveErr != nil {
 		if s.deps.Log != nil {
 			s.deps.Log.Error("sit-in resolution failed", "course_id", g.courseID, "error", resolveErr)
@@ -388,7 +417,7 @@ func (s *server) resolveEnrolledCourseSitInV2(g *courseGroupView, facts []sessio
 	if result == nil || result.SitInMethod == SitInMethodNone {
 		return nil
 	}
-	filterSitInResultByExpectedSessions(result, expectedSitInConflictSessionsFromFacts(facts, g.courseID, resolveFrom, resolveTo.AddDate(0, 0, 1)))
+	filterSitInResultByExpectedSessions(result, expectedBlockers)
 	sitIn := &courseSitInJSON{RuleName: result.RuleName, RuleType: result.RuleType, SitInMethod: result.SitInMethod, SitInCourse: result.SitInCourse, Priorities: result.Priorities, CurrentPriorityLevel: result.CurrentPriorityLevel, HasNextPriority: result.HasNextPriority, SitInByMissedSession: result.SitInByMissedSession}
 	if len(result.Available) > 0 {
 		sitIn.AvailableSessions = result.Available

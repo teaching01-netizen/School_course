@@ -33,6 +33,7 @@ type StepCoverVerificationProps = {
   onSatisfied: () => void;
   onRestart: () => void;
   onRestored: () => void;
+  publicForm?: boolean;
 };
 
 function isRetryable(err: unknown): boolean {
@@ -53,6 +54,7 @@ export default function StepCoverVerification({
   onSatisfied,
   onRestart,
   onRestored,
+  publicForm = false,
 }: StepCoverVerificationProps) {
   const verificationAvailable = parentVerificationAvailable ?? Boolean(parentPhone);
   const [session, setSession] = useState<ParentVerificationResponse | null>(null);
@@ -261,7 +263,7 @@ export default function StepCoverVerification({
 
   if (verified) {
     return (
-      <div className="flex items-center justify-between gap-3">
+      <div className="absence-verification flex items-center justify-between gap-3">
         <p className="text-xs text-[var(--color-wi-green)] font-medium">✓ Verified</p>
         {smsParentEnabled && !parentMissing ? (
           <button
@@ -278,7 +280,7 @@ export default function StepCoverVerification({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="absence-verification space-y-3">
       {!online ? (
         <p role="status" aria-live="polite" className="rounded-lg bg-[var(--color-wi-amber-bg)] px-3 py-2 text-xs font-medium text-[var(--color-wi-amber)]">
           You're offline. Reconnect to send or verify the parent code.
@@ -354,6 +356,7 @@ export default function StepCoverVerification({
 
       {smsParentEnabled ? (
         <SmsSendButton
+          publicForm={publicForm}
           isSending={isSending || deliveryPending}
           sendCount={sendCount}
           disabled={!canSend}

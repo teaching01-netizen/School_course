@@ -145,6 +145,35 @@ function findSitInSessionTimeInGroups(
   return null;
 }
 
+function findSitInSessionMergeGroupIDInGroups(
+  groups: SubjectSessions[],
+  sitInSessionId: string,
+): string | null {
+  for (const group of groups) {
+    const sitIn = group.sit_in;
+    if (!sitIn) continue;
+    if ((sitIn.available_sessions ?? []).some((session) => session.id === sitInSessionId)) {
+      return sitIn.sit_in_course?.merge_group_id || null;
+    }
+    for (const priority of sitIn.priorities ?? []) {
+      if ((priority.available_sessions ?? []).some((session) => session.id === sitInSessionId)) {
+        return priority.sit_in_course?.merge_group_id || null;
+      }
+    }
+    for (const nested of Object.values(sitIn.sit_in_by_missed_session ?? {})) {
+      if ((nested.available_sessions ?? []).some((session) => session.id === sitInSessionId)) {
+        return nested.sit_in_course?.merge_group_id || null;
+      }
+      for (const priority of nested.priorities ?? []) {
+        if ((priority.available_sessions ?? []).some((session) => session.id === sitInSessionId)) {
+          return priority.sit_in_course?.merge_group_id || null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function firstSessionCourseID(
   sessions: SessionWithCourse[] | undefined | null,
 ): string | null {
@@ -366,6 +395,12 @@ export function buildSubmissionPayloads(
   if (!input.lookupWcode) return { ok: true, payloads: [] };
   const payloadEntries: Array<{ scopeKey: string; item: AbsenceBatchCreateItem }> = [];
   const attendingByDate = collectAttendingSessions(input.sessions);
+  const selectedSitInIntervals: Array<{
+    scopeKey: string;
+    id: string;
+    mergeGroupID: string | null;
+    time: SessionTime;
+  }> = [];
   for (const group of input.sessions) {
     if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
     if (group.absence_limit_reached) continue;
@@ -397,6 +432,12 @@ export function buildSubmissionPayloads(
         ).map((session) => session.id),
       ),
     );
+    const sitInCandidateGroups = [
+      ...scopeGroups,
+      ...selectedScopeSessionIds.flatMap((missedSessionID) =>
+        Object.values(input.sitInPriorityHistory?.[missedSessionID] ?? {}),
+      ),
+    ];
     const scopePrimaryGroup = scopeGroups[0] ?? group;
     const sitInSessionIds = uniqueValues(
       selectedSessIds.flatMap((id) =>
@@ -404,7 +445,7 @@ export function buildSubmissionPayloads(
       ),
     );
     const conflictingSitInIds = sitInSessionIds.filter((sid) => {
-      const time = findSitInSessionTimeInGroups(scopeGroups, sid);
+      const time = findSitInSessionTimeInGroups(sitInCandidateGroups, sid);
       if (!time) return false;
       const date = instituteDateKey(time.start_at);
       const enrolledRanges = attendingByDate.get(date) ?? [];
@@ -415,6 +456,33 @@ export function buildSubmissionPayloads(
         ok: false,
         error: `${group.subject_name || group.course_name} sit-in session conflicts with another class. Please select a different make-up time.`,
       };
+    }
+    for (const sid of sitInSessionIds) {
+      if (selectedSitInIntervals.some((selected) => selected.scopeKey === absenceScopeKey(group) && selected.id === sid)) {
+        continue;
+      }
+      const time = findSitInSessionTimeInGroups(sitInCandidateGroups, sid);
+      if (!time) continue;
+      const mergeGroupID = findSitInSessionMergeGroupIDInGroups(sitInCandidateGroups, sid);
+      const scopeKey = absenceScopeKey(group);
+      const overlapsSelected = selectedSitInIntervals.some(
+        (selected) => {
+          if (selected.id === sid) return true;
+          if (!overlaps(selected.time, time)) return false;
+          return !(
+            selected.scopeKey === scopeKey &&
+            mergeGroupID &&
+            selected.mergeGroupID === mergeGroupID
+          );
+        },
+      );
+      if (overlapsSelected) {
+        return {
+          ok: false,
+          error: `${group.subject_name || group.course_name} sit-in session overlaps another selected make-up. Please select a different time.`,
+        };
+      }
+      selectedSitInIntervals.push({ scopeKey, id: sid, mergeGroupID, time });
     }
     const sitInMethod = group.sit_in?.sit_in_method;
     const payload: AbsenceBatchCreateItem = {

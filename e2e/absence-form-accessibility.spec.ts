@@ -23,7 +23,7 @@ async function chooseMakeUpClass(page: Page) {
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await dialog.getByRole("radio").first().check();
+    await dialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
@@ -67,7 +67,7 @@ test("public absence form stays accessible and contained through every supported
   await expectCurrentStep(page, 3, "Classes");
   await expectAccessiblePage(page);
   await expectAdaptiveTabletClassesLayout(page);
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill("Accessibility regression test");

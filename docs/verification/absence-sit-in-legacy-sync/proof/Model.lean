@@ -52,11 +52,84 @@ def candidatePickerAllows (candidate : Slot) (active : Bool)
 def formPrecheckAllows (candidate : Slot) (expectedInScope : List Slot) : Bool :=
   !(overlapsAny candidate expectedInScope)
 
+/-! ## Policy and priority result filtering
+
+Each list is one selectable collection emitted by a policy: top-level choices,
+priority choices, per-missed-session choices, or priorities nested under one
+missed session. The shared output filter is independent of how a policy built
+those lists. -/
+
+structure PolicyOptions where
+  topLevel : List Slot
+  priorities : List (List Slot)
+  perMissedSession : List (List Slot)
+  nestedPriorities : List (List Slot)
+  deriving Repr
+
+def filterUnblockedChoices (blockers choices : List Slot) : List Slot :=
+  choices.filter fun candidate => !(overlapsAny candidate blockers)
+
+def choicesAreSafe (blockers choices : List Slot) : Bool :=
+  choices.all fun candidate => !(overlapsAny candidate blockers)
+
+def filterPolicyOptions (blockers : List Slot) (options : PolicyOptions) : PolicyOptions :=
+  { topLevel := filterUnblockedChoices blockers options.topLevel
+    priorities := options.priorities.map (filterUnblockedChoices blockers)
+    perMissedSession := options.perMissedSession.map (filterUnblockedChoices blockers)
+    nestedPriorities := options.nestedPriorities.map (filterUnblockedChoices blockers) }
+
+def choiceBucketsAreSafe (blockers : List Slot) (buckets : List (List Slot)) : Bool :=
+  buckets.all (choicesAreSafe blockers)
+
+def policyOptionsAreSafe (blockers : List Slot) (options : PolicyOptions) : Bool :=
+  choicesAreSafe blockers options.topLevel &&
+    choiceBucketsAreSafe blockers options.priorities &&
+    choiceBucketsAreSafe blockers options.perMissedSession &&
+    choiceBucketsAreSafe blockers options.nestedPriorities
+
+theorem filteringMakesEveryChoiceSafe (blockers choices : List Slot) :
+    choicesAreSafe blockers (filterUnblockedChoices blockers choices) = true := by
+  induction choices with
+  | nil => rfl
+  | cons candidate rest ih =>
+      simp [filterUnblockedChoices, choicesAreSafe, ih]
+
+theorem filteringMakesEveryBucketSafe (blockers : List Slot) (buckets : List (List Slot)) :
+    choiceBucketsAreSafe blockers (buckets.map (filterUnblockedChoices blockers)) = true := by
+  induction buckets with
+  | nil => rfl
+  | cons choices rest ih =>
+      simp [choiceBucketsAreSafe, filteringMakesEveryChoiceSafe, ih]
+
+theorem sharedFilterMakesEveryPolicyAndPriorityChoiceSafe
+    (blockers : List Slot) (options : PolicyOptions) :
+    policyOptionsAreSafe blockers (filterPolicyOptions blockers options) = true := by
+  cases options with
+  | mk top priorities perMissed nested =>
+      simp [policyOptionsAreSafe, filterPolicyOptions, filteringMakesEveryChoiceSafe,
+        filteringMakesEveryBucketSafe]
+
 def oct10Missed : Slot := ⟨780, 980⟩
 def oct17Missed : Slot := ⟨7 * 1440 + 780, 7 * 1440 + 980⟩
 def oct13Candidate : Slot := ⟨3 * 1440 + 780, 3 * 1440 + 980⟩
 def oct13ExpectedA : Slot := ⟨3 * 1440 + 780, 3 * 1440 + 880⟩
 def oct13ExpectedB : Slot := ⟨3 * 1440 + 880, 3 * 1440 + 980⟩
+def oct13SafeAdjacent : Slot := ⟨3 * 1440 + 980, 3 * 1440 + 1020⟩
+
+def policyPriorityOverlapWitness : PolicyOptions :=
+  { topLevel := [oct13Candidate]
+    priorities := [[oct13Candidate, oct13SafeAdjacent]]
+    perMissedSession := [[oct13Candidate]]
+    nestedPriorities := [[oct13Candidate]] }
+
+theorem sharedFilterRemovesConcreteOverlapAcrossPolicyAndPriorityPaths :
+    policyPriorityOverlapWitness.topLevel = [oct13Candidate] ∧
+    (filterPolicyOptions [oct13ExpectedA, oct13ExpectedB] policyPriorityOverlapWitness).topLevel = [] ∧
+    (filterPolicyOptions [oct13ExpectedA, oct13ExpectedB] policyPriorityOverlapWitness).priorities =
+      [[oct13SafeAdjacent]] ∧
+    policyOptionsAreSafe [oct13ExpectedA, oct13ExpectedB]
+      (filterPolicyOptions [oct13ExpectedA, oct13ExpectedB] policyPriorityOverlapWitness) = true := by
+  decide
 
 def oct13CurrentFlow : Bool :=
   currentFlowAllows oct13Candidate true "SAT-Verbal"
@@ -208,6 +281,7 @@ theorem staleMissingObservationCannotUndoNewerPresent :
 
 #eval oct13CurrentFlow
 #eval oct13ServerDecision
+#eval filterPolicyOptions [oct13ExpectedA, oct13ExpectedB] policyPriorityOverlapWitness
 #eval currentSetDifferenceDeletes false
 #eval (observe (observe initiallyActive (fullMissing 1)) (fullMissing 2)).tombstoned
 
@@ -215,6 +289,8 @@ theorem staleMissingObservationCannotUndoNewerPresent :
 #print axioms sharedPolicyRejectsAnyScopedOverlap
 #print axioms candidatePickerRejectsAnyScopedOverlap
 #print axioms formPrecheckRejectsAnyScopedOverlap
+#print axioms sharedFilterMakesEveryPolicyAndPriorityChoiceSafe
+#print axioms sharedFilterRemovesConcreteOverlapAcrossPolicyAndPriorityPaths
 #print axioms oneOmissionCanDeleteInCurrentRule
 #print axioms oneCompleteMissingObservationDoesNotTombstone
 #print axioms duplicateGenerationDoesNotAdvanceMissingCount

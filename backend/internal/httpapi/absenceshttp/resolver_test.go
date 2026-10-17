@@ -40,6 +40,41 @@ func TestRootGroupWindowWeeks_ReturnsZeroWhenMissing(t *testing.T) {
 	}
 }
 
+func TestAutomaticSitInEnabledForPoliciesHonorsGlobalAndScopedDisable(t *testing.T) {
+	subject := uuidFromString("20000000-0000-0000-0000-000000000002")
+	root := uuidFromString("30000000-0000-0000-0000-000000000003")
+	merge := uuidFromString("40000000-0000-0000-0000-000000000004")
+	key := func(id pgtype.UUID) string {
+		value, err := uuidString(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	falseValue := false
+	trueValue := true
+
+	if !automaticSitInEnabledForPolicies(sqldb.AbsencePolicies{}, subject, root, merge) {
+		t.Fatal("omitted auto-resolution settings should inherit the enabled default")
+	}
+	for name, policies := range map[string]sqldb.AbsencePolicies{
+		"global":  {SitIn: sqldb.SitInPolicyConfig{AutoResolveEnabled: &falseValue}},
+		"subject": {Subjects: map[string]sqldb.SubjectPolicy{key(subject): {AutoSitInEnabled: &falseValue}}},
+		"root":    {RootCourseGroups: map[string]sqldb.SubjectPolicy{key(root): {AutoSitInEnabled: &falseValue}}},
+		"merge":   {MergeGroups: map[string]sqldb.SubjectPolicy{key(merge): {AutoSitInEnabled: &falseValue}}},
+		"scope true cannot override global false": {
+			SitIn:            sqldb.SitInPolicyConfig{AutoResolveEnabled: &falseValue},
+			RootCourseGroups: map[string]sqldb.SubjectPolicy{key(root): {AutoSitInEnabled: &trueValue}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if automaticSitInEnabledForPolicies(policies, subject, root, merge) {
+				t.Fatal("automatic resolution remained enabled")
+			}
+		})
+	}
+}
+
 func TestRootGroupWindowWeeks_ReturnsZeroForUnknownGroup(t *testing.T) {
 	raw := mustMarshalJSON(map[string]any{
 		"root_course_groups": map[string]any{
@@ -272,6 +307,26 @@ func TestBuildPhysicalSitInResult_FinalTargetSessionAllowedForGenericRule(t *tes
 	}
 	if len(result.Available) != 2 || result.Available[1].ID != "a0000000-0000-0000-0000-000000000012" {
 		t.Fatalf("available = %#v, want final target session included", result.Available)
+	}
+}
+
+func TestFinalClassPolicyMovesEverySessionOnFinalDayToUnavailable(t *testing.T) {
+	result := &SitInResult{
+		Available: []sessionBrief{
+			{ID: "final-morning", StartAt: "2025-03-22T02:00:00Z", EndAt: "2025-03-22T03:00:00Z"},
+			{ID: "ordinary", StartAt: "2025-03-15T02:00:00Z", EndAt: "2025-03-15T03:00:00Z"},
+		},
+		PreSelected: []sessionBrief{{ID: "final-morning", StartAt: "2025-03-22T02:00:00Z", EndAt: "2025-03-22T03:00:00Z"}},
+	}
+	filterSitInResultByFinalSessions(result, map[string]struct{}{"final-morning": {}})
+	if len(result.Available) != 1 || result.Available[0].ID != "ordinary" {
+		t.Fatalf("available = %#v, expected only ordinary class", result.Available)
+	}
+	if len(result.PreSelected) != 0 {
+		t.Fatalf("final class remained pre-selected: %#v", result.PreSelected)
+	}
+	if len(result.Unavailable) != 1 || result.Unavailable[0].ReasonCode != "final_class_excluded" {
+		t.Fatalf("unavailable = %#v, expected final_class_excluded reason", result.Unavailable)
 	}
 }
 

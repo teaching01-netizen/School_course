@@ -221,13 +221,11 @@ export type SitInSessionConflict = {
 export function findSitInSessionConflicts(
   sitInSessions: Array<{ start_at: string; end_at: string }>,
   enrolledGroups: SubjectSessions[],
-  selectedSubjectIds: string[],
+  _selectedSubjectIds: string[],
 ): SitInSessionConflict[] {
-  const selectedSubjects = new Set(selectedSubjectIds);
   const conflicts: SitInSessionConflict[] = [];
   const seen = new Set<string>();
   for (const group of enrolledGroups) {
-    if (selectedSubjects.has(group.subject_id)) continue;
     for (const session of group.sessions) {
       if (session.already_absent) continue;
       const overlaps = sitInSessions.some((sitInSession) =>

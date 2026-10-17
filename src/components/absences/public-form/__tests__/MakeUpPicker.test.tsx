@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import MakeUpPicker from "../MakeUpPicker";
@@ -9,6 +9,53 @@ const options = [
 ];
 
 describe("MakeUpPicker", () => {
+  it("opens the public picker for browsing and cancels staged changes without committing", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="sit-in-1" options={options} onChange={onChange} context="For Mathematics · Mon, 19 Oct" />);
+    const trigger = screen.getByRole("button", { name: /saturday 22 aug/i });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading")).toHaveFocus();
+    expect(dialog).toHaveAccessibleDescription("For Mathematics · Mon, 19 Oct");
+    await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
+    expect(within(screen.getByRole("dialog")).getByRole("radio", { name: /saturday/i })).toBeChecked();
+    fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps a filtered-out staged choice visible in the confirmation summary", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={options} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
+    await user.type(within(dialog).getByRole("textbox"), "zzz");
+    expect(within(dialog).getByText(/selected: sunday 23 aug/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm make-up class" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("sit-in-2");
+  });
+
+  it.each(["removed", "disabled"])("rejects a staged choice that becomes %s while the sheet is open", async (change) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", options, onChange };
+    const { rerender } = render(<MakeUpPicker {...props} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    await user.click(screen.getByRole("radio", { name: /sunday/i }));
+    rerender(<MakeUpPicker {...props} options={change === "removed" ? [options[0]] : options.map((option) => ({ ...option, disabled: option.value === "sit-in-2" }))} />);
+    const confirm = screen.getByRole("button", { name: "Confirm make-up class" });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/no longer available/i);
+    await user.click(confirm);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("keeps a native select fallback for wide layouts", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

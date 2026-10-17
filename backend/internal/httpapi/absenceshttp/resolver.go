@@ -221,11 +221,13 @@ func sitInCourseInfo(target *sqldb.SubjectCourseV2, mergeGroupName string) *SitI
 }
 
 type priorityInput struct {
-	level     int
-	label     string
-	target    *sqldb.SubjectCourseV2
-	missed    []sqldb.SessionInRange
-	available []sqldb.SessionInRange
+	level             int
+	label             string
+	target            *sqldb.SubjectCourseV2
+	missed            []sqldb.SessionInRange
+	available         []sqldb.SessionInRange
+	lastClassExcluded bool
+	finalSessionIDs   map[string]struct{}
 }
 
 // buildPrioritySitInResults builds a SitInPriorityResult for each priority level.
@@ -242,6 +244,9 @@ func buildPrioritySitInResultsWithBlockedSessions(priorities []priorityInput, cu
 	results := make([]SitInPriorityResult, 0, len(priorities))
 	for _, p := range priorities {
 		result := buildPhysicalSitInResultWithBlockedSessions(p.target, p.missed, p.available, cutoff, blockedSessionIDs)
+		if p.lastClassExcluded {
+			filterSitInResultByFinalSessions(result, p.finalSessionIDs)
+		}
 		results = append(results, SitInPriorityResult{
 			Level:       p.level,
 			Label:       p.label,
@@ -252,6 +257,44 @@ func buildPrioritySitInResultsWithBlockedSessions(priorities []priorityInput, cu
 		})
 	}
 	return results
+}
+
+func filterPriorityInputsByFinalClassPolicy(ctx context.Context, q *sqldb.Queries, priorities []priorityInput, instituteTZ string) error {
+	seen := make(map[string]struct{})
+	var candidateIDs []pgtype.UUID
+	for _, priority := range priorities {
+		if !priority.lastClassExcluded {
+			continue
+		}
+		for _, candidate := range priority.available {
+			key := candidate.ID.String()
+			if !candidate.ID.Valid || key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			candidateIDs = append(candidateIDs, candidate.ID)
+		}
+	}
+	if len(candidateIDs) == 0 {
+		return nil
+	}
+	finalIDs, err := q.FinalSitInSessionIDs(ctx, candidateIDs, instituteTZ)
+	if err != nil {
+		return fmt.Errorf("final sit-in session lookup: %w", err)
+	}
+	finalSet := make(map[string]struct{}, len(finalIDs))
+	for _, id := range finalIDs {
+		finalSet[uuidStringOrZero(id)] = struct{}{}
+	}
+	for i := range priorities {
+		if priorities[i].lastClassExcluded {
+			priorities[i].finalSessionIDs = finalSet
+		}
+	}
+	return nil
 }
 
 func activeSitInSessionIDsForStudent(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID) (map[string]struct{}, error) {
@@ -353,11 +396,12 @@ func resolveSitInWithPriorities(
 	priorities []sqldb.SitInPriorityWithRule,
 	allCourses []sqldb.SubjectCourseV2,
 	missedSessions []sqldb.SessionInRange,
+	missedCourseID pgtype.UUID,
 	studentLevel int16,
 	enrolledLevels []int16,
 	cutoff time.Time,
 ) (*SitInResult, error) {
-	return resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, studentLevel, enrolledLevels, cutoff, nil)
+	return resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, missedCourseID, pgtype.UUID{}, false, studentLevel, enrolledLevels, cutoff, "", nil)
 }
 
 func resolveSitInWithPrioritiesAndBlockedSessions(
@@ -366,9 +410,13 @@ func resolveSitInWithPrioritiesAndBlockedSessions(
 	priorities []sqldb.SitInPriorityWithRule,
 	allCourses []sqldb.SubjectCourseV2,
 	missedSessions []sqldb.SessionInRange,
+	missedCourseID pgtype.UUID,
+	missedCourseMergeGroupID pgtype.UUID,
+	missedCourseIsContinuation bool,
 	studentLevel int16,
 	enrolledLevels []int16,
 	cutoff time.Time,
+	instituteTZ string,
 	blockedSessionIDs map[string]struct{},
 ) (*SitInResult, error) {
 	var inputs []priorityInput
@@ -380,12 +428,15 @@ func resolveSitInWithPrioritiesAndBlockedSessions(
 		}
 
 		evalOutput, err := EvaluateRule(EvaluateRuleInput{
-			RuleType:       p.RuleType,
-			Predicate:      rulePredicate,
-			StudentLevel:   studentLevel,
-			EnrolledLevels: enrolledLevels,
-			AllCourses:     allCourses,
-			MissedCount:    len(missedSessions),
+			RuleType:                   p.RuleType,
+			Predicate:                  rulePredicate,
+			StudentLevel:               studentLevel,
+			MissedCourseID:             missedCourseID,
+			MissedCourseMergeGroupID:   missedCourseMergeGroupID,
+			MissedCourseIsContinuation: missedCourseIsContinuation,
+			EnrolledLevels:             enrolledLevels,
+			AllCourses:                 allCourses,
+			MissedCount:                len(missedSessions),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("priority %d rule evaluation: %w", p.PriorityLevel, err)
@@ -421,16 +472,20 @@ func resolveSitInWithPrioritiesAndBlockedSessions(
 		}
 
 		inputs = append(inputs, priorityInput{
-			level:     int(p.PriorityLevel),
-			label:     p.Label,
-			target:    targetCourse,
-			missed:    missedSessions,
-			available: availSessions,
+			level:             int(p.PriorityLevel),
+			label:             p.Label,
+			target:            targetCourse,
+			missed:            missedSessions,
+			available:         availSessions,
+			lastClassExcluded: rulePredicate.LastClassExcluded,
 		})
 	}
 
 	if len(inputs) == 0 {
 		return nil, nil
+	}
+	if err := filterPriorityInputsByFinalClassPolicy(ctx, q, inputs, instituteTZ); err != nil {
+		return nil, err
 	}
 
 	results := buildPrioritySitInResultsWithBlockedSessions(inputs, cutoff, blockedSessionIDs)
@@ -514,19 +569,32 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			break
 		}
 	}
+	var rootCourseGroupID, mergeGroupID pgtype.UUID
+	for _, c := range enrolled {
+		if c.CourseID == courseID {
+			rootCourseGroupID = c.RootCourseGroupID
+			mergeGroupID = c.MergeGroupID
+			break
+		}
+	}
+	autoEnabled, err := automaticSitInEnabled(ctx, q, subjectID, rootCourseGroupID, mergeGroupID)
+	if err != nil {
+		return nil, err
+	}
+	if !autoEnabled {
+		return nil, nil
+	}
 
 	blockedSitInSessionIDs, err := activeSitInSessionIDsForStudent(ctx, q, student.ID)
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
-	conflictSessions, err := q.SitInConflictSessionsForStudent(ctx, student.ID, courseID, dateFrom, dateTo, instituteTZ)
-	if err != nil {
-		return nil, fmt.Errorf("expected class conflict lookup: %w", err)
-	}
 	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
-		filterSitInResultByExpectedSessions(mapped, conflictSessions)
+		if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, mapped, instituteTZ); err != nil {
+			return nil, fmt.Errorf("expected class conflict lookup: %w", err)
+		}
 		if err := enrichSitInResultConflicts(ctx, q, student.ID, mapped); err != nil {
 			return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
 		}
@@ -596,9 +664,12 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if missedCourse.RootCourseGroupID.Valid && (!hasMergeScope || !mergeScope.SitInRuleID.Valid) {
 		priorities, pErr := q.SitInPrioritiesByRootCourseGroupWithRule(ctx, missedCourse.RootCourseGroupID)
 		if pErr == nil && len(priorities) > 0 {
-			result, resolveErr := resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, blockedSitInSessionIDs)
+			result, resolveErr := resolveSitInWithPrioritiesAndBlockedSessions(ctx, q, priorities, allCourses, missedSessions, missedCourse.CourseID, mergeScope.ID, hasMergeScope && mergeScope.RuleSourceCourseID.Valid, missedCourse.Level.Int16, enrolledLevelsFromCourses(enrolled), cutoff, instituteTZ, blockedSitInSessionIDs)
 			if resolveErr != nil {
 				return nil, resolveErr
+			}
+			if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, result, instituteTZ); err != nil {
+				return nil, fmt.Errorf("expected class conflict lookup: %w", err)
 			}
 			if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
 				return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
@@ -629,12 +700,15 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	}
 
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
-		RuleType:       rule.Type,
-		Predicate:      predicate,
-		StudentLevel:   missedCourse.Level.Int16,
-		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
-		AllCourses:     allCourses,
-		MissedCount:    len(missedSessions),
+		RuleType:                   rule.Type,
+		Predicate:                  predicate,
+		StudentLevel:               missedCourse.Level.Int16,
+		MissedCourseID:             missedCourse.CourseID,
+		MissedCourseMergeGroupID:   mergeScope.ID,
+		MissedCourseIsContinuation: hasMergeScope && mergeScope.RuleSourceCourseID.Valid,
+		EnrolledLevels:             enrolledLevelsFromCourses(enrolled),
+		AllCourses:                 allCourses,
+		MissedCount:                len(missedSessions),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rule evaluation: %w", err)
@@ -679,7 +753,14 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 
 	result.RuleName = rule.Name
 	result.RuleType = rule.Type
-	filterSitInResultByExpectedSessions(result, conflictSessions)
+	if predicate.LastClassExcluded {
+		if err := filterSitInResultByFinalClassPolicy(ctx, q, result, instituteTZ); err != nil {
+			return nil, err
+		}
+	}
+	if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, result, instituteTZ); err != nil {
+		return nil, fmt.Errorf("expected class conflict lookup: %w", err)
+	}
 	if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
 		return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
 	}
@@ -962,6 +1043,14 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	if !main.Level.Valid {
 		return nil, fmt.Errorf("main course has no level")
 	}
+	var mainMergeScope sqldb.CourseMergeGroupScopeForCourseRow
+	var mainHasMergeScope bool
+	if main.MergeGroupID.Valid {
+		mainMergeScope, mainHasMergeScope, err = mergeGroupScopeForCourse(ctx, q, main.CourseID)
+		if err != nil {
+			return nil, fmt.Errorf("merged course lookup: %w", err)
+		}
+	}
 
 	// 4. Determine root course group and scope courses (all cycles for full ladder)
 	var allCourses []sqldb.SubjectCourseV2
@@ -1010,12 +1099,15 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 
 	// 8. Evaluate rule
 	evalOutput, err := EvaluateRule(EvaluateRuleInput{
-		RuleType:       rule.Type,
-		Predicate:      predicate,
-		StudentLevel:   main.Level.Int16,
-		EnrolledLevels: enrolledLevelsFromCourses(enrolled),
-		AllCourses:     allCourses,
-		MissedCount:    len(missedSessions),
+		RuleType:                   rule.Type,
+		Predicate:                  predicate,
+		StudentLevel:               main.Level.Int16,
+		MissedCourseID:             main.CourseID,
+		MissedCourseMergeGroupID:   mainMergeScope.ID,
+		MissedCourseIsContinuation: mainHasMergeScope && mainMergeScope.RuleSourceCourseID.Valid,
+		EnrolledLevels:             enrolledLevelsFromCourses(enrolled),
+		AllCourses:                 allCourses,
+		MissedCount:                len(missedSessions),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rule evaluation: %w", err)
@@ -1178,30 +1270,47 @@ func loadRootGroupWindowWeeks(ctx context.Context, q *sqldb.Queries, rootCourseG
 	return rootGroupWindowWeeks(settings.AbsencePolicies, id)
 }
 
-func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, rootCourseGroupID pgtype.UUID) (bool, error) {
+func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, subjectID, rootCourseGroupID, mergeGroupID pgtype.UUID) (bool, error) {
 	settings, err := q.AppSettingsGetWithPolicies(ctx)
 	if err != nil {
 		return false, fmt.Errorf("policy lookup: %w", err)
 	}
 
+	return automaticSitInEnabledFromJSON(settings.AbsencePolicies, subjectID, rootCourseGroupID, mergeGroupID)
+}
+
+func automaticSitInEnabledFromJSON(raw []byte, subjectID, rootCourseGroupID, mergeGroupID pgtype.UUID) (bool, error) {
 	var policies sqldb.AbsencePolicies
-	if err := json.Unmarshal(settings.AbsencePolicies, &policies); err != nil {
+	if err := json.Unmarshal(raw, &policies); err != nil {
 		return false, fmt.Errorf("policy parse: %w", err)
 	}
+	return automaticSitInEnabledForPolicies(policies, subjectID, rootCourseGroupID, mergeGroupID), nil
+}
 
-	enabled := true
-	if policies.SitIn.AutoResolveEnabled != nil {
-		enabled = *policies.SitIn.AutoResolveEnabled
+func automaticSitInEnabledForPolicies(policies sqldb.AbsencePolicies, subjectID, rootCourseGroupID, mergeGroupID pgtype.UUID) bool {
+	if policies.SitIn.AutoResolveEnabled != nil && !*policies.SitIn.AutoResolveEnabled {
+		return false
 	}
-	if rootCourseGroupID.Valid {
-		rootGroupID, err := uuidString(rootCourseGroupID)
-		if err == nil {
-			if policy, ok := policies.RootCourseGroups[rootGroupID]; ok {
-				enabled = enabled && policy.AutoSitInEnabled
-			}
+	for _, scope := range []struct {
+		id       pgtype.UUID
+		policies map[string]sqldb.SubjectPolicy
+	}{
+		{id: subjectID, policies: policies.Subjects},
+		{id: rootCourseGroupID, policies: policies.RootCourseGroups},
+		{id: mergeGroupID, policies: policies.MergeGroups},
+	} {
+		if !scope.id.Valid || scope.policies == nil {
+			continue
+		}
+		key, err := uuidString(scope.id)
+		if err != nil {
+			continue
+		}
+		if policy, ok := scope.policies[key]; ok && policy.AutoSitInEnabled != nil && !*policy.AutoSitInEnabled {
+			return false
 		}
 	}
-	return enabled, nil
+	return true
 }
 
 func toSessionBrief(s sqldb.SessionInRange) sessionBrief {

@@ -333,6 +333,24 @@ func TestSitInSessionOverlapIgnoresCourse(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("expected final sit-in session to be valid when policy allows it, got count %d", count)
 	}
+
+	finalIDs, err := q.FinalSitInSessionIDs(ctx, []pgtype.UUID{fromSitInCourse, earlierFinalDaySitInSession, finalSitInSession}, "Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotFinal := make(map[string]struct{}, len(finalIDs))
+	for _, id := range finalIDs {
+		gotFinal[id.String()] = struct{}{}
+	}
+	if _, ok := gotFinal[earlierFinalDaySitInSession.String()]; !ok {
+		t.Fatal("expected all sessions on the final institute-local day to be marked final")
+	}
+	if _, ok := gotFinal[finalSitInSession.String()]; !ok {
+		t.Fatal("expected the last session to be marked final")
+	}
+	if _, ok := gotFinal[fromSitInCourse.String()]; ok {
+		t.Fatal("expected a session before a later target date to remain selectable")
+	}
 }
 
 func TestSitInCandidateSessionsAllowsAnyNonOverlappingDate(t *testing.T) {

@@ -16,7 +16,7 @@ describe("StepProgress", () => {
     render(<StepProgress steps={steps} currentStep={2} onStepClick={onStepClick} />);
 
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(screen.getByText("Step 3 of 4: Classes")).toBeInTheDocument();
+    expect(screen.getByText(/Step 3 of 4/)).toHaveTextContent("Step 3 of 4: Classes");
     expect(screen.getByRole("button", { name: /Classes.*current/i })).toHaveTextContent("3");
     expect(screen.getByRole("button", { name: /Student.*completed/i })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: /Review/i })).toHaveTextContent("4");

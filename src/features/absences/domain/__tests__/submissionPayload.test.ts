@@ -268,7 +268,7 @@ describe("absence submission payload builder", () => {
                 merge_group_id: "merge-target",
                 merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
               },
-              available_sessions: [{ id: "sit-writing", course_id: "target-writing", start_at: "2026-06-03T11:00:00+07:00", end_at: "2026-06-03T12:00:00+07:00" }],
+              available_sessions: [{ id: "sit-writing", course_id: "target-writing", start_at: "2026-06-03T09:30:00+07:00", end_at: "2026-06-03T10:30:00+07:00" }],
             },
           ],
         },
@@ -749,6 +749,66 @@ describe("absence submission payload builder", () => {
       ok: false,
       error:
         "Mathematics sit-in session conflicts with another class. Please select a different make-up time.",
+    });
+  });
+
+  it("rejects different selected make-up sessions whose times overlap", () => {
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [
+        {
+          ...baseGroup,
+          subject_id: "subject-one",
+          course_id: "course-one",
+          sessions: [{
+            ...baseGroup.sessions[0],
+            id: "missed-one",
+            start_at: "2026-10-10T09:00:00+07:00",
+            end_at: "2026-10-10T10:00:00+07:00",
+            date: "2026-10-10",
+          }],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-one", code: "T1", name: "Target one", merge_group_id: "shared-target" },
+            available_sessions: [{
+              id: "makeup-one",
+              start_at: "2026-10-13T13:00:00+07:00",
+              end_at: "2026-10-13T14:00:00+07:00",
+            }],
+          },
+        },
+        {
+          ...baseGroup,
+          subject_id: "subject-two",
+          course_id: "course-two",
+          sessions: [{
+            ...baseGroup.sessions[0],
+            id: "missed-two",
+            start_at: "2026-10-11T09:00:00+07:00",
+            end_at: "2026-10-11T10:00:00+07:00",
+            date: "2026-10-11",
+          }],
+          sit_in: {
+            sit_in_method: "physical",
+            sit_in_course: { id: "target-two", code: "T2", name: "Target two", merge_group_id: "shared-target" },
+            available_sessions: [{
+              id: "makeup-two",
+              start_at: "2026-10-13T13:30:00+07:00",
+              end_at: "2026-10-13T14:30:00+07:00",
+            }],
+          },
+        },
+      ],
+      selectedSubjectIds: ["subject-one", "subject-two"],
+      selectedSessionIds: new Set(["missed-one", "missed-two"]),
+      sitInSelections: { "missed-one": "makeup-one", "missed-two": "makeup-two" },
+      reason: "Medical",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Mathematics sit-in session overlaps another selected make-up. Please select a different time.",
     });
   });
 

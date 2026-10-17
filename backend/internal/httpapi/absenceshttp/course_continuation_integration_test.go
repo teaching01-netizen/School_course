@@ -362,6 +362,97 @@ func TestCourseContinuationSitInOffersBothIDs(t *testing.T) {
 	}
 }
 
+func TestLegacyPrioritySitInFiltersExpectedSiblingSession(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL to run DB integration tests")
+	}
+	migrateUpOncePending(t, databaseURL)
+	pool := newPoolPending(t, databaseURL)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	q := sqldb.New(pool)
+
+	suffix := uuid.NewString()[:8]
+	wcode := "wprio" + suffix
+	cycleID := "CY-PRIO-" + suffix
+	var studentID, subjectID, teacherID, siblingTeacherID, targetTeacherID, ruleID, rootID, missedID, siblingID, targetID, mergeID uuid.UUID
+	scan := func(dst any, sql string, args ...any) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, sql, args...).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan(&studentID, `INSERT INTO students (wcode, full_name) VALUES ($1, 'Priority overlap') RETURNING id`, wcode)
+	scan(&subjectID, `INSERT INTO subjects (code, name) VALUES ($1, 'Priority overlap') RETURNING id`, "PSUBJ-"+suffix)
+	scan(&teacherID, `INSERT INTO users (username, role, password_hash) VALUES ($1, 'Teacher', 'x') RETURNING id`, "teacher-prio-"+suffix)
+	scan(&siblingTeacherID, `INSERT INTO users (username, role, password_hash) VALUES ($1, 'Teacher', 'x') RETURNING id`, "teacher-prio-sib-"+suffix)
+	scan(&targetTeacherID, `INSERT INTO users (username, role, password_hash) VALUES ($1, 'Teacher', 'x') RETURNING id`, "teacher-prio-target-"+suffix)
+	scan(&ruleID, `INSERT INTO sit_in_rules (name, type, predicate) VALUES ($1, 'level_ladder',
+		'{"level_1_action":"zoom","non_max_direction":"sit_higher","max_direction":"sit_lower","min_level_for_sit_lower":2}'::jsonb) RETURNING id`, "ladder-prio-"+suffix)
+	scan(&rootID, `INSERT INTO root_course_groups (name) VALUES ($1) RETURNING id`, "Priority root "+suffix)
+	if _, err := pool.Exec(ctx, `INSERT INTO crm_cycles (id, label) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`, cycleID); err != nil {
+		t.Fatal(err)
+	}
+	newCourse := func(dst *uuid.UUID, code string, level int) {
+		t.Helper()
+		scan(dst, `INSERT INTO courses (code, name, subject_id, cycle_id, level, root_course_group_id)
+			VALUES ($1, $1, $2, $3, $4, $5) RETURNING id`, code+"-"+suffix, subjectID, cycleID, level, rootID)
+	}
+	newCourse(&missedID, "PRIO-MISSED", 2)
+	newCourse(&siblingID, "PRIO-SIBLING", 3)
+	newCourse(&targetID, "PRIO-TARGET", 4)
+	if _, err := pool.Exec(ctx, `INSERT INTO course_students (course_id, student_id, status) VALUES ($1, $2, 'enrolled')`, missedID, studentID); err != nil {
+		t.Fatal(err)
+	}
+	scan(&mergeID, `INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id`, "priority-merge-"+suffix)
+	for i, courseID := range []uuid.UUID{missedID, siblingID} {
+		if _, err := pool.Exec(ctx, `INSERT INTO course_merge_group_members (group_id, course_id, position) VALUES ($1, $2, $3)`, mergeID, courseID, i+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE course_merge_groups SET rule_source_course_id = $2 WHERE id = $1`, mergeID, missedID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO sit_in_priorities (root_course_group_id, sit_in_rule_id, priority_level, label) VALUES ($1, $2, 1, 'first choice')`, rootID, ruleID); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Date(2026, 10, 13, 0, 0, 0, 0, time.FixedZone("ICT", 7*60*60))
+	addSession := func(courseID, sessionTeacherID uuid.UUID, start time.Time, duration time.Duration) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		scan(&id, `INSERT INTO sessions (course_id, teacher_id, start_at, end_at) VALUES ($1, $2, $3, $4) RETURNING id`, courseID, sessionTeacherID, start, start.Add(duration))
+		return id
+	}
+	addSession(missedID, teacherID, day.Add(9*time.Hour), time.Hour)
+	addSession(siblingID, siblingTeacherID, day.Add(13*time.Hour), time.Hour) // expected sibling class blocks the overlapping option
+	overlapID := addSession(targetID, targetTeacherID, day.Add(13*time.Hour), time.Hour)
+	adjacentID := addSession(targetID, targetTeacherID, day.Add(14*time.Hour), time.Hour)
+
+	result, err := resolveSitInForCourse(ctx, q, wcode,
+		pgtype.UUID{Bytes: missedID, Valid: true}, pgtype.UUID{Bytes: subjectID, Valid: true},
+		day, day.Add(24*time.Hour), "Asia/Bangkok", 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || len(result.Priorities) != 1 {
+		t.Fatalf("priority result = %+v, want one priority", result)
+	}
+	priority := result.Priorities[0]
+	if len(priority.Available) != 1 || priority.Available[0].ID != adjacentID.String() {
+		t.Fatalf("priority available = %+v, want only the adjacent session %s", priority.Available, adjacentID)
+	}
+	foundOverlap := false
+	for _, unavailable := range priority.Unavailable {
+		if unavailable.Session != nil && unavailable.Session.ID == overlapID.String() && unavailable.ReasonCode == "overlaps_expected_class" {
+			foundOverlap = true
+		}
+	}
+	if !foundOverlap {
+		t.Fatalf("priority unavailable = %+v, want overlapping session %s with expected-class reason", priority.Unavailable, overlapID)
+	}
+}
+
 func TestBundleTargetSessionsMergesContinuationOnly(t *testing.T) {
 	id := func(b byte) pgtype.UUID { return pgtype.UUID{Bytes: [16]byte{b}, Valid: true} }
 	key := uuidStringOrZero

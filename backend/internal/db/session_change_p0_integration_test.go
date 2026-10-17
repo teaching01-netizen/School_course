@@ -34,6 +34,9 @@ func newImpactFixture(t *testing.T, q *Queries) impactFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := q.StudentCreate(ctx, StudentCreateParams{Wcode: "IMPACT-" + suffix, FullName: "Impact student " + suffix}); err != nil {
+		t.Fatal(err)
+	}
 	startAt := pgtype.Timestamptz{Time: time.Date(2030, 1, 1, 9, 0, 0, 0, time.UTC), Valid: true}
 	endAt := pgtype.Timestamptz{Time: time.Date(2030, 1, 1, 10, 0, 0, 0, time.UTC), Valid: true}
 	session, err := q.SessionCreate(ctx, SessionCreateParams{CourseID: course.ID, RoomID: room.ID, TeacherID: teacherID, StartAt: startAt, EndAt: endAt})

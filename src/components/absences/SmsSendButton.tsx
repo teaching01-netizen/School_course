@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import clsx from "clsx";
 
 type SmsSendButtonProps = {
@@ -9,6 +9,7 @@ type SmsSendButtonProps = {
   onClick: () => void;
   cooldownDuration?: number;
   parentPhoneMissing?: boolean;
+  publicForm?: boolean;
 };
 
 function ProgressRing({ progress }: { progress: number }) {
@@ -72,7 +73,9 @@ export default function SmsSendButton({
   onClick,
   cooldownDuration = 5 * 60,
   parentPhoneMissing = false,
+  publicForm = false,
 }: SmsSendButtonProps) {
+  const reduceMotion = useReducedMotion();
   const [cooldown, setCooldown] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cooldownKeyRef = useRef(0);
@@ -134,10 +137,10 @@ export default function SmsSendButton({
         {isSending ? (
           <motion.span
             key="sending"
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
             <Spinner />
@@ -146,22 +149,22 @@ export default function SmsSendButton({
         ) : onCooldown ? (
           <motion.span
             key="cooldown"
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
-            <ProgressRing progress={progress} />
-            <span className="tabular-nums">Resend in {cooldown}s</span>
+            {!publicForm ? <ProgressRing progress={progress} /> : null}
+            <span className="tabular-nums">Resend in {publicForm ? `${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}` : `${cooldown}s`}</span>
           </motion.span>
         ) : (
           <motion.span
             key={sendCount > 0 ? "resend" : "send"}
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
             className="inline-flex items-center gap-2"
           >
             {sendCount > 0 ? "Resend code" : "Send code"}

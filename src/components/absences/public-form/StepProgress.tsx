@@ -61,8 +61,8 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
         })}
       </ol>
 
-      <p className="mt-3 text-center text-sm font-semibold text-[var(--color-wi-text)] sm:hidden">
-        Step {currentStep + 1} of {steps.length}: {steps[currentStep]?.label}
+      <p className="absence-step-progress__position mt-3 text-center text-sm font-semibold text-[var(--color-wi-text)] sm:hidden">
+        Step {currentStep + 1} of {steps.length}<span className="absence-step-progress__name">: {steps[currentStep]?.label}</span>
       </p>
     </nav>
   );

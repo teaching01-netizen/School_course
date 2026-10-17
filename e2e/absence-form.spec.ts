@@ -57,7 +57,7 @@ test("quota rejection keeps the reviewed absence available for correction", asyn
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   const makeUpSelect = page.getByRole("combobox");
   if (await makeUpSelect.isVisible()) {
@@ -65,7 +65,7 @@ test("quota rejection keeps the reviewed absence available for correction", asyn
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
@@ -97,7 +97,7 @@ test("duplicate submit taps create one logical absence request", async ({ page }
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   const makeUpSelect = page.getByRole("combobox");
   if (await makeUpSelect.isVisible()) {
@@ -105,7 +105,7 @@ test("duplicate submit taps create one logical absence request", async ({ page }
   } else {
     await page.getByRole("button", { name: /choose a make-up class/i }).click();
     const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.getByRole("radio").first().check();
+    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
     await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
   }
   await page.getByLabel(/reason for absence/i).fill("Double tap regression");
@@ -129,7 +129,7 @@ test("missing make-up selection focuses the visible control", async ({ page }) =
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
-  await selectAbsenceCheckbox(page, "subject-subject-math");
+  await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   await page.getByRole("button", { name: "Review absence" }).click();
 

@@ -31,15 +31,16 @@ type CourseMergeGroupConfigRow struct {
 }
 
 type CourseMergeGroupScopeForCourseRow struct {
-	ID          pgtype.UUID
-	Name        string
-	SitInRuleID pgtype.UUID
-	CourseIDs   []pgtype.UUID
+	ID                 pgtype.UUID
+	Name               string
+	SitInRuleID        pgtype.UUID
+	RuleSourceCourseID pgtype.UUID
+	CourseIDs          []pgtype.UUID
 }
 
 func (q *Queries) CourseMergeGroupScopeForCourse(ctx context.Context, courseID pgtype.UUID) (CourseMergeGroupScopeForCourseRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT g.id, g.name, g.sit_in_rule_id, m.course_id
+		SELECT g.id, g.name, g.sit_in_rule_id, g.rule_source_course_id, m.course_id
 		FROM course_merge_groups g
 		JOIN course_merge_group_members m ON m.group_id = g.id
 		WHERE g.id = (
@@ -59,14 +60,16 @@ func (q *Queries) CourseMergeGroupScopeForCourse(ctx context.Context, courseID p
 		var groupID pgtype.UUID
 		var name string
 		var sitInRuleID pgtype.UUID
+		var ruleSourceCourseID pgtype.UUID
 		var memberCourseID pgtype.UUID
-		if err := rows.Scan(&groupID, &name, &sitInRuleID, &memberCourseID); err != nil {
+		if err := rows.Scan(&groupID, &name, &sitInRuleID, &ruleSourceCourseID, &memberCourseID); err != nil {
 			return CourseMergeGroupScopeForCourseRow{}, err
 		}
 		if !item.ID.Valid {
 			item.ID = groupID
 			item.Name = name
 			item.SitInRuleID = sitInRuleID
+			item.RuleSourceCourseID = ruleSourceCourseID
 		}
 		item.CourseIDs = append(item.CourseIDs, memberCourseID)
 	}

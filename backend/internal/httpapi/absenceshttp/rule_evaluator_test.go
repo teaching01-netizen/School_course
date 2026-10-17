@@ -412,9 +412,10 @@ func TestEvaluateRule_CrossSection_NoSiblings(t *testing.T) {
 	}`)
 
 	input := EvaluateRuleInput{
-		RuleType:     "cross_section",
-		Predicate:    predicate,
-		StudentLevel: 2,
+		RuleType:       "cross_section",
+		Predicate:      predicate,
+		StudentLevel:   2,
+		MissedCourseID: courseV2("10000000-0000-0000-0000-000000000001", 2).ID,
 		AllCourses: []sqldb.SubjectCourseV2{
 			courseV2("10000000-0000-0000-0000-000000000001", 2),
 		},
@@ -454,9 +455,10 @@ func TestEvaluateRule_CrossSection_HasSiblings(t *testing.T) {
 	}`)
 
 	input := EvaluateRuleInput{
-		RuleType:     "cross_section",
-		Predicate:    predicate,
-		StudentLevel: 2,
+		RuleType:       "cross_section",
+		Predicate:      predicate,
+		StudentLevel:   2,
+		MissedCourseID: courseV2(c1, 2).ID,
 		AllCourses: []sqldb.SubjectCourseV2{
 			courseV2(c1, 2),
 			courseV2(c2, 2),
@@ -476,6 +478,34 @@ func TestEvaluateRule_CrossSection_HasSiblings(t *testing.T) {
 	}
 	if output.Direction != "same_section" {
 		t.Fatalf("expected direction=same_section, got %s", output.Direction)
+	}
+	if output.TargetCourseID == nil || *output.TargetCourseID != courseV2(c2, 2).ID {
+		t.Fatalf("cross-section selected missed course or wrong sibling: %#v", output.TargetCourseID)
+	}
+}
+
+func TestEvaluateRule_CrossSection_ExcludesContinuationAlias(t *testing.T) {
+	missedCourse := courseV2("10000000-0000-0000-0000-000000000001", 2)
+	continuationAlias := courseV2("20000000-0000-0000-0000-000000000002", 2)
+	continuationID := uuidFromString("30000000-0000-0000-0000-000000000003")
+	missedCourse.MergeGroupID = continuationID
+	continuationAlias.MergeGroupID = continuationID
+	otherSibling := courseV2("40000000-0000-0000-0000-000000000004", 2)
+
+	input := EvaluateRuleInput{
+		RuleType:                   RuleTypeCrossSection,
+		StudentLevel:               2,
+		MissedCourseID:             missedCourse.ID,
+		MissedCourseMergeGroupID:   continuationID,
+		MissedCourseIsContinuation: true,
+		AllCourses:                 []sqldb.SubjectCourseV2{missedCourse, continuationAlias, otherSibling},
+	}
+	output, err := EvaluateRule(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !output.Eligible || output.TargetCourseID == nil || *output.TargetCourseID != otherSibling.ID {
+		t.Fatalf("cross-section target = %#v, expected the unrelated sibling", output)
 	}
 }
 

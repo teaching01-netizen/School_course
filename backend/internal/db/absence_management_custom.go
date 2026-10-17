@@ -1302,6 +1302,90 @@ func (q *Queries) SitInConflictSessionsForStudent(ctx context.Context, studentID
 	return out, rows.Err()
 }
 
+// ExpectedSessionConflictsForStudentCandidates returns every expected regular
+// class that overlaps one of the supplied sit-in sessions. Candidate IDs are
+// policy output; attendance scope comes from effective enrollment and the same
+// institute-timezone predicate used by final candidate validation.
+func (q *Queries) ExpectedSessionConflictsForStudentCandidates(ctx context.Context, studentID pgtype.UUID, candidateSessionIDs []pgtype.UUID, instituteTZ string) ([]SessionInRange, error) {
+	if len(candidateSessionIDs) == 0 {
+		return nil, nil
+	}
+	if instituteTZ == "" {
+		instituteTZ = "Asia/Bangkok"
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT DISTINCT normal.id, normal.course_id, normal.room_id, normal.start_at, normal.end_at
+		FROM sessions candidate
+		JOIN effective_course_students enrolled
+		  ON enrolled.student_id = $1 AND enrolled.status = 'enrolled'
+		JOIN sessions normal
+		  ON normal.course_id = enrolled.course_id AND normal.deleted_at IS NULL
+		WHERE candidate.id = ANY($2::uuid[])
+		  AND candidate.deleted_at IS NULL
+		  AND normal.id <> candidate.id
+		  AND student_is_expected_at_session_tz($1, normal.id, $3)
+		  AND candidate.start_at < normal.end_at
+		  AND candidate.end_at > normal.start_at
+		ORDER BY normal.start_at, normal.id
+	`, studentID, candidateSessionIDs, instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SessionInRange
+	for rows.Next() {
+		var item SessionInRange
+		if err := rows.Scan(&item.ID, &item.CourseID, &item.RoomID, &item.StartAt, &item.EndAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (q *Queries) FinalSitInSessionIDs(ctx context.Context, candidateSessionIDs []pgtype.UUID, instituteTZ string) ([]pgtype.UUID, error) {
+	if len(candidateSessionIDs) == 0 {
+		return nil, nil
+	}
+	if instituteTZ == "" {
+		instituteTZ = "Asia/Bangkok"
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT candidate.id
+		FROM sessions candidate
+		WHERE candidate.id = ANY($1::uuid[])
+		  AND candidate.deleted_at IS NULL
+		  AND NOT EXISTS (
+		    SELECT 1
+		    FROM sessions later
+		    WHERE later.course_id = candidate.course_id
+		      AND later.deleted_at IS NULL
+		      AND (later.start_at AT TIME ZONE $2)::date >
+		          (candidate.start_at AT TIME ZONE $2)::date
+		  )
+		ORDER BY candidate.id
+	`, candidateSessionIDs, instituteTZ)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type SitInCandidateSession struct {
 	ID           pgtype.UUID
 	CourseID     pgtype.UUID

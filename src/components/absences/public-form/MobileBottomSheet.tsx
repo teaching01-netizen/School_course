@@ -1,4 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useVisualViewport } from "@/hooks/useVisualViewport";
 
 export type MobileBottomSheetProps = {
   open: boolean;
@@ -6,11 +7,21 @@ export type MobileBottomSheetProps = {
   onClose: () => void;
   children: ReactNode;
   restoreFocusRef?: RefObject<HTMLElement | null>;
+  publicForm?: boolean;
+  description?: string;
+  toolbar?: ReactNode;
+  footer?: ReactNode;
 };
 
-export default function MobileBottomSheet({ open, title, onClose, children, restoreFocusRef }: MobileBottomSheetProps) {
+export default function MobileBottomSheet(props: MobileBottomSheetProps) {
+  return props.open ? <OpenMobileBottomSheet {...props} /> : null;
+}
+
+function OpenMobileBottomSheet({ title, onClose, children, restoreFocusRef, publicForm = false, description, toolbar, footer }: MobileBottomSheetProps) {
+  const viewport = useVisualViewport();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const titleId = useId();
+  const descriptionId = useId();
   const onCloseRef = useRef(onClose);
 
   useEffect(() => {
@@ -19,14 +30,14 @@ export default function MobileBottomSheet({ open, title, onClose, children, rest
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
-    if (!dialog || !open) return;
+    if (!dialog) return;
 
     const previousFocus = restoreFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const focusInitialControl = () => {
-      const target = dialog.querySelector<HTMLElement>(
-        '[data-sheet-initial-focus], button:not([aria-label="Close sheet"]), input, select, textarea, [tabindex="0"]',
+      const target = dialog.querySelector<HTMLElement>('[data-sheet-initial-focus]') ?? dialog.querySelector<HTMLElement>(
+        'button:not([aria-label="Close sheet"]), input, select, textarea, [tabindex="0"]',
       );
-      target?.focus();
+      target?.focus({ preventScroll: true });
     };
     const handleCancel = (event: Event) => {
       event.preventDefault();
@@ -35,7 +46,7 @@ export default function MobileBottomSheet({ open, title, onClose, children, rest
     const handleBackdropClick = (event: MouseEvent) => {
       const bounds = dialog.getBoundingClientRect();
       const clickedOutside = event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
-      if (clickedOutside) onCloseRef.current();
+      if (clickedOutside || event.target === dialog) onCloseRef.current();
     };
     const handleFocusIn = (event: FocusEvent) => {
       if (!dialog.contains(event.target as Node)) focusInitialControl();
@@ -52,10 +63,13 @@ export default function MobileBottomSheet({ open, title, onClose, children, rest
       dialog.setAttribute("open", "");
     }
     focusInitialControl();
-    window.requestAnimationFrame(focusInitialControl);
+    const initialFrame = window.requestAnimationFrame(() => {
+      if (!dialog.contains(document.activeElement)) focusInitialControl();
+    });
 
     return () => {
       dialog.removeEventListener("cancel", handleCancel);
+      window.cancelAnimationFrame(initialFrame);
       dialog.removeEventListener("click", handleBackdropClick);
       document.removeEventListener("focusin", handleFocusIn);
       if (dialog.open) {
@@ -66,23 +80,31 @@ export default function MobileBottomSheet({ open, title, onClose, children, rest
         else if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
       };
       restoreFocus();
-      window.requestAnimationFrame(restoreFocus);
     };
-  }, [open, restoreFocusRef]);
-
-  if (!open) return null;
+  }, [restoreFocusRef]);
 
   return (
-    <dialog ref={dialogRef} open role="dialog" aria-modal="true" aria-labelledby={titleId} className="absence-mobile-sheet">
+    <dialog
+      ref={dialogRef} open role="dialog" aria-modal="true" aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      data-form-mode={publicForm ? "public" : undefined}
+      className="absence-mobile-sheet"
+      style={{ "--absence-sheet-height": `${viewport.height}px`, "--absence-sheet-offset": `${viewport.offsetTop}px` } as CSSProperties}
+    >
       <div className="absence-mobile-sheet__surface">
-        <div className="absence-mobile-sheet__handle" aria-hidden="true" />
-        <div className="flex items-start justify-between gap-4">
-          <h2 id={titleId} className="text-lg font-semibold text-[var(--color-wi-text)]">{title}</h2>
-          <button type="button" onClick={() => onCloseRef.current()} aria-label="Close sheet" className="min-h-11 min-w-11 rounded-full text-2xl leading-none text-[var(--color-wi-text-light)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
-            <span aria-hidden="true">×</span>
-          </button>
+        {!publicForm ? <div className="absence-mobile-sheet__handle" aria-hidden="true" /> : null}
+        <div className="absence-mobile-sheet__header">
+          <div className="flex items-start justify-between gap-3">
+            <h2 id={titleId} tabIndex={publicForm ? -1 : undefined} data-sheet-initial-focus={publicForm ? true : undefined} className="min-w-0 text-lg font-semibold text-[var(--color-wi-text)] outline-none">{title}</h2>
+            <button type="button" onClick={() => onCloseRef.current()} aria-label={publicForm ? "Cancel" : "Close sheet"} className="min-h-11 min-w-11 shrink-0 rounded-lg px-2 text-base font-medium text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">
+              {publicForm ? "Cancel" : <span aria-hidden="true">×</span>}
+            </button>
+          </div>
+          {description ? <p id={descriptionId} className="mt-2 text-sm text-[var(--color-wi-text-light)]">{description}</p> : null}
         </div>
-        <div className="mt-5 max-h-[min(62dvh,34rem)] overflow-y-auto pr-1">{children}</div>
+        {toolbar ? <div className="absence-mobile-sheet__toolbar">{toolbar}</div> : null}
+        <div className="absence-mobile-sheet__body mt-5 max-h-[min(62dvh,34rem)] overflow-y-auto pr-1">{children}</div>
+        {footer ? <div className="absence-mobile-sheet__footer">{footer}</div> : null}
       </div>
     </dialog>
   );

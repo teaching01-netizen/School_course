@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -138,35 +139,59 @@ type sitInSessionAlreadyUsedError struct {
 }
 
 func (e *sitInSessionAlreadyUsedError) Error() string {
-	return "This sit-in session is already assigned to this student's absence. Choose another session."
+	return "A selected sit-in session is already assigned or overlaps another sit-in for this student. Choose another session."
 }
 
-func ensureSitInSessionsAvailable(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, sessionIDs []pgtype.UUID) error {
+func ensureSitInSessionsAvailable(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, sessionIDs []pgtype.UUID, excludeAbsenceID ...pgtype.UUID) error {
 	if len(sessionIDs) == 0 {
 		return nil
 	}
-	used, err := q.ActiveSitInSessionIDsForStudentCandidates(ctx, studentID, sessionIDs)
+	var excluded pgtype.UUID
+	if len(excludeAbsenceID) > 0 {
+		excluded = excludeAbsenceID[0]
+	}
+	booked, err := q.ActiveSitInSessionCandidateConflictsForStudent(ctx, studentID, sessionIDs, excluded)
 	if err != nil {
 		return err
 	}
-	if len(used) == 0 {
+	conflictingIDs := make(map[string]struct{})
+	conflictInfoByCandidate := make(map[string]*sitInSessionConflictInfo)
+	for _, item := range booked {
+		candidateID := item.CandidateSessionID.String()
+		conflictingIDs[candidateID] = struct{}{}
+		if _, exists := conflictInfoByCandidate[candidateID]; !exists {
+			conflictInfoByCandidate[candidateID] = sitInConflictInfo(item.Existing)
+		}
+	}
+	intervals, err := q.SitInCandidateSessionIntervals(ctx, sessionIDs)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(intervals); i++ {
+		for j := i + 1; j < len(intervals); j++ {
+			if timesOverlap(intervals[i].StartAt, intervals[i].EndAt, intervals[j].StartAt, intervals[j].EndAt) {
+				sameMergedMeeting := intervals[i].ID.Bytes != intervals[j].ID.Bytes &&
+					intervals[i].MergeGroupID.Valid && intervals[j].MergeGroupID.Valid &&
+					intervals[i].MergeGroupID.Bytes == intervals[j].MergeGroupID.Bytes
+				if sameMergedMeeting {
+					continue
+				}
+				conflictingIDs[intervals[i].ID.String()] = struct{}{}
+				conflictingIDs[intervals[j].ID.String()] = struct{}{}
+			}
+		}
+	}
+	if len(conflictingIDs) == 0 {
 		return nil
 	}
-	conflicts := make([]string, 0, len(used))
-	for _, sessionID := range used {
-		conflicts = append(conflicts, sessionID.String())
+	conflicts := make([]string, 0, len(conflictingIDs))
+	for id := range conflictingIDs {
+		conflicts = append(conflicts, id)
 	}
-	details, detailErr := q.ActiveSitInSessionConflictsForStudent(ctx, studentID)
-	if detailErr != nil {
-		return detailErr
-	}
-	bySession := make(map[string]*sitInSessionConflictInfo, len(details))
-	for _, detail := range details {
-		bySession[detail.SessionID.String()] = sitInConflictInfo(detail)
-	}
+	sort.Strings(conflicts)
 	conflictDetails := make([]*sitInSessionConflictInfo, 0, len(conflicts))
-	for _, sessionID := range conflicts {
-		conflictDetails = append(conflictDetails, bySession[sessionID])
+	for _, id := range conflicts {
+		conflictDetails = append(conflictDetails, conflictInfoByCandidate[id])
 	}
 	return &sitInSessionAlreadyUsedError{SessionIDs: conflicts, Conflicts: conflictDetails}
 }
@@ -208,11 +233,11 @@ func (s *server) writeSitInSessionConflict(w http.ResponseWriter, err error) boo
 // by the time we re-check here, any concurrent same-student insert has either
 // committed (we see it and 409) or is blocked behind our student lock.
 // Returns true when the caller should abort with the conflict already written.
-func (s *server) recheckSitInSessionsHeld(w http.ResponseWriter, r *http.Request, qtx *sqldb.Queries, studentID pgtype.UUID, sessionUUIDs []pgtype.UUID) bool {
+func (s *server) recheckSitInSessionsHeld(w http.ResponseWriter, r *http.Request, qtx *sqldb.Queries, studentID pgtype.UUID, sessionUUIDs []pgtype.UUID, excludeAbsenceID ...pgtype.UUID) bool {
 	if len(sessionUUIDs) == 0 {
 		return false
 	}
-	if err := ensureSitInSessionsAvailable(r.Context(), qtx, studentID, sessionUUIDs); err != nil {
+	if err := ensureSitInSessionsAvailable(r.Context(), qtx, studentID, sessionUUIDs, excludeAbsenceID...); err != nil {
 		if s.writeSitInSessionConflict(w, err) {
 			return true
 		}

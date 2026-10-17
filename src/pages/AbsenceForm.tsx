@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft, LoaderCircle } from "lucide-react";
+import { ChevronDown, ChevronLeft, LoaderCircle } from "lucide-react";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
@@ -230,6 +230,7 @@ function makeUpPickerOptions(
       value: mergedSessionValue(optionGroup.items),
       label: display.className,
       details: formatSitInDisplayDetails(display),
+      display,
       disabled: conflicts.length > 0 || historicalUnavailable || duplicateSelection,
       description: message,
       conflictDetails: conflictDetails ?? duplicateDetails,
@@ -280,6 +281,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   // mirroring the privacy rule for the enrolled parent phone.
   const [nickname, setNickname] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
+  const [showClassValidation, setShowClassValidation] = useState(false);
   const [sessions, setSessions] = useState<SubjectSessions[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -297,6 +299,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   const [finalResults, setFinalResults] = useState<ManagedAbsence[] | null>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const pageAlertRef = useRef<HTMLDivElement | null>(null);
+  const navigationFocusRef = useRef<string | null>(null);
 
   const selectedSubjectIdSet = useMemo(() => new Set(selectedSubjectIds), [selectedSubjectIds]);
   const selectedAbsenceDayCount = useMemo(
@@ -623,6 +626,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     const requestId = ++lookupRequestId.current;
     const cleaned = normalizeLookupWcode(lookupInput);
     setLookupError(null);
+    setShowClassValidation(false);
     if (!isStaff) clearStudentSessionHint();
     setLookup(null);
     setStudentProfile(null);
@@ -780,12 +784,18 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
   };
 
-  const goToStep = useCallback((next: StepIndex) => {
+  const goToStep = useCallback((next: StepIndex, focusId?: string) => {
+    navigationFocusRef.current = focusId ?? null;
     setPageError(null);
     setSubmissionError(null);
     setStep(next);
     try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { }
   }, []);
+
+  useEffect(() => {
+    const main = document.getElementById("absence-form-content");
+    if (main) main.scrollTop = 0;
+  }, [step]);
 
   useEffect(() => {
     if (!pageError && !submissionError) return;
@@ -802,31 +812,42 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       hasFocusedInitiallyRef.current = true;
       return;
     }
-    window.requestAnimationFrame(() => {
+    const frame = window.requestAnimationFrame(() => {
       const main = document.getElementById("absence-form-content");
       if (!main) return;
+      const requestedTarget = navigationFocusRef.current && document.getElementById(navigationFocusRef.current);
+      if (requestedTarget) {
+        navigationFocusRef.current = null;
+        requestedTarget.focus();
+        requestedTarget.scrollIntoView?.({ block: "nearest" });
+        return;
+      }
       const active = document.activeElement;
       if (active instanceof HTMLElement && active !== document.body && main.contains(active)) return;
       main.focus();
     });
-  }, [step]);
+    return () => window.cancelAnimationFrame(frame);
+  }, [step, sessionsLoading]);
 
   useEffect(() => {
     if (finalResults) resultHeadingRef.current?.focus();
   }, [finalResults]);
 
-  function focusFirstInvalid(selector: string) {
+  function focusFirstInvalid(selector: string, scopeId?: string) {
     window.requestAnimationFrame(() => {
-      const candidates = [...document.querySelectorAll<HTMLElement>(selector)];
+      const scope = scopeId ? document.getElementById(scopeId) : document;
+      const candidates = [...(scope?.querySelectorAll<HTMLElement>(selector) ?? [])];
       const target = candidates.find((candidate) => {
         const styles = window.getComputedStyle(candidate);
         return styles.display !== "none" && styles.visibility !== "hidden" && candidate.getClientRects().length > 0;
       }) ?? candidates[0];
       target?.focus();
+      target?.scrollIntoView?.({ block: "nearest" });
     });
   }
 
   function validateClasses() {
+    setShowClassValidation(true);
     setPageError(null);
     setReasonError(null);
     if (selectedSubjectIds.length === 0) {
@@ -866,7 +887,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         selectedSubjectIds.includes(group.subject_id) && group.sessions.some((session) =>
           selectedSessionIds.has(session.id) && sitInForMissedSession(group, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]));
       setExpandedSubjectId(invalidGroup?.subject_id ?? selectedSubjectIds[0] ?? null);
-      focusFirstInvalid('[data-make-up-trigger], select[aria-label*="make-up" i], select');
+      const invalidSession = invalidGroup?.sessions.find((session) =>
+        selectedSessionIds.has(session.id) && sitInForMissedSession(invalidGroup, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]);
+      focusFirstInvalid('[data-make-up-trigger], select', invalidSession ? `sit-in-${invalidSession.id}-field` : undefined);
       return false;
     }
     if (!reason.trim()) {
@@ -1048,7 +1071,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
     const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
     return (
-      <div className="min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
+      <div data-form-mode={mode} className="absence-receipt min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
         <div className="mx-auto max-w-lg space-y-6">
           <div className="rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">
             <div className="flex items-center gap-3">
@@ -1081,7 +1104,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         <p className="text-sm font-semibold text-[var(--color-wi-text)]">{group.label}</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
+                    <div className="absence-receipt__pair mt-3 flex gap-4 text-sm text-[var(--color-wi-text-light)]">
                       <p><span className="font-medium text-[var(--color-wi-text)]">Absence:</span> {formatSubmittedAbsenceSummary(group)}</p>
                       <p><span className="font-medium text-[var(--color-wi-text)]">Make-up:</span> {formatSubmittedSitInSummary(group)}</p>
                     </div>
@@ -1143,6 +1166,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   if (configLoading) {
     return (
       <AbsenceAppShell
+        mode={mode}
         header={<AbsenceAppHeader steps={STEP_LABELS} currentStep={0} />}
         footer={
           <AbsenceActionBar
@@ -1163,6 +1187,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
 
   return (
     <AbsenceAppShell
+      mode={mode}
       header={
         <AbsenceAppHeader
           steps={STEP_LABELS}
@@ -1181,7 +1206,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         />
       }
     >
-      <div className="mx-auto w-full max-w-3xl py-6">
+      <div className="absence-form-content mx-auto w-full max-w-3xl py-6">
         {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
 
         <p aria-live="polite" className="sr-only">
@@ -1198,6 +1223,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
             {step === 0 && (
               <StudentStep>
                 <div className="space-y-4">
+                  {!isStaff ? <p className="text-base text-[var(--color-wi-text-light)]">Enter your Warwick Student ID to get started.</p> : null}
                   <div>
                     <label htmlFor="wcode-input" className="block text-sm font-semibold text-[var(--color-wi-text)] mb-1.5">
                       Student ID (W-Code)
@@ -1208,6 +1234,11 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               id="wcode-input"
                               className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                               placeholder="e.g. W250389"
+                              required
+                              autoCapitalize="characters"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              enterKeyHint="search"
                           value={lookupInput}
                           onChange={(e) => setLookupInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}
@@ -1246,9 +1277,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               </p>
                             ) : null}
                           </div>
-                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
-                            {isStaff ? "Ready to continue" : "Ready to verify"}
-                          </span>
+                          {isStaff ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">Ready to continue</span> : null}
                         </div>
                         {isStaff ? (
                           <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">
@@ -1262,6 +1291,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                             <input
                               id="student-email"
                               type="email"
+                              required
+                              autoComplete="email"
+                              inputMode="email"
                               className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                               placeholder="e.g. student@example.com"
                               value={collectedEmail}
@@ -1272,6 +1304,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                             {collectedEmail.trim() && !manualEmailValid && (
                               <p id="student-email-error" className="text-xs text-[var(--color-wi-amber)]">Enter a valid email to continue.</p>
                             )}
+                            {!collectedEmail.trim() ? <p className="text-xs text-[var(--color-wi-text-light)]">Enter your email address to continue.</p> : null}
                           </div>
                         ) : (
                           <p className="mt-4 flex items-center gap-1.5 text-xs font-medium text-[var(--color-wi-text)]">
@@ -1301,6 +1334,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     : "No parent phone yet — you'll add it below"}
                 >
                   <StepCoverVerification
+                    publicForm
                     lookupToken={publicLookup.lookup_token}
                     wcode={publicLookup.wcode}
                     parentVerificationAvailable={publicLookup.parent_verification_available}
@@ -1328,14 +1362,15 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                   <div className="absence-classes-layout">
                     <div className="absence-classes-layout__subjects">
                       <section>
-                      <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">Which classes?</h2>
+                      <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">{isStaff ? "Which classes?" : "Select courses"}</h2>
                       {studentProfile && pickerEntries.length > 0 ? (
                         <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
                           {pickerEntries.map((entry) => (
                             <SubjectRow
                               key={entry.key}
                               id={entry.key}
-                              name={appendTeacher(entry.label, entry.teacherName)}
+                              name={isStaff ? appendTeacher(entry.label, entry.teacherName) : entry.label}
+                              detail={!isStaff ? entry.teacherName : undefined}
                               selected={entry.subjectIds.every((id) => selectedSubjectIdSet.has(id))}
                               onToggle={() => togglePickerEntry(entry)}
                             />
@@ -1350,15 +1385,15 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     {selectedSubjectIds.length > 0 ? (
                       <section>
                         <div className="flex items-center justify-between mb-3">
-                          <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Classes to miss</h2>
+                          <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">{isStaff ? "Classes to miss" : "Choose class dates"}</h2>
                           <span aria-live="polite" className="text-xs font-semibold text-[var(--color-wi-text-light)]">
                             {selectedAbsenceDayCount} selected
-                            {selectedSubjectRemainingDays > 0
+                            {isStaff && selectedSubjectRemainingDays > 0
                               ? ` (${selectedSubjectRemainingDays} remaining)`
                               : ""}
                           </span>
                         </div>
-                        <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected classes">
+                        {isStaff ? <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected classes">
                           {selectedBlocks.map((block) => {
                             const selectedForBlock = block.groups
                               .reduce((count, group) => count + countSelectedAbsenceDaysForGroup(group, selectedSessionIds), 0);
@@ -1379,7 +1414,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               </button>
                             );
                           })}
-                        </div>
+                        </div> : null}
                         {sessionsLoading ? (
                           <LoadingSkeleton type="table" lines={3} />
                         ) : sessionsError ? (
@@ -1408,16 +1443,18 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               const quotaGroup = block.groups[0];
                               const quotaExhausted = block.groups.every((group) => group.absence_limit_reached) || groupRemaining === 0;
                               const displayedRemaining = quotaExhausted ? 0 : effectiveRemaining;
+                              const expanded = block.subjectIds.includes(expandedSubjectId ?? "");
                               return (
                                 <div
                                   key={block.key}
                                   id={`class-block-${block.key}`}
+                                  tabIndex={-1}
                                   className={clsx(
-                                    "rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm",
-                                    !block.subjectIds.includes(expandedSubjectId ?? "") && "hidden sm:block",
+                                    "absence-course-block rounded-lg border border-[var(--color-wi-border)] bg-white overflow-hidden shadow-sm",
+                                    isStaff && !expanded && "hidden sm:block",
                                   )}
                                 >
-                                  <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
+                                  {isStaff ? <div className="flex items-center justify-between gap-2 border-b border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-4 py-3">
                                     <span className="text-sm font-semibold text-[var(--color-wi-text)] truncate">{groupLabel} ({sessionGroups.length} class day{sessionGroups.length !== 1 ? "s" : ""})</span>
                                     <span className="text-xs font-semibold text-[var(--color-wi-text-light)] shrink-0">
                                       {quotaExhausted
@@ -1426,8 +1463,29 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                           ? "All remaining days selected"
                                           : `${displayedRemaining} day${displayedRemaining !== 1 ? "s" : ""} remaining`}
                                     </span>
-                                  </div>
-                                  <div className="space-y-2 p-4">
+                                  </div> : (
+                                    <div className="absence-course-heading relative border-b border-[var(--color-wi-line)] p-4 pr-12 sm:pr-4">
+                                      <h3 id={`class-heading-${block.key}`} className="text-base font-semibold text-[var(--color-wi-text)]">{block.label}</h3>
+                                      {block.teacherName ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">{block.teacherName}</p> : null}
+                                      <p id={`class-summary-${block.key}`} className="mt-2 text-xs text-[var(--color-wi-text-light)] sm:hidden">
+                                        {selectedDaysInGroup > 0 ? `${selectedDaysInGroup} class day${selectedDaysInGroup === 1 ? "" : "s"} selected` : expanded ? "Open" : "Choose classes"}
+                                      </p>
+                                      <p id={`class-quota-${block.key}`} className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+                                        {quotaExhausted ? "Absence limit reached" : effectiveRemaining === 0 ? "All remaining days selected" : `${displayedRemaining} day${displayedRemaining === 1 ? "" : "s"} remaining`}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        aria-labelledby={`class-heading-${block.key} class-summary-${block.key} class-quota-${block.key}`}
+                                        aria-expanded={expanded}
+                                        aria-controls={`class-dates-${block.key}`}
+                                        onClick={() => setExpandedSubjectId(expanded ? null : block.subjectIds[0])}
+                                        className="absence-course-disclosure absolute inset-0 flex items-start justify-end p-4 sm:hidden"
+                                      >
+                                        <ChevronDown aria-hidden="true" className={clsx("h-5 w-5 shrink-0 text-[var(--color-wi-text-light)]", expanded && "rotate-180")} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div id={`class-dates-${block.key}`} className={clsx("absence-course-dates space-y-2 p-4", !isStaff && !expanded && "hidden sm:block")}>
                                       {sessionGroups.map((dayGroup) => {
                                         const session = dayGroup.items[0];
                                         const ownerGroup = ownerGroupBySessionId.get(session.id) ?? quotaGroup;
@@ -1542,7 +1600,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                     }
 
                                                     return (
-                                                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
+                                                      <div className="absence-makeup-arrangement rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
                                                         {currentPriorityAvailable.length === 0 ? (
                                                           <div role="status" className="space-y-1.5 text-sm">
                                                             {hasMorePriorities && unavailableDisplay?.message ? (
@@ -1563,16 +1621,19 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                           </div>
                                                         ) : (
                                                           <>
-                                                            {(hasPreviousPriority || hasMorePriorities) && (
-                                                              <div className="mb-3 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
-                                                            )}
                                                             <MakeUpPicker
+                                                              publicForm={!isStaff}
+                                                              error={!isStaff && showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
+                                                              context={`For ${block.label} · ${formatDate(dayGroup.date)} · ${formatTime(dayGroup.start_at)}–${formatTime(dayGroup.end_at)}`}
                                                               id={`sit-in-${session.id}`}
                                                               label="Make-up class"
                                                               value={currentSitIn}
                                                               options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
                                                               onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                             />
+                                                            {(hasPreviousPriority || hasMorePriorities) && (
+                                                              <div className="mt-2 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
+                                                            )}
                                                           </>
                                                         )}
                                                       </div>
@@ -1587,8 +1648,11 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                         </div>
                                                       ) : (
                                                         <>
-                                                          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)]">Pick a make-up class</div>
+                                                          {isStaff ? <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)]">Pick a make-up class</div> : null}
                                                           <MakeUpPicker
+                                                            publicForm={!isStaff}
+                                                            error={!isStaff && showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
+                                                            context={`For ${block.label} · ${formatDate(dayGroup.date)} · ${formatTime(dayGroup.start_at)}–${formatTime(dayGroup.end_at)}`}
                                                             id={`sit-in-${session.id}`}
                                                             label="Make-up class"
                                                             value={currentSitIn}
@@ -1633,6 +1697,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     ) : null}
 
                     <ReasonField
+                      publicForm={!isStaff}
                       value={reason}
                       onChange={(value) => {
                         setReason(value);
@@ -1684,7 +1749,12 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Classes</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(classesStep)}
+                          onClick={() => {
+                            const subjectId = selectedSubjectIds[0];
+                            setExpandedSubjectId(subjectId ?? null);
+                            const block = selectedBlocks.find((entry) => entry.subjectIds.includes(subjectId));
+                            goToStep(classesStep, block ? `class-block-${block.key}` : undefined);
+                          }}
                           className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           Edit classes
@@ -1701,11 +1771,10 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                             <div key={block.key}>
                               <p className="text-sm font-semibold text-[var(--color-wi-text)]">{groupLabel}</p>
                               {groupByDay(selectedSessions).map((dayGroup) => (
-                                <p key={dayGroup.id} className="text-xs text-[var(--color-wi-text-light)] mt-0.5">
-                                  {formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}–{formatTime(dayGroup.end_at)}
-                                  <span className="text-[var(--color-wi-text-light)]"> — Make-up: </span>
-                                  <span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(dayGroup.items[0], ownerGroupBySessionId.get(dayGroup.items[0].id) ?? block.groups[0], sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span>
-                                </p>
+                                <div key={dayGroup.id} className="absence-review-day text-xs text-[var(--color-wi-text-light)] mt-0.5">
+                                  <p><span className="absence-review-day__label">Missing: </span>{formatDate(dayGroup.date)} {formatTime(dayGroup.start_at)}–{formatTime(dayGroup.end_at)}</p>
+                                  <p><span>Make-up: </span><span className="font-medium text-[var(--color-wi-text)]">{getReviewSitInLabel(dayGroup.items[0], ownerGroupBySessionId.get(dayGroup.items[0].id) ?? block.groups[0], sitInSelections, sitInPriorityLevels, sitInPriorityHistory, sessions)}</span></p>
+                                </div>
                               ))}
                             </div>
                           );
@@ -1719,7 +1788,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</h2>
                         <button
                           type="button"
-                          onClick={() => goToStep(classesStep)}
+                          onClick={() => goToStep(classesStep, "absence-reason")}
                           className="min-h-11 rounded-lg px-2 text-xs font-semibold text-[var(--color-wi-primary)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary)]/5 hover:text-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"
                         >
                           Edit reason
