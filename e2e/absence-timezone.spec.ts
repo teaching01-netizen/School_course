@@ -240,11 +240,11 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   await page.goto("/absence");
 
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await expect(page.getByText("Student ID found")).toBeVisible();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await expect(page.getByRole("group", { name: "Selected student" })).toBeVisible();
 
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
@@ -318,18 +318,19 @@ test("mobile public absence flow resumes student details safely and completes wi
   await page.keyboard.press("Tab");
   await expect(page.getByPlaceholder("e.g. W250389")).toBeFocused();
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
 
   await page.reload();
   await expectCurrentStep(page, 1, "Student");
-  await expect(page.getByPlaceholder("e.g. W250389")).toHaveValue(studentLookup.wcode);
-  await expect(page.getByLabel(/your email address/i)).toHaveValue("student@example.com");
+  await expect(page.getByRole("group", { name: "Selected student" })).toBeVisible();
+  await expect(page.getByText(studentLookup.wcode, { exact: true })).toBeVisible();
+  await expect(page.getByLabel(/email address/i)).toHaveValue("student@example.com");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 320, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expectCurrentStep(page, 2, "Verify");
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });

@@ -15,7 +15,8 @@ import AbsenceActionBar from "@/components/absences/public-form/AbsenceActionBar
 import SubjectRow from "@/components/absences/public-form/SubjectRow";
 import ReasonField from "@/components/absences/public-form/ReasonField";
 import SessionDayCard from "@/components/absences/public-form/SessionDayCard";
-import MakeUpPicker, { type MakeUpOption } from "@/components/absences/public-form/MakeUpPicker";
+import MakeUpPicker from "@/components/absences/public-form/MakeUpPicker";
+import { currentSitInOwners, makeUpPickerOptions, publicMakeUpChoicesBySession, type PublicMakeUpChoices } from "@/components/absences/public-form/makeUpChoices";
 import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
 import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
@@ -54,13 +55,11 @@ import {
   countSelectedAbsenceDaysForScope,
   countSelectedAbsenceDaysForGroup,
   groupByDay,
-  mergedSessionValue,
   splitMergedSessionValue,
   uniqueValues,
   type SubjectPickerEntry,
 } from "@/features/absences/domain/sessionGrouping";
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
-import { getAbsenceMessageCopy } from "@/features/absences/domain/absenceMessageCopy";
 import {
   availableSessionsForMissedSession,
   availableSessionsForMissedSessions,
@@ -69,8 +68,6 @@ import {
   appendTeacher,
   normalizeSitInDisplayModel,
   formatSitInDisplayDetails,
-  findSitInSessionConflicts,
-  formatSitInSessionConflictDescription,
   formatSitInSubmissionConflictDetails,
   blockedSitInSessionIds,
   sitInOptionGroupsBySession,
@@ -83,8 +80,6 @@ import {
   prioritiesForLevel,
   rootAvailableSessionsForMissedSessions,
   sitInForMissedSession,
-  type SitInCourse,
-  type SitInOptionGroup,
   unavailableSessionsForMissedSession,
 } from "@/features/absences/domain/sitInResolution";
 import {
@@ -132,32 +127,6 @@ function isStudentSessionUnauthorized(error: unknown): boolean {
     && error.code === "unauthorized";
 }
 
-type CurrentSitInOwner = { subjectName: string; date: string };
-
-function currentSitInOwners(
-  groups: SubjectSessions[],
-  selectedSubjectIds: string[],
-  selectedSessionIds: Set<string>,
-  sitInSelections: Record<string, string>,
-  currentSessionIds: string[],
-): Map<string, CurrentSitInOwner> {
-  const current = new Set(currentSessionIds);
-  const owners = new Map<string, CurrentSitInOwner>();
-  for (const group of groups) {
-    if (!selectedSubjectIds.includes(group.subject_id)) continue;
-    for (const missed of group.sessions) {
-      if (!selectedSessionIds.has(missed.id) || current.has(missed.id)) continue;
-      for (const sessionId of splitMergedSessionValue(sitInSelections[missed.id])) {
-        if (!owners.has(sessionId)) owners.set(sessionId, {
-          subjectName: group.subject_name || group.course_name,
-          date: missed.date || formatDate(missed.start_at),
-        });
-      }
-    }
-  }
-  return owners;
-}
-
 // Mirror of the make-up picker's option source: the sit-ins the server still
 // offers for a missed session at the level the form will display. Restoring a
 // draft keeps a saved make-up only while its saved sit-ins are still offered,
@@ -190,54 +159,6 @@ function offeredSitInSessionIds(
   return offered;
 }
 
-function makeUpPickerOptions(
-  optionGroups: SitInOptionGroup[],
-  sessions: SubjectSessions[],
-  selectedSubjectIds: string[],
-  groupLabel: string,
-  defaultSitInCourse?: SitInCourse,
-  selectedSitInSessionIds: string[] = [],
-  currentValue = "",
-  currentOwners: Map<string, CurrentSitInOwner> = new Map(),
-): MakeUpOption[] {
-  const selectedCounts = new Map<string, number>();
-  for (const id of selectedSitInSessionIds) selectedCounts.set(id, (selectedCounts.get(id) ?? 0) + 1);
-  const currentIds = new Set(splitMergedSessionValue(currentValue));
-  return optionGroups.map((optionGroup) => {
-    const conflicts = findSitInSessionConflicts(optionGroup.items, sessions, selectedSubjectIds);
-    const conflictDetails = formatSitInSessionConflictDescription(conflicts)?.replace(/^Overlaps with\s*/, "");
-    const historicalUnavailable = optionGroup.items.some((item) => Boolean(item.conflict));
-    const duplicateSelection = optionGroup.items.some((item) => (selectedCounts.get(item.id) ?? 0) > 0 && !currentIds.has(item.id));
-    const duplicateOwner = optionGroup.items.map((item) => currentOwners.get(item.id)).find(Boolean);
-    const message = conflicts.length > 0
-      ? "You already have another class at this time."
-      : historicalUnavailable
-        ? getAbsenceMessageCopy("sit_in_session_already_used")
-        : duplicateSelection
-          ? "You already chose this make-up class for another absence. Choose a different time."
-          : undefined;
-    const duplicateDetails = duplicateSelection
-      ? `Already chosen for ${duplicateOwner?.subjectName ?? groupLabel} on ${duplicateOwner?.date ?? "another day"}.`
-      : undefined;
-    const display = normalizeSitInDisplayModel(
-      optionGroup.items,
-      optionGroup.sitInCourse ?? defaultSitInCourse,
-      groupLabel,
-      sessions,
-      message ? { status: "unavailable", message } : undefined,
-    );
-    return {
-      value: mergedSessionValue(optionGroup.items),
-      label: display.className,
-      details: formatSitInDisplayDetails(display),
-      display,
-      disabled: conflicts.length > 0 || historicalUnavailable || duplicateSelection,
-      description: message,
-      conflictDetails: conflictDetails ?? duplicateDetails,
-    };
-  });
-}
-
 export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMode }) {
   const isStaff = mode === "staff";
   const { addToast } = useToast();
@@ -257,7 +178,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       { label: "Review", description: "Confirm and submit" },
     ]
     : [
-      { label: "Student", description: "Confirm your profile" },
+      { label: "Student", description: "Choose the student" },
       { label: "Verify", description: "Parent confirmation" },
       { label: "Classes", description: "Select classes & make-up" },
       { label: "Review", description: "Confirm and submit" },
@@ -273,7 +194,10 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   const [studentProfile, setStudentProfile] = useState<VerifiedStudentProfile | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const studentIdInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedStudentHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [collectedEmail, setCollectedEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -291,6 +215,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   const [sitInPriorityLevels, setSitInPriorityLevels] = useState<Record<string, number>>({});
   const [sitInPriorityHistory, setSitInPriorityHistory] = useState<Record<string, Record<number, SubjectSessions>>>({});
   const [revealingPrioritySessionIds, setRevealingPrioritySessionIds] = useState<Set<string>>(new Set());
+  const [sitInPriorityErrors, setSitInPriorityErrors] = useState<Record<string, string>>({});
+  const [rejectedMakeUpSessionIds, setRejectedMakeUpSessionIds] = useState<Set<string>>(new Set());
+  const revealRequestsRef = useRef(new Set<string>());
   const [pageError, setPageError] = useState<string | null>(null);
   const [verificationSatisfied, setVerificationSatisfied] = useState(false);
   const [verificationBlocked, setVerificationBlocked] = useState(false);
@@ -303,8 +230,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
 
   const selectedSubjectIdSet = useMemo(() => new Set(selectedSubjectIds), [selectedSubjectIds]);
   const selectedAbsenceDayCount = useMemo(
-    () => countSelectedAbsenceDays(sessions, selectedSessionIds),
-    [sessions, selectedSessionIds],
+    () => countSelectedAbsenceDays(sessions.filter((group) => selectedSubjectIdSet.has(group.subject_id)), selectedSessionIds),
+    [sessions, selectedSessionIds, selectedSubjectIdSet],
   );
   // Derived indexes: one pass over `sessions` per change instead of per render.
   // groupByDay results are additionally memoized inside sessionGrouping, so
@@ -362,33 +289,53 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   }, [remainingForGroup, selectedSubjectIdSet, sessions]);
   const manualEmail = collectedEmail.trim();
   const manualEmailValid = /^[^\s@]+@[^\s@]+$/.test(manualEmail);
-  const publicLookup = lookup && !isStaffLookupResponse(lookup) ? lookup : null;
-  const staffLookup = lookup && isStaffLookupResponse(lookup) ? lookup : null;
+  const showEmailError = emailTouched && Boolean(manualEmail) && !manualEmailValid;
+  // A result applies only to the Student ID it was searched for; editing the
+  // field hides it until the new Student ID has been looked up.
+  const currentLookup = lookup && lookupInput.trim().toLowerCase() === lookup.wcode.trim().toLowerCase() ? lookup : null;
+  const lookupStale = lookup !== null && currentLookup === null;
+  const publicLookup = currentLookup && !isStaffLookupResponse(currentLookup) ? currentLookup : null;
+  const staffLookup = currentLookup && isStaffLookupResponse(currentLookup) ? currentLookup : null;
   const emailSatisfied = !!publicLookup && (!publicLookup.email_input_required || manualEmailValid);
   const canProceedFromStudent = isStaff ? Boolean(staffLookup) : Boolean(publicLookup && emailSatisfied);
-  // Pre-verification the public profile is not loaded, so the masked lookup
-  // hint stands in for the name; staff lookup returns the full identity.
+  // Pre-verification the public lookup provides only the stored nickname,
+  // never a full-name fallback. The verified profile is authoritative afterward.
   const studentDisplayName = studentProfile?.display_name
     || staffLookup?.display_name
     || staffLookup?.full_name
-    || publicLookup?.nickname_hint
+    || publicLookup?.nickname?.trim()
     || "Student";
   const verifiedSubjects = studentProfile?.subjects ?? [];
   // One picker entry per absence scope: a merged course appears as one entry
   // even though it spans two subjects, and selecting it selects both.
   const pickerEntries = useMemo(() => combineSubjectPickerEntries(verifiedSubjects), [verifiedSubjects]);
 
+  const publicChoicesBySession = useMemo(() => isStaff ? new Map<string, PublicMakeUpChoices>() : publicMakeUpChoicesBySession({
+    sessions, selectedSubjectIds, selectedSessionIds, selections: sitInSelections,
+    priorityLevels: sitInPriorityLevels, priorityHistory: sitInPriorityHistory,
+    blockedSessionIds: rejectedMakeUpSessionIds,
+  }), [isStaff, selectedSessionIds, sitInPriorityHistory, sitInPriorityLevels, sessions, selectedSubjectIds, sitInSelections, rejectedMakeUpSessionIds]);
+  const invalidMakeUpIds = useMemo(() => new Set([...publicChoicesBySession].filter(([id, choices]) => {
+    const selected = sitInSelections[id];
+    return selected && !choices.options.some((option) => option.value === selected && !option.disabled);
+  }).map(([id]) => id)), [publicChoicesBySession, sitInSelections]);
+
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
       if (!selectedSubjectIdSet.has(group.subject_id)) continue;
       for (const session of group.sessions) {
-        if (!selectedSessionIds.has(session.id)) continue;
+        if (!selectedSessionIds.has(session.id) || session.already_absent) continue;
         const sitIn = sitInForMissedSession(group, session.id);
-        if (sitIn?.sit_in_method === "physical" && !sitInSelections[session.id]) return true;
+        if (sitIn?.sit_in_method === "physical" && (!sitInSelections[session.id] || invalidMakeUpIds.has(session.id))) return true;
       }
     }
     return false;
-  }, [sessions, selectedSubjectIdSet, selectedSessionIds, sitInSelections]);
+  }, [sessions, selectedSubjectIdSet, selectedSessionIds, sitInSelections, invalidMakeUpIds]);
+
+  useEffect(() => {
+    if (isStaff || step !== 0 || lookupLoading || !publicLookup) return;
+    selectedStudentHeadingRef.current?.focus({ preventScroll: true });
+  }, [isStaff, lookupLoading, publicLookup, step]);
 
   useEffect(() => {
     let active = true;
@@ -518,6 +465,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       const draft = draftRef.current;
       const resumeWcode = draft?.wcode ?? resume?.wcode;
       if (!resumeWcode) return () => { active = false; };
+      const requestId = ++lookupRequestId.current;
       const restoredEmail = draft?.collectedEmail ?? resume?.collectedEmail;
       setLookupInput(resumeWcode);
       if (restoredEmail) setCollectedEmail(restoredEmail);
@@ -525,7 +473,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       setLookupLoading(true);
       void lookupStudentByWcode(resumeWcode)
         .then((response) => {
-          if (!active) return;
+          if (!active || requestId !== lookupRequestId.current) return;
           setLookup(response);
           setStudentProfile(null);
           const restoreDraft = draftRef.current;
@@ -534,9 +482,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           if (isSameStudent && restoreDraft) setReason(restoreDraft.reason);
         })
         .catch((error: unknown) => {
-          if (active) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
+          if (active && requestId === lookupRequestId.current) setLookupError(error instanceof Error ? error.message : "We couldn't refresh your profile");
         })
-        .finally(() => { if (active) setLookupLoading(false); });
+        .finally(() => { if (active && requestId === lookupRequestId.current) setLookupLoading(false); });
     } catch { }
     return () => { active = false; };
   }, [isStaff]);
@@ -632,7 +580,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     setStudentProfile(null);
     if (!cleaned || !isWCode(cleaned)) {
       setLookupLoading(false);
-      setLookupError("Enter your Student ID (W-Code).");
+      setLookupError("Enter a Student ID (W-Code).");
       return;
     }
     const draftForStudent = draftRef.current;
@@ -655,6 +603,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       setSelectedSubjectIds([]);
       setExpandedSubjectId(null);
       setCollectedEmail(shouldRestoreDraft ? draftForStudent?.collectedEmail ?? "" : "");
+      setEmailTouched(false);
       setReason(shouldRestoreDraft ? draftForStudent?.reason ?? "" : "");
       setNickname("");
       setReasonError(null);
@@ -665,6 +614,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       setSitInPriorityLevels({});
       setSitInPriorityHistory({});
       setRevealingPrioritySessionIds(new Set());
+      setSitInPriorityErrors({});
+      setRejectedMakeUpSessionIds(new Set());
       setSubmissionError(null);
       submissionIdempotencyKey.current = newIdempotencyKey();
       if (!isStaff) {
@@ -675,10 +626,26 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       setVerificationBlocked(false);
     } catch (error) {
       if (requestId !== lookupRequestId.current) return;
-      setLookupError(error instanceof Error ? error.message : "We couldn't find your profile");
+      if (error instanceof TypeError) {
+        setLookupError("Couldn't connect. Check your connection and try again.");
+      } else {
+        setLookupError(error instanceof Error ? error.message : "We couldn't find your profile");
+      }
     } finally {
       if (requestId === lookupRequestId.current) setLookupLoading(false);
     }
+  };
+
+  const handleChangeStudent = () => {
+    lookupRequestId.current += 1;
+    setLookup(null);
+    setStudentProfile(null);
+    setLookupLoading(false);
+    setLookupError(null);
+    window.requestAnimationFrame(() => {
+      studentIdInputRef.current?.focus();
+      studentIdInputRef.current?.select();
+    });
   };
 
   const togglePickerEntry = (entry: SubjectPickerEntry) => {
@@ -736,11 +703,16 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     });
   };
 
-  const handleNotAvailable = async (group: SubjectSessions, sessionId: string) => {
-    const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
+  const handleNotAvailable = async (group: SubjectSessions, sessionId: string, browsingLevel?: number) => {
+    const currentLevel = browsingLevel ?? (sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group));
+    const requestKey = `${lookupRequestId.current}:${sessionId}`;
+    if (revealRequestsRef.current.has(requestKey)) return;
+    const requestId = lookupRequestId.current;
+    setSitInPriorityErrors((current) => { const next = { ...current }; delete next[sessionId]; return next; });
     if (lookup && hasServerPriorityReveal(group)) {
+      revealRequestsRef.current.add(requestKey);
       setRevealingPrioritySessionIds((current) => new Set(current).add(sessionId));
-      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
+      if (isStaff) setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
         const data = await loadFormSessions(
@@ -748,23 +720,38 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           undefined,
           { courseIds: [group.course_id], satVerbalAfterPriority: currentLevel },
         );
+        if (requestId !== lookupRequestId.current) return;
         const updatedGroup = data.subjects.find((subject) => subject.course_id === group.course_id);
-        if (!updatedGroup) { setPageError("No more make-up times are available for this class."); return; }
+        if (!updatedGroup) throw new Error("No additional make-up times were returned.");
         const updatedSessionGroup = groupWithSitInForMissedSession(updatedGroup, sessionId);
         const updatedLevel = updatedSessionGroup.sit_in?.current_priority_level ?? firstPriorityLevel(updatedSessionGroup);
-        setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: updatedLevel }));
+        if (updatedLevel <= currentLevel && updatedSessionGroup.sit_in?.has_next_priority) {
+          throw new Error("No additional make-up times were returned.");
+        }
+        if (isStaff) setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: updatedLevel }));
         setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [updatedLevel]: updatedSessionGroup } }));
       } catch (error) {
-        setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
+        if (requestId !== lookupRequestId.current) return;
+        if (!isStaff && isStudentSessionUnauthorized(error)) {
+          handleStudentSessionExpired();
+          return;
+        }
+        if (isStaff) setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
+        else setSitInPriorityErrors((current) => ({ ...current, [sessionId]: "Couldn’t load more times. Your selections haven’t changed. Try again." }));
       } finally {
-        setRevealingPrioritySessionIds((current) => { const n = new Set(current); n.delete(sessionId); return n; });
+        revealRequestsRef.current.delete(requestKey);
+        if (requestId === lookupRequestId.current) setRevealingPrioritySessionIds((current) => { const n = new Set(current); n.delete(sessionId); return n; });
       }
       return;
     }
     const nextLevel = nextPriorityLevel(group, currentLevel);
     if (nextLevel == null) return;
-    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: nextLevel }));
-    setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
+    if (isStaff) {
+      setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: nextLevel }));
+      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
+    } else {
+      setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group, [nextLevel]: group } }));
+    }
   };
 
   const handlePreviousPriority = (group: SubjectSessions, sessionId: string) => {
@@ -824,7 +811,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       }
       const active = document.activeElement;
       if (active instanceof HTMLElement && active !== document.body && main.contains(active)) return;
-      main.focus();
+      (main.querySelector<HTMLElement>("h1") ?? main).focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [step, sessionsLoading]);
@@ -849,6 +836,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   function validateClasses() {
     setShowClassValidation(true);
     setPageError(null);
+    setSubmissionError(null);
     setReasonError(null);
     if (selectedSubjectIds.length === 0) {
       setPageError("Select at least one course.");
@@ -882,13 +870,13 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       return false;
     }
     if (missingSitIn) {
-      setPageError("Pick a make-up class for all selected sessions before submitting.");
+      setPageError(invalidMakeUpIds.size > 0 ? "A selected make-up class is no longer available. Choose another time for the highlighted date." : "Pick a make-up class for all selected sessions before submitting.");
       const invalidGroup = sessions.find((group) =>
         selectedSubjectIds.includes(group.subject_id) && group.sessions.some((session) =>
-          selectedSessionIds.has(session.id) && sitInForMissedSession(group, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]));
+          selectedSessionIds.has(session.id) && sitInForMissedSession(group, session.id)?.sit_in_method === "physical" && (!sitInSelections[session.id] || invalidMakeUpIds.has(session.id))));
       setExpandedSubjectId(invalidGroup?.subject_id ?? selectedSubjectIds[0] ?? null);
       const invalidSession = invalidGroup?.sessions.find((session) =>
-        selectedSessionIds.has(session.id) && sitInForMissedSession(invalidGroup, session.id)?.sit_in_method === "physical" && !sitInSelections[session.id]);
+        selectedSessionIds.has(session.id) && sitInForMissedSession(invalidGroup, session.id)?.sit_in_method === "physical" && (!sitInSelections[session.id] || invalidMakeUpIds.has(session.id)));
       focusFirstInvalid('[data-make-up-trigger], select', invalidSession ? `sit-in-${invalidSession.id}-field` : undefined);
       return false;
     }
@@ -921,6 +909,24 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         const latest = await loadFormSessions(lookup.wcode);
         submissionSessions = latest.subjects;
         setSessions(submissionSessions);
+        if (!isStaff) {
+          const freshChoices = publicMakeUpChoicesBySession({
+            sessions: submissionSessions, selectedSubjectIds, selectedSessionIds, selections: sitInSelections,
+            priorityLevels: sitInPriorityLevels, priorityHistory: sitInPriorityHistory,
+            blockedSessionIds: rejectedMakeUpSessionIds,
+          });
+          const invalidChoice = [...freshChoices].find(([id, choices]) => {
+            const value = sitInSelections[id];
+            return value && !choices.options.some((option) => option.value === value && !option.disabled);
+          });
+          if (invalidChoice) {
+            const owner = submissionSessions.find((group) => group.sessions.some((session) => session.id === invalidChoice[0]));
+            setExpandedSubjectId(owner?.subject_id ?? selectedSubjectIds[0] ?? null);
+            setStep(classesStep);
+            setSubmissionError("A selected make-up class is no longer available. Your other choices are saved. Choose another time for the highlighted date.");
+            return;
+          }
+        }
         const blockedSessionIds = blockedSitInSessionIds(submissionSessions);
         const selectedSitInSessionIds = new Set(
           Object.values(sitInSelections).flatMap((value) => splitMergedSessionValue(value)),
@@ -928,9 +934,11 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         const staleSessionIds = [...selectedSitInSessionIds].filter((id) => blockedSessionIds.has(id));
         if (staleSessionIds.length > 0) {
           draftRef.current = null;
-          setSitInSelections({});
-          setSitInPriorityLevels({});
-          setSitInPriorityHistory({});
+          if (isStaff) {
+            setSitInSelections({});
+            setSitInPriorityLevels({});
+            setSitInPriorityHistory({});
+          }
           setStep(classesStep);
           setSubmissionError("A selected sit-in session is no longer available. We refreshed the available sessions; choose another session and submit again.");
           return;
@@ -1011,9 +1019,20 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       }
       if (error instanceof ApiRequestError && error.code === "sit_in_session_already_used") {
         draftRef.current = null;
-        setSitInSelections({});
-        setSitInPriorityLevels({});
-        setSitInPriorityHistory({});
+        if (isStaff) {
+          setSitInSelections({});
+          setSitInPriorityLevels({});
+          setSitInPriorityHistory({});
+        } else {
+          const details = error.details;
+          const reportedIds = details && typeof details === "object" && "session_ids" in details && Array.isArray(details.session_ids)
+            ? details.session_ids.filter((id): id is string => typeof id === "string") : [];
+          const chosenValues = [...new Set([...publicChoicesBySession.keys()].map((id) => sitInSelections[id]).filter(Boolean))];
+          const rejectedIds = new Set(reportedIds.length ? reportedIds : chosenValues.length === 1 ? splitMergedSessionValue(chosenValues[0]) : []);
+          setRejectedMakeUpSessionIds((current) => new Set([...current, ...rejectedIds]));
+          const affected = selectedGroups.find((group) => group.sessions.some((session) => splitMergedSessionValue(sitInSelections[session.id]).some((id) => rejectedIds.has(id))));
+          if (affected) setExpandedSubjectId(affected.subject_id);
+        }
         setSessionsReloadToken((current) => current + 1);
         setStep(classesStep);
         setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session was just used for this student. We refreshed the available sessions; choose another session and submit again.");
@@ -1029,36 +1048,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     }
   }
 
-  const submissionOverlay = !finalResults && isSubmitting ? (
-    <motion.div
-      initial={reduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={reduceMotion ? { duration: 0 } : undefined}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm"
-      role="status"
-      aria-live="polite"
-      aria-label="Submitting absence request"
-    >
-      <div className="flex flex-col items-center gap-4">
-        <svg
-          className="h-10 w-10 animate-spin text-[var(--color-wi-primary)]"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-        >
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          />
-        </svg>
-        <p className="text-sm font-semibold text-[var(--color-wi-text)]">Submitting your absence...</p>
-        <p className="text-xs text-[var(--color-wi-text-light)]">Please wait while we process your request.</p>
-      </div>
-    </motion.div>
-  ) : null;
-
   if (finalResults) {
     const submittedGroups = groupSubmittedAbsences(finalResults, sessions);
     const submittedCount = submittedGroups.length;
@@ -1071,9 +1060,10 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
     const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
     return (
-      <div data-form-mode={mode} className="absence-receipt min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
+      <main data-form-mode={mode} className="absence-receipt min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
         <div className="mx-auto max-w-lg space-y-6">
-          <div className="rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">
+          <p className="absence-receipt__identity">Warwick Institute <span>Student absence</span></p>
+          <div className="absence-receipt__confirmation rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-green)]/10">
                 <svg className="h-5 w-5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1081,11 +1071,11 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                 </svg>
               </div>
               <div>
-                <h2 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-bold tracking-tight text-[var(--color-wi-text)]">
+                <h1 ref={resultHeadingRef} tabIndex={-1} className="text-xl font-bold tracking-tight text-[var(--color-wi-text)]">
                   {isStaff
                     ? submittedCount === 1 ? "Absence recorded" : `${submittedCount} absences recorded`
                     : submittedCount === 1 ? "Absence submitted" : `${submittedCount} absences submitted`}
-                </h2>
+                </h1>
                 {referenceId && (
                   <p className="text-xs text-[var(--color-wi-text-light)] mt-0.5">Reference: #{referenceId}</p>
                 )}
@@ -1115,22 +1105,36 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           </div>
 
         </div>
-      </div>
+      </main>
     );
   }
 
   
   const actionCanProceed =
-    step === 0 ? canProceedFromStudent :
+    step === 0 ? isStaff ? canProceedFromStudent : !lookupLoading && (!publicLookup || canProceedFromStudent) :
     !isStaff && step === 1 ? verificationSatisfied :
-    step === classesStep ? !sessionsLoading :
+    step === classesStep ? !sessionsLoading && !sessionsError :
     step === reviewStep ? (isStaff || (verificationSatisfied && !verificationBlocked)) : false;
 
   const primaryActionLabel =
-    step === 0 ? (isStaff ? "Continue to classes" : "Continue to verification") :
+    step === 0 ? (isStaff ? "Continue to classes" : publicLookup ? "Continue" : "Find student") :
     !isStaff && step === 1 ? "Continue to classes" :
     step === classesStep ? "Review absence" :
     "Submit absence";
+
+  const parentPhoneEnding = publicLookup?.parent_phone_hint?.replace(/\D/g, "").slice(-4);
+  const actionHint = isStaff ? undefined
+    : step === 0 ? !publicLookup ? undefined
+      : !emailSatisfied ? "Add an email address to continue."
+        : !publicLookup.parent_verification_available ? "Next: add a parent’s phone number for verification."
+          : parentPhoneEnding ? `Next: parent verification using the phone ending in ${parentPhoneEnding}.`
+            : "Next: parent verification."
+    : step === 1 ? verificationSatisfied ? "Verification complete. Continue to your classes."
+      : "Confirm using a code sent to the parent’s phone."
+    : step === classesStep && sessionsLoading ? "Loading your courses and class dates…"
+    : step === classesStep && sessionsError ? "Reload your classes to continue."
+    : step === reviewStep ? "Your request will be sent to Warwick for review."
+    : undefined;
 
   const visibleStep = isStaff
     ? step === classesStep ? 1 : step === reviewStep ? 2 : 0
@@ -1153,7 +1157,10 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   };
 
   const handlePrimaryAction = () => {
-    if (step === 0) goToStep(isStaff ? classesStep : 1);
+    if (step === 0) {
+      if (!isStaff && !publicLookup) void handleLookup();
+      else goToStep(isStaff ? classesStep : 1);
+    }
     else if (!isStaff && step === 1) goToStep(classesStep);
     else if (step === classesStep) {
       if (!validateClasses()) return;
@@ -1192,21 +1199,24 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         <AbsenceAppHeader
           steps={STEP_LABELS}
           currentStep={visibleStep}
-          onStepClick={handleStepClick}
+          onStepClick={isSubmitting ? undefined : handleStepClick}
         />
       }
       footer={
           <AbsenceActionBar
             currentStep={visibleStep}
             canProceed={actionCanProceed}
-            loading={isSubmitting}
+            loading={isSubmitting || (!isStaff && step === 0 && lookupLoading)}
+            loadingLabel={!isStaff && step === 0 ? "Finding student…" : undefined}
+            loadingHint={!isStaff && step === 0 ? "Finding the student’s record…" : undefined}
             onBack={handleBack}
           onPrimary={handlePrimaryAction}
           primaryLabel={primaryActionLabel}
+          hint={actionHint}
         />
       }
     >
-      <div className="absence-form-content mx-auto w-full max-w-3xl py-6">
+      <div className="absence-form-content mx-auto w-full max-w-3xl py-6" inert={isSubmitting} aria-busy={isSubmitting}>
         {pageError || submissionError ? <FormAlert alertRef={pageAlertRef} message={submissionError || pageError || ""} /> : null}
 
         <p aria-live="polite" className="sr-only">
@@ -1215,41 +1225,52 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
 
         <motion.div
           key={step}
-          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
           transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
           className="space-y-6"
         >
             {step === 0 && (
-              <StudentStep>
-                <div className="space-y-4">
-                  {!isStaff ? <p className="text-base text-[var(--color-wi-text-light)]">Enter your Warwick Student ID to get started.</p> : null}
-                  <div>
+              <StudentStep publicForm={!isStaff}>
+                <div className="absence-student-lookup space-y-4">
+                  {!isStaff && !publicLookup ? <p className="text-base text-[var(--color-wi-text-light)]">Enter the student’s Warwick ID.</p> : null}
+                  {isStaff || !publicLookup ? <div>
                     <label htmlFor="wcode-input" className="block text-sm font-semibold text-[var(--color-wi-text)] mb-1.5">
                       Student ID (W-Code)
-                        </label>
-                        <div className="flex gap-3">
-                          <div className="flex-1">
-                            <input
-                              id="wcode-input"
-                              className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-                              placeholder="e.g. W250389"
-                              required
-                              autoCapitalize="characters"
-                              autoCorrect="off"
-                              spellCheck={false}
-                              enterKeyHint="search"
+                    </label>
+                    <div className="absence-lookup-controls flex gap-3">
+                      <div className="min-w-0 flex-1">
+                        <input
+                          ref={studentIdInputRef}
+                          id="wcode-input"
+                          className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
+                          placeholder="e.g. W250389"
+                          required
+                          autoCapitalize="characters"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          enterKeyHint="search"
+                          aria-invalid={Boolean(lookupError)}
+                          aria-describedby={lookupError ? "wcode-error" : lookupStale ? "wcode-stale-hint" : undefined}
                           value={lookupInput}
-                          onChange={(e) => setLookupInput(e.target.value)}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            if (lookupLoading && normalizeLookupWcode(next) !== normalizeLookupWcode(lookupInput)) {
+                              lookupRequestId.current += 1;
+                              setLookupLoading(false);
+                            }
+                            setLookupInput(next);
+                            setLookupError(null);
+                          }}
                           onKeyDown={(e) => { if (e.key === "Enter") void handleLookup(); }}
                         />
                       </div>
-                      <button
+                      {isStaff ? <button
                         type="button"
                         onClick={() => void handleLookup()}
                         disabled={lookupLoading}
                         aria-busy={lookupLoading}
-                        className="inline-flex min-h-[48px] min-w-[6.75rem] items-center justify-center rounded-lg bg-[var(--color-wi-primary)] px-5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-50"
+                        className={`inline-flex min-h-[48px] min-w-[6.75rem] items-center justify-center rounded-lg px-5 text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:opacity-50 ${currentLookup ? "border border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-primary)]/5" : "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"}`}
                       >
                         {lookupLoading ? (
                           <span className="inline-flex items-center gap-2">
@@ -1257,27 +1278,44 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                             <span>Searching…</span>
                           </span>
                         ) : "Search"}
-                      </button>
+                      </button> : null}
                     </div>
                     {lookupError ? (
-                      <p role="alert" className="text-sm text-[var(--color-wi-red)] mt-1.5">{lookupError}</p>
+                      <p id="wcode-error" role="alert" className="text-sm text-[var(--color-wi-red)] mt-1.5">{lookupError}</p>
                     ) : null}
-                  </div>
+                    {lookupStale ? (
+                      <p id="wcode-stale-hint" role="status" className="text-sm text-[var(--color-wi-amber)] mt-1.5">
+                        Search this Student ID before continuing.
+                      </p>
+                    ) : null}
+                  </div> : null}
 
-                  {lookup ? (
-                    <div className="space-y-4">
-                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm">
+                  {currentLookup ? (
+                    <motion.div
+                      role={!isStaff ? "group" : undefined}
+                      aria-label={!isStaff ? "Selected student" : undefined}
+                      initial={isStaff || reduceMotion ? false : { opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.16 }}
+                      className={isStaff ? "absence-lookup-result rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm" : "absence-student-identity"}
+                    >
                         <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-[var(--color-wi-text)]">Student ID found</p>
-                            <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{lookup.wcode}</p>
-                            {!isStaff && publicLookup?.nickname_hint ? (
-                              <p className="text-xs text-[var(--color-wi-text-light)] mt-1" data-testid="lookup-nickname-hint">
-                                Nickname: {publicLookup.nickname_hint}
-                              </p>
-                            ) : null}
+                          <div className="min-w-0">
+                            {isStaff ? <>
+                              <p role="status" className="text-sm font-semibold text-[var(--color-wi-text)]">Student ID found</p>
+                              <p className="text-xs font-mono text-[var(--color-wi-text-light)] mt-0.5">{currentLookup.wcode}</p>
+                            </> : <>
+                              <h2 ref={selectedStudentHeadingRef} tabIndex={-1} aria-describedby="selected-student-id" className="absence-student-identity__name">
+                                {publicLookup?.nickname?.trim() || "Student"}
+                              </h2>
+                              <p id="selected-student-id" className="absence-student-identity__id">Student ID: <span>{currentLookup.wcode}</span></p>
+                            </>}
                           </div>
-                          {isStaff ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">Ready to continue</span> : null}
+                          {isStaff ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">Ready to continue</span> : (
+                            <button type="button" onClick={handleChangeStudent} className="absence-student-identity__change min-h-11 rounded-lg px-2 text-sm font-semibold text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)]">
+                              Change student
+                            </button>
+                          )}
                         </div>
                         {isStaff ? (
                           <p className="mt-3 text-xs text-[var(--color-wi-text-light)]">
@@ -1286,7 +1324,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         ) : publicLookup?.email_input_required ? (
                           <div className="mt-4 space-y-1.5">
                             <label htmlFor="student-email" className="block text-xs font-medium text-[var(--color-wi-text-light)]">
-                              Your email address <span className="text-[var(--color-wi-red)]">*</span>
+                              Email address <span aria-hidden="true" className="text-[var(--color-wi-red)]">*</span>
                             </label>
                             <input
                               id="student-email"
@@ -1294,28 +1332,23 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                               required
                               autoComplete="email"
                               inputMode="email"
+                              autoCapitalize="none"
+                              spellCheck={false}
+                              onBlur={() => setEmailTouched(true)}
                               className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                               placeholder="e.g. student@example.com"
                               value={collectedEmail}
                               onChange={(e) => setCollectedEmail(e.target.value)}
-                              aria-invalid={collectedEmail.trim() && !manualEmailValid ? true : undefined}
-                              aria-describedby={collectedEmail.trim() && !manualEmailValid ? "student-email-error" : undefined}
+                              aria-invalid={showEmailError || undefined}
+                              aria-describedby={showEmailError ? "student-email-error" : "student-email-help"}
                             />
-                            {collectedEmail.trim() && !manualEmailValid && (
-                              <p id="student-email-error" className="text-xs text-[var(--color-wi-amber)]">Enter a valid email to continue.</p>
+                            {showEmailError && (
+                              <p id="student-email-error" className="text-xs text-[var(--color-wi-red)]">Enter a valid email address.</p>
                             )}
-                            {!collectedEmail.trim() ? <p className="text-xs text-[var(--color-wi-text-light)]">Enter your email address to continue.</p> : null}
+                            <p id="student-email-help" className="sr-only">Add an email address to continue.</p>
                           </div>
-                        ) : (
-                          <p className="mt-4 flex items-center gap-1.5 text-xs font-medium text-[var(--color-wi-text)]">
-                            <svg className="h-3.5 w-3.5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Your email is already saved — no need to enter it
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                        ) : null}
+                    </motion.div>
                   ) : null}
                 </div>
               </StudentStep>
@@ -1330,7 +1363,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                   phoneLabel={publicLookup.parent_verification_available
                     ? publicLookup.parent_phone_hint
                       ? `Parent phone: ${publicLookup.parent_phone_hint}`
-                      : "Verification phone available"
+                      : "A parent phone number is on file."
                     : "No parent phone yet — you'll add it below"}
                 >
                   <StepCoverVerification
@@ -1363,7 +1396,23 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     <div className="absence-classes-layout__subjects">
                       <section>
                       <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide mb-3">{isStaff ? "Which classes?" : "Select courses"}</h2>
-                      {studentProfile && pickerEntries.length > 0 ? (
+                      {sessionsLoading ? (
+                        <div role="status" aria-label="Loading courses">
+                          <LoadingSkeleton type="text" lines={3} />
+                          <p className="sr-only">Loading your courses and class dates…</p>
+                        </div>
+                      ) : sessionsError ? (
+                        <div role="alert" className="space-y-3">
+                          <p className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
+                          <button
+                            type="button"
+                            onClick={() => setSessionsReloadToken((token) => token + 1)}
+                            className="min-h-11 rounded-lg border border-[var(--color-wi-red)]/40 px-3 text-sm font-semibold text-[var(--color-wi-red)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-danger-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-red)]/40"
+                          >
+                            Retry loading classes
+                          </button>
+                        </div>
+                      ) : studentProfile && pickerEntries.length > 0 ? (
                         <div className="rounded-lg border border-[var(--color-wi-border)] bg-white divide-y divide-[var(--color-wi-border)] overflow-hidden">
                           {pickerEntries.map((entry) => (
                             <SubjectRow
@@ -1382,12 +1431,18 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     </section>
                     </div>
                     <div className="absence-classes-layout__work space-y-6">
+                    {!sessionsLoading && !sessionsError && selectedSubjectIds.length === 0 ? (
+                      <div className="absence-classes-empty">
+                        <p className="font-semibold text-[var(--color-wi-text)]">Start with a course</p>
+                        <p className="mt-1 text-sm text-[var(--color-wi-text-light)]">Select a course to see its class dates and make-up options.</p>
+                      </div>
+                    ) : null}
                     {selectedSubjectIds.length > 0 ? (
                       <section>
                         <div className="flex items-center justify-between mb-3">
                           <h2 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">{isStaff ? "Classes to miss" : "Choose class dates"}</h2>
                           <span aria-live="polite" className="text-xs font-semibold text-[var(--color-wi-text-light)]">
-                            {selectedAbsenceDayCount} selected
+                            {selectedAbsenceDayCount} class date{selectedAbsenceDayCount === 1 ? "" : "s"} selected
                             {isStaff && selectedSubjectRemainingDays > 0
                               ? ` (${selectedSubjectRemainingDays} remaining)`
                               : ""}
@@ -1417,18 +1472,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         </div> : null}
                         {sessionsLoading ? (
                           <LoadingSkeleton type="table" lines={3} />
-                        ) : sessionsError ? (
-                          <div role="alert" className="space-y-2">
-                            <p className="text-sm text-[var(--color-wi-red)]">{sessionsError}</p>
-                            <button
-                              type="button"
-                              onClick={() => setSessionsReloadToken((token) => token + 1)}
-                              className="min-h-11 rounded-lg border border-[var(--color-wi-red)]/40 px-3 text-sm font-semibold text-[var(--color-wi-red)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-danger-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-red)]/40"
-                            >
-                              Retry loading classes
-                            </button>
-                          </div>
-                        ) : selectedBlocks.length === 0 ? (
+                        ) : sessionsError ? null : selectedBlocks.length === 0 ? (
                           <p className="text-sm text-[var(--color-wi-text-light)]">No classes found for the selected courses.</p>
                         ) : (
                           <div className="space-y-4">
@@ -1487,7 +1531,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                   )}
                                   <div id={`class-dates-${block.key}`} className={clsx("absence-course-dates space-y-2 p-4", !isStaff && !expanded && "hidden sm:block")}>
                                       {sessionGroups.map((dayGroup) => {
-                                        const session = dayGroup.items[0];
+                                        const session = dayGroup.items.find((item) => !item.already_absent) ?? dayGroup.items[0];
                                         const ownerGroup = ownerGroupBySessionId.get(session.id) ?? quotaGroup;
                                         const sessionIds = dayGroup.items
                                           .filter((item) => !item.already_absent)
@@ -1535,7 +1579,38 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                           reduceMotion={reduceMotion}
                                         >
                                               {sitIn && sitIn.sit_in_method === "physical" ? (
-                                                (() => {
+                                                !isStaff ? (() => {
+                                                  const choices = publicChoicesBySession.get(session.id);
+                                                  if (!choices) return null;
+                                                  return <MakeUpPicker
+                                                    publicForm
+                                                    id={`sit-in-${session.id}`}
+                                                    label="Make-up class"
+                                                    context={`For ${block.label} · ${formatDate(dayGroup.date)} · ${formatTime(dayGroup.start_at)}–${formatTime(dayGroup.end_at)}`}
+                                                    value={currentSitIn}
+                                                    options={choices.options}
+                                                    error={showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
+                                                    supportContact={config.admin_contact}
+                                                    emptyDescription={choices.unavailableMessage ? `${choices.unavailableMessage.replace(/\.$/, "")}. A make-up class is required for this date. Contact Warwick for help before continuing.` : undefined}
+                                                    moreTimes={hasPriorities || choices.hasMore ? {
+                                                      hasMore: choices.hasMore,
+                                                      loading: revealingPrioritySessionIds.has(session.id),
+                                                      error: sitInPriorityErrors[session.id],
+                                                      onLoad: () => void handleNotAvailable(choices.latestGroup, session.id, choices.latestLevel),
+                                                    } : undefined}
+                                                    onChange={(value) => {
+                                                      const option = choices.options.find((item) => item.value === value);
+                                                      if (value && (!option || option.disabled)) return;
+                                                      if (option?.priorityLevel !== undefined) {
+                                                        const level = option.priorityLevel;
+                                                        const selectedGroup = choices.groupsByLevel.get(level);
+                                                        setSitInPriorityLevels((prev) => ({ ...prev, [session.id]: level }));
+                                                        if (selectedGroup) setSitInPriorityHistory((prev) => ({ ...prev, [session.id]: { ...(prev[session.id] ?? {}), [level]: selectedGroup } }));
+                                                      }
+                                                      handleSitInSelectForSessions(sessionIds, value);
+                                                    }}
+                                                  />;
+                                                })() : (() => {
                                                   if (hasPriorities) {
                                                     const serverReveal = hasServerPriorityReveal(priorityGroup);
                                                     const currentPriority = currentPriorities[0];
@@ -1717,25 +1792,27 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
             {step === reviewStep && (
               <ReviewStep>
                 {lookup ? (
-                  <div className="space-y-4">
+                  <div className="absence-review space-y-4">
                     <p className="text-sm text-[var(--color-wi-text-light)]">
                       <span className="font-medium text-[var(--color-wi-text)]">{studentDisplayName}</span> — {lookup.wcode}
                     </p>
 
                     {!isStaff && studentProfile?.nickname_set === false ? (
-                      <div className="rounded-lg border border-[var(--color-wi-border)] bg-white px-5 py-4 space-y-2">
+                      <div className="absence-review__nickname rounded-lg border border-[var(--color-wi-border)] bg-white px-5 py-4 space-y-2">
                         <label htmlFor="student-nickname" className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">
                           Nickname <span className="normal-case tracking-normal font-medium">(optional)</span>
                         </label>
                         <input
                           id="student-nickname"
+                          autoComplete="nickname"
+                          aria-describedby="nickname-help"
                           maxLength={50}
                           className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
                           placeholder="What our staff can call you"
                           value={nickname}
                           onChange={(e) => setNickname(e.target.value)}
                         />
-                        <p className="text-xs text-[var(--color-wi-text-light)]" data-testid="nickname-echo">
+                        <p id="nickname-help" className="text-xs text-[var(--color-wi-text-light)]" data-testid="nickname-echo">
                           {nickname.trim()
                             ? <>Helps our staff recognise you — it will be saved as {maskNickname(nickname)}.</>
                             : <>No nickname saved yet. Adding one helps our staff recognise you.</>}
@@ -1744,7 +1821,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     ) : null}
 
                     {/* Classes section */}
-                    <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
+                    <div className="absence-review__section rounded-lg border border-[var(--color-wi-border)] bg-white">
                       <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Classes</h2>
                         <button
@@ -1783,7 +1860,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     </div>
 
                     {/* Reason section */}
-                    <div className="rounded-lg border border-[var(--color-wi-border)] bg-white">
+                    <div className="absence-review__section rounded-lg border border-[var(--color-wi-border)] bg-white">
                       <div className="flex items-center justify-between border-b border-[var(--color-wi-border)] px-5 py-3">
                         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-wi-text-light)]">Reason</h2>
                         <button
@@ -1804,7 +1881,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
             )}
         </motion.div>
       </div>
-      {submissionOverlay}
     </AbsenceAppShell>
   );
 }

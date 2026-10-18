@@ -15,12 +15,12 @@ test("captures the complete mobile form for craft review", async ({ page }, test
     await testInfo.attach(name, { path, contentType: "image/png" });
   };
   await page.goto("/absence");
-  await expect(page.getByRole("heading", { name: "Find your profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Who will be absent?" })).toBeVisible();
   await capture("student");
   await page.getByPlaceholder("e.g. W250389").fill("W250389");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student", exact: true }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await capture("verification");
   await page.getByRole("button", { name: "Send code", exact: true }).click();
   await page.getByLabel("Verification code", { exact: true }).fill("123456", { force: true });
@@ -71,7 +71,7 @@ test("keeps the public picker browsable, cancellable, and keyboard contained", a
   await page.getByRole("button", { name: "Review absence" }).click();
   await expect(trigger).toBeFocused();
   await expect(trigger).toHaveAttribute("aria-invalid", "true");
-  await expect(trigger).toHaveAccessibleDescription("Choose a make-up class for this date.");
+  await expect(trigger).toHaveAccessibleDescription(/For Mathematics.*Choose a make-up class for this date\./);
   await trigger.click();
   await page.setViewportSize({ width: 768, height: 1024 });
   await expect(dialog).not.toBeVisible();

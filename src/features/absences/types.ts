@@ -232,7 +232,9 @@ export type PublicStudentLookupResponse = {
   lookup_token: string;
   email_input_required: boolean;
   parent_verification_available: boolean;
-  /** Masked server-side (e.g. "B***"); the raw name stays behind the OTP. */
+  /** Stored nickname for recognizing the student; never a full-name fallback. */
+  nickname?: string;
+  /** Legacy masked cue (e.g. "B***"); may use a full-name initial when no nickname exists. */
   nickname_hint?: string;
   /** Masked server-side (e.g. "••••5678"); omitted when no phone exists. */
   parent_phone_hint?: string;

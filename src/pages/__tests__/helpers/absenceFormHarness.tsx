@@ -96,21 +96,23 @@ export async function searchForStudent(
   wcode: string,
   method: "button" | "enter" = "button",
 ) {
+  const changeStudent = screen.queryByRole("button", { name: "Change student" });
+  if (changeStudent) await user.click(changeStudent);
   const input = await screen.findByRole("textbox", { name: /student id/i });
   await user.clear(input);
   await user.type(input, wcode);
   if (method === "enter") await user.keyboard("{Enter}");
-  else await user.click(screen.getByRole("button", { name: /^search$/i }));
+  else await user.click(screen.getByRole("button", { name: /^(find student|search)$/i }));
 }
 
 export async function continueThroughVerification(
   user: ReturnType<typeof userEvent.setup>,
 ) {
-  const email = screen.queryByRole("textbox", { name: /your email address/i });
+  const email = screen.queryByRole("textbox", { name: /email address/i });
   if (email && !(email as HTMLInputElement).value) {
     await user.type(email, "student@example.edu");
   }
-  await user.click(screen.getByRole("button", { name: /continue to verification/i }));
+  await user.click(screen.getByRole("button", { name: /^continue$/i }));
   await screen.findByRole("heading", { name: /parent verification/i });
   await user.click(screen.getByRole("button", { name: /^(send code|send new code)$/i }));
   const codeInput = (await screen.findAllByRole("textbox", { hidden: true })).find(

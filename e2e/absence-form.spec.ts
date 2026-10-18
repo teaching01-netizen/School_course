@@ -20,9 +20,9 @@ test("keeps verification capabilities out of browser URLs", async ({ page }) => 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
 
   await expect(page).toHaveURL(/\/absence$/);
@@ -51,9 +51,9 @@ test("quota rejection keeps the reviewed absence available for correction", asyn
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
@@ -91,9 +91,9 @@ test("duplicate submit taps create one logical absence request", async ({ page }
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 
@@ -123,9 +123,9 @@ test("missing make-up selection focuses the visible control", async ({ page }) =
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
 

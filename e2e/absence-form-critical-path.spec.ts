@@ -36,10 +36,10 @@ test("invalid student ID never calls the lookup API or advances", async ({ page 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill("not-a-wcode");
-  await page.getByRole("button", { name: /search/i }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /student id/i })).toBeVisible();
 
-  await expect(page.getByRole("heading", { name: "Find your profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Who will be absent?" })).toBeVisible();
   expect(lookupRequests).toBe(0);
 });
 

@@ -37,9 +37,9 @@ test("restored draft step cannot bypass student and parent verification", async 
 
   await page.goto("/absence");
 
-  await expect(page.getByRole("heading", { name: "Find your profile" })).toBeVisible();
-  await expect(page.getByText("Student ID found")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue to verification" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Who will be absent?" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Selected student" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toHaveCount(0);
   expect(sessionRequests).toBe(0);
 });
@@ -64,7 +64,7 @@ test("connectivity changes do not block the student form", async ({ page }) => {
   await expect(page.getByPlaceholder("e.g. W250389")).toBeVisible();
   await setConnectivity(page, false);
 
-  await expect(page.getByRole("button", { name: "Search" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Find student" })).toBeEnabled();
   await expect(page.getByRole("status").filter({ hasText: /offline/i })).toHaveCount(0);
 });
 

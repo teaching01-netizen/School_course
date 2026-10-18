@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import SearchableSelect from "@/components/ui/SearchableSelect";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, CircleAlert, LoaderCircle } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
 import type { SitInDisplayModel } from "@/features/absences/domain/sitInResolution";
 
@@ -12,6 +12,7 @@ export type MakeUpOption = {
   description?: string;
   conflictDetails?: string;
   display?: SitInDisplayModel;
+  priorityLevel?: number;
 };
 
 type MakeUpPickerProps = {
@@ -24,6 +25,14 @@ type MakeUpPickerProps = {
   publicForm?: boolean;
   context?: string;
   error?: string;
+  moreTimes?: {
+    hasMore: boolean;
+    loading: boolean;
+    error?: string;
+    onLoad: () => void;
+  };
+  emptyDescription?: string;
+  supportContact?: { email?: string; phone?: string };
 };
 
 function optionLines(option: MakeUpOption, publicForm: boolean) {
@@ -34,19 +43,27 @@ function optionLines(option: MakeUpOption, publicForm: boolean) {
   };
 }
 
-export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false, publicForm = false, context, error }: MakeUpPickerProps) {
+export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false, publicForm = false, context, error, moreTimes, emptyDescription, supportContact }: MakeUpPickerProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   // null = nothing chosen yet; "" = an explicit "Not yet selected" (clear).
   const [pendingValue, setPendingValue] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const choicesRef = useRef<HTMLFieldSetElement | null>(null);
+  const moreRequest = useRef<{ button: HTMLButtonElement; count: number } | null>(null);
   const selectedOption = options.find((option) => option.value === value);
-  const selectedLines = selectedOption ? optionLines(selectedOption, publicForm) : null;
+  const lastSelection = useRef<MakeUpOption | undefined>(undefined);
+  useEffect(() => { if (selectedOption) lastSelection.current = selectedOption; }, [selectedOption]);
+  const displayedSelection = selectedOption ?? (lastSelection.current?.value === value ? lastSelection.current : undefined);
+  const selectedLines = displayedSelection ? optionLines(displayedSelection, publicForm) : null;
+  const selectionInvalid = Boolean(value && (!selectedOption || selectedOption.disabled));
   const pendingOption = options.find((option) => option.value === pendingValue);
   const pendingInvalid = Boolean(pendingValue && (!pendingOption || pendingOption.disabled));
   const canConfirm = !disabled && pendingValue !== null && !pendingInvalid;
+  const availableCount = options.filter((option) => !option.disabled).length;
   const needle = query.trim().toLowerCase();
   const filteredOptions = options.filter((option) => `${option.label} ${option.details ?? ""} ${option.description ?? ""} ${option.conflictDetails ?? ""} ${option.value}`.toLowerCase().includes(needle));
+  if (publicForm) filteredOptions.sort((a, b) => Number(Boolean(a.disabled)) - Number(Boolean(b.disabled)));
   const selectOptions = [
     { value: "", label: "Not yet selected" },
     ...options.map((option) => ({
@@ -56,8 +73,18 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   ];
 
   useEffect(() => {
-    if (value && selectedOption?.disabled) onChange("");
-  }, [onChange, selectedOption?.disabled, value]);
+    if (!publicForm && value && selectedOption?.disabled) onChange("");
+  }, [onChange, publicForm, selectedOption?.disabled, value]);
+
+  useEffect(() => {
+    const request = moreRequest.current;
+    if (!request || moreTimes?.loading || options.length <= request.count) return;
+    moreRequest.current = null;
+    if (!sheetOpen || request.button.isConnected) return;
+    const newChoice = choicesRef.current?.querySelector<HTMLInputElement>(`input[data-option-index="${request.count}"]:not(:disabled)`);
+    const status = choicesRef.current?.parentElement?.querySelector<HTMLElement>("[data-more-times-status]");
+    (newChoice ?? status)?.focus({ preventScroll: true });
+  }, [moreTimes?.loading, options.length, sheetOpen]);
 
   useEffect(() => {
     if (!sheetOpen || typeof window.matchMedia !== "function") return;
@@ -79,55 +106,101 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     </label>
   );
 
+  const moreTimesControl = moreTimes ? (
+    <div className="absence-makeup-more">
+      {moreTimes.error ? <p role="status" className="absence-makeup-more__error">{moreTimes.error}</p> : null}
+      {moreTimes.hasMore || moreTimes.error ? (
+        <button type="button" disabled={moreTimes.loading} onClick={(event) => {
+          moreRequest.current = { button: event.currentTarget, count: options.length };
+          moreTimes.onLoad();
+        }} className="absence-makeup-more__button" aria-busy={moreTimes.loading}>
+          {moreTimes.loading ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
+          {moreTimes.loading ? "Loading more times…" : moreTimes.error ? "Try loading more times again" : "Show more times"}
+        </button>
+      ) : <p role="status" tabIndex={-1} data-more-times-status className="text-xs text-[var(--color-wi-text-light)]">No more times to show.</p>}
+    </div>
+  ) : null;
+
+  const noAvailableTimes = publicForm && availableCount === 0 ? (
+    <div className="absence-makeup-empty">
+      <p className="font-semibold">{options.length ? "None of these times are available" : "No make-up times available"}</p>
+      <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+        {moreTimes?.hasMore ? "Show more times to look for another class." : emptyDescription ?? "A make-up class is required for this date. Contact Warwick for help before continuing."}
+      </p>
+      {!moreTimes?.hasMore && (supportContact?.phone || supportContact?.email) ? (
+        <div className="absence-makeup-support">
+          {supportContact.phone ? <a href={`tel:${supportContact.phone.replace(/[^\d+]/g, "")}`}>Call Warwick</a> : null}
+          {supportContact.email ? <a href={`mailto:${encodeURIComponent(supportContact.email)}`}>Email Warwick</a> : null}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
-    <div id={`${id}-field`} className="space-y-2">
+    <div id={`${id}-field`} className="absence-makeup-picker space-y-2" data-selected={Boolean(value)} data-invalid={selectionInvalid || undefined}>
       <label htmlFor={id} className="block text-xs font-semibold text-[var(--color-wi-text-light)]">{label}</label>
-      <SearchableSelect
+      {publicForm ? <select
+        id={id}
+        name={id}
+        value={value}
+        disabled={disabled}
+        aria-invalid={Boolean(error) || selectionInvalid}
+        aria-describedby={[`${id}-context`, error ? `${id}-error` : "", selectionInvalid ? `${id}-invalid` : ""].filter(Boolean).join(" ")}
+        onChange={(event) => onChange(event.target.value)}
+        className="absence-makeup-native hidden min-h-12 w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-base text-[var(--color-wi-text)] sm:block"
+      >
+        {value && !selectedOption ? <option value={value} disabled>{selectedLines?.primary ?? "Previous choice"} — no longer available</option> : null}
+        {selectOptions.map((option) => <option key={option.value} value={option.value} disabled={"disabled" in option && option.disabled}>{option.label}</option>)}
+      </select> : <SearchableSelect
         id={id}
         name={id}
         value={value}
         options={selectOptions}
         disabled={disabled || options.length === 0}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? `${id}-error` : undefined}
+        error={Boolean(error)}
+        aria-describedby={[`${id}-context`, error ? `${id}-error` : ""].filter(Boolean).join(" ")}
         onChange={(event) => onChange(event.target.value)}
         className="hidden min-h-12 w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-base text-[var(--color-wi-text)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20 sm:block"
-      />
+      />}
 
       <button
         data-make-up-trigger="true"
         ref={triggerRef}
         type="button"
-        disabled={disabled || options.length === 0}
+        disabled={disabled || (!publicForm && options.length === 0)}
         aria-haspopup="dialog"
         aria-expanded={sheetOpen}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? `${id}-error` : undefined}
-        aria-label={selectedLines ? `${label}: ${selectedLines.primary} ${selectedLines.secondary ?? ""}` : "Choose a make-up class"}
+        aria-invalid={Boolean(error) || (publicForm && selectionInvalid)}
+        aria-describedby={[`${id}-context`, error ? `${id}-error` : "", publicForm && selectionInvalid ? `${id}-invalid` : ""].filter(Boolean).join(" ")}
+        aria-label={selectedLines ? `${label}: ${selectedLines.primary} ${selectedLines.secondary ?? ""}. Change time` : "Choose a make-up class"}
         onClick={() => {
           setPendingValue(value || null);
           setQuery("");
           setSheetOpen(true);
         }}
-        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
+        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 py-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
       >
         <span className={selectedOption ? "min-w-0 font-medium" : "text-[var(--color-wi-text-light)]"}>
           <span className="block">{selectedLines?.primary ?? "Choose a make-up class"}</span>
           {selectedLines?.secondary ? <span className="mt-1 block text-xs font-normal text-[var(--color-wi-text-light)]">{selectedLines.secondary}</span> : null}
+          {publicForm && selectedLines ? <span className="absence-makeup-change">Change time</span> : null}
         </span>
         <ChevronRight className="h-5 w-5 shrink-0 text-[var(--color-wi-text-light)]" aria-hidden="true" />
       </button>
+      <span id={`${id}-context`} className="sr-only">{context}</span>
       {error ? <p id={`${id}-error`} className="text-xs text-[var(--color-wi-red)]">{error}</p> : null}
+      {publicForm && selectionInvalid ? <p id={`${id}-invalid`} role="status" className="absence-makeup-invalid">{selectedOption?.description ?? "This make-up time is no longer available."} Choose another time.{selectedOption?.conflictDetails ? ` ${selectedOption.conflictDetails}` : ""}</p> : null}
+      {publicForm ? <div className="hidden sm:block">{noAvailableTimes}{moreTimesControl}</div> : null}
 
       {selectedOption?.details ? (
         <p className="hidden text-xs text-[var(--color-wi-text-light)] sm:block">{selectedOption.details}</p>
       ) : null}
-      {selectedOption?.description ? (
+      {!publicForm && selectedOption?.description ? (
         <p role="status" className="text-xs text-[var(--color-wi-amber)]">
           {selectedOption.description}
         </p>
       ) : null}
-      {selectedOption?.conflictDetails ? (
+      {!publicForm && selectedOption?.conflictDetails ? (
         <p className="text-xs text-[var(--color-wi-text-light)]">{selectedOption.conflictDetails}</p>
       ) : null}
 
@@ -136,6 +209,10 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         publicForm={publicForm}
         title="Choose a make-up class"
         description={publicForm ? context : undefined}
+        summary={publicForm && selectedLines ? <div className="absence-makeup-current" data-invalid={selectionInvalid || undefined}>
+          <span>{selectionInvalid ? "Previous choice · choose another time" : "Current choice"}</span>
+          <p>{selectedLines.primary}</p>
+        </div> : undefined}
         onClose={() => setSheetOpen(false)}
         restoreFocusRef={triggerRef}
         toolbar={
@@ -156,7 +233,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
             {pendingInvalid ? (
               <p role="status" className="mb-3 text-sm text-[var(--color-wi-amber)]">This class is no longer available. Choose another time.</p>
             ) : publicForm ? (
-              <p className="mb-3 text-sm text-[var(--color-wi-text-light)]">
+              <p role="status" aria-live="polite" className="absence-makeup-confirmation mb-3 text-sm text-[var(--color-wi-text-light)]">
                 {pendingOption ? `Selected: ${optionLines(pendingOption, publicForm).primary}` : pendingValue === "" ? "Your make-up selection will be cleared." : "Choose a class, then confirm."}
               </p>
             ) : null}
@@ -170,40 +247,48 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
               }}
               className="min-h-12 w-full rounded-xl bg-[var(--color-wi-primary)] px-4 py-3 text-base font-semibold text-white hover:bg-[var(--color-wi-primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[var(--color-wi-row-alt)] disabled:text-[var(--color-wi-text-light)]"
             >
-              Confirm make-up class
+              {publicForm && pendingValue === "" ? "Remove make-up selection" : "Confirm make-up class"}
             </button>
           </>
         }
       >
-        <fieldset className="space-y-2">
+        {noAvailableTimes}
+        <fieldset ref={choicesRef} className="space-y-2">
           <legend className="sr-only">{label}</legend>
           {!publicForm ? clearOption : null}
-          {filteredOptions.length === 0 ? <p className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">No classes match{needle ? ` “${query.trim()}”` : ""}.</p> : null}
+          {filteredOptions.length === 0 && (needle || !publicForm) ? <p className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">No classes match{needle ? ` “${query.trim()}”` : ""}.</p> : null}
           {filteredOptions.map((option) => {
             const lines = optionLines(option, publicForm);
             return (
-              <label key={option.value} className="absence-makeup-option flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
+              <label key={option.value} className="absence-makeup-option flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5" data-unavailable={option.disabled || undefined}>
                 <input
                   type="radio"
                   name={`${id}-mobile`}
                   value={option.value}
+                  data-option-index={options.indexOf(option)}
                   checked={pendingValue === option.value}
                   disabled={option.disabled}
+                  aria-describedby={option.disabled ? `${id}-option-${options.indexOf(option)}-reason` : undefined}
                   onChange={(event) => setPendingValue(event.target.value)}
                   className="h-5 w-5 shrink-0 border-[var(--color-wi-border)] text-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20"
                 />
                 <span className="min-w-0 break-words text-sm font-medium text-[var(--color-wi-text)]">
                   <span className="block">{lines.primary}</span>
                   {lines.secondary ? <span className="mt-1 block text-xs font-normal text-[var(--color-wi-text-light)]">{lines.secondary}</span> : null}
-                  {publicForm && option.disabled ? <span className="mt-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Unavailable</span> : null}
-                  {option.description ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.description}</span> : null}
-                  {option.conflictDetails ? <span className="mt-0.5 block text-xs font-normal text-[var(--color-wi-text-light)]">{option.conflictDetails}</span> : null}
+                  {publicForm && option.value === value && !option.disabled ? <span className="absence-makeup-option__current">Current choice</span> : null}
+                  {option.disabled || option.description || option.conflictDetails ? <span id={`${id}-option-${options.indexOf(option)}-reason`} className="absence-makeup-option__reason">
+                    {publicForm && option.disabled ? <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" /> : null}
+                    <span>{option.description ?? (publicForm && option.disabled ? "This make-up class isn’t available." : "")}{option.conflictDetails ? <span className="mt-1 block font-normal">{option.conflictDetails}</span> : null}</span>
+                  </span> : null}
                 </span>
               </label>
             );
           })}
-          {publicForm ? clearOption : null}
         </fieldset>
+        {publicForm ? <>
+          {moreTimesControl}
+          {pendingValue !== "" && (value || pendingValue) ? <button type="button" onClick={() => setPendingValue("")} className="absence-makeup-remove">Remove make-up selection</button> : null}
+        </> : null}
       </MobileBottomSheet>
     </div>
   );

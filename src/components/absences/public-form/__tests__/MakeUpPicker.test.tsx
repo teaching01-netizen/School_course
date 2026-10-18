@@ -9,6 +9,67 @@ const options = [
 ];
 
 describe("MakeUpPicker", () => {
+  it("preserves the confirmed and staged choices while more times load, fail, and append", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onLoad = vi.fn();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "sit-in-1", options, onChange };
+    const { rerender } = render(<MakeUpPicker {...props} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+    await user.click(screen.getByRole("button", { name: /saturday 22 aug/i }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Show more times" }));
+    expect(onLoad).toHaveBeenCalledOnce();
+    rerender(<MakeUpPicker {...props} moreTimes={{ hasMore: true, loading: true, onLoad }} />);
+    expect(within(dialog).getByRole("button", { name: "Loading more times…" })).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: /sunday/i })).toBeChecked();
+    rerender(<MakeUpPicker {...props} moreTimes={{ hasMore: true, loading: false, error: "Couldn’t load more times.", onLoad }} />);
+    expect(within(dialog).getByText("Couldn’t load more times.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /sunday/i })).toBeChecked();
+    rerender(<MakeUpPicker {...props} options={[...options, { value: "third", label: "Monday 24 Aug" }]} moreTimes={{ hasMore: false, loading: false, onLoad }} />);
+    expect(within(dialog).getByRole("radio", { name: /monday/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /sunday/i })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /saturday 22 aug/i }));
+    expect(within(screen.getByRole("dialog")).getByRole("radio", { name: /saturday/i })).toBeChecked();
+  });
+
+  it("stages public removal as an action and allows cancellation before confirming", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="sit-in-1" options={options} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: /saturday 22 aug/i }));
+    let dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("radio", { name: /clear|remove|not yet/i })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Remove make-up selection" }));
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: /saturday 22 aug/i }));
+    dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Remove make-up selection" }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove make-up selection" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("");
+  });
+
+  it("keeps an invalidated public choice visible and requires a replacement", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "sit-in-1", options, onChange };
+    const { rerender } = render(<MakeUpPicker {...props} />);
+    rerender(<MakeUpPicker {...props} options={options.map((option) => ({ ...option, disabled: option.value === "sit-in-1", description: option.value === "sit-in-1" ? "Overlaps Chemistry" : undefined }))} />);
+    expect(onChange).not.toHaveBeenCalled();
+    const trigger = screen.getByRole("button", { name: /saturday 22 aug/i });
+    expect(trigger).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Overlaps Chemistry");
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Confirm make-up class" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("sit-in-2");
+  });
+
   it("opens the public picker for browsing and cancels staged changes without committing", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

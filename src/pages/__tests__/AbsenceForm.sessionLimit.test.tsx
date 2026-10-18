@@ -102,9 +102,9 @@ function createSessionsWithLimits(
 }
 
 async function continueToVerification(user: ReturnType<typeof userEvent.setup>) {
-  const emailInput = screen.queryByRole("textbox", { name: /your email address/i });
+  const emailInput = screen.queryByRole("textbox", { name: /email address/i });
   if (emailInput) await user.type(emailInput, "student@example.com");
-  await user.click(screen.getByRole("button", { name: /continue to verification/i }));
+  await user.click(screen.getByRole("button", { name: /^continue$/i }));
   await screen.findByRole("heading", { name: /parent verification/i });
 }
 
@@ -136,8 +136,8 @@ async function setupForm(sessions: SubjectSessions[]) {
   const input = await screen.findByPlaceholderText("e.g. W250389");
   await user.clear(input);
   await user.type(input, "W250389");
-  await user.click(screen.getByRole("button", { name: /search/i }));
-  await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: /^find student$/i }));
+  await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
   await continueToVerification(user);
   await completeVerification(user);
@@ -371,7 +371,7 @@ describe("AbsenceForm - 20% session limit", () => {
         expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0);
       });
       expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryAllByRole("alert").filter((alert) => alert.textContent?.trim())).toHaveLength(0);
     });
 
     it("blocks selecting more than 20% of sessions in one request (20-session course)", async () => {
@@ -393,7 +393,7 @@ describe("AbsenceForm - 20% session limit", () => {
         expect(screen.getAllByText("All remaining days selected").length).toBeGreaterThan(0);
       });
       expect(screen.queryByText("Limit reached")).not.toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryAllByRole("alert").filter((alert) => alert.textContent?.trim())).toHaveLength(0);
     });
   });
 
@@ -472,8 +472,8 @@ describe("AbsenceForm - 20% session limit", () => {
       const input = await screen.findByPlaceholderText("e.g. W250389");
       await user.clear(input);
       await user.type(input, "W250389");
-      await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: /^find student$/i }));
+      await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -617,8 +617,8 @@ describe("AbsenceForm - 20% session limit", () => {
       const input = await screen.findByPlaceholderText("e.g. W250389");
       await user.clear(input);
       await user.type(input, "W250389");
-      await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: /^find student$/i }));
+      await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -690,8 +690,8 @@ describe("AbsenceForm - 20% session limit", () => {
       const input = await screen.findByPlaceholderText("e.g. W250389");
       await user.clear(input);
       await user.type(input, "W250389");
-      await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: /^find student$/i }));
+      await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -707,8 +707,8 @@ describe("AbsenceForm - 20% session limit", () => {
       expect((day1Sessions[0] as HTMLInputElement).checked).toBe(true);
 
       await waitFor(() => {
-        const selectedCounter = screen.getByText(/\d+ selected/);
-        expect(selectedCounter.textContent).toContain("1 selected");
+        const selectedCounter = screen.getByText(/\d+ class dates? selected/);
+        expect(selectedCounter.textContent).toContain("1 class date selected");
       });
       expect(screen.getByRole("button", { name: /mathematics\s*1 class day selected/i })).toBeInTheDocument();
 
@@ -718,8 +718,8 @@ describe("AbsenceForm - 20% session limit", () => {
       expect((day2Sessions[0] as HTMLInputElement).checked).toBe(true);
 
       await waitFor(() => {
-        const selectedCounter = screen.getByText(/\d+ selected/);
-        expect(selectedCounter.textContent).toContain("2 selected");
+        const selectedCounter = screen.getByText(/\d+ class dates? selected/);
+        expect(selectedCounter.textContent).toContain("2 class dates selected");
       });
 
       const day3Sessions = sessionCbs().filter((cb) => cb.getAttribute("id") === "session-m4");
@@ -795,8 +795,8 @@ describe("AbsenceForm - 20% session limit", () => {
       const input = await screen.findByPlaceholderText("e.g. W250389");
       await user.clear(input);
       await user.type(input, "W250389");
-      await user.click(screen.getByRole("button", { name: /search/i }));
-      await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: /^find student$/i }));
+      await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
       await continueToVerification(user);
       await completeVerification(user);
@@ -882,7 +882,7 @@ describe("AbsenceForm - 20% session limit", () => {
 
       await user.click(screen.getByRole("checkbox", { name: /Mon, 1 Jun 2026 16:00-19:30/ }));
 
-      await waitFor(() => expect(screen.getByText(/^1 selected/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/^1 class date selected/)).toBeInTheDocument());
     });
   });
 

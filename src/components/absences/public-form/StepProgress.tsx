@@ -23,7 +23,6 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
 
           return (
             <li key={step.label} className="absence-step-progress__item">
-              <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   tabIndex={isClickable ? 0 : -1}
@@ -31,31 +30,22 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
                   disabled={!isClickable && !isCurrent}
                   aria-current={isCurrent ? "step" : undefined}
                   aria-label={`${step.label}${isCompleted ? " - completed" : ""}${isCurrent ? " - current" : ""}`}
+                  data-step-state={isCurrent ? "current" : isCompleted ? "completed" : "upcoming"}
                   className={clsx(
-                    "relative z-10 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors motion-reduce:transition-none",
+                    "absence-step-progress__step relative z-10 inline-flex min-h-11 items-center gap-2.5 rounded-xl text-sm font-semibold transition-colors motion-reduce:transition-none",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
-                    isCompleted && "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]",
-                    isCurrent && "border-2 border-[var(--color-wi-primary)] bg-white text-[var(--color-wi-primary)]",
-                    !isCompleted && !isCurrent && "border-2 border-wi-line bg-white text-[var(--color-wi-text-light)]",
+                    isCompleted && "text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)]",
+                    isCurrent && "text-[var(--color-wi-text)]",
+                    !isCompleted && !isCurrent && "text-[var(--color-wi-text-light)]",
                     !isClickable && !isCurrent && "cursor-default",
                   )}
                 >
-                  {index + 1}
-                </button>
-                <div className="hidden min-w-0 flex-col sm:flex">
-                  <span className={clsx(
-                    "text-xs font-semibold leading-tight",
-                    isCompleted && "text-[var(--color-wi-primary)]",
-                    isCurrent && "text-[var(--color-wi-text)]",
-                    !isCompleted && !isCurrent && "text-[var(--color-wi-text-light)]",
-                  )}>
-                    {step.label}
+                  <span className="absence-step-progress__number" aria-hidden="true">{index + 1}</span>
+                  <span className="absence-step-progress__label">
+                    <span>{step.label}</span>
+                    {step.description ? <span className="absence-step-progress__description">{step.description}</span> : null}
                   </span>
-                  {step.description ? (
-                    <span className="hidden text-[11px] leading-tight text-[var(--color-wi-text-light)] md:block">{step.description}</span>
-                  ) : null}
-                </div>
-              </div>
+                </button>
             </li>
           );
         })}

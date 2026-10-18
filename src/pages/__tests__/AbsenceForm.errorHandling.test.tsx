@@ -106,9 +106,9 @@ function createSessionsWithLimits(
 }
 
 async function continueToVerification(user: ReturnType<typeof userEvent.setup>) {
-  const emailInput = screen.queryByRole("textbox", { name: /your email address/i });
+  const emailInput = screen.queryByRole("textbox", { name: /email address/i });
   if (emailInput) await user.type(emailInput, "student@example.com");
-  await user.click(screen.getByRole("button", { name: /continue to verification/i }));
+  await user.click(screen.getByRole("button", { name: /^continue$/i }));
   await screen.findByRole("heading", { name: /parent verification/i });
 }
 
@@ -151,8 +151,8 @@ describe("AbsenceForm - error handling", () => {
     const input = await screen.findByPlaceholderText("e.g. W250389");
     await user.clear(input);
     await user.type(input, "W250389");
-    await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /^find student$/i }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
     await continueToVerification(user);
     await completeVerification(user);
@@ -263,8 +263,8 @@ describe("AbsenceForm - multi-subject independent remaining counts", () => {
     const input = await screen.findByPlaceholderText("e.g. W250389");
     await user.clear(input);
     await user.type(input, "W250389");
-    await user.click(screen.getByRole("button", { name: /search/i }));
-    await waitFor(() => expect(screen.getByText("Student ID found")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /^find student$/i }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument());
 
     await continueToVerification(user);
     await completeVerification(user);

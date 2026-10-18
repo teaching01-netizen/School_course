@@ -47,9 +47,9 @@ test("public absence form stays accessible and contained through every supported
   await expectNoHorizontalOverflow(page);
 
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expectCurrentStep(page, 2, "Verify");
   await expect(page.getByRole("button", { name: /send code/i }).locator("span")).toHaveCSS(
     "opacity",

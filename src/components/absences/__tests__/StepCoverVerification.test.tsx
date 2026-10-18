@@ -95,7 +95,7 @@ it("does not claim an uncertain OTP delivery was sent", async () => {
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
   expect(await screen.findByText(/sms may have been sent/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/^a code was requested/i)).not.toBeInTheDocument();
 });
 
 it("polls a queued delivery until SmartSMS accepts it", async () => {
@@ -109,7 +109,7 @@ it("polls a queued delivery until SmartSMS accepts it", async () => {
   fireEvent.click(screen.getByRole("button", { name: /send code/i }));
   await act(async () => Promise.resolve());
 
-  expect(screen.getByText("Sending code…")).toBeInTheDocument();
+  expect(screen.getByText("Sending code…")).toHaveAttribute("role", "status");
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
   expect(mockedApiJson).toHaveBeenCalledWith(
     "/api/v1/absences/parent-verification/status",
@@ -134,7 +134,7 @@ it("shows a retryable error when delivery is rejected", async () => {
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
   expect(await screen.findByText(/couldn't send the code/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/^a code was requested/i)).not.toBeInTheDocument();
 });
 
 it("confirms an accepted OTP delivery", async () => {
@@ -144,7 +144,7 @@ it("confirms an accepted OTP delivery", async () => {
 
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
-  expect(await screen.findByText(/^code sent to ••••5678/i)).toBeInTheDocument();
+  expect(await screen.findByText(/^a code was requested for ••••5678\. it may take a moment to arrive\./i)).toHaveAttribute("role", "status");
   expect(screen.queryByText("Sending code…")).not.toBeInTheDocument();
 });
 
@@ -156,7 +156,7 @@ it("reports an expired OTP without claiming delivery", async () => {
   await user.click(screen.getByRole("button", { name: /send code/i }));
 
   expect(await screen.findByText(/verification code expired/i)).toBeInTheDocument();
-  expect(screen.queryByText(/^code sent to/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/^a code was requested/i)).not.toBeInTheDocument();
 });
 
 it("automatically verifies a complete six-digit code", async () => {
@@ -372,5 +372,5 @@ it("enrolls a client-provided parent phone when none is on file", async () => {
       }),
     ),
   );
-  expect(await screen.findByText(/^code sent to ••••8888/i)).toBeInTheDocument();
+  expect(await screen.findByText(/^a code was requested for ••••8888/i)).toBeInTheDocument();
 });

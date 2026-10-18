@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-export type StudentStepProps = { children: ReactNode };
+export type StudentStepProps = { children: ReactNode; publicForm?: boolean };
 
-export default function StudentStep({ children }: StudentStepProps) {
-  return <><h1 className="text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">Find your profile</h1>{children}</>;
+export default function StudentStep({ children, publicForm = false }: StudentStepProps) {
+  return <><h1 tabIndex={-1} className="absence-step-title text-2xl font-bold tracking-tight text-[var(--color-wi-text)]">{publicForm ? "Who will be absent?" : "Find your profile"}</h1>{children}</>;
 }

@@ -997,9 +997,8 @@ func (s *server) handleCoursesPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 // Public lookup returns only the values needed to start self-service. It must
-// never become a student directory: profile data is available only after OTP
-// verification has created a student self-service session. The nickname hint
-// is the one pre-verification identity cue and is always masked server-side.
+// not expose full names or contact details: the stored nickname is the recognition
+// cue before OTP. The rest of the profile requires a verified student session.
 func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 	if _, hasNickname := r.URL.Query()["nickname"]; hasNickname {
 		s.a.WriteErr(w, http.StatusBadRequest, "nickname_not_supported", "nickname lookup is not supported; use wcode")
@@ -1061,9 +1060,11 @@ func (s *server) handleStudentLookup(w http.ResponseWriter, r *http.Request) {
 			"email_input_required":          result.EmailInputRequired,
 			"parent_verification_available": result.ParentVerificationAvailable,
 		}
-		// Masked identity cues so the submitter can confirm the W-Code hit
-		// the right student before verification; raw values stay behind the
-		// OTP.
+		if result.Nickname != "" {
+			response["nickname"] = result.Nickname
+		}
+		// Keep the masked hint for clients deployed before nickname recognition.
+		// Full names and parent phone numbers stay behind OTP verification.
 		if hint := maskNicknameForPublic(result.DisplayName); hint != "" {
 			response["nickname_hint"] = hint
 		}

@@ -340,16 +340,19 @@ export default function StepCoverVerification({
             type="tel"
             inputMode="tel"
             autoComplete="tel"
+            required
+            aria-invalid={Boolean(enrollPhone.trim()) && !enrollPhoneValid}
+            aria-describedby={!enrollPhoneValid && enrollPhone.trim() ? "parent-phone-help parent-phone-error" : "parent-phone-help"}
             className="min-h-[48px] w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-4 text-base text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
             placeholder="e.g. 0812345678"
             value={enrollPhone}
             onChange={(e) => setEnrollPhone(e.target.value)}
           />
-          <p className="text-xs text-[var(--color-wi-text-light)]">
+          <p id="parent-phone-help" className="text-xs text-[var(--color-wi-text-light)]">
             We don't have your parent's phone number yet. Enter it below — we'll text a one-time code to check it works, then save it for future absence confirmations.
           </p>
           {!enrollPhoneValid && enrollPhone.trim() ? (
-            <p className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
+            <p id="parent-phone-error" className="text-xs text-[var(--color-wi-amber)]">Enter a valid phone number (9–12 digits).</p>
           ) : null}
         </div>
       ) : null}
@@ -365,7 +368,7 @@ export default function StepCoverVerification({
       ) : null}
 
       {deliveryPending ? (
-        <p className="text-xs font-medium text-[var(--color-wi-primary)]">Sending code…</p>
+        <p role="status" aria-live="polite" className="text-xs font-medium text-[var(--color-wi-primary)]">Sending code…</p>
       ) : null}
 
       {deliveryStatus === "uncertain" ? (
@@ -388,16 +391,18 @@ export default function StepCoverVerification({
 
       {deliveryAccepted && lastSentAt && !isSending && (
         <motion.p
+          role="status"
+          aria-live="polite"
           initial={reduceMotion ? false : { opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={reduceMotion ? { duration: 0 } : undefined}
           className="flex items-center gap-1.5 text-xs text-[var(--color-wi-green)] font-medium"
         >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
           {/* parent_phone arrives pre-masked from the server (e.g. ••••5678) */}
-          Code sent to {session?.parent_phone || "parent"}
+          A code was requested for {session?.parent_phone || "your parent's phone"}. It may take a moment to arrive.
         </motion.p>
       )}
 

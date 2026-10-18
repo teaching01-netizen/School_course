@@ -67,11 +67,12 @@ test("a server-invalid saved verification returns the student to verification", 
 
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill("W250389");
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill("student@example.com");
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill("student@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Parent verification" })).toBeVisible();
   await expect(page.getByRole("button", { name: /send code/i })).toBeEnabled();
-  await expect(page.getByText(/verification has expired|verification phone/i).first()).toBeVisible();
+  await expect(page.getByText("Parent phone: ••••5678")).toBeVisible();
+  await expect.poll(() => page.evaluate((key) => sessionStorage.getItem(key), verificationStorageKey)).toBeNull();
 });

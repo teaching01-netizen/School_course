@@ -70,8 +70,10 @@ const config = {
   },
 };
 
-const publicLookup = {
+export const publicLookup = {
   wcode: studentLookup.wcode,
+  nickname: studentLookup.nickname,
+  parent_phone_hint: "••••5678",
   lookup_token: "lookup-token",
   email_input_required: true,
   parent_verification_available: true,

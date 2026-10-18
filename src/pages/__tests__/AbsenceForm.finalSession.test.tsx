@@ -88,7 +88,8 @@ describe("AbsenceForm final sessions outside SAT Verbal policy", () => {
     renderWithProviders(<AbsenceForm mode={mode === "staff" ? "staff" : undefined} />);
     const user = userEvent.setup();
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
-    await screen.findByText("Student ID found");
+    if (mode === "student") await screen.findByRole("group", { name: "Selected student" });
+    else await screen.findByText("Student ID found");
     if (mode === "student") await continueThroughVerification(user);
     else await user.click(screen.getByRole("button", { name: /continue to classes/i }));
 

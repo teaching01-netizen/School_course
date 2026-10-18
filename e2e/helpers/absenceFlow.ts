@@ -33,9 +33,9 @@ export async function chooseMakeUpClass(page: Page) {
 export async function completeToClasses(page: Page, email = "student@example.com") {
   await page.goto("/absence");
   await page.getByPlaceholder("e.g. W250389").fill(studentLookup.wcode);
-  await page.getByRole("button", { name: /search/i }).click();
-  await page.getByLabel(/your email address/i).fill(email);
-  await page.getByRole("button", { name: "Continue to verification" }).click();
+  await page.getByRole("button", { name: "Find student" }).click();
+  await page.getByLabel(/email address/i).fill(email);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: /send code/i }).click();
   await page.locator('input[aria-label="Verification code"]').fill("123456", { force: true });
   await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();

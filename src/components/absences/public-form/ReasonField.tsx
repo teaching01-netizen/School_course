@@ -40,19 +40,20 @@ export default function ReasonField({ value, onChange, error, required = true, p
       <textarea
         id="absence-reason"
         name="reason"
+        rows={1}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         maxLength={500}
         required={required}
         placeholder="Tell us why you'll be away from class..."
         aria-invalid={Boolean(error)}
-        aria-describedby={error ? errorId : publicForm ? "reason-help" : undefined}
+        aria-describedby={error ? errorId : publicForm ? "reason-help reason-limit" : undefined}
         className={clsx(
           "min-h-[120px] w-full resize-y rounded-xl border bg-white px-4 py-3 text-base leading-6 text-[var(--color-wi-text)] placeholder:text-[var(--color-wi-text-light)] focus:outline-none focus:ring-2",
           error ? "border-[var(--color-wi-red)] focus:ring-[var(--color-wi-red)]/20" : "border-[var(--color-wi-border)] focus:border-[var(--color-wi-primary)] focus:ring-[var(--color-wi-primary)]/20",
         )}
       />
-      {publicForm ? <p className="mt-2 text-xs text-[var(--color-wi-text-light)]">{count === 500 ? "Character limit reached" : count > 450 ? `${500 - count} characters remaining` : "500 characters maximum"}</p> : null}
+      {publicForm ? <p id="reason-limit" className="mt-2 text-xs text-[var(--color-wi-text-light)]">{count === 500 ? "Character limit reached" : count > 450 ? `${500 - count} characters remaining` : "500 characters maximum"}</p> : null}
       {error ? <p id={errorId} className="mt-1.5 text-xs text-[var(--color-wi-red)]">{error}</p> : null}
     </section>
   );

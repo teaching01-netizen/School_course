@@ -38,6 +38,7 @@ export const MANUAL_EMAIL_STUDENT: StudentLookupResponse = {
   student_id: "student-a",
   wcode: "W250389",
   full_name: "Alex Student",
+  nickname: "Alex",
   parent_phone: "+66812345678",
   email_crm: null,
   email_system: null,
@@ -59,6 +60,7 @@ export const SECOND_STUDENT: StudentLookupResponse = {
   student_id: "student-b",
   wcode: "W250400",
   full_name: "Bailey Student",
+  nickname: "Bailey",
   parent_phone: "+66899999999",
   email_crm: "bailey@example.edu",
   email_system: null,
@@ -76,6 +78,8 @@ export function publicStudentLookup(
       student.email_crm?.trim() || student.email_system?.trim() || student.email?.trim(),
     ),
     parent_verification_available: Boolean(student.parent_phone?.trim()),
+    ...(student.nickname?.trim() ? { nickname: student.nickname.trim() } : {}),
+    ...(student.parent_phone?.trim() ? { parent_phone_hint: `••••${student.parent_phone.replace(/\D/g, "").slice(-4)}` } : {}),
   };
 }
 

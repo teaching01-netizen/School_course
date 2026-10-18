@@ -43,13 +43,106 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage?.clear();
   });
 
+  it("starts with one lookup action and waits for student recognition before continuing", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: CRM_EMAIL_STUDENT });
+
+    expect(await screen.findByRole("heading", { name: "Who will be absent?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find student" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Search" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
+
+    await searchForStudent(user, CRM_EMAIL_STUDENT.wcode);
+
+    const name = await screen.findByRole("heading", { name: "Alex" });
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAccessibleDescription("Student ID: W250389");
+    expect(screen.getAllByText(CRM_EMAIL_STUDENT.wcode)).toHaveLength(1);
+    expect(screen.queryByRole("textbox", { name: /student id/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Find student" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Student ID found")).not.toBeInTheDocument();
+    expect(screen.queryByText(/email is already saved/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/phone ending in 5678/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Parent verification" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByRole("heading", { name: "Parent verification" })).toBeInTheDocument();
+    expect(screen.getByText("Alex")).toBeInTheDocument();
+  });
+
+  it("uses a neutral ID fallback when no nickname is stored", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: { ...CRM_EMAIL_STUDENT, nickname: "  " } });
+
+    await searchForStudent(user, CRM_EMAIL_STUDENT.wcode);
+
+    expect(await screen.findByRole("heading", { name: "Student" })).toBeInTheDocument();
+    expect(screen.getByText(CRM_EMAIL_STUDENT.wcode)).toBeInTheDocument();
+    expect(screen.queryByText(CRM_EMAIL_STUDENT.full_name)).not.toBeInTheDocument();
+    expect(screen.queryByText(/nickname unavailable|no nickname/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  it("recognizes the canonical Student ID when the server stores its prefix in lowercase", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: { ...CRM_EMAIL_STUDENT, wcode: "w250389" } });
+
+    await searchForStudent(user, "W250389");
+
+    expect(await screen.findByRole("heading", { name: "Alex" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  it("does not let a pending lookup overwrite an ID edited before the response arrives", async () => {
+    const pending = deferred<StudentLookupResponse>();
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: () => pending.promise });
+
+    const input = await screen.findByRole("textbox", { name: /student id/i });
+    await user.type(input, MANUAL_EMAIL_STUDENT.wcode);
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: /finding student/i })).toBeDisabled();
+    expect(screen.queryByText(/submitting your absence/i)).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: SECOND_STUDENT.wcode } });
+
+    await act(async () => {
+      pending.resolve(MANUAL_EMAIL_STUDENT);
+      await pending.promise;
+    });
+
+    expect(input).toHaveValue(SECOND_STUDENT.wcode);
+    expect(screen.queryByRole("group", { name: "Selected student" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find student" })).toBeEnabled();
+  });
+
+  it("keeps a newly selected student when an older resume lookup finishes last", async () => {
+    const resumed = deferred<StudentLookupResponse>();
+    window.sessionStorage.setItem(STUDENT_RESUME_STORAGE_KEY, JSON.stringify({ wcode: MANUAL_EMAIL_STUDENT.wcode }));
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, {
+      lookup: (wcode) => wcode === MANUAL_EMAIL_STUDENT.wcode ? resumed.promise : SECOND_STUDENT,
+    });
+    await screen.findByRole("button", { name: /finding student/i });
+    await searchForStudent(user, SECOND_STUDENT.wcode);
+    expect(await screen.findByRole("heading", { name: "Bailey" })).toBeInTheDocument();
+
+    await act(async () => {
+      resumed.resolve(MANUAL_EMAIL_STUDENT);
+      await resumed.promise;
+    });
+
+    expect(screen.getByRole("heading", { name: "Bailey" })).toBeInTheDocument();
+    expect(screen.getByText(SECOND_STUDENT.wcode)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
   it("rejects a blank W-Code without sending a lookup request", async () => {
     const user = userEvent.setup();
     renderPublicAbsenceForm(mockApiJson);
 
-    await user.click(await screen.findByRole("button", { name: /^search$/i }));
+    await user.click(await screen.findByRole("button", { name: /^find student$/i }));
 
-    expect(screen.getByText("Enter your Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.getByText("Enter a Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("student-lookup"))).toBe(false);
   });
 
@@ -62,9 +155,9 @@ describe("AbsenceForm Student step", () => {
     expect(screen.queryByText(/nickname/i)).not.toBeInTheDocument();
 
     await user.type(input, "Johnny");
-    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await user.click(screen.getByRole("button", { name: /^find student$/i }));
 
-    expect(screen.getByText("Enter your Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.getByText("Enter a Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("student-lookup"))).toBe(false);
   });
 
@@ -76,7 +169,7 @@ describe("AbsenceForm Student step", () => {
 
       await searchForStudent(user, input, "enter");
 
-      expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+      expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
       expect(mockApiJson).toHaveBeenCalledWith(
         "/api/v1/absence-self-service/lookup",
         { method: "POST", body: JSON.stringify({ wcode: "W250389" }) },
@@ -87,17 +180,18 @@ describe("AbsenceForm Student step", () => {
   it.each([
     ["CRM", CRM_EMAIL_STUDENT, "alex.crm@example.edu"],
     ["System", SYSTEM_EMAIL_STUDENT, "alex.system@example.edu"],
-  ])("does not disclose the %s email as authoritative", async (_source, student, email) => {
+  ])("omits email information when a %s email already exists", async (_source, student, email) => {
     const user = userEvent.setup();
     renderPublicAbsenceForm(mockApiJson, { lookup: student });
 
     await searchForStudent(user, student.wcode);
 
-    expect(await screen.findByText(/your email is already saved/i)).toBeInTheDocument();
+    await screen.findByRole("group", { name: "Selected student" });
+    expect(screen.queryByText(/email is already saved/i)).not.toBeInTheDocument();
     expect(screen.queryByText(email)).not.toBeInTheDocument();
     expect(screen.queryByText(_source)).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /your email address/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /continue to verification/i })).toBeEnabled();
+    expect(screen.queryByRole("textbox", { name: /email address/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
   });
 
   it("hides SMS sending and does not expose a verification bypass when parent SMS is disabled", async () => {
@@ -113,9 +207,9 @@ describe("AbsenceForm Student step", () => {
       lookup: CRM_EMAIL_STUDENT,
     });
     await searchForStudent(user, CRM_EMAIL_STUDENT.wcode);
-    await screen.findByText("Student ID found");
+    await screen.findByRole("group", { name: "Selected student" });
 
-    await user.click(screen.getByRole("button", { name: /continue to verification/i }));
+    await user.click(screen.getByRole("button", { name: /^continue$/i }));
     expect(await screen.findByRole("heading", { name: /parent verification/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^send code$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /continue without verifying/i })).not.toBeInTheDocument();
@@ -126,8 +220,8 @@ describe("AbsenceForm Student step", () => {
     renderPublicAbsenceForm(mockApiJson);
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
 
-    const email = await screen.findByRole("textbox", { name: /your email address/i });
-    const continueButton = screen.getByRole("button", { name: /continue to verification/i });
+    const email = await screen.findByRole("textbox", { name: /email address/i });
+    const continueButton = screen.getByRole("button", { name: /^continue$/i });
     expect(email).toHaveAttribute("type", "email");
     expect(continueButton).toBeDisabled();
 
@@ -147,12 +241,62 @@ describe("AbsenceForm Student step", () => {
     renderPublicAbsenceForm(mockApiJson);
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
 
-    const email = await screen.findByRole("textbox", { name: /your email address/i });
+    const email = await screen.findByRole("textbox", { name: /email address/i });
     await user.type(email, "not-an-email");
 
     expect(email).toBeInvalid();
-    expect(screen.getByRole("button", { name: /continue to verification/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
   });
+  it("returns to a prefilled ID field and requires a fresh lookup when changing student", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, {
+      lookup: (wcode) => (wcode === SECOND_STUDENT.wcode ? SECOND_STUDENT : CRM_EMAIL_STUDENT),
+    });
+    await searchForStudent(user, CRM_EMAIL_STUDENT.wcode);
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
+
+    expect(screen.queryByRole("textbox", { name: /student id/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Change student" }));
+    const input = screen.getByRole("textbox", { name: /student id/i });
+    expect(input).toHaveValue(CRM_EMAIL_STUDENT.wcode);
+    await waitFor(() => expect(input).toHaveFocus());
+    await user.clear(input);
+    await user.type(input, SECOND_STUDENT.wcode);
+    expect(screen.queryByRole("group", { name: "Selected student" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find student" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+
+    await searchForStudent(user, SECOND_STUDENT.wcode);
+    expect(await screen.findByText(SECOND_STUDENT.wcode)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
+  });
+
+  it("recognizes the same student after a normalized ID change and fresh lookup", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: CRM_EMAIL_STUDENT });
+    await searchForStudent(user, CRM_EMAIL_STUDENT.wcode);
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Change student" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /student id/i }), { target: { value: " w250389 " } });
+    await user.click(screen.getByRole("button", { name: "Find student" }));
+
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
+    expect(screen.getByText(CRM_EMAIL_STUDENT.wcode)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
+  });
+
+  it("explains a connection failure beside the Student ID and keeps Search available", async () => {
+    const user = userEvent.setup();
+    renderPublicAbsenceForm(mockApiJson, { lookup: () => Promise.reject(new TypeError("Failed to fetch")) });
+
+    await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
+
+    expect(await screen.findByText("Couldn't connect. Check your connection and try again.", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /student id/i })).toHaveValue(MANUAL_EMAIL_STUDENT.wcode);
+    expect(screen.getByRole("button", { name: /^find student$/i })).toBeEnabled();
+  });
+
   it("keeps the newest student when an older lookup resolves last", async () => {
     const first = deferred<StudentLookupResponse>();
     const second = deferred<StudentLookupResponse>();
@@ -184,14 +328,14 @@ describe("AbsenceForm Student step", () => {
       second.resolve(SECOND_STUDENT);
       await second.promise;
     });
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
 
     await act(async () => {
       first.resolve(MANUAL_EMAIL_STUDENT);
       await first.promise;
     });
 
-    expect(screen.getByText("Student ID found")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Selected student" })).toBeInTheDocument();
     expect(screen.getByText(SECOND_STUDENT.wcode)).toBeInTheDocument();
     expect(screen.queryByText(MANUAL_EMAIL_STUDENT.full_name)).not.toBeInTheDocument();
   });
@@ -204,13 +348,13 @@ describe("AbsenceForm Student step", () => {
     const input = await screen.findByRole("textbox", { name: /student id/i });
     await user.type(input, MANUAL_EMAIL_STUDENT.wcode);
     await user.keyboard("{Enter}");
-    expect(screen.getByRole("button", { name: /searching/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /finding student/i })).toBeDisabled();
 
     await user.clear(input);
     await user.keyboard("{Enter}");
 
-    expect(screen.getByText("Enter your Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^search$/i })).toBeEnabled();
+    expect(screen.getByText("Enter a Student ID (W-Code).", { selector: '[role="alert"]' })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^find student$/i })).toBeEnabled();
   });
 
   it("restores the W-Code and collected email while refetching the student", async () => {
@@ -220,9 +364,10 @@ describe("AbsenceForm Student step", () => {
     }));
     renderPublicAbsenceForm(mockApiJson);
 
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /student id/i })).toHaveValue("W250389");
-    expect(screen.getByRole("textbox", { name: /your email address/i })).toHaveValue("resumed@example.edu");
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
+    expect(screen.getByText("W250389")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /student id/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /email address/i })).toHaveValue("resumed@example.edu");
     expect(mockApiJson).toHaveBeenCalledWith(
       "/api/v1/absence-self-service/lookup",
       { method: "POST", body: JSON.stringify({ wcode: "W250389" }) },
@@ -246,7 +391,7 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 
     renderPublicAbsenceForm(mockApiJson);
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
 
     await continueThroughVerification(user);
 
@@ -273,7 +418,7 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 
     renderPublicAbsenceForm(mockApiJson);
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
@@ -299,7 +444,7 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 
     renderPublicAbsenceForm(mockApiJson);
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
     expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
@@ -327,7 +472,7 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 
     renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithMakeUpSitIn() });
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
     expect(await screen.findByRole("combobox")).toHaveValue("sit-math-2");
@@ -354,12 +499,12 @@ describe("AbsenceForm Student step", () => {
     window.sessionStorage.setItem(ABSENCE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 
     renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithMakeUpSitIn([]) });
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
     expect(await screen.findByText("No make-up times available")).toBeInTheDocument();
-    expect(screen.getByText("Staff will help arrange the next step.")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByText(/A make-up class is required for this date/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveValue("");
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).toBeChecked();
     expect(screen.getByRole("textbox", { name: /reason for absence/i })).toHaveValue("Saved appointment");
@@ -379,7 +524,7 @@ describe("AbsenceForm Student step", () => {
       lookup: (wcode) => wcode === SECOND_STUDENT.wcode ? SECOND_STUDENT : MANUAL_EMAIL_STUDENT,
     });
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
-    await screen.findByText("Student ID found");
+    await screen.findByRole("group", { name: "Selected student" });
     await continueThroughVerification(user);
     await user.click(screen.getByRole("textbox", { name: /reason for absence/i }));
     await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Student A private reason");
@@ -387,7 +532,7 @@ describe("AbsenceForm Student step", () => {
     await user.click(screen.getByRole("button", { name: /student - completed/i }));
 
     await searchForStudent(user, SECOND_STUDENT.wcode);
-    expect(await screen.findByText("Student ID found")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
     expect(screen.getByRole("textbox", { name: /reason for absence/i })).toHaveValue("");
@@ -398,7 +543,7 @@ describe("AbsenceForm Student step", () => {
     const user = userEvent.setup();
     renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithAlreadyAbsent() });
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
-    await screen.findByText("Student ID found");
+    await screen.findByRole("group", { name: "Selected student" });
     await continueThroughVerification(user);
     await user.click(screen.getByRole("checkbox", { name: /mathematics/i }));
 
@@ -413,7 +558,7 @@ describe("AbsenceForm Student step", () => {
     const user = userEvent.setup();
     renderPublicAbsenceForm(mockApiJson, { sessions: sessionsWithAlreadyAbsent() });
     await searchForStudent(user, MANUAL_EMAIL_STUDENT.wcode);
-    await screen.findByText("Student ID found");
+    await screen.findByRole("group", { name: "Selected student" });
     await continueThroughVerification(user);
     await user.click(screen.getByRole("checkbox", { name: /mathematics/i }));
 
