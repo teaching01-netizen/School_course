@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import AbsenceForm from "../AbsenceForm";
 import { renderWithProviders, createMockSessionsInRange } from "./helpers";
 import { ApiRequestError } from "@/api/client";
+import { chooseMakeUp, closeMakeUpSheet, findSheetChoice, hasChoice, makeUpTriggers, makeUpValue, openMakeUpSheet, readMakeUpChoices, sheetChoices } from "./fixtures/makeUpSheet";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -915,7 +916,7 @@ describe("AbsenceForm", () => {
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
-    await user.selectOptions(await screen.findByRole("combobox"), "component-session");
+    await chooseMakeUp(user, "component-session");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 
@@ -1084,13 +1085,12 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    const makeUpOptions = screen.getAllByRole("option").filter((option) => option.getAttribute("value"));
+    const makeUpOptions = await readMakeUpChoices(user);
     expect(makeUpOptions).toHaveLength(2);
-    expect(makeUpOptions[0]).toHaveTextContent(/Calculus III.*4 Jun · 13:00–14:30/);
-    expect(makeUpOptions[1]).toHaveTextContent(/Calculus III.*4 Jun · 14:45–16:30/);
+    expect(makeUpOptions[0].name).toMatch(/4 Jun.*13:00–14:30.*Calculus III/);
+    expect(makeUpOptions[1].name).toMatch(/4 Jun.*14:45–16:30.*Calculus III/);
 
-    await user.selectOptions(makeUpSelect, makeUpOptions[0].getAttribute("value")!);
+    await chooseMakeUp(user, makeUpOptions[0].value);
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 
@@ -1192,21 +1192,20 @@ describe("AbsenceForm", () => {
     expect(sessionCheckboxes).toHaveLength(1);
     await user.click(sessionCheckboxes[0]);
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    const makeUpOptions = within(makeUpSelect).getAllByRole("option").filter(
-      (option) => option.getAttribute("value"),
-    );
+    const sheet = await openMakeUpSheet(user);
+    const makeUpOptions = await sheetChoices(user, sheet);
     expect(makeUpOptions).toHaveLength(1);
-    expect(makeUpOptions[0]).toHaveValue("sit-reading|sit-writing");
+    expect(makeUpOptions[0].value).toBe("sit-reading|sit-writing");
 
-    await user.click(screen.getByRole("button", { name: /show more times/i }));
+    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         expect.stringContaining("sat_verbal_after_priority=1"),
         expect.anything(),
       );
     });
-    await user.selectOptions(await screen.findByRole("combobox"), "sit-reading|sit-writing");
+    await closeMakeUpSheet(user, sheet);
+    await chooseMakeUp(user, "sit-reading|sit-writing");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     expect(await screen.findByText("Review your absence")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
@@ -1257,9 +1256,10 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByRole("option", { name: /already assigned to another absence/i })).toBeDisabled();
-    expect(screen.getByText(/A make-up class is required for this date/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
+    const sheet = await openMakeUpSheet(user);
+    expect((await sheetChoices(user, sheet)).find((choice) => /already assigned to another absence/i.test(choice.name))?.disabled).toBe(true);
+    expect(within(sheet).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
+    expect(within(sheet).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
   }, 30000);
 
   it("returns to classes and refreshes after a stale public sit-in session conflict", async () => {
@@ -1291,14 +1291,14 @@ describe("AbsenceForm", () => {
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
-    await user.selectOptions(screen.getByRole("combobox"), "available-day-session");
+    await chooseMakeUp(user, "available-day-session");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 
     expect(await screen.findByText(/That sit-in session was just used for this student/)).toBeInTheDocument();
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("available-day-session");
-    expect(screen.getByRole("combobox")).toHaveAttribute("aria-invalid", "true");
+    expect((await makeUpTriggers())[0]).toHaveAttribute("aria-invalid", "true");
+    expect(await makeUpValue(user)).toBe("available-day-session");
     await waitFor(() => {
       expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length).toBeGreaterThanOrEqual(2);
     });
@@ -1351,14 +1351,14 @@ describe("AbsenceForm", () => {
     await goToCourses(user);
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
-    await user.selectOptions(screen.getByRole("combobox"), "available-day-session");
+    await chooseMakeUp(user, "available-day-session");
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Medical appointment");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
 
     expect(await screen.findByText(/A selected make-up class is no longer available. Your other choices are saved/i)).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("available-day-session");
-    expect(screen.getByRole("combobox")).toHaveAttribute("aria-invalid", "true");
+    expect((await makeUpTriggers())[0]).toHaveAttribute("aria-invalid", "true");
+    expect(await makeUpValue(user)).toBe("available-day-session");
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url, init]) => String(url).endsWith("/absences/batch") && init?.method === "POST")).toBe(false);
   }, 30000);
@@ -1406,7 +1406,7 @@ describe("AbsenceForm", () => {
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Sick");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
-    await user.selectOptions(await screen.findByRole("combobox"), "sit-r3s1-lesson-2");
+    await chooseMakeUp(user, "sit-r3s1-lesson-2");
 
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
@@ -1489,22 +1489,26 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByRole("option", { name: /4 Jun/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /5 Jun/ })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox"), "sit-r3s1");
-    await user.click(screen.getByRole("button", { name: /show more times/i }));
+    const before = await readMakeUpChoices(user);
+    expect(hasChoice(before, /4 Jun/)).toBe(true);
+    expect(hasChoice(before, /5 Jun/)).toBe(false);
+    await chooseMakeUp(user, "sit-r3s1");
+    const sheet = await openMakeUpSheet(user);
+    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         expect.stringContaining("sat_verbal_after_priority=1"),
         expect.anything(),
       );
     });
-    expect(await screen.findByRole("option", { name: /5 Jun/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /4 Jun/ })).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("sit-r3s1");
-    expect(screen.queryByRole("button", { name: /show more times/i })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox"), "sit-r4r");
-    expect(screen.getByRole("combobox")).toHaveValue("sit-r4r");
+    await findSheetChoice(sheet, /5 Jun/);
+    const after = await sheetChoices(user, sheet);
+    expect(hasChoice(after, /4 Jun/)).toBe(true);
+    expect(after.find((choice) => choice.checked)?.value).toBe("sit-r3s1");
+    expect(within(sheet).queryByRole("button", { name: /show more times/i })).not.toBeInTheDocument();
+    await closeMakeUpSheet(user, sheet);
+    await chooseMakeUp(user, "sit-r4r");
+    expect(await makeUpValue(user)).toBe("sit-r4r");
   }, 30000);
 
   it("shows one clean unavailable card for a real SAT Verbal session and offers another time", async () => {
@@ -1622,15 +1626,13 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const unavailableCard = document.getElementById("sit-in-missed-writing-1-field")!;
-    expect(within(unavailableCard).getByRole("option", { name: /SAT Verbal Rank 3 Section 1 C3.*AJ. NICE.*Wed, 23 Sep.*This make-up time has passed/ })).toBeDisabled();
-    expect(within(unavailableCard).getByRole("button", { name: /show more times/i })).toBeInTheDocument();
-    expect(within(unavailableCard).queryByText("This same-number sit-in slot is before today/request date.")).not.toBeInTheDocument();
-    await user.click(within(unavailableCard).getByRole("button", { name: /show more times/i }));
-    expect(await screen.findByText("No more times to show.")).toBeInTheDocument();
-    const revealedPicker = await screen.findByRole("combobox");
-    expect(revealedPicker).toBeEnabled();
-    expect(within(revealedPicker).getByRole("option", { name: /SAT Verbal Writing Rank 5/ })).toBeInTheDocument();
+    const sheet = await openMakeUpSheet(user);
+    const passed = (await sheetChoices(user, sheet)).find((choice) => /Wed, 23 Sep.*SAT Verbal Rank 3 Section 1 C3.*AJ. NICE.*This make-up time has passed/.test(choice.name));
+    expect(passed?.disabled).toBe(true);
+    expect(within(sheet).queryByText("This same-number sit-in slot is before today/request date.")).not.toBeInTheDocument();
+    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    expect(await within(sheet).findByText("No more times to show.")).toBeInTheDocument();
+    expect((await findSheetChoice(sheet, /SAT Verbal Writing Rank 5/)).disabled).toBe(false);
   }, 30000);
 
   it("provides the actual required make-up and staff contact next step when no later times exist", async () => {
@@ -1671,7 +1673,7 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const noTimesCard = document.getElementById("sit-in-missed-rank3-field")!;
+    const noTimesCard = await openMakeUpSheet(user);
     expect(within(noTimesCard).getByText("No make-up times available")).toBeInTheDocument();
     expect(within(noTimesCard).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
     expect(within(noTimesCard).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
@@ -1710,7 +1712,7 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const noTimesCard = document.getElementById("sit-in-missed-root-field")!;
+    const noTimesCard = await openMakeUpSheet(user);
     expect(within(noTimesCard).getByText("No make-up times available")).toBeInTheDocument();
     expect(within(noTimesCard).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
     expect(within(noTimesCard).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
@@ -1778,10 +1780,7 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("checkbox", { name: /sat verbal/i }));
     await user.click(await findSessionCheckbox());
 
-    const picker = await screen.findByRole("combobox", { name: "Make-up class" });
-    const rankFourOption = within(picker).getByRole("option", { name: /SAT Verbal Reading Rank 4 C3/ });
-    expect(rankFourOption).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
+    await user.click(await screen.findByRole("button", { name: /choose a make-up class/i }));
     const rankFourChoice = screen.getByRole("radio", { name: /SAT Verbal Reading Rank 4 C3/ });
     expect(rankFourChoice).toBeDisabled();
     expect(rankFourChoice).toHaveAccessibleName(/Sun, 27 Sep · 09:00–12:20/);
@@ -1833,8 +1832,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(await screen.findByRole("option", { name: /4 Jun/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /5 Jun/ })).toBeInTheDocument();
+    const choices = await readMakeUpChoices(user);
+    expect(hasChoice(choices, /4 Jun/)).toBe(true);
+    expect(hasChoice(choices, /5 Jun/)).toBe(true);
   }, 30000);
 
   it("filters SAT Verbal same-occurrence options to each selected missed session", async () => {
@@ -1895,12 +1895,13 @@ describe("AbsenceForm", () => {
       }
     }
 
-    const selects = await screen.findAllByRole("combobox");
-    expect(selects).toHaveLength(2);
-    expect(within(selects[0]).getByRole("option", { name: /Sun, 14 Jun/ })).toBeInTheDocument();
-    expect(within(selects[0]).queryByRole("option", { name: /Sun, 28 Jun/ })).not.toBeInTheDocument();
-    expect(within(selects[1]).getByRole("option", { name: /Sun, 28 Jun/ })).toBeInTheDocument();
-    expect(within(selects[1]).queryByRole("option", { name: /Sun, 14 Jun/ })).not.toBeInTheDocument();
+    expect(await makeUpTriggers()).toHaveLength(2);
+    const first = await readMakeUpChoices(user, 0);
+    const second = await readMakeUpChoices(user, 1);
+    expect(hasChoice(first, /Sun, 14 Jun/)).toBe(true);
+    expect(hasChoice(first, /Sun, 28 Jun/)).toBe(false);
+    expect(hasChoice(second, /Sun, 28 Jun/)).toBe(true);
+    expect(hasChoice(second, /Sun, 14 Jun/)).toBe(false);
   }, 30000);
 
   it("ignores stale restored priority levels when the selected June 16 class has available sit-ins", async () => {
@@ -1946,7 +1947,7 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     expect(screen.queryByText("No more options available")).not.toBeInTheDocument();
-    expect(await screen.findByRole("option", { name: /14 Jun/ })).toBeInTheDocument();
+    expect(hasChoice(await readMakeUpChoices(user), /14 Jun/)).toBe(true);
   }, 30000);
 
   it("keeps SAT Verbal priority reveals isolated per selected missed session", async () => {
@@ -2010,10 +2011,14 @@ describe("AbsenceForm", () => {
         await user.click(checkbox);
       }
     }
-    expect(await screen.findAllByRole("combobox")).toHaveLength(2);
+    expect(await makeUpTriggers()).toHaveLength(2);
 
-    await user.click(screen.getAllByRole("button", { name: /show more times/i })[0]);
-    expect(await screen.findByText("No more times to show.")).toBeInTheDocument();
+    const firstSheet = await openMakeUpSheet(user, 0);
+    await user.click(within(firstSheet).getByRole("button", { name: /show more times/i }));
+    expect(await within(firstSheet).findByText("No more times to show.")).toBeInTheDocument();
+    await closeMakeUpSheet(user, firstSheet);
+    const secondSheet = await openMakeUpSheet(user, 1);
+    expect(within(secondSheet).getByRole("button", { name: /show more times/i })).toBeInTheDocument();
   }, 30000);
 
   it("renders SAT Verbal same-number choices from per-missed-session sit-in results", async () => {
@@ -2071,12 +2076,13 @@ describe("AbsenceForm", () => {
       }
     }
 
-    const selects = await screen.findAllByRole("combobox");
-    expect(selects).toHaveLength(2);
-    expect(within(selects[0]).getByRole("option", { name: /Mon, 22 Jun/ })).toBeInTheDocument();
-    expect(within(selects[0]).queryByRole("option", { name: /Mon, 29 Jun/ })).not.toBeInTheDocument();
-    expect(within(selects[1]).getByRole("option", { name: /Mon, 29 Jun/ })).toBeInTheDocument();
-    expect(within(selects[1]).queryByRole("option", { name: /Mon, 22 Jun/ })).not.toBeInTheDocument();
+    expect(await makeUpTriggers()).toHaveLength(2);
+    const first = await readMakeUpChoices(user, 0);
+    const second = await readMakeUpChoices(user, 1);
+    expect(hasChoice(first, /Mon, 22 Jun/)).toBe(true);
+    expect(hasChoice(first, /Mon, 29 Jun/)).toBe(false);
+    expect(hasChoice(second, /Mon, 29 Jun/)).toBe(true);
+    expect(hasChoice(second, /Mon, 22 Jun/)).toBe(false);
   }, 30000);
 
   it("shows the current priority sit-in target in the header and dropdown", async () => {
@@ -2147,11 +2153,11 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    expect(screen.getByRole("option", { name: /14 Jun/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /show more times/i }));
-    const secondPriorityOption = await screen.findByRole("option", { name: /SAT Verbal Reading.*15 Jun/ });
-    expect(secondPriorityOption).toBeInTheDocument();
-    expect(secondPriorityOption).not.toHaveTextContent("2657713001");
+    const sheet = await openMakeUpSheet(user);
+    expect(hasChoice(await sheetChoices(user, sheet), /14 Jun/)).toBe(true);
+    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    const secondPriorityOption = await findSheetChoice(sheet, /15 Jun.*SAT Verbal Reading/);
+    expect(secondPriorityOption.name).not.toContain("2657713001");
   }, 30000);
 
   it("offers parent phone enrollment instead of a dead end when no phone is on file", async () => {
@@ -2315,9 +2321,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("Math inter");
-    expect(makeUpSelect).not.toHaveTextContent("0000000348");
+    const makeUpText = (await readMakeUpChoices(user)).map((choice) => choice.name).join(" ");
+    expect(makeUpText).toContain("Math inter");
+    expect(makeUpText).not.toContain("0000000348");
   });
 
   it("shows the subject name (not raw code) in make-up dropdown when sit_in_course.name is empty and course not in enrolled subjects", async () => {
@@ -2341,9 +2347,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("Math advance");
-    expect(makeUpSelect).not.toHaveTextContent("0000000348");
+    const makeUpText = (await readMakeUpChoices(user)).map((choice) => choice.name).join(" ");
+    expect(makeUpText).toContain("Math advance");
+    expect(makeUpText).not.toContain("0000000348");
   });
 
   it("shows sit-in target course name (not student's enrolled course) in make-up dropdown when sit_in_course has name populated", async () => {
@@ -2368,9 +2374,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("scholar");
-    expect(makeUpSelect).not.toHaveTextContent("SCH-01");
+    const makeUpText = (await readMakeUpChoices(user)).map((choice) => choice.name).join(" ");
+    expect(makeUpText).toContain("scholar");
+    expect(makeUpText).not.toContain("SCH-01");
   });
 
   it("uses the resolved Scholar sit-in course for mixed inter and advanced enrollments", async () => {
@@ -2395,9 +2401,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("Math advance");
-    expect(makeUpSelect).not.toHaveTextContent("0000000371");
+    const makeUpText = (await readMakeUpChoices(user)).map((choice) => choice.name).join(" ");
+    expect(makeUpText).toContain("Math advance");
+    expect(makeUpText).not.toContain("0000000371");
   });
 
   it("shows the sit-in class name from the available session instead of the absence class name", async () => {
@@ -2421,9 +2427,9 @@ describe("AbsenceForm", () => {
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
 
-    const makeUpSelect = await screen.findByRole("combobox");
-    expect(makeUpSelect).toHaveTextContent("Math inter");
-    expect(makeUpSelect).not.toHaveTextContent("Math advance");
+    const makeUpText = (await readMakeUpChoices(user)).map((choice) => choice.name).join(" ");
+    expect(makeUpText).toContain("Math inter");
+    expect(makeUpText).not.toContain("Math advance");
   });
 
   it("shows the selected root sit-in session on the review step", async () => {
@@ -2446,7 +2452,7 @@ describe("AbsenceForm", () => {
     await user.type(screen.getByPlaceholderText("Tell us why you'll be away from class..."), "Need a make-up class");
     await toggleAllCourseSwitches(user);
     await user.click(await findSessionCheckbox());
-    await user.selectOptions(await screen.findByRole("combobox"), "as1");
+    await chooseMakeUp(user, "as1");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
 
     await waitFor(() => expect(screen.getByRole("heading", { name: /review your absence/i })).toBeInTheDocument());

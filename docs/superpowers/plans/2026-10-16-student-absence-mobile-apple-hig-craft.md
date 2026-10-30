@@ -65,7 +65,7 @@ Receipt
 2. Keep Search and Continue as separate existing actions. Typing or entering a step must not automatically send an SMS.
 3. Keep the existing public lookup privacy boundary: use server-provided masked hints before verification; private profile and course data require the existing verified session.
 4. Ask for email only when the lookup response requires it. Keep existing parent-phone enrollment conditions, OTP length, delivery states, cooldown duration, expiry handling, and retry behavior.
-5. Keep `AbsenceForm` as the workflow and committed-selection owner. Course expansion, search text, and pending sheet selection are presentation state only.
+5. Keep `AbsenceForm` as the workflow and committed-selection owner. Course expansion, the selected make-up day, and pending sheet selection are presentation state only.
 6. Use existing combined course blocks and logical day grouping. A merged class day must still select its complete underlying session-ID group and count according to existing rules.
 7. Preserve quota calculations, already-absent restrictions, make-up priority progression, conflict handling, duplicate-selection restrictions, and server ordering. Display changes do not broaden eligibility.
 8. Physical make-up requirements remain exactly as currently enforced, including when no valid option is offered. Keep Zoom and staff/teacher-arranged states distinct. Never infer a validation exception from explanatory copy.
@@ -84,7 +84,7 @@ The scan was based on the current source, styles, and existing tests. No live-de
 | --- | --- | --- |
 | `src/pages/AbsenceForm.tsx`: course selector, separate mobile selected-course buttons, repeated block title | Repeated reading before reaching dates | Keep the selector first; combine each selected-course toggle and block header into one accordion header |
 | `SessionDayCard.tsx` and nested make-up content in `AbsenceForm.tsx` | Borders and padding repeatedly reduce usable line width | Flat date rows inside one selected-course surface; make-up content aligned beneath its date |
-| `MakeUpPicker.tsx`: search is the first focusable child selected by `MobileBottomSheet.tsx` | Opening the picker can open the keyboard before browsing | Focus the sheet heading on entry; search receives focus only when requested |
+| `MakeUpPicker.tsx`: search box above the option list (superseded 2026-10-18) | Browsing required typing to narrow a short list, and the keyboard opened before any time was read | Search removed: the sheet shows the month with a day strip that filters the list; heading receives focus on entry |
 | `MakeUpPicker.tsx`: confirmation follows options in the scrolling body | Long option lists separate choice from confirmation | Persistent action area outside the option scroller |
 | `AbsenceForm.tsx`: truncated course header; `SessionDayCard.tsx`: one-line date/time | Essential differences and times are harder to inspect | Wrapping course names and separate date/time lines |
 | `AbsenceActionBar.tsx`: empty first-step spacer | Primary action has less width on compact phones | Full-width first-step primary; flexible primary beside Back afterward |
@@ -212,13 +212,15 @@ Use the existing system font stack. Express sizes in `rem` and allow browser sca
 
 **Files:** `MakeUpPicker.tsx`, `MobileBottomSheet.tsx`, its two call sites and option builder in `src/pages/AbsenceForm.tsx`, and sheet styles in `src/index.css`.
 
+> Superseded 2026-10-18: the sheet no longer carries a search box. The month and its days sit at the top of the sheet as a day strip (chips) that filters the option list, for the public form and the staff sheet alike. A single-day list shows a static full-date caption instead of chips, days whose times are all unavailable stay tappable but muted, and every disabled option keeps its own reason on its own day.
+
 **Presentation**
 
 - Keep the current responsive split: mobile sheet and existing wide-screen select. Use the same option values and committed selection for both.
-- Structure the sheet as header, search, scrollable option list, and persistent confirmation footer. Give the list `min-block-size: 0` so it can actually shrink.
+- Structure the sheet as header, date strip, scrollable option list, and persistent confirmation footer. Give the list `min-block-size: 0` so it can actually shrink.
 - Show a short context line identifying the absence being arranged, for example `For Mathematics · Mon, 19 Oct · 09:00–12:20`.
 - Use date/time as the option's primary information, followed by class and teacher. Preserve conflict messages and details without ellipsis.
-- Keep search available without focusing it on entry; preserve its current matching behavior and server-provided option order. Searching must not reveal another priority tier.
+- Render the strip from institute-local day keys on the existing display model (never by parsing labels). Chip availability, the ambiguous-month suffix, and the day summary are presentation only: filtering must not reveal another priority tier, change option order within a day, or alter any reason copy.
 - Remove the decorative grabber if the web sheet is not draggable. Keep an explicit, labelled close/cancel control.
 - Keep the existing clear-selection behavior. In the public sheet, label it `Clear selection` and explain that it removes the current make-up choice; it does not fulfill a required selection. Preserve the default label for other callers.
 
@@ -230,8 +232,8 @@ Use the existing system font stack. Express sizes in `rem` and allow browser sca
 | Choose an option | Change pending sheet selection only; radio and selected styling agree |
 | Confirm | Commit once through the existing `onChange`, close, and restore focus |
 | Cancel, close, Escape, backdrop | Discard staged changes; committed choice remains unchanged |
-| Filter hides pending option | Keep the staged value and a concise visible selection summary so it is not invisible when confirming |
-| Search has no matches | Show a clear empty state and a way to clear search without losing committed selection |
+| Day filter hides the staged option | Keep the staged value and a concise visible selection summary so it is not invisible when confirming |
+| Selected day has no available times | Keep the day tappable, mark its chip, and show its per-option reasons plus one day-level line; the whole-list empty state appears only when no day has a selectable time |
 | Pending option disappears/becomes disabled | Disable confirmation and explain that another option is needed; do not commit an unavailable value |
 | Close or confirm | Restore focus to the triggering make-up control without reopening the keyboard unnecessarily |
 
@@ -337,9 +339,10 @@ The selector and selected-course section have different roles. The improvement r
 Cancel                           Choose a make-up class
 For Mathematics · Mon, 19 Oct · 09:00–12:20
 
-[ Search classes…                                     ]
+October 2026
+[Sat 24] [Sun 25] [Mon 26]
 
-  Scrollable options
+  Scrollable options for the chosen day
   ○ Sat, 24 Oct · 13:00–16:20
     Mathematics · AJ. Nice
 
@@ -418,14 +421,14 @@ The checklists below retain the implementation acceptance criteria. The [impleme
 
 - [ ] Add optional structured display/context props while preserving existing option values and fallback presentation.
 - [ ] Add the reusable sheet footer slot; keep header, option scroller, and footer in a shrinkable layout.
-- [ ] Focus the heading on open and retain explicit search focus, native dialog semantics, and restoration.
+- [ ] Focus the heading on open, keep the day-strip version of the sheet keyboard-operable, and retain native dialog semantics and restoration.
 - [ ] Keep confirmation and the selected summary visible independently of a long option list.
 - [ ] Verify pending selection against current options before confirmation and preserve cancel/clear behavior.
 - [ ] Size/position the sheet against the actual visible viewport, including keyboard and offset changes.
 - [ ] Remove the inactive grabber and retain a clear dismissal control.
 - [ ] Keep the wide-screen select usable and equivalent; check a resize while a sheet is open does not leave an invisible modal trapping focus.
 
-**Verify:** extend picker/sheet tests for cancel, Escape, pending invalidation, search-hidden selection, focus, and single commit; browser long-list/keyboard/rotation checks.
+**Verify:** extend picker/sheet tests for cancel, Escape, pending invalidation, an off-day staged selection, focus, and single commit; browser long-list/day-strip/keyboard/rotation checks.
 
 **Exit:** browsing does not force keyboard entry, confirmation stays reachable, and no unavailable or staged-only choice is submitted.
 
@@ -504,10 +507,10 @@ Extend existing tests for meaningful interaction changes. Pure spacing, radius, 
 | A04 | Select/collapse/reopen several courses | One adjacent selected-course header/panel per block; expansion independent from checked selection | Component/page tests and mobile review |
 | A05 | Merged day, quota exhausted, already absent | Existing logical-day count and disabled semantics; selected valid date remains removable | Session-limit/final-session/domain tests |
 | A06 | Physical/Zoom/teacher-arranged make-up | Same eligibility and validation; all arrangements have truthful readable descriptions | Existing page/domain tests |
-| A07 | Open picker without typing | Modal is named; heading receives focus; no script-forced search keyboard | Picker test and real-device check |
+| A07 | Open picker without typing | Modal is named; heading receives focus; no keyboard opens; the strip marks days without available times | Picker test and real-device check |
 | A08 | Stage/cancel/reopen/confirm/clear | Cancel commits nothing; reopen stages committed value; Confirm commits once; clear remains empty | Picker/sheet tests |
-| A09 | Search, no matches, and pending option invalidation | Search is reversible; selected value remains understandable; invalid option cannot be confirmed | Picker tests and browser check |
-| A10 | Long list with keyboard open | Search, last option, and confirmation reachable within the visible viewport; background cannot receive focus | Browser viewport checks and devices |
+| A09 | Switch make-up day and invalidate the staged option | The staged value stays summarised while its day is hidden; its reason is readable on its own day; an invalid option cannot be confirmed | Picker tests and browser check |
+| A10 | Long day list with keyboard open | The day strip scrolls, and the last day's option, plus confirmation, stay reachable within the visible viewport; background cannot receive focus | Browser viewport checks and devices |
 | A11 | Validation in a collapsed course | Actual incomplete course opens; its visible invalid control receives focus and associated feedback | Error-recovery E2E |
 | A12 | Step changes and Edit reason/classes | Correct main scroll position/target; entered data retained; target not obscured by footer | Navigation E2E |
 | A13 | Reason at 0, 450, 451, and 500 characters | Existing required/max behavior; quiet guidance; 500 valid characters not reported invalid; no bar | ReasonField tests and visual review |

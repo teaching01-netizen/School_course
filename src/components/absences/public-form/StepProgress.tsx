@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { motion } from "framer-motion";
 
 export type AbsenceStep = {
   label: string;
@@ -40,6 +41,14 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
                     !isClickable && !isCurrent && "cursor-default",
                   )}
                 >
+                  {isCurrent ? (
+                    <motion.span
+                      layoutId="absence-step-current"
+                      aria-hidden="true"
+                      className="absence-step-progress__indicator"
+                      transition={{ type: "spring", stiffness: 420, damping: 38 }}
+                    />
+                  ) : null}
                   <span className="absence-step-progress__number" aria-hidden="true">{index + 1}</span>
                   <span className="absence-step-progress__label">
                     <span>{step.label}</span>

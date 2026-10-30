@@ -59,13 +59,16 @@ export default function SessionDayCard({ dayGroup, selected, alreadyAbsent, disa
         </span>
       </label>
       {selected && children ? (
+        // Unfold in place so the list below glides instead of jumping; overflow
+        // is released once open so focus rings inside are never clipped.
         <motion.div
-          initial={reduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: reduceMotion ? 0 : 0.16, ease: "easeOut" }}
-          className="absence-session-makeup mt-3 border-t border-[var(--color-wi-border)] pt-3 sm:ml-8"
+          initial={reduceMotion ? false : { height: 0, opacity: 0, overflow: "hidden" }}
+          animate={{ height: "auto", opacity: 1, transitionEnd: { overflow: "visible" } }}
+          transition={reduceMotion ? { duration: 0 } : { height: { duration: 0.26, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.18, delay: 0.06 } }}
         >
-          {children}
+          <div className="absence-session-makeup mt-3 border-t border-[var(--color-wi-border)] pt-3 sm:ml-8">
+            {children}
+          </div>
         </motion.div>
       ) : null}
     </div>

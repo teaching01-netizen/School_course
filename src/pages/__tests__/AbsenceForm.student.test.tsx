@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudentLookupResponse } from "@/types";
@@ -21,6 +21,7 @@ import {
   renderPublicAbsenceForm,
   searchForStudent,
 } from "./helpers/absenceFormHarness";
+import { closeMakeUpSheet, makeUpValue, openMakeUpSheet } from "./fixtures/makeUpSheet";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -475,7 +476,7 @@ describe("AbsenceForm Student step", () => {
     expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
-    expect(await screen.findByRole("combobox")).toHaveValue("sit-math-2");
+    expect(await makeUpValue(user)).toBe("sit-math-2");
     expect(screen.queryByText(/available classes changed/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Review absence" }));
@@ -502,9 +503,11 @@ describe("AbsenceForm Student step", () => {
     expect(await screen.findByRole("group", { name: "Selected student" })).toBeInTheDocument();
     await continueThroughVerification(user);
 
-    expect(await screen.findByText("No make-up times available")).toBeInTheDocument();
-    expect(screen.getByText(/A make-up class is required for this date/)).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("");
+    const sheet = await openMakeUpSheet(user);
+    expect(within(sheet).getByText("No make-up times available")).toBeInTheDocument();
+    expect(within(sheet).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
+    await closeMakeUpSheet(user, sheet);
+    expect(await makeUpValue(user)).toBe("");
     expect(screen.getByRole("checkbox", { name: /mathematics/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /3 Aug 2026/i })).toBeChecked();
     expect(screen.getByRole("textbox", { name: /reason for absence/i })).toHaveValue("Saved appointment");

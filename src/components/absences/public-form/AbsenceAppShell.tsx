@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { MotionConfig } from "framer-motion";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 
 type AbsenceAppShellProps = {
@@ -57,6 +58,7 @@ export default function AbsenceAppShell({ children, header, footer, mode = "staf
   }, [viewport.height, viewport.keyboardLikelyOpen, viewport.offsetTop]);
 
   return (
+    <MotionConfig reducedMotion="user">
     <div
       className="absence-app-shell"
       data-form-mode={mode}
@@ -69,5 +71,6 @@ export default function AbsenceAppShell({ children, header, footer, mode = "staf
       </main>
       <footer className="absence-app-shell__footer">{footer}</footer>
     </div>
+    </MotionConfig>
   );
 }

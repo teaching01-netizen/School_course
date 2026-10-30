@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { chooseMakeUpClass, selectAbsenceCheckbox } from "./helpers/absenceFlow";
 import { expectCurrentStep } from "./helpers/absenceAssertions";
 
 type SubmittedPayload = {
@@ -253,17 +253,8 @@ async function runAbsenceTimezoneFlow(browser: Browser, timezoneId: string): Pro
   const absenceLabel = await page.locator('label[for="session-missed-boundary"]').innerText();
   expect(absenceLabel.replace(/\s+/g, " ")).toContain("Fri, 16 Jan 2026 00:00-01:00");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const sitInSelect = page.getByRole("combobox");
-  if (await sitInSelect.isVisible()) {
-    await sitInSelect.selectOption(boundarySitInSession.id);
-    await expect(sitInSelect).toContainText(/Sat, 17 Jan.*00:30–01:30/);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
+  await chooseMakeUpClass(page);
+  await expect(page.locator("#sit-in-missed-boundary")).toContainText(/Sat, 17 Jan.*00:30–01:30/);
   await page.getByLabel(/reason for absence/i).fill("Timezone regression test");
   await page.getByRole("button", { name: "Review absence" }).click();
 
@@ -338,16 +329,7 @@ test("mobile public absence flow resumes student details safely and completes wi
   await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await expect(page.getByRole("button", { name: /mathematics.*open/i })).toHaveAttribute("aria-expanded", "true");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const mobileSitInSelect = page.getByRole("combobox");
-  if (await mobileSitInSelect.isVisible()) {
-    await mobileSitInSelect.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
+  await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill("Mobile resume test");
   await page.getByRole("button", { name: "Review absence" }).click();
   await expectCurrentStep(page, 4, "Review");

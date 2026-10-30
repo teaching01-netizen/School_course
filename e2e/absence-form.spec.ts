@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
-  boundarySitInSession,
   installAbsenceRoutes,
   studentLookup,
   type SubmittedPayload,
 } from "./fixtures/absence";
-import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { chooseMakeUpClass, selectAbsenceCheckbox } from "./helpers/absenceFlow";
 test.setTimeout(120_000);
 
 test("keeps verification capabilities out of browser URLs", async ({ page }) => {
@@ -59,16 +58,7 @@ test("quota rejection keeps the reviewed absence available for correction", asyn
 
   await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const makeUpSelect = page.getByRole("combobox");
-  if (await makeUpSelect.isVisible()) {
-    await makeUpSelect.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
+  await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill("Medical appointment");
   await page.getByRole("button", { name: "Review absence" }).click();
   await page.getByRole("button", { name: "Submit absence" }).click();
@@ -99,15 +89,7 @@ test("duplicate submit taps create one logical absence request", async ({ page }
 
   await selectAbsenceCheckbox(page, "subject-subject:subject-math");
   await selectAbsenceCheckbox(page, "session-missed-boundary");
-  const makeUpSelect = page.getByRole("combobox");
-  if (await makeUpSelect.isVisible()) {
-    await makeUpSelect.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const makeUpDialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await makeUpDialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await makeUpDialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
+  await chooseMakeUpClass(page);
   await page.getByLabel(/reason for absence/i).fill("Double tap regression");
   await page.getByRole("button", { name: "Review absence" }).click();
   await expect(page.getByRole("heading", { name: "Review your absence" })).toBeVisible();

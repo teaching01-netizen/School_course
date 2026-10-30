@@ -1,11 +1,29 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { SitInDisplayModel } from "@/features/absences/domain/sitInResolution";
 import MakeUpPicker from "../MakeUpPicker";
 
 const options = [
   { value: "sit-in-1", label: "Saturday 22 Aug · 13:00" },
   { value: "sit-in-2", label: "Sunday 23 Aug · 10:00" },
+];
+
+const onDay = (dateKey: string, date: string, startTime = "09:00", endTime = "10:00"): SitInDisplayModel => ({
+  className: "Calculus III",
+  subjectName: "Mathematics",
+  teacherName: "AJ. Nice",
+  date,
+  dateKey,
+  startTime,
+  endTime,
+  status: "available",
+});
+
+const dayOptions = [
+  { value: "day-17", label: "Calculus III", details: "AJ. Nice · 17 Jan · 09:00–10:00", display: onDay("2026-01-17", "17 Jan") },
+  { value: "day-18", label: "Calculus III", details: "AJ. Nice · 18 Jan · 10:00–11:00", display: onDay("2026-01-18", "18 Jan", "10:00", "11:00") },
+  { value: "day-19", label: "Calculus III", details: "AJ. Nice · 19 Jan · 13:00–14:00", display: onDay("2026-01-19", "19 Jan", "13:00", "14:00") },
 ];
 
 describe("MakeUpPicker", () => {
@@ -89,17 +107,19 @@ describe("MakeUpPicker", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("keeps a filtered-out staged choice visible in the confirmation summary", async () => {
+  it("keeps a staged choice visible in the confirmation summary after switching days", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={options} onChange={onChange} />);
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={dayOptions} onChange={onChange} />);
     await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
     const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
-    await user.type(within(dialog).getByRole("textbox"), "zzz");
-    expect(within(dialog).getByText(/selected: sunday 23 aug/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("radio", { name: "Sunday 18 January" }));
+    await user.click(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ }));
+    await user.click(within(dialog).getByRole("radio", { name: "Saturday 17 January" }));
+    expect(within(dialog).queryByRole("radio", { name: /18 Jan · 10:00–11:00/ })).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/selected: 18 Jan · 10:00–11:00/i)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Confirm make-up class" }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith("sit-in-2");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("day-18");
   });
 
   it.each(["removed", "disabled"])("rejects a staged choice that becomes %s while the sheet is open", async (change) => {
@@ -154,15 +174,97 @@ describe("MakeUpPicker", () => {
     expect(onChange).toHaveBeenCalledWith("");
   });
 
-  it("shows an empty state when the sheet search matches nothing", async () => {
+  it("filters the listed times to the chosen day and marks a day with no available times", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<MakeUpPicker id="sit-in-session-1" label="Make-up class" value="" options={options} onChange={onChange} />);
-    await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
-    await user.type(screen.getByRole("textbox", { name: /search make-up class/i }), "zzz");
+    const withReason = [
+      { value: "day-17", label: "Calculus III", details: "AJ. Nice · 17 Jan · 09:00–10:00", display: onDay("2026-01-17", "17 Jan") },
+      {
+        value: "overlap-19", label: "Chemistry", details: "AJ. Nice · 19 Jan · 13:00–14:00", display: onDay("2026-01-19", "19 Jan", "13:00", "14:00"),
+        disabled: true, description: "Overlaps another scheduled class", conflictDetails: "Chemistry Lab C3 · Mon, 19 Jan · 13:00–14:30",
+      },
+    ];
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={withReason} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
 
-    expect(screen.getByText(/no classes match/i)).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /saturday 22 aug/i })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radiogroup", { name: "Make-up date" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: /19 Jan · 13:00–14:00/ })).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("radio", { name: "Monday 19 January — no times available" }));
+
+    expect(within(dialog).getByRole("radio", { name: /19 Jan · 13:00–14:00/ })).toBeDisabled();
+    expect(within(dialog).getByText("Overlaps another scheduled class")).toBeInTheDocument();
+    expect(within(dialog).getByText("Chemistry Lab C3 · Mon, 19 Jan · 13:00–14:30")).toBeInTheDocument();
+    expect(within(dialog).getByText(/No times available on Mon,\s+19\s+Jan\s+2026\./)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/None of these times are available/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
+  });
+
+  it("shows a single-day caption instead of chips when every time is on one day", async () => {
+    const user = userEvent.setup();
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={[dayOptions[0]]} onChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/Sat,\s+17\s+Jan\s+2026/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /17 Jan · 09:00–10:00/ })).toBeInTheDocument();
+  });
+
+  it("keeps a flat list without a day strip for options without day keys", async () => {
+    const user = userEvent.setup();
+    render(<MakeUpPicker publicForm id="make-up" label="Make-up class" value="" options={options} onChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /sunday 23 aug/i })).toBeInTheDocument();
+  });
+
+  it("switches to the day revealed by Show more times and focuses its first available time", async () => {
+    const user = userEvent.setup();
+    const onLoad = vi.fn();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", onChange: vi.fn() };
+    const { rerender } = render(<MakeUpPicker {...props} options={[dayOptions[0]]} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "Show more times" }));
+    expect(onLoad).toHaveBeenCalledOnce();
+    rerender(<MakeUpPicker {...props} options={dayOptions} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+
+    await waitFor(() => expect(within(dialog).getByRole("radio", { name: "Sunday 18 January" })).toBeChecked());
+    expect(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ })).toHaveFocus();
+  });
+
+  it("falls back to an available day when a reveal drops the day being shown", async () => {
+    const user = userEvent.setup();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", onChange: vi.fn() };
+    const { rerender } = render(<MakeUpPicker {...props} options={dayOptions} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: "Monday 19 January" }));
+    expect(within(dialog).getByRole("radio", { name: /19 Jan · 13:00–14:00/ })).toBeInTheDocument();
+
+    // The next batch replaces the option set and no longer offers that day.
+    rerender(<MakeUpPicker {...props} options={[dayOptions[0]]} />);
+
+    expect(within(dialog).queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/Sat,\s+17\s+Jan\s+2026/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /17 Jan · 09:00–10:00/ })).toBeInTheDocument();
+  });
+
+  it("gives the staff sheet the same day strip without a search box", async () => {
+    const user = userEvent.setup();
+    render(<MakeUpPicker id="sit-in-staff" label="Make-up class" value="" options={dayOptions} onChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radiogroup", { name: "Make-up date" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "Saturday 17 January" })).toHaveFocus();
   });
 
   it("shows the overlap reason and disables the conflicting session", async () => {

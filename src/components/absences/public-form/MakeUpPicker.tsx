@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { ChevronRight, CircleAlert, LoaderCircle } from "lucide-react";
 import MobileBottomSheet from "./MobileBottomSheet";
+import { defaultMakeUpDay, firstAddedOptionDay, makeUpDays, optionsForDay } from "./makeUpDays";
+import { formatDate } from "@/utils/date";
 import type { SitInDisplayModel } from "@/features/absences/domain/sitInResolution";
 
 export type MakeUpOption = {
@@ -47,10 +49,13 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const [sheetOpen, setSheetOpen] = useState(false);
   // null = nothing chosen yet; "" = an explicit "Not yet selected" (clear).
   const [pendingValue, setPendingValue] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  // "" = no day model (options without day keys stay a flat list).
+  const [selectedDay, setSelectedDay] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const choicesRef = useRef<HTMLFieldSetElement | null>(null);
-  const moreRequest = useRef<{ button: HTMLButtonElement; count: number } | null>(null);
+  const daysRef = useRef<HTMLDivElement | null>(null);
+  const moreRequest = useRef<{ button: HTMLButtonElement; values: Set<string>; count: number } | null>(null);
+  const pendingDayFocus = useRef<string | null>(null);
   const selectedOption = options.find((option) => option.value === value);
   const lastSelection = useRef<MakeUpOption | undefined>(undefined);
   useEffect(() => { if (selectedOption) lastSelection.current = selectedOption; }, [selectedOption]);
@@ -61,9 +66,18 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const pendingInvalid = Boolean(pendingValue && (!pendingOption || pendingOption.disabled));
   const canConfirm = !disabled && pendingValue !== null && !pendingInvalid;
   const availableCount = options.filter((option) => !option.disabled).length;
-  const needle = query.trim().toLowerCase();
-  const filteredOptions = options.filter((option) => `${option.label} ${option.details ?? ""} ${option.description ?? ""} ${option.conflictDetails ?? ""} ${option.value}`.toLowerCase().includes(needle));
-  if (publicForm) filteredOptions.sort((a, b) => Number(Boolean(a.disabled)) - Number(Boolean(b.disabled)));
+  const days = useMemo(() => makeUpDays(options), [options]);
+  // A reveal can replace the option set and drop the day that was showing; fall
+  // back to the sheet's opening rule instead of rendering an empty list.
+  const activeDay = useMemo(
+    () => (days.some((day) => day.key === selectedDay) ? selectedDay : defaultMakeUpDay(options, days, pendingValue ?? value)),
+    [days, options, pendingValue, selectedDay, value],
+  );
+  const visibleOptions = useMemo(() => optionsForDay(options, activeDay, publicForm), [options, publicForm, activeDay]);
+  const selectedDayModel = days.find((day) => day.key === activeDay);
+  const spansMonths = useMemo(() => new Set(days.map((day) => day.monthLabel)).size > 1, [days]);
+  // Another day still has times, so the whole-list empty state would be wrong.
+  const dayHasNoTimes = Boolean(selectedDayModel && visibleOptions.length > 0 && !selectedDayModel.hasAvailable && availableCount > 0);
   const selectOptions = [
     { value: "", label: "Not yet selected" },
     ...options.map((option) => ({
@@ -80,14 +94,33 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     const request = moreRequest.current;
     if (!request || moreTimes?.loading || options.length <= request.count) return;
     moreRequest.current = null;
-    if (!sheetOpen || request.button.isConnected) return;
+    if (!sheetOpen) return;
+    const addedDay = firstAddedOptionDay(options, request.values);
+    if (addedDay && addedDay !== activeDay && days.some((day) => day.key === addedDay)) {
+      pendingDayFocus.current = addedDay;
+      setSelectedDay(addedDay);
+      return;
+    }
+    if (request.button.isConnected) return;
     const newChoice = choicesRef.current?.querySelector<HTMLInputElement>(`input[data-option-index="${request.count}"]:not(:disabled)`);
     const status = choicesRef.current?.parentElement?.querySelector<HTMLElement>("[data-more-times-status]");
     (newChoice ?? status)?.focus({ preventScroll: true });
-  }, [moreTimes?.loading, options.length, sheetOpen]);
+  }, [activeDay, days, moreTimes?.loading, options, sheetOpen]);
+
+  // Keep the active day visible in the strip, and land focus on the day that a
+  // "Show more times" reveal switched to.
+  useEffect(() => {
+    if (!sheetOpen || !activeDay) return;
+    const chip = daysRef.current?.querySelector<HTMLInputElement>(`input[data-make-up-day="${activeDay}"]`);
+    chip?.closest("label")?.scrollIntoView?.({ block: "nearest", inline: "center" });
+    if (pendingDayFocus.current !== activeDay) return;
+    pendingDayFocus.current = null;
+    const choice = choicesRef.current?.querySelector<HTMLInputElement>('input[type="radio"]:not(:disabled)');
+    (choice ?? chip)?.focus({ preventScroll: true });
+  }, [activeDay, sheetOpen]);
 
   useEffect(() => {
-    if (!sheetOpen || typeof window.matchMedia !== "function") return;
+    if (publicForm || !sheetOpen || typeof window.matchMedia !== "function") return;
     const wideLayout = window.matchMedia("(min-width: 640px)");
     const closeOnWideLayout = () => {
       if (!wideLayout.matches) return;
@@ -97,7 +130,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     closeOnWideLayout();
     wideLayout.addEventListener("change", closeOnWideLayout);
     return () => wideLayout.removeEventListener("change", closeOnWideLayout);
-  }, [id, sheetOpen]);
+  }, [id, publicForm, sheetOpen]);
 
   const clearOption = (
     <label className="absence-makeup-option flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5">
@@ -111,7 +144,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
       {moreTimes.error ? <p role="status" className="absence-makeup-more__error">{moreTimes.error}</p> : null}
       {moreTimes.hasMore || moreTimes.error ? (
         <button type="button" disabled={moreTimes.loading} onClick={(event) => {
-          moreRequest.current = { button: event.currentTarget, count: options.length };
+          moreRequest.current = { button: event.currentTarget, values: new Set(options.map((option) => option.value)), count: options.length };
           moreTimes.onLoad();
         }} className="absence-makeup-more__button" aria-busy={moreTimes.loading}>
           {moreTimes.loading ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
@@ -136,22 +169,38 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     </div>
   ) : null;
 
+  const daysControl = days.length === 0 ? null : days.length === 1 ? (
+    <p className="absence-makeup-days__single">{formatDate(days[0].key)}</p>
+  ) : (
+    <div ref={daysRef} className="absence-makeup-days">
+      <p className="absence-makeup-days__caption">{selectedDayModel?.monthLabel ?? days[0].monthLabel}</p>
+      <div className="absence-makeup-days__row" role="radiogroup" aria-label="Make-up date">
+        {days.map((day, index) => (
+          <label key={day.key} className="absence-makeup-day" data-make-up-day={day.key} data-day-state={day.hasAvailable ? undefined : "unavailable"}>
+            <input
+              type="radio"
+              name={`${id}-day`}
+              value={day.key}
+              data-sheet-initial-focus={!publicForm && index === 0 ? true : undefined}
+              checked={activeDay === day.key}
+              onChange={() => setSelectedDay(day.key)}
+              aria-label={`${day.ariaLabel}${day.hasAvailable ? "" : " — no times available"}`}
+              className="absence-makeup-day__input"
+            />
+            <span aria-hidden="true" className="absence-makeup-day__weekday">{day.weekday}</span>
+            <span aria-hidden="true" className="absence-makeup-day__number">{day.dayNumber}</span>
+            {spansMonths ? <span aria-hidden="true" className="absence-makeup-day__month">{day.monthShort}</span> : null}
+            {day.hasAvailable ? null : <span aria-hidden="true" className="absence-makeup-day__unavailable" />}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div id={`${id}-field`} className="absence-makeup-picker space-y-2" data-selected={Boolean(value)} data-invalid={selectionInvalid || undefined}>
       <label htmlFor={id} className="block text-xs font-semibold text-[var(--color-wi-text-light)]">{label}</label>
-      {publicForm ? <select
-        id={id}
-        name={id}
-        value={value}
-        disabled={disabled}
-        aria-invalid={Boolean(error) || selectionInvalid}
-        aria-describedby={[`${id}-context`, error ? `${id}-error` : "", selectionInvalid ? `${id}-invalid` : ""].filter(Boolean).join(" ")}
-        onChange={(event) => onChange(event.target.value)}
-        className="absence-makeup-native hidden min-h-12 w-full rounded-xl border border-[var(--color-wi-border)] bg-white px-3 text-base text-[var(--color-wi-text)] sm:block"
-      >
-        {value && !selectedOption ? <option value={value} disabled>{selectedLines?.primary ?? "Previous choice"} — no longer available</option> : null}
-        {selectOptions.map((option) => <option key={option.value} value={option.value} disabled={"disabled" in option && option.disabled}>{option.label}</option>)}
-      </select> : <SearchableSelect
+      {publicForm ? null : <SearchableSelect
         id={id}
         name={id}
         value={value}
@@ -165,6 +214,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
 
       <button
         data-make-up-trigger="true"
+        id={publicForm ? id : undefined}
         ref={triggerRef}
         type="button"
         disabled={disabled || (!publicForm && options.length === 0)}
@@ -175,10 +225,10 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         aria-label={selectedLines ? `${label}: ${selectedLines.primary} ${selectedLines.secondary ?? ""}. Change time` : "Choose a make-up class"}
         onClick={() => {
           setPendingValue(value || null);
-          setQuery("");
+          setSelectedDay(defaultMakeUpDay(options, days, value || ""));
           setSheetOpen(true);
         }}
-        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 py-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:hidden"
+        className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-wi-border)] bg-white px-3 py-3 text-left text-base text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]/30 disabled:cursor-not-allowed disabled:opacity-60 ${publicForm ? "" : "sm:hidden"}`}
       >
         <span className={selectedOption ? "min-w-0 font-medium" : "text-[var(--color-wi-text-light)]"}>
           <span className="block">{selectedLines?.primary ?? "Choose a make-up class"}</span>
@@ -190,9 +240,8 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
       <span id={`${id}-context`} className="sr-only">{context}</span>
       {error ? <p id={`${id}-error`} className="text-xs text-[var(--color-wi-red)]">{error}</p> : null}
       {publicForm && selectionInvalid ? <p id={`${id}-invalid`} role="status" className="absence-makeup-invalid">{selectedOption?.description ?? "This make-up time is no longer available."} Choose another time.{selectedOption?.conflictDetails ? ` ${selectedOption.conflictDetails}` : ""}</p> : null}
-      {publicForm ? <div className="hidden sm:block">{noAvailableTimes}{moreTimesControl}</div> : null}
 
-      {selectedOption?.details ? (
+      {!publicForm && selectedOption?.details ? (
         <p className="hidden text-xs text-[var(--color-wi-text-light)] sm:block">{selectedOption.details}</p>
       ) : null}
       {!publicForm && selectedOption?.description ? (
@@ -215,19 +264,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         </div> : undefined}
         onClose={() => setSheetOpen(false)}
         restoreFocusRef={triggerRef}
-        toolbar={
-          <div className="flex items-center gap-2">
-            <input
-              aria-label={`Search ${label.toLowerCase()}`}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search classes…"
-              enterKeyHint="search"
-              className="min-h-12 min-w-0 flex-1 rounded-xl border border-[var(--color-wi-border)] px-4 text-base placeholder:text-[var(--color-wi-text-light)] focus:border-[var(--color-wi-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-wi-primary)]/20"
-            />
-            {query ? <button type="button" onClick={() => setQuery("")} className="min-h-11 min-w-11 rounded-lg px-2 text-sm font-medium text-[var(--color-wi-primary)]">Clear search</button> : null}
-          </div>
-        }
+        toolbar={daysControl ?? undefined}
         footer={
           <>
             {pendingInvalid ? (
@@ -253,11 +290,11 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         }
       >
         {noAvailableTimes}
+        {dayHasNoTimes ? <p data-day-unavailable="true" className="absence-makeup-day-unavailable">No times available on {formatDate(selectedDayModel!.key)}.</p> : null}
         <fieldset ref={choicesRef} className="space-y-2">
           <legend className="sr-only">{label}</legend>
           {!publicForm ? clearOption : null}
-          {filteredOptions.length === 0 && (needle || !publicForm) ? <p className="py-6 text-center text-sm text-[var(--color-wi-text-light)]">No classes match{needle ? ` “${query.trim()}”` : ""}.</p> : null}
-          {filteredOptions.map((option) => {
+          {visibleOptions.map((option) => {
             const lines = optionLines(option, publicForm);
             return (
               <label key={option.value} className="absence-makeup-option flex min-h-14 items-center gap-3 rounded-xl border border-[var(--color-wi-border)] px-4 py-3 has-[:checked]:border-[var(--color-wi-primary)] has-[:checked]:bg-[var(--color-wi-primary)]/5" data-unavailable={option.disabled || undefined}>

@@ -24,7 +24,7 @@ export default function AbsenceActionBar({ currentStep, canProceed, loading = fa
             aria-label="Back"
             onClick={onBack}
             disabled={loading}
-            className="absence-action-bar__back inline-flex min-h-12 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-[var(--color-wi-text-light)] transition-colors motion-reduce:transition-none hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-50"
+            className="absence-action-bar__back inline-flex min-h-12 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-[var(--color-wi-text-light)] transition-[color,background-color,transform] duration-150 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 hover:bg-[var(--color-wi-row-alt)] hover:text-[var(--color-wi-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] disabled:opacity-50"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             <span>Back</span>
@@ -37,7 +37,7 @@ export default function AbsenceActionBar({ currentStep, canProceed, loading = fa
           aria-busy={loading}
           aria-describedby={hint || loading ? "absence-action-hint" : undefined}
           className={clsx(
-            "absence-action-bar__primary min-h-12 min-w-[9.5rem] rounded-xl px-5 text-base font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
+            "absence-action-bar__primary min-h-12 min-w-[9.5rem] rounded-xl px-5 text-base font-semibold transition-[color,background-color,transform] duration-200 enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:enabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)] focus-visible:ring-offset-2",
             canProceed && !loading
               ? "bg-[var(--color-wi-primary)] text-white hover:bg-[var(--color-wi-primary-dark)]"
               : "cursor-not-allowed bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]",

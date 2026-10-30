@@ -6,6 +6,7 @@ import type { SessionsInRangeResponse } from "@/types";
 import { renderWithProviders } from "./helpers";
 import { continueThroughVerification, installPublicFormRoutes, searchForStudent } from "./helpers/absenceFormHarness";
 import { MANUAL_EMAIL_STUDENT, PUBLIC_FORM_SESSIONS } from "./fixtures/absenceFormFixtures";
+import { chooseMakeUp, readMakeUpChoices } from "./fixtures/makeUpSheet";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -99,10 +100,17 @@ describe("AbsenceForm final sessions outside SAT Verbal policy", () => {
     expect(finalLesson).toBeEnabled();
     await user.click(finalLesson!);
 
-    const picker = await screen.findByRole("combobox");
-    expect(within(picker).getByRole("option", { name: /11 Jan/i })).toBeEnabled();
-    expect(within(picker).getByRole("option", { name: /18 Jan/i })).toBeEnabled();
-    await user.selectOptions(picker, "target-final");
+    if (mode === "student") {
+      const choices = await readMakeUpChoices(user);
+      expect(choices.find((choice) => /11 Jan/i.test(choice.name))?.disabled).toBe(false);
+      expect(choices.find((choice) => /18 Jan/i.test(choice.name))?.disabled).toBe(false);
+      await chooseMakeUp(user, "target-final");
+    } else {
+      const picker = await screen.findByRole("combobox");
+      expect(within(picker).getByRole("option", { name: /11 Jan/i })).toBeEnabled();
+      expect(within(picker).getByRole("option", { name: /18 Jan/i })).toBeEnabled();
+      await user.selectOptions(picker, "target-final");
+    }
     await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Medical appointment");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(await screen.findByRole("button", { name: /^submit absence$/i }));

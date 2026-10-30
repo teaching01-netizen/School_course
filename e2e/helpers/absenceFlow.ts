@@ -17,17 +17,26 @@ export async function selectAbsenceCheckbox(page: Page, id: string) {
   await expect(checkbox).toBeChecked();
 }
 
+/** The public picker is a trigger plus sheet at every width. */
 export async function chooseMakeUpClass(page: Page) {
-  const select = page.getByRole("combobox");
-  if (await select.isVisible()) {
-    await select.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await dialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
+  await page.getByRole("button", { name: /choose a make-up class/i }).click();
+  const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
+  await dialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
+  await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
+  await expectMakeUpValue(page, boundarySitInSession.id);
+}
+
+/** Reads the committed choice: the sheet opens with it checked, then cancels unchanged. */
+export async function expectMakeUpValue(page: Page, value: string, id = "sit-in-missed-boundary") {
+  const trigger = page.locator(`[id="${id}"]`);
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
+  const checked = dialog.locator('fieldset input[type="radio"]:checked');
+  if (value) await expect(checked).toHaveValue(value);
+  else await expect(checked).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
 }
 
 export async function completeToClasses(page: Page, email = "student@example.com") {

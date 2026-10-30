@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
-  boundarySitInSession,
   installAbsenceRoutes,
   studentLookup,
   type SubmittedPayload,
@@ -13,21 +12,9 @@ import {
   expectOtpBoxesInsideViewport,
   expectAdaptiveTabletClassesLayout,
 } from "./helpers/absenceAssertions";
-import { selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { chooseMakeUpClass, selectAbsenceCheckbox } from "./helpers/absenceFlow";
 
 
-async function chooseMakeUpClass(page: Page) {
-  const select = page.getByRole("combobox");
-  if (await select.isVisible()) {
-    await select.selectOption(boundarySitInSession.id);
-  } else {
-    await page.getByRole("button", { name: /choose a make-up class/i }).click();
-    const dialog = page.getByRole("dialog", { name: /choose a make-up class/i });
-    await dialog.locator('input[type="radio"]:not([value=""]):not(:disabled)').first().check();
-    await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
-  }
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
-}
 test.use({
   timezoneId: "Asia/Bangkok",
 });

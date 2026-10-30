@@ -185,6 +185,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     ];
 
   const [step, setStep] = useState<StepIndex>(0);
+  // Forward steps enter from the trailing edge, Back from the leading edge.
+  const [stepMotion, setStepMotion] = useState({ step: 0, direction: 1 });
+  if (stepMotion.step !== step) setStepMotion({ step, direction: step > stepMotion.step ? 1 : -1 });
   const classesStep: StepIndex = isStaff ? 1 : 2;
   const reviewStep: StepIndex = isStaff ? 2 : 3;
   const [config, setConfig] = useState<AbsenceFormConfig>(DEFAULT_CONFIG);
@@ -1065,9 +1068,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           <p className="absence-receipt__identity">Warwick Institute <span>Student absence</span></p>
           <div className="absence-receipt__confirmation rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-green)]/10">
-                <svg className="h-5 w-5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="absence-receipt__check flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-wi-green)]/10">
+                <svg aria-hidden="true" className="h-5 w-5 text-[var(--color-wi-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path pathLength={1} strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <div>
@@ -1083,7 +1086,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
             </div>
             <p className="mt-3 text-sm text-[var(--color-wi-text-light)]">{successMessage}</p>
           </div>
-          <div className="rounded-lg border border-[var(--color-wi-border)] bg-white p-6 shadow-sm">
+          <div className="absence-receipt__classes rounded-lg border border-[var(--color-wi-border)] bg-white p-6 shadow-sm">
             <h3 className="text-xs font-semibold text-[var(--color-wi-text-light)] uppercase tracking-wide">Submitted classes</h3>
             <div className="mt-4 space-y-3">
               {submittedGroups.map((group) => {
@@ -1225,9 +1228,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
 
         <motion.div
           key={step}
-          initial={reduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
+          initial={reduceMotion ? false : { opacity: 0, x: 16 * stepMotion.direction }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
           className="space-y-6"
         >
             {step === 0 && (
@@ -1294,9 +1297,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                     <motion.div
                       role={!isStaff ? "group" : undefined}
                       aria-label={!isStaff ? "Selected student" : undefined}
-                      initial={isStaff || reduceMotion ? false : { opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: reduceMotion ? 0 : 0.16 }}
+                      initial={isStaff || reduceMotion ? false : { opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
                       className={isStaff ? "absence-lookup-result rounded-lg border border-[var(--color-wi-border)] bg-white p-5 shadow-sm" : "absence-student-identity"}
                     >
                         <div className="flex items-start justify-between gap-3">

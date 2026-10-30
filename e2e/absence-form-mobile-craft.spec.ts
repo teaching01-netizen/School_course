@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { boundarySitInSession, installAbsenceRoutes, sessionsInRange, studentProfile, type SubmittedPayload } from "./fixtures/absence";
-import { completeToClasses, completeToReview, selectAbsenceCheckbox } from "./helpers/absenceFlow";
+import { completeToClasses, completeToReview, expectMakeUpValue, selectAbsenceCheckbox } from "./helpers/absenceFlow";
 import { expectAccessiblePage, expectAnimationsSettled, expectFocusedElementVisible, expectInsideVisualViewport, expectMinimumTapTarget, expectNoActionOverlap, expectNoHorizontalOverflow } from "./helpers/absenceAssertions";
 
 test.use({ timezoneId: "Asia/Bangkok" });
@@ -59,7 +59,7 @@ test("keeps the public picker browsable, cancellable, and keyboard contained", a
   await dialog.getByRole("radio", { name: /mathematics make-up/i }).check();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(trigger).toBeFocused();
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue("");
+  await expectMakeUpValue(page, "");
   await trigger.click();
   await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
   await expectAccessiblePage(page);
@@ -72,10 +72,12 @@ test("keeps the public picker browsable, cancellable, and keyboard contained", a
   await expect(trigger).toBeFocused();
   await expect(trigger).toHaveAttribute("aria-invalid", "true");
   await expect(trigger).toHaveAccessibleDescription(/For Mathematics.*Choose a make-up class for this date\./);
+  // Widening keeps the same picker: the sheet becomes a centered dialog.
   await trigger.click();
   await page.setViewportSize({ width: 768, height: 1024 });
-  await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole("combobox")).toBeFocused();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
 });
 
 test("returns Edit reason to the field and resets the actual main scroller", async ({ page }) => {
@@ -85,13 +87,14 @@ test("returns Edit reason to the field and resets the actual main scroller", asy
   await page.getByRole("button", { name: "Edit reason" }).click();
   await expect(page.getByLabel(/reason for absence/i)).toBeFocused();
   await expect(page.getByLabel(/reason for absence/i)).toHaveValue("Medical appointment");
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue(boundarySitInSession.id);
+  await expectMakeUpValue(page, boundarySitInSession.id);
   await page.getByRole("button", { name: "Review absence" }).click();
   await expect.poll(() => page.locator("#absence-form-content").evaluate((main) => main.scrollTop)).toBe(0);
   expect(submitted).toHaveLength(0);
 });
 
 test("keeps long course names and a long make-up list usable with keyboard resize and larger text", async ({ page }, testInfo) => {
+  test.skip((page.viewportSize()?.width ?? 0) >= 640, "course disclosure collapses only in the narrow layout");
   await page.addInitScript(() => {
     const viewport = new EventTarget();
     Object.assign(viewport, { height: window.innerHeight, offsetTop: 0, width: window.innerWidth });
@@ -123,12 +126,26 @@ test("keeps long course names and a long make-up list usable with keyboard resiz
   await selectAbsenceCheckbox(page, "session-missed-boundary");
   await page.getByRole("button", { name: /choose a make-up class/i }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox").focus();
+  await dialog.getByRole("heading").focus();
   await page.evaluate(() => {
     Object.assign(window.visualViewport!, { height: 420, offsetTop: 20 });
     window.visualViewport!.dispatchEvent(new Event("resize"));
   });
   await expectInsideVisualViewport(page, ".absence-mobile-sheet__footer");
+  // 24 consecutive make-up days: the strip scrolls, and the last day still commits.
+  await expect(dialog.getByRole("radiogroup", { name: "Make-up date" })).toBeVisible();
+  const dayStrip = dialog.locator(".absence-makeup-days__row");
+  const firstChip = await dialog.getByRole("radio", { name: "Saturday 17 January" }).boundingBox();
+  expect(firstChip!.height).toBeGreaterThanOrEqual(44);
+  expect(firstChip!.width).toBeGreaterThanOrEqual(44);
+  expect(await dayStrip.evaluate((strip) => strip.scrollWidth > strip.clientWidth)).toBe(true);
+  await dialog.getByRole("radio", { name: "Monday 9 February" }).check();
+  await expect(dialog.locator(".absence-makeup-days__caption")).toHaveText("February 2026");
+  // The chosen day scrolls into view inside the strip instead of staying off-screen.
+  const selectedChip = await dialog.getByRole("radio", { name: "Monday 9 February" }).boundingBox();
+  const stripBox = await dayStrip.boundingBox();
+  expect(selectedChip!.x).toBeGreaterThanOrEqual(stripBox!.x - 1);
+  expect(selectedChip!.x + selectedChip!.width).toBeLessThanOrEqual(stripBox!.x + stripBox!.width + 1);
   const lastOption = dialog.locator('input[value="long-option-23"]');
   await lastOption.check();
   await expect(lastOption).toBeChecked();
@@ -138,7 +155,8 @@ test("keeps long course names and a long make-up list usable with keyboard resiz
   await expectNoHorizontalOverflow(page);
   await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator("#sit-in-missed-boundary")).toHaveValue("long-option-23");
+  // The trigger names the committed time; reopening the sheet here would fight the simulated keyboard.
+  await expect(page.locator('[id="sit-in-missed-boundary"]')).toHaveAccessibleName(/Mon, 9 Feb/);
   await expectNoHorizontalOverflow(page);
   await page.getByLabel(/reason for absence/i).focus();
   await expectFocusedElementVisible(page);

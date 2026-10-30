@@ -39,6 +39,8 @@ export type SitInDisplayModel = {
   subjectName: string;
   teacherName: string;
   date: string;
+  /** Institute-local day key (YYYY-MM-DD). Empty when the day is unknown. */
+  dateKey: string;
   startTime: string;
   endTime: string;
   status: "available" | "unavailable";
@@ -90,6 +92,7 @@ export function normalizeSitInDisplayModel(
     subjectName,
     teacherName,
     date: day ? shortDisplayDate(day.date) : "",
+    dateKey: day?.date ?? "",
     startTime: start ? formatTime(start) : "",
     endTime: end ? formatTime(end) : "",
     status,
