@@ -171,40 +171,51 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	// exclusion conflicts) must stay retryable after the local blocker is
 	// resolved.
 	if err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
-		// Even an unchanged aggregate converges local drift: sessions that
-		// were locally soft-deleted while still present in the source are
-		// restored (the source is the contract).
-		skipped := 0
-		if !request.ShadowMode {
-			skipped, err = a.restoreSourcePresentSessions(ctx, tx, qtx, request, loc)
-			if err != nil {
-				return ScheduleApplyResult{}, err
+		// The fast path only restores soft-deleted rows. A hard-deleted
+		// session (admin delete, series purge, legacy refresh) leaves the
+		// source hash unchanged but cannot be restored by that path, so fall
+		// through to the full apply whenever a source-present schedule is no
+		// longer materialized locally.
+		materialized, probeErr := sourcePresentSchedulesMaterialized(ctx, tx, a.source, request.CourseID, request.Aggregate.Schedules)
+		if probeErr != nil {
+			return ScheduleApplyResult{}, probeErr
+		}
+		if materialized {
+			// Even an unchanged aggregate converges local drift: sessions that
+			// were locally soft-deleted while still present in the source are
+			// restored (the source is the contract).
+			skipped := 0
+			if !request.ShadowMode {
+				skipped, err = a.restoreSourcePresentSessions(ctx, tx, qtx, request, loc)
+				if err != nil {
+					return ScheduleApplyResult{}, err
+				}
+				if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
+					return ScheduleApplyResult{}, err
+				}
+				if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
+					return ScheduleApplyResult{}, err
+				}
 			}
-			if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
-				return ScheduleApplyResult{}, err
+			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("update unchanged schedule metadata: %w", err)
 			}
-			if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
-				return ScheduleApplyResult{}, err
+			if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{
+				Source: a.source, EntityType: "course", ExternalID: externalCourseID,
+				InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true},
+			}); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("upsert unchanged schedule mapping: %w", err)
 			}
-		}
-		if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("update unchanged schedule metadata: %w", err)
-		}
-		if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{
-			Source: a.source, EntityType: "course", ExternalID: externalCourseID,
-			InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true},
-		}); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("upsert unchanged schedule mapping: %w", err)
-		}
-		if !request.ShadowMode {
-			if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
-				return ScheduleApplyResult{}, err
+			if !request.ShadowMode {
+				if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+					return ScheduleApplyResult{}, err
+				}
 			}
+			if err := tx.Commit(ctx); err != nil {
+				return ScheduleApplyResult{}, fmt.Errorf("commit unchanged schedule: %w", err)
+			}
+			return ScheduleApplyResult{SourceHash: sourceHash, SkippedSessions: skipped, AppliedAt: request.ObservedAt}, nil
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return ScheduleApplyResult{}, fmt.Errorf("commit unchanged schedule: %w", err)
-		}
-		return ScheduleApplyResult{SourceHash: sourceHash, SkippedSessions: skipped, AppliedAt: request.ObservedAt}, nil
 	}
 	if _, err := qtx.ExternalRefUpsert(ctx, sqldb.ExternalRefUpsertParams{Source: a.source, EntityType: "course", ExternalID: externalCourseID, InternalID: request.CourseID, SourceHash: pgtype.Text{String: sourceHash, Valid: true}}); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("upsert course mapping: %w", err)
@@ -485,6 +496,42 @@ func (a *ScheduleApplier) migrateDerivedScheduleIdentity(ctx context.Context, tx
 	return nil
 }
 
+// sourcePresentSchedulesMaterialized reports whether every schedule in the
+// incoming aggregate already has a local session the source-present restore
+// path can converge. Soft-deleted rows count: restoreSourcePresentSessions
+// un-deletes them. A mapping only counts when it points at a live native
+// session, because that is what findCanonicalNativeSession reuses; a stale
+// mapping to a hard-deleted row must fall through to the full apply so the
+// schedule can be re-materialized.
+func sourcePresentSchedulesMaterialized(ctx context.Context, tx pgx.Tx, source string, courseID pgtype.UUID, schedules []normalize.LegacySchedule) (bool, error) {
+	if len(schedules) == 0 {
+		return true, nil
+	}
+	incoming := make([]string, 0, len(schedules))
+	for _, schedule := range schedules {
+		incoming = append(incoming, schedule.LegacyScheduleID)
+	}
+	var covered int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM (
+			SELECT s.legacy_schedule_id AS schedule_id
+			FROM sessions s
+			WHERE s.course_id = $1
+			  AND s.legacy_schedule_id = ANY($2::text[])
+			UNION
+			SELECT ref.external_id
+			FROM external_refs ref
+			JOIN sessions s ON s.id = ref.internal_id
+			WHERE s.course_id = $1 AND s.source_kind = 'native'
+			  AND ref.source = $3 AND ref.entity_type = 'schedule'
+			  AND ref.external_id = ANY($2::text[])
+		) covered`, courseID, incoming, source).Scan(&covered); err != nil {
+		return false, fmt.Errorf("check source-present schedule materialization: %w", err)
+	}
+	return covered == len(incoming), nil
+}
+
 // restoreSourcePresentSessions un-soft-deletes local legacy sessions for
 // schedule rows the source still carries, and reactivates their external
 // mappings. Generic series cancellation can soft-delete sessions; without
@@ -591,17 +638,28 @@ func (a *ScheduleApplier) findCanonicalNativeSession(ctx context.Context, tx pgx
 	if err == nil {
 		var mappedCourseID pgtype.UUID
 		var sourceKind string
-		if err := tx.QueryRow(ctx, `SELECT course_id, source_kind FROM sessions WHERE id=$1 FOR UPDATE`, ref.InternalID).Scan(&mappedCourseID, &sourceKind); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return pgtype.UUID{}, fmt.Errorf("legacy schedule %s maps to missing session %s", scheduleID, ref.InternalID.String())
+		loadErr := tx.QueryRow(ctx, `SELECT course_id, source_kind FROM sessions WHERE id=$1 FOR UPDATE`, ref.InternalID).Scan(&mappedCourseID, &sourceKind)
+		switch {
+		case errors.Is(loadErr, pgx.ErrNoRows):
+			// Hard-deleting a mapped session does not cascade to external_refs
+			// (the mapping is polymorphic). A stale mapping must not fail the
+			// whole course refresh: drop it and fall back to identity matching
+			// so the source-present row can be re-materialized.
+			if _, delErr := tx.Exec(ctx, `
+				DELETE FROM external_refs
+				WHERE source=$1 AND entity_type='schedule' AND external_id=$2 AND internal_id=$3
+			`, a.source, scheduleID, ref.InternalID); delErr != nil {
+				return pgtype.UUID{}, fmt.Errorf("remove stale legacy schedule mapping %s: %w", scheduleID, delErr)
 			}
-			return pgtype.UUID{}, fmt.Errorf("load mapped legacy schedule %s: %w", scheduleID, err)
-		}
-		if mappedCourseID != courseID {
-			return pgtype.UUID{}, fmt.Errorf("legacy schedule %s maps to session in another course", scheduleID)
-		}
-		if sourceKind == "native" {
-			return ref.InternalID, nil
+		case loadErr != nil:
+			return pgtype.UUID{}, fmt.Errorf("load mapped legacy schedule %s: %w", scheduleID, loadErr)
+		default:
+			if mappedCourseID != courseID {
+				return pgtype.UUID{}, fmt.Errorf("legacy schedule %s maps to session in another course", scheduleID)
+			}
+			if sourceKind == "native" {
+				return ref.InternalID, nil
+			}
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, fmt.Errorf("load legacy schedule mapping %s: %w", scheduleID, err)

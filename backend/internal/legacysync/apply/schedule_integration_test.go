@@ -1323,3 +1323,63 @@ func TestScheduleApply_UnchangedRefreshRestoresLocallyDeletedSessions(t *testing
 		t.Fatal("unchanged-source refresh did not restore locally deleted session")
 	}
 }
+
+// TestScheduleApply_RecreatesHardDeletedMappedSession pins the recovery path
+// for a mapping whose session was permanently deleted. The stale mapping used
+// to fail the whole course refresh with "maps to missing session"; instead the
+// mapping must be discarded and the source-present schedule re-materialized.
+func TestScheduleApply_RecreatesHardDeletedMappedSession(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	applier := newTestScheduleApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var originalID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM sessions WHERE legacy_schedule_id=$1`, scheduleID).Scan(&originalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `DELETE FROM sessions WHERE id=$1`, originalID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The session delete trigger must keep external_refs in step.
+	var refCount int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&refCount); err != nil {
+		t.Fatal(err)
+	}
+	if refCount != 0 {
+		t.Fatalf("schedule mappings after hard delete = %d, want 0", refCount)
+	}
+
+	// Databases that ran before the trigger existed still carry such stale
+	// mappings; recreate that state and prove the refresh self-heals it.
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO external_refs (source, entity_type, external_id, internal_id, state)
+		VALUES ($1, 'schedule', $2, $3, 'active')
+	`, master.source, scheduleID, originalID); err != nil {
+		t.Fatal(err)
+	}
+
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	request.ObservationGeneration = 2
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatalf("refresh after hard-deleted mapped session: %v", err)
+	}
+
+	var recreatedID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM sessions WHERE legacy_schedule_id=$1 AND deleted_at IS NULL`, scheduleID).Scan(&recreatedID); err != nil {
+		t.Fatal(err)
+	}
+	if recreatedID == originalID {
+		t.Fatal("hard-deleted session was not re-materialized with a new identity")
+	}
+	var mappedID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mappedID); err != nil {
+		t.Fatal(err)
+	}
+	if mappedID != recreatedID {
+		t.Fatalf("recreated schedule mapping = %v, want %v", mappedID, recreatedID)
+	}
+}

@@ -162,6 +162,64 @@ func TestCourseApply_IdenticalHashIsCompleteNoOp(t *testing.T) {
 	}
 }
 
+// TestCourseApply_UnchangedHashRematerializesHardDeletedSchedule pins the
+// course-level fast path: an unchanged aggregate must not skip re-creating a
+// source-present schedule whose local session was permanently deleted.
+func TestCourseApply_UnchangedHashRematerializesHardDeletedSchedule(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	scheduleRequest, _, scheduleID := legacyScheduleRequest(t, pool, master.source, suffix, false)
+	request := CourseApplyRequest{
+		CourseID:                 scheduleRequest.CourseID,
+		LegacyCourseID:           scheduleRequest.LegacyCourseID,
+		Aggregate:                scheduleRequest.Aggregate,
+		ObservedAt:               scheduleRequest.ObservedAt,
+		ObservationGeneration:    scheduleRequest.ObservationGeneration,
+		ScheduleSnapshotComplete: scheduleRequest.ScheduleSnapshotComplete,
+		InstituteTZ:              scheduleRequest.InstituteTZ,
+	}
+	request.Aggregate.Course.Code = "legacy-code-" + suffix
+	request.Aggregate.Course.TeacherID = "schedule-teacher-" + suffix
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
+
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var originalID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM sessions WHERE legacy_schedule_id=$1`, scheduleID).Scan(&originalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `DELETE FROM sessions WHERE id=$1`, originalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO external_refs (source, entity_type, external_id, internal_id, state)
+		VALUES ($1, 'schedule', $2, $3, 'active')
+	`, master.source, scheduleID, originalID); err != nil {
+		t.Fatal(err)
+	}
+
+	request.ObservedAt = request.ObservedAt.Add(time.Minute)
+	request.ObservationGeneration = 2
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatalf("unchanged-hash refresh after hard-deleted schedule: %v", err)
+	}
+
+	var recreatedID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM sessions WHERE legacy_schedule_id=$1 AND deleted_at IS NULL`, scheduleID).Scan(&recreatedID); err != nil {
+		t.Fatal(err)
+	}
+	if recreatedID == originalID {
+		t.Fatal("hard-deleted schedule was not re-materialized with a new identity")
+	}
+	var mappedID pgtype.UUID
+	if err := pool.QueryRow(t.Context(), `SELECT internal_id FROM external_refs WHERE source=$1 AND entity_type='schedule' AND external_id=$2`, master.source, scheduleID).Scan(&mappedID); err != nil {
+		t.Fatal(err)
+	}
+	if mappedID != recreatedID {
+		t.Fatalf("recreated schedule mapping = %v, want %v", mappedID, recreatedID)
+	}
+}
+
 func TestCourseApply_ReusedOutboxKeyDoesNotRollbackAggregate(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)

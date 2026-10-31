@@ -135,7 +135,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	// applied the whole aggregate; a partial snapshot must stay retryable.
 	// Additionally, verify local code and references still match (integrity check).
 	if err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
-		if a.fastPathIntegrityValid(ctx, tx, request) {
+		if a.fastPathIntegrityValid(ctx, tx, request) && a.fastPathSchedulesMaterialized(ctx, tx, request) {
 			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course metadata: %w", err)
 			}
@@ -452,6 +452,15 @@ func (a *CourseApplier) fastPathIntegrityValid(ctx context.Context, tx pgx.Tx, r
 		}
 	}
 	return true
+}
+
+// fastPathSchedulesMaterialized keeps the unchanged-hash course fast path from
+// skipping re-materialization when a locally hard-deleted session removed a
+// source-present schedule. Any probe error falls through to the full apply,
+// which surfaces the real error.
+func (a *CourseApplier) fastPathSchedulesMaterialized(ctx context.Context, tx pgx.Tx, request CourseApplyRequest) bool {
+	materialized, err := sourcePresentSchedulesMaterialized(ctx, tx, a.source, request.CourseID, request.Aggregate.Schedules)
+	return err == nil && materialized
 }
 
 // resolveHealedConflicts resolves open conflicts that this apply healed.
