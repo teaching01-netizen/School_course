@@ -81,7 +81,7 @@ export async function chooseMakeUp(user: UserEvent, value: string, index = 0) {
   await user.click(within(dialog).getByRole("button", { name: "Confirm make-up class" }));
 }
 
-/** Waits for a choice on the sheet's current day (e.g. after "Show more times"). */
+/** Waits for a choice on the sheet's current day (e.g. after "See other times"). */
 export async function findSheetChoice(dialog: HTMLElement, name: RegExp): Promise<MakeUpChoice> {
   let found: MakeUpChoice | undefined;
   await waitFor(() => {

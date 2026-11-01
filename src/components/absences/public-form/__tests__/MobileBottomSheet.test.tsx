@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -25,6 +25,21 @@ function SheetHarness() {
 }
 
 describe("MobileBottomSheet", () => {
+  it("keeps a labelled, full-size close control beside the title", async () => {
+    const user = userEvent.setup();
+    render(<SheetHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Choose make-up" }));
+    const dialog = screen.getByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "Close sheet" });
+
+    expect(close).toHaveClass("absence-mobile-sheet__dismiss");
+    expect(within(dialog).getByRole("heading", { name: "Choose a make-up class" }).parentElement).toContainElement(close);
+
+    await user.click(close);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("moves focus into the sheet and restores it to the trigger", async () => {
     const user = userEvent.setup();
     render(<SheetHarness />);

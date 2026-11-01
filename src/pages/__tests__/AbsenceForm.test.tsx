@@ -1197,7 +1197,7 @@ describe("AbsenceForm", () => {
     expect(makeUpOptions).toHaveLength(1);
     expect(makeUpOptions[0].value).toBe("sit-reading|sit-writing");
 
-    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    await user.click(within(sheet).getByRole("button", { name: /see other times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         expect.stringContaining("sat_verbal_after_priority=1"),
@@ -1494,7 +1494,7 @@ describe("AbsenceForm", () => {
     expect(hasChoice(before, /5 Jun/)).toBe(false);
     await chooseMakeUp(user, "sit-r3s1");
     const sheet = await openMakeUpSheet(user);
-    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    await user.click(within(sheet).getByRole("button", { name: /see other times/i }));
     await waitFor(() => {
       expect(mockApiJson).toHaveBeenCalledWith(
         expect.stringContaining("sat_verbal_after_priority=1"),
@@ -1505,7 +1505,7 @@ describe("AbsenceForm", () => {
     const after = await sheetChoices(user, sheet);
     expect(hasChoice(after, /4 Jun/)).toBe(true);
     expect(after.find((choice) => choice.checked)?.value).toBe("sit-r3s1");
-    expect(within(sheet).queryByRole("button", { name: /show more times/i })).not.toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
     await closeMakeUpSheet(user, sheet);
     await chooseMakeUp(user, "sit-r4r");
     expect(await makeUpValue(user)).toBe("sit-r4r");
@@ -1630,7 +1630,7 @@ describe("AbsenceForm", () => {
     const passed = (await sheetChoices(user, sheet)).find((choice) => /Wed, 23 Sep.*SAT Verbal Rank 3 Section 1 C3.*AJ. NICE.*This make-up time has passed/.test(choice.name));
     expect(passed?.disabled).toBe(true);
     expect(within(sheet).queryByText("This same-number sit-in slot is before today/request date.")).not.toBeInTheDocument();
-    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    await user.click(within(sheet).getByRole("button", { name: /see other times/i }));
     expect(await within(sheet).findByText("No more times to show.")).toBeInTheDocument();
     expect((await findSheetChoice(sheet, /SAT Verbal Writing Rank 5/)).disabled).toBe(false);
   }, 30000);
@@ -1677,7 +1677,7 @@ describe("AbsenceForm", () => {
     expect(within(noTimesCard).getByText("No make-up times available")).toBeInTheDocument();
     expect(within(noTimesCard).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
     expect(within(noTimesCard).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
-    expect(within(noTimesCard).queryByRole("button", { name: /show more times/i })).not.toBeInTheDocument();
+    expect(within(noTimesCard).queryByRole("button", { name: /see other times/i })).not.toBeInTheDocument();
     expect(within(noTimesCard).queryByText("Raw backend policy wording must stay hidden.")).not.toBeInTheDocument();
   }, 30000);
 
@@ -2014,11 +2014,11 @@ describe("AbsenceForm", () => {
     expect(await makeUpTriggers()).toHaveLength(2);
 
     const firstSheet = await openMakeUpSheet(user, 0);
-    await user.click(within(firstSheet).getByRole("button", { name: /show more times/i }));
+    await user.click(within(firstSheet).getByRole("button", { name: /see other times/i }));
     expect(await within(firstSheet).findByText("No more times to show.")).toBeInTheDocument();
     await closeMakeUpSheet(user, firstSheet);
     const secondSheet = await openMakeUpSheet(user, 1);
-    expect(within(secondSheet).getByRole("button", { name: /show more times/i })).toBeInTheDocument();
+    expect(within(secondSheet).getByRole("button", { name: /see other times/i })).toBeInTheDocument();
   }, 30000);
 
   it("renders SAT Verbal same-number choices from per-missed-session sit-in results", async () => {
@@ -2155,7 +2155,7 @@ describe("AbsenceForm", () => {
 
     const sheet = await openMakeUpSheet(user);
     expect(hasChoice(await sheetChoices(user, sheet), /14 Jun/)).toBe(true);
-    await user.click(within(sheet).getByRole("button", { name: /show more times/i }));
+    await user.click(within(sheet).getByRole("button", { name: /see other times/i }));
     const secondPriorityOption = await findSheetChoice(sheet, /15 Jun.*SAT Verbal Reading/);
     expect(secondPriorityOption.name).not.toContain("2657713001");
   }, 30000);

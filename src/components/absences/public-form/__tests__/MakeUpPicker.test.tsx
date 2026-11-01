@@ -36,10 +36,10 @@ describe("MakeUpPicker", () => {
     await user.click(screen.getByRole("button", { name: /saturday 22 aug/i }));
     const dialog = screen.getByRole("dialog");
     await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
-    await user.click(within(dialog).getByRole("button", { name: "Show more times" }));
+    await user.click(within(dialog).getByRole("button", { name: "See other times" }));
     expect(onLoad).toHaveBeenCalledOnce();
     rerender(<MakeUpPicker {...props} moreTimes={{ hasMore: true, loading: true, onLoad }} />);
-    expect(within(dialog).getByRole("button", { name: "Loading more times…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Loading other times…" })).toBeDisabled();
     expect(within(dialog).getByRole("radio", { name: /sunday/i })).toBeChecked();
     rerender(<MakeUpPicker {...props} moreTimes={{ hasMore: true, loading: false, error: "Couldn’t load more times.", onLoad }} />);
     expect(within(dialog).getByText("Couldn’t load more times.")).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe("MakeUpPicker", () => {
     expect(within(dialog).getByRole("radio", { name: /sunday 23 aug/i })).toBeInTheDocument();
   });
 
-  it("switches to the day revealed by Show more times and focuses its first available time", async () => {
+  it("switches to the day revealed by See other times and focuses its first available time", async () => {
     const user = userEvent.setup();
     const onLoad = vi.fn();
     const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", onChange: vi.fn() };
@@ -231,7 +231,7 @@ describe("MakeUpPicker", () => {
     await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
     const dialog = screen.getByRole("dialog");
 
-    await user.click(within(dialog).getByRole("button", { name: "Show more times" }));
+    await user.click(within(dialog).getByRole("button", { name: "See other times" }));
     expect(onLoad).toHaveBeenCalledOnce();
     rerender(<MakeUpPicker {...props} options={dayOptions} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
 
@@ -254,6 +254,34 @@ describe("MakeUpPicker", () => {
     expect(within(dialog).queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(within(dialog).getByText(/Sat,\s+17\s+Jan\s+2026/)).toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /17 Jan · 09:00–10:00/ })).toBeInTheDocument();
+  });
+
+  it("offers See other times inside the sheet when the visible times are blocked", async () => {
+    const user = userEvent.setup();
+    const onLoad = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <MakeUpPicker
+        id="sit-in-staff"
+        label="Make-up class"
+        value=""
+        options={[{ value: "used", label: "SAT Verbal Rank 2 C3", details: "AJ. NICE · Sun, 8 Nov · 17:00–20:20", disabled: true, description: "You already chose this make-up class for another absence. Choose a different time." }]}
+        onChange={onChange}
+        moreTimes={{ hasMore: true, loading: false, onLoad }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /choose a make-up class/i }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
+    // The reveal lives inside the sheet, so staff never have to close the
+    // dialog and hunt for the action on the class card behind it.
+    const seeOtherTimes = within(dialog).getByRole("button", { name: "See other times" });
+    expect(dialog.querySelector(".absence-mobile-sheet__body")).toContainElement(seeOtherTimes);
+
+    await user.click(seeOtherTimes);
+    expect(onLoad).toHaveBeenCalledOnce();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("gives the staff sheet the same day strip without a search box", async () => {

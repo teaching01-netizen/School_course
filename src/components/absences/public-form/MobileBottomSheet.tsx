@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { X } from "lucide-react";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 
 export type MobileBottomSheetProps = {
@@ -86,9 +87,13 @@ function OpenMobileBottomSheet({ title, onClose, children, restoreFocusRef, publ
 
   const sheetHeader = (
         <div className="absence-mobile-sheet__header" tabIndex={publicForm ? 0 : undefined} role={publicForm ? "region" : undefined} aria-label={publicForm ? `${title} details` : undefined}>
-          <div className="flex items-start justify-between gap-3">
-            <h2 id={titleId} tabIndex={publicForm ? -1 : undefined} data-sheet-initial-focus={publicForm ? true : undefined} className="min-w-0 text-lg font-semibold text-[var(--color-wi-text)] outline-none">{title}</h2>
-            {!publicForm ? <button type="button" onClick={() => onCloseRef.current()} aria-label="Close sheet" className="min-h-11 min-w-11 shrink-0 rounded-lg px-2 text-base font-medium text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]"><span aria-hidden="true">×</span></button> : null}
+          <div className="absence-mobile-sheet__heading">
+            <h2 id={titleId} tabIndex={publicForm ? -1 : undefined} data-sheet-initial-focus={publicForm ? true : undefined} className="text-lg font-semibold text-[var(--color-wi-text)] outline-none">{title}</h2>
+            {publicForm ? null : (
+              <button type="button" onClick={() => onCloseRef.current()} aria-label="Close sheet" className="absence-mobile-sheet__dismiss">
+                <X aria-hidden="true" strokeWidth={2.25} />
+              </button>
+            )}
           </div>
           {description ? <p id={descriptionId} className="mt-2 text-sm text-[var(--color-wi-text-light)]">{description}</p> : null}
           {summary}
@@ -108,11 +113,13 @@ function OpenMobileBottomSheet({ title, onClose, children, restoreFocusRef, publ
       <div className="absence-mobile-sheet__surface">
         {!publicForm ? <div className="absence-mobile-sheet__handle" aria-hidden="true" /> : null}
         {publicForm ? <div className="absence-mobile-sheet__navigation">
-          <button type="button" onClick={() => onCloseRef.current()} className="absence-mobile-sheet__cancel min-h-11 min-w-11 rounded-lg px-2 text-base font-medium text-[var(--color-wi-primary)] hover:bg-[var(--color-wi-row-alt)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-primary)]">Cancel</button>
+          <button type="button" onClick={() => onCloseRef.current()} className="absence-mobile-sheet__cancel">
+            <X aria-hidden="true" strokeWidth={2.25} />
+            <span>Cancel</span>
+          </button>
         </div> : null}
-        {publicForm ? sheetHeader : null}
+        {sheetHeader}
         <div className="absence-mobile-sheet__content">
-        {!publicForm ? sheetHeader : null}
         {toolbar ? <div className="absence-mobile-sheet__toolbar">{toolbar}</div> : null}
         <div className="absence-mobile-sheet__body mt-5 max-h-[min(62dvh,34rem)] overflow-y-auto pr-1">{children}</div>
         </div>

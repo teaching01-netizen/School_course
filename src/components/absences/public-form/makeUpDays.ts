@@ -74,7 +74,7 @@ export function optionsForDay(options: MakeUpOption[], day: string, publicForm: 
   return publicForm ? sortByAvailability(dayOptions) : dayOptions;
 }
 
-/** Institute day of the first option that appeared after a "Show more times"
+/** Institute day of the first option that appeared after a "See other times"
  *  request, or null when nothing was added. */
 export function firstAddedOptionDay(
   options: MakeUpOption[],

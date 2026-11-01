@@ -739,8 +739,15 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           handleStudentSessionExpired();
           return;
         }
-        if (isStaff) setPageError(error instanceof Error ? error.message : "Couldn't load other make-up times");
-        else setSitInPriorityErrors((current) => ({ ...current, [sessionId]: "Couldn’t load more times. Your selections haven’t changed. Try again." }));
+        if (isStaff) {
+          const message = error instanceof Error ? error.message : "Couldn't load other make-up times";
+          setPageError(message);
+          // The sheet is where staff asked for more times, so the retry reason
+          // belongs there too, not only in a page alert behind the dialog.
+          setSitInPriorityErrors((current) => ({ ...current, [sessionId]: `${message.replace(/\.$/, "")}. Try again.` }));
+        } else {
+          setSitInPriorityErrors((current) => ({ ...current, [sessionId]: "Couldn’t load more times. Your selections haven’t changed. Try again." }));
+        }
       } finally {
         revealRequestsRef.current.delete(requestKey);
         if (requestId === lookupRequestId.current) setRevealingPrioritySessionIds((current) => { const n = new Set(current); n.delete(sessionId); return n; });
@@ -1707,6 +1714,12 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                               label="Make-up class"
                                                               value={currentSitIn}
                                                               options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
+                                                              moreTimes={hasMorePriorities || revealingPriority || sitInPriorityErrors[session.id] ? {
+                                                                hasMore: hasMorePriorities,
+                                                                loading: revealingPriority,
+                                                                error: sitInPriorityErrors[session.id],
+                                                                onLoad: () => void handleNotAvailable(priorityGroup, session.id),
+                                                              } : undefined}
                                                               onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
                                                             />
                                                             {(hasPreviousPriority || hasMorePriorities) && (

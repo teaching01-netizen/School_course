@@ -46,11 +46,11 @@ test("browses, retries, cancels, and confirms alternatives without losing the sa
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
   await trigger.click();
-  await dialog.getByRole("button", { name: "Show more times" }).click();
+  await dialog.getByRole("button", { name: "See other times" }).click();
   await expect(dialog.getByText(/Couldn’t load more times/)).toBeVisible();
   await expect(dialog.locator(`input[value="${boundarySitInSession.id}"]`)).toBeChecked();
   failMore = false;
-  await dialog.getByRole("button", { name: "Try loading more times again" }).click();
+  await dialog.getByRole("button", { name: "Try again" }).click();
   // The reveal adds a second make-up day; the strip follows it so the new time
   // is visible while the staged choice stays summarised above the list.
   await expect(dialog.getByRole("radio", { name: "Sunday 18 January" })).toBeChecked();

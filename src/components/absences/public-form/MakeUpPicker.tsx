@@ -108,7 +108,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   }, [activeDay, days, moreTimes?.loading, options, sheetOpen]);
 
   // Keep the active day visible in the strip, and land focus on the day that a
-  // "Show more times" reveal switched to.
+  // "See other times" reveal switched to.
   useEffect(() => {
     if (!sheetOpen || !activeDay) return;
     const chip = daysRef.current?.querySelector<HTMLInputElement>(`input[data-make-up-day="${activeDay}"]`);
@@ -139,6 +139,9 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     </label>
   );
 
+  // Lives in the sheet footer, next to the action it unblocks: when every time
+  // on screen is taken, "See other times" is the way forward and must not be
+  // hidden below a scrollable list.
   const moreTimesControl = moreTimes ? (
     <div className="absence-makeup-more">
       {moreTimes.error ? <p role="status" className="absence-makeup-more__error">{moreTimes.error}</p> : null}
@@ -148,7 +151,8 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
           moreTimes.onLoad();
         }} className="absence-makeup-more__button" aria-busy={moreTimes.loading}>
           {moreTimes.loading ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
-          {moreTimes.loading ? "Loading more times…" : moreTimes.error ? "Try loading more times again" : "Show more times"}
+          {moreTimes.loading ? "Loading other times…" : moreTimes.error ? "Try again" : "See other times"}
+          {moreTimes.loading ? null : <ChevronRight aria-hidden="true" className="h-4 w-4" />}
         </button>
       ) : <p role="status" tabIndex={-1} data-more-times-status className="text-xs text-[var(--color-wi-text-light)]">No more times to show.</p>}
     </div>
@@ -158,7 +162,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     <div className="absence-makeup-empty">
       <p className="font-semibold">{options.length ? "None of these times are available" : "No make-up times available"}</p>
       <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
-        {moreTimes?.hasMore ? "Show more times to look for another class." : emptyDescription ?? "A make-up class is required for this date. Contact Warwick for help before continuing."}
+        {moreTimes?.hasMore ? "Use See other times below to look for another class." : emptyDescription ?? "A make-up class is required for this date. Contact Warwick for help before continuing."}
       </p>
       {!moreTimes?.hasMore && (supportContact?.phone || supportContact?.email) ? (
         <div className="absence-makeup-support">
@@ -322,10 +326,8 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
             );
           })}
         </fieldset>
-        {publicForm ? <>
-          {moreTimesControl}
-          {pendingValue !== "" && (value || pendingValue) ? <button type="button" onClick={() => setPendingValue("")} className="absence-makeup-remove">Remove make-up selection</button> : null}
-        </> : null}
+        {moreTimesControl}
+        {publicForm && pendingValue !== "" && (value || pendingValue) ? <button type="button" onClick={() => setPendingValue("")} className="absence-makeup-remove">Remove make-up selection</button> : null}
       </MobileBottomSheet>
     </div>
   );
